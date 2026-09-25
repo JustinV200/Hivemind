@@ -6,16 +6,27 @@ supervising, mirroring that Worker's `hivemind.workers.state.WorkerState` from t
 or `TaskProgress` it reported, the binding key it last ran on (for a REBIND's "next binding in the
 grant's allowed_bindings" search), its last `HandoffRef` (for a RETRY's `resume_from`), and its own
 `hivemind.workers.runtime.WorkerRuntime` plus the `asyncio.Task` running it inside the Warden's own
-`TaskGroup`. `missed_heartbeats` is the Warden's own watchdog counter, incremented once per
-heartbeat interval that passes with nothing heard, reset the moment a fresh `Heartbeat` arrives;
-crossing `WardenDeps.missed_heartbeats_before_stalled` is what turns into a synthesised
-`AlarmKind.WORKER_STALLED`.
+`TaskGroup`, plus (roadmap step 10.3) the capability set its spawn computed, which the Warden's
+question-routing and rebinding checks read, and (roadmap step 6.4) the Exoskeleton attached for its
+task, which `stop_sub_bee` detaches whichever way the bee retires. `missed_heartbeats` is the
+Warden's own watchdog counter, incremented once per heartbeat interval that passes with nothing
+heard, reset the moment a fresh `Heartbeat` arrives; crossing
+`WardenDeps.missed_heartbeats_before_stalled` is what turns into a synthesised
+`AlarmKind.WORKER_STALLED`. `has_ended` is how the Warden knows a row is done with: a bee that
+reports KILLED, or DONE without a claim, has nothing more to send (no TaskResult, no Alarm), and
+neither has a FAILED one once a cancel has reached it (`cancelled`); its Warden retires it the
+moment it hears so, freeing its slot for the next assignment. `awaits_successor` is the one ending
+that is not the task's end: a bee its own Warden ordered to hand off (`handoff_ordered`, for its
+context size) writes its Handoff and stops DONE, and the Handoff lever means "a fresh bee resumes
+the task from it", so its Warden starts that bee in the same slot rather than leaving the task
+RUNNING with no bee at all.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
     by `hivemind.wardens.spawn.spawn.spawn_sub_bee`; read and mutated by
     `hivemind.wardens.warden.Warden` and its `hivemind.wardens.ticks` handlers on every report a
-    sub-bee sends. Calls into `hivemind.workers` (WorkerState, WorkerRuntime) and waggle only.
+    sub-bee sends. Calls into `hivemind.exoskeleton` (ExoskeletonHandle), `hivemind.guard`
+    (CapabilitySet), `hivemind.workers` (WorkerState, WorkerRuntime) and waggle only.
 
 Key invariants:
     - `state` only ever moves along `hivemind.workers.state.TRANSITIONS`; a SubBee's own state is
@@ -24,6 +35,10 @@ Key invariants:
       Worker's own runtime holds the other end. Closed exactly once, when the sub-bee reaches a
       terminal state (or is killed) and the Warden is done with it, after `runtime_task` is
       stopped and reaped (`hivemind.wardens.spawn.spawn.stop_sub_bee`), never before.
+    - `has_ended` never counts a FAILED row the Queen may still act on: a crash's Alarm names
+      the action that ends it (a respawn, a rebind, an escalation), unless a cancel came first.
+    - `awaits_successor` holds only for a DONE bee whose stop this Warden ordered itself and no
+      cancel followed: a stop the Queen ordered (Clustering, isolation) is hers to resume.
 
 See Also:
     - .claude/codingrules.md section 8.5 for the mutable-state-documented-here rule this class
@@ -41,15 +56,21 @@ import asyncio
 from dataclasses import dataclass, field
 
 from hivemind.exoskeleton import ExoskeletonHandle
+from hivemind.guard import CapabilitySet
 from hivemind.workers.runtime import WorkerRuntime
-from hivemind.workers.state import WorkerState
-from waggle.ids import TaskId, WorkerId
+from hivemind.workers.state import WorkerState, is_terminal
+from waggle.ids import EventId, TaskId, WorkerId
 from waggle.messages import HandoffRef
 from waggle.messages.supervision import ContextTelemetry
 from waggle.messages.task import TaskAssign
 from waggle.transport.memory import MemoryTransport
 
 __all__ = ["SubBee"]
+
+# Ends a bee with nothing left to send: KILLED (a TaskCancel, a Cancel lever, a lost link) carries
+# no TaskResult or Alarm, and neither does DONE after a stop-handoff (a claimed DONE's TaskResult
+# travels ahead of any later Heartbeat on the same ordered link, so acceptance retires it first).
+_ENDED_QUIETLY = frozenset({WorkerState.KILLED, WorkerState.DONE})
 
 
 @dataclass(slots=True)
@@ -80,6 +101,18 @@ class SubBee:
             last Heartbeat; reset to 0 the moment a fresh one arrives.
         exoskeleton: The Exoskeleton attached for this sub-bee's task (roadmap step 6.4), None
             for a terminal-only task; detached by `stop_sub_bee`, whichever way it retires.
+        capabilities: The sub-bee's own set, as its spawn computed it (roadmap step 10.3); read
+            when the Warden routes its question to the Queen or rebinds it. Defaults to empty,
+            which allows nothing, for a row built outside `spawn_sub_bee`.
+        spawned_event_id: The `worker.spawned` trail event that started this attempt (roadmap
+            step 10.6c): where a quarantine by this Warden's own policy row takes the bee's
+            memory to be suspect from when the Alarm names no event of its own. None for a row
+            built outside `spawn_sub_bee`.
+        cancelled: True once a cancel has been sent to this bee (`hivemind.wardens.ticks.
+            control.forward_control`): whatever terminal state it reports next ends it.
+        handoff_ordered: True once this Warden itself ordered the bee to hand off and stop (its
+            context check, or its own Handoff lever); cleared when the Queen pauses the task.
+            Read by `awaits_successor`.
     """
 
     worker_id: WorkerId
@@ -95,3 +128,19 @@ class SubBee:
     last_telemetry: ContextTelemetry | None = field(default=None)
     missed_heartbeats: int = field(default=0)
     exoskeleton: ExoskeletonHandle | None = field(default=None)
+    capabilities: CapabilitySet = field(default_factory=CapabilitySet.empty)
+    spawned_event_id: EventId | None = field(default=None)
+    cancelled: bool = field(default=False)
+    handoff_ordered: bool = field(default=False)
+
+    @property
+    def has_ended(self) -> bool:
+        """Whether this bee has finished with nothing more to send its Warden (module docstring)."""
+        # A cancel is the Queen's last word on a FAILED row an escalation had left waiting on her.
+        return self.state in _ENDED_QUIETLY or (self.cancelled and is_terminal(self.state))
+
+    @property
+    def awaits_successor(self) -> bool:
+        """Whether this bee stopped after a handoff its own Warden ordered (module docstring)."""
+        # DONE only: a KILLED bee was stopped for good, and a FAILED one is its Alarm's to handle.
+        return self.handoff_ordered and self.state is WorkerState.DONE and not self.cancelled

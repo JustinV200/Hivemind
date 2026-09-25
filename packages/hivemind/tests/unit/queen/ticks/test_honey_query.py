@@ -87,7 +87,9 @@ async def _place_task(
     draft = graph.tasks[0].model_copy(update={"clearance": clearance})
     (task,) = await rig.deps.chamber.submit(graph.model_copy(update={"tasks": (draft,)}))
     placed_on = cell if cell is not None else rig.link.cell
-    return await rig.deps.chamber.assign(task.id, rig.link.warden_id, placed_on.id, "a test")
+    return await rig.deps.chamber.assign(
+        task.id, rig.link.warden_id, placed_on.id, "a test", bound_tier=placed_on.comb_shield
+    )
 
 
 async def _ask(rig: _Rig, query: HoneyQuery, deps: QueenDeps | None = None) -> HoneyResponse:

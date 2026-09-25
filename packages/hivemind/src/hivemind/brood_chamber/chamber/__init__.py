@@ -7,10 +7,11 @@ The Queen (the Hive's central orchestrator) never touches `TaskStore`
 whether a move is legal, builds the new value with `model_copy`, builds the matching `TaskEvent`
 (`hivemind.pheromone`, the Pheromone Trail's audit record of who did what to what and when), and
 hands both to the `TaskStore` in one call so the state change and its trail event commit together.
-`BroodChamber` itself is nothing but the sum of five mixins, one per responsibility, because a
+`BroodChamber` itself is nothing but the sum of six mixins, one per responsibility, because a
 single class holding all of it broke codingrules 5.1's 200-line class limit: `submission.py`
 (mint a task graph), `lifecycle.py` (placement, progress, Clustering), `outcomes.py` (complete,
-fail, cancel), `questions.py` (ask, answer, withdraw) and `queries.py` (the read-only methods).
+fail, cancel), `questions.py` (ask, answer, withdraw), `queries.py` (the read-only methods) and
+`night_veil.py` (what the Night Veil teardown purge needs: the scrub and the Cell's live tasks).
 Every one of them shares `base.py`'s `_ChamberBase` -- the store, clock and identity, plus the
 three private helpers that turn "apply these field updates and write a matching event" into one
 call -- so this file's only job is to list them and re-export `ChamberIdentity`.
@@ -36,7 +37,7 @@ See Also:
 Public API:
     - BroodChamber: the facade itself (submit, assign, unassign, start, report_progress, ask,
       answer, withdraw, pause, resume, complete, fail, cancel, next_ready, get, list,
-      pending_questions).
+      pending_questions, scrub_night_veil, bound_to).
     - ChamberIdentity: the Hive, node and actor a BroodChamber stamps on every TaskEvent it writes.
 """
 
@@ -44,6 +45,7 @@ from __future__ import annotations
 
 from hivemind.brood_chamber.chamber.base import ChamberIdentity
 from hivemind.brood_chamber.chamber.lifecycle import _LifecycleMixin
+from hivemind.brood_chamber.chamber.night_veil import _NightVeilMixin
 from hivemind.brood_chamber.chamber.outcomes import _OutcomesMixin
 from hivemind.brood_chamber.chamber.queries import _QueriesMixin
 from hivemind.brood_chamber.chamber.questions import _QuestionsMixin
@@ -53,12 +55,17 @@ __all__ = ["BroodChamber", "ChamberIdentity"]
 
 
 class BroodChamber(
-    _SubmissionMixin, _LifecycleMixin, _OutcomesMixin, _QuestionsMixin, _QueriesMixin
+    _SubmissionMixin,
+    _LifecycleMixin,
+    _OutcomesMixin,
+    _QuestionsMixin,
+    _QueriesMixin,
+    _NightVeilMixin,
 ):
     """The Queen's one door into the Brood Chamber: submit, advance, question, and read tasks.
 
     `__init__(store, clock, identity)` is inherited from `_ChamberBase`
     (`hivemind.brood_chamber.chamber.base`); every method is inherited from exactly one of the
-    five mixins listed above. See each mixin's own module docstring for the group of methods
+    six mixins listed above. See each mixin's own module docstring for the group of methods
     it defines and the module docstring above for what every one of them guarantees.
     """

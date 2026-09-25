@@ -12,14 +12,18 @@ file's content on the wire twice. On a verified apply the source is removed from
 moves a file, it does not duplicate it); on a DENY (or ASK-then-discard) verdict the write is
 still applied and then restored on release, exactly like any other outside-scratch write the leave
 policy does not persist -- `describe()`'s own leave-decision line (`hivemind.workers.tools.
-proposals`) is what tells the model plainly whether the file will actually remain.
+proposals`) is what tells the model plainly whether the file will actually remain. Roadmap step
+10.3a: the gate checks the destination's `fs:write` is held, so the tool first asks the Guard's
+floors alone, and a destination that is the Hive's own state is refused as `guard.denied` before
+anything is read or proposed (ADR-0041).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
     `hivemind.workers.tools.registry.build_registry`. Calls into `hivemind.cell`, `hivemind.llm`
-    (JsonObject, ToolDefinition), `hivemind.supervision.capping` (RiskTier), `hivemind.workers.
-    tools.errors`, `hivemind.workers.tools.proposals`, `hivemind.workers.tools.registry` and
-    waggle only.
+    (JsonObject, ToolDefinition), `hivemind.guard` (the destination's floor check),
+    `hivemind.supervision.capping` (RiskTier), `hivemind.workers.tools.authorize`,
+    `hivemind.workers.tools.errors`, `hivemind.workers.tools.proposals`,
+    `hivemind.workers.tools.registry` and waggle only.
 
 Key invariants:
     - `source` must resolve inside this Worker's scratch directory once joined and resolved (the
@@ -45,8 +49,10 @@ import hashlib
 from pathlib import Path
 
 from hivemind.cell import PathNotAllowedError
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping import RiskTier
+from hivemind.workers.tools.authorize import floor_refusal_text
 from hivemind.workers.tools.errors import UnreachablePathError
 from hivemind.workers.tools.proposals import ProposalRequest, cap, describe, make_proposal
 from hivemind.workers.tools.registry import ToolInvocation, ToolSpec
@@ -110,21 +116,27 @@ async def keep(invocation: ToolInvocation, arguments: JsonObject) -> str:
         return "destination must be an absolute path or a ~-rooted path, outside scratch."
     if _within(resolved_destination, scratch_dir):
         return f"{destination!r} resolves inside scratch; nothing needs keeping there."
+    # Roadmap step 10.3a: the floors refuse a destination that is the Hive's own state.
+    refused = await _destination_refusal(invocation, resolved_destination)
+    if refused is not None:
+        return refused
     try:
         content = await ctx.session.get_file(Path(source))
     except FileNotFoundError:
         return f"no file at {source!r}."
     except PathNotAllowedError as exc:
         raise UnreachablePathError(source) from exc
-    proposal = make_proposal(
-        ctx,
-        invocation.assignment,
-        _build_request(source, destination, content, resolved_destination),
-    )
-    return describe(await cap(ctx, proposal))
+    request = _build_request(source, destination, content, resolved_destination)
+    return describe(await cap(invocation, make_proposal(ctx, invocation.assignment, request)))
 
 
 KEEP_SPEC = ToolSpec(definition=KEEP_DEFINITION, run=keep)
+
+
+async def _destination_refusal(invocation: ToolInvocation, destination: Path) -> str | None:
+    """Ask the Guard's floors alone about writing `destination`; the refusal line, or None."""
+    target = Capability(family=CapabilityFamily.FS_WRITE, scope=destination.as_posix())
+    return await floor_refusal_text(invocation, EnforcementPoint.SESSION_OUTSIDE_SCRATCH, target)
 
 
 def _build_request(

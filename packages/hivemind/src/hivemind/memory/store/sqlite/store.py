@@ -2,7 +2,9 @@
 
 Every mutation runs one transaction on the store's `ConnectionThread` (the SQL lives in the sibling
 modules `hivemind.memory.store.sqlite.records`, the original four tables, and
-`hivemind.memory.store.sqlite.bee_bread`, the fifth) that writes the row and calls
+`hivemind.memory.store.sqlite.bee_bread`, the fifth; `hivemind.memory.store.sqlite.taint`, the taint
+label's mixin, roadmap step 10.6d; `hivemind.memory.store.sqlite.night_veil`, the Night Veil
+purge's, codingrules section 12) that writes the row and calls
 `hivemind.pheromone.insert_event` for the accompanying event on the same connection, so the state
 change and its trail event commit together (codingrules section 12), exactly the pattern
 `hivemind.brood_chamber.store.sqlite.SqliteTaskStore` follows for tasks. This module owns the class
@@ -21,6 +23,8 @@ Key invariants:
       database, matching `hivemind.brood_chamber.store.sqlite.SqliteTaskStore.create`'s own check.
     - Every SQLite call runs on the store's `ConnectionThread`, one transaction per hop, serialised
       by this instance's own `asyncio.Lock` (codingrules section 11).
+    - No lookup returns a TAINTED Bee Bread entry and no list returns a TAINTED episode or entry
+      (roadmap 10.6d); the taint label itself is written only through `_SqliteTaintStore`.
 
 See Also:
     - docs/adr/0006-sqlite-as-the-single-hive-store.md and docs/adr/0007-pheromone-trail-append-
@@ -49,6 +53,7 @@ from hivemind.memory.errors import (
     BeeBreadEntryNotFoundError,
     ClearanceError,
     HandoffNotFoundError,
+    TaintedMemoryError,
     WaxNotFoundError,
 )
 from hivemind.memory.handoff import Handoff
@@ -56,6 +61,8 @@ from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from hivemind.memory.store.sqlite import bee_bread, records
 from hivemind.memory.store.sqlite import wax as wax_sql
+from hivemind.memory.store.sqlite.night_veil import _SqliteNightVeilStore
+from hivemind.memory.store.sqlite.taint import _SqliteTaintStore
 from hivemind.pheromone import MemoryEvent
 from waggle.clock import Clock
 from waggle.ids import CellId, EventId, TaskId
@@ -96,8 +103,8 @@ def apply_memory_migrations(connection: sqlite3.Connection, clock: Clock) -> tup
     return apply_migrations(connection, SUBSYSTEM, migrations, clock)
 
 
-class SqliteMemoryStore:
-    """The durable MemoryStore: five SQLite tables, one connection, one lock per instance."""
+class SqliteMemoryStore(_SqliteTaintStore, _SqliteNightVeilStore):
+    """The durable MemoryStore: six SQLite tables, one connection, one lock per instance."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         """Wrap an already-migrated connection. Prefer `create` over calling this directly.
@@ -231,12 +238,7 @@ class SqliteMemoryStore:
         """Return the entry with id `entry_id`; see `MemoryStore.get_bee_bread_entry`."""
         async with self._lock:
             row = await self._thread.run(bee_bread.select_by_id_row, self._connection, entry_id)
-        if row is None:
-            raise BeeBreadEntryNotFoundError(entry_id)
-        clearance = HoneyClearance(row["clearance"])
-        if clearance.rank > allowance.rank:
-            raise ClearanceError(clearance, allowance)
-        return BeeBreadEntry.model_validate_json(row["body"])
+        return _decode_entry(entry_id, row, allowance)
 
     async def list_bee_bread_by_task(
         self, task_id: TaskId, allowance: HoneyClearance
@@ -290,6 +292,22 @@ class SqliteMemoryStore:
             await self._thread.run(
                 wax_sql.update_wax_state_transaction, self._connection, wax, event
             )
+
+
+def _decode_entry(
+    entry_id: EventId, row: sqlite3.Row | None, allowance: HoneyClearance
+) -> BeeBreadEntry:
+    """Decode one looked-up Bee Bread row, refusing a missing, over-cleared or TAINTED one."""
+    if row is None:
+        raise BeeBreadEntryNotFoundError(entry_id)
+    clearance = HoneyClearance(row["clearance"])
+    if clearance.rank > allowance.rank:
+        raise ClearanceError(clearance, allowance)
+    entry = BeeBreadEntry.model_validate_json(row["body"])
+    # Roadmap 10.6d: a tainted entry (a checkpoint's transcript, say) never leaves by a lookup.
+    if entry.tainted is not None and entry.tainted.refuses:
+        raise TaintedMemoryError(entry.id, entry.tainted.event_id)
+    return entry
 
 
 def _pheromone_table_exists(connection: sqlite3.Connection) -> bool:

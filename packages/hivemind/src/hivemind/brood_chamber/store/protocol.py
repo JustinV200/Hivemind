@@ -6,7 +6,10 @@ The Brood Chamber (`hivemind.brood_chamber`) is the Hive's task store: every `Ta
 module fixes the one seam every implementation must honour (codingrules section 8.1): a `Task` or
 `Question` mutation and the `TaskEvent` (`hivemind.pheromone`) that records it on the Pheromone
 Trail commit together, in the same transaction, or neither commits at all (Appendix C rule 3, "the
-trail can never disagree with the store"). `TaskFilter` is `list_tasks`'s query shape.
+trail can never disagree with the store"). `TaskFilter` is `list_tasks`'s query shape (status,
+goal, and since roadmap step 10.5 the goal request a task was planned from and a paging cursor:
+the tasks after one task in `(created_at, id)` order, how the Hive Entrance pages the task list
+without an offset).
 `check_task_event` is the one guard both implementations (`hivemind.brood_chamber.store.memory.
 MemoryTaskStore`, `hivemind.brood_chamber.store.sqlite.SqliteTaskStore`) call before writing, so a
 bug inside the Brood Chamber can never file an event under the wrong task's `subject_id` or the
@@ -48,6 +51,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.brood_chamber.questions import Question, QuestionStatus
+from hivemind.brood_chamber.task.goal_request import GoalRequestRef
 from hivemind.brood_chamber.task.model import Task
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.common.errors import InvariantViolationError
@@ -82,6 +86,14 @@ class TaskFilter(BaseModel):
     status: TaskStatus | None = Field(default=None, description="Only tasks in this status.")
     goal_id: TaskIdField | None = Field(
         default=None, description="Only tasks whose goal_id equals this."
+    )
+    # Roadmap step 10.5: how the Queen finds a goal she already planned for a request, after a
+    # crash between persisting the graph and marking the request PLANNED (hivemind.queen.intake).
+    goal_request_id: GoalRequestRef = None
+    after: TaskIdField | None = Field(
+        default=None,
+        description="Only tasks after this one in (created_at, id) order: the paging cursor, "
+        "the last task of the previous page. A task the store does not hold matches nothing.",
     )
     limit: int = Field(
         default=DEFAULT_TASK_FILTER_LIMIT,
@@ -261,5 +273,24 @@ class TaskStore(Protocol):
         Returns:
             Every matching question, ordered by `(asked_at, id)` ascending; the Queen's inbox
             reads pending questions by passing `status=QuestionStatus.ASKED`.
+        """
+        ...
+
+    async def scrub_night_veil(self, task_ids: frozenset[str]) -> int:
+        """Reduce every finished Night Veil task, and every question it asked, to its skeleton.
+
+        The Night Veil teardown's rewrite (codingrules section 12,
+        `hivemind.brood_chamber.store.scrub`): each task `scrub.due_for_scrub` chooses is
+        replaced by `scrub.scrub_task`'s copy and each of its questions by `scrub.scrub_question`'s,
+        all in one atomic write. The store's one write that records no event: the purge's own
+        `cell.purged` counts the rows, and the task's own transitions already reached the trail
+        as their skeleton.
+
+        Args:
+            task_ids: The ids the Night Veil Cell's segment filed under it, its tasks among them;
+                a task that asked for NIGHT_VEIL is chosen whether or not it is named here.
+
+        Returns:
+            How many rows changed, tasks and questions together; 0 once every one is reduced.
         """
         ...

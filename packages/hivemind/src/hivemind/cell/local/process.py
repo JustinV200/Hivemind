@@ -33,6 +33,9 @@ Key invariants:
     - A command that cannot start at all (no such executable, not executable, a missing cwd) never
       lets an `OSError` escape: it yields one stderr chunk and `EXIT_COMMAND_NOT_STARTED` instead,
       so the bee that proposed it reads an ordinary failed command, not a crash.
+    - A run cancelled before its child exits kills the child's whole tree before the cancel
+      completes (roadmap step 10.6c), so a stopped, respawned or quarantined bee leaves nothing it
+      started running; the lease's own release still kills every pid it recorded, as before.
     - `ctx.quota is None` skips every quota check (`_over_quota` always False, no `RLIMIT_FSIZE`
       set on POSIX): `InCellSession`'s own choice, documented on its own module.
 
@@ -153,9 +156,17 @@ async def run_child_process(spec: ExecSpec, ctx: ProcessContext) -> AsyncIterato
     # Recorded before anything else touches the child, so a crash mid-exec still leaves the pid
     # where the caller's own close()/release() can find and kill it (codingrules section 8.7).
     ctx.on_started(process.pid)
-    await _write_stdin(process, spec.stdin)
-    async for event in _run_to_completion(process, spec, ctx, start):
-        yield event
+    try:
+        await _write_stdin(process, spec.stdin)
+        async for event in _run_to_completion(process, spec, ctx, start):
+            yield event
+    except asyncio.CancelledError:
+        # Cancelled before its child exited: the bee running it was stopped, respawned or
+        # quarantined (roadmap 10.6c: "cancel, kill the tracked process"). The child's tree dies
+        # with the run, not later at lease release, so nothing a cancelled bee started outlives it.
+        if process.returncode is None:
+            await kill_process_tree(process.pid, ctx.clock)
+        raise
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -35,7 +35,6 @@ from hivemind.cli.compose.exoskeleton import (
     build_browser_launcher,
     exoskeleton_config,
     in_cell_exoskeleton,
-    night_veil_side_channels,
     open_hive_recordings,
     resolve_ears,
     running_as_root,
@@ -59,14 +58,7 @@ from hivemind.llm import (
 )
 from hivemind.manifest import load_manifest
 from hivemind.manifest.schema import ExoskeletonSection
-from hivemind.pheromone import (
-    MemoryPheromoneTrail,
-    MemorySegmentPurge,
-    NightVeilTeardownPurge,
-    TrailRecorder,
-)
 from waggle.clock import FakeClock
-from waggle.ids import new_cell_id, new_hive_id, new_node_id
 
 _MANIFESTS_DIR = Path(__file__).resolve().parents[6] / "docs" / "manifests"
 _HAS_BROWSER_EXTRA = importlib.util.find_spec("playwright") is not None
@@ -203,26 +195,3 @@ def test_opening_the_hives_recordings_applies_the_retention_window(tmp_path: Pat
     store = open_hive_recordings(db, ExoskeletonSection(recording_retention_days=30), now)
 
     assert [info.recording_id for info in asyncio.run(store.recordings())] == ["rec_new"]
-
-
-async def test_the_night_veil_teardown_purge_removes_the_cells_recordings(tmp_path: Path) -> None:
-    # Arrange: two recordings of the Night Veil Cell and one of another Cell, then the purge
-    # composed with this Hive's side channels exactly as its teardown would be.
-    clock = FakeClock()
-    store = await SqliteRecordingStore.create(connect(tmp_path / "hive.sqlite3"), clock)
-    veiled, other = new_cell_id(clock), new_cell_id(clock)
-    for recording_id, cell in (("rec_v1", veiled), ("rec_v2", veiled), ("rec_o", other)):
-        await store.open(make_recording_info(recording_id, cell_id=str(cell)))
-        await store.add(recording_id, make_recorded_action())
-    trail = MemoryPheromoneTrail(clock)
-    recorder = TrailRecorder(
-        trail=trail, clock=clock, hive_id=new_hive_id(clock), node_id=new_node_id(clock)
-    )
-    purge = NightVeilTeardownPurge(
-        MemorySegmentPurge(trail), night_veil_side_channels(store), recorder
-    )
-
-    report = await purge.purge(veiled, new_node_id(clock), actor="system")
-
-    assert report.side_channel_records_purged == 2
-    assert [info.recording_id for info in await store.recordings()] == ["rec_o"]

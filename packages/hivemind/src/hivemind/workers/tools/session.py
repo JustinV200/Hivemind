@@ -5,14 +5,20 @@ Every path a caller passes is relative to `ctx.session.scratch_dir` when it is r
 rule. `run_command` and `write_file` have a side effect, so both build a
 `waggle.messages.capping.ProposedAction` and go through `hivemind.workers.tools.proposals.cap`
 before anything runs or lands; `read_file` has none, so it goes straight to the session once a
-capability check (only for a path outside scratch -- scratch is always readable) passes.
+capability check (only for a path outside scratch -- scratch is always readable) passes; since
+roadmap step 10.3 that check is the Guard's `session_outside_scratch` enforcement point, through
+the Worker's `Enforcer`, so a refused read is a `guard.denied` row with its reason. Roadmap step
+10.3a puts the Guard's floors in front of the other two: a command's `exec` and a write's
+`fs:write` are held-checked by the Capping gate, so each tool first asks the floors alone
+(`floor_refusal_text`), and a command that runs the Hive's own entry point, or a write that lands
+on the Hive's own state, is refused as `guard.denied` before it is ever proposed (ADR-0041).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
     `hivemind.workers.tools.registry.build_registry`. Calls into `hivemind.cell`, `hivemind.guard`,
     `hivemind.llm` (ToolDefinition, JsonObject), `hivemind.supervision.capping` (RiskTier),
-    `hivemind.workers.tools.errors`, `hivemind.workers.tools.proposals`,
-    `hivemind.workers.tools.registry` and waggle only.
+    `hivemind.workers.tools.authorize`, `hivemind.workers.tools.errors`,
+    `hivemind.workers.tools.proposals`, `hivemind.workers.tools.registry` and waggle only.
 
 Key invariants:
     - `run_command` and `write_file` declare `RiskTier.SCRATCH_WRITE` when the resolved target is
@@ -44,10 +50,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import PathNotAllowedError
-from hivemind.guard import Capability, CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
+from hivemind.guard.scanner import ScanSource
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping import RiskTier
 from hivemind.workers.context import WorkerContext
+from hivemind.workers.tools.authorize import authorize, floor_refusal_text, refusal_text
 from hivemind.workers.tools.errors import UnreachablePathError
 from hivemind.workers.tools.proposals import ProposalRequest, cap, describe, make_proposal
 from hivemind.workers.tools.registry import ToolInvocation, ToolSpec
@@ -127,21 +135,19 @@ async def run_command(invocation: ToolInvocation, arguments: JsonObject) -> str:
         -- this result carries state and reason only, never more than the gate itself surfaces.
     """
     argv = _coerce_argv(arguments.get("argv"))
-    if not argv:
+    # An empty program names nothing to run (or to check), so it is malformed like no argv.
+    if not argv or not argv[0]:
         return "argv must be a non-empty list of strings."
+    # Roadmap step 10.3a: the gate checks `exec` is held; the floors refuse the Hive's own
+    # entry points whatever is held, before anything is proposed.
+    program = Capability(family=CapabilityFamily.EXEC, scope=argv[0])
+    refused = await floor_refusal_text(invocation, EnforcementPoint.TOOL_INVOCATION, program)
+    if refused is not None:
+        return refused
     ctx = invocation.ctx
     cwd = arguments.get("cwd")
     cwd_str = cwd if isinstance(cwd, str) else None
-    resolved_cwd = (
-        ctx.session.scratch_dir.resolve(strict=False)
-        if cwd_str is None
-        else _resolve(ctx.session.scratch_dir, Path(cwd_str))
-    )
-    tier = (
-        RiskTier.SCRATCH_WRITE
-        if _within_scratch(resolved_cwd, ctx.session.scratch_dir)
-        else RiskTier.OUTSIDE_SCRATCH_WRITE
-    )
+    tier = _command_tier(ctx, cwd_str)
     action = ProposedAction(
         kind=ActionKind.COMMAND,
         summary=f"Run {' '.join(argv)[:200]}",
@@ -156,7 +162,7 @@ async def run_command(invocation: ToolInvocation, arguments: JsonObject) -> str:
         tier=tier, action=action, postconditions=(), reason=f"Drone run_command {argv[0]!r}"
     )
     proposal = make_proposal(ctx, invocation.assignment, request)
-    return describe(await cap(ctx, proposal))
+    return describe(await cap(invocation, proposal))
 
 
 async def read_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
@@ -182,9 +188,11 @@ async def read_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
     ctx = invocation.ctx
     resolved = _resolve(ctx.session.scratch_dir, Path(path))
     if not _within_scratch(resolved, ctx.session.scratch_dir):
+        # Roadmap step 10.3: a read outside scratch is the session_outside_scratch point.
         needed = Capability(family=CapabilityFamily.FS_READ, scope=resolved.as_posix())
-        if not ctx.capabilities.allows(needed):
-            return f"no fs:read capability covers {resolved.as_posix()}."
+        decision = await authorize(invocation, EnforcementPoint.SESSION_OUTSIDE_SCRATCH, needed)
+        if not decision.allowed:
+            return refusal_text(decision)
     try:
         data = await ctx.session.get_file(Path(path))
     except FileNotFoundError:
@@ -212,13 +220,17 @@ async def write_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
     if not isinstance(content, str):
         return "content must be a string."
     ctx = invocation.ctx
-    prior = await _read_prior(ctx, path)
     resolved = _resolve(ctx.session.scratch_dir, Path(path))
-    tier = (
-        RiskTier.SCRATCH_WRITE
-        if _within_scratch(resolved, ctx.session.scratch_dir)
-        else RiskTier.OUTSIDE_SCRATCH_WRITE
-    )
+    inside = _within_scratch(resolved, ctx.session.scratch_dir)
+    # Roadmap step 10.3a: the gate checks `fs:write` is held; the floors refuse the Hive's own
+    # state whatever is held, before the prior content is even read.
+    point = EnforcementPoint.TOOL_INVOCATION if inside else EnforcementPoint.SESSION_OUTSIDE_SCRATCH
+    target = Capability(family=CapabilityFamily.FS_WRITE, scope=resolved.as_posix())
+    refused = await floor_refusal_text(invocation, point, target)
+    if refused is not None:
+        return refused
+    prior = await _read_prior(ctx, path)
+    tier = RiskTier.SCRATCH_WRITE if inside else RiskTier.OUTSIDE_SCRATCH_WRITE
     action = ProposedAction(
         kind=ActionKind.DIFF,
         summary=f"Write {path}"[:200],
@@ -236,12 +248,26 @@ async def write_file(invocation: ToolInvocation, arguments: JsonObject) -> str:
         tier=tier, action=action, postconditions=postconditions, reason=f"Drone write_file {path}"
     )
     proposal = make_proposal(ctx, invocation.assignment, request)
-    return describe(await cap(ctx, proposal))
+    return describe(await cap(invocation, proposal))
 
 
-RUN_COMMAND_SPEC = ToolSpec(definition=RUN_COMMAND_DEFINITION, run=run_command)
-READ_FILE_SPEC = ToolSpec(definition=READ_FILE_DEFINITION, run=read_file)
+# Both read what the Cell's own session produced: the scanner records them as session output.
+RUN_COMMAND_SPEC = ToolSpec(
+    definition=RUN_COMMAND_DEFINITION, run=run_command, scan_source=ScanSource.SESSION_OUTPUT
+)
+READ_FILE_SPEC = ToolSpec(
+    definition=READ_FILE_DEFINITION, run=read_file, scan_source=ScanSource.SESSION_OUTPUT
+)
 WRITE_FILE_SPEC = ToolSpec(definition=WRITE_FILE_DEFINITION, run=write_file)
+
+
+def _command_tier(ctx: WorkerContext, cwd: str | None) -> RiskTier:
+    """Return a command's tier from where it runs: scratch, or somewhere outside it."""
+    scratch = ctx.session.scratch_dir
+    resolved = scratch.resolve(strict=False) if cwd is None else _resolve(scratch, Path(cwd))
+    if _within_scratch(resolved, scratch):
+        return RiskTier.SCRATCH_WRITE
+    return RiskTier.OUTSIDE_SCRATCH_WRITE
 
 
 def _coerce_argv(value: object) -> tuple[str, ...]:

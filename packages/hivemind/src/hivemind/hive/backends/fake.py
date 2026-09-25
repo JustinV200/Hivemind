@@ -11,8 +11,11 @@ to take. Three switches simulate failure without touching real infrastructure:
 `set_destroy_failure` does the same for `destroy()`; `set_provision_delay` makes `provision()`
 await `clock.sleep()` before returning, so a test can prove a slow-to-ready Cell still finishes
 within `spec.ready_timeout_s` -- or times out when the delay exceeds it. Every call is recorded
-(`provision_calls`, `destroy_calls`, `pause_calls`, `resume_calls`) so a test can assert on what
-was actually asked for.
+(`provision_calls`, `destroy_calls`, `pause_calls`, `resume_calls`, `egress_calls`) so a test can
+assert on what was actually asked for. It is also the reference `EgressCutter` (roadmap step
+10.6a): `cut_egress`/`restore_egress` flip a per-Cell flag (`egress_is_cut`) standing in for a
+network whose only remaining destination is the Queen's Waggle listener, and the fake declares
+`can_cut_egress` by default.
 
 Roadmap step 5's own e2e slice (this branch) adds an optional `endpoint` constructor argument:
 when given, `provision()` also mints a real `hivemind.hive.backends.bootstrap.CellBootstrap` via
@@ -54,6 +57,9 @@ Key invariants:
       list_cells, matching what a real backend's own infrastructure would report.
     - pause()/resume() raise BackendCapabilityError whenever capabilities.can_pause is False,
       before touching the table or the recorded call lists.
+    - cut_egress()/restore_egress() raise BackendCapabilityError whenever
+      capabilities.can_cut_egress is False, before touching the table (the call is still
+      recorded, like pause's).
     - FakeReadinessGate.forget() is idempotent: forgetting a Cell never `expect`-ed, or already
       forgotten, is a no-op, matching ReadinessGate's own documented contract.
 
@@ -80,6 +86,7 @@ from hivemind.hive.backends.bootstrap import (
     CellBootstrap,
     CellReadyInfo,
     QueenEndpoint,
+    cell_endpoint,
     mint_cell_bootstrap,
 )
 from hivemind.hive.cell_state import VirtualCellStatus
@@ -99,6 +106,11 @@ _FAKE_CORES = 2  # A modest default host: enough for provision()'s own defaults,
 _FAKE_MEMORY_BYTES = 2 * 1024**3
 _FAKE_DISK_BYTES = 10 * 1024**3
 _FAKE_MAX_SUB_BEES = 4
+# What a fake declares when a test names nothing: a Cell pauses, (step 10.6a) cuts its egress
+# and, like the Docker backend it stands in for, holds Night Veil (nothing of it is on a host).
+_DEFAULT_CAPABILITIES = BackendCapabilities(
+    can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True, can_night_veil=True
+)
 
 __all__ = ["FakeCellBackend", "FakeReadinessGate", "ReadinessGateExpect"]
 
@@ -128,9 +140,55 @@ class _TrackedCell:
     status: VirtualCellStatus
     labels: dict[str, str]
     created_at: datetime
+    egress_cut: bool = False  # Roadmap step 10.6a: only the control link is reachable while set.
 
 
-class FakeCellBackend:
+class _FakeEgress:
+    """The fake's `EgressCutter` half (roadmap step 10.6a), a base of `FakeCellBackend`.
+
+    Split out only to keep `FakeCellBackend` inside codingrules 5.1's class limit; it reads the
+    backend's own Cell table and declared capabilities, which `FakeCellBackend.__init__` sets.
+    """
+
+    _cells: dict[CellId, _TrackedCell]
+    _capabilities: BackendCapabilities
+    egress_calls: list[tuple[str, CellId]]  # ("cut" | "restore", cell) in order.
+
+    async def cut_egress(self, cell_id: CellId) -> None:
+        """Mark `cell_id`'s egress cut to its control link alone; see `EgressCutter.cut_egress`."""
+        self.egress_calls.append(("cut", cell_id))
+        self._require_egress_capability(cell_id)
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.egress_cut = True
+
+    async def restore_egress(self, cell_id: CellId) -> None:
+        """Give `cell_id` its own policy's egress back; see `EgressCutter.restore_egress`."""
+        self.egress_calls.append(("restore", cell_id))
+        self._require_egress_capability(cell_id)
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.egress_cut = False
+
+    def egress_is_cut(self, cell_id: CellId) -> bool:
+        """Return whether `cell_id`'s egress is cut right now; False for a Cell never tracked.
+
+        Args:
+            cell_id: The Cell to look up.
+
+        Returns:
+            True while only the Cell's control link is reachable (roadmap step 10.6a).
+        """
+        tracked = self._cells.get(cell_id)
+        return tracked is not None and tracked.egress_cut
+
+    def _require_egress_capability(self, cell_id: CellId) -> None:
+        """Raise BackendCapabilityError unless this fake declares can_cut_egress."""
+        if not self._capabilities.can_cut_egress:
+            raise BackendCapabilityError(_FAKE_BACKEND_NAME, "egress cut", cell_id=cell_id)
+
+
+class FakeCellBackend(_FakeEgress):
     """An in-memory CellBackend: provisions, destroys, pauses and lists Cells with no real infra."""
 
     def __init__(
@@ -146,7 +204,8 @@ class FakeCellBackend:
         Args:
             clock: Source of every minted CellId and every recorded timestamp.
             capabilities: What this fake declares it can do; defaults to can_snapshot=False,
-                can_pause=True, headroom=None (unbounded) so most tests need not think about it.
+                can_pause=True, headroom=None (unbounded) and can_cut_egress=True, so most tests
+                need not think about it.
             endpoint: When given, `provision()` also mints a real `CellBootstrap` for every Cell
                 it builds (module docstring's own e2e slice addition); `None` (the default) skips
                 that entirely, matching every pre-existing caller's own behaviour. May be a plain
@@ -171,11 +230,7 @@ class FakeCellBackend:
                 unused whenever `endpoint` resolves to `None` (no bootstrap is ever minted then).
         """
         self._clock = clock
-        self._capabilities = (
-            capabilities
-            if capabilities is not None
-            else BackendCapabilities(can_snapshot=False, can_pause=True, headroom=None)
-        )
+        self._capabilities = capabilities if capabilities is not None else _DEFAULT_CAPABILITIES
         self._endpoint = endpoint
         self._gate = gate
         self._cells: dict[CellId, _TrackedCell] = {}
@@ -190,6 +245,7 @@ class FakeCellBackend:
         self.destroy_calls: list[CellId] = []
         self.pause_calls: list[CellId] = []
         self.resume_calls: list[CellId] = []
+        self.egress_calls = []
         self.bootstraps: dict[CellId, CellBootstrap] = {}
 
     @property
@@ -264,10 +320,12 @@ class FakeCellBackend:
         return cell
 
     async def _mint_cell_id(self, spec: VirtualCellSpec) -> CellId:
-        """Return a fresh CellId, minting and recording a real CellBootstrap when `endpoint` is set.
+        """Return the Cell's id, minting and recording a real CellBootstrap when `endpoint` is set.
 
-        With no `endpoint` (the default), this is just `new_cell_id` -- pre-existing behaviour,
-        unchanged. With one, the bootstrap's own `mint_cell_bootstrap`-minted `cell_id` is used
+        The id is the spec's own when its lifecycle minted one (`VirtualCellSpec.cell_id`, the
+        contract every backend keeps), else a fresh one. With no `endpoint` (the default), this is
+        just that id -- pre-existing behaviour otherwise unchanged. With one, the bootstrap's own
+        `mint_cell_bootstrap`-chosen `cell_id` (the spec's, carried by `cell_endpoint`) is used
         instead of a second, independent one, so `self.bootstraps[cell.id]` always agrees with the
         Cell this call actually builds (module docstring's own e2e slice addition), and, when a
         `gate` was also given, that gate learns this Cell's own public key before this method
@@ -277,8 +335,11 @@ class FakeCellBackend:
         """
         endpoint = self._endpoint() if callable(self._endpoint) else self._endpoint
         if endpoint is None:
-            return new_cell_id(self._clock)
-        bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
+            return spec.cell_id if spec.cell_id is not None else new_cell_id(self._clock)
+        # Roadmap step 10.3a: the same per-tier choice every real backend makes.
+        bootstrap = mint_cell_bootstrap(
+            spec.hive_id, cell_endpoint(endpoint, spec, self.name), self._clock
+        )
         self.bootstraps[bootstrap.cell_id] = bootstrap
         if self._gate is not None:
             await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)

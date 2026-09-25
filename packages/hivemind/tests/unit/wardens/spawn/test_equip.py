@@ -29,7 +29,7 @@ from hivemind.cell.lease import LeaseRequest
 from hivemind.cell.tiers import AccessLevel
 from hivemind.exoskeleton import AttachError, ExoskeletonHandle
 from hivemind.exoskeleton.recorder import InMemoryRecordingStore
-from hivemind.guard.access import ceiling_for
+from hivemind.guard import warden_set
 from hivemind.memory import BeeBread, BeeBreadEntryKind
 from hivemind.pheromone.trail.protocol import TrailQuery
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
@@ -90,7 +90,13 @@ async def _context(
     lease = await deps.source.lease(request)
     # A session that answers attach's commands the way a desktop Cell does.
     session = desktop_session(lease.scratch_root, deps.clock)
-    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    # The Warden's whole set, built the way its lease tick builds it (hivemind.wardens.ticks.lease).
+    ceiling = warden_set(
+        deps.guard,
+        lease.access_level,
+        lease.scratch_root,
+        real_display=cell.capabilities.real_display_allowed,
+    )
     ctx = WardenCellContext(
         warden_id=warden_id, deps=deps, ceiling=ceiling, cell=cell, lease=lease, session=session
     )

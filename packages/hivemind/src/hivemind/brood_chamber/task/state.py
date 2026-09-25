@@ -58,7 +58,7 @@ class TaskStatus(Enum):
     ASSIGNED = "ASSIGNED"  # Placement chose a Cell and a Warden; the Worker has not started.
     RUNNING = "RUNNING"  # A Worker is actively working the task on its assigned Cell.
     BLOCKED = "BLOCKED"  # Waiting on an Answer to a Question it asked.
-    PAUSED = "PAUSED"  # Suspended by Clustering (a provider outage), preserved by a Handoff.
+    PAUSED = "PAUSED"  # Suspended by Clustering or a quarantine, preserved by a Handoff.
     SUCCEEDED = "SUCCEEDED"  # Terminal: the Warden ran acceptance checks and they passed.
     FAILED = "FAILED"  # Terminal: acceptance checks did not pass, or the Worker gave up.
     CANCELLED = "CANCELLED"  # Terminal: a human or the Queen cancelled the goal.
@@ -96,7 +96,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
             TaskStatus.FAILED,  # acceptance checks failed, or the Worker gave up
             TaskStatus.CANCELLED,  # a human or the Queen cancels the goal
             TaskStatus.BLOCKED,  # the Worker or Warden asked a Question
-            TaskStatus.PAUSED,  # Clustering: the task's provider set became unavailable
+            TaskStatus.PAUSED,  # Clustering (its providers went away), or its bee quarantined
         }
     ),
     TaskStatus.BLOCKED: frozenset(
@@ -107,7 +107,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
     ),
     TaskStatus.PAUSED: frozenset(
         {
-            TaskStatus.RUNNING,  # Clustering resumed
+            TaskStatus.RUNNING,  # resumed: Clustering ended, or a judge cleared the quarantine
             TaskStatus.CANCELLED,  # a human or the Queen cancels the goal
         }
     ),

@@ -21,8 +21,9 @@ from hivemind.supervision import AlarmKind as HiveAlarmKind
 from hivemind.supervision import EscalationPolicy, PolicyAction, PolicyRule
 from hivemind.supervision.attendant import InboxKind
 from waggle.clock import FakeClock
-from waggle.ids import new_alarm_id, new_task_id, new_warden_id, new_worker_id
+from waggle.ids import new_alarm_id, new_device_id, new_task_id, new_warden_id, new_worker_id
 from waggle.messages import AlarmSeverity
+from waggle.messages.control import HumanMessage
 from waggle.messages.labels import HoneyClearance
 from waggle.messages.supervision import (
     AlarmContext,
@@ -386,3 +387,13 @@ def test_an_unrecognised_payload_needs_judgement() -> None:
     action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
 
     assert action is QueenAction.NEEDS_JUDGEMENT
+
+
+def test_a_human_message_always_needs_judgement() -> None:
+    """Roadmap step 10.5 (ADR-0040): free text has no deterministic answer, so a model decides."""
+    clock = FakeClock()
+    message = HumanMessage(text="Is it done?", task_id=None, device_id=new_device_id(clock))
+    item = make_inbox_item(InboxKind.HUMAN_MESSAGE, clock=clock, payload=message)
+    policy = EscalationPolicy(rules=(), default=PolicyAction.RETRY)
+
+    assert decide(item, None, 0, policy, 3) is QueenAction.NEEDS_JUDGEMENT

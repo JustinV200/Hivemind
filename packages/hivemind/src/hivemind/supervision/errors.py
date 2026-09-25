@@ -5,14 +5,16 @@ tree (human, Queen, a Warden, a sub-bee): children, telemetry, inspection, inter
 state machine, the escalation policy and the Attendant (a supervisor's inbox triage). This module
 holds the ways a caller can misuse that surface on purpose: asking the Alarm state machine
 (`alarm.state.TRANSITIONS`) for an edge it does not have, loading or evaluating a malformed
-`EscalationPolicy`, or addressing a child a `Supervisor` does not know about. Every one of these is
+`EscalationPolicy`, addressing a child a `Supervisor` does not know about, or decoding a wire
+intervention the Hive has no lever for (`UnknownInterventionError`). Every one of these is
 `SupervisionError`, the subsystem's own root, so a caller several layers up can catch one name and
 know it caught anything supervision itself raised on purpose (codingrules section 10).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by `hivemind.supervision.alarm`
-    (the state machine), `hivemind.supervision.policy` (loading and deciding) and every
-    `Supervisor` implementation (the Queen, a Warden, `FakeSupervisor`) when a child id is unknown.
+    (the state machine), `hivemind.supervision.policy` (loading and deciding),
+    `hivemind.supervision.intervention` (an unknown lever) and every `Supervisor` implementation
+    (the Queen, a Warden, `FakeSupervisor`) when a child id is unknown.
     Imported by every layer above that calls into supervision.
 
 Key invariants:
@@ -43,6 +45,7 @@ __all__ = [
     "PolicyError",
     "SupervisionError",
     "UnknownChildError",
+    "UnknownInterventionError",
 ]
 
 
@@ -94,6 +97,29 @@ class PolicyError(SupervisionError):
     """
 
     code: ClassVar[str] = "hivemind.supervision.policy_error"
+
+
+class UnknownInterventionError(SupervisionError):
+    """Raise when a wire intervention names a lever the Hive's `Intervention` union does not model.
+
+    Raised by `hivemind.supervision.intervention.from_wire` (ADR-0043: "decoding an intervention
+    the Hive does not know is an error, never a silent cancel"): a lever read as some other lever
+    would carry out an order nobody gave, so the whole message is refused instead.
+    """
+
+    code: ClassVar[str] = "hivemind.supervision.unknown_intervention"
+
+    def __init__(self, action: str) -> None:
+        """Build the error for an action with no Hive-side lever.
+
+        Args:
+            action: The wire `InterventionAction` value that has no `Intervention` variant.
+        """
+        super().__init__(
+            f"Intervene action {action} names no lever of the Hive's Intervention union; it is "
+            "refused rather than read as another lever."
+        )
+        self.action = action
 
 
 class UnknownChildError(NotFoundError):

@@ -42,6 +42,7 @@ from __future__ import annotations
 import re
 
 from hivemind.cell import HoneyClearance
+from hivemind.guard.scanner import ScanSource
 from hivemind.llm import JsonObject, SectionLabel, ToolDefinition
 from hivemind.llm.prompts.loader import LabelledSection
 from hivemind.memory import ITEM_CAP_CHARS, RETRIEVED_PREAMBLE, render_hit
@@ -264,5 +265,6 @@ def _render(response: HoneyResponse, allowance: HoneyClearance) -> str:
     return f"{len(visible)} Honey hits. {response.reason}\n{section.delimited()}"
 
 
-RECALL_SPEC = ToolSpec(definition=RECALL_DEFINITION, run=recall)
+# Honey text is scanned as what it is (roadmap step 10.6b's HONEY_HIT source), not a generic result.
+RECALL_SPEC = ToolSpec(definition=RECALL_DEFINITION, run=recall, scan_source=ScanSource.HONEY_HIT)
 REMEMBER_SPEC = ToolSpec(definition=REMEMBER_DEFINITION, run=remember)

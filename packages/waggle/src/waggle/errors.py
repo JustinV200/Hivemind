@@ -52,6 +52,7 @@ __all__ = [
     "MissingSignatureError",
     "OutboxCorruptError",
     "OutboxError",
+    "ProxyFailedError",
     "SignatureError",
     "TransportClosedError",
     "TransportError",
@@ -272,6 +273,18 @@ class ConnectFailedError(TransportError):
     """
 
     code: ClassVar[str] = "waggle.transport.connect_failed"
+
+
+class ProxyFailedError(TransportError):
+    """Raised when the SOCKS proxy a client transport dials through cannot open the connection.
+
+    Raised by waggle.transport.socks.open_socks_connection when the proxy cannot be reached,
+    refuses the CONNECT (its reply code says why), closes mid-handshake, answers with something
+    that is not SOCKS, or does not answer in time. WebSocketClientTransport.connect retries it
+    like any failed dial, through the same proxy, and never falls back to a direct connection.
+    """
+
+    code: ClassVar[str] = "waggle.transport.proxy_failed"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

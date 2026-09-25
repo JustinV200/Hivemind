@@ -32,7 +32,8 @@ from datetime import datetime
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
-from hivemind.brood_chamber.task.model import Task, TaskDraft, TaskGraphDraft, TaskSpec
+from hivemind.brood_chamber.task.draft import TaskDraft, TaskGraphDraft
+from hivemind.brood_chamber.task.model import Task, TaskSpec
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.pheromone import TaskEvent
 from waggle.ids import TaskId, new_task_id
@@ -75,7 +76,8 @@ class _SubmissionMixin(_ChamberBase):
                 "goal_id": goal_id,
                 "depends_on": list(task.spec.depends_on),
             }
-            events.append(self._build_event(task.id, "task.submitted", payload, now))
+            # A Night Veil task's title is the human's goal (C2): _build_event cuts it away.
+            events.append(self._build_event(task, "task.submitted", payload, now))
 
         await self._store.insert_tasks(tasks, events)
         return tuple(tasks)
@@ -88,8 +90,9 @@ def _mint_task(
 
     A module-level function rather than a method: it touches no chamber state at all, and pulling
     it out of `submit` is what keeps that method inside the codingrules 5.1 fifty-line budget once
-    `TaskSpec` carries `origin` (roadmap step 5.7a), `leaves` (roadmap step 5.0b) and `role`
-    (roadmap steps 6.9/6.10).
+    `TaskSpec` carries `origin` (roadmap step 5.7a), `leaves` (roadmap step 5.0b), `role` (roadmap
+    steps 6.9/6.10), the goal's `capabilities` (roadmap step 10.3) and its request's id and spend
+    cap (roadmap step 10.5).
 
     Args:
         draft: The already-validated draft to mint.
@@ -113,6 +116,9 @@ def _mint_task(
             origin=draft.origin,
             depends_on=tuple(minted_ids[key] for key in draft.depends_on),
             leaves=draft.leaves,
+            capabilities=draft.capabilities,
+            goal_request_id=draft.goal_request_id,
+            spend_cap_usd=draft.spend_cap_usd,
         ),
         status=TaskStatus.PENDING,
         created_at=now,

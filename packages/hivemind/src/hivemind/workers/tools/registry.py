@@ -1,26 +1,33 @@
 """Define the tool seam: ToolInvocation, ToolSpec, ToolOutput, ToolRegistry and build_registry.
 
-`hivemind.workers.roles.drone.Drone` builds one `ToolRegistry` per attempt from `build_registry`
-and hands its `definitions()` to `hivemind.llm.run_tool_loop` as the tools a model may call; the
-ladder validates a call's schema itself before ever invoking a `ToolExecutor`, but this registry
-validates again on `execute` (codingrules section 15: "Tool calls proposed by a model are validated
-against the tool's schema and the Worker's capabilities before execution" -- true whichever caller
-reaches `ToolRegistry.execute` directly, not only through the ladder). `ToolInvocation` is the one
-bundle every `ToolRunner` receives: a Worker's tools need the current `TaskAssign` (for its task
-id, tempo and clearance, when they build a Capping `Proposal`) as well as `WorkerContext`, and
-codingrules section 8.7's "never a provider, a subprocess handle" pattern for `WorkerContext`
-itself argues against stashing one task's assignment onto that shared value, so it travels
-alongside instead. A runner returns plain text, or (roadmap step 6.5) a `ToolOutput` when it has
-more to hand back: a screenshot or a recording as media beside the text, or a failure the text
-alone would not reveal; `execute` always returns a `ToolOutput`, so its caller reads one shape.
+`hivemind.workers.roles.drone.Drone` builds one `ToolRegistry` per attempt from `build_registry` and
+hands its `definitions()` to `hivemind.llm.run_tool_loop` as the tools a model may call; the ladder
+validates a call's schema itself before ever invoking a `ToolExecutor`, but this registry validates
+again on `execute` (codingrules section 15: "Tool calls proposed by a model are validated against
+the tool's schema and the Worker's capabilities before execution" -- true whichever caller reaches
+`ToolRegistry.execute` directly, not only through the ladder). Roadmap step 10.3 (ADR-0039):
+`execute` is the `tool_invocation` enforcement point -- the Worker must hold `tool:<name>` before a
+tool runs, checked through the Guard's `Enforcer`, and a refusal comes back to the model as a clear
+line (and onto the trail as `guard.denied`), never an exception. `ToolInvocation` is the one bundle
+every `ToolRunner` receives: a Worker's tools need the current `TaskAssign` (for its task id, tempo
+and clearance, when they build a Capping `Proposal`) as well as `WorkerContext`, and codingrules
+section 8.7's "never a provider, a subprocess handle" pattern for `WorkerContext` itself argues
+against stashing one task's assignment onto that shared value, so it travels alongside instead.
+A runner returns plain text, or (roadmap step 6.5) a `ToolOutput` when it has more to hand back: a
+screenshot or a recording as media beside the text, or a failure the text alone would not reveal;
+`execute` always returns a `ToolOutput`, so its caller reads one shape. Roadmap step 10.6b
+(ADR-0043): every result a tool returns is outside text, so `execute` hands its text to the
+untrusted-content scanner (`hivemind.workers.tools.screen`) before the model sees it; a `ToolSpec`
+names where its text comes from (`scan_source`: the Cell's own session, or any other tool result),
+and a flagged result comes back labelled harder or withheld.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Built and read by
     `hivemind.workers.roles.drone.Drone`; the `ToolSpec`s it registers live in
     `hivemind.workers.tools.session`, `.http`, `.ask`, `.keep` (roadmap step 5.0e), `.honey`
     (roadmap step 7.8) and the `.exoskeleton` package (roadmap step 6.5). Calls into
-    `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.errors`
-    and waggle only.
+    `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.
+    authorize`, `hivemind.workers.tools.errors`, `hivemind.workers.tools.screen` and waggle only.
 
 Key invariants:
     - `ToolRegistry.execute` never raises for an unknown tool or an invalid argument: both become
@@ -28,12 +35,17 @@ Key invariants:
       purpose becomes its message the same way; every other exception -- a control exception such
       as `hivemind.workers.roles.drone.HandoffRequestedError` or
       `hivemind.workers.errors.WorkerCancelledError` included -- propagates unchanged.
-    - `build_registry` offers `http_request` only when `ctx.capabilities` holds at least one `net`
-      capability, and each Exoskeleton tool only when its peripheral is attached and the bound
-      model can take what it returns; offering a tool with nothing it could ever be allowed to do
-      would only invite a model to try it and be refused every time. The same holds for
-      `recall`/`remember` (roadmap step 7.8): offered only when `ctx.honey` is set and
-      `ctx.capabilities` allows `tool:recall`/`tool:remember`.
+    - No tool runs unless the Worker holds `tool:<name>`: `execute` asks the Guard first, and a
+      refusal is its readable text plus a `guard.denied` row.
+    - `build_registry` offers every built-in tool, `http_request` included, whatever the Worker
+      holds (roadmap step 10.3): a capability decides at invocation, where a refusal is visible
+      on the trail, rather than by silently leaving a tool out of the offer. What the Worker's
+      situation rules out is still left out: each Exoskeleton tool is offered only when its
+      peripheral is attached and the bound model can take what it returns, and `recall`/
+      `remember` (roadmap step 7.8) only when `ctx.honey` is set.
+    - Every result text a runner returns is scanned before it is returned (roadmap 10.6b); only
+      the registry's own messages (an unknown tool, a refusal, a schema error) are not, being the
+      Hive's own words.
     - A `ToolOutput`'s media never reaches its text, a record or a log: screenshots and recordings
       travel to the model as `hivemind.llm.ToolResultPart.media` and nowhere else.
 
@@ -51,7 +63,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from hivemind.guard import Capability, CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
+from hivemind.guard.scanner import ScanSource
 from hivemind.llm import (
     AudioPart,
     ImagePart,
@@ -61,7 +74,9 @@ from hivemind.llm import (
     validate_arguments,
 )
 from hivemind.workers.context import WorkerContext
+from hivemind.workers.tools.authorize import authorize, refusal_text
 from hivemind.workers.tools.errors import ToolError
+from hivemind.workers.tools.screen import screen_tool_result
 from waggle.messages.task import TaskAssign
 
 __all__ = [
@@ -119,6 +134,9 @@ class ToolSpec:
 
     definition: ToolDefinition  # Name, description and JSON-schema parameters (hivemind.llm).
     run: ToolRunner  # How to actually run a validated call.
+    # Where this tool's result text comes from, for the untrusted-content scanner (10.6b): the
+    # Cell's own session for run_command/read_file, any other tool result otherwise.
+    scan_source: ScanSource = ScanSource.TOOL_RESULT
 
 
 def _zero_spend_estimate() -> float:
@@ -185,8 +203,10 @@ class ToolRegistry:
                 whether the caller (a degradation ladder, or a test) already validated it.
 
         Returns:
-            The tool's result (a runner's plain text wrapped as a text-only ToolOutput); a
-            readable error text for an unknown tool, a schema violation, or a `ToolError` the
+            The tool's result (a runner's plain text wrapped as a text-only ToolOutput), its text
+            screened by the untrusted-content scanner (as it was, labelled harder, or withheld);
+            a readable error text for an unknown tool, a refusal at the `tool_invocation` point,
+            a schema violation, or a `ToolError` the
             runner raised.
 
         Raises:
@@ -200,6 +220,11 @@ class ToolRegistry:
             # Untrusted model output naming a tool that was never offered: a readable string, not
             # a raise (codingrules section 15).
             return ToolOutput(text=f"no tool named {call.name!r} is offered.")
+        # Roadmap step 10.3: the tool itself must be held before anything about the call is read.
+        needed = Capability(family=CapabilityFamily.TOOL, scope=call.name)
+        decision = await authorize(invocation, EnforcementPoint.TOOL_INVOCATION, needed)
+        if not decision.allowed:
+            return ToolOutput(text=refusal_text(decision))
         errors = validate_arguments(spec.definition.parameters, call.arguments)
         if errors:
             return ToolOutput(text="; ".join(errors))
@@ -209,24 +234,27 @@ class ToolRegistry:
             # A runner's own deliberate stop becomes its message; every other exception (a control
             # exception such as HandoffRequestedError or WorkerCancelledError included) propagates.
             return ToolOutput(text=str(exc))
-        return result if isinstance(result, ToolOutput) else ToolOutput(text=result)
+        output = result if isinstance(result, ToolOutput) else ToolOutput(text=result)
+        # Roadmap 10.6b: outside text is scanned before any model reads it; a flag is recorded
+        # and the text labelled harder or withheld, and the bee carries on either way. Media is
+        # not text, so it rides beside the screened text unchanged.
+        text = await screen_tool_result(invocation, call.name, spec.scan_source, output.text)
+        return ToolOutput(text=text, media=output.media, is_error=output.is_error)
 
 
 def build_registry(ctx: WorkerContext) -> ToolRegistry:
     """Build the ToolRegistry one Drone attempt offers, from what `ctx.capabilities` allows.
 
     Args:
-        ctx: This attempt's WorkerContext; `capabilities` decides the network tool, and
-            `exoskeleton`, `ears` and `bound` decide the Exoskeleton tools.
+        ctx: This attempt's WorkerContext; `exoskeleton`, `ears` and `bound` decide the
+            Exoskeleton tools, and `honey` the Honey tools.
 
     Returns:
-        A ToolRegistry with `run_command`, `read_file`, `write_file`, `ask` and `keep` always,
-        plus `http_request` only when `ctx.capabilities` holds at least one `net` capability --
-        there is nothing else a network tool could ever be allowed to do for this Worker -- and
-        (roadmap step 6.5) every Exoskeleton tool whose peripheral is attached and whose result
-        the bound model can take (`hivemind.workers.tools.exoskeleton.exoskeleton_specs`), and
-        `recall`/`remember` only when `ctx.honey` is set and `ctx.capabilities` allows each one
-        by name (`tool:recall`, `tool:remember`).
+        A ToolRegistry with `run_command`, `read_file`, `write_file`, `ask`, `keep` and
+        `http_request` always (each call authorised when it is made, `ToolRegistry.execute`),
+        plus (roadmap step 6.5) every Exoskeleton tool whose peripheral is attached and whose
+        result the bound model can take (`hivemind.workers.tools.exoskeleton.exoskeleton_specs`),
+        and `recall`/`remember` when `ctx.honey` is set.
     """
     # Imported here, not at module level: session/http/ask/keep/honey and the exoskeleton tools
     # each import ToolInvocation/ToolSpec from this module, so importing them back at module scope
@@ -244,20 +272,12 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
         WRITE_FILE_SPEC,
         ASK_SPEC,
         KEEP_SPEC,
+        HTTP_SPEC,
     ]
-    if any(capability.family is CapabilityFamily.NET for capability in ctx.capabilities):
-        specs.append(HTTP_SPEC)
     # Empty for a terminal-only task: no Exoskeleton, no GUI tools (roadmap step 6.5).
     specs.extend(exoskeleton_specs(ctx))
-    # Roadmap step 7.8: the Honey tools need a channel to the Queen and a grant naming each one.
+    # Roadmap step 7.8: the Honey tools need a channel to the Queen; `tool:recall` and
+    # `tool:remember` are checked at invocation like every other tool.
     if ctx.honey is not None:
-        specs.extend(
-            spec for spec in (RECALL_SPEC, REMEMBER_SPEC) if _tool_allowed(ctx, spec.definition)
-        )
+        specs.extend((RECALL_SPEC, REMEMBER_SPEC))
     return ToolRegistry(specs)
-
-
-def _tool_allowed(ctx: WorkerContext, definition: ToolDefinition) -> bool:
-    """Return whether `ctx.capabilities` allows the `tool:<name>` capability for `definition`."""
-    needed = Capability(family=CapabilityFamily.TOOL, scope=definition.name)
-    return ctx.capabilities.allows(needed)

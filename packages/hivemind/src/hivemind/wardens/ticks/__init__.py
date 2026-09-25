@@ -10,7 +10,9 @@ claim), `alarms` (RETRY/REBIND/ESCALATE/CANCEL_TASK), `questions` (forward Quest
 `control` (forward TaskCancel/Pause/Resume/Intervene), `honey` (relay the Honey Store's traffic --
 queries and Nectar deposits up, responses down -- roadmap step 7.8), `heartbeat` (send this
 Warden's own Heartbeat, mirror a sub-bee's reports, watch for a stall, and build the
-`HotStateSources` an awake episode reads) and `trail_ship` (ship the trail before a result).
+`HotStateSources` an awake episode reads), `lease` (roadmap step 10.3: `Warden.start`'s own body,
+leasing the Cell once the Guard's `lease_creation` point allows it) and `trail_ship` (ship the
+trail before a result, the helper `alarms` and `results` share).
 Every function here is one of `Warden`'s own delegates (not general-purpose: they read and write
 its private state directly, the same way `hivemind.workers.runtime.attempt.AttemptManager` does
 for `WorkerRuntime`).
@@ -30,9 +32,10 @@ See Also:
       phase 7 step 7.8 for the Honey relay.
     - hivemind.wardens.warden for Warden, the one class every module here is a delegate of.
 
-Public API (roadmap steps 3.19, 7.8):
-    - alarms, assign, control, dispatch, heartbeat, honey, questions, results: the tick-handler
-      modules; `dispatch.act` is the one entry point the Warden's tick calls.
+Public API (roadmap steps 3.19, 7.8, 10.3):
+    - alarms, assign, control, dispatch, heartbeat, honey, lease, questions, results: the
+      tick-handler modules; `dispatch.act` is the one entry point the Warden's tick calls, and
+      `lease` is `Warden.start`'s own body, behind the `lease_creation` point.
 """
 
 from hivemind.wardens.ticks import (
@@ -42,6 +45,7 @@ from hivemind.wardens.ticks import (
     dispatch,
     heartbeat,
     honey,
+    lease,
     questions,
     results,
 )
@@ -53,6 +57,7 @@ __all__ = [
     "dispatch",
     "heartbeat",
     "honey",
+    "lease",
     "questions",
     "results",
 ]

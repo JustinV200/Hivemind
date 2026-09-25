@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from builders.hot_state import make_verdict
 from builders.memory import (
     make_alarm_summary,
     make_cell_wax_summary,
@@ -46,6 +47,7 @@ from hivemind.memory.hot_state.summaries import (
     QuestionSummary,
     TaskSummary,
 )
+from hivemind.memory.hot_state.untrusted import RetrievedItem
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from waggle.clock import FakeClock
@@ -392,11 +394,16 @@ def _hit(clock: FakeClock, index: int, **overrides: object) -> HoneyHit:
     return HoneyHit(**fields)
 
 
+def _items(*hits: HoneyHit) -> tuple[RetrievedItem, ...]:
+    """Wrap each hit as retrieval hands it to `assemble`: scanned, with a PASS verdict."""
+    return tuple(RetrievedItem.from_hit(hit, make_verdict()) for hit in hits)
+
+
 async def test_assemble_packs_retrieved_hits_into_their_own_section_after_hot_state() -> None:
     clock = FakeClock()
     task = make_task_summary(clock=clock)
     hit = _hit(clock, 1)
-    request = _request(clock, retrieved=(hit,))
+    request = _request(clock, retrieved=_items(hit))
 
     prompt = await assemble(request, _FakeSources(tasks=(task,)), EstimateCounter())
 
@@ -414,7 +421,9 @@ async def test_assemble_drops_a_hit_above_the_principals_clearance_unseen() -> N
     principal = make_principal(clearance=HoneyClearance.C1)
 
     prompt = await assemble(
-        _request(clock, principal=principal, retrieved=(royal,)), _FakeSources(), EstimateCounter()
+        _request(clock, principal=principal, retrieved=_items(royal)),
+        _FakeSources(),
+        EstimateCounter(),
     )
 
     assert SectionLabel.RETRIEVED not in prompt.sections
@@ -430,7 +439,7 @@ async def test_assemble_never_lets_retrieved_hits_take_room_from_hot_state() -> 
 
     without = await assemble(_request(clock, budget=budget), sources, EstimateCounter())
     with_hits = await assemble(
-        _request(clock, budget=budget, retrieved=hits), sources, EstimateCounter()
+        _request(clock, budget=budget, retrieved=_items(*hits)), sources, EstimateCounter()
     )
 
     hot_ids = tuple(note.id for note in notes)
@@ -446,7 +455,7 @@ async def test_assemble_keeps_the_retrieved_section_within_its_share_and_lists_d
     collected: list[object] = []
 
     prompt = await assemble(
-        _request(clock, budget=budget, retrieved=hits),
+        _request(clock, budget=budget, retrieved=_items(*hits)),
         _FakeSources(),
         EstimateCounter(),
         on_drop=collected.append,
@@ -466,7 +475,7 @@ async def test_assemble_caps_an_oversized_hit_excerpt_at_the_item_cap() -> None:
     budget = make_token_budget(item_cap_chars=200)
 
     prompt = await assemble(
-        _request(clock, budget=budget, retrieved=(hit,)), _FakeSources(), EstimateCounter()
+        _request(clock, budget=budget, retrieved=_items(hit)), _FakeSources(), EstimateCounter()
     )
 
     retrieved = prompt.sections[SectionLabel.RETRIEVED]
@@ -481,7 +490,7 @@ async def test_assemble_counts_the_retrieved_section_in_the_prompts_tokens() -> 
     counter = EstimateCounter()
 
     bare = await assemble(_request(clock), _FakeSources(), counter)
-    with_hit = await assemble(_request(clock, retrieved=(hit,)), _FakeSources(), counter)
+    with_hit = await assemble(_request(clock, retrieved=_items(hit)), _FakeSources(), counter)
 
     assert with_hit.token_count > bare.token_count
     assert with_hit.token_count - bare.token_count >= await counter.count(

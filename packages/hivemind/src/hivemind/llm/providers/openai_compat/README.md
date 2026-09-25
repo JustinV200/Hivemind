@@ -129,6 +129,24 @@ async def test_openai_compat_against_a_real_local_server() -> None: ...
 not live_llm and not local_llm"`, per the phase 3 gates); a developer runs them by hand against a
 server they started themselves.
 
+## Transcription (roadmap step 6.5a, the subset 10.5f needs)
+
+`transcription.py` is the same kind of server serving the `TRANSCRIBER` slot:
+`OpenAICompatTranscription` sends `POST {base_url}/audio/transcriptions` as a multipart form (the
+clip as `file`, named `clip.<extension>` because servers choose their decoder from the extension;
+the binding's `model`; `language` when hinted; `response_format=verbose_json`) and reads back
+the text, the language, the server's measured duration and timed segments. A server that ignores
+`response_format` and answers plain `json` still yields the text, with no segments. The model id
+comes from the `[llm.slots]` row, not the provider row, so one server can host a chat model and a
+speech model. Errors map through `OpenAICompatClient.post_form` exactly as chat's do (5xx and
+connection failures `ProviderUnavailableError`, 429 `RateLimitedError`, other 4xx
+`ProviderRequestError`); a transcription client has no context window, so a 400 is never read as
+an overflow. Every call is bounded by httpx's per-phase timeout (`CONNECT_TIMEOUT_S` to connect)
+and a whole-call `asyncio.timeout` of the provider's `timeout_s`. Its wire field names live in
+`transcription.py` itself rather than `mapping.py`: one request and one response, read by nothing
+else. Hosted speech-to-text APIs and local Whisper servers (faster-whisper-server, LocalAI, vLLM)
+all speak this wire.
+
 ## How to test this
 
 ```bash

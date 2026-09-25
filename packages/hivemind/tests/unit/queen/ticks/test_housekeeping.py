@@ -48,7 +48,13 @@ _DAY_S = 86_400.0  # The manifest's default bee_bread_after_s.
 async def _placed_task(deps: QueenDeps, link: WardenLink) -> TaskId:
     """Submit a one-task goal and place it on `link`'s Cell (PENDING -> ASSIGNED)."""
     (task,) = await deps.chamber.submit(make_graph_draft({"work": ()}))
-    await deps.chamber.assign(task.id, link.warden_id, link.cell.id, "Placed for this test.")
+    await deps.chamber.assign(
+        task.id,
+        link.warden_id,
+        link.cell.id,
+        "Placed for this test.",
+        bound_tier=link.cell.comb_shield,
+    )
     return task.id
 
 

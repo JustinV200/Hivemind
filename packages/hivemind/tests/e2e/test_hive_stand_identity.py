@@ -39,9 +39,14 @@ from hivemind.cell import AccessLevel, CombShieldLevel, HoneyClearance, hive_sta
 from hivemind.cell.lease import LeaseRequest, RealCellLease
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local import HiveStandSource
-from hivemind.cli.compose.deps import build_fanner, build_hive_stand_source, build_provider_registry
+from hivemind.cli.compose.deps import build_fanner, build_hive_stand_source
 from hivemind.cli.compose.honey import build_honey_access
-from hivemind.cli.stores import build_forage_map, open_honey_store, open_trail
+from hivemind.cli.stores import (
+    build_forage_map,
+    build_provider_registry,
+    open_honey_store,
+    open_trail,
+)
 from hivemind.honey_store import HoneyAccess, NectarOrigin, NectarSubmission, ReadFilter
 from hivemind.manifest import load_manifest
 from waggle.clock import SystemClock

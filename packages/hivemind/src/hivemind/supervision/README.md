@@ -5,7 +5,7 @@ sub-bee. This package holds the shared shape codingrules section 8.8 describes: 
 telemetry, inspection and intervention (`supervisor.py`); the `Alarm` an unresolved issue becomes,
 mirrored kinds/severity and its state machine (`alarm.py`); one `alarm.*` Pheromone Trail event per
 raise/handle/escalate/resolve step of an Alarm's own chain (`alarm_trail.py`); the bounded
-`ContextTelemetry` every bee reports plus pure helpers over it (`telemetry.py`); the six
+`ContextTelemetry` every bee reports plus pure helpers over it (`telemetry.py`); the seven
 intervention levers (`intervention.py`); the escalation policy loaded from TOML (`policy.py`); and
 the deterministic `Attendant` every supervisor's inbox goes through (`attendant/`). It never
 imports `hivemind.llm`:
@@ -15,7 +15,8 @@ both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this pac
 ## Public API (roadmap step 3.13)
 
 - **Errors** (`errors.py`): `SupervisionError` (root), `InvalidAlarmTransitionError`,
-  `PolicyError`, `UnknownChildError`.
+  `PolicyError`, `UnknownChildError`, `UnknownInterventionError` (roadmap step 10.6c: a wire
+  action this Hive does not know, refused, never read as a silent cancel).
 - **Supervisor** (`supervisor.py`): `Supervisor` (the protocol: `children()`, `telemetry(child)`,
   `inspect(child) -> CompactView`, `intervene(child, Intervention)`), `ChildRef` (`id`, `kind`,
   `task_id`, `state`), `ChildKind` (`WARDEN`, `WORKER`).
@@ -30,12 +31,22 @@ both `hivemind.queen.autopilot` and `hivemind.wardens.autopilot` import this pac
 - **Telemetry** (`telemetry.py`): `ContextTelemetry` (re-exported from waggle, not mirrored),
   `fraction_used`, `is_past_threshold`, `summarise` (a secret-free one-line render for logs).
 - **Intervention** (`intervention.py`): `Compact`, `Checkpoint`, `Handoff`, `Rebind` (carries a
-  `hivemind.forage.ModelSlot`), `Takeover`, `Cancel`, the `Intervention` discriminated union, and
-  `to_wire`/`from_wire` against `waggle.messages.supervision.Intervene`.
-- **Policy** (`policy.py`): `PolicyAction`, `PolicyRule` (`kind: AlarmKind | None`,
-  `min_attempts >= 1`, `action`), `EscalationPolicy` (`rules`, `default`), `load_policy(path) ->
-  EscalationPolicy` (TOML; see `docs/supervision/default-policy.toml`), pure `decide(policy,
-  alarm) -> PolicyAction`.
+  `hivemind.forage.ModelSlot`), `Takeover`, `Cancel`, `Quarantine` (roadmap step 10.6c: the bee
+  and/or its task, the suspect episode id and a reason), the `Intervention` discriminated union,
+  and `to_wire`/`to_intervene`/`from_wire` against `waggle.messages.supervision.Intervene`
+  (`to_intervene` also names the task and the Alarm an order answers). `from_wire` raises
+  `UnknownInterventionError` for an action it has no lever for, so a newer peer's lever is never
+  mistaken for a cancel (ADR-0043). A Worker's runtime refuses one it cannot pull and logs it;
+  a `Quarantine` that reaches a bee's own runtime is carried out by its Warden, which only ever
+  cancels the bee there.
+- **Policy** (`policy.py`): `PolicyAction` (`QUARANTINE` since roadmap step 10.6c: a Warden's own
+  row quarantines its sub-bee, the Queen's orders the task's Warden to), `PolicyRule` (`kind:
+  AlarmKind | None`, `min_attempts >= 1`, `action`), `EscalationPolicy` (`rules`, `default`),
+  `load_policy(path) -> EscalationPolicy` (TOML; see `docs/supervision/default-policy.toml`),
+  pure `decide(policy, alarm) -> PolicyAction`. `PolicyAction` mirrors no wire enum, so every
+  table that maps it (the Warden's and the Queen's autopilot) is walked member by member in
+  `tests/unit/supervision/test_policy_tables.py`, and the shipped policy's `SECURITY` row (an
+  `AlarmKind` since Waggle 1.9) always goes up: never retried, respawned or rebound.
 - **Attendant** (`attendant/`): `InboxKind`, `InboxItem`, `WeightTable` (with
   `queen_default()`/`warden_default()`), `Priority`, `TieBreaker` (the model-tie-break seam),
   `Attendant` (`score(item, now)`, `async order(items)`), pure `score_item`.

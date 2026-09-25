@@ -32,7 +32,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md step 4.11 for this module's own deliverable, verbatim.
-    - hivemind.supervision.capping.audit for audit_completed, this module's one core call.
+    - hivemind.supervision.capping.audit.sampler for audit_completed, this module's one core call.
     - hivemind.cli.capping.queue for track_proposals, this module's one reuse.
 """
 
@@ -74,7 +74,7 @@ from hivemind.supervision.capping import (
     load_judge_rubrics,
     load_tiers,
 )
-from hivemind.supervision.capping.audit import audit_completed
+from hivemind.supervision.capping.audit.sampler import audit_completed
 from waggle.clock import Clock, SystemClock
 from waggle.ids import CellId, MessageId, TaskId, new_worker_id
 from waggle.messages.capping import ActionKind, ProposedAction

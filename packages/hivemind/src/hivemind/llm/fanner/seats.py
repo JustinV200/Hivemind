@@ -21,6 +21,9 @@ Key invariants:
     - `_waiters` is a `(priority, arrival sequence, event)` min-heap; the sequence is unique per
       meter and strictly increasing, so two tuples never tie on their first two elements and
       `heapq` never has to compare the (unorderable) `asyncio.Event` objects themselves.
+    - A caller cancelled while it queues (a sub-bee killed mid-wait) never takes a seat with it:
+      it leaves the heap, or, if a seat was handed to it before it could resume, hands that seat
+      straight on (`_abandon`), so the meter's count of seats never shrinks by a dead caller.
 
 See Also:
     - .claude/codingrules.md section 8.10 for "the only place seat counts are enforced".
@@ -114,7 +117,11 @@ class SeatMeter:
         # Waiting on the event, not the lock: release() only holds the lock long enough to hand
         # the seat to the next waiter, so this wait never blocks another caller from enqueueing.
         start_s = self._clock.monotonic()
-        await event.wait()
+        try:
+            await event.wait()
+        except asyncio.CancelledError:
+            self._abandon(event)  # Module docstring: a cancelled caller never keeps a seat.
+            raise
         return self._clock.monotonic() - start_s
 
     async def release(self) -> None:
@@ -126,8 +133,25 @@ class SeatMeter:
         concurrent `acquire()` call happens to run next.
         """
         async with self._lock:
-            if self._waiters:
-                _, _, event = heapq.heappop(self._waiters)
-                event.set()
-            else:
-                self._in_flight -= 1
+            self._hand_on()
+
+    def _hand_on(self) -> None:
+        """Give one held seat to the first waiter in line, or count it free when none waits."""
+        if self._waiters:
+            _, _, event = heapq.heappop(self._waiters)
+            event.set()
+        else:
+            self._in_flight -= 1
+
+    def _abandon(self, event: asyncio.Event) -> None:
+        """Withdraw a cancelled caller's place in line, handing on a seat it was already given.
+
+        Synchronous, so it runs to completion even while its caller is being cancelled, and needs
+        no lock: no other method suspends inside its own locked section, so nothing can
+        interleave with this one.
+        """
+        if event.is_set():
+            self._hand_on()  # release() already handed it this seat: pass it to whoever is next.
+            return
+        self._waiters = [waiter for waiter in self._waiters if waiter[2] is not event]
+        heapq.heapify(self._waiters)

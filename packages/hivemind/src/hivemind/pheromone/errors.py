@@ -62,8 +62,8 @@ class UnknownEventFamilyError(PheromoneError):
     """Raise when a `kind` string names no registered event family, or is not `<family>.<name>`.
 
     Raised by `hivemind.pheromone.events.event_class_for` and the `parse_event`/`parse_event_json`
-    codec built on it: a malformed `kind`, a `kind` whose family segment is not one of the eleven
-    in `EVENT_FAMILIES`, or a JSON document with no string `kind` field at all.
+    codec built on it: a malformed `kind`, a `kind` whose family segment is not one of the
+    fourteen in `EVENT_FAMILIES`, or a JSON document with no string `kind` field at all.
     """
 
     code: ClassVar[str] = "hivemind.pheromone.unknown_family"

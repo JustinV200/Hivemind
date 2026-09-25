@@ -144,7 +144,7 @@ HiveMind/
 │   │   ├── src/hivemind/
 │   │   │   ├── common/           # Layer 0. errors, result, logging setup, sqlite (connect + transaction), migrations. Imports nothing internal except waggle (ids, clock, loop).
 │   │   │   ├── manifest/         # Hive Manifest loading, schema, validation
-│   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync. events/, trail/ (protocol, memory, sqlite, tail, migrations), retention.py
+│   │   │   ├── pheromone/        # Pheromone Trail: append-only audit log, per-node segments that sync. events/, trail/ (protocol, memory, sqlite, tail, migrations), retention/ (skeleton, segments, trail, purge: the Night Veil boundary)
 │   │   │   ├── llm/              # LLMProvider + EmbeddingProvider protocols, slot resolution (the ModelSlot enum is in forage/), ladders/, routing, fanner.py (seat meter), prompts/, providers/. Imports forage and pheromone (its own llm.* events); neither imports llm.
 │   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence. task/ (model, state, graph), store/ (protocol, memory, sqlite, migrations), chamber/ (facade)
@@ -242,7 +242,8 @@ NEVER import from a higher layer. This is enforced by `import-linter` contracts 
 `pyproject.toml`; a violating import fails CI.
 
 ```text
-Layer 7  entrance, observation, cli                                  (edges: HTTP, terminal, dashboard)
+Layer 7  cli                                                          (the terminal; the hive run and hive serve roots)
+         entrance, observation                                        (edges: HTTP, dashboard)
 Layer 6  queen                                                        (the kernel; the only global view; divides Forage)
 Layer 5  wardens                                                      (per-Cell supervisors; spawn and supervise Workers)
 Layer 4  workers                                                      (roles that do the work)
@@ -266,11 +267,16 @@ Layer 0  common                                                       (primitive
 - Process execution is a `CellSession` concern. `subprocess`, `os.system` and friends are
   importable only from `hivemind.cell.*` (the local and in-cell sessions),
   `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`,
-  `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its session;
-  `lint-imports` rejects anything else.
+  `hivemind.entrance.expose.tunnel` (the tunnel client the Entrance supervises in `tunnel` mode,
+  ADR-0041), `pollen.*` and `scripts/`. A Worker or tool that wants to run a command asks its
+  session; `lint-imports` rejects anything else.
 - Autopilot never awaits a model. Any module under a directory named `autopilot/` may not import
   `hivemind.llm`, directly or transitively; `lint-imports` enforces it. This is what keeps the
   Hive alive when every provider is down (section 8.8).
+- `cli` is the outermost edge: `hive serve` builds the Hive Entrance over the Hive that `hive run`
+  builds, and `hive entrance ...` administers it through the Entrance's public API, so `cli` may
+  import `entrance` and `observation`. Neither of those ever imports `cli`; the Entrance is
+  handed the Hive it serves by the composition root, never reaches for it.
 - `wardens` imports `workers` (to spawn them) and `queen` imports `wardens` (to assign to them).
   A Worker never imports its Warden and a Warden never imports the Queen; they talk over Waggle
   through the `Supervisor` protocol in `supervision/`.
@@ -592,7 +598,7 @@ Mandatory protocols (each gets its own ADR when first implemented):
 | `DeviceExecutor` | `pollen/executors/base.py` | shell, files, per-OS |
 | `PheromoneTrail` | `hivemind/pheromone/trail/protocol.py` | SQLite, in-memory (tests) |
 | `Snapshotter` | `hivemind/cell/snapshot.py` | `DockerSnapshotter`, `QemuSnapshotter` (in `hive/snapshot.py`), `NoopSnapshotter` (Real Cells, warns) |
-| `PushChannel` | `hivemind/entrance/push/base.py` | `WebSocketPush`, `WebhookPush`, `WebPush`, `FakePush` |
+| `PushChannel` | `hivemind/entrance/push/base.py` | `WebhookPush`, `WebPush`, `FakePush`; live clients are served per device by `LivePush` beside them |
 
 ### 8.2 Dependency injection, no globals
 
@@ -1111,17 +1117,19 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   additionally need the typed confirmation from section 15 on every path, the API included.
 - **Never on the open internet.** `entrance/expose.py` reads `[entrance] expose`: `loopback`
   (always on), `vpn` (recommended for remote access: a WireGuard or Tailscale overlay, the remote
-  listener bound to the overlay interface only, so unauthenticated packets never reach the
-  Entrance), `lan` and `tunnel` (both require TLS and mutual TLS with the device certificate on
+  listener bound to an address on the overlay interface only, so unauthenticated packets never
+  reach the Entrance), `lan` and `tunnel` (both require mutual TLS with the device certificate on
   top of login). There is no `public` value, and the Entrance refuses to start exposed without
-  TLS.
+  TLS on a DNS name, in every remote mode: browsers get passkeys, WebCrypto and push only in a
+  secure context, and WebAuthn refuses an IP address as a relying party (ADR-0041). The loopback
+  listener refuses a non-loopback `Host` and any proxy-forwarding header, so nothing can front it.
 - **Guard Bees watch the door; the Entrance Reducer narrows it.** `entrance/reducer.py` drops
   the Entrance to loopback only and kills every remote session, on `hive entrance reduce` or on a
   Guard Bee autopilot rule (failure bursts, lockouts across devices, an unknown client hammering
   the invite route); only loopback reopens it, with step-up. Narrowing access is always safe, so
   autopilot may do it without judgement. Lockout after `lockout_attempts` failures per device,
   rate limits per device and per address, and every enrolment, approval, denial, revocation,
-  lockout, step-up and reduction is a `guard.entrance.*` trail event pushed to every other
+  lockout, step-up and reduction is a `guard.entrance_*` trail event pushed to every other
   enrolled device. The optional travel lock (`travel_lock = true`) forces step-up and a
   notification when a known device appears from a new network; it never approves anything.
 - **Versioned and described.** Routes live under `/v1/`. `entrance/landing_board.py` generates
@@ -1142,13 +1150,14 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   `CapabilitySet` (usually `entrance:submit`, `entrance:answer`, `observe`) and a daily spend cap
   set at approval. It can never hold more than the operator granted on loopback.
 - **Voice is transcribed at the door.** An enrolled device may send audio instead of text: a
-  clip on `/v1/chat/audio`, or audio frames on the chat WebSocket for push-to-talk. `entrance/voice.py`
+  clip on `/v1/chat/audio`, or audio frames on the chat WebSocket for push-to-talk. `entrance/voice/`
   transcribes it on `ModelSlot.TRANSCRIBER` (8.6), Whisper by default and local first, and the
   transcript enters the Queen's inbox as a `HumanMessage`. A spoken goal is echoed back for
   confirmation before it is submitted (`[entrance.voice] confirm_goals`, on by default), so a
   misheard sentence never spends anything; answers and chat go straight through. Audio and
   transcript are `C2`; the audio is discarded after transcription unless `keep_audio` is set, in
-  which case it is Nectar with a retention window. Clips are capped by `max_clip_seconds`.
+  which case it is Nectar with a retention window. Clips are capped by `max_clip_seconds`, and the
+  rate limiter counts each device's audio seconds; both refuse a clip before any model runs.
   Replies are text; speech synthesis is post-1.0. Images a client sends are deposited as Nectar
   with clearance `C2`, since they come from the human. On a Night Veil Cell the same slot resolves
   to a local Whisper, because every slot there is local.
@@ -1340,8 +1349,12 @@ Rules:
   expose = "loopback"                    # loopback | vpn | lan | tunnel; there is no public mode
   remote_bind = ""                       # the remote listener; set when expose is not loopback
   public_url = ""                        # used for CORS, webhooks and the PWA manifest
-  tls = { cert = "", key = "" }          # required for lan and tunnel; vpn may rely on the overlay
+  tls = { cert = "", key = "" }          # required in every remote mode: TLS on a DNS name
   mutual_tls = true                      # lan and tunnel refuse to start with this false
+  vpn_interface = ""                     # the overlay interface remote_bind must be on (vpn)
+  vpn_cidrs = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]  # the overlay's ranges (Tailscale's)
+  rp_id = ""                             # WebAuthn relying party; empty means public_url's host
+  tunnel_command = []                    # argv of the TCP-forwarding tunnel client (tunnel)
   operators = 1                          # Brood 1.0 is single-operator
   steward_devices = false                # let one enrolled device approve others after step-up
   travel_lock = false                    # step-up and notify when a known device changes network
@@ -1349,18 +1362,27 @@ Rules:
   idle_timeout_minutes = 30
   step_up_window_minutes = 5
   step_up_spend = 5.00                   # spend per goal above which step-up is required
-  lockout_attempts = 5
+  lockout_attempts = 5                   # valid-proof login failures before LOCKED
+  lockout_denials = 20                   # capability denials in the window before LOCKED
+  lockout_denial_window_s = 60
   rate_limit_per_device = 60             # requests per minute
+  rate_limit_per_address = 30            # requests per minute; covers unauthenticated routes
+  request_skew_s = 60                    # a signed request's timestamp tolerance
+  invite_ttl_minutes = 15
+  pending_ttl_hours = 24
 
   [entrance.push]
   webhooks = true
-  web_push = true                        # VAPID keys come from HIVEMIND_ENTRANCE_VAPID_*
+  web_push = true                        # VAPID key: HIVEMIND_ENTRANCE_VAPID_* or the secret store
+  webhook_allowlist = []                 # extra webhook destinations beyond https and vpn_cidrs
 
   [entrance.voice]
   enabled = true                         # audio in on the chat route, transcribed on the transcriber slot
   confirm_goals = true                   # echo a spoken goal back before it becomes a task
   keep_audio = false                     # discard audio after transcription; true keeps it as C2 Nectar
+  keep_audio_hours = 24                  # a kept clip's retention window
   max_clip_seconds = 120
+  audio_seconds_per_minute = 120         # each device's audio budget; at least max_clip_seconds
   ```
 - **Secrets** (API keys, device enrolment tokens, cloud credentials) are never in the manifest
   file, never in code, never in logs, never in the Pheromone Trail. They come from environment
@@ -1760,7 +1782,7 @@ transaction as the state change.
 
 | Machine | Owner and file | States and transitions | Notes |
 |---|---|---|---|
-| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
+| Task | Brood Chamber, `brood_chamber/task/state.py` | `PENDING → ASSIGNED → RUNNING → SUCCEEDED / FAILED / CANCELLED`; `RUNNING ↔ BLOCKED` (question); `RUNNING ↔ PAUSED` (Clustering, a quarantine until a judge clears its checkpoint, or an isolation); `ASSIGNED → PENDING` (Warden lost); any non-terminal state `→ CANCELLED` (a human or the Queen cancels a goal) | `SUCCEEDED` only after acceptance checks pass, run by the Warden. |
 | Question | Brood Chamber, `brood_chamber/questions.py` | `ASKED → ANSWERED / WITHDRAWN` | Asking blocks the task; answering resumes it. |
 | Proposal | Capping, `supervision/capping/state.py` | `PROPOSED → CHECKING → CAPPED → APPLIED → VERIFIED`; `CHECKING → REJECTED`; `APPLIED → ROLLED_BACK` | Tier decides the checks between `CHECKING` and `CAPPED`. |
 | Alarm | Supervision, `supervision/alarm.py` | `RAISED → HANDLING → RESOLVED`; `HANDLING → ESCALATED → HANDLING` (at the next level) | Attempt count travels with it; same id at every level. |
@@ -1775,9 +1797,14 @@ transaction as the state change.
 | Queen mode | Queen, `queen/state.py` | `REQUEENING → RUNNING`; `RUNNING ↔ CLUSTERED` (per provider set); `CLUSTERED → SUPERSEDING → SUPERSEDED` (the old Queen, 8.16); `SUPERSEDING → CLUSTERED` (rollback) | Per event, `RUNNING` is autopilot then awake; mode is not a transcript. A new Queen starts in `REQUEENING` from the copied stores. |
 | Knowledge tier | Memory and Honey Store | `HOT → BEE_BREAD → HONEY`; `NECTAR → HONEY` | A pipeline, not a strict machine; demotion is a House Bee duty. |
 | Cell Wax note | Memory, `memory/cell_wax.py` | `PROPOSED → WRITTEN → CLEARED / EXPIRED`; `PROPOSED → REJECTED` | Only the Queen writes, rejects or clears; every edge is a `memory.wax_*` event; cleared and expired notes are ripened into Honey at `cell:<id>` scope. |
+| Taint label | Memory, `memory/taint/state.py` | `(unlabelled) / CLEARED → TAINTED` (`taint_memory`, from isolation, quarantine or a Guard report on a Honey item); `TAINTED → CLEARED` (`clear_taint`, on a judge verdict only) | A marker on Handoffs, episode records and Bee Bread entries (Nectar and Honey items from phase 7) naming its source, reason and the event that set it; every edge is a `memory.tainted` or `memory.taint_cleared` event; `memory.assemble`, retrieval and every Handoff loader refuse a `TAINTED` item outright; a test walks the tree so nothing else writes it. |
 | Pheromone Mask | Supervision, `supervision/mask.py` | `OFF → WARDEN / QUEEN_FORCED → OFF` (expiry or explicit clear); `WARDEN → QUEEN_FORCED` (the Queen's override wins) | Per Cell; every edge carries reason and expiry; shown as a badge in the UI. |
-| Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → REVOKED` | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance.*` event pushed to every other device. |
-| Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up. |
+| Enrolled device | Entrance, `entrance/enrol/state.py` | `INVITED → PENDING → APPROVED`; `INVITED → EXPIRED / REVOKED` (the invite lapsed unredeemed, or the operator cancelled it); `PENDING → DENIED / EXPIRED`; `APPROVED ↔ LOCKED` (lockout, loopback unlock); `APPROVED / LOCKED → EXPIRED / REVOKED` (the approval's own expiry, or the operator) | Approval, unlock and revocation are loopback-only edges; every edge is a `guard.entrance_*` event pushed to every other device. |
+| Entrance mode | Entrance, `entrance/reducer.py` | `OPEN → REDUCED → OPEN` | Persisted in the Entrance tables, so a restart resumes the mode it left; `REDUCED` keeps only the loopback listener; reopening is loopback-only with step-up; a failed remote listener reduces rather than stopping the Queen. |
+| Goal request | Queen, `queen/intake/state.py` | `RECEIVED → PLANNING → PLANNED / REFUSED`; `RECEIVED → AWAITING_CONFIRMATION → RECEIVED / REFUSED` (the human confirms or declines an echoed-back goal); `RECEIVED → REFUSED` (its device was revoked before it was planned, as from the other two unplanned states) | Committed before the Entrance answers `202`; only the Queen plans it, on her own tick; on a restart a `PLANNING` row whose goal already exists becomes `PLANNED` and any other is planned again, so a request is planned exactly once; every edge is a `queen.goal_request_*` event. |
+| Pending confirmation | Entrance, `entrance/auth/confirm/state.py` | `PENDING → CONFIRMED / EXPIRED / CANCELLED` | Holds a non-interactive device's request that needs step-up; confirmed only from an interactive device inside its step-up window, and carried out at most once; a hold whose device has lost its approval is settled `CANCELLED` when it is next touched; break-glass actions are never held. |
+| Cell isolation | Queen, `queen/isolation/record.py` | `OPEN → ISOLATED` (`cell.isolated`: the Queen's decision on a Guard request or her own `ISOLATE` policy row, or the human's order; the Hive Stand's own lease only by the human); `ISOLATED → OPEN` (`cell.isolation_lifted`: the human only, with step-up) | The state is the trail: a Cell's newer of its two events, in trail order; placement reads the `BLOCK` Cell Wax the isolation wrote, not the state; the lease and its scratch are kept; a lift leaves tainted memory tainted and paused tasks paused; a lift with no isolation standing only releases the Queen's placement holds and leaves the state `OPEN`. While `ISOLATED`, the Queen resends the Cell's `CellTaintOrder` whenever its Warden attaches (the order's instant is `cell.isolated`'s `suspect_at`), and the Warden refuses any resume from a Handoff its own store labels tainted, whatever the state. |
+| Guard request | Queen, `queen/guard_requests/model.py` | `PENDING → DECIDED` (her decision stamped: `ISOLATE_CELL`, `QUARANTINE_BEE` or `DISMISS`, by rule, awake episode or fallback) | Committed before the Guard Bee's filing returns; decided on her own tick only; the edge's event is `queen.decided`, recorded before the decision is carried out and the row stamped after it, so a crash in between decides it again (every action is idempotent); a placement hold it leaves stands until the human lifts it. |
 
 Where state lives, and what survives a Queen crash:
 
@@ -1786,7 +1813,7 @@ Where state lives, and what survives a Queen crash:
 | Tasks, questions, acceptance results | Brood Chamber (SQLite) | Yes | Requeening reads it back. |
 | Every transition, every decision | Pheromone Trail (SQLite, per-node segments) | Yes; a Night Veil Cell keeps only the lifecycle skeleton from section 12 | Source of truth for reconciliation and audit; offline segments merge. |
 | Hot state | Nowhere; derived per episode | Not applicable | Rebuilt by `memory.assemble` from the stores below. |
-| Notes, pins, Cell Wax, episode records, Handoffs, Bee Bread index, watch observations | Memory tables (SQLite) | Yes | Read directly; retention windows apply; wax expires on its own clock. |
+| Notes, pins, Cell Wax, episode records, Handoffs, Bee Bread index and their taint labels, watch observations | Memory tables (SQLite) | Yes | Read directly; retention windows apply; wax expires on its own clock. |
 | Honey and Nectar | Honey Store (SQLite, FTS5, `sqlite-vec`) | Yes | Read directly; re-embed on embedder change. |
 | Capacity, grants, hosting decisions, snapshots | Forage ledger (SQLite) | Yes | Reconciled against fresh capacity reports on Requeening. |
 | Leases | Lease table plus trail | Yes | Orphan sweep on Queen and Warden start. |
@@ -1797,6 +1824,9 @@ Where state lives, and what survives a Queen crash:
 | Provider health | In memory | No | Re-probed on start. |
 | A bee's in-flight reasoning | Its process, and its last Handoff | Via the Handoff | Resume from the Handoff on the same or another slot or host. |
 | Hive identity and the Queen's address | Secret store (keypair); manifest `[hive_stand] address`; every device's enrolment record | Yes | Supersedure (8.16) rewrites the address on every node with a signed `QueenMoved`. |
+| Goal requests, the chat log | Queen tables (SQLite) | Yes | `RECEIVED` and `PLANNING` requests are planned (or settled) on start; unhandled human messages are read again. |
+| Guard requests, their decisions and placement holds | Queen tables (SQLite) | Yes | Undecided requests are decided on her first tick after a start; a hold stands until the human lifts it. |
+| Cell isolation | Pheromone Trail, plus the `BLOCK` Cell Wax in the memory tables | Yes | Read back from the trail on demand; nothing to reconcile. |
 | Operator credential, enrolled devices, sessions, push subscriptions | Entrance tables (SQLite) | Yes | Password hash and device public keys only; sessions are re-validated against device state on start; move with the stores on Supersedure. |
 
 Five rules follow from the tables:

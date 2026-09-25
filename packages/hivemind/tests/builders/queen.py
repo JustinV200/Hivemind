@@ -10,12 +10,20 @@ policy.toml` loaded for real (the same table production loads), a `hivemind.llm.
 `bound_for`/`rebind` over a scriptable `FakeLLMProvider`, resolving four `[llm.slots]` rows:
 `"queen"`, `"attendant"`, `"worker"` (whose `fallback` is `"worker_fallback"`, so an e2e REBIND
 has somewhere to go) and
-`"worker_fallback"`. It also builds one attached `hivemind.queen.deps.WardenLink` over a fresh
+`"worker_fallback"`, (roadmap step 10.5) an in-memory goal-request table and chat log over the
+same trail, and (roadmap step 10.3) a `hivemind.guard.Enforcer` over the shipped Guard
+policy, built last so it records to whichever trail the test ended up with (`with_guard_policy`
+swaps in an Enforcer over another policy, the same trail and clock). It also builds one
+`hivemind.queen.deps.WardenLink` for the test to attach over a fresh
 `waggle.transport.memory.MemoryTransport` pair, and `WardenEnd`, the Warden-side half of that same
 pair: it wraps the Warden's own end, mirroring `builders.wardens.QueenEnd` with the direction
 reversed -- it sends `Heartbeat`/`TaskResult`/`AlarmRaised`/`Question` (what a Warden reports) and
 sorts what it receives into `grants`/`assignments`/`answers`/`intervenes`/`forage_replies` (what a
 Warden is sent).
+`land_provisions` is for a test that places a task on a Virtual Cell: the Queen acquires one beside
+her tick (`hivemind.queen.dispatcher.provisions`), so a dispatch pass only starts the acquisition;
+this awaits every acquisition in flight, then runs the pass that collects each Cell and places its
+task, as her next tick would.
 `plan_responder` builds a `FakeLLMProvider` `Responder` for a test that only exercises
 `hivemind.queen.planner.plan_goal`/`Queen.submit_goal`: it pulls the goal text back out of the
 rendered `decompose_goal` system prompt's own `<<<user>>>` section and answers with
@@ -42,25 +50,32 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import cast
 
 from builders.cells import make_cell
 from builders.forage import make_source
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStore
-from hivemind.cell import Cell, CellKind
+from hivemind.cell import Cell, CellIdentity, CellKind
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
+from hivemind.guard import Enforcer, GuardPolicy, load_guard_policy
 from hivemind.llm import BoundModel, DirectCallGate, FakeLLMProvider
 from hivemind.llm.fake import text_response
 from hivemind.llm.models import LLMRequest, LLMResponse
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
+from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen.chat import InMemoryChatLog
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
+from hivemind.queen.dispatcher import dispatch_ready
+from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.supervision import load_policy
 from waggle.clock import Clock, FakeClock
 from waggle.codec import Codec
@@ -75,10 +90,16 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.base import WaggleMessage
-from waggle.messages.cell import CellWaxWritten
-from waggle.messages.forage import CeilingsSet, ForageReply, GrantIssued, PlanWritten
+from waggle.messages.cell import CellTaintOrder, CellWaxWritten
+from waggle.messages.forage import (
+    CeilingsSet,
+    ForageReply,
+    GrantIssued,
+    GrantRevoked,
+    PlanWritten,
+)
 from waggle.messages.supervision import Answer, Intervene
-from waggle.messages.task import TaskAssign, TaskPause, TaskResume
+from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume
 from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging.
@@ -106,8 +127,11 @@ __all__ = [
     "DEFAULT_PUMP_LIMIT",
     "FORAGE_SOURCE_SEATS",
     "WardenEnd",
+    "land_provisions",
     "make_queen_deps",
+    "make_warden_link",
     "plan_responder",
+    "with_guard_policy",
 ]
 
 
@@ -126,11 +150,12 @@ def make_queen_deps(
             (full capabilities) when omitted.
         cell: The attached WardenLink's own Cell; a fresh REAL Cell (`builders.cells.make_cell`)
             when omitted.
-        **overrides: Field values that replace the QueenDeps defaults below.
+        **overrides: Field values that replace the QueenDeps defaults below; an `enforcer`
+            override replaces the shipped-policy Enforcer outright.
 
     Returns:
-        `(deps, warden_link, warden_end)`: build a `Queen(deps)`, call
-        `queen.attach_warden(warden_link)`, then drive the Warden side with `warden_end`.
+        `(deps, warden_link, warden_end)`: build a `Queen(deps)`, `await
+        queen.attach_warden(warden_link)`, then drive the Warden side with `warden_end`.
     """
     active_clock = clock if clock is not None else FakeClock()
     trail = MemoryPheromoneTrail(active_clock)
@@ -138,7 +163,7 @@ def make_queen_deps(
     warden_id = new_warden_id(active_clock)
     provider = fake_provider or FakeLLMProvider(name=_DEFAULT_PROVIDER_NAME)
     active_cell = cell if cell is not None else make_cell(kind=CellKind.REAL, clock=active_clock)
-    link, warden_end = _build_link(hive_id, warden_id, node_id, active_cell, active_clock)
+    link, warden_end = make_warden_link(hive_id, warden_id, node_id, active_cell, active_clock)
 
     fields = _build_fields(
         _FieldInputs(
@@ -150,7 +175,49 @@ def make_queen_deps(
         )
     )
     fields.update(overrides)
+    # Roadmap step 10.3: built last, over whichever trail and clock the test ended up with, so a
+    # `guard.denied` lands on the very trail the test reads back.
+    if "enforcer" not in fields:
+        fields["enforcer"] = _build_enforcer(fields, hive_id, node_id)
     return QueenDeps(**fields), link, warden_end  # type: ignore[arg-type]
+
+
+def with_guard_policy(deps: QueenDeps, policy: GuardPolicy) -> QueenDeps:
+    """Return `deps` with an Enforcer over `policy`, recording to the same trail and clock.
+
+    Args:
+        deps: A QueenDeps from `make_queen_deps`.
+        policy: The Guard policy every enforcement point of the Queen should decide against.
+
+    Returns:
+        A copy of `deps` whose `enforcer` (and so every set the Queen computes) uses `policy`.
+    """
+    identity = CellIdentity(
+        hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor="system"
+    )
+    enforcer = Enforcer(policy, deps.trail, deps.clock, identity)
+    return dataclasses.replace(deps, enforcer=enforcer)
+
+
+async def land_provisions(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
+    """Await every Virtual Cell being acquired, then run the dispatch pass that collects them.
+
+    Args:
+        deps: The Queen's collaborators; `dispatch.provisions` holds the acquisitions.
+        wardens: Every attached Warden, handed to the collecting pass.
+    """
+    jobs = [held.job for held in deps.dispatch.provisions.jobs.values()]
+    if jobs:
+        # A fake provider's acquire settles in a few loop turns; a real wait here is the test's own.
+        await asyncio.wait(jobs)
+    await dispatch_ready(deps, wardens)
+
+
+def _build_enforcer(fields: dict[str, object], hive_id: HiveId, node_id: NodeId) -> Enforcer:
+    """Build an Enforcer over the shipped Guard policy and the test's own trail and clock."""
+    identity = CellIdentity(hive_id=hive_id, node_id=node_id, actor="system")
+    trail = cast(PheromoneTrail, fields["trail"])
+    return Enforcer(load_guard_policy(), trail, cast(Clock, fields["clock"]), identity)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -194,6 +261,10 @@ def _build_fields(inputs: _FieldInputs) -> dict[str, object]:
         # that needs a specific value for the leaves-vs-scratch rule passes scratch_root=... in
         # **overrides.
         "scratch_root": Path("/hive-stand/scratch"),
+        # Roadmap step 10.5: the Queen's goal requests and chat log, over the same trail, so a
+        # test reads every queen.goal_request_* and chat event back from where the rest land.
+        "goal_requests": InMemoryGoalRequestStore(inputs.trail),
+        "chat": InMemoryChatLog(inputs.trail),
     }
 
 
@@ -287,10 +358,14 @@ def _build_bound(
     )
 
 
-def _build_link(
+def make_warden_link(
     hive_id: HiveId, warden_id: WardenId, node_id: NodeId, cell: Cell, clock: Clock
 ) -> tuple[WardenLink, WardenEnd]:
-    """Build one WardenLink (the Queen's own end) and the WardenEnd wrapping the other."""
+    """Build one WardenLink (the Queen's own end) and the WardenEnd wrapping the other.
+
+    Public so a test can reattach the same Warden over a fresh link (roadmap step 10.6a: the
+    Queen resends an isolated Cell's taint order when its Warden's link comes back).
+    """
     queen_transport, warden_transport = MemoryTransport.pair(Codec(), Codec())
     queen_hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
     warden_hop = Hop(sender=warden_id, recipient=hive_id, node_id=node_id)
@@ -329,6 +404,9 @@ class WardenEnd:
         self.wax_written: list[CellWaxWritten] = []  # Roadmap step 4.2a.
         self.task_pauses: list[TaskPause] = []  # Roadmap step 4.9 (Clustering).
         self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
+        self.task_cancels: list[TaskCancel] = []  # Roadmap step 10.5: a revocation's cancel.
+        self.grant_revokes: list[GrantRevoked] = []  # Roadmap step 10.6a (isolation).
+        self.taint_orders: list[CellTaintOrder] = []  # Roadmap step 10.6a: the in-Cell taint.
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
         # a separate timestamp comparison.
@@ -408,6 +486,11 @@ class WardenEnd:
         await self.pump_until(lambda: bool(self.task_resumes), limit=limit)
         return self.task_resumes[-1]
 
+    async def wait_for_task_cancel(self, limit: int = DEFAULT_PUMP_LIMIT) -> TaskCancel:
+        """Pump until at least one TaskCancel has arrived, and return the latest one."""
+        await self.pump_until(lambda: bool(self.task_cancels), limit=limit)
+        return self.task_cancels[-1]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Queen's own receive() ends cleanly."""
         await self._transport.close()
@@ -415,8 +498,8 @@ class WardenEnd:
     def _sort(self, envelope: Envelope) -> None:
         """Append `envelope`'s payload to the matching bucket; unrecognised kinds are ignored."""
         payload = envelope.payload
-        if self._sort_forage(payload):
-            return  # Roadmap step 4.8's own three kinds; split out to stay under C901's limit.
+        if self._sort_forage(payload) or self._sort_task_control(payload):
+            return  # Split out by message family to stay under C901's limit.
         if isinstance(payload, GrantIssued):
             self.grants.append(payload)
             self.received_kinds.append("grant")
@@ -432,12 +515,24 @@ class WardenEnd:
         elif isinstance(payload, CellWaxWritten):
             self.wax_written.append(payload)
             self.received_kinds.append("wax_written")
-        elif isinstance(payload, TaskPause):
+        elif isinstance(payload, CellTaintOrder):
+            self.taint_orders.append(payload)
+            self.received_kinds.append("taint_order")
+
+    def _sort_task_control(self, payload: object) -> bool:
+        """Sort a task control order (TaskPause/TaskResume/TaskCancel); True if it matched."""
+        if isinstance(payload, TaskPause):
             self.task_pauses.append(payload)
             self.received_kinds.append("task_pause")
         elif isinstance(payload, TaskResume):
             self.task_resumes.append(payload)
             self.received_kinds.append("task_resume")
+        elif isinstance(payload, TaskCancel):
+            self.task_cancels.append(payload)
+            self.received_kinds.append("task_cancel")
+        else:
+            return False
+        return True
 
     def _sort_forage(self, payload: object) -> bool:
         """Sort a Forage-family payload (ForageReply/CeilingsSet/PlanWritten); True if it matched.
@@ -454,6 +549,9 @@ class WardenEnd:
         elif isinstance(payload, PlanWritten):
             self.plans_written.append(payload)
             self.received_kinds.append("plan_written")
+        elif isinstance(payload, GrantRevoked):
+            self.grant_revokes.append(payload)
+            self.received_kinds.append("grant_revoked")
         else:
             return False
         return True

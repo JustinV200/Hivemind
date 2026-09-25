@@ -8,7 +8,9 @@ the in-Cell provider registry's own `FakeLLMProvider` (`hivemind.cli.in_cell.pro
 driving a `GrantIssued` + `TaskAssign` for a trivial task (empty acceptance, one text-only
 response) against a real `hivemind.workers.roles.Drone` over the loopback transport -- a
 `TaskResult` comes back, and a Queen-sent `Shutdown` afterwards stops the Warden with every
-sub-bee reaped.
+sub-bee reaped. The Drone's model call passes through the Cell's own Fanner
+(`hivemind.cli.in_cell.fanner`), so it is recorded as an `llm.call` on the Cell's own trail
+segment, under the Cell's own node id and attributed to the task's grant and goal.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/in_cell/deps.py (codingrules section 3). Exercises the full in-Cell
@@ -29,20 +31,26 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib.util
+import ipaddress
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
-from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
+from hivemind.cli.in_cell.deps import VIRTUAL_CELL_LEASE, build_in_cell_warden_deps
 from hivemind.cli.in_cell.link import CellLinkDeps, announce
 from hivemind.exoskeleton.recorder import InMemoryRecordingStore
+from hivemind.guard import load_guard_policy
+from hivemind.guard.policy import HiveState
 from hivemind.llm import text_response
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.manifest.env import read_in_cell_env
+from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.wardens import ModelJudgeReviewer
 from hivemind.wardens.spawn import InCellSpawnSource
@@ -146,6 +154,8 @@ class _Scenario:
     queen_hop: Hop
     cell_id: str
     warden_id: WardenId
+    trail: MemoryPheromoneTrail  # This Cell's own local segment, the one trail_sync ships.
+    config: InCellRuntimeConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +225,16 @@ async def _build_scenario(
     provider = deps.bound.provider
     assert isinstance(provider, FakeLLMProvider)
     provider.script(text_response("Done."))  # A trivial, tool-free completion.
+    # No [guard] inside a Cell: the shipped policy, naming only the Hive Stand's address as this
+    # Cell dials it (roadmap step 10.3a: its Queen URL's host, here the loopback test server).
+    assert dataclasses.replace(deps.guard, hive_state=HiveState()) == load_guard_policy()
+    host = urlsplit(config.queen_waggle_url).hostname or ""
+    assert deps.guard.hive_state.own_addresses == frozenset({ipaddress.ip_address(host)})
+    assert deps.local_providers == frozenset({"fake"})  # The in-process fallback provider.
+    # Roadmap step 10.3: one policy for the sets and the Enforcer, and a Virtual Cell's lease.
+    assert deps.enforcer.policy is deps.guard
+    assert deps.lease_capability == VIRTUAL_CELL_LEASE
+    assert deps.bindings == config.slots
 
     warden = Warden(config.warden_id, deps)
     await warden.start()
@@ -230,6 +250,8 @@ async def _build_scenario(
         queen_hop=queen_hop,
         cell_id=connected.cell_id,
         warden_id=config.warden_id,
+        trail=connected.trail,
+        config=config,
     )
 
 
@@ -378,3 +400,35 @@ def test_a_cell_whose_table_binds_a_judge_gets_the_judge_rung_and_reviewer(
 
     assert CheckKind.JUDGE in deps.checks  # Irreversible GUI work can be judged, and land.
     assert isinstance(deps.judge_reviewer, ModelJudgeReviewer)
+
+
+async def test_a_drones_model_call_is_metered_and_recorded_on_the_cells_own_trail(
+    tmp_path: Path,
+) -> None:
+    queen_signer = Ed25519Signer.generate()
+    server = WebSocketServer(Codec(signer=queen_signer))
+    await server.start()
+    try:
+        scenario = await _build_scenario(server, queen_signer, tmp_path)
+        clock = FakeClock()  # A fresh clock for id minting only; not shared with the Warden's own.
+        grant_id = new_grant_id(clock)
+        assignment = _assignment(clock, scenario.cell_id, grant_id)
+        grant = _grant(clock, grant_id, scenario.warden_id)
+        await scenario.server_transport.send(wrap(grant, scenario.queen_hop, clock=clock))
+        await scenario.server_transport.send(wrap(assignment, scenario.queen_hop, clock=clock))
+
+        result = await _wait_for_result(scenario.server_receive)
+
+        assert result.outcome is TaskOutcome.SUCCEEDED
+        # The Drone's one model call went through the Cell's Fanner, on its grant's own lane.
+        [call] = await scenario.trail.query(TrailQuery(kind="llm.call"))
+        assert call.node_id == scenario.config.node_id
+        assert call.hive_id == scenario.config.hive_id
+        assert call.payload["grant_id"] == grant_id
+        assert call.payload["goal_id"] == assignment.goal_id
+        shutdown = Shutdown(urgency=Urgency.IMMEDIATE, deadline_s=0.0, reason="test teardown")
+        await scenario.server_transport.send(wrap(shutdown, scenario.queen_hop, clock=clock))
+        await asyncio.wait_for(scenario.run_task, timeout=WAIT_S)
+        await scenario.transport.close()
+    finally:
+        await server.close()

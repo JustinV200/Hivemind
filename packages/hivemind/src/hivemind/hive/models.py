@@ -1,4 +1,4 @@
-"""Define NetworkPolicy and VirtualCellSpec: a request to provision one Virtual Cell.
+"""Define NetworkPolicy, VirtualCellSpec and CellReservation: one Virtual Cell, asked for and held.
 
 A Virtual Cell (a VM or container the Hive provisions and later destroys or Overwinters, as
 opposed to a Real Cell, an existing device the Hive borrows and leaves exactly as found) starts as
@@ -6,18 +6,30 @@ a `VirtualCellSpec`: everything a `hivemind.hive.backends.base.CellBackend` need
 its image, the resources to reserve, how long it may live, its outbound network policy, whether it
 needs an Exoskeleton (a display, input and audio attachment on top of a plain terminal session),
 the `hivemind.forage.ForageCapacity` the image promises once running, its security tier
-(`CombShieldLevel`), how long to wait for it to become reachable, which Hive it belongs to, and
-free-form labels. `NetworkPolicy` is the outbound network shape a backend must enforce: `NONE` (no
+(`CombShieldLevel`), how long to wait for it to become reachable, which Hive it belongs to,
+free-form labels, and -- once `hivemind.hive.lifecycle.CellLifecycle` has minted one as it starts
+provisioning, so the Cell's first record can name it -- the id the Cell will carry (`cell_id`).
+`NetworkPolicy` is the outbound network shape a backend must enforce: `NONE` (no
 network at all, the safest default), `EGRESS_ONLY` (outbound only, no inbound ports -- Virtual
 Cells never get any), `ALLOWLIST` (outbound restricted to `network_allowlist`), or `VPN_TOR`
 (Night Veil only: OpenVPN plus Tor with direct egress blocked, roadmap step 5.7a). A provisioned
 Virtual Cell is returned as a `hivemind.cell.Cell` of kind `VIRTUAL`, never this spec itself.
 
+`CellReservation` is the part of a spec the Cell keeps: the cores, memory and disk its backend
+reserves for it, and its sub-bee cap. Those are all a Virtual Cell ever has, and no other tenant
+contends for them, so its `capacity` (load 0, every byte free) is the Cell's Forage capacity for
+its whole disposable life. The Queen builds a spec's own `capacity` from one, and the Cell's
+bootstrap ships it (`hivemind.hive.backends.bootstrap`) so the Cell's Warden reports the same
+figures rather than probing the host it shares a kernel with: a container reads the host's cores,
+memory and load average, so a busy Hive Stand used to make every Virtual Cell look busy too.
+
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Read by
     `hivemind.hive.backends.base.CellBackend.provision` and by `queen.placement` (a later phase)
-    to check Forage headroom before a Cell even exists. Calls into hivemind.cell (CombShieldLevel),
-    hivemind.forage (ForageCapacity) and waggle.ids (HiveId) only.
+    to check Forage headroom before a Cell even exists; `CellReservation` also by the bootstrap
+    and the in-Cell composition root (`hivemind.cli.in_cell`). Calls into hivemind.cell
+    (CombShieldLevel), hivemind.forage (ForageCapacity, HostCapacity) and waggle (HiveId,
+    OsFamily) only.
 
 Key invariants:
     - network_allowlist is non-empty only when network_policy is ALLOWLIST; every other policy
@@ -29,6 +41,11 @@ Key invariants:
     - labels never carries more than MAX_LABELS entries, and every key and value stays within its
       own character bound, so a backend's own tagging mechanism (Docker labels, cloud tags) never
       silently truncates what the Undertaker's orphan sweep later reads back.
+    - A spec whose `cell_id` is set is provisioned as a Cell carrying exactly that id (every
+      backend's contract, `hivemind.hive.backends.base.CellBackend.provision`).
+    - `CellReservation.capacity` is a pure function of the reservation and the Cell's platform:
+      the Queen's placement and the Cell's own report compute it the same way, from the same
+      figures, so the two can never disagree about a Cell's headroom.
 
 See Also:
     - .claude/codingrules.md section 8.7 for the Virtual Cell and Night Veil rules this model's
@@ -48,10 +65,14 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.cell import CombShieldLevel
-from hivemind.forage import ForageCapacity
-from waggle.ids import HiveId
+from hivemind.forage import ForageCapacity, HostCapacity
+from waggle.ids import CellId, HiveId
+from waggle.messages.labels import OsFamily
 
 MAX_IMAGE_NAME_CHARS = 128  # Generous for an images/<name> directory name plus a tag suffix.
+# The one image whose in-image kill-switch can hold a Night Veil Cell (roadmap step 5.3a); every
+# backend refuses VPN_TOR on any other, so placement stamps it on every Night Veil spec.
+NIGHT_VEIL_IMAGE = "night-veil-ubuntu"
 MAX_LABEL_KEY_CHARS = (
     63  # Mirrors a familiar label-key limit so a Docker/cloud tag never truncates.
 )
@@ -72,6 +93,8 @@ __all__ = [
     "MAX_LABELS",
     "MAX_LABEL_KEY_CHARS",
     "MAX_LABEL_VALUE_CHARS",
+    "NIGHT_VEIL_IMAGE",
+    "CellReservation",
     "NetworkPolicy",
     "VirtualCellSpec",
 ]
@@ -171,6 +194,11 @@ class VirtualCellSpec(BaseModel):
         description="Free-form tags a backend also stamps on what it creates, alongside hive_id; "
         "bounded so an unbounded label set can never make a sweep unpredictable.",
     )
+    cell_id: CellId | None = Field(
+        default=None,
+        description="The id the Cell will carry, minted by its lifecycle as provisioning starts so "
+        "the Cell's first record names it; None lets the backend mint one itself.",
+    )
 
     @model_validator(mode="after")
     def _allowlist_matches_policy(self) -> VirtualCellSpec:
@@ -245,3 +273,66 @@ class VirtualCellSpec(BaseModel):
                     f"label value for key {key!r} exceeds {MAX_LABEL_VALUE_CHARS} characters."
                 )
         return self
+
+
+class CellReservation(BaseModel):
+    """What a backend reserves for one Virtual Cell: all the Cell ever has, and never shared.
+
+    Built from a spec (`of`) at provision time, shipped in the Cell's bootstrap, and turned into
+    the Cell's Forage capacity (`capacity`) on both sides of its link (module docstring).
+    """
+
+    model_config = _MODEL_CONFIG
+
+    cpu_cores: Annotated[float, Field(gt=0)] = Field(
+        description="Logical cores reserved for the Cell (VirtualCellSpec.cpu_cores)."
+    )
+    memory_bytes: Annotated[int, Field(gt=0)] = Field(
+        description="Memory reserved for the Cell (VirtualCellSpec.memory_bytes)."
+    )
+    disk_bytes: Annotated[int, Field(gt=0)] = Field(
+        description="Disk reserved for the Cell (VirtualCellSpec.disk_bytes)."
+    )
+    max_sub_bees: Annotated[int, Field(ge=0)] = Field(
+        description="The Cell's own sub-bee cap (VirtualCellSpec.capacity.max_sub_bees)."
+    )
+
+    @classmethod
+    def of(cls, spec: VirtualCellSpec) -> CellReservation:
+        """Return the reservation `spec` asks its backend for.
+
+        Args:
+            spec: The Cell about to be provisioned.
+        """
+        return cls(
+            cpu_cores=spec.cpu_cores,
+            memory_bytes=spec.memory_bytes,
+            disk_bytes=spec.disk_bytes,
+            max_sub_bees=spec.capacity.max_sub_bees,
+        )
+
+    def capacity(self, arch: str, os: OsFamily) -> ForageCapacity:
+        """Return the Cell's Forage capacity: its reservation, dedicated, on its own platform.
+
+        Args:
+            arch: The Cell's CPU architecture, a platform fact (its probe, or the image's).
+            os: The Cell's OS family, likewise.
+
+        Returns:
+            Whole reserved cores (at least one), no load, all memory and disk free, no GPU:
+            nothing else runs on what a backend reserves for one Cell.
+        """
+        # Load is 0 by construction: a reservation is dedicated, so no other tenant contends for
+        # it, and a container's own load average is the host's (the kernel is shared).
+        host = HostCapacity(
+            cores=max(1, int(self.cpu_cores)),
+            memory_bytes=self.memory_bytes,
+            memory_free_bytes=self.memory_bytes,
+            disk_bytes=self.disk_bytes,
+            disk_free_bytes=self.disk_bytes,
+            cpu_load=0.0,
+            gpus=(),
+            arch=arch,
+            os=os,
+        )
+        return ForageCapacity(host=host, local_seats=(), max_sub_bees=self.max_sub_bees)

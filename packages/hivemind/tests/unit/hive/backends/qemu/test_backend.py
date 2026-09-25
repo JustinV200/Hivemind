@@ -25,7 +25,7 @@ import pytest
 from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
-from hivemind.hive.backends.bootstrap import QueenEndpoint
+from hivemind.hive.backends.bootstrap import NightVeilLink, QueenEndpoint
 from hivemind.hive.backends.fake import FakeReadinessGate
 from hivemind.hive.backends.qemu.backend import QemuBackendConfig, QemuCellBackend
 from hivemind.hive.backends.qemu.fake import FakeQemuRunner
@@ -49,8 +49,15 @@ def _make_spec(**overrides: object) -> VirtualCellSpec:
     return VirtualCellSpec(**fields)
 
 
+# The Hive's Night Veil link, as a composition root builds it from [security.tiers.NIGHT_VEIL].
+_LINK = NightVeilLink(
+    waggle_url="ws://7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710",
+    socks_proxy_url="socks5h://127.0.0.1:9050",
+)
+
+
 def _make_backend(
-    clock: FakeClock, *, max_cells: int | None = None
+    clock: FakeClock, *, max_cells: int | None = None, night_veil: NightVeilLink | None = None
 ) -> tuple[QemuCellBackend, FakeQemuRunner, FakeReadinessGate]:
     """Build a fresh QemuCellBackend over fresh fakes, plus the fakes for direct assertions."""
     runner = FakeQemuRunner()
@@ -59,6 +66,7 @@ def _make_backend(
         waggle_url="ws://localhost:8710",
         queen_node_id=new_node_id(clock),
         queen_verify_key_hex="00" * 32,
+        night_veil=night_veil,
     )
     config = QemuBackendConfig(
         base_image=Path("base-ubuntu.qcow2"), vm_root=Path("vm_root"), max_cells=max_cells
@@ -93,34 +101,29 @@ async def test_provision_stamps_hive_id_label() -> None:
     assert runner.start_vm_calls[0].labels["hive_id"] == spec.hive_id
 
 
-async def test_provision_refuses_vpn_tor_on_any_image_but_night_veil_ubuntu() -> None:
-    backend, runner, gate = _make_backend(FakeClock())
-    # image defaults away from "night-veil-ubuntu" (_make_spec): the in-guest kill-switch that
-    # image lacks is VPN_TOR's only real enforcement, so this must be refused before anything is
-    # created, whatever else the spec asks for.
-    spec = _make_spec(network_policy=NetworkPolicy.VPN_TOR, comb_shield=CombShieldLevel.NIGHT_VEIL)
+async def test_provision_refuses_every_night_veil_spec_before_anything_exists() -> None:
+    # Fail-closed (the backend's own docstring): its teardown cannot yet meet codingrules 12, so
+    # no Night Veil Cell is ever created here, on the tier's own image or any other, link or not.
+    for link in (_LINK, None):
+        backend, runner, gate = _make_backend(FakeClock(), night_veil=link)
+        for image in ("night-veil-ubuntu", "base-ubuntu"):
+            spec = _make_spec(
+                image=image,
+                network_policy=NetworkPolicy.VPN_TOR,
+                comb_shield=CombShieldLevel.NIGHT_VEIL,
+            )
 
-    with pytest.raises(CellProvisionError, match="VPN_TOR"):
-        await backend.provision(spec)
+            with pytest.raises(CellProvisionError, match="cannot hold a NIGHT_VEIL Cell"):
+                await backend.provision(spec)
 
-    assert runner.start_vm_calls == []
-    assert gate.expect_calls == []
+        assert runner.create_overlay_disk_calls == [] and runner.start_vm_calls == []
+        assert gate.expect_calls == []
 
 
-async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> None:
-    backend, runner, _ = _make_backend(FakeClock())
-    spec = _make_spec(
-        image="night-veil-ubuntu",
-        network_policy=NetworkPolicy.VPN_TOR,
-        comb_shield=CombShieldLevel.NIGHT_VEIL,
-    )
+async def test_capabilities_declare_it_cannot_hold_night_veil() -> None:
+    backend, _runner, _gate = _make_backend(FakeClock())
 
-    cell = await backend.provision(spec)
-
-    assert cell.comb_shield is CombShieldLevel.NIGHT_VEIL
-    # QEMU's own SLIRP network gives unrestricted outbound reach (module docstring: the in-guest
-    # kill-switch is the real boundary, not QEMU's own network layer).
-    assert runner.start_vm_calls[0].netdev_arg == "user,id=net0"
+    assert not backend.capabilities.can_night_veil  # So placement never chooses it for the tier.
 
 
 async def test_provision_cleans_up_on_start_vm_failure() -> None:

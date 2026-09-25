@@ -44,6 +44,14 @@ def test_hive_section_accepts_only_id_and_node_id_as_required() -> None:
     assert str(section.db) == "hive.sqlite3"
 
 
+def test_hive_section_secrets_dir_defaults_beside_the_manifest_and_accepts_a_path() -> None:
+    default = HiveSection(**_hive_ids())
+    custom = HiveSection(**_hive_ids(), secrets_dir=Path("data/secrets"))
+
+    assert default.secrets_dir == Path("secrets")
+    assert custom.secrets_dir == Path("data/secrets")
+
+
 def test_hive_section_requires_id_and_node_id() -> None:
     with pytest.raises(ValidationError):
         HiveSection()  # type: ignore[call-arg]

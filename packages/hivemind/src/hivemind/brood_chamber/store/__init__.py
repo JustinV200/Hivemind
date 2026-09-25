@@ -11,11 +11,11 @@ defined in the module that names it (codingrules 5.2, 5.4).
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.brood_chamber`. Used by
     `hivemind.brood_chamber.chamber` (roadmap step 2.8) and `hivemind.brood_chamber.__init__`, the
-    subsystem's own face. Calls into nothing outside its own three modules and
+    subsystem's own face. Calls into nothing outside its own four modules and
     `hivemind.common`/`hivemind.pheromone`, which those modules import directly.
 
 Key invariants:
-    - This file holds re-exports and __all__ only; the three modules behind it are where every
+    - This file holds re-exports and __all__ only; the four modules behind it are where every
       name is actually defined.
     - Sibling modules inside `hivemind.brood_chamber` import `protocol`, `memory` and `sqlite` by
       their full module path (`hivemind.brood_chamber.store.protocol`, and so on), never through
@@ -31,6 +31,8 @@ Public API:
       MAX_TASK_FILTER_LIMIT, DEFAULT_TASK_FILTER_LIMIT): the store protocol and its query/guard
       (protocol).
     - MemoryTaskStore: an in-process TaskStore for tests and demos (memory).
+    - SCRUBBED_TEXT, due_for_scrub, scrub_task, scrub_question: a finished Night Veil task's
+      skeleton, what `TaskStore.scrub_night_veil` rewrites it to (scrub).
     - SqliteTaskStore, apply_brood_chamber_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE: the durable
       TaskStore (sqlite).
 """
@@ -44,6 +46,12 @@ from hivemind.brood_chamber.store.protocol import (
     TaskStore,
     check_task_event,
 )
+from hivemind.brood_chamber.store.scrub import (
+    SCRUBBED_TEXT,
+    due_for_scrub,
+    scrub_question,
+    scrub_task,
+)
 from hivemind.brood_chamber.store.sqlite import (
     MIGRATIONS_PACKAGE,
     SUBSYSTEM,
@@ -56,6 +64,7 @@ __all__ = [
     "MAX_TASK_FILTER_LIMIT",
     "MIGRATIONS_PACKAGE",
     "MIN_TASK_FILTER_LIMIT",
+    "SCRUBBED_TEXT",
     "SUBSYSTEM",
     "MemoryTaskStore",
     "SqliteTaskStore",
@@ -63,4 +72,7 @@ __all__ = [
     "TaskStore",
     "apply_brood_chamber_migrations",
     "check_task_event",
+    "due_for_scrub",
+    "scrub_question",
+    "scrub_task",
 ]

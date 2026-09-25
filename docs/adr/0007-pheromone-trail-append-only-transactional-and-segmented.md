@@ -62,8 +62,8 @@ row's insertion order in SQLite, and a merged segment inserted in its exporter's
 the event id, because ids minted within one millisecond carry random tails; every query returns
 that order, and the documentation says it is approximate across nodes because their clocks are
 not the same clock. The Night Veil boundary is
-the one deletion in the package and lives in its own module, `retention.py`: a Night Veil Cell's
-Warden runs inside the Cell, so its node's segment is the ephemeral segment, and at teardown
+the one deletion in the package and lives in its own module, `retention/purge.py`: a Night Veil
+Cell's Warden runs inside the Cell, so its node's segment is the ephemeral segment, and at teardown
 `NightVeilTeardownPurge` deletes that node's rows, calls every registered side-channel purger (the
 protocol the VPN gateway and Tor daemon log owners implement in phases 5 and 11), and records one
 `cell.purged` event on the Queen's trail carrying only the counts, so the purge itself is

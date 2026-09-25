@@ -94,6 +94,9 @@ class AlarmKind(Enum):
     CELL_UNREACHABLE = "CELL_UNREACHABLE"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"  # A lease's scratch directory outgrew its configured quota.
     EXOSKELETON_FAILED = "EXOSKELETON_FAILED"  # Attach could not equip the Cell (protocol 1.6).
+    # PROTOCOL_MINOR 9 (roadmap steps 10.6 and 10.6c, ADR-0043): a security event, such as a bee
+    # quarantined by its Warden; it always goes up to the Queen and on to the human.
+    SECURITY = "SECURITY"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 

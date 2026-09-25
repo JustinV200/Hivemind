@@ -24,7 +24,9 @@ pool that keeps a dormant Cell around for fast reuse.
   is its in-memory implementation.
 - `DockerCellBackend` / `build_docker_backend` (`backends/docker/`): the first working
   `CellBackend`, over a Docker daemon (ADR-0026, ADR-0027), and the factory a composition root
-  hands to `BackendRegistry.register`.
+  hands to `BackendRegistry.register`. Given a control network (`DockerBackendConfig.control`,
+  from `[virtual_cells] control_subnet`) it dual-homes each Cell and can cut and restore a running
+  Cell's egress without dropping its link (roadmap step 10.6a; `backends/README.md`).
 - `QemuCellBackend` / `build_qemu_backend` (`backends/qemu/`): the second `CellBackend`, over real
   QEMU VMs booted from a prebuilt qcow2 and cloud-init (roadmap step 5.11); same contract, gives
   `isolation = "required"` a real hypervisor boundary. `hivemind.hive.backends.cloud` holds the
@@ -52,6 +54,63 @@ pool that keeps a dormant Cell around for fast reuse.
   hook to gate `CellReady` on this before `mark_ready` (and tear the Cell down on a red result) is
   a report item: it sits in `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider.
   acquire`, outside this dispatch's file list.
+- `NightVeilBoundary` / `TIER_LABEL` / `with_tier_label` / `tier_from_labels` /
+  `provisioned_facts` / `failure_facts` / `end_night_veil` / `adopt_night_veil` /
+  `night_veil_cells` / `is_night_veil_cell` / `sweep_night_veil` (`night_veil/boundary.py`,
+  codingrules section 12):
+  where the Virtual Cell lifecycle meets the Night Veil retention boundary
+  (`hivemind.pheromone.retention`). `CellLifecycle.attach_night_veil` hands the lifecycle the
+  boundary the composition root built; from then on a Night Veil Cell's ephemeral segment opens
+  as provisioning begins, before the lifecycle records a word about it (a provision its backend
+  fails before any Cell exists leaves nothing on view: its `cell.provision_failed` is withheld,
+  the skeleton having no such kind, and its segment is dropped unread), and
+  `NightVeilTeardownPurge` runs
+  every time one ends: in
+  `teardown` (a finished task, a provision that failed after the Cell existed, a Hive shutdown),
+  in `hive cells abscond` (`adopt_night_veil` says which Cells), and in `reconcile`, whose
+  `sweep_night_veil` holds again the segment of a Night Veil Cell that outlived a Queen restart
+  and records `cell.destroyed` (when missing) and purges every one the skeleton names that is gone
+  unpurged. Every provisioned Cell carries its tier in its backend labels (`TIER_LABEL`), and
+  `cell.provisioned` names it, so a restarted Queen reads it back from either. What else a
+  restarted Queen relearns of a Night Veil Cell: its Capping counts so far and the ids filed under
+  it (the segment's checkpoint, `hivemind.pheromone.retention.checkpoint`, numbers and ids only),
+  so its `capping.summary` and its side channels' purge lose nothing; its Warden when that
+  Warden's link re-attaches; and every record it makes from then on. Never the records an earlier
+  Queen held of it, which were in that Queen's memory alone, as the boundary intends.
+
+## Night Veil: what a Cell itself keeps
+
+The boundary above covers the Queen's side. A Night Veil Cell must keep nothing either, so the
+backend's destroy has to take everything the Cell wrote with it:
+
+- The in-Cell Warden's trail is a `MemoryPheromoneTrail` (`hivemind.cli.in_cell.main`), never a
+  file: it dies with the Warden's process, whatever the backend.
+- Docker: `destroy` removes the container, its scratch volume and its network. A Night Veil
+  container is created with the `none` log driver (`ContainerSpec.log_driver`), so its stdout
+  and stderr reach no daemon log at all, whatever driver the daemon defaults to (`journald`,
+  `syslog` or a remote one would keep them on the host). A Capping snapshot
+  (`hivemind.hive.snapshot.docker`, a `docker commit`) is an image outside the container,
+  labelled `hivemind.snapshot_of=<cell_id>`: a Night Veil teardown removes every one of the
+  Cell's (`DockerSnapshotImages`, a side channel of the purge, found by that label through
+  `DockerClientPort.list_images`, from any process). Any other Cell's committed images still
+  outlive it (`teardown` deletes only their ledger rows), a leak outside the Night Veil boundary.
+  The container's writable layer and scratch volume are deleted, not wiped: their blocks stay on
+  the host disk until reused.
+- QEMU: the backend refuses a Night Veil Cell, fail-closed (`capabilities.can_night_veil` is
+  False, so placement never chooses it for the tier, and `provision` refuses such a spec before
+  anything exists); no roadmap step promises Night Veil on QEMU. Everything a VM writes lives
+  under its `vm_dir`: `overlay.qcow2` (its whole disk, every `savevm` snapshot included),
+  `seed.iso` with `user-data` and `meta-data` (its bootstrap, the hidden-service address and its
+  private signing key among them), `serial.log` (its console), `qmp.sock` and `cell.json`;
+  `destroy` removes that directory. For Night Veil that is not enough, and lifting the refusal
+  needs four things not built yet: the removal is
+  `shutil.rmtree(..., ignore_errors=True)`, so a failed delete is silent, and it must be verified
+  and fail loudly instead; a deleted overlay's blocks stay on the host disk, so the Cell's
+  `vm_dir` belongs on a RAM-backed filesystem (or its overlay encrypted under a key held only in
+  the Queen's memory, so dropping the key destroys it); the guest's journald must run with
+  `Storage=volatile` in `images/night-veil-ubuntu`, so its logs never reach the overlay at all;
+  and the image must send none of its own logs to the serial console, since `serial.log` is a
+  host file.
 
 ## How to test this
 
@@ -81,4 +140,7 @@ relay gap this uncovers for the in-Cell Warden case).
 `lifecycle.py` (5.6) is built: `CellLifecycle` is the only intended caller of
 `cell_state.assert_transition`/`assert_dormant_allowed`, and now also owns every `CellBackend` call
 and every `overwinter/` (5.9) edge (`OverwinterPool` is bookkeeping and selection only; see both
-modules' own docstrings for the split).
+modules' own docstrings for the split). It mints a Virtual Cell's id itself as provisioning begins
+(`VirtualCellSpec.cell_id`, which every backend gives the Cell) and records `cell.provisioning`
+under it before any backend is called; `cell.provisioned` (or `cell.provision_failed`) follows
+under the same id.

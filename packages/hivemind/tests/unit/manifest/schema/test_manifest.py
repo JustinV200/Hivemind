@@ -56,6 +56,14 @@ def test_hive_manifest_validates_with_only_hive_llm_and_drone_supplied() -> None
     assert manifest.source_path is None
 
 
+def test_hive_manifest_defaults_guard_to_the_shipped_policy_unchanged() -> None:
+    # Roadmap step 10.2: an omitted [guard] means the Guard policy shipped with the package.
+    manifest = HiveManifest.model_validate(_smallest_passing_manifest_data())
+
+    assert manifest.guard.policy_file == ""
+    assert manifest.guard.roles == {}
+
+
 def test_hive_manifest_requires_the_hive_section() -> None:
     with pytest.raises(ValidationError):
         HiveManifest.model_validate({})

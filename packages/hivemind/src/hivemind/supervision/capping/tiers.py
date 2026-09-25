@@ -2,19 +2,19 @@
 
 Codingrules section 8.12: "Tiers are data, checks are layered, cheapest first." Every proposal
 declares a `RiskTier` (this module's mirror of `waggle.messages.capping.RiskTier`, member for
-member, with `from_wire`/`to_wire` and a sync test per codingrules section 6.1); a `TierTable`
-maps each tier to a `TierSpec` -- the `CheckKind`s (waggle's own enum, not mirrored: it names no
-behaviour of its own, just which rung to run) that tier requires, the subset of those that must
-run even when the tier's own list is empty (`floor`, which a task's tempo may never remove --
+member, with `from_wire`/`to_wire` and a sync test per codingrules section 6.1); a `TierTable` maps
+each tier to a `TierSpec` -- the `CheckKind`s (waggle's own enum, not mirrored: it names no
+behaviour of its own, just which rung to run) that tier requires, the subset of those that must run
+even when the tier's own list is empty (`floor`, which a task's tempo may never remove --
 codingrules section 8.14: "It can never remove a check the tier table marks as a floor"), whether
 the gate snapshots the Cell before applying, and a byte cap on an inline diff. Roadmap step 4.10
 (judge review and sampled audit) adds two more columns: `judge`, whether `CheckKind.JUDGE` belongs
 in this tier's real-time ladder at all (an operator toggle, independent of listing `JUDGE` in
 `checks`/`floor` by hand), and `audit_rate`, the fraction of this tier's completed proposals
-`hivemind.supervision.capping.audit.AuditSampler` samples for after-the-fact judge review when
-`judge` is False (codingrules section 8.12: "What cannot be gated is sampled"). `load_tiers` reads
-`supervision/defaults/capping-tiers.toml`, the operator-facing table an operator edits to add or
-loosen a tier without touching code (codingrules section 13: "policy as data").
+`hivemind.supervision.capping.audit.sampler.AuditSampler` samples for after-the-fact judge review
+when `judge` is False (codingrules section 8.12: "What cannot be gated is sampled"). `load_tiers`
+reads `supervision/defaults/capping-tiers.toml`, the operator-facing table an operator edits to add
+or loosen a tier without touching code (codingrules section 13: "policy as data").
 
 `checks_for`, at the bottom of this module, is the other half of roadmap step 4.10: codingrules
 section 8.14's "Capping reads tempo, within floors" rule, combining one `TierSpec` with one task's
@@ -177,7 +177,8 @@ class TierSpec(BaseModel):
         ge=0.0,
         le=1.0,
         description="The fraction of this tier's completed proposals sampled for after-the-fact "
-        "judge review (hivemind.supervision.capping.audit.AuditSampler) when `judge` is False. "
+        "judge review (hivemind.supervision.capping.audit.sampler.AuditSampler) when `judge` is "
+        "False. "
         "0.0 (no sampling) is the sensible default once `judge` is True: a live review already "
         "covers every proposal, so nothing is left ungated to sample.",
     )

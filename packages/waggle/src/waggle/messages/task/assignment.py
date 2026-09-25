@@ -10,11 +10,14 @@ clearance, its Forage grant (Forage is capacity as data: cores, memory, GPU, mod
 spend), its Leavings (roadmap step 5.0b: what the plan declared should stay on the Cell once the
 lease is released, a `PlannedLeaving` tuple carried unchanged from the plan), the Honey the Queen's
 pre-check found for it (roadmap step 7.9: hits from the Honey Store, the Hive's knowledge base,
-plus the chosen Cell's live Cell Wax, carried as `HoneyHit`s) and an optional Handoff (the
-document a bee writes before its context is reset) to resume from; ``TaskCancel``,
-``TaskPause`` and ``TaskResume`` are the orders on a task in flight. The reports that travel back
-up (``TaskProgress``, ``TaskResult``) live in ``waggle.messages.task.reports``, split out by
-responsibility so each file stays under the codingrules 5.1 size limit. ``WorkerRole`` names the
+plus the chosen Cell's live Cell Wax, carried as `HoneyHit`s), its goal's capability set
+(PROTOCOL_MINOR 8, roadmap step 10.3: the ceiling a goal's submitter set on every task planned from
+it, so the Warden can attenuate its Worker's set to it and to the network scopes the task's needs
+name) and an optional Handoff (the document a bee writes before its context is reset) to resume
+from; ``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders on a task in flight. The
+reports that travel back up (``TaskProgress``, ``TaskResult``) live in
+``waggle.messages.task.reports``, split out by responsibility so each file stays under the
+codingrules 5.1 size limit. ``WorkerRole`` names the
 six Worker roles a Warden can spawn. Every bound is a named constant here; the number, not the
 name, is normative.
 
@@ -22,8 +25,9 @@ Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Registered by waggle.messages.registry, which maps
     each class to its kind; built by the Queen and every Warden and read by every Warden and
-    Worker; calls into waggle.messages.base, waggle.messages.labels and
-    waggle.messages.honey.hit (HoneyHit, the retrieval result the pre-check attaches) only.
+    Worker; calls into waggle.messages.base, waggle.messages.labels, waggle.messages.task.needs
+    and waggle.messages.task.recon (a task's Exoskeleton need, network scopes and Scout reports)
+    and waggle.messages.honey.hit (HoneyHit, the retrieval result the pre-check attaches) only.
 
 Key invariants:
     - No class here carries its kind string; the registry is the only place kinds live.
@@ -32,6 +36,9 @@ Key invariants:
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A task never resumes from a Handoff labelled above its own clearance (TaskAssign).
     - A task is never handed Honey labelled above its own clearance (TaskAssign).
+    - ``TaskAssign.capabilities`` of None and of ``()`` mean different things: None is "no goal
+      ceiling travels" (the operator's own local submission, or a peer older than minor 8), an
+      empty tuple is a goal allowed nothing. The strings are opaque here; the Guard parses them.
 
 See Also:
     - docs/waggle/spec.md section 8.2 for the normative fields, bounds and validators.
@@ -70,6 +77,9 @@ MAX_LEAVES_ITEMS = 16  # roadmap 5.0b: a task that leaves more than a handful of
 # really declaring a whole directory, not enumerating files one by one.
 MAX_ASSIGN_HONEY_ITEMS = 16  # roadmap 7.9: a page of pre-check hits plus the Cell's live wax,
 # never a whole search; the bee can still query for more (honey.query).
+MAX_CAPABILITIES = 64  # A goal's capability set (PROTOCOL_MINOR 8): the device role's own ceiling
+# is about two dozen entries, so this leaves room without letting one assign crowd a frame.
+MAX_CAPABILITY_CHARS = 1_024  # One capability string: a family and a scope, a path glob at most.
 MIN_ATTEMPT = 1  # The first try is attempt 1, so 0 can never pass for a real attempt.
 MIN_GRACE_S = 0.0  # A grace period is never negative; exactly 0 kills at once (Sting Cut).
 
@@ -77,6 +87,8 @@ __all__ = [
     "MAX_ACCEPTANCE_CHARS",
     "MAX_ACCEPTANCE_ITEMS",
     "MAX_ASSIGN_HONEY_ITEMS",
+    "MAX_CAPABILITIES",
+    "MAX_CAPABILITY_CHARS",
     "MAX_LEAVES_ITEMS",
     "MAX_OBJECTIVE_CHARS",
     "MIN_ACCEPTANCE_ITEMS",
@@ -108,14 +120,18 @@ _Reason = Annotated[str, Field(max_length=MAX_REASON_CHARS)]
 # A model slot (the named role a model is bound to) as the conventions fix it: a short
 # UPPER_SNAKE name; the slot travels as data, and the manifest resolves it to a model.
 _Slot = Annotated[str, Field(max_length=MAX_SLOT_CHARS, pattern=SLOT_PATTERN)]
+# One capability string (`family` or `family:scope`, ADR-0039): opaque text on the wire, bounded
+# here and parsed by the receiving Warden's Guard, which refuses one it cannot read.
+_Capability = Annotated[str, Field(min_length=1, max_length=MAX_CAPABILITY_CHARS)]
 
 
 class TaskAssign(WaggleMessage):
     """Hand a placed task to the Warden of its Cell, then to its Worker (task.assign, a request).
 
-    Carries the acceptance criteria, Tempo, clearance, grant and optional Handoff to resume from;
-    the Warden re-issues it to the Worker it spawns. A task reaches SUCCEEDED only after its
-    Warden, never the Worker that did the work, has run the acceptance checks.
+    Carries the acceptance criteria, Tempo, clearance, grant and optional Handoff to resume from,
+    and (PROTOCOL_MINOR 8) the goal's capability set and the task's network scopes; the Warden
+    re-issues it to the Worker it spawns. A task reaches SUCCEEDED only after its Warden, never
+    the Worker that did the work, has run the acceptance checks.
     """
 
     task_id: TaskIdField = Field(description="The task being assigned.")
@@ -158,6 +174,14 @@ class TaskAssign(WaggleMessage):
         "reaches the bee's model delimited and labelled as untrusted retrieved content, and none "
         "is labelled above clearance (validator). Empty by default, so an older peer's "
         "task.assign still validates.",
+    )
+    capabilities: tuple[_Capability, ...] | None = Field(
+        default=None,
+        max_length=MAX_CAPABILITIES,
+        description="The capability set of the goal this task was planned from (PROTOCOL_MINOR "
+        "8), as sorted capability strings: a Worker is given only what its Warden's own set and "
+        "this set both allow. None means no goal ceiling travels (the operator's own local "
+        "submission, or a peer older than minor 8); an empty tuple is a goal allowed nothing.",
     )
     tempo: Tempo = Field(description="The task's latency budget and accuracy bar.")
     exoskeleton: ExoskeletonNeed | None = Field(

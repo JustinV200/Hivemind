@@ -19,7 +19,7 @@ from hivemind.cell.lease import (
 )
 from hivemind.cell.lease_state import LeaseState
 from hivemind.cell.leavings import ApprovedBy
-from hivemind.cell.tiers import CombShieldLevel
+from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import PheromoneTrail, TrailQuery
 from waggle.clock import Clock, FakeClock
@@ -101,6 +101,8 @@ async def test_open_transitions_to_open_and_records_cell_leased(tmp_path: Path) 
     assert len(events) == 1
     assert events[0].subject_id == lease.cell_id
     assert events[0].payload["lease_id"] == lease.id
+    # Roadmap 10.7: the access level is stored with the lease (the builder's is SCRATCH).
+    assert events[0].payload["access_level"] == AccessLevel.SCRATCH.value
 
 
 async def test_open_twice_raises_invalid_lease_transition(tmp_path: Path) -> None:

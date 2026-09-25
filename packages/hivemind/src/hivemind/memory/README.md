@@ -15,14 +15,21 @@ nothing accumulates as a conversation.
   of that plus pins and notes into a token-budgeted `Prompt`, ordered by `relevance.score` (roadmap
   step 4.1), gated by `AssembleRequest.cells_in_play` for wax (roadmap step 4.2a). The cold tier
   (roadmap step 7.7) packs last: `AssembleRequest.retrieved` carries the Honey hits a caller
-  retrieved (a Drone passes its `TaskAssign.honey`), and `hot_state/retrieved.py` drops any hit
-  above the principal's clearance, renders the rest best score first (`render_hit`: a
-  `[honey <ref>] <title>` header, scope, clearance, provenance and score, then the excerpt capped
-  at `item_cap_chars`, with delimiter-shaped runs spaced out) under `RETRIEVED_PREAMBLE`, and packs
-  them into whatever hot state left, never past `TokenBudget.retrieved_fraction` of the packing
-  target. They become the `RETRIEVED` section and are listed in `Prompt.included`/`dropped` as
-  `honey:<honey_ref>`; `on_drop` never sees a hit (it already lives in the Honey Store). Memory
-  never imports `hivemind.honey_store`: hits arrive as `waggle.messages.honey.HoneyHit` values.
+  retrieved, each already scanned and carrying its taint label as a `RetrievedItem` (a Drone
+  scans its `TaskAssign.honey` with `ScanSource.HONEY_HIT` and wraps each hit with
+  `RetrievedItem.from_hit`), and `hot_state/retrieved.py` drops any item above the principal's
+  clearance, refuses a tainted one, renders the rest best score first (`render_item`: a
+  `[honey <ref>] <title>` header, scope, clearance, provenance and score, then the text under its
+  verdict, capped at `item_cap_chars`) under `RETRIEVED_PREAMBLE`, and packs them into whatever
+  hot state left, never past `TokenBudget.retrieved_fraction` of the packing target. They become
+  the `RETRIEVED` section and are listed in `Prompt.included`/`dropped` as `honey:<honey_ref>`;
+  `on_drop` never sees one (it already lives in the Honey Store). Memory never imports
+  `hivemind.honey_store`: hits arrive as data. Since roadmap steps 10.6b and 10.6d,
+  `untrusted.py` holds `UntrustedText` (outside words with their scanner verdict: a PASS fenced
+  as data, a LABEL fenced harder behind a warning, a DROP replaced by its keyed hash) and
+  `RetrievedItem`; `assemble` refuses a tainted decision, a tainted retrieved item and a tainted
+  or over-cleared resumed Handoff outright, listing each in `Prompt.refused` and never handing
+  one to `on_drop`.
 - `relevance.py` -- `RelevanceScore`, `Scorable` and `score`: pure recency-decay/task-linkage/
   Alarm-or-Cell-Wax-severity/pin-floor scoring (roadmap steps 4.1, 4.2a), plus `item_id`/
   `item_timestamp`, the shared per-type dispatch `hot_state.packing` and `demote` both read
@@ -51,6 +58,15 @@ nothing accumulates as a conversation.
   resets.
 - `checkpoint.py` -- `write_checkpoint`/`read_handoff`, the write and read paths for a `Handoff`;
   `write_checkpoint` also deposits the Handoff (and, when given one, its transcript) into Bee Bread.
+  `read_handoff` refuses a tainted Handoff with `TaintedMemoryError` (roadmap step 10.6d).
+- `taint/` -- the taint label (roadmap step 10.6d, ADR-0043, docs/guard/tainted-memory.md):
+  `TaintMarker` (state, closed `TaintSource`, reason, the `memory.tainted` event that set it) on
+  every Handoff, episode record and Bee Bread entry (and, from phase 7, Nectar and Honey items);
+  its transition table (`state`); `TaintScope` (which slice of memory one taint covers, by author,
+  task and time); the `TaintLedger` store seam; `taint_memory`, the one setter; `ModelTaintJudge`
+  and `clear_taint`, the one clearer (a judge verdict on the taint rubric, through the
+  `taint_clear` enforcement point); and `TaintedNectarRipener`, the House Bee's phase 7 re-ripen
+  duty, declared only.
 - `pins.py` -- `Pin`, `PinSource` and `add_pin`: facts that never decay out of hot state.
 - `notes.py` -- `Note` and `add_note`: the one memory-tier row a bee writes on its own initiative,
   bounded per author.
@@ -62,11 +78,23 @@ nothing accumulates as a conversation.
   function in this package shares.
 - `store/` -- `MemoryStore` (the persistence protocol), `InMemoryMemoryStore` and
   `SqliteMemoryStore` (its two implementations), and the numbered SQL migration series (six
-  tables: pins, notes, handoffs, episodes, bee_bread, cell_wax).
+  tables: pins, notes, handoffs, episodes, bee_bread, cell_wax; migration 0004 adds the taint
+  columns to handoffs, episodes and bee_bread). Both stores satisfy `taint.TaintLedger`: a label
+  and its trail event are written in one transaction, and every list and lookup a prompt is built
+  from leaves a TAINTED row out. `MemoryStore.purge_night_veil(ids)` is the tables' one exception
+  to append-only (codingrules section 12, `store/night_veil.py` and `store/sqlite/night_veil.py`):
+  the Night Veil teardown purge's memory side channel deletes, in one transaction and recording no
+  event, every episode, Handoff, Bee Bread entry, note and Cell Wax row whose key column (principal,
+  task, author, Cell) is one of a Night Veil Cell's ids or whose stored body names one, taint label
+  and all; a pin, the human's own, is kept. Cell Wax about a Night Veil Cell is never written in
+  the first place (the Queen refuses it, `hivemind.queen.ticks.wax`), and an isolation labels none
+  of its rows here (`hivemind.queen.isolation.taint`), since a label's `memory.tainted` record
+  would outlive the Cell on the durable trail.
 - `errors.py` -- `MemoryTierError` (root), `ClearanceError`, `HandoffNotFoundError`,
   `NoteTooLongError`, `BeeBreadEntryNotFoundError`, `SummaryOfSummaryError`,
   `EmptyCompactionError`, `TooManySourcesError`, `InvalidWaxTransitionError`,
-  `WaxTextTooLongError`, `WaxNotFoundError`.
+  `WaxTextTooLongError`, `WaxNotFoundError`, and the taint label's `TaintedMemoryError`,
+  `InvalidTaintTransitionError`, `TaintTargetNotFoundError` and `TaintJudgeError`.
 
 ## Public API
 
@@ -78,15 +106,21 @@ each name's home module.
 ```
 uv run --frozen pytest packages/hivemind/tests/unit/memory
 uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_contract.py
+uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_taint_contract.py
+uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_night_veil_contract.py
 ```
 
 `tests/unit/memory/` mirrors this package module for module. `tests/contracts/
 test_memory_store_contract.py` runs the `MemoryStore` contract over both `InMemoryMemoryStore` and
 `SqliteMemoryStore` (a temp SQLite file per test, with the Pheromone Trail's own migrations applied
-first, matching `hivemind.cli.stores`). `tests/builders/memory.py` has a builder for every model in
-this package. `tests/e2e/test_flood.py` floods `assemble` with ten thousand Alarms, and with ten
-thousand retrieved hits on top of them, and proves neither flood ever breaks the budget nor the
-retrieved section's own share:
+first, matching `hivemind.cli.stores`); `test_memory_store_taint_contract.py` does the same for the
+taint half. `tests/unit/memory/taint/test_taint_reaches_no_prompt.py` is roadmap step 10.6d's own
+test, and `test_only_setter.py` walks the source tree so nothing but `taint_memory` and
+`clear_taint` ever writes the label. `tests/builders/memory.py` has a builder for every model in
+this package; `tests/builders/taint.py` holds the taint world, a scripted judge and `SeamLedger`,
+the stand-in for the Honey Store's own ledger. `tests/e2e/test_flood.py` floods `assemble` with
+ten thousand Alarms, and with ten thousand retrieved hits on top of them, and proves neither flood
+ever breaks the budget nor the retrieved section's own share:
 
 ```
 uv run --frozen pytest packages/hivemind/tests/e2e/test_flood.py

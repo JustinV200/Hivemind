@@ -10,11 +10,15 @@ decide whether one call's result was a failure, and `target_for` names the one p
 call acted on, so a Handoff line can say what, not just that something happened. Moved out of
 `hivemind.workers.roles.drone.outcome.records` unchanged (roadmap step 6.9): nothing here was ever
 Drone-specific, so that module now re-exports these same names for its own, unchanged tests.
+Roadmap step 10.3: a capability refusal is now the Guard's own, rendered by
+`hivemind.workers.tools.authorize.refusal_text` behind its fixed `GUARD_REFUSAL_PREFIX`, the one
+capability-denial template left.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Read by
     `hivemind.workers.roles.bounded_loop.executor` (to classify a call as it lands) and `.fields`
-    (to turn classified calls into Handoff lines). Calls into `hivemind.llm` and
+    (to turn classified calls into Handoff lines). Calls into `hivemind.llm`,
+    `hivemind.workers.tools.authorize` (GUARD_REFUSAL_PREFIX) and
     `hivemind.workers.tools.exoskeleton` (ACTION_TOOL_NAMES) only.
 
 Key invariants:
@@ -37,6 +41,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hivemind.llm import ToolCall
+from hivemind.workers.tools.authorize import GUARD_REFUSAL_PREFIX
 from hivemind.workers.tools.exoskeleton import ACTION_TOOL_NAMES
 
 # Every tool that proposes a side effect through the Capping gate (hivemind.workers.tools.
@@ -55,7 +60,7 @@ _CAPPED_VERIFIED_PREFIX = "state=VERIFIED"
 # Every non-capped tool's own built-in error text is one of these fixed templates
 # (hivemind.workers.tools.session/http/ask/registry); matched by exact prefix, never fuzzy prose
 # matching, since a model's own answer text (from `ask`) never starts with one of these.
-CAPABILITY_DENIAL_PREFIXES = ("no net capability covers ", "no fs:read capability covers ")
+CAPABILITY_DENIAL_PREFIXES = (GUARD_REFUSAL_PREFIX,)  # Roadmap step 10.3: the Guard's refusal.
 _KNOWN_ERROR_PREFIXES = (
     *CAPABILITY_DENIAL_PREFIXES,
     "no tool named ",

@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Iterator
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from hivemind.cli import app as app_module
@@ -27,6 +29,7 @@ from hivemind.common.logging import get_logger
 # The full expected shape of a --version line, e.g. "hive 0.1.0.dev0 (Python 3.12.14 on
 # Windows-11-10.0.26100-SP0)". Anchored so a stray extra line would fail the match.
 VERSION_LINE_PATTERN = re.compile(r"^hive \S+ \(Python \d+\.\d+\.\d+ on .+\)$")
+SECTION_PATTERN = re.compile(r"\[[a-z_][a-z_.]*\]")  # A manifest section, e.g. [hive].
 
 runner = CliRunner()
 
@@ -94,8 +97,8 @@ def test_every_command_logs_to_stderr_at_the_operators_level(
     runner.invoke(app, ["run", "--help"])
 
     assert configured == [
-        {"json_output": False, "level": "INFO", "to_stderr": True},
-        {"json_output": False, "level": "WARNING", "to_stderr": True},
+        {"json_output": False, "level": "INFO"},
+        {"json_output": False, "level": "WARNING"},
     ]
 
 
@@ -115,3 +118,41 @@ def test_every_command_logs_warnings_to_stderr_and_nothing_below_them(
     assert captured.out == ""
     assert "hivemind.worth_seeing" in captured.err
     assert "hivemind.routine_detail" not in captured.err
+
+
+def _commands(command: object, path: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], object]]:
+    """Every command under ``command``, with the words that reach it.
+
+    Typer bundles its own click, so a group is known by its ``commands``, not by its class.
+    """
+    yield path, command
+    for name, sub in sorted(getattr(command, "commands", {}).items()):
+        yield from _commands(sub, (*path, name))
+
+
+def _help_texts(command: object) -> Iterator[str]:
+    """The command's own help, then each of its parameters' help."""
+    yield getattr(command, "help", None) or ""
+    for parameter in getattr(command, "params", ()):
+        yield getattr(parameter, "help", None) or ""
+
+
+def test_every_help_text_prints_the_manifest_sections_it_names() -> None:
+    # Help names manifest sections as `[hive]`, `[entrance]`; Rich markup once read them as style
+    # tags and printed nothing in their place ("refused unless  operators is raised above one").
+    root = typer.main.get_command(app)
+    named = [
+        (path, section)
+        for path, command in _commands(root, ())
+        for text in _help_texts(command)
+        for section in SECTION_PATTERN.findall(text)
+    ]
+
+    missing = [
+        (path, section)
+        for path, section in named
+        if section not in runner.invoke(app, [*path, "--help"], terminal_width=400).stdout
+    ]
+
+    assert named, "no help text names a manifest section; the pattern has drifted"
+    assert missing == []

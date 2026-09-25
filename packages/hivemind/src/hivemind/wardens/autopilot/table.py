@@ -13,11 +13,15 @@ which reads only the Alarm's `kind` and `attempts`; a `Shutdown` or `CellTeardow
 Queen maps to `STOP` (ADR-0027: the one order that ends a Warden, never a judgement call); a
 Queen-sent `Intervene(RELEASE_LEASE)` maps to `RELEASE_LEASE` (roadmap step 5.13: the narrower
 order that releases the lease but leaves this Warden running, decided ahead of the generic
-`Intervene` -> `FORWARD_CONTROL` branch); a `CellSnapshotReply`/`CellRollbackReply` (roadmap step
-5.10's own follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`; the
-Honey Store's traffic (roadmap step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`,
-and a `control.error` whose `failed_kind` is `honey.nectar_deposit` -- maps to `FORWARD_HONEY`,
-which `hivemind.wardens.ticks.honey` relays or logs; every other recognised kind maps to a fixed
+`Intervene` -> `FORWARD_CONTROL` branch) and a Queen-sent `Intervene(QUARANTINE)` to `QUARANTINE`
+(roadmap step 10.6c: carried out here, never relayed to the bee it names); a `PolicyAction.
+QUARANTINE` row maps to `QUARANTINE` too, and to `ESCALATE` when the Alarm names no sub-bee this
+Warden still supervises; a `CellSnapshotReply`/`CellRollbackReply` (roadmap step 5.10's own
+follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`; a Queen-sent
+`CellTaintOrder` (roadmap step 10.6a) maps to `TAINT_MEMORY`; the Honey Store's traffic (roadmap
+step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.error` whose
+`failed_kind` is `honey.nectar_deposit` -- maps to `FORWARD_HONEY`, which
+`hivemind.wardens.ticks.honey` relays or logs; every other recognised kind maps to a fixed
 action; anything this table has never seen returns `NEEDS_JUDGEMENT`, the one signal that hands
 the item to `hivemind.wardens.awake` instead of silently dropping it.
 
@@ -56,10 +60,11 @@ from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
+from waggle.messages.cell import CellTaintOrder
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.control.protocol import ErrorMessage, Shutdown
-from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
+from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.registry import kind_for
 from waggle.messages.supervision import (
@@ -102,7 +107,10 @@ _NECTAR_DEPOSIT_KIND = kind_for(NectarDeposit)
 # task is already gone by the time an Alarm or a FAILED TaskResult reaches here), so both collapse
 # onto WardenAction.RETRY; TAKEOVER has no Warden-level meaning (codingrules section 8.8: "Wardens
 # have the same levers minus takeover with the Queen's slot"), so it escalates to the level that
-# does hold that lever.
+# does hold that lever; QUARANTINE is the Warden's own lever over its own sub-bee (ADR-0043: "a
+# Warden may apply it to its own sub-bee by its own policy row"). ISOLATE is the Queen's alone
+# (roadmap step 10.6a): a Warden's policy refuses to load such a row (`load_warden_policy`), and
+# were one to reach this table anyway it escalates to the level that holds the lever.
 _POLICY_ACTION_MAP: Mapping[PolicyAction, WardenAction] = {
     PolicyAction.RETRY: WardenAction.RETRY,
     PolicyAction.RESPAWN: WardenAction.RETRY,
@@ -110,6 +118,8 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, WardenAction] = {
     PolicyAction.TAKEOVER: WardenAction.ESCALATE,
     PolicyAction.ESCALATE: WardenAction.ESCALATE,
     PolicyAction.CANCEL: WardenAction.CANCEL_TASK,
+    PolicyAction.QUARANTINE: WardenAction.QUARANTINE,
+    PolicyAction.ISOLATE: WardenAction.ESCALATE,
 }
 
 
@@ -147,7 +157,8 @@ def decide(item: InboxItem, sub_bee: SubBeeView | None, policy: EscalationPolicy
     payload = item.payload
     if isinstance(payload, TaskAssign):
         return WardenAction.SPAWN
-    if isinstance(payload, GrantIssued):
+    if isinstance(payload, GrantIssued | GrantRevoked):
+        # A revocation (roadmap step 10.6a: the Queen isolating this Cell) is bookkeeping too.
         return WardenAction.RECORD
     if isinstance(payload, TaskResult):
         return _decide_task_result(payload)
@@ -183,6 +194,10 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
         # lease, keep running) -- always addressed to this Warden itself (subject is None), never
         # a lever to relay to a sub-bee, so it is decided before the generic FORWARD_CONTROL branch.
         return WardenAction.RELEASE_LEASE
+    if isinstance(payload, Intervene) and payload.action is InterventionAction.QUARANTINE:
+        # Roadmap step 10.6c: this Warden carries the quarantine out itself; relayed, the bee it
+        # names would only be asked to stop, with nothing checkpointed, killed or tainted.
+        return WardenAction.QUARANTINE
     if isinstance(payload, TaskCancel | TaskPause | TaskResume | Intervene):
         return WardenAction.FORWARD_CONTROL
     if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
@@ -191,6 +206,9 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
         # Roadmap step 5.10's own follow-up gap (the snapshot relay): resolved by this Warden's
         # own RelaySnapshotter, never a judgement call.
         return WardenAction.RECORD
+    if isinstance(payload, CellTaintOrder):
+        # Roadmap step 10.6a: the Queen isolated this Cell; labelling is never a judgement call.
+        return WardenAction.TAINT_MEMORY
     return _decide_honey(payload)
 
 
@@ -224,7 +242,12 @@ def _decide_alarm(
     alarm = Alarm.from_wire(payload)
     attempts = sub_bee.attempt if sub_bee is not None else alarm.attempts
     keyed_alarm = alarm.model_copy(update={"attempts": attempts})
-    return _POLICY_ACTION_MAP[decide_policy(policy, keyed_alarm)]
+    action = _POLICY_ACTION_MAP[decide_policy(policy, keyed_alarm)]
+    # A quarantine acts on one sub-bee this Warden supervises; an Alarm about none (a Warden's own,
+    # or a bee already retired) has nobody to quarantine, so the next level up decides instead.
+    if action is WardenAction.QUARANTINE and sub_bee is None:
+        return WardenAction.ESCALATE
+    return action
 
 
 def _decide_task_result(payload: TaskResult) -> WardenAction:

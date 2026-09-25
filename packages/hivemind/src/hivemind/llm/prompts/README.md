@@ -40,7 +40,9 @@ text can always tell durable state and retrieved content apart from an instructi
   bounded see/act loop; `SCOUT_SYSTEM` -- roadmap step 6.10, `hivemind.workers.roles.scout.Scout`'s
   strictly budgeted recon loop; `RIPEN_NECTAR` -- roadmap step 7.5,
   `hivemind.honey_store.ripening.summarise`'s one structured call on the `RIPENER` slot, the
-  deposit shown only as untrusted EVENT data).
+  deposit shown only as untrusted EVENT data; `TAINT_REVIEW` -- roadmap step 10.6d,
+  `hivemind.memory.taint.judge.ModelTaintJudge`'s one structured call: the taint rubric, and the
+  tainted item's own text, kind, setter and reason alone, never the bee that wrote it).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works

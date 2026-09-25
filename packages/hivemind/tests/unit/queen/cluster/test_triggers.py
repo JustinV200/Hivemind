@@ -55,7 +55,7 @@ async def _running_goal(*, probing: bool) -> tuple[QueenDeps, Queen, FakeLLMProv
         provider_lookup=(lambda _name: provider) if probing else None,
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     return deps, queen, provider, goal_id

@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest, pump_until_done
+from builders.cli import HIVE_STAND_CORES, fake_manifest, pump_until_done
 from builders.forage import make_grant
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStore, TaskStatus
@@ -29,7 +30,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose import GoalReport, Hive, HiveStores, build_hive, run_goal, run_hive
 from hivemind.cli.stores import open_ledger
-from hivemind.forage import RoleFootprint, RoyalReserve
+from hivemind.forage import ForageCapacity, RoleFootprint, RoyalReserve
 from hivemind.forage.grant_state import GrantState
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
@@ -48,6 +49,8 @@ from hivemind.memory import InMemoryMemoryStore
 from hivemind.pheromone import PheromoneTrail, TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen import ForageLedger, SqliteOrderStore
+from hivemind.queen.chat import InMemoryChatLog
+from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.wardens import WardenState
 from waggle.clock import FakeClock
 from waggle.ids import GrantId
@@ -146,6 +149,25 @@ def _three_haiku_responder() -> Responder:
     return responder
 
 
+def _blocked_responder() -> Responder:
+    """Script a goal that can never finish: the plan, then a Drone that only ever asks the human.
+
+    Nobody answers, so the task stays BLOCKED and the goal is never terminal: the deterministic
+    ground `test_run_goal_times_out_cleanly` needs. A goal that could finish would race the poll
+    loop, whose terminal check rightly comes before its deadline check.
+    """
+    ask = (("ask_1", "ask", {"text": "Which season should the haiku be about?"}),)
+
+    def responder(request: LLMRequest) -> LLMResponse:
+        if request.slot is ModelSlot.QUEEN:
+            return _plan_response(request)
+        if request.slot is ModelSlot.WORKER:
+            return _write_files_response(request, ask)
+        return _text_response("{}")
+
+    return responder
+
+
 def _plan_response(request: LLMRequest) -> LLMResponse:
     """Answer the planner's own call, on whichever structured-output rung `request` is on."""
     plan_json = json.dumps(_THREE_HAIKU_PLAN)
@@ -187,6 +209,8 @@ def _in_memory_stores(clock: FakeClock, manifest: HiveManifest) -> HiveStores:
         chamber=chamber,
         memory=InMemoryMemoryStore(trail),
         leavings=InMemoryLeavingsStore(trail),
+        goal_requests=InMemoryGoalRequestStore(trail),
+        chat=InMemoryChatLog(trail),
     )
 
 
@@ -210,8 +234,25 @@ def test_build_hive_wires_the_registry_warden_and_queen(tmp_path: Path) -> None:
     provider = hive.registry.provider("fake")
     assert isinstance(provider, FakeLLMProvider)
     assert hive.warden.lease is None  # start() has not run yet.
-    assert hive.queen.wardens == (hive.warden_link,)
+    # Roadmap step 10.3: attaching is the Queen's awaited warden_spawn check, so run_hive does it.
+    assert hive.queen.wardens == ()
     assert hive.warden_link.cell.source == "hive_stand"
+
+
+def test_build_hive_builds_the_wardens_guard_policy_from_the_manifest(tmp_path: Path) -> None:
+    # Roadmap step 10.2: [guard] policy_file resolves against the manifest's own directory, and
+    # the table's own entries apply on top of that file.
+    clock = FakeClock()
+    path = fake_manifest(tmp_path, clock=clock)
+    shipped = (files("hivemind.guard.defaults") / "policy.toml").read_text(encoding="utf-8")
+    (tmp_path / "guard.toml").write_text(shipped.replace("deny = []", 'deny = ["geo:*"]', 1))
+    with path.open("a", encoding="utf-8") as manifest_file:
+        manifest_file.write('\n[guard]\npolicy_file = "guard.toml"\ndeny = ["wifi:scan"]\n')
+    manifest = load_manifest(path, {})
+
+    hive = build_hive(manifest, environ={}, clock=clock, stores=_in_memory_stores(clock, manifest))
+
+    assert hive.warden._deps.guard.deny.as_strings() == ("geo:*", "wifi:scan")
 
 
 def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_path: Path) -> None:
@@ -235,6 +276,29 @@ def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_p
     # reserve, rather than falling back to QueenDeps's own default-constructed one.
     assert isinstance(deps.ledger, ForageLedger)
     assert deps.ledger.reserve == deps.reserve
+    # The zero-grant fix: [forage] zero_grant_patience_s, fake_manifest leaving the default.
+    assert deps.dispatch.waits.patience_s == 300.0
+
+
+def test_build_hive_gives_the_hive_stands_link_a_reader_of_its_capacity_as_it_stands(
+    tmp_path: Path,
+) -> None:
+    # The zero-grant fix: every grant for the Hive Stand is sized from a fresh reading, so a load
+    # that has dropped since build_hive probed the host is seen at the next dispatch pass.
+    hive, _clock = _build_test_hive(tmp_path)
+    reader = hive.warden_link.live_capacity
+    assert reader is not None
+
+    async def _read_once() -> ForageCapacity:
+        """Take one reading, the way the dispatcher does before sizing a grant."""
+        assert reader is not None  # Narrowed above; restated for the closure.
+        return await reader()
+
+    reading = asyncio.run(_read_once())
+
+    # Static totals as probed (fake_manifest pins the cores), live figures re-read.
+    assert reading.host.cores == HIVE_STAND_CORES
+    assert reading.max_sub_bees == hive.warden_link.cell.capacity.max_sub_bees
 
 
 def test_build_hive_wires_the_queen_deps_ledger_over_sqlite_and_restores_it(
@@ -293,6 +357,12 @@ def three_haiku_hive(tmp_path: Path) -> tuple[Hive, FakeClock]:
 
 
 @pytest.fixture
+def blocked_hive(tmp_path: Path) -> tuple[Hive, FakeClock]:
+    """A Hive whose goal can never finish (`_blocked_responder`)."""
+    return _build_test_hive(tmp_path, responder=_blocked_responder())
+
+
+@pytest.fixture
 def three_haiku_hive_zero_capabilities(tmp_path: Path) -> tuple[Hive, FakeClock]:
     """A Hive scripted for the three-haiku goal, at zero provider capabilities."""
     return _build_test_hive(tmp_path, responder=_three_haiku_responder(), capabilities="none")
@@ -314,6 +384,20 @@ async def test_run_hive_starts_and_stops_cleanly_and_leaves_scratch_empty(
         hive.warden.lease is not None
     )  # release() does not forget the lease; it marks it RELEASED.
     assert list((tmp_path / "scratch").iterdir()) == []  # Left as found.
+
+
+async def test_run_hive_attaches_the_warden_through_the_guard_and_records_warden_spawned(
+    plain_hive: tuple[Hive, FakeClock],
+) -> None:
+    hive, _clock = plain_hive
+
+    async with run_hive(hive):
+        assert hive.queen.wardens == (hive.warden_link,)
+
+    spawned = await hive.stores.trail.query(TrailQuery(kind="warden.spawned"))
+    assert [event.subject_id for event in spawned] == [hive.warden_link.warden_id]
+    # The Hive Stand's Warden leased under its own `cell:hive_stand`, so nothing was refused.
+    assert await hive.stores.trail.query(TrailQuery(kind="guard.denied")) == ()
 
 
 async def test_run_hive_leaves_no_pending_tasks_after_it_exits(
@@ -441,6 +525,8 @@ async def test_a_sub_bees_llm_call_carries_its_grant_id_and_moves_the_ledgers_sp
     grant in the ledger. A priced source is needed to prove spend actually moves, not just that
     the id rides along -- `fake_manifest`'s own default source is free (see `_price_the_fake_
     source`), so `priced_three_haiku_hive` patches one in rather than reusing `three_haiku_hive`.
+    Once its task has ended the grant goes back to the pool (the dispatcher lifecycle fix), so
+    what it spent is read from its release on the trail, the ledger keeping no revoked grant.
     """
     hive, clock = priced_three_haiku_hive
 
@@ -465,18 +551,21 @@ async def test_a_sub_bees_llm_call_carries_its_grant_id_and_moves_the_ledgers_sp
 
     (grant_id,) = grant_ids
     assert isinstance(grant_id, str)
-    grant = hive.queen._deps.ledger.grant(GrantId(grant_id))
-    assert grant is not None
-    assert grant.spent > 0.0  # The ledger's own spend for that grant actually moved.
+    assert hive.queen._deps.ledger.grant(GrantId(grant_id)) is None  # Released with its task.
+    [released] = await hive.stores.trail.query(
+        TrailQuery(kind="forage.revoked", subject_id=grant_id)
+    )
+    spent = released.payload["spent"]
+    assert isinstance(spent, float) and spent > 0.0  # The ledger's spend for that grant moved.
 
 
-async def test_run_goal_times_out_cleanly(three_haiku_hive: tuple[Hive, FakeClock]) -> None:
-    hive, clock = three_haiku_hive
+async def test_run_goal_times_out_cleanly(blocked_hive: tuple[Hive, FakeClock]) -> None:
+    hive, clock = blocked_hive
 
     async def _scenario() -> GoalReport:
         async with run_hive(hive):
-            # A timeout far shorter than a single poll interval: the very first re-check after
-            # one clock advance already exceeds it, regardless of how far the goal got.
+            # A timeout far shorter than a single poll interval, on a goal that can never finish
+            # (its Drone only asks, and nobody answers): the first re-check always times out.
             return await run_goal(
                 hive,
                 "write three haiku about bees to separate files",

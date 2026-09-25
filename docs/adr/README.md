@@ -180,3 +180,29 @@ ADRs that exist today, in numeric order:
   Real Cell floor, whose text the Ripener reads as less sensitive, gets one lowering proposal; an
   independent judge on `JUDGE` or the human decides it, and the lowering, its proposal and its
   event commit in one transaction; `hive honey review` shows and decides what waits.
+- `0039-capability-model-attenuation-and-enforcement-points.md`: one capability grammar with seven
+  scope kinds (hosts matched on label boundaries, never by string prefix) and longest-prefix
+  parsing; the operator and the Queen as two roots, sets that only narrow below them, a goal's
+  set as the ceiling for its tasks; access levels that narrow only what touches the Cell; floors
+  (the Hive's own state, Night Veil by bound or requested tier) that hold whatever a set says; a
+  pure `evaluate` with a rule and a reason; and a named enforcement point for every trail event
+  kind that records an action.
+- `0040-hive-entrance-http-websocket-api-and-human-inbox.md`: FastAPI on uvicorn, two listeners
+  built as two applications from one route table on sockets the Entrance owns, the Entrance in the
+  Queen's process with every write going through her, a goal made durable before it is
+  acknowledged, and the chat as the human end of her inbox.
+- `0041-landing-board-enrolment-two-factor-login-and-exposure.md`: devices enrol with their own key
+  and are approved only on loopback; login checks the device proof before the Argon2id password,
+  so garbage cannot lock anyone out; every request is signed with a session-bound key under one
+  published canonical scheme; step-up needs a human; the console key is wrapped under the
+  password; every remote mode needs TLS on a DNS name, over a Tailscale overlay by default or
+  mutual TLS for LAN and tunnel; no public mode; a persisted Entrance Reducer.
+- `0042-landing-board-versioning-and-push.md`: `/v1/` changes only additively and the committed
+  OpenAPI document (signing scheme included) is checked in CI; push notices carry neither content
+  nor kind, over WebSocket, destination-bound signed webhooks that cannot be aimed inside the Hive,
+  and hand-rolled RFC 8291 Web Push; an answered question is withdrawn everywhere.
+- `0043-guard-bee-requests-queen-only-isolation-and-tainted-memory.md`: the Guard Bee watches from
+  the Queen's process and can only request (or order a reduction through the trail); only the
+  Queen isolates a Cell, keeping its Waggle link; quarantine is one intervention; taint is one label
+  that nothing assembles until a judge clears it; the injection signal comes from one deterministic
+  scanner over shipped pattern data.

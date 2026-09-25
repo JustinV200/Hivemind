@@ -38,7 +38,7 @@ See Also:
     - docs/adr/0014 for "growing or shrinking a grant is a new revision, never a GrantState change".
     - hivemind.queen.forage.ledger for ForageLedger, `status`'s and `grants`'s one read.
     - hivemind.queen.forage.grants for revise, `grant`'s one write.
-    - hivemind.queen.dispatcher for `_record_forage_granted`, the `forage.granted` shape this
+    - hivemind.queen.dispatcher for `record_forage_granted`, the `forage.granted` shape this
       module's own `_record_granted` mirrors for a CLI-issued revision.
 """
 
@@ -363,7 +363,7 @@ async def _write_revision(
 async def _record_granted(
     trail: PheromoneTrail, manifest: HiveManifest, grant: ForageGrant
 ) -> None:
-    """Record `forage.granted`, mirroring `hivemind.queen.dispatcher._record_forage_granted`."""
+    """Record `forage.granted` exactly as the dispatcher's own `record_forage_granted` does."""
     clock = SystemClock()
     event = ForageEvent(
         id=new_event_id(clock),

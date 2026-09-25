@@ -132,7 +132,9 @@ async def _hive(tmp_path: Path, clock: FakeClock, cell: Cell) -> tuple[_Hive, Me
         hop=standard_link.hop,
     )
     (task,) = await deps.chamber.submit(make_graph_draft({"a": ()}))
-    placed = await deps.chamber.assign(task.id, link.warden_id, cell.id, "the only Cell")
+    placed = await deps.chamber.assign(
+        task.id, link.warden_id, cell.id, "the only Cell", bound_tier=cell.comb_shield
+    )
     return _Hive(deps, link, store, trail, placed), warden_transport
 
 

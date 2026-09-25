@@ -91,7 +91,7 @@ class _QuestionsMixin(_ChamberBase):
             }
         )
         payload: dict[str, JsonValue] = {"question_id": question.id, "asked_by": asked_by}
-        event = self._build_event(task.id, "task.blocked", payload, now)
+        event = self._build_event(task, "task.blocked", payload, now, after=new_task)
         await self._store.insert_question(new_task, question, event)
         return question
 
@@ -142,6 +142,6 @@ class _QuestionsMixin(_ChamberBase):
         new_task = task.model_copy(
             update={"status": TaskStatus.RUNNING, "updated_at": now, "pending_question_id": None}
         )
-        event = self._build_event(task.id, kind, payload, now)
+        event = self._build_event(task, kind, payload, now, after=new_task)
         await self._store.update_question(new_task, new_question, event)
         return new_task

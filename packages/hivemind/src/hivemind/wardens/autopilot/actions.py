@@ -15,8 +15,11 @@ Honey Store's traffic -- a sub-bee's `HoneyQuery` or `NectarDeposit` up, the Que
 the Queen's own order to end this Warden (a `Shutdown` or a `CellTeardownRequest`), which stops
 every sub-bee, releases the lease and ends the tick loop; `RELEASE_LEASE` (roadmap step 5.13) is
 the Queen's own narrower order that stops every sub-bee and releases the lease the same way but
-leaves this Warden running; `NEEDS_JUDGEMENT` is the one signal that hands the item to
-`hivemind.wardens.awake` instead.
+leaves this Warden running; `QUARANTINE` (roadmap step 10.6c) quarantines one sub-bee through
+`hivemind.wardens.quarantine`, on a Queen-sent `Intervene(QUARANTINE)` or this Warden's own policy
+row for a sub-bee's Alarm; `TAINT_MEMORY` (roadmap step 10.6a) runs the isolation setter over this
+Warden's own memory store on a Queen-sent `CellTaintOrder` (`hivemind.wardens.isolation`);
+`NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.wardens.awake` instead.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -59,4 +62,8 @@ class WardenAction(Enum):
     STOP = "STOP"  # A Shutdown or CellTeardownRequest: stop every sub-bee and end this loop.
     RELEASE_LEASE = "RELEASE_LEASE"  # A Queen-sent Intervene(RELEASE_LEASE): stop every sub-bee,
     # release this Warden's own lease (idempotent), then report LeaseReleased. Roadmap step 5.13.
+    QUARANTINE = "QUARANTINE"  # Quarantine one sub-bee (hivemind.wardens.quarantine): a Queen-sent
+    # Intervene(QUARANTINE), or this Warden's own policy row for a sub-bee's Alarm. Step 10.6c.
+    TAINT_MEMORY = "TAINT_MEMORY"  # A Queen-sent CellTaintOrder: label this Cell's own store
+    # tainted, as the isolation's order says (hivemind.wardens.isolation). Roadmap step 10.6a.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to wardens.awake.

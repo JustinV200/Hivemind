@@ -17,8 +17,9 @@ Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Constructed once by the composition root
     (`cli/stores.py`, roadmap step 3.21) and read by every Worker, Warden and the Queen for a
     `BoundModel`, a `BoundTranscriber` or a `BoundEmbedder`, and by `hive llm providers`/`hive llm
-    test` for `health()` and the bindings. Calls into `hivemind.forage.map`,
-    `hivemind.forage.slots`, `hivemind.llm.capabilities`, `hivemind.llm.embedding`,
+    test` for `health()` and the bindings. Calls into `hivemind.common.logging`,
+    `hivemind.forage.map`, `hivemind.forage.slots`, `hivemind.llm.capabilities`,
+    `hivemind.llm.embedding`,
     `hivemind.llm.errors`, `hivemind.llm.provider`, `hivemind.llm.slots`,
     `hivemind.llm.transcription`, this package's other modules and `waggle` only -- never
     `hivemind.manifest` (`config`'s module docstring).
@@ -31,7 +32,9 @@ Key invariants:
     - Offline mode is checked before any factory runs (`config._check_offline`), so a
       misconfigured remote provider never gets as far as opening a client.
     - `aclose` closes every built instance that owns a connection pool, found structurally
-      (`_Closable`), never by provider kind, and forgets them all.
+      (`_Closable`), never by provider kind, and forgets them all: each under its own
+      `PROVIDER_CLOSE_TIMEOUT_S`, one failed close logged at warning and never stopping the next,
+      so a shutdown releases every connection it can. A second call finds nothing left to close.
 
 See Also:
     - .claude/codingrules.md section 8.6 for "offline is a first-class mode" and "one door".
@@ -42,15 +45,17 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+from hivemind.common.logging import get_logger
 from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import ProviderHealth
 from hivemind.llm.embedding import BoundEmbedder
-from hivemind.llm.errors import UnknownProviderError
+from hivemind.llm.errors import LLMError, UnknownProviderError
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.registry.chat import ProviderFactory
 from hivemind.llm.registry.config import (
@@ -74,7 +79,13 @@ from hivemind.llm.slots import BoundModel, resolve, resolve_key
 from hivemind.llm.transcription import BoundTranscriber, TranscriptionProvider, resolve_transcriber
 from waggle.clock import Clock
 
-__all__ = ["ProviderRegistry", "RegistryDeps"]
+PROVIDER_CLOSE_TIMEOUT_S = 5.0  # Closing a pooled HTTP client is local work measured in
+# milliseconds; five seconds absorbs a slow socket teardown without letting one provider hold the
+# whole Hive's shutdown hostage.
+
+log = get_logger(__name__)
+
+__all__ = ["PROVIDER_CLOSE_TIMEOUT_S", "ProviderRegistry", "RegistryDeps"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,23 +227,55 @@ class ProviderRegistry:
         """
         return await self._transcribers.health()
 
-    async def aclose(self) -> None:
+    async def aclose(self, timeout_s: float = PROVIDER_CLOSE_TIMEOUT_S) -> None:
         """Close every provider this registry built that owns a connection pool, then forget them.
 
         Called once by each composition root as its Hive or command ends. An HTTP adapter keeps
         connections alive to its server between calls, so a registry dropped without this leaves
         open sockets behind (found 2026-09-24, the phase 7 `local_llm` eval's first run on a real
-        local server). Closing is found structurally (`_Closable`), not by provider kind: a fake
-        or an in-process model has nothing to close and is simply forgotten. A provider asked for
-        after this call is built afresh.
+        local server). Closing is found structurally (`_Closable`), not by provider kind: an
+        in-process model with nothing to close is simply forgotten. Each close runs under its own
+        `timeout_s` and a failure is logged at warning with the provider's name, never raised:
+        one stuck or broken provider must not keep the others' sockets open. A provider asked
+        for after this call is built afresh (and closed by the next call).
+
+        Args:
+            timeout_s: How long one provider's close may take before it is abandoned; must be
+                > 0. `PROVIDER_CLOSE_TIMEOUT_S` by default; a test passes a tiny value.
         """
-        built: list[object] = [
-            *self._cache.values(),
-            *self._transcribers.release(),
-            *self._embedders.release(),
+        # Snapshot and forget first, so a concurrent second aclose() (or a re-entrant one from a
+        # provider's own close) finds nothing left and never closes the same client twice.
+        built: list[tuple[str, object]] = [
+            *self._cache.items(),
+            *((_name_of(instance), instance) for instance in self._transcribers.release()),
+            *((_name_of(instance), instance) for instance in self._embedders.release()),
         ]
         self._cache.clear()
         # Each adapter that pooled connections closes them; everything else has nothing to close.
-        for instance in built:
+        for name, instance in built:
             if isinstance(instance, _Closable):
-                await instance.aclose()
+                await _close_quietly(name, instance, timeout_s)
+
+
+def _name_of(instance: object) -> str:
+    """Return a built transcriber's or embedder's provider name, for a close-failure log line."""
+    name = getattr(instance, "name", None)
+    return name if isinstance(name, str) else type(instance).__name__
+
+
+async def _close_quietly(name: str, closable: _Closable, timeout_s: float) -> None:
+    """Close one provider under `timeout_s`, logging (never raising) a failure.
+
+    The caught set is every way a close is known to fail at shutdown, and nothing broader
+    (codingrules section 10 allows `except Exception` in three named places, and this is not
+    one): our own timeout expiring, an OS-level socket error while tearing a connection down, a
+    `RuntimeError` from an event loop already shutting down underneath the client, and an
+    adapter's own typed `LLMError`. Anything else is a bug and propagates.
+    """
+    try:
+        # External await, bounded: a stuck teardown is abandoned after timeout_s, not waited on.
+        async with asyncio.timeout(timeout_s):
+            await closable.aclose()
+    except (TimeoutError, OSError, RuntimeError, LLMError) as exc:
+        # Logged, not swallowed: the operator learns which provider may have leaked a connection.
+        log.warning("llm.provider_close_failed", provider=name, error=type(exc).__name__)

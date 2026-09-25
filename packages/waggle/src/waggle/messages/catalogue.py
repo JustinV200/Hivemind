@@ -21,7 +21,7 @@ Fits into the Hive:
 Key invariants:
     - CATALOGUE holds one row per kind of the spec's catalogue table, in the table's order,
       with the table's class, shape and replies_to; tests/test_spec_drift.py fails until the
-      two list the same sixty-six kinds in both directions.
+      two list the same seventy-one kinds in both directions.
     - This module is data only: the registry checks the kind pattern, uniqueness and dangling
       replies when it indexes the rows, and refuses to import otherwise.
     - control.error is a reply with no replies_to: it answers any kind (spec section 8.11).
@@ -50,6 +50,7 @@ from waggle.messages.cell import (
     CellRollbackRequest,
     CellSnapshotReply,
     CellSnapshotRequest,
+    CellTaintOrder,
     CellTeardownRequest,
     CellWaxCleared,
     CellWaxProposed,
@@ -174,6 +175,8 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("cell.snapshot_reply", CellSnapshotReply, _REPLY, "cell.snapshot_request"),
     ("cell.rollback_request", CellRollbackRequest, _REQUEST, None),
     ("cell.rollback_reply", CellRollbackReply, _REPLY, "cell.rollback_request"),
+    # PROTOCOL_MINOR 10: the Queen's order to an isolated Cell's Warden to taint its own store.
+    ("cell.taint_order", CellTaintOrder, _EVENT, None),
     # session (spec section 8.6): the terminal session a Warden drives on a device.
     ("session.open", SessionOpen, _REQUEST, None),
     ("session.exec", SessionExec, _REQUEST, None),

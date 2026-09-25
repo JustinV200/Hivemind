@@ -97,6 +97,8 @@ class FakeQemuRunner:
         self._stop_vm_failure: str | None = None
         self.create_overlay_disk_calls: list[CellId] = []
         self.write_seed_image_calls: list[CellId] = []
+        # Each Cell's rendered user-data, so a test can read exactly what the guest would boot.
+        self.seed_user_data: dict[CellId, str] = {}
         self.start_vm_calls: list[QemuVmSpec] = []
         self.stop_vm_calls: list[CellId] = []
         self.pause_vm_calls: list[CellId] = []
@@ -174,6 +176,7 @@ class FakeQemuRunner:
     ) -> Path:
         """Record the call and return a made-up seed path; see `QemuRunnerPort`."""
         self.write_seed_image_calls.append(cell_id)
+        self.seed_user_data[cell_id] = user_data
         _fire(self, "_write_seed_image_failure", f"seed image for {cell_id!r}")
         return vm_dir / "seed.iso"
 

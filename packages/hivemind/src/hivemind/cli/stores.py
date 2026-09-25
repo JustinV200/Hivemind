@@ -53,6 +53,9 @@ Key invariants:
       `ForageMap.observe`/`set_abundance`/`throttle` afterwards, and only `set_abundance`/
       `throttle` ever touch either rate field again, always from what a call's own response
       headers (or a `RateLimitedError`) actually reported -- never an invented number.
+    - `build_provider_registry`'s `"fake"` factory substitution is selected by `ProviderConfig.
+      kind`, never by branching on a provider's own name or kind elsewhere (codingrules section 4;
+      `scripts/check_no_kind_branches.py`); see `_responder_installing_fake_factory`.
 
 See Also:
     - docs/adr/0006-sqlite-as-the-single-hive-store.md for the "separate connections" decision.
@@ -75,10 +78,12 @@ Public API:
     - DEFAULT_MANIFEST, ManifestOption, JsonOption: the shared `--manifest`/`--json` typer option
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
-    - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings: the
-      store composition functions.
+    - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings,
+      open_honey_store: the store composition functions; open_goal_requests and open_chat_log
+      (roadmap step 10.5) open the Queen's own goal-request table and chat log the same way.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
-      conversion functions.
+      conversion functions; build_provider_registry is build_registry over a shared ForageMap,
+      optionally scripting every `"fake"` provider (the Hive's composition root's own form).
 """
 
 from __future__ import annotations
@@ -90,6 +95,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import SecretStr
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStore
 from hivemind.cell.leavings import SqliteLeavingsStore
@@ -100,18 +106,26 @@ from hivemind.forage.map import SlotBinding
 from hivemind.hive.snapshot import SqliteSnapshotLedger
 from hivemind.honey_store import SqliteHoneyStore
 from hivemind.llm import (
+    FakeLLMProvider,
+    LLMProvider,
+    ProviderCapabilities,
     ProviderConfig,
     ProviderFactory,
     ProviderKind,
     ProviderRegistry,
     RegistryDeps,
+    Responder,
+    apply_overrides,
     default_factories,
 )
 from hivemind.manifest import HiveManifest, ManifestError, load_manifest
 from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
+from hivemind.queen.chat import SqliteChatLog
 from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.forage.ledger import SqliteLedgerStore
+from hivemind.queen.guard_requests import SqliteGuardRequestStore
+from hivemind.queen.intake import SqliteGoalRequestStore
 from waggle.clock import Clock, SystemClock
 
 # Shared so `hive tasks`, `hive trail` and `hive capping` declare `--db` with the exact same flag
@@ -147,7 +161,10 @@ __all__ = [
     "closing_registry",
     "load_manifest_or_exit",
     "open_chamber",
+    "open_chat_log",
     "open_cluster_orders",
+    "open_goal_requests",
+    "open_guard_requests",
     "open_honey_store",
     "open_leavings",
     "open_ledger",
@@ -229,6 +246,71 @@ def open_memory(db: Path) -> MemoryStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_goal_requests(db: Path) -> SqliteGoalRequestStore:
+    """Open `db` and return the Queen's durable goal-request table, trail migrations first.
+
+    Roadmap step 10.5 (ADR-0040): `hivemind.cli.compose.deps.open_default_stores` calls this so a
+    goal request is committed on the Hive's own file before the Hive Entrance acknowledges it.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteGoalRequestStore whose `goal_requests` table exists and is current.
+    """
+
+    async def _open() -> SqliteGoalRequestStore:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same "trail's migration runs first" rule as open_chamber: every write here inserts a
+        # queen.goal_request_* event into pheromone_events on this same connection.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteGoalRequestStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_chat_log(db: Path) -> SqliteChatLog:
+    """Open `db` and return the Queen's chat log, trail migrations first (roadmap step 10.5).
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteChatLog whose `chat_entries` table exists and is current.
+    """
+
+    async def _open() -> SqliteChatLog:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same rule again: a human message's arrival and a reply insert their event here too.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteChatLog.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_guard_requests(db: Path) -> SqliteGuardRequestStore:
+    """Open `db` and return the Queen's durable Guard request table (roadmap step 10.6a).
+
+    `hivemind.cli.compose.guard.build_guard_deps` calls this so a Guard request is committed on the
+    Hive's own file before the Guard Bee's filing returns (ADR-0043), and survives a restart. The
+    table records no trail event of its own (the Guard Bee's `guard.alert` and the Queen's
+    `queen.decided` are the audit rows), so no trail migration has to run first.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteGuardRequestStore whose `guard_requests` table exists and is current.
+    """
+
+    async def _open() -> SqliteGuardRequestStore:
+        return await SqliteGuardRequestStore.create(connect(db), SystemClock())
 
     return asyncio.run(_open())
 
@@ -575,6 +657,58 @@ def build_registry(
     return ProviderRegistry(
         provider_configs(manifest), slot_bindings(manifest), manifest.llm.offline, deps
     )
+
+
+def build_provider_registry(
+    manifest: HiveManifest,
+    environ: Mapping[str, str],
+    clock: Clock,
+    forage_map: ForageMap,
+    responders: Mapping[str, Responder] | None,
+) -> ProviderRegistry:
+    """Build a ProviderRegistry sharing `forage_map`, optionally scripting every `"fake"` provider.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
+        environ: The composition root's own environment mapping, for provider API keys.
+        clock: Passed to every provider this registry later constructs.
+        forage_map: Shared with the Fanner and `QueenDeps.map`: one live map for the whole Hive,
+            never a second instance the routing figures the Fanner writes never reach.
+        responders: When given and non-empty, every `[llm.providers.<name>] kind = "fake"` row is
+            built with `responders.get(name)` installed as its `hivemind.llm.fake.FakeLLMProvider.
+            __init__`'s own `responder`, so a test can script one without reaching into the
+            registry's private cache after the fact. `None` or empty keeps
+            `hivemind.llm.registry.default_factories`'s own plain `FakeLLMProvider` unchanged.
+
+    Returns:
+        A ProviderRegistry ready to resolve any `[llm.slots]` binding this manifest declares.
+    """
+    factories = dict(default_factories())
+    if responders:
+        factories["fake"] = _responder_installing_fake_factory(responders)
+    return build_registry(manifest, environ, clock, factories=factories, forage_map=forage_map)
+
+
+def _responder_installing_fake_factory(responders: Mapping[str, Responder]) -> ProviderFactory:
+    """Build a `"fake"` ProviderFactory that installs a scripted Responder, if one is named.
+
+    Not a `cell.kind`/`provider.name` branch (`scripts/check_no_kind_branches.py`): this factory
+    is reached only because `ProviderConfig.kind == "fake"` already selected it, exactly the way
+    `hivemind.llm.registry.default_factories` itself dispatches by kind for every adapter;
+    `responders.get(name)` only varies what that one already-selected factory builds, the same
+    way `hivemind.llm.registry.apply_overrides` already varies a provider's declared capabilities.
+    """
+
+    def factory(
+        name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
+    ) -> LLMProvider:
+        """Build a FakeLLMProvider for `name`, scripted with `responders[name]` when present."""
+        capabilities = apply_overrides(ProviderCapabilities.full(), config.capability_overrides)
+        return FakeLLMProvider(
+            name=name, capabilities=capabilities, responder=responders.get(name), clock=clock
+        )
+
+    return factory
 
 
 def _first_model_by_provider(manifest: HiveManifest) -> dict[str, str]:

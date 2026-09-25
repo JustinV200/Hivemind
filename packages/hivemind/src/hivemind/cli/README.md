@@ -87,13 +87,43 @@ typer layer that calls into a subsystem's public API and never contains logic of
   sync_answers_from_chamber` and streaming trail events to `on_event` each poll. Split into
   `links.py` (the one Waggle link) and `deps.py` (every manifest-slice-to-deps conversion) to stay
   within codingrules section 5.1's 300-line budget; see its own `__init__.py` for the full split.
+  The zero-grant fix: `build_hive` gives the Hive Stand's Queen-side link a reader of the Stand's
+  capacity as it stands (`WardenLink.live_capacity`, over `HiveStandSource.cells()`), so every
+  grant sees the load and free memory of its moment, and the Queen `[forage]
+  zero_grant_patience_s` (`QueenDeps.dispatch.waits`). Roadmap step 10.3: `deps.build_enforcer` builds the one Guard `Enforcer` (over `[guard]`'s
+  policy) the Queen and the Hive Stand's Warden share (`HiveParts.enforcer`), the Warden's lease
+  needs `HIVE_STAND_LEASE` (`cell:hive_stand`), and `run_hive` attaches the Hive Stand's Warden to
+  the Queen first (her awaited `warden_spawn` point), so a freshly built `Hive.queen` has no Warden
+  attached yet. `in_cell/deps.py` does the same for a Virtual Cell's Warden: the shipped policy,
+  recording to the Cell's own trail, with `VIRTUAL_CELL_LEASE` (`cell:virtual`). Roadmap step
+  10.3a: that policy names the Hive Stand as the Cell reaches it (`in_cell/hive_stand.py`: the
+  Queen URL's host by name, and its addresses resolved once at start, never an onion's); the
+  Cell's tier comes from `HIVEMIND_COMB_SHIELD` (`in_cell/config.py`, held to its link), and a
+  Night Veil Cell dials only through its Tor SOCKS proxy and attests that link on `CellReady`.
+  Its capacity comes from `HIVEMIND_RESERVATION` beside it: what its backend reserved from its
+  `VirtualCellSpec`, with no load, never the host's cores, memory and load average a container
+  would probe; the Queen places it by the same figures (`compose/virtual_cells.py`).
+  Every model call in a Virtual Cell passes through the Cell's own Fanner (`in_cell/fanner.py`):
+  metered by the seats and rate limits the Queen shipped with each provider row, and recorded as
+  an `llm.call` on the Cell's own trail segment, which reaches the Queen's trail when it syncs (a
+  Night Veil Cell's reaches only its ephemeral segment, purged at teardown: codingrules 12).
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
-  [--json]`: the one command that calls `build_hive`/`run_hive`/`run_goal`. Streams trail events as
-  they arrive (unless `--json`), then a one-line summary; exits 0 on success, 1 when the goal
-  failed, 2 on a timeout or a bad manifest. The streamed view begins at the goal's own
+  [--json] [--comb-shield night_veil]`: the one command that calls `build_hive`/`run_hive`/
+  `run_goal`. With `--comb-shield` (roadmap step 10.3c) the goal is asked for as a durable goal
+  request instead (origin HUMAN, the tier named, no device: `compose/request.py`,
+  `run_requested_goal`), the one way Night Veil work is initiated, and followed once the Queen has
+  planned it; a request she refuses prints `hive run refused: <reason>` (exit 1), one still
+  unplanned at the timeout exits 2. `RunCommand` carries `--json` and `--comb-shield` on the
+  command itself, keeping `run_command` within five parameters. Streams trail events as
+  they arrive (unless `--json`; a Night Veil goal's are its skeleton alone), every
+  `forage.denied` with its cause (`deferred: waiting for free_cores (fails after 300s)` for a task
+  left waiting for room, `denied: seats` for one refused), then a one-line summary; exits 0 on
+  success, 1 when the goal failed, 2 on a timeout or a bad manifest. The streamed view begins at
+  the goal's own
   submission, never earlier (a store that already holds other runs does not replay them), and
   with `[hive_stand] keep_scratch = true` (development only) the last line names the lease
-  directory the run's files were left in. Registered on the root app with `app.command("run")`,
+  directory the run's files were left in. Registered on the root app with
+  `app.command("run", cls=RunCommand)`,
   not `app.add_typer` -- unlike every other group in this package, it has no subcommand of its own
   (`hive run "goal"`, not `hive run run "goal"`), and the pinned typer version does not collapse a
   single-command `add_typer` sub-app onto its parent's own name (verified empirically; see this
@@ -123,6 +153,14 @@ typer layer that calls into a subsystem's public API and never contains logic of
       (refusing with a clear message if the same path is active on more than one Cell); with
       neither CELL nor `--path`, refuses with a usage error (exit 2) rather than removing
       everything everywhere.
+    - `isolation.py` -- `hive cells isolate CELL_ID --reason TEXT [--report GUARD_REPORT_ID]
+      [--json]` and `hive cells lift CELL_ID [--json]` (roadmap step 10.6): the human's two levers
+      on a Cell's isolation (docs/guard/isolation.md). Unlike the rest of `readback/`, they act on
+      the running Queen: each is the Hive Stand's console over a running `hive serve`'s loopback
+      listener (`POST /v1/cells/{cell_id}/isolate` and `/lift`), logging in and stepping up with
+      the operator password (`--password-stdin`) exactly as `hive entrance open` does
+      (`cli/entrance/console.py`, whose `run_console` takes the group its refusal line names).
+      A nameless Typer app, folded into `hive cells` by `cells.py`.
     - `inbox.py` -- `hive inbox --manifest hive.toml [--json]` lists pending questions
       (`chamber.pending_questions`) and Alarms still escalated to the human, reconstructed from the
       trail's own `alarm.escalated`/`alarm.resolved` events; `hive inbox answer QUESTION_ID "text"
@@ -298,7 +336,10 @@ more than one Cell).
       Cell id with a clear message); goes through a plain `Undertaker` built over the manifest's
       own backend (`hivemind.cli.compose.virtual_cells.build_virtual_cells`) and a `ForageLedger`-
       backed `GrantRevoker`; idempotent (an unknown id is a clean no-op, `CellBackend.destroy`'s
-      own contract), printing the `cell.destroyed` trail event id.
+      own contract), printing the `cell.destroyed` trail event id. A Night Veil Cell (by its tier
+      label, or by the trail's skeleton once no backend lists it) is destroyed behind its
+      boundary and purged once gone (`virtual_offline.destroy_virtual_cell`, shared with
+      `abscond`; codingrules 12): its grants' revocations never reach the durable trail.
     - `hive cells release LEASE_ID [--manifest]`: writes a durable
       `hivemind.queen.cluster.ClusterOrder(kind=RELEASE, lease_id=...)` row, exactly like `hive
       cluster`/`hive wake` (docs/adr/0024), for a running Queen's own tick
@@ -415,6 +456,137 @@ and its real SQLite file (`harness.py`): Nectar seeded through the real `NectarI
 `query`, `stats`, `ls`, `cat`, `propose` both ways, `relabel` both ways with its trail events, and
 `reembed` after a real manifest edit rebinds the embedder to another model; the degraded paths
 rebind it to a hosted kind with no embeddings. `harness.invoke` wraps each run in
-`structlog.testing.capture_logs()`: the CLI configures no logging, and structlog's default prints
-every log line (the store's own `honey_store.vector_backend`, for one) to stdout, in front of
-the JSON a test parses.
+`structlog.testing.capture_logs()`, so no log line (the store's own `honey_store.vector_backend`,
+for one) can land in front of the JSON a test parses, whatever logging the run configured.
+
+## Command groups (phase 10 step 10.5)
+
+- `serve.py` -- `hive serve --manifest hive.toml`: runs the Queen, her Hive Stand Warden and the
+  Hive Entrance (the HTTP door) in one event loop until SIGINT or SIGTERM, which it owns. Before
+  anything listens it checks `[entrance]` against this host (`gather_facts`, `plan_exposure`: a
+  mode whose prerequisites do not hold exits 2 naming the rule) and binds the loopback listener
+  (a port it cannot bind exits 1). It prints where the loopback listener answers; the remote one
+  starts only while exposed and not reduced. A bare command like `run`. The composition lives in
+  `compose/entrance.py`: `build_served_hive` is `build_hive`, and `serve_hive` binds the Hive's
+  `human_channel` relay (the Queen's `HumanChannel`) to the Entrance's push channel, opens its tables on
+  the Hive's own database file, loads its keys from the secret store (the Hive's Ed25519 key,
+  the Web Push keys with `HIVEMIND_ENTRANCE_VAPID_SUBJECT` or else `public_url` as the contact, and
+  in a remote mode the Hive's certificate authority), builds the Entrance and runs it inside
+  `run_hive`, stopping it (every socket, both listeners) before the Queen. `Hive` gained the
+  Hive's one `enforcer` and the Queen's `human_channel` relay, both additive.
+
+How to test it: `tests/unit/cli/test_serve.py` (the exit codes through `CliRunner`),
+`tests/unit/cli/compose/test_entrance.py` (loopback serves; `vpn`, `lan` and `tunnel` start behind
+a self-signed certificate on a DNS name and serve TLS, admitting a client certificate the Hive's
+authority issued and refusing a client without one where mutual TLS is on; an unbindable loopback
+port refuses), `tests/unit/cli/compose/test_entrance_refusals.py` (`serve_hive` itself refuses each
+exposure rule, one case per rule) and `tests/e2e/test_hive_serve.py` (a program enrolled, approved,
+running a goal and reading the Queen's reply over real sockets and the Hive's SQLite file).
+
+## Command groups (phase 10 step 10.8)
+
+The CLI is an enrolled device like any other client of the Hive Entrance (ADR-0041): on the Hive
+Stand it acts as the **console device**, and on a laptop as the laptop's own device. The operator
+password is only ever typed at a hidden prompt or read from standard input with
+`--password-stdin` (never an argument or an environment variable); session tokens live in memory
+for one command; nothing prints or logs a password, token, private key, invite code (except where
+`invite` shows it once) or signature, and a key is shown by its fingerprint (`hive keys` also
+prints the public half in hex, the form a peer pins).
+
+- `landing/` -- the Landing Board client every command below goes through. `signing` builds the
+  signatures `hivemind.entrance.auth.canonical` defines (enrolment, the login's key proof,
+  `hive-request-v1` over every request, `hive-ws-v1` for a stream's first frame); `client`'s
+  `LandingClient` redeems an invite, logs in (challenge, key proof, password), steps up, and signs
+  and sends every request, and `signed_in` logs out however its block ends; `stream` opens a
+  WebSocket view and authenticates it in its first frame; `errors` turns an Entrance refusal into
+  one line (`401 authentication_failed` never says which factor failed, so the line lists what it
+  may mean; a `step_up_required` names its pending confirmation); `transport` verifies TLS against
+  the system's store or a pinned CA (`--ca-file`), with proxies from the environment ignored;
+  `password` reads the password; `options` carries a group's options (`--manifest`,
+  `--password-stdin`, `--remote`, `--profile`) to its subcommands through `ctx.meta`; `text`'s
+  `shown` escapes every foreign string (control characters, escapes, bidirectional overrides)
+  before it reaches the terminal.
+- `entrance/` -- `hive entrance ...` on the Hive Stand. `operator password` sets the password the
+  first time (minting the console device) and changes it with the current one; `--reset` (a lost
+  password: every device and session revoked, a new console minted) and `unlock --console` run only
+  while `hive serve` is stopped. `operator add` refuses (Brood 1.0 keeps one operator credential).
+  `invite --device NAME [--json]` prints the grouped code, the enrolment link with the code in its
+  fragment, a terminal QR code of it (segno), the Hive id and the `hive remote enrol` line;
+  `register --name N --public-key HEX --csr FILE` (a device registered offline, below); `pending`,
+  `approve ID [--capabilities ...] [--spend-cap] [--expires] [--interactive] [--yes]
+  [--certificate-out FILE] [--bundle-out FILE]` (the key fingerprint, the passkey backup flags and
+  every device-supplied string escaped, then a yes; then the certificate it issued, below), `deny`,
+  `devices [--status]`, `revoke ID [--cancel-goals]`, `steward ID --on/--off`, `unlock ID`,
+  `reduce`, `open` (the console steps up), `status` (mode, listeners, exposure plan, devices by
+  status, held confirmations) and `expose` (the plan or the refusal, dry, no password). Every
+  command that decides something unwraps the console key with the password and logs in over the
+  running serve's loopback listener, so it leaves the same trail as any device (`console`).
+  `serving` keeps one `hive serve` per Hive: the **serve lock**, an OS lock on `<db>.serve.lock`
+  that `hive serve` holds for its life and an offline operation for its duration (released by the
+  kernel even when the holder is killed), and the **serve record** (`<db>.serve.json`: pid, host,
+  port) that tells the console where the loopback listener answers, `bind = "127.0.0.1:0"` included.
+  `compose/entrance.py`'s `serve_hive` holds the lock and publishes the record.
+- `remote/` -- the laptop's side. `hive remote enrol URL --name NAME [--code CODE] [--hive HIVE]
+  [--profile P] [--ca-file PEM] [--offline] [--csr-out FILE]` mints the laptop's Ed25519 key,
+  redeems the invite with a certificate request for that key (the URL may be the whole invite link,
+  which carries the code; the Hive's id is then asked of the Entrance, `GET /v1/enrol/hive`, over
+  the same verified connection, and a `--hive` it contradicts is refused), keeps the profile as
+  plain JSON and the key in a `hivemind.common.secrets` file store beside it (both owner-only, under
+  the user's config directory: `<config>/hivemind/remote/`), and prints the key fingerprint and the
+  approval the operator owes. `hive remote profiles` lists them (with whether each holds a client
+  certificate); `hive remote forget NAME` drops one, its key and its certificate; `hive remote
+  set-url URL [--ca-file PEM]` moves a profile to another address of the same Hive (the mutual-TLS
+  listener, say). `hive run --remote "goal" [--profile P] [--timeout S] [--json]` submits the goal
+  through `POST /v1/goals` and follows it to its end through the chat and push views and its own
+  re-reads (a device without those views follows by re-reading alone), printing the Queen's lines
+  with the command that answers a question, each once, and at the end reading the chat for any line
+  the view had not delivered yet; exit 0 finished, 1 refused, 2 the timeout ended the follow first
+  (the goal goes on). `hive inbox --remote [--json]`, `hive inbox --remote answer ID TEXT [--option
+  N]` and `hive inbox --remote acknowledge ALARM_ID` act on the remote inbox. Every refusal (no
+  profile, pending, locked, revoked, a wrong password, a held request with its pending id, an
+  Entrance that does not answer) is one stderr line and exit 1.
+- `keys/` -- `hive keys list [--json]`, `create NAME`, `revoke NAME [--yes]`: the Waggle-side
+  Ed25519 keys in the Hive's secret store, each shown by name, role, public key and fingerprint.
+  The Hive's identity key (`hive.ed25519`, moved only by Supersedure) and the console's wrapped
+  key are refused. Revoking deletes the private half; a peer that pinned the public key trusts it
+  until that pin is removed (Waggle has no revocation list yet), and the command says so. The
+  trail's vocabulary has no key-lifecycle kind yet, so creation and revocation are logged (name
+  and fingerprint), not recorded on the trail.
+
+Mutual-TLS device certificates (roadmap 10.5a/10.5d, ADR-0041). In `lan` and `tunnel` (and `vpn`
+with `mutual_tls = true`) the remote listener completes a handshake only with a client certificate
+from the Hive's own authority, issued at approval:
+
+- A laptop's certificate certifies its own device key, so there is one key, in the secret store.
+  `landing/certificate` builds the request (`certificate_request`), checks a certificate it is
+  given (`certificate_facts`: this device's key, current, naming a device), and presents it
+  (`present`) on every HTTPS request and WebSocket of a profile that holds one: the standard
+  library loads a key only from a file, so the key goes to a private temporary directory sealed
+  under a one-time password that lives only in memory, gone before the call returns.
+- `hive remote certificate fetch` reads it after approval (`GET /v1/devices/me/certificate`, over
+  the listener the laptop enrolled on) and keeps it beside the profile (`<profile>.crt`,
+  owner-only). The certificate is checked against the laptop's key before it is kept.
+- A laptop that can reach no enrolment listener enrols `--offline`: it makes its key and a
+  request (`--csr-out`, default `./<profile>.csr`), sends nothing, and prints what the operator
+  runs. The operator runs `hive entrance register --name N --public-key HEX --csr FILE` (the
+  loopback-only `POST /v1/entrance/register`), then `hive entrance approve ID --certificate-out
+  FILE`. On the laptop, `hive remote certificate import FILE` keeps the certificate, completing
+  the profile with the device id it names. Until then the profile refuses every remote command.
+- `hive entrance approve` prints the certificate it issued by serial and fingerprint. For a
+  browser under mutual TLS it writes the PKCS#12 bundle owner-only to `--bundle-out` (default
+  `./<device id>.p12`, checked writable before anything is issued) and prints the passphrase once.
+- `--ca-file` stays the laptop's trust for the Hive's own name: the listener's server certificate,
+  pinned. A refused handshake reads as a Hive that did not answer, with a hint: fetch or import a
+  certificate, or the certificate may have been refused (revoked, expired, from another Hive).
+
+How to test it: `tests/unit/cli/landing/` (the signatures checked by the Entrance's own verifier,
+the client against a real Entrance app), `tests/unit/cli/entrance/`, `tests/unit/cli/remote/` and
+`tests/unit/cli/keys/` (each command group through `CliRunner` over `hive serve`'s own composition
+on real loopback sockets, `builders/entrance/stand.py`; a laptop is a second config directory,
+`laptop_terminal`; `builders/entrance/mtls.py`'s tunnel-mode stand serves TLS and mutual TLS on
+loopback, so the certificate tests run anywhere), `tests/e2e/test_mutual_tls.py` (the same on this
+machine's private address in `lan`, with a goal run over mutual TLS) and
+`tests/e2e/test_phase10_remote_laptop.py`, phase 10's second exit
+criterion: a laptop enrols, is approved, runs a goal a real Queen plans and a Drone finishes while
+`hive inbox --remote` answers its question, and requests without credentials, with a stolen token,
+replayed, and from the laptop pending, locked and revoked are refused.

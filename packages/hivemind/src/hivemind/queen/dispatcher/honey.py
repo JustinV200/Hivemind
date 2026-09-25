@@ -3,7 +3,8 @@
 Honey is the Hive's ripened, searchable knowledge (the cold tier of memory); consulting it before
 acting is how knowledge compounds across runs. Roadmap step 7.9 names two consultations, both the
 Queen's pre-check: the planner queries Honey for the goal's targets (`consult_for_plan`, whose
-hits `hivemind.queen.planner.plan_goal` renders into the plan prompt), and the dispatcher queries
+hits `hivemind.queen.planner.plan_goal` renders into the plan prompt, each first scanned by
+`screen_for_plan` with the Queen as the reader, roadmap step 10.6b), and the dispatcher queries
 it for the task and the chosen Cell's known quirks (`consult_for_assignment`, whose hits ride on
 `TaskAssign.honey`). The assignment pre-check reads as the Worker-to-be would: its default
 `honey:read` scopes, the task's clearance, the Cell's tier. It runs two searches -- the objective
@@ -17,17 +18,19 @@ a search may wait on the EMBEDDER slot but never on ripening.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.
-    dispatcher`. `consult_for_assignment` is called by `hivemind.queen.dispatcher.ready.
-    _send_grant_and_assign` for fresh dispatches, retries and resumes alike; `consult_for_plan`
+    dispatcher`. `consult_for_assignment` is called by `hivemind.queen.dispatcher.ready.assign.
+    send_grant_and_assign` for fresh dispatches, retries and resumes alike; `consult_for_plan`
     and `record_consulted` by `hivemind.queen.goal_submission.submit_goal`. Calls into
-    `hivemind.cell`, `hivemind.honey_store` (the retriever, scopes, the reader ceiling, the hit
-    budget), `hivemind.memory` (live Cell Wax), `hivemind.queen.deps`, `hivemind.queen.trail`,
+    `hivemind.cell`, `hivemind.guard.scanner` (the plan hits' scan), `hivemind.honey_store` (the
+    retriever, scopes, the reader ceiling, the hit budget), `hivemind.memory` (live Cell Wax, the
+    scanned `RetrievedItem`), `hivemind.queen.deps`, `hivemind.queen.trail`,
     `hivemind.workers.roles.house_bee` (`bee_or_none`) and waggle.
 
 Key invariants:
     - A hit is never labelled above the reader's ceiling: the retriever filters before ranking,
       and live wax is read at that same ceiling, so `TaskAssign`'s own clearance check holds.
     - Neither consultation raises: every failure is logged (codes and ids) and yields nothing.
+    - No plan hit reaches the planner unscanned: `screen_for_plan` scans every excerpt first.
     - At most `[honey.retrieval] precheck_max_hits` hits (0 turns both consultations off), packed
       into `budget_fraction` of the reading slot's window, capped at `max_budget_tokens`.
     - A Night Veil Cell's pre-check records no trail event and no log line at all, exactly like
@@ -47,10 +50,11 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import CombShieldLevel, HoneyClearance
+from hivemind.cell import CellIdentity, CombShieldLevel, HoneyClearance
 from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
 from hivemind.forage.slots import ModelSlot
+from hivemind.guard.scanner import ScanRecorder, ScanSite, ScanSource
 from hivemind.honey_store import (
     HoneyAccess,
     HoneyReader,
@@ -64,7 +68,7 @@ from hivemind.honey_store import (
 )
 from hivemind.honey_store.honey import pack_hits
 from hivemind.llm import UnresolvableSlotError
-from hivemind.memory import CellWax, cap_wax_for_hot_state
+from hivemind.memory import CellWax, RetrievedItem, cap_wax_for_hot_state
 from hivemind.memory.cell_wax import WaxState
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.trail import record_event
@@ -99,6 +103,7 @@ __all__ = [
     "consult_for_assignment",
     "consult_for_plan",
     "record_consulted",
+    "screen_for_plan",
 ]
 
 log = get_logger(__name__)
@@ -159,6 +164,47 @@ async def consult_for_assignment(
             log.warning("queen.precheck_failed", task_id=task.id, reason=_reason(error))
         return ()
     return consultation.hits
+
+
+async def screen_for_plan(
+    deps: QueenDeps, hits: Sequence[HoneyHit], tier: CombShieldLevel | None
+) -> tuple[RetrievedItem, ...]:
+    """Scan a plan consultation's hits before the planner reads them (roadmap step 10.6b).
+
+    Args:
+        deps: The Queen's collaborators: her scanner, trail, identity and clock.
+        hits: The hits `consult_for_plan` found, in order.
+        tier: The goal's own Comb Shield tier, whose thresholds apply; None (the planner picks
+            each task's tier) reads at the Meadow's.
+
+    Returns:
+        One scanned `RetrievedItem` per hit, in order; a flag is already on the Queen's trail as
+        `guard.injection_suspected` when this returns.
+
+    Raises:
+        hivemind.common.errors.SecretStoreError: The scanner's key could not be read or minted.
+    """
+    identity = deps.identity
+    recorder = ScanRecorder(
+        trail=deps.trail,
+        identity=CellIdentity(
+            hive_id=identity.hive_id, node_id=identity.node_id, actor=identity.actor
+        ),
+        clock=deps.clock,
+    )
+    items: list[RetrievedItem] = []
+    for hit in hits:
+        site = ScanSite(
+            source=ScanSource.HONEY_HIT,
+            consumer=identity.hive_id,
+            recorder=recorder,
+            tier=tier if tier is not None else CombShieldLevel.MEADOW,
+            ref=hit.honey_ref,
+        )
+        # One local, bounded scan per hit; a flag adds one trail write.
+        verdict = await deps.scanner.scan(hit.excerpt, site)
+        items.append(RetrievedItem.from_hit(hit, verdict))
+    return tuple(items)
 
 
 async def consult_for_plan(

@@ -60,11 +60,11 @@ from hivemind.cli.compose import GoalReport, Hive, build_hive, run_goal, run_hiv
 from hivemind.cli.compose.deps import (
     build_fanner,
     build_hive_stand_source,
-    build_provider_registry,
 )
 from hivemind.cli.compose.honey import build_honey_access
 from hivemind.cli.stores import (
     build_forage_map,
+    build_provider_registry,
     open_chamber,
     open_honey_store,
     open_memory,
@@ -415,7 +415,13 @@ async def _handoff_a_day_later(
 ) -> _Checkpointed:
     """Checkpoint a task's Handoff at t0, finish the task, and sweep and ripen a day later."""
     (task,) = await deps.chamber.submit(make_graph_draft({"migrate": ()}))
-    await deps.chamber.assign(task.id, link.warden_id, link.cell.id, "Placed for this scenario.")
+    await deps.chamber.assign(
+        task.id,
+        link.warden_id,
+        link.cell.id,
+        "Placed for this scenario.",
+        bound_tier=link.cell.comb_shield,
+    )
     await deps.chamber.start(task.id)
     worker = new_worker_id(clock)
     handoff = make_handoff(

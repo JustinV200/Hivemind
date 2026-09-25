@@ -42,6 +42,7 @@ from hivemind.brood_chamber.errors import (
 )
 from hivemind.brood_chamber.questions import Question, QuestionStatus
 from hivemind.brood_chamber.store.protocol import TaskFilter, check_task_event
+from hivemind.brood_chamber.store.scrub import due_for_scrub, scrub_question, scrub_task
 from hivemind.brood_chamber.task.model import Task
 from hivemind.common.errors import ConflictError, InvariantViolationError
 from hivemind.pheromone import PheromoneTrail, TaskEvent
@@ -110,6 +111,8 @@ class MemoryTaskStore:
             tasks = list(self._tasks.values())
         matches = [task for task in tasks if _matches_task_filter(task, query)]
         matches.sort(key=lambda task: (task.created_at, task.id))
+        if query.after is not None:
+            matches = _after_cursor(matches, {task.id: task for task in tasks}, query.after)
         return tuple(matches[: query.limit])
 
     async def insert_question(self, task: Task, question: Question, event: TaskEvent) -> None:
@@ -161,9 +164,33 @@ class MemoryTaskStore:
         matches.sort(key=lambda question: (question.asked_at, question.id))
         return tuple(matches)
 
+    async def scrub_night_veil(self, task_ids: frozenset[str]) -> int:
+        """Reduce finished Night Veil tasks and their questions; see TaskStore.scrub_night_veil."""
+        async with self._lock:
+            due = [task for task in self._tasks.values() if due_for_scrub(task, task_ids)]
+            # Every question a chosen task asked goes with it, answered or not.
+            chosen = {task.id for task in due}
+            asked = [q for q in self._questions.values() if q.task_id in chosen]
+            for task in due:
+                self._tasks[task.id] = scrub_task(task)
+            for question in asked:
+                self._questions[question.id] = scrub_question(question)
+            return len(due) + len(asked)
+
+
+def _after_cursor(matches: list[Task], every: dict[TaskId, Task], after: TaskId) -> list[Task]:
+    """Keep the tasks after the cursor in (created_at, id) order; none for an unknown cursor."""
+    cursor = every.get(after)
+    if cursor is None:
+        return []  # Matches SqliteTaskStore: an unknown cursor pages nothing, never restarts.
+    key = (cursor.created_at, cursor.id)
+    return [task for task in matches if (task.created_at, task.id) > key]
+
 
 def _matches_task_filter(task: Task, query: TaskFilter) -> bool:
     """Return whether `task` satisfies every field `query` has set."""
     if query.status is not None and task.status != query.status:
+        return False
+    if query.goal_request_id is not None and task.spec.goal_request_id != query.goal_request_id:
         return False
     return not (query.goal_id is not None and task.goal_id != query.goal_id)

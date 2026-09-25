@@ -9,6 +9,14 @@ module is the wire-and-trail half of that: it records `forage.requested` on rece
 the ledger update), then sends the wire reply -- a fresh `GrantIssued` plus a `ForageReply(GRANTED)`
 on a grant, or a `ForageReply(DENIED)` otherwise -- and records `forage.granted`/`forage.denied`.
 
+Roadmap step 10.3 (ADR-0039) puts the `forage_request` enforcement point in front of all of that:
+the requesting Warden must hold `forage:request` in its set (which the Queen computes from its
+Cell's access level, `hivemind.queen.authority.warden_held`) and must be the holder of the grant it
+asks to grow -- before this, any attached Warden could top up any grant by naming its id. Either
+refusal goes through the Queen's `Enforcer` (`check` for the capability, `refuse` for the holder,
+so both are `guard.denied` rows with a reason) and answers with the ordinary `ForageReply(DENIED)`
+and `forage.denied`; nothing is judged, granted or shrunk.
+
 Roadmap step 4.7's own leftover closes the contested gap a prior dispatch's report flagged:
 `_resolve_contested` runs one awake episode (`hivemind.queen.awake.decide_awake`, at
 `Effort.HIGH`) whose prompt names the request's own contested amount and every other live grant in
@@ -27,7 +35,8 @@ Fits into the Hive:
     `waggle.messages.forage.ForageRequest`, ahead of `hivemind.queen.autopilot.table.decide` (whose
     own fallback for an unrecognised payload type is `NEEDS_JUDGEMENT` outright -- exactly what
     "within headroom, no awake episode" must not become). Calls into `hivemind.cell`
-    (HoneyClearance), `hivemind.forage.slots` (Effort), `hivemind.memory` (TriggerEvent),
+    (HoneyClearance), `hivemind.forage.slots` (Effort), `hivemind.guard` (the forage_request
+    point), `hivemind.memory` (TriggerEvent), `hivemind.queen.authority` (warden_held),
     `hivemind.queen.autopilot` (ForageAutopilotOutcome, QueenAction), `hivemind.queen.awake`
     (EpisodeExtras, QueenSources, decide_awake), `hivemind.queen.deps` (QueenDeps, WardenLink),
     `hivemind.queen.forage.grants` (revise), `hivemind.queen.forage.requests`
@@ -37,6 +46,8 @@ Fits into the Hive:
 Key invariants:
     - Every branch sends exactly one wire reply and records exactly one `forage.*` trail event;
       neither a grant nor a denial is ever left silent.
+    - A request from a Warden without `forage:request`, or for a grant it does not hold, never
+      reaches the ledger: it is refused before `handle_forage_request_for_kind` runs.
     - A GRANT always sends the fresh `GrantIssued` before the `ForageReply` that names its
       revision, mirroring `hivemind.queen.dispatcher`'s own "grant before assignment" ordering.
     - `ForageReply.granted` always matches `wire_request.kind`'s own dimension (sub_bees, seats or
@@ -63,7 +74,15 @@ from typing import cast
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ForageGrant
 from hivemind.forage.slots import Effort
+from hivemind.guard import (
+    Capability,
+    CapabilityFamily,
+    EnforcementPoint,
+    PolicyRequest,
+    warden_principal,
+)
 from hivemind.memory import TriggerEvent
+from hivemind.queen.authority import warden_held
 from hivemind.queen.autopilot import ForageAutopilotOutcome, QueenAction
 from hivemind.queen.awake import EpisodeExtras, QueenSources, decide_awake
 from hivemind.queen.awake.decision import QueenDecision
@@ -88,6 +107,7 @@ __all__ = ["handle_forage_request", "handle_forage_request_for_item"]
 _EMPTY_DELTA = ForageDelta(
     seats=0, source_id=None, spend=0.0, tokens=0, sub_bees=0, slot=None, minimum_grade=None
 )
+_FORAGE_REQUEST = Capability(family=CapabilityFamily.FORAGE_REQUEST)  # Asking for more Forage.
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +166,10 @@ async def handle_forage_request(
         deps, "forage.requested", wire_request.grant_id, request_kind=wire_request.kind.value
     )
     reply = _Reply(link=link, wire_request=wire_request, request_id=request_id)
+    refusal = await _authorize_request(deps, link, wire_request)
+    if refusal is not None:
+        await _send_denial(deps, reply, refusal, contested=False)
+        return
     outcome = await handle_forage_request_for_kind(deps.ledger, deps, wire_request)
     if outcome.autopilot_outcome is ForageAutopilotOutcome.GRANT and outcome.grant is not None:
         await _send_grant(deps, reply, outcome.grant, outcome.reason)
@@ -154,6 +178,32 @@ async def handle_forage_request(
         await _resolve_contested(deps, wardens, reply, outcome)
         return
     await _send_denial(deps, reply, outcome.reason, contested=False)
+
+
+async def _authorize_request(
+    deps: QueenDeps, link: WardenLink, wire_request: WireForageRequest
+) -> str | None:
+    """Pass the `forage_request` point: `forage:request` held, and the grant the requester's own.
+
+    Returns:
+        None when the request may proceed; otherwise the refusal's reason sentence, which is
+        already on the trail as `guard.denied`.
+    """
+    request = PolicyRequest(
+        principal=warden_principal(link.warden_id),
+        point=EnforcementPoint.FORAGE_REQUEST,
+        needed=_FORAGE_REQUEST,
+        held=warden_held(deps, link.cell),
+    )
+    decision = await deps.enforcer.check(request)
+    if not decision.allowed:
+        return decision.reason
+    existing = deps.ledger.grant(wire_request.grant_id)
+    # An unknown grant falls through: handle_forage_request_for_kind denies it with its own reason.
+    if existing is None or existing.holder == link.warden_id:
+        return None
+    why = f"grant {existing.id} is held by {existing.holder}, not by this Warden"
+    return (await deps.enforcer.refuse(request, "grant_holder", why)).reason
 
 
 async def _resolve_contested(
@@ -219,10 +269,10 @@ async def _shrink_and_notify(
     holder_link = wardens.get(revised.holder)
     if holder_link is None:
         return  # Unreachable: the shrink is still committed (mirrors this module's own rule).
-    sources = {b.source_id: deps.map.get(b.source_id) for b in revised.allowed}
+    message = await forage_grants.grant_message(deps, revised)
     # A closed link here is no worse than "unreachable" just above: the shrink is committed
     # either way, and a holder that missed this notice learns its new grant on its next contact.
-    await holder_link.send(wrap(revised.to_wire(sources), holder_link.hop, clock=deps.clock))
+    await holder_link.send(wrap(message, holder_link.hop, clock=deps.clock))
 
 
 def _shrunk(target: ForageGrant, amount: float, kind: WireForageRequestKind) -> ForageGrant:
@@ -272,11 +322,11 @@ def _wanted_amount(wire_request: WireForageRequest) -> float:
 async def _send_grant(deps: QueenDeps, reply: _Reply, grant: ForageGrant, reason: str) -> None:
     """Send the fresh GrantIssued, then the matching ForageReply, and record forage.granted."""
     link = reply.link
-    sources = {binding.source_id: deps.map.get(binding.source_id) for binding in grant.allowed}
+    message = await forage_grants.grant_message(deps, grant)
     # The grant is already live in the ledger (handle_forage_request_for_kind's own doing): an
     # undelivered send leaves the requester unaware until it asks again, or the grant's own TTL
     # sweep reclaims it if nothing ever renews it (hivemind.queen.forage.grants.sweep_expired).
-    await link.send(wrap(grant.to_wire(sources), link.hop, clock=deps.clock))
+    await link.send(wrap(message, link.hop, clock=deps.clock))
     wire_reply = ForageReply(
         grant_id=grant.id,
         outcome=ForageOutcome.GRANTED,

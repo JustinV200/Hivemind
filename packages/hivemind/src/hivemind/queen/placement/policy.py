@@ -19,7 +19,7 @@ NIGHT_VEIL` on the spec -- see `hivemind.queen.placement.rules.night_veil_requir
 checks ADR-0030 names as part of placement itself: the request must be explicitly human-originated,
 and every model slot the Cell would need must resolve to a local provider. `NightVeilConstraints` is
 the `[security]` Night Veil tier profile's own placement-facing shape (built by a composition root
-from `hivemind.manifest.schema.security.TierProfile`, a report item -- see this module's own
+from `hivemind.manifest.schema.security.tiers.TierProfile`, a report item -- see this module's own
 docstring for what that conversion looks like); `NightVeilHostingView` is a small, pre-computed
 signal `hivemind.queen.forage.night_veil.night_veil_local_only` produces once a candidate Cell's own
 `HostingPlan` exists (or, before that Cell exists, a permissive default meaning "not yet knowable,
@@ -66,8 +66,8 @@ See Also:
     - .claude/codingrules.md section 8.7 for the Night Veil placement and routing rules.
     - hivemind.manifest.schema.placement for PlacementSection/VirtualCellsSection, the TOML shapes
       a composition root converts into one of these.
-    - hivemind.manifest.schema.security for TierProfile, the TOML shape NightVeilConstraints is
-      built from.
+    - hivemind.manifest.schema.security.tiers for TierProfile, the TOML shape NightVeilConstraints
+      is built from.
     - hivemind.queen.forage.night_veil for night_veil_local_only/restrict_to_local, the hosting-plan
       half of the same ADR-0030 rule.
     - hivemind.queen.placement.decide for decide, this value object's one reader.
@@ -120,7 +120,7 @@ class VirtualSpecTemplate:
 class NightVeilConstraints:
     """The `[security]` Night Veil tier profile's own placement-facing shape (roadmap step 5.7a).
 
-    Built by a composition root from `hivemind.manifest.schema.security.SecuritySection.
+    Built by a composition root from `hivemind.manifest.schema.security.tiers.SecuritySection.
     tiers[CombShieldLevel.NIGHT_VEIL]` (a `TierProfile`): `required_network_policy` is always
     `NetworkPolicy.VPN_TOR` (`TierProfile.egress_profile == "vpn_tor"`), `hive_stand_onion_address`
     is `TierProfile.hidden_service_address`, `socks_proxy_url` is `TierProfile.tor_socks`, and

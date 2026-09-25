@@ -8,13 +8,18 @@ stopped a role's own coroutine because the task was cancelled (`WorkerCancelledE
 polls it between turns notices a pending cancellation as a typed error rather than hanging until
 `hivemind.workers.runtime` force-cancels its asyncio task after the grace period. Every subsystem
 roots its own error tree at `hivemind.common.errors.HiveMindError` (codingrules section 10); this
-module is `hivemind.workers`'s own root plus its two specific subclasses.
+module is `hivemind.workers`'s own root plus its two specific subclasses. Roadmap step 10.6 adds the
+Guard Bee's (the Hive's security watcher, run on the Queen's tick rather than by a Warden) two:
+`GuardBeeError`, what one of its rounds failing becomes so the Queen's tick can log it and carry on,
+and `GuardRulesError`, its rule data or a manifest override of it not making a valid rule.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Raised by `hivemind.workers.state.assert_transition` and
     `hivemind.workers.telemetry.TelemetryTracker`; caught by `hivemind.workers.runtime` (the
     WorkerRuntime, roadmap step 3.15) so one bad wire message or one deliberate cancellation never
-    crashes the whole runtime. Calls into `hivemind.common.errors` only.
+    crashes the whole runtime. `GuardBeeError` and `GuardRulesError` are raised by
+    `hivemind.workers.roles.guard_bee` and caught by `hivemind.queen.ticks.guard_bee` (a round) or
+    left to stop the Hive at start (the rules). Calls into `hivemind.common.errors` only.
 
 Key invariants:
     - Every WorkerError subclass sets its own `code`; none shares a code with another.
@@ -40,7 +45,13 @@ if TYPE_CHECKING:
     # InvalidWorkerTransitionError, so a real (non-TYPE_CHECKING) import here would cycle back.
     from hivemind.workers.state import WorkerState
 
-__all__ = ["InvalidWorkerTransitionError", "WorkerCancelledError", "WorkerError"]
+__all__ = [
+    "GuardBeeError",
+    "GuardRulesError",
+    "InvalidWorkerTransitionError",
+    "WorkerCancelledError",
+    "WorkerError",
+]
 
 
 class WorkerError(HiveMindError):
@@ -110,3 +121,24 @@ class WorkerCancelledError(WorkerError):
         """
         super().__init__(f"Worker run was cancelled: {reason}")
         self.reason = reason
+
+
+class GuardBeeError(WorkerError):
+    """Raise when one Guard Bee round fails; the Queen's tick logs it and the next round retries.
+
+    The Guard Bee (roadmap step 10.6) runs inside the Queen's own tick, so nothing it trips over may
+    end her loop: the top of its round converts any failure into this one typed error, which
+    `hivemind.queen.ticks.guard_bee` catches by name.
+    """
+
+    code: ClassVar[str] = "hivemind.workers.guard_bee_failed"
+
+
+class GuardRulesError(GuardBeeError):
+    """Raise when the Guard Bee's rule data, or a manifest override of it, is not a valid rule.
+
+    Raised while the composition root builds the Guard Bee, so a bad rule stops the Hive at start
+    with a message naming the rule, never later on a tick.
+    """
+
+    code: ClassVar[str] = "hivemind.workers.guard_rules_invalid"

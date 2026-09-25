@@ -113,6 +113,9 @@ class RoleSources:
                 decision=decision.what[:_SUMMARY_TEXT_CAP_CHARS],
                 action=decision.why[:_SUMMARY_TEXT_CAP_CHARS],
                 clearance=self._clearance,
+                # Roadmap 10.6d: a decision from a tainted Handoff carries its label, so assemble
+                # refuses it even if a tainted Handoff ever got this far.
+                tainted=self._resume_from.tainted,
             )
             for index, decision in enumerate(decisions)
         )

@@ -37,7 +37,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Container, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from enum import Enum
 
 from hivemind.wardens.errors import InvalidWardenTransitionError
@@ -210,7 +210,7 @@ SETTLED_EVENT_KINDS: dict[WardenState, str] = {
 }
 
 
-def settled_state(task_ids: Iterable[TaskId | None], clustered: Container[TaskId]) -> WardenState:
+def settled_state(task_ids: Iterable[TaskId | None], clustered: Collection[TaskId]) -> WardenState:
     """Decide which of ACTIVE/WATCH/CLUSTERED a Warden belongs in, from its own sub-bees.
 
     Roadmap step 4.9 (Clustering): the pure half of `hivemind.wardens.warden.Warden`'s own
@@ -219,16 +219,23 @@ def settled_state(task_ids: Iterable[TaskId | None], clustered: Container[TaskId
     its own Queen-tracked clustered-task set are both plain data this machine's own file may read
     without adding a `hivemind.wardens.spawn`/`.warden` import.
 
+    A bee the Queen paused this way writes its Handoff and stops, and its row is retired the
+    moment it reports so (`hivemind.wardens.ticks.heartbeat.record_heartbeat`), so a Warden whose
+    every task is paused can hold no sub-bee at all: it stays CLUSTERED on the paused tasks alone
+    until the Queen resumes one (her fresh TaskAssign drops it from `clustered`,
+    `hivemind.wardens.ticks.assign`). Reading "no sub-bees" as WATCH there asked for CLUSTERED ->
+    WATCH, which Appendix C has no edge for, and ended the Warden's own tick loop.
+
     Args:
         task_ids: One entry per current sub-bee, its own task id (None never matches `clustered`).
         clustered: Every task id a Queen-sent Intervene(HANDOFF) currently has paused.
 
     Returns:
-        CLUSTERED when `task_ids` is non-empty and every id in it is in `clustered`; ACTIVE when
-        `task_ids` is non-empty but not every id is; WATCH when `task_ids` is empty.
+        CLUSTERED when `clustered` is non-empty and every sub-bee's task (if any) is in it; ACTIVE
+        when some sub-bee's task is not; WATCH when there is neither a sub-bee nor a paused task.
     """
     ids = tuple(task_ids)
-    if ids and all(task_id in clustered for task_id in ids):
+    if clustered and all(task_id in clustered for task_id in ids):
         return WardenState.CLUSTERED
     return WardenState.ACTIVE if ids else WardenState.WATCH
 

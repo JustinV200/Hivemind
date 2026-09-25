@@ -206,7 +206,16 @@ def test_reason_is_bounded_by_the_shared_limit(message_type: type[WaggleMessage]
 
 
 def test_intervention_action_has_exactly_the_spec_members_with_values_equal_to_names() -> None:
-    names = ["COMPACT", "CHECKPOINT", "HANDOFF", "REBIND", "TAKEOVER", "CANCEL", "RELEASE_LEASE"]
+    names = [
+        "COMPACT",
+        "CHECKPOINT",
+        "HANDOFF",
+        "REBIND",
+        "TAKEOVER",
+        "CANCEL",
+        "RELEASE_LEASE",
+        "QUARANTINE",
+    ]
     enum_type: type[Enum] = InterventionAction
 
     assert [member.name for member in enum_type] == names
@@ -321,9 +330,15 @@ def test_inspect_reply_may_be_truncated_and_idle() -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "action", [action for action in InterventionAction if action is not InterventionAction.REBIND]
-)
+# QUARANTINE names its bee and its suspect episode instead (test_quarantine.py).
+_PLAIN_LEVERS = [
+    action
+    for action in InterventionAction
+    if action not in (InterventionAction.REBIND, InterventionAction.QUARANTINE)
+]
+
+
+@pytest.mark.parametrize("action", _PLAIN_LEVERS)
 def test_intervene_every_other_lever_carries_no_slot(action: InterventionAction) -> None:
     intervene = _rebuild(
         _example(Intervene),

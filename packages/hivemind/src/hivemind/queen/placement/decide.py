@@ -2,17 +2,25 @@
 
 `decide(needs, inventory, forage, policy) -> Placement` is ADR-0028's own ordered pipeline: Night
 Veil first (hard rule 2, always a fresh Virtual Cell), then isolation (hard rule 1, excludes every
-Real Cell), then each side's own candidates are filtered by the hard rules in
+Real Cell), then each side's own candidates are filtered first by the goal's capability set
+(roadmap step 10.3, ADR-0039: a candidate the goal does not allow is excluded before anything
+else, whatever `prefer` says, with a reason naming the missing capability) and then by the hard
+rules in
 `hivemind.queen.placement.rules` (a `BLOCK` Cell Wax or `allow_hive_stand = false`, then fit, then
 Forage) and ranked (a `CAUTION` note behind a clean candidate, a dormant Cell before a fresh
 provision, attachment order breaking every other tie). Only once both sides are known does
 `policy.prefer` get read at all: the preferred side wins if it has a candidate; otherwise the other
 side is used and the reason says why (this is how a `BLOCK` Cell Wax on the Hive Stand turns
 `prefer = "real"` into a Virtual placement, per the roadmap's own exit criterion); if neither side
-has one, `PlacementError` names every rule that eliminated a candidate, on both sides. `decide`
-performs no I/O of its own (ADR-0028): every candidate, every Cell Wax note and every headroom
+has one, `PlacementError` names every rule that eliminated a candidate, on both sides, and
+carries `denied`: the capabilities the goal lacked, set only when those alone left no candidate
+(so the dispatcher records `guard.denied` for a refusal the goal's ceiling caused, never for a
+capacity shortfall). `decide` performs no I/O of its own (ADR-0028): every candidate, every Cell
+Wax note and every headroom
 figure it reads already sits on `inventory`, precomputed by `hivemind.queen.dispatcher`'s snapshot
-helper before this is ever called.
+helper before this is ever called. So does a backend's rest: one whose provisions keep failing is
+held back by the dispatcher a while (`VirtualBackendCandidate.held_back`), and skipped here like a
+backend with no headroom left, under the reason the dispatcher gave.
 
 Roadmap step 6.12 (ADR-0031, "Needs travel with the task"): an Exoskeleton need (a display, input,
 audio or browser attachment) takes a Real Cell only where attach could honour it there -- a
@@ -25,9 +33,9 @@ requirement it lacks, so a `prefer = "real"` Hive falling back to Virtual explai
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
     sub-package. Called once per ready task by `hivemind.queen.dispatcher`. Calls into
-    `hivemind.cell` (CombShieldLevel, TaskNeeds), `hivemind.hive` (NetworkPolicy, VirtualCellSpec),
-    `hivemind.queen.errors` (QueenError), this package's own `inventory`/`models`/`policy`/`rules`
-    modules and waggle only.
+    `hivemind.cell` (CombShieldLevel, TaskNeeds), `hivemind.guard` (Capability), `hivemind.hive`
+    (NetworkPolicy, VirtualCellSpec), `hivemind.queen.errors` (QueenError), this package's own
+    `inventory`/`models`/`policy`/`rules` modules and waggle only.
 
 Key invariants:
     - `decide` is pure: given the same arguments, it always returns the same `Placement` or raises
@@ -38,7 +46,8 @@ Key invariants:
       `hivemind/queen/placement/` is a path-fragment match, so every module here is covered).
     - A `BLOCK`ed or non-fitting candidate is never returned, on either side (a hypothesis property
       test in `tests/unit/queen/placement/test_decide_properties.py` checks this over random
-      inventories).
+      inventories), and neither is one the goal's capability set does not allow, nor a Cell on a
+      backend held back.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the pipeline this module
@@ -53,13 +62,15 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import dataclasses
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 import hivemind.queen.placement.rules as rules
 from hivemind.cell import CombShieldLevel, TaskNeeds
+from hivemind.guard import Capability, CapabilitySet
 from hivemind.hive import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.models import NIGHT_VEIL_IMAGE
 from hivemind.queen.errors import QueenError
 from hivemind.queen.placement.inventory import (
     DormantCandidate,
@@ -67,11 +78,9 @@ from hivemind.queen.placement.inventory import (
     Inventory,
     RealCandidate,
     VirtualBackendCandidate,
-    WaxMention,
 )
 from hivemind.queen.placement.models import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
 from hivemind.queen.placement.policy import PlacementPolicy, check_night_veil
-from waggle.ids import CellId
 
 # The only Worker role phase 3 implements (mirrors manifest.schema.forage.REQUIRED_ROLE); a real
 # per-role override needs a `role` field on TaskSpec/TaskNeeds that does not exist yet, so this is
@@ -89,6 +98,24 @@ class PlacementError(QueenError):
     """
 
     code: ClassVar[str] = "hivemind.queen.placement_error"
+
+    def __init__(
+        self, message: str, denied: tuple[Capability, ...] = (), *, final: bool = False
+    ) -> None:
+        """Build the error.
+
+        Args:
+            message: A full sentence naming every rule that eliminated a candidate.
+            denied: The capabilities the goal's set lacked, only when those alone left no
+                candidate (roadmap step 10.3): the dispatcher records one `guard.denied` for
+                each. Empty for any other failure, however many candidates the goal excluded.
+            final: True when no later pass could place the task either (roadmap step 10.3a: a
+                Night Veil rule the task or this Hive's configuration breaks), so the
+                dispatcher cancels it with this message rather than retrying every tick.
+        """
+        super().__init__(message)
+        self.denied = denied
+        self.final = final
 
 
 def decide(
@@ -117,7 +144,7 @@ def decide(
     real_ranked, real_eliminated = (
         ((), ("isolation=REQUIRED excludes every Real Cell",))
         if isolation_virtual_only
-        else _rank_real(needs, inventory, policy)
+        else _rank_real(needs, inventory, forage.goal_capabilities, policy)
     )
     virtual_pick, virtual_eliminated = _pick_virtual(needs, inventory, forage, policy)
 
@@ -129,7 +156,8 @@ def decide(
 
     reasons = real_eliminated + virtual_eliminated
     named = "; ".join(reasons) if reasons else "no candidates in inventory"
-    raise PlacementError(f"No Cell fits {needs!r}: {named}.")
+    denied = _capability_denials(needs, inventory, forage.goal_capabilities)
+    raise PlacementError(f"No Cell fits {needs!r}: {named}.", denied)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -138,15 +166,21 @@ def decide(
 
 
 def _rank_real(
-    needs: TaskNeeds, inventory: Inventory, policy: PlacementPolicy
+    needs: TaskNeeds, inventory: Inventory, goal: CapabilitySet | None, policy: PlacementPolicy
 ) -> tuple[tuple[RealCandidate, ...], tuple[str, ...]]:
     """Return (ranked fitting candidates, elimination reasons for every candidate that is not)."""
     eligible: list[tuple[RealCandidate, int]] = []
     eliminated: list[str] = []
     for index, candidate in enumerate(inventory.real):
-        reason = _real_exclusion_reason(needs, candidate, inventory, policy)
+        # The goal's ceiling first (roadmap step 10.3), then ADR-0028's own hard rules.
+        lacking = rules.goal_lacks(goal, rules.placement_needs(candidate))
+        reason = (
+            f"goal lacks {lacking}"
+            if lacking is not None
+            else _real_exclusion_reason(needs, candidate, inventory, policy)
+        )
         if reason is not None:
-            eliminated.append(f"Cell {candidate.cell_id}: {reason}")
+            eliminated.append(f"{_label(candidate)}: {reason}")
             continue
         eligible.append((candidate, index))
     # Rule 6: an uncautioned candidate outranks a cautioned one; attachment order (the original
@@ -202,14 +236,15 @@ def _pick_virtual(
     """Return (the best Virtual candidate, elimination reasons for every backend that is not)."""
     eliminated: list[str] = []
     for backend in _order_backends(inventory.virtual_backends, policy):
-        if not rules.virtual_has_headroom(backend.capabilities.headroom):
-            eliminated.append(f"Backend {backend.name}: no headroom")
+        unusable = _backend_unusable(backend)
+        if unusable is not None:
+            eliminated.append(f"Backend {backend.name}: {unusable}")
             continue
         spec = _best_spec(needs, forage, backend.specs, eliminated, backend.name)
         if spec is None:
             continue
         dormant = _matching_dormant(
-            inventory.dormant, inventory.blocked, spec.image, needs.comb_shield
+            inventory, spec.image, needs.comb_shield, forage.goal_capabilities
         )
         if dormant is not None:
             return _VirtualPick("dormant", dormant, backend.name, spec), tuple(eliminated)
@@ -217,6 +252,16 @@ def _pick_virtual(
     if not inventory.virtual_backends:
         eliminated.append("No Virtual backend is registered")
     return None, tuple(eliminated)
+
+
+def _backend_unusable(backend: VirtualBackendCandidate) -> str | None:
+    """Return why `backend` can make no Cell now (held back, or no headroom), or None."""
+    if backend.held_back is not None:
+        # Its provisions keep failing: the caller rests it a while, and says why.
+        return backend.held_back
+    if not rules.virtual_has_headroom(backend.capabilities.headroom):
+        return "no headroom"
+    return None
 
 
 def _best_spec(
@@ -239,7 +284,12 @@ def _best_spec(
 def _virtual_exclusion_reason(
     needs: TaskNeeds, forage: ForageView, spec: VirtualCellSpec
 ) -> str | None:
-    """Return why `spec` is excluded, or None once it clears rules 4a/4b/4c and 5c."""
+    """Return why `spec` is excluded, or None once it clears the goal ceiling, 4a/4b/4c and 5c."""
+    lacking = rules.goal_lacks(
+        forage.goal_capabilities, rules.virtual_placement_needs(spec.comb_shield)
+    )
+    if lacking is not None:
+        return f"goal lacks {lacking}"
     if not rules.virtual_fits_os(needs, spec):
         return "os mismatch"
     if not rules.virtual_fits_exoskeleton(needs, spec):
@@ -252,15 +302,14 @@ def _virtual_exclusion_reason(
 
 
 def _matching_dormant(
-    dormant: tuple[DormantCandidate, ...],
-    blocked: Mapping[CellId, WaxMention],
-    image: str,
-    comb_shield: CombShieldLevel,
+    inventory: Inventory, image: str, comb_shield: CombShieldLevel, goal: CapabilitySet | None
 ) -> DormantCandidate | None:
     """Rule 6: prefer a dormant Cell with `image` over a fresh provision (docs/adr/0029)."""
-    for candidate in dormant:
-        if candidate.cell_id in blocked:
+    for candidate in inventory.dormant:
+        if candidate.cell_id in inventory.blocked:
             continue  # Rule 3a applies to a dormant Cell exactly as it does to any other.
+        if rules.goal_lacks(goal, rules.virtual_placement_needs(candidate.comb_shield)):
+            continue  # The goal ceiling applies to a dormant Cell's own tier too.
         if candidate.image == image and candidate.comb_shield is comb_shield:
             return candidate
     return None
@@ -294,15 +343,15 @@ def _place_night_veil(
     `hivemind.queen.placement.policy.check_night_veil` before any backend is even considered --
     a task that fails these never places, however much Virtual headroom is free.
     """
-    violations = check_night_veil(needs, forage.request_origin, forage.night_veil_hosting, policy)
-    if violations:
-        raise PlacementError(f"NIGHT_VEIL placement refused: {'; '.join(violations)}.")
+    _check_night_veil_rules(needs, forage, policy)
+    unceiled = dataclasses.replace(forage, goal_capabilities=None)
     eliminated: list[str] = []
     for backend in _order_backends(inventory.virtual_backends, policy):
-        if not rules.virtual_has_headroom(backend.capabilities.headroom):
-            eliminated.append(f"Backend {backend.name}: no headroom")
+        refusal = _night_veil_refusal(backend)
+        if refusal is not None:
+            eliminated.append(refusal)
             continue
-        base = _best_spec(needs, forage, backend.specs, eliminated, backend.name)
+        base = _best_spec(needs, unceiled, backend.specs, eliminated, backend.name)
         if base is None:
             continue
         # model_copy skips validation (pydantic v2), but every field it sets here is exactly the
@@ -310,6 +359,9 @@ def _place_night_veil(
         # empty allowlist for every policy but ALLOWLIST -- the result is provably still valid.
         spec = base.model_copy(
             update={
+                # Roadmap step 10.3a: the tier's own image, whatever the template names, since no
+                # backend runs VPN_TOR on another (a phase 5 gap once the profile was built).
+                "image": NIGHT_VEIL_IMAGE,
                 "comb_shield": CombShieldLevel.NIGHT_VEIL,
                 "network_policy": NetworkPolicy.VPN_TOR,
                 "network_allowlist": (),
@@ -329,6 +381,50 @@ def _place_night_veil(
         eliminated.append("No Virtual backend is registered")
     named = "; ".join(eliminated) if eliminated else "no candidates in inventory"
     raise PlacementError(f"NIGHT_VEIL requires a Virtual Cell but none fit: {named}.")
+
+
+def _night_veil_refusal(backend: VirtualBackendCandidate) -> str | None:
+    """Return why `backend` cannot take a fresh Night Veil Cell now, or None when it can.
+
+    Only a backend declaring `can_night_veil` ever holds one (a QEMU backend does not: its
+    teardown cannot yet meet codingrules section 12, so it is refused fail-closed), and only
+    one that could make any Cell now (not held back after failed provisions, and with headroom).
+    """
+    if not backend.capabilities.can_night_veil:
+        return f"Backend {backend.name}: cannot hold a Night Veil Cell"
+    unusable = _backend_unusable(backend)
+    if unusable is not None:
+        return f"Backend {backend.name}: {unusable}"
+    return None
+
+
+def _check_night_veil_rules(needs: TaskNeeds, forage: ForageView, policy: PlacementPolicy) -> None:
+    """Refuse a NIGHT_VEIL placement ADR-0030's rules or the goal's own set forbid.
+
+    Raises:
+        PlacementError: A Night Veil rule is broken (final), or the goal lacks `cell:virtual` or
+            the tier (`denied` names it).
+    """
+    violations = check_night_veil(needs, forage.request_origin, forage.night_veil_hosting, policy)
+    if violations:
+        # Loud and once (roadmap step 10.3a): an incomplete tier profile or a non-human origin is
+        # no better on the next tick, so the task is cancelled with every violation named.
+        raise PlacementError(f"NIGHT_VEIL placement refused: {'; '.join(violations)}.", final=True)
+    # The goal ceiling, once, for the tier every candidate here really carries (roadmap step
+    # 10.3): every spec below is re-stamped NIGHT_VEIL, so its own listed tier is never checked.
+    _check_night_veil_ceiling(forage)
+
+
+def _check_night_veil_ceiling(forage: ForageView) -> None:
+    """Refuse a NIGHT_VEIL placement the goal's set does not allow `cell:virtual` and the tier for.
+
+    Raises:
+        PlacementError: The goal lacks one of them; `denied` names it for the dispatcher.
+    """
+    needed = rules.virtual_placement_needs(CombShieldLevel.NIGHT_VEIL)
+    lacking = rules.goal_lacks(forage.goal_capabilities, needed)
+    if lacking is not None:
+        raise PlacementError(f"NIGHT_VEIL placement refused: goal lacks {lacking}.", (lacking,))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -366,6 +462,34 @@ def _prefer_first(
         )
         return ReuseReal(top.cell_id, top.warden_id, reason)
     return None
+
+
+def _label(candidate: RealCandidate) -> str:
+    """Name an attached candidate in a reason: "Hive Stand" for it, else its Cell id."""
+    return "Hive Stand" if candidate.is_hive_stand else f"Cell {candidate.cell_id}"
+
+
+def _capability_denials(
+    needs: TaskNeeds, inventory: Inventory, goal: CapabilitySet | None
+) -> tuple[Capability, ...]:
+    """Return what the goal lacked, when the goal alone left no candidate; else ().
+
+    Walks every candidate `decide` looked at (the Real side only without required isolation) and
+    asks the goal ceiling of each. A goal that admits even one of them failed for another reason
+    (capacity, fit, wax), which is no refusal of the goal's; nor is an empty inventory.
+    """
+    if goal is None:
+        return ()  # No ceiling: nothing the goal lacked could have excluded anything.
+    tiers = [spec.comb_shield for backend in inventory.virtual_backends for spec in backend.specs]
+    needed = [rules.virtual_placement_needs(tier) for tier in tiers]
+    needed += [rules.virtual_placement_needs(cell.comb_shield) for cell in inventory.dormant]
+    if not rules.isolation_requires_virtual(needs):
+        needed += [rules.placement_needs(candidate) for candidate in inventory.real]
+    lacking = [rules.goal_lacks(goal, each) for each in needed]
+    if not lacking or any(capability is None for capability in lacking):
+        return ()
+    # Distinct, in the order candidates were met: one guard.denied per missing capability.
+    return tuple(dict.fromkeys(capability for capability in lacking if capability is not None))
 
 
 def _to_virtual_placement(pick: _VirtualPick, reason: str) -> Placement:

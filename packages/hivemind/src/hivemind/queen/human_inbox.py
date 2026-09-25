@@ -6,9 +6,11 @@ Alarm the Queen cannot resolve herself escalates to the human as the last hop of
 `pending_questions` is a thin pass-through to the Brood Chamber's own `pending_questions` (every
 `BLOCK_ON_QUESTION` decision already wrote its `Question` there through `chamber.ask`, so this
 class holds no question state of its own); `alarms` is a bare in-memory list of the `Alarm` values
-`hivemind.queen.ticks.alarms`' `ESCALATE_TO_HUMAN` handler adds, since the Brood Chamber has no
-Alarm table of its own to read back (codingrules Appendix C: an Alarm's durable home this phase is
-the trail, not a store `HumanInbox` can query). `add_alarm`/`resolve` never write a trail event
+`hivemind.queen.ticks.alarms`' `ESCALATE_TO_HUMAN` handler and `hivemind.queen.ticks.liveness`'s
+offline-Warden check add, and the human's acknowledgement (`Queen.acknowledge_alarm`, through
+`hivemind.queen.chat.post.resolve_alarm`, roadmap step 10.5) resolves, since the Brood Chamber has
+no Alarm table of its own to read back (codingrules Appendix C: an Alarm's durable home this phase
+is the trail, not a store `HumanInbox` can query). `add_alarm`/`resolve` never write a trail event
 themselves -- codingrules section 12's `alarm.escalated` is the *supervision* owner's event, so a
 caller of `add_alarm` records `queen.decided` instead (`hivemind.queen.ticks.alarms`'s own
 docstring), and this class stays a plain, dependency-free container. `propose_wax_from_chat`
@@ -29,7 +31,7 @@ Fits into the Hive:
 
 Key invariants:
     - `alarms` never grows unbounded on its own: `resolve` is the one way an entry leaves it, and
-      `hivemind.queen.ticks.alarms` is the only caller of `add_alarm` this phase.
+      `hivemind.queen.ticks.alarms` and `.liveness` are the only callers of `add_alarm`.
     - `pending_questions` never duplicates the Brood Chamber's own state: it is a read-through, not
       a cache, so a question answered elsewhere (`hivemind.queen.questions.answer_question`) is
       never stale here.
@@ -43,7 +45,8 @@ See Also:
       the chat".
     - hivemind.brood_chamber for BroodChamber and Question, what `pending_questions` reads.
     - hivemind.supervision for Alarm, the value `alarms` holds.
-    - hivemind.queen.ticks.alarms for the one caller of add_alarm.
+    - hivemind.queen.ticks.alarms and hivemind.queen.ticks.liveness for the callers of add_alarm.
+    - hivemind.queen.chat.post for resolve_alarm, the caller of resolve.
     - hivemind.queen.ticks.wax for handle_wax_proposed, the one rule every proposal (chat included)
       is judged by.
     - hivemind.wardens.requests for propose_wax, the Warden-side sibling builder.

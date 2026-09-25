@@ -14,9 +14,9 @@ Fits into the Hive:
 Key invariants:
     - Importing this module has no side effect: structlog is only configured inside
       configure_logging, never at import time.
-    - With `to_stderr`, every line goes to whatever `sys.stderr` is at the moment it is written,
-      never a stream captured at configuration time: a command whose stdout is data (`--json`)
-      keeps it clean, and a stream a test runner has since closed is never written to.
+    - Unless a `stream` is given, every line goes to whatever `sys.stderr` is at the moment it is
+      written, never a stream captured at configuration time: a command whose stdout is data
+      (`--json`) keeps it clean, and a stream a test runner has since closed is never written to.
     - Log event names passed to a bound logger are lowercase and dotted, e.g. "cell.ready"
       (codingrules section 12), not prose sentences.
 
@@ -35,7 +35,7 @@ import structlog
 __all__ = ["configure_logging", "get_logger"]
 
 
-def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False) -> None:
+def configure_logging(*, json_output: bool, level: str, stream: TextIO | None = None) -> None:
     """Configure structlog's global processor chain for this process.
 
     Must be called exactly once, by a composition root, before any subsystem logs anything that
@@ -45,9 +45,8 @@ def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False)
         json_output: True for JSON lines (production, machine-parsed); False for a
             human-readable console renderer (local development).
         level: A standard-library logging level name, e.g. "DEBUG", "INFO", "WARNING".
-        to_stderr: Write to standard error instead of standard output: the operator's CLI, whose
-            standard output is its own report (`hive run --json` must print JSON and nothing
-            else).
+        stream: Where log lines go; standard error when None, because standard output is the
+            program's own (a `--json` report, a table) and a log line there corrupts it.
 
     Returns:
         None.
@@ -71,38 +70,48 @@ def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False)
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    # JSON in production so a log aggregator can parse it; a colored console renderer in
-    # development because a human reading a terminal wants prose, not a JSON blob.
-    renderer = (
-        structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
-    )
 
     structlog.configure(
-        processors=[*shared_processors, renderer],
+        processors=[*shared_processors, _renderer(json_output=json_output, stream=stream)],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        # stdout by default (a Cell's own process, whose stdout is its log); a CLI asks for
-        # stderr, resolved at each write (module docstring's Key invariants).
-        logger_factory=_logger_factory(to_stderr),
-        cache_logger_on_first_use=True,
+        # PrintLogger only calls write and flush, which _StandardError provides; the cast names it.
+        logger_factory=structlog.PrintLoggerFactory(
+            file=stream if stream is not None else cast(TextIO, _StandardError())
+        ),
+        # Not cached: the CLI's root callback reconfigures logging on every invocation, and one
+        # process may invoke it many times (a test suite, an embedding host); a cached logger would
+        # keep whatever configuration it first saw. Resolving it per call is cheap next to I/O.
+        cache_logger_on_first_use=False,
     )
 
 
-def _logger_factory(to_stderr: bool) -> structlog.PrintLoggerFactory:
-    """Print to standard output, or to whatever standard error is at each write."""
-    # print() only ever calls write and flush, which is all _Stderr provides.
-    return structlog.PrintLoggerFactory(file=cast(TextIO, _Stderr()) if to_stderr else None)
+def _renderer(*, json_output: bool, stream: TextIO | None) -> structlog.typing.Processor:
+    """Pick the processor that renders each line: JSON for machines, prose for a human."""
+    # JSON in production so a log aggregator can parse it; a console renderer in development
+    # because a human reading a terminal wants prose, not a JSON blob.
+    if json_output:
+        return structlog.processors.JSONRenderer()
+    return structlog.dev.ConsoleRenderer(colors=_is_terminal(stream))
 
 
-class _Stderr:
-    """Standard error as it is at each write, not as it was when logging was configured.
+def _is_terminal(stream: TextIO | None) -> bool:
+    """Say whether log lines will reach a terminal: colour codes are noise in a file or a pipe."""
+    target = stream if stream is not None else sys.stderr
+    isatty = getattr(target, "isatty", None)
+    return bool(isatty()) if callable(isatty) else False
 
-    Whoever captures output (a test runner, a CLI harness) swaps `sys.stderr` per invocation and
-    closes the old one; a logger holding the stream it was configured with would then write to a
-    closed file.
+
+class _StandardError:
+    """Standard error as it is at each write, never the stream that was there at configuration.
+
+    Binding ``sys.stderr`` itself would pin whatever object held that name when logging was
+    configured; a test harness (pytest's capture, typer's CliRunner) swaps it for a stream it
+    later closes, after which every log line in the process raised ``I/O operation on closed
+    file`` (a full test run lost 282 tests to it).
     """
 
     def write(self, text: str) -> int:
-        """Write to the current standard error."""
+        """Write ``text`` to the current standard error; return the characters written."""
         return sys.stderr.write(text)
 
     def flush(self) -> None:

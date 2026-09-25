@@ -81,6 +81,15 @@ there); `irreversible` also floors `JUDGE`, so no tempo ever drops it (codingrul
 `scratch_write` and `network_egress` stay audit-sampled only, as defence in depth, until a later
 phase turns their own `judge` on too.
 
+Roadmap step 10.3 (ADR-0039): the ALLOWLIST rung now requires `cell:outside_scratch:<path>` as
+well as `fs:write:<path>` for a write outside scratch, and a third composed check,
+`NetworkAllowlistCheck`, requires `net:<host>` for a network step -- one `"<METHOD> <url>"` step in
+an `ACTION_SEQUENCE`, the HTTP tool's shape, which `SchemaCheck` now passes on the
+`network_egress` tier (and only there) and `apply_action` applies as a no-op, since the gate's
+verdict is the authorisation and the tool itself sends the request. A capability refusal names
+the missing capability on `CheckResultRecord.denied_capability`, which the Worker's own
+`hivemind.workers.tools.proposals.cap` records as the Guard's `guard.denied`.
+
 ### Wiring the judge into a Warden
 
 `hivemind.supervision.capping` never imports `hivemind.llm` (codingrules section 4: this package

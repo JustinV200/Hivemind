@@ -3,7 +3,7 @@
 The tree is human -> Queen -> Wardens -> sub-bees, and the same `Supervisor` protocol is used at
 every level (codingrules section 8.8, README "Core concepts" 1 and 2): list the children being
 supervised, read a child's telemetry, ask for a compacted view of its context, and pull one of the
-six intervention levers on it. `ChildRef` is a supervisor's own summary row for one child -- a
+seven intervention levers on it. `ChildRef` is a supervisor's own summary row for one child -- a
 plain, frozen value (codingrules 8.5: an internal value, never crossing a network boundary itself)
 rather than a pydantic boundary model, because nothing here validates untrusted input; it is built
 from whatever state the supervisor already holds. `ChildKind` says which of the two shapes a child

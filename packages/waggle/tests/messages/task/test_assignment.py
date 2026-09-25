@@ -41,6 +41,8 @@ from waggle.messages.task.assignment import (
     MAX_ACCEPTANCE_CHARS,
     MAX_ACCEPTANCE_ITEMS,
     MAX_ASSIGN_HONEY_ITEMS,
+    MAX_CAPABILITIES,
+    MAX_CAPABILITY_CHARS,
     MAX_LEAVES_ITEMS,
     MAX_OBJECTIVE_CHARS,
     TaskAssign,
@@ -49,7 +51,7 @@ from waggle.messages.task.assignment import (
     TaskResume,
     WorkerRole,
 )
-from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES
+from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES, MAX_TASK_SCOPE_CHARS
 from waggle.messages.task.recon import MAX_RECON_REPORTS
 from waggle.messages.task.reports import (
     MAX_ARTIFACTS,
@@ -114,6 +116,8 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         acceptance=(RUBRIC, TESTS_PASS),
         leaves=(LEAVING,),
         honey=(HIT,),
+        capabilities=("cell:virtual", "net:*.example.org", "tool:*"),
+        network_scopes=("docs.example.org",),
         tempo=Tempo(latency_budget_s=None, accuracy=AccuracyBar.NORMAL),
         clearance=HoneyClearance.C1,
         grant_id=GRANT_ID,
@@ -391,6 +395,49 @@ def test_task_assign_rejects_a_honey_hit_above_its_clearance() -> None:
 def test_task_assign_honey_is_bounded() -> None:
     with pytest.raises(ValidationError, match=f"at most {MAX_ASSIGN_HONEY_ITEMS}"):
         _rebuild(_example(TaskAssign), honey=(HIT,) * (MAX_ASSIGN_HONEY_ITEMS + 1))
+
+
+def test_task_assign_capabilities_are_optional_so_an_older_peers_message_still_validates() -> None:
+    # roadmap step 10.3: capabilities is additive (PROTOCOL_MINOR 8), so a payload built before it
+    # existed -- one with no key for it at all -- must still validate, to the "no goal ceiling"
+    # None rather than to a goal allowed nothing.
+    payload = _example(TaskAssign).model_dump(mode="json")
+    del payload["capabilities"]
+
+    rebuilt = TaskAssign.model_validate(payload)
+
+    assert rebuilt.capabilities is None
+
+
+def test_task_assign_tells_no_goal_ceiling_apart_from_a_goal_allowed_nothing() -> None:
+    example = _example(TaskAssign)
+
+    no_ceiling = _rebuild(example, capabilities=None)
+    allowed_nothing = _rebuild(example, capabilities=())
+
+    assert no_ceiling.model_dump()["capabilities"] is None
+    assert allowed_nothing.model_dump()["capabilities"] == ()
+
+
+@pytest.mark.parametrize(
+    ("field", "count", "chars"),
+    [
+        ("capabilities", MAX_CAPABILITIES, MAX_CAPABILITY_CHARS),
+        ("network_scopes", MAX_TASK_NETWORK_SCOPES, MAX_TASK_SCOPE_CHARS),
+    ],
+)
+def test_task_assign_capabilities_and_scopes_are_bounded_in_count_and_length(
+    field: str, count: int, chars: int
+) -> None:
+    example = _example(TaskAssign)
+
+    assert _rebuild(example, **{field: tuple("x" * chars for _ in range(count))})
+    with pytest.raises(ValidationError, match=f"at most {count}"):
+        _rebuild(example, **{field: ("x",) * (count + 1)})
+    with pytest.raises(ValidationError, match=f"at most {chars}"):
+        _rebuild(example, **{field: ("x" * (chars + 1),)})
+    with pytest.raises(ValidationError, match="at least 1"):
+        _rebuild(example, **{field: ("",)})
 
 
 def test_task_assign_leaves_is_bounded() -> None:

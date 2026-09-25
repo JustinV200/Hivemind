@@ -7,9 +7,9 @@ under codingrules section 5.1's 400-LOC hard limit -- mirrors the existing
 
 `hivemind.cli.compose.virtual_cells`'s own `probe_factory` is fail-closed for a real `hive run`
 (that module's own docstring); this suite proves the same contract `LifecycleVirtualCellProvider`
-itself upholds instead, mirroring `tests/unit/queen/cell_gate/test_provider.py`'s own shape, since
-wiring a real Night Veil check through a full `hive run` is blocked by `PlacementPolicy` never
-exposing `night_veil` (a documented, separate gap; see this suite's sibling module).
+itself upholds instead, mirroring `tests/unit/queen/cell_gate/test_provider.py`'s own shape. The
+same path driven by the Queen's own planning and dispatch, now that the composition root builds
+`PlacementPolicy.night_veil` (roadmap step 10.3a), is `test_night_veil_floors.py`.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.

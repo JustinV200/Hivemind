@@ -5,15 +5,28 @@ directly, and never sees an SDK type: it calls this Protocol instead, which two 
 -- `hivemind.hive.backends.docker.sdk_client.SdkDockerClient` (the real thing, the only module
 that may `import docker`) and `hivemind.hive.backends.docker.fake.FakeDockerClient` (in-memory, for
 tests and `hive doctor`). Keeping the Protocol narrow (create/start/remove a container, create/
-remove a network, create/remove a volume, list containers by label, pause/unpause, commit a
-container to an image and recreate one from an image) rather than wrapping the whole Docker SDK
+remove a network, attach or detach one, create/remove a volume, list containers by label,
+pause/unpause, commit a container to an image and recreate one from an image) rather than wrapping
+the whole Docker SDK
 means a fake can implement it honestly in a few hundred lines, and it documents exactly what this
 backend relies on Docker for: nothing here does image builds, `docker exec` or log streaming.
 
 Roadmap step 5.10 adds `commit_container`/`remove_image`/`recreate_from_image`: the narrow slice
 `hivemind.hive.snapshot.docker.DockerSnapshotter` needs for Capping's whole-Cell rollback
 (`hivemind.cell.snapshot.Snapshotter`), reusing this same Protocol and its two implementations
-rather than opening a second door to Docker.
+rather than opening a second door to Docker. `list_images` finds a Cell's snapshot images by the
+label every commit stamps on them, so a Night Veil Cell's can be removed at its teardown
+(codingrules section 12, `hivemind.hive.snapshot.docker.DockerSnapshotImages`); and
+`ContainerSpec.log_driver` lets a Night Veil Cell run with no daemon log to outlive it. These image
+calls form `_ImagesPort`, one of the two bases `DockerClientPort` extends.
+
+Roadmap step 10.6a adds the network slice isolation needs, as `DockerNetworkPort`, the other base
+`DockerClientPort` extends (it holds the two network calls that were already here, beside the
+three new ones, so each Protocol stays within the class limit): `ensure_network` (the per-Hive
+control network every Cell's Waggle link rides, created once and then reused), and
+`connect_network`/`disconnect_network`, the runtime lever that attaches a running container to
+its egress network or takes it off again (`hivemind.hive.backends.docker.egress`).
+`ContainerInfo.networks` says which networks a container is on now, so that lever is idempotent.
 
 The value types below (`ContainerSpec`, `ContainerInfo`, `NetworkSpec`, `VolumeSpec`,
 `CommitResult`) are this Protocol's own request/response shapes: frozen dataclasses (codingrules
@@ -36,6 +49,8 @@ Key invariants:
     - Every `remove_*` method is idempotent: removing a container, network or volume that does not
       exist returns normally, never raises `DockerClientError` -- `DockerCellBackend.destroy`'s own
       idempotency (codingrules Appendix A.1) depends on that, and both implementations honour it.
+    - `connect_network`/`disconnect_network` are idempotent too: attaching an attached container,
+      or detaching a detached one, returns normally, so a repeated cut or restore changes nothing.
     - `DockerClientError` is the only exception any method raises for an operation that genuinely
       failed; `hivemind.hive.backends.docker.backend` is what translates it into
       `hivemind.hive.errors.CellProvisionError`/`CellDestroyError`, so this Protocol itself stays
@@ -60,6 +75,7 @@ __all__ = [
     "ContainerSpec",
     "DockerClientError",
     "DockerClientPort",
+    "DockerNetworkPort",
     "NetworkSpec",
     "VolumeSpec",
 ]
@@ -107,6 +123,9 @@ class ContainerSpec:
         read_only_rootfs: Whether the container's root filesystem is read-only (the scratch volume
             and any tmpfs mounts stay writable regardless).
         tmpfs: Extra in-memory, writable mount points for a read-only root (`/tmp`, typically).
+        log_driver: The container's log driver, or None for the daemon's own default: `"none"`
+            for a Night Veil Cell, whose output must reach no daemon log that outlives it
+            (codingrules section 12).
     """
 
     name: str
@@ -125,6 +144,7 @@ class ContainerSpec:
     read_only_rootfs: bool
     tmpfs: Mapping[str, str] = field(default_factory=dict)
     cap_add: tuple[str, ...] = ()
+    log_driver: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +157,8 @@ class ContainerInfo:
         status: Docker's own status string (`"running"`, `"paused"`, `"exited"`, ...).
         labels: Every label on the container.
         created_at: When Docker created it.
+        networks: The name of every network the container is attached to right now (roadmap step
+            10.6a: an isolated Cell is on its control network alone).
     """
 
     id: str
@@ -144,6 +166,7 @@ class ContainerInfo:
     status: str
     labels: Mapping[str, str]
     created_at: datetime
+    networks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,11 +181,21 @@ class NetworkSpec:
             this does and does not block, including the Docker Desktop caveat).
         labels: Labels to stamp on the network, for `list_cells`-independent cleanup by an
             operator's own `docker network ls --filter label=...`.
+        subnet: The IPv4 subnet the daemon must give the network, in CIDR form, or None to let it
+            choose one (every per-Cell network). The control network fixes it, so the Queen's
+            listener can bind its gateway before any Cell exists.
+        gateway: The host's own address on the network (the bridge's), or None to let the daemon
+            choose; set together with `subnet`.
+        isolates_peers: True turns inter-container traffic on the bridge off, so the containers on
+            it cannot reach one another, only the host (the per-Hive control network).
     """
 
     name: str
     internal: bool
     labels: Mapping[str, str]
+    subnet: str | None = None
+    gateway: str | None = None
+    isolates_peers: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,7 +228,163 @@ class CommitResult:
     size_bytes: int
 
 
-class DockerClientPort(Protocol):
+class DockerNetworkPort(Protocol):
+    """The network slice of `DockerClientPort`: create, reuse, remove, attach and detach.
+
+    A base Protocol of its own (module docstring) so `DockerClientPort` stays within the class
+    limit; every `DockerClientPort` implementation implements these too.
+    """
+
+    async def create_network(self, spec: NetworkSpec) -> str:
+        """Create a bridge network from `spec`.
+
+        Args:
+            spec: The network's name, internal flag and labels.
+
+        Returns:
+            Docker's own network id.
+
+        Raises:
+            DockerClientError: The daemon refused or failed to create it.
+        """
+        ...
+
+    async def remove_network(self, name: str) -> None:
+        """Remove a network by name. Idempotent: a missing `name` returns normally, not an error.
+
+        Args:
+            name: The network's name.
+
+        Raises:
+            DockerClientError: The daemon acknowledged the network exists but refused to remove it
+                (e.g. a container is still attached).
+        """
+        ...
+
+    async def ensure_network(self, spec: NetworkSpec) -> str:
+        """Create `spec` unless a network of its name exists; reuse that one when it matches.
+
+        Args:
+            spec: The network's name, internal flag, subnet, gateway and labels.
+
+        Returns:
+            Docker's own network id, the existing network's or the new one's.
+
+        Raises:
+            DockerClientError: The daemon refused or failed to create it, or a network of that
+                name exists with a different internal flag, subnet or gateway: a Cell is never
+                attached to a network that does not enforce what `spec` says.
+        """
+        ...
+
+    async def connect_network(self, network: str, container: str) -> None:
+        """Attach `container` to `network`. Idempotent: an attached container returns normally.
+
+        Args:
+            network: The network's name.
+            container: The container's name.
+
+        Raises:
+            DockerClientError: Either does not exist, or the daemon refused the attachment.
+        """
+        ...
+
+    async def disconnect_network(self, network: str, container: str) -> None:
+        """Detach `container` from `network`. Idempotent: a detached one returns normally.
+
+        Args:
+            network: The network's name.
+            container: The container's name.
+
+        Raises:
+            DockerClientError: The container does not exist, or the daemon refused.
+        """
+        ...
+
+
+class _ImagesPort(Protocol):
+    """The image half of DockerClientPort (snapshots), split out for codingrules 5.1's class size.
+
+    Roadmap step 5.10's commit and rollback, and the Night Veil teardown's image removal; every
+    DockerClientPort implementation implements both halves, and callers only ever name the whole.
+    """
+
+    async def commit_container(
+        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
+    ) -> CommitResult:
+        """Commit `name`'s current root filesystem and image config to a new image.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
+        snapshot`. A commit captures the container's root filesystem layer and its image
+        metadata (env, cmd, entrypoint, the `labels` given here) exactly as they stand right now;
+        it does NOT capture a mounted volume (the scratch volume is unaffected) or any in-flight
+        process state (no process checkpoint -- a container recreated from the result starts
+        fresh at the image's own entrypoint, the same way starting any other container does).
+
+        Args:
+            name: The running (or stopped) container to commit.
+            repository: The committed image's own repository name.
+            tag: The committed image's own tag; unique per commit so `remove_image` can target
+                exactly this one later.
+            labels: Labels to stamp on the committed image's own config, for audit.
+
+        Returns:
+            The committed image's ref and its reported size.
+
+        Raises:
+            DockerClientError: `name` does not exist, or the daemon refused or failed to commit.
+        """
+        ...
+
+    async def remove_image(self, image: str) -> None:
+        """Remove an image. Idempotent: an image named `image` that does not exist returns normally.
+
+        Args:
+            image: The image ref (`CommitResult.image`) to remove.
+
+        Raises:
+            DockerClientError: The daemon acknowledged the image exists but refused to remove it
+                (e.g. a container still references it).
+        """
+        ...
+
+    async def list_images(self, labels: Mapping[str, str]) -> Sequence[str]:
+        """Return every image carrying every one of `labels`, as refs `remove_image` accepts.
+
+        Args:
+            labels: Labels an image must carry, each with this exact value.
+
+        Returns:
+            The matching images' refs, in no particular order; empty when none match.
+
+        Raises:
+            DockerClientError: The daemon refused or failed to list images.
+        """
+        ...
+
+    async def recreate_from_image(self, name: str, image: str) -> None:
+        """Stop and remove the container named `name`, then recreate it, booted from `image`.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
+        rollback`. The new container keeps the old one's own name, network attachment, volume
+        mounts and resource limits (read back from the container being replaced, not from any
+        `ContainerSpec` this Protocol's caller may or may not still hold) but boots from `image`
+        instead of whatever it was running before -- undoing anything a proposal changed on the
+        root filesystem or in the image's own config, while leaving the mounted scratch volume
+        (never part of an image) exactly as it stood.
+
+        Args:
+            name: The container to replace; must currently exist.
+            image: The image (typically a prior `commit_container` result) to recreate it from.
+
+        Raises:
+            DockerClientError: `name` does not exist, or the daemon refused or failed to recreate
+                it from `image`.
+        """
+        ...
+
+
+class DockerClientPort(DockerNetworkPort, _ImagesPort, Protocol):
     """The slice of the Docker API DockerCellBackend needs, with no SDK type in sight.
 
     Implementations must be safe to call concurrently: `DockerCellBackend.provision` may run
@@ -279,32 +468,6 @@ class DockerClientPort(Protocol):
         """
         ...
 
-    async def create_network(self, spec: NetworkSpec) -> str:
-        """Create a bridge network from `spec`.
-
-        Args:
-            spec: The network's name, internal flag and labels.
-
-        Returns:
-            Docker's own network id.
-
-        Raises:
-            DockerClientError: The daemon refused or failed to create it.
-        """
-        ...
-
-    async def remove_network(self, name: str) -> None:
-        """Remove a network by name. Idempotent: a missing `name` returns normally, not an error.
-
-        Args:
-            name: The network's name.
-
-        Raises:
-            DockerClientError: The daemon acknowledged the network exists but refused to remove it
-                (e.g. a container is still attached).
-        """
-        ...
-
     async def create_volume(self, spec: VolumeSpec) -> str:
         """Create a named volume from `spec`.
 
@@ -327,65 +490,5 @@ class DockerClientPort(Protocol):
 
         Raises:
             DockerClientError: The daemon acknowledged the volume exists but refused to remove it.
-        """
-        ...
-
-    async def commit_container(
-        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
-    ) -> CommitResult:
-        """Commit `name`'s current root filesystem and image config to a new image.
-
-        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
-        snapshot`. A commit captures the container's root filesystem layer and its image
-        metadata (env, cmd, entrypoint, the `labels` given here) exactly as they stand right now;
-        it does NOT capture a mounted volume (the scratch volume is unaffected) or any in-flight
-        process state (no process checkpoint -- a container recreated from the result starts
-        fresh at the image's own entrypoint, the same way starting any other container does).
-
-        Args:
-            name: The running (or stopped) container to commit.
-            repository: The committed image's own repository name.
-            tag: The committed image's own tag; unique per commit so `remove_image` can target
-                exactly this one later.
-            labels: Labels to stamp on the committed image's own config, for audit.
-
-        Returns:
-            The committed image's ref and its reported size.
-
-        Raises:
-            DockerClientError: `name` does not exist, or the daemon refused or failed to commit.
-        """
-        ...
-
-    async def remove_image(self, image: str) -> None:
-        """Remove an image. Idempotent: an image named `image` that does not exist returns normally.
-
-        Args:
-            image: The image ref (`CommitResult.image`) to remove.
-
-        Raises:
-            DockerClientError: The daemon acknowledged the image exists but refused to remove it
-                (e.g. a container still references it).
-        """
-        ...
-
-    async def recreate_from_image(self, name: str, image: str) -> None:
-        """Stop and remove the container named `name`, then recreate it, booted from `image`.
-
-        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
-        rollback`. The new container keeps the old one's own name, network attachment, volume
-        mounts and resource limits (read back from the container being replaced, not from any
-        `ContainerSpec` this Protocol's caller may or may not still hold) but boots from `image`
-        instead of whatever it was running before -- undoing anything a proposal changed on the
-        root filesystem or in the image's own config, while leaving the mounted scratch volume
-        (never part of an image) exactly as it stood.
-
-        Args:
-            name: The container to replace; must currently exist.
-            image: The image (typically a prior `commit_container` result) to recreate it from.
-
-        Raises:
-            DockerClientError: `name` does not exist, or the daemon refused or failed to recreate
-                it from `image`.
         """
         ...

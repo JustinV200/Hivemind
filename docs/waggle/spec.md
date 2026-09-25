@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.7`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.10`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -21,7 +21,7 @@ This specification covers:
 - the envelope every message travels in (section 2) and the three message shapes (section 3);
 - how the protocol is versioned (section 4), framed and bounded (section 5) and signed (section 6);
 - the error message and its stable code table (section 7);
-- the complete message catalogue, ten families and seventy kinds (section 8);
+- the complete message catalogue, ten families and seventy-one kinds (section 8);
 - the transports (section 9), the offline outbox (section 10) and conformance (section 11);
 - the design questions the catalogue settled and why (section 12).
 
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.7"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.10"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.7"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 7` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.10"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 10` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -185,6 +185,41 @@ The protocol version travels on every envelope as `version = "<major>.<minor>"`.
 - Kind strings, field names, enum member values and error codes are never renamed once they have
   been sent on the wire; a rename is a removal plus an addition, which is a major bump.
 
+Minor-version history of major 1 (each entry additive, so a peer at an older minor still
+validates every message a newer one sends it, as long as the sender honours the rule above):
+
+- **1.1**: `AlarmKind.QUOTA_EXCEEDED` (roadmap step 3.11).
+- **1.2**: `Intervene.binding`, the `[llm.slots]` key a Queen-sent REBIND names.
+- **1.3**: `TaskAssign.leaves` (roadmap step 5.0b, the plan declares what stays).
+- **1.4**: `ActionKind.COPY` and `ProposedAction.copy_sha256`/`copy_size` (roadmap step 5.0e).
+- **1.5**: the snapshot relay (`cell.snapshot_request`/`_reply`, `cell.rollback_request`/`_reply`)
+  and `InterventionAction.RELEASE_LEASE` (roadmap steps 5.10 and 5.13).
+- **1.6**: the Exoskeleton (roadmap phase 6, ADR-0031): `ActionKind.GUI` with its typed
+  `GuiStep`, `PostconditionKind.URL_MATCHES`/`REGION_CHANGED`, `RollbackMethod.GUI_STATE`,
+  `AlarmKind.EXOSKELETON_FAILED`, `CellCapabilitiesReport.real_display_allowed`,
+  `TaskAssign.exoskeleton`/`network_scopes`/`recon` and `TaskResult.scout_report`.
+- **1.7**: `TaskAssign.honey` (roadmap step 7.9, the Queen's Honey pre-check).
+- **1.8**: `TaskAssign.capabilities` (roadmap step 10.3, ADR-0039): a goal's capability set
+  reaches the Warden that attenuates its Worker's set to it and to the task's network needs
+  (`TaskAssign.network_scopes`, already carried since 1.6).
+- **1.9**: `AlarmKind.SECURITY`, `InterventionAction.QUARANTINE` and `Intervene.suspect_episode_id`
+  (roadmap steps 10.6 and 10.6c, ADR-0043): a security Alarm always goes up to the Queen and on
+  to the human, and the Queen may order a Warden to quarantine one of its sub-bees from the
+  episode its memory is suspect from. A receiver that meets an `InterventionAction` it does not
+  know refuses the whole frame (`waggle.codec.invalid_payload`); it never reads an unknown lever
+  as a cancel, or as any other lever.
+- **1.10** (both additive, roadmap steps 10.6 and 10.6a, ADR-0043):
+  - `GrantIssued.audit_raises` and its value model `RaisedAuditRate`: every Capping audit-rate
+    raise the Guard Bee has in force when a grant is issued travels on it, so the Warden holding
+    the grant, a Virtual Cell's in-Cell Warden included, samples that tier at the raised rate
+    until the raise lapses. A tier travels by name, not as an enum, so a receiver that does not
+    know a tier ignores that raise rather than refusing the grant.
+  - `cell.taint_order` (`CellTaintOrder`): when the Queen isolates a Cell she orders its Warden
+    to run the taint setter on the memory store it keeps inside the Cell (the bees and tasks she
+    names, from the instant she names, caused by her `cell.isolated` event), which her own label
+    on the Hive's tables cannot reach; the Warden then refuses to resume a bee from a Handoff so
+    labelled.
+
 ## 5. Wire format and size limit
 
 - One frame carries one envelope as one JSON object, UTF-8 encoded, whose keys are exactly the
@@ -265,7 +300,13 @@ The protocol version travels on every envelope as `version = "<major>.<minor>"`.
   guard lands (phase 10); that is an additive change to `Ed25519Verifier`.
 - **Confidentiality is the link's.** Waggle provides authenticity and integrity, never
   confidentiality: the link does (TLS on `wss://`, the tier's VPN, or Tor for a `NIGHT_VEIL`
-  link). A `ws://` endpoint is valid only on a loopback host.
+  link). A `ws://` endpoint is valid only on a loopback host, or on a Tor v3 onion service
+  (`<56 base32 characters>.onion`, its version and checksum verified): an onion address is the
+  service's own public key, and Tor encrypts the connection end to end and authenticates the
+  service by that key, which is what TLS would otherwise add. An onion service is dialled only
+  through a SOCKS proxy on the dialler's own loopback that resolves the name itself (`socks5h`
+  or `socks4a`, section 9); its name is never looked up locally. (A Virtual Cell may also dial a
+  documented host-gateway alias or a private address, an opt-in carve-out, `waggle.uris`.)
 
 ## 7. Error message shape and the stable code table
 
@@ -303,6 +344,7 @@ class in `waggle/errors.py`.
 | `waggle.transport.closed` | `TransportClosedError` | `send` after `close` |
 | `waggle.transport.connection_lost` | `ConnectionLostError` | The link dropped mid-transfer |
 | `waggle.transport.connect_failed` | `ConnectFailedError` | Gave up after `max_attempts` dials |
+| `waggle.transport.proxy_failed` | `ProxyFailedError` | The SOCKS proxy could not be reached, refused, closed early or did not answer in time |
 | `waggle.outbox.error` | `OutboxError` | Root; never raised directly |
 | `waggle.outbox.corrupt` | `OutboxCorruptError` | An unreadable non-trailing outbox record |
 
@@ -397,6 +439,7 @@ Warden).
 | `cell.snapshot_reply` | `CellSnapshotReply` | reply | `cell.snapshot_request` | Queen -> Warden | Return the new snapshot's id, or why it failed. |
 | `cell.rollback_request` | `CellRollbackRequest` | request | none | Warden -> Queen | Ask the Queen to roll the sender's own Cell back to a snapshot. |
 | `cell.rollback_reply` | `CellRollbackReply` | reply | `cell.rollback_request` | Queen -> Warden | Report whether the rollback succeeded. |
+| `cell.taint_order` | `CellTaintOrder` | event | none | Queen -> Warden | Order an isolated Cell's Warden to taint its own memory store. |
 | `session.open` | `SessionOpen` | request | none | Warden -> Pollen Packet | Open the terminal session for a lease. |
 | `session.exec` | `SessionExec` | request | none | Warden -> Pollen Packet | Run one program inside the session. |
 | `session.stdin` | `SessionStdin` | event | none | Warden -> Pollen Packet | Feed bytes or a signal to a running exec. |
@@ -568,8 +611,9 @@ Family enums and value models:
 
 #### TaskAssign
 
-Hand a placed task, with its acceptance criteria, Tempo, clearance, grant and optional Handoff to
-resume from, to the Warden that owns the chosen Cell, which re-issues it to the Worker it spawns.
+Hand a placed task, with its acceptance criteria, Tempo, clearance, grant, its goal's capability
+set (`PROTOCOL_MINOR` 8) and optional Handoff to resume from, to the Warden that owns the chosen
+Cell, which re-issues it to the Worker it spawns.
 
 - `task_id` (`TaskId`): the task being assigned.
 - `goal_id` (`TaskId`): the root of the task graph this task belongs to; equals `task_id` for a
@@ -592,6 +636,12 @@ resume from, to the Warden that owns the chosen Cell, which re-issues it to the 
   Cell Wax, as hits (section 8.7). Max 16 items; defaults to empty, so an envelope from before this
   field existed still validates. No hit's `clearance` may exceed `clearance` (validator). Each hit
   reaches the bee's model delimited and labelled as untrusted retrieved content.
+- `capabilities` (`tuple[str, ...] | None`, `PROTOCOL_MINOR` 8): the capability set of the goal
+  this task was planned from (ADR-0039), as sorted capability strings (`family` or
+  `family:scope`); the Warden gives the task's Worker only what its own set and this set both
+  allow. Max 64 entries of 1 to 1,024 characters each; opaque to the codec, parsed by the
+  receiving Warden's Guard. Defaults to None, which means no goal ceiling travels (the operator's
+  own local submission, or a peer older than minor 8); an empty tuple is a goal allowed nothing.
 - `tempo` (`Tempo`): the task's latency budget and accuracy bar.
 - `exoskeleton` (`ExoskeletonNeed | None`, `PROTOCOL_MINOR` 6): the Exoskeleton the task needs;
   None for a terminal-only task and by default.
@@ -718,7 +768,9 @@ Family enums and value models:
   `AUDIT_FAILED`, `CELL_UNREACHABLE`, `QUOTA_EXCEEDED` (a lease's scratch directory outgrew its
   configured quota; added in a minor 1 bump, roadmap step 3.11), `EXOSKELETON_FAILED` (attach
   could not equip the Cell with the Exoskeleton its task needs, or a lease-started peripheral
-  process would not stop; added in minor 6, ADR-0031), `OTHER`. The closed set the
+  process would not stop; added in minor 6, ADR-0031), `SECURITY` (a security event, such as a
+  bee its Warden quarantined; it always goes up to the Queen and on to the human, never retried
+  or rebound; PROTOCOL_MINOR 9, roadmap step 10.6), `OTHER`. The closed set the
   escalation policy keys on; `OTHER` carries anything new until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:
@@ -733,7 +785,12 @@ Family enums and value models:
     total characters at most 8000 (validator).
 - `InterventionAction`: `COMPACT`, `CHECKPOINT`, `HANDOFF`, `REBIND`, `TAKEOVER`, `CANCEL`,
   `RELEASE_LEASE` (PROTOCOL_MINOR 5: Queen -> Warden only, stop every sub-bee and release the
-  recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None).
+  recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None),
+  `QUARANTINE` (PROTOCOL_MINOR 9, roadmap step 10.6c: Queen -> Warden only; the Warden carries it
+  out on the sub-bee `subject` or `task_id` names, and never relays it to a Worker: it checkpoints
+  the bee, stops and kills it, revokes its slice of the grant, taints the bee's memory from
+  `suspect_episode_id` on, holds the task paused (a `task.progress` at stage `PAUSED` to the
+  Queen) and tells the Queen with a `SECURITY` Alarm (receiver rule)).
 - `AnswerSource`: `HUMAN`, `QUEEN`, `WARDEN`. Who answered; the human is not a bee address.
 
 #### Heartbeat
@@ -753,7 +810,9 @@ renew the Warden's grant.
 - `grant_spend` (`float | None`): total spend charged to that grant so far. At least 0; requires
   `grant_id`.
 - `interval_s` (`float`): the sender's configured heartbeat interval, so the receiver's watchdog
-  can size its timeout. Greater than 0.
+  can size its timeout; on the Heartbeat a sender sends just before it is frozen on purpose (a
+  relayed Cell snapshot pauses the whole Cell), the longest that freeze may last instead. Greater
+  than 0.
 
 #### AlarmRaised
 
@@ -810,9 +869,10 @@ Return the requested bee's telemetry and compacted view, labelled with its clear
 #### Intervene
 
 Pull one of the supervisor's levers on a child or one of its sub-bees: compact, checkpoint,
-handoff, rebind to a slot, takeover, cancel, or (PROTOCOL_MINOR 5, Queen -> Warden only) release
-the recipient's own lease. Wardens hold the same levers over their sub-bees minus takeover with
-the Queen's slot.
+handoff, rebind to a slot, takeover, cancel, (PROTOCOL_MINOR 5, Queen -> Warden only) release
+the recipient's own lease, or (PROTOCOL_MINOR 9, Queen -> Warden only) quarantine one of its
+sub-bees. Wardens hold the same levers over their sub-bees minus takeover with the Queen's slot;
+a Warden quarantines its own sub-bee by its own escalation policy, never by sending this.
 
 - `action` (`InterventionAction`): the lever pulled.
 - `subject` (`WorkerId | None`): the recipient's sub-bee the action targets; None means the
@@ -826,6 +886,11 @@ the Queen's slot.
   64 characters.
 - `alarm_id` (`AlarmId | None`): the Alarm this intervention answers, so the trail links the two.
 - `reason` (`str`): why the supervisor intervenes.
+- `suspect_episode_id` (`EventId | None`, PROTOCOL_MINOR 9): the episode from which the bee's
+  memory is suspect (an episode record's id, EventId-shaped, or the trail event that best marks
+  it); everything the bee wrote from then on is tainted. Required when `action` is `QUARANTINE`,
+  None otherwise (validator); a `QUARANTINE` names its bee by `subject` or `task_id`, never
+  neither (validator).
 
 #### Question
 
@@ -897,6 +962,13 @@ Family enums and value models:
   equivalent of a seat is requests and tokens per minute.
   - `source_id` (`str`, max 128), `seats` (`int`, at least 0), `requests_per_minute`
     (`int | None`, at least 0), `tokens_per_minute` (`int | None`, at least 0).
+- `RaisedAuditRate` (`PROTOCOL_MINOR` 10): one Capping tier's sampled-audit rate, raised Hive-wide
+  by the Guard Bee until it lapses.
+  - `tier` (`str`): the Capping risk tier by name, pattern `^[A-Z][A-Z0-9_]*$`, max 64. A receiver
+    ignores a tier it does not know (receiver rule).
+  - `rate` (`float`): the raised sampled-audit rate. Above 0, at most 1.
+  - `until` (`datetime`): when the raise lapses; a receiver ignores one already past (receiver
+    rule).
 - `RevocationCause`: `EXPIRED`, `HOLDER_OFFLINE`, `RECLAIMED`, `RELEASED`, `STING_CUT`.
 - `ForageRequestKind`: `SHARED_SEATS`, `SPEND`, `BINDING`, `SUB_BEES`.
 - `ForageDelta`: the delta wanted or granted; one model serves both so a partial grant has the
@@ -955,6 +1027,12 @@ lease with an expiry; the same `grant_id` with a higher revision replaces the pr
   `MAX_SUB_BEES_ON_WIRE`.
 - `expires_at` (`datetime`): when the grant returns to the pool unless renewed by heartbeat.
 - `reason` (`str`): why these terms: the allocator's decision.
+- `audit_raises` (`tuple[RaisedAuditRate, ...]`, `PROTOCOL_MINOR` 10): every Capping audit-rate
+  raise in force when the grant was issued. Max 16; at most one per tier (validator). Defaults to
+  empty, so an envelope from before this field existed still validates. The holder's Capping gate
+  samples each terminal proposal of a raised tier at the higher of its own tier table's rate and
+  the raise, until `until`, keeping per tier the highest raise in force among every grant issued
+  to it (receiver rule).
 
 #### GrantRevoked
 
@@ -1035,8 +1113,9 @@ a default chain for slots not named, with the reason.
 
 The life of a Cell and of the leases on it: a Cell reports ready and alive, a Warden asks the
 Queen for a Cell or to retire one, leases open and close (a lease is one Warden's tenancy on a
-Real Cell, with a scratch directory and the processes it started), and Cell Wax notes are
-proposed, written and cleared. A Real Cell is borrowed and left exactly as found.
+Real Cell, with a scratch directory and the processes it started), Cell Wax notes are
+proposed, written and cleared, and an isolated Cell's Warden is ordered to taint its own memory.
+A Real Cell is borrowed and left exactly as found.
 
 Family enums and value models:
 
@@ -1261,6 +1340,28 @@ Report whether the rollback succeeded.
 - `error` (`str | None`): why the rollback failed -- an unknown Cell, an unknown snapshot id, or a
   backend failure; set exactly when `ok` is False (validator). Min 1, max `MAX_REASON_CHARS`.
 
+#### CellTaintOrder (PROTOCOL_MINOR 10)
+
+The Queen has isolated the receiver's Cell (roadmap step 10.6a, ADR-0043) and orders its Warden to
+label the memory it keeps in its own store tainted, so no later prompt or resumed bee reads what
+was written under suspicion there: every Handoff, episode record and checkpoint deposit written at
+or after `suspect_at` by one of `authors` or about one of `task_ids`. The Warden runs the same
+setter the Queen runs on the Hive's tables, with `TaintSource.ISOLATION` and `cause_event_id` as
+every label's cause, and from then on refuses to resume a bee from a Handoff its store labels
+tainted until a judge clears it. The order only narrows: it labels and refuses, never widens.
+Idempotent: a label already standing is left as it is, so a Queen resends it when the Warden's
+link reattaches while the isolation stands.
+
+- `cell_id` (`CellId`): the isolated Cell; always the receiver's own (receiver rule: an order
+  naming another Cell is ignored).
+- `cause_event_id` (`EventId`): the Queen's `cell.isolated` event.
+- `suspect_at` (`datetime`): memory written at or after this instant is covered: the isolation's
+  first cited event, or when the isolation began when it cites none.
+- `authors` (`tuple[WorkerId | WardenId, ...]`): the bees that ran on the Cell. Max 256.
+- `task_ids` (`tuple[TaskId, ...]`): the tasks placed on the Cell. Max 1024. At least one of
+  `authors` and `task_ids` is non-empty (validator).
+- `reason` (`str`): why, naming ids only. Min 1, max `MAX_REASON_CHARS`.
+
 ### 8.6 session (`messages/session/`)
 
 The terminal-over-Waggle family: a Warden on the Hive Stand drives a remote Real Cell through its
@@ -1461,9 +1562,9 @@ sha256 of the whole content so intake can hash, dedupe and reassemble.
 - `origin_tier` (`CombShieldLevel`): the tier of the Cell it came from as the sender believes
   it; intake sets the stored tier from the Queen's record for `cell_id`, never from this field
   (receiver rule). From a `NIGHT_VEIL` Cell intake accepts only `RIPENED_HONEY` at `C0` or
-  `C1`, keys every other deposit to the Cell's ephemeral segment, and refuses
-  `swarm.trail_segment_sync` entirely (`hive.trail.night_veil_segment`), so the Night Veil
-  boundary of codingrules section 12 holds on the wire. `RIPENED_HONEY` with `origin_tier`
+  `C1` and keys every other deposit to the Cell's ephemeral segment, where the Queen also holds
+  every `swarm.trail_segment_sync` the Cell ships, never merging it into her trail, so the Night
+  Veil boundary of codingrules section 12 holds on the wire. `RIPENED_HONEY` with `origin_tier`
   `NIGHT_VEIL` requires `clearance` `C0` or `C1` (validator).
 - `event_id` (`EventId | None`): for `HANDOFF`, the `memory.checkpoint` trail event the
   Handoff was recorded under; None for every other kind (validator).
@@ -1886,7 +1987,8 @@ idempotently on reconnection. The bytes are the trail's own export format, opaqu
   and `warden_id` the envelope's `sender` (receiver rule, answered with `control.error`), so
   no Warden can sync a segment under another node's identity; the Queen dedupes by the
   envelope `node_id`, `first_event_id`, `last_event_id` and `sha256` together.
-- `cell_id` (`CellId`): the Cell the Warden owns.
+- `cell_id` (`CellId`): the Cell the Warden owns. A Queen whose link proved the Cell (a Virtual
+  Cell's `CellReady`) refuses a chunk naming any other: she routes a segment by its Cell.
 - `warden_id` (`WardenId`): the Warden that wrote it.
 - `from_at` (`datetime`): timestamp of the segment's first event.
 - `to_at` (`datetime`): timestamp of its last event. At least `from_at` (validator).
@@ -2073,6 +2175,15 @@ connection, client or server side, binary frames only; a text frame is `waggle.c
 - Where a Cell's tier routes its link through a VPN or Tor (a `NIGHT_VEIL` Cell reaches the Hive
   Stand through a hidden-service endpoint), only the URI and the network path differ; the
   transport and the protocol are unchanged.
+- `DialOptions.socks_proxy_url` names a SOCKS proxy on the dialler's loopback (`socks5h://` or
+  `socks4a://`, never a scheme that resolves locally, never credentials). Every attempt then
+  opens its TCP connection through the proxy, the destination named to it (RFC 1928 CONNECT with
+  a domain-name address, no authentication; or SOCKS4a), bounded by `PROXY_CONNECT_TIMEOUT_S`
+  (10 s) to reach the proxy and `PROXY_REPLY_TIMEOUT_S` (120 s, Tor's own SOCKS timeout) for its
+  answer, and the WebSocket handshake runs over that socket. A refusal, an early close or a
+  timeout is `waggle.transport.proxy_failed`, retried with the same backoff through the same
+  proxy; a proxied transport never falls back to a direct connection. A `ws://` onion URI with no
+  proxy is refused at construction.
 
 ## 10. Outbox and offline replay
 
@@ -2202,7 +2313,10 @@ Shared shapes:
     only; the seats, VRAM and measured speed follow in the `forage.capacity_report` a promotion
     always triggers, so no model-server value model crosses families.
 13. **`TaskNeedsReport` and `IsolationNeed` stay in `cell/status.py`** because `task.assign` carries no
-    needs in phase 1; a task inherits its tiers from the placed Cell.
+    needs in phase 1; a task inherits its tiers from the placed Cell. `PROTOCOL_MINOR` 6 adds only
+    `TaskAssign.exoskeleton` and `TaskAssign.network_scopes`, the needs a Warden acts on (it
+    attaches the Exoskeleton and sizes the Worker's `net` capabilities); the rest of a task's
+    needs stay placement's business.
 14. **Shared bounds** live in `messages/base.py`: `MAX_REASON_CHARS`, `MAX_CHUNK_BYTES`,
     `MAX_PATH_CHARS`, `MAX_SLOT_CHARS` with the slot pattern, and the sha256 pattern. The
     designers' three names for the reason bound are unified as `MAX_REASON_CHARS`.
@@ -2236,8 +2350,9 @@ Registry and shapes:
 24. **Demotion rides `swarm.nuc_promote`** with `action = DEMOTE`; there is no separate kind.
 25. **Wax rejection is a `control.error`** with code `hive.memory.wax_rejected`; no
     `cell.wax_rejected` kind.
-26. **`TaskAssign` carries no capabilities field**; the Warden attenuates its own set locally in
-    phase 3, and a `capabilities` field is an additive minor later.
+26. **`TaskAssign` carried no capabilities field** until `PROTOCOL_MINOR` 8: the Warden attenuated
+    its own set locally in phase 3, and roadmap step 10.3 added `capabilities` (the goal's set)
+    as the additive minor this note anticipated.
 27. **`ForageRequestKind` keeps `SUB_BEES`**; the phase 4 exit criterion needs a Warden to ask
     for more sub-bees and be denied with a reason.
 28. **`CellHeartbeat` carries no capacity figures**; live capacity travels only in

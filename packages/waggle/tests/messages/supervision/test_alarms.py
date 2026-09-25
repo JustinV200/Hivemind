@@ -91,6 +91,7 @@ RESOLVED = AlarmResolved(
                 "CELL_UNREACHABLE",
                 "QUOTA_EXCEEDED",
                 "EXOSKELETON_FAILED",
+                "SECURITY",
                 "OTHER",
             ],
         ),

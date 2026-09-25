@@ -25,7 +25,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.goal_submission import submit_goal
+from hivemind.queen.goal_submission import GoalTerms, submit_goal
 from waggle.clock import FakeClock
 
 _GOAL = "Find which port the widget service listens on."
@@ -71,7 +71,7 @@ async def test_submit_goal_shows_the_planner_what_honey_knows_about_the_goal(
 ) -> None:
     deps, link, provider, _harness = await _setup(tmp_path)
 
-    goal_id = await submit_goal(deps, [link], _GOAL, clearance=HoneyClearance.C2)
+    goal_id = await submit_goal(deps, [link], _GOAL, GoalTerms(HoneyClearance.C2))
 
     system = provider.calls[0].system or ""
     assert _RETRIEVED_OPEN in system
@@ -93,7 +93,7 @@ async def test_submit_goal_reads_no_honey_above_the_goals_clearance(tmp_path: Pa
     await harness.access.intake.submit(royal)
     await harness.access.ripener.run_pass()
 
-    await submit_goal(deps, [link], _GOAL, clearance=HoneyClearance.C1)
+    await submit_goal(deps, [link], _GOAL, GoalTerms(HoneyClearance.C1))
 
     system = provider.calls[0].system or ""
     assert "48213" in system  # The C1 finding is shown.
@@ -103,7 +103,7 @@ async def test_submit_goal_reads_no_honey_above_the_goals_clearance(tmp_path: Pa
 async def test_submit_goal_plans_as_before_with_no_honey_store(tmp_path: Path) -> None:
     deps, link, provider, _harness = await _setup(tmp_path, with_honey=False)
 
-    await submit_goal(deps, [link], _GOAL, clearance=HoneyClearance.C2)
+    await submit_goal(deps, [link], _GOAL, GoalTerms(HoneyClearance.C2))
 
     assert _RETRIEVED_OPEN not in (provider.calls[0].system or "")
     assert await deps.trail.query(TrailQuery(kind="queen.honey_consulted")) == ()

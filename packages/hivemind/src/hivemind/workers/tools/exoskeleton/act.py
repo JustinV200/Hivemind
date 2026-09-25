@@ -125,7 +125,7 @@ async def act(invocation: ToolInvocation, action: GuiAction) -> ToolOutput:
         reason=f"Worker tool {action.tool}: {len(action.steps)} GUI step(s)",
     )
     proposal = make_proposal(invocation.ctx, invocation.assignment, request)
-    return tool_output(await cap(invocation.ctx, proposal))
+    return tool_output(await cap(invocation, proposal))
 
 
 def attached(invocation: ToolInvocation) -> ExoskeletonHandle:

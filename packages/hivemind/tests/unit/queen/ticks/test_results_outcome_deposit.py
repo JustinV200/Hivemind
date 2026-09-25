@@ -55,7 +55,13 @@ async def _running_task(
         update={"title": "Find the widget port", "clearance": clearance}
     )
     (task,) = await deps.chamber.submit(TaskGraphDraft(tasks=(draft,)))
-    await deps.chamber.assign(task.id, link.warden_id, link.cell.id, "Placed for this test.")
+    await deps.chamber.assign(
+        task.id,
+        link.warden_id,
+        link.cell.id,
+        "Placed for this test.",
+        bound_tier=link.cell.comb_shield,
+    )
     await deps.chamber.start(task.id)
     return task.id
 

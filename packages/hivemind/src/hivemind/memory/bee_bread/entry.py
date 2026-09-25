@@ -32,6 +32,9 @@ Key invariants:
       (TASK_HISTORY, TRAIL_EVENT, HANDOFF, NOTE) carries `text` and no `payload`; a full-content
       entry (TRANSCRIPT, TOOL_RESULT, SUMMARY) carries `payload` and no `text`. Nothing in this
       model enforces that split; it is a convention its writer modules follow.
+    - An entry is deposited unlabelled; only `hivemind.memory.taint` sets its `tainted` label, and
+      no lookup ever returns a TAINTED entry (roadmap 10.6d: its transcript cannot be compacted
+      back into a prompt).
 
 See Also:
     - .claude/codingrules.md section 8.9 for the Bee Bread tier this model implements.
@@ -47,6 +50,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import HoneyClearance
+from hivemind.memory.taint.marker import TaintMarker
 from waggle.messages.base import EventIdField, TaskIdField, UtcDatetime
 
 MAX_REF_IDS = 16  # Most entries index a handful of records; a SUMMARY entry (hivemind.memory.
@@ -116,4 +120,10 @@ class BeeBreadEntry(BaseModel):
         max_length=MAX_ENTRY_PAYLOAD_CHARS,
         description="The full content for a TRANSCRIPT, TOOL_RESULT or SUMMARY entry; unset "
         "otherwise.",
+    )
+    tainted: TaintMarker | None = Field(
+        default=None,
+        description="The taint label (roadmap step 10.6d): a checkpoint's deposits are tainted "
+        "with it, and a TAINTED entry is never returned by a lookup. Set only by "
+        "hivemind.memory.taint.",
     )

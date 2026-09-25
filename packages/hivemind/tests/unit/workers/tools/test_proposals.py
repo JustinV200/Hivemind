@@ -1,17 +1,24 @@
-"""Unit tests for hivemind.workers.tools.proposals: make_proposal, cap, describe, tool_output."""
+"""Unit tests for hivemind.workers.tools.proposals: make_proposal, cap, describe, tool_output.
+
+Roadmap step 10.3's own tests at the bottom: a Capping ALLOWLIST refusal that names a missing
+capability is also the Guard's own `guard.denied`, at `session_outside_scratch` for a write leaving
+scratch and at `tool_invocation` for anything else; a refusal no capability names records nothing.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
-from builders.capping import make_action, make_postcondition
+from builders.capping import FakeLeaseView, make_action, make_postcondition
 from builders.workers import make_assignment, make_context, make_gui_context, run_tool
 
 from hivemind.exoskeleton import Peripherals, ScreenSize
 from hivemind.exoskeleton.antennae import FakeAntennae
 from hivemind.exoskeleton.compound_eye import FakeCompoundEye, FakeScreen
 from hivemind.guard import CapabilitySet
+from hivemind.pheromone import TrailQuery
 from hivemind.supervision.capping import (
     CappingGate,
     GateDeps,
@@ -33,13 +40,16 @@ from hivemind.workers.tools.proposals import (
     make_proposal,
     tool_output,
 )
+from hivemind.workers.tools.registry import ToolInvocation
 from waggle.clock import FakeClock
 from waggle.ids import MessageId
 from waggle.messages import AlarmSeverity
+from waggle.messages.capping import ActionKind
 from waggle.messages.labels import PostconditionKind
 from waggle.messages.supervision import AlarmKind
 
 _SIZE = ScreenSize(100, 100)
+_OUTSIDE = Path("/outside")  # A root the lease reaches beyond scratch, like a declared keep_root.
 
 
 def _desk(
@@ -106,7 +116,7 @@ async def test_cap_proposes_then_runs_and_returns_a_terminal_outcome() -> None:
     )
     proposal = make_proposal(ctx, assignment, request)
 
-    outcome = await cap(ctx, proposal)
+    outcome = await cap(ToolInvocation(ctx=ctx, assignment=assignment), proposal)
 
     assert outcome.state in (
         ProposalState.VERIFIED,
@@ -129,7 +139,7 @@ async def test_describe_never_includes_the_action_diff_text() -> None:
     )
     proposal = make_proposal(ctx, assignment, request)
 
-    outcome = await cap(ctx, proposal)
+    outcome = await cap(ToolInvocation(ctx=ctx, assignment=assignment), proposal)
     text = describe(outcome)
 
     assert "top distinctive line" not in text
@@ -165,7 +175,10 @@ async def test_cap_counts_any_other_rollback_toward_the_alarm_threshold() -> Non
         reason="a write whose postcondition names the wrong file",
     )
 
-    outcome = await cap(ctx, make_proposal(ctx, make_assignment(), request))
+    assignment = make_assignment()
+    proposal = make_proposal(ctx, assignment, request)
+
+    outcome = await cap(ToolInvocation(ctx=ctx, assignment=assignment), proposal)
 
     assert outcome.state is ProposalState.ROLLED_BACK
     assert ctx.telemetry.take_pending_alarms() == ()  # One of three, not an Alarm yet.
@@ -222,9 +235,67 @@ async def test_tool_output_flags_every_outcome_but_verified_as_an_error() -> Non
         reason="a test proposal",
     )
 
-    outcome = await cap(ctx, make_proposal(ctx, make_assignment(), request))
+    assignment = make_assignment()
+    proposal = make_proposal(ctx, assignment, request)
+
+    outcome = await cap(ToolInvocation(ctx=ctx, assignment=assignment), proposal)
 
     assert outcome.state is ProposalState.VERIFIED
     assert tool_output(outcome).is_error is False
     rejected = outcome.model_copy(update={"state": ProposalState.REJECTED})
     assert tool_output(rejected).is_error is True
+
+
+async def _cap_one(
+    ctx: WorkerContext, tier: RiskTier, kind: ActionKind = ActionKind.DIFF, **fields: object
+) -> ProposalState:
+    """Propose one `kind` action at `tier` through `ctx`'s real gate; return the terminal state."""
+    assignment = make_assignment()
+    request = ProposalRequest(
+        tier=tier, action=make_action(kind, **fields), postconditions=(), reason="a test proposal"
+    )
+    proposal = make_proposal(ctx, assignment, request)
+    outcome = await cap(ToolInvocation(ctx=ctx, assignment=assignment), proposal)
+    return outcome.state
+
+
+async def _denials(ctx: WorkerContext) -> list[dict[str, object]]:
+    """Every `guard.denied` payload on `ctx`'s trail, oldest first."""
+    events = await ctx.trail.query(TrailQuery(kind="guard.denied"))
+    return [dict(event.payload) for event in events]
+
+
+async def test_an_outside_scratch_write_without_cell_outside_scratch_is_a_guard_denial() -> None:
+    ctx = make_context(
+        capabilities=CapabilitySet.parse("fs:write:/outside/**", "tool:*"),
+        lease=FakeLeaseView(Path("scratch"), allowed_paths=(_OUTSIDE,)),
+    )
+
+    state = await _cap_one(ctx, RiskTier.OUTSIDE_SCRATCH_WRITE, paths=("/outside/note.txt",))
+
+    assert state is ProposalState.REJECTED
+    [denial] = await _denials(ctx)
+    assert denial["point"] == "session_outside_scratch"
+    assert denial["capability"] == "cell:outside_scratch:/outside/note.txt"
+    assert denial["principal_id"] == ctx.worker_id
+
+
+async def test_a_command_refused_its_exec_capability_is_a_tool_invocation_denial() -> None:
+    ctx = make_context(capabilities=CapabilitySet.parse("exec:git", "tool:*"))
+
+    state = await _cap_one(ctx, RiskTier.OUTSIDE_SCRATCH_WRITE, kind=ActionKind.COMMAND)
+
+    assert state is ProposalState.REJECTED
+    [denial] = await _denials(ctx)
+    assert denial["point"] == "tool_invocation"
+    assert denial["capability"] == "exec:true"
+
+
+async def test_a_refusal_no_capability_names_records_no_guard_denial() -> None:
+    # An unreachable path is a lease boundary, not a missing capability: Capping says so alone.
+    ctx = make_context(capabilities=CapabilitySet.parse("fs:write:/elsewhere/**", "tool:*"))
+
+    state = await _cap_one(ctx, RiskTier.OUTSIDE_SCRATCH_WRITE, paths=("/elsewhere/note.txt",))
+
+    assert state is ProposalState.REJECTED
+    assert await _denials(ctx) == []

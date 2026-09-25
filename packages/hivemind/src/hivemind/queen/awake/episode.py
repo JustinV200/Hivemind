@@ -218,6 +218,7 @@ class QueenSources:
                 decision=episode.decision[:SUMMARY_TEXT_CAP_CHARS],
                 action=episode.action[:SUMMARY_TEXT_CAP_CHARS],
                 clearance=episode.clearance,
+                tainted=episode.tainted,  # Roadmap 10.6d: assemble refuses a TAINTED one outright.
             )
             for episode in episodes
         )

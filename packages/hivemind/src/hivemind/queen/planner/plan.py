@@ -23,24 +23,28 @@ instructions (codingrules section 15).
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's planner
     sub-package (which MAY import `hivemind.llm`). Called by `hivemind.queen.goal_submission.
-    submit_goal`. Calls into `hivemind.brood_chamber` (TaskDraft, TaskGraphDraft), `hivemind.cell`
-    (HoneyClearance), `hivemind.llm` (CallGate, LLMRequest, LadderObserver, Message, PromptName,
-    Role, SectionLabel, complete_structured, render), `hivemind.memory` (RETRIEVED_PREAMBLE,
-    render_hit, ITEM_CAP_CHARS), `hivemind.queen.planner.schema` and `waggle.messages`
-    (Postcondition, HoneyHit) only.
+    submit_goal`. Calls into `hivemind.brood_chamber` (TaskDraft, TaskGraphDraft, GoalRequestId),
+    `hivemind.cell` (HoneyClearance, the tier and isolation enums, TaskNeeds), `hivemind.llm`
+    (CallGate, LLMRequest, LadderObserver, Message, PromptName, Role, SectionLabel,
+    complete_structured, render), `hivemind.memory` (RETRIEVED_PREAMBLE, render_item,
+    RetrievedItem, is_refused, ITEM_CAP_CHARS), `hivemind.queen.planner.schema` and
+    `waggle.messages` (Postcondition) only.
 
 Key invariants:
     - `plan_goal` never returns a `TaskGraphDraft` whose first task lacks acceptance criteria or
       whose graph cycles: both fail inside `TaskGraphDraft`'s own construction, propagated here as
       `PlannerError`.
+    - A tier the goal's request named (`PlanBrief.comb_shield`) becomes every draft's own, and a
+      Night Veil one forces REQUIRED isolation; with none, the model's own needs stand.
     - Every `PlannedTask.key` becomes its `TaskDraft.key` unchanged, so `depends_on` references
       the model wrote resolve without this module renaming anything; every `PlannedTask.leaves`
       entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason. `PlannedTask.
       role` (roadmap steps 6.9/6.10) becomes its `TaskDraft.role` unchanged too: `PlannedTask`'s
       own validators already confirmed it is plannable, so this module only carries it, never
       re-checks it.
-    - A retrieved hit labelled above the goal's clearance never reaches the prompt (the Queen's
-      consultation already filtered by it; this is defence in depth), and no RETRIEVED section is
+    - A retrieved hit labelled above the goal's clearance, or tainted, never reaches the prompt
+      (the Queen's consultation already filtered by clearance; this is defence in depth); every
+      hit shown was scanned first and renders under its verdict, and no RETRIEVED section is
       rendered at all when nothing was retrieved.
 
 See Also:
@@ -63,7 +67,8 @@ from typing import Any, ClassVar
 from pydantic import ValidationError
 
 from hivemind.brood_chamber import TaskDraft, TaskGraphDraft
-from hivemind.cell import Cell, HoneyClearance, RequestOrigin
+from hivemind.brood_chamber.task import GoalRequestId
+from hivemind.cell import Cell, CombShieldLevel, HoneyClearance, Isolation, RequestOrigin, TaskNeeds
 from hivemind.common.errors import ConfigurationError
 from hivemind.llm import (
     CallGate,
@@ -78,10 +83,15 @@ from hivemind.llm import (
     render,
 )
 from hivemind.llm.slots import BoundModel
-from hivemind.memory import ITEM_CAP_CHARS, RETRIEVED_PREAMBLE, render_hit
+from hivemind.memory import (
+    ITEM_CAP_CHARS,
+    RETRIEVED_PREAMBLE,
+    RetrievedItem,
+    is_refused,
+    render_item,
+)
 from hivemind.queen.planner.schema import PlannedPostcondition, PlannedTask, PlanSchema
 from waggle.messages import Postcondition
-from waggle.messages.honey import HoneyHit
 
 PLANNER_MAX_OUTPUT_TOKENS = 8_192  # A whole task graph as JSON: generous, still bounded.
 _PLANNER_USER_TURN = "Decompose the goal above into a task graph, following the rules given."
@@ -109,7 +119,8 @@ class PlanBrief:
     subtask inherits, the Cells placement will match the plan's needs against, who asked for the
     goal in the first place, the Hive Stand's own scratch root (roadmap step 5.0b) so a declared
     leaving inside it is caught here, (roadmap step 5.0e) its own keep root, and (roadmap step
-    7.9) what the Honey Store already knows about the goal.
+    7.9) what the Honey Store already knows about the goal, and (roadmap step 10.3) the capability
+    set the goal's submitter holds, which every planned subtask inherits.
     """
 
     goal: str  # The goal text, as the human (or a bee on the human's behalf) stated it.
@@ -132,9 +143,21 @@ class PlanBrief:
     # `TaskAssign.leaves` (roadmap step 5.0b), exactly like any other declared leaving.
     keep_root: Path | None = None
     # Roadmap step 7.9: the Queen's Honey consultation for this goal (hivemind.queen.dispatcher.
-    # consult_for_plan), best first; rendered into the RETRIEVED section as reference data. Empty
-    # (every caller before phase 7, and a Hive with no Honey Store) renders no section at all.
-    honey: tuple[HoneyHit, ...] = ()
+    # consult_for_plan), each hit already scanned (screen_for_plan, roadmap step 10.6b); rendered
+    # into the RETRIEVED section as reference data under its verdict. Empty (a Hive with no Honey
+    # Store) renders no section at all.
+    honey: tuple[RetrievedItem, ...] = ()
+    # Roadmap step 10.3 (ADR-0039, "a goal carries a ceiling"): the submitter's capability set,
+    # copied onto every planned subtask the way `origin` is, never read off the model's reply (a
+    # planned task has no way to widen its own goal's set). None is the operator's own local
+    # path (`hive run`), which has no device ceiling.
+    capabilities: tuple[str, ...] | None = None
+    # Roadmap step 10.5 (ADR-0040): the durable goal request this goal comes from. Its tier (when
+    # it names one) overrides every planned task's own, since the human asked for it and a model
+    # has no say over it; its id and budget are copied onto every task, never read off the reply.
+    comb_shield: CombShieldLevel | None = None
+    goal_request_id: GoalRequestId | None = None
+    spend_cap_usd: float | None = None
 
 
 async def plan_goal(
@@ -172,7 +195,7 @@ async def plan_goal(
     # the ladder itself retries and steps down rungs on a malformed reply.
     result = await complete_structured(bound, request, PlanSchema, gate=gate, options=options)
     try:
-        return _to_graph_draft(result.value, brief.clearance, brief.origin)
+        return _to_graph_draft(result.value, brief)
     except ValidationError as exc:
         raise PlannerError(f"The planned graph for {brief.goal[:80]!r} is invalid: {exc}") from exc
 
@@ -208,21 +231,24 @@ def _build_request(brief: PlanBrief, bound: BoundModel) -> LLMRequest:
     )
 
 
-def _retrieved_section(hits: Sequence[HoneyHit], clearance: HoneyClearance) -> str:
-    """Render the goal's Honey hits as the RETRIEVED section; empty when none may be shown.
+def _retrieved_section(items: Sequence[RetrievedItem], clearance: HoneyClearance) -> str:
+    """Render the goal's scanned Honey hits as the RETRIEVED section; empty when none may be shown.
 
     The Queen's consultation already capped the hits at the goal's clearance and packed them into
-    her budget, so this renders every one it may show, best first, each block cut at the same
-    per-item cap hot state uses.
+    her budget, so this renders every one it may show, best first, each under its scan verdict and
+    cut at the same per-item cap hot state uses.
     """
-    # Defence in depth: a hit above the goal's own clearance never reaches the planner's prompt.
+    # Defence in depth: an item above the goal's own clearance, or one tainted since it was
+    # retrieved, never reaches the planner's prompt.
     visible = [
-        hit for hit in hits if HoneyClearance.from_wire(hit.clearance).rank <= clearance.rank
+        item
+        for item in items
+        if item.clearance.rank <= clearance.rank and not is_refused(item.tainted)
     ]
     if not visible:
         return ""  # No section at all rather than a preamble over nothing.
-    visible.sort(key=lambda hit: (-hit.score, hit.honey_ref))
-    blocks = [render_hit(hit, ITEM_CAP_CHARS) for hit in visible]
+    visible.sort(key=lambda item: (-(item.hit.score if item.hit else 0.0), item.id))
+    blocks = [render_item(item, ITEM_CAP_CHARS) for item in visible]
     return _RETRIEVED_SEPARATOR.join((RETRIEVED_PREAMBLE, *blocks))
 
 
@@ -257,22 +283,21 @@ def describe_fleet(cells: Sequence[Cell]) -> str:
     return "\n".join(lines)
 
 
-def _to_graph_draft(
-    plan: PlanSchema, clearance: HoneyClearance, origin: RequestOrigin
-) -> TaskGraphDraft:
+def _to_graph_draft(plan: PlanSchema, brief: PlanBrief) -> TaskGraphDraft:
     """Convert every PlannedTask into a TaskDraft; TaskGraphDraft's own validators do the rest."""
-    drafts = tuple(_to_task_draft(task, clearance, origin) for task in plan.tasks)
+    drafts = tuple(_to_task_draft(task, brief) for task in plan.tasks)
     return TaskGraphDraft(tasks=drafts)
 
 
-def _to_task_draft(
-    task: PlannedTask, clearance: HoneyClearance, origin: RequestOrigin
-) -> TaskDraft:
+def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
     """Convert one PlannedTask, and every criterion it carries, into a TaskDraft.
 
     Every sub-task gets the same `origin` as the goal it was planned from (roadmap step 5.7a: "the
     planner's sub-tasks inherit the goal's origin"), never a value read off the model's own reply --
-    a planned task has no way to assert who originally asked for the goal.
+    a planned task has no way to assert who originally asked for the goal. The goal's capability
+    set (roadmap step 10.3) and its request's id and budget (roadmap step 10.5) are inherited the
+    same way, for the same reason; its clearance is the lower of the task's own and the goal's
+    ceiling, and a tier the request named replaces the task's own (`_needs_at_tier`).
     """
     return TaskDraft(
         key=task.key,
@@ -280,11 +305,28 @@ def _to_task_draft(
         objective=task.objective,
         acceptance=tuple(_to_postcondition(item) for item in task.acceptance),
         role=task.role,
-        needs=task.needs,
-        clearance=min(task.clearance, clearance, key=lambda label: label.rank),
-        origin=origin,
+        needs=_needs_at_tier(task.needs, brief.comb_shield),
+        clearance=min(task.clearance, brief.clearance, key=lambda label: label.rank),
+        origin=brief.origin,
         depends_on=task.depends_on,
         leaves=task.leaves,
+        capabilities=brief.capabilities,
+        goal_request_id=brief.goal_request_id,
+        spend_cap_usd=brief.spend_cap_usd,
+    )
+
+
+def _needs_at_tier(needs: TaskNeeds, tier: CombShieldLevel | None) -> TaskNeeds:
+    """Return `needs` at the tier the human's request named; unchanged when it named none.
+
+    Night Veil is virtual-only, so it also forces REQUIRED isolation (`TaskNeeds`' own rule);
+    validated again rather than copied, so the pair can never come out inconsistent.
+    """
+    if tier is None:
+        return needs  # No tier requested: the planner's own choice stands.
+    isolation = Isolation.REQUIRED if tier is CombShieldLevel.NIGHT_VEIL else needs.isolation
+    return TaskNeeds.model_validate(
+        {**needs.model_dump(), "comb_shield": tier, "isolation": isolation}
     )
 
 

@@ -14,14 +14,18 @@ Fits into the Hive:
     `CellBackend` that needs one, the `CellListener` it builds is started with the running
     `Queen`, and the `CellSnapshotHandler` it builds is handed to that same `CellListener` to
     answer the snapshot relay. Calls into `hivemind.cell`, `hivemind.forage`, `hivemind.hive.
-    backends.bootstrap`, `hivemind.hive.lifecycle`, `hivemind.hive.snapshot`, `hivemind.queen.
-    attach`, `hivemind.queen.deps`, `hivemind.queen.queen` and waggle only.
+    backends.bootstrap`, `hivemind.hive.lifecycle`, `hivemind.hive.snapshot`, `hivemind.pheromone`,
+    `hivemind.queen.attach`, `hivemind.queen.deps`, `hivemind.queen.queen`, `hivemind.queen.trail`
+    and waggle only.
 
 Key invariants:
     - `QueenReadinessGate` satisfies `hivemind.hive.backends.bootstrap.ReadinessGate` exactly:
       every `CellBackend` implementation can take one unmodified.
     - `CellListener` never attaches a connection whose first frame does not verify as a signed
       `CellReady` naming an `expect`-ed Cell.
+    - A connection's fan-out holds at most `listener.FANOUT_QUEUE_SIZE` envelopes the Queen has
+      not read; past that it leaves the socket unread, so backpressure reaches the Cell.
+    - A trail segment chunk is merged only when it names its link's own node and Warden.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -46,23 +50,36 @@ Public API:
       (hivemind.queen.cell_gate.shutdown).
     - CellSnapshotHandler: answers a Warden's own CellSnapshotRequest/CellRollbackRequest, the
       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
+    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND: what one Cell's
+      link refused, recorded for the Guard Bee (hivemind.queen.cell_gate.refusals, roadmap step
+      10.6).
 """
 
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps, SnapshotRequestHandler
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.cell_gate.quiesce import make_quiesce
+from hivemind.queen.cell_gate.refusals import (
+    ENVELOPE_REFUSED_KIND,
+    SEGMENT_REFUSED_KIND,
+    LinkRefusals,
+    SegmentRefusal,
+)
 from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
 from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 
 __all__ = [
+    "ENVELOPE_REFUSED_KIND",
+    "SEGMENT_REFUSED_KIND",
     "CellListener",
     "CellListenerDeps",
     "CellSnapshotHandler",
     "LifecycleVirtualCellProvider",
+    "LinkRefusals",
     "QueenReadinessGate",
     "RetireAll",
+    "SegmentRefusal",
     "SnapshotRequestHandler",
     "make_on_cell_granted",
     "make_on_task_finished",

@@ -11,8 +11,8 @@ module builds all four for both Wardens: the Hive Stand's, from the manifest's `
 section, the Hive's database file and its Fanner (the seat meter every model call passes
 through); and the in-Cell Warden's (`hivemind.cli.in_cell.deps`), from defaults, since a Virtual
 Cell reads no manifest. It also opens the Hive Stand's recording store with the retention sweep
-applied, and registers that store as a Night Veil side channel, so a Night Veil Cell's recordings
-are purged with the Cell (codingrules section 12's Night Veil boundary).
+applied; that store is a Night Veil side channel too, so a Night Veil Cell's recordings are purged
+with the Cell (`hivemind.cli.compose.night_veil.attach_side_channels`, codingrules section 12).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -20,8 +20,7 @@ Fits into the Hive:
     `hivemind.cli.in_cell.deps`. Calls into `hivemind.cli.stores` (open_recordings),
     `hivemind.common.logging`, `hivemind.exoskeleton` (config, geometry, browser launcher,
     recorder stores), `hivemind.forage` (Tempo), `hivemind.llm` (Ears, the transcription gates),
-    `hivemind.manifest.schema` (ExoskeletonSection), `hivemind.pheromone` (SideChannelPurger),
-    `hivemind.wardens` (WardenDeps) and waggle.
+    `hivemind.manifest.schema` (ExoskeletonSection), `hivemind.wardens` (WardenDeps) and waggle.
 
 Key invariants:
     - A Hive without the browser extra still composes: no launcher is built, and attach refuses a
@@ -70,10 +69,8 @@ from hivemind.llm import (
     UnresolvableSlotError,
 )
 from hivemind.manifest.schema import ExoskeletonSection
-from hivemind.pheromone import SideChannelPurger
 from hivemind.wardens import WardenDeps
 from waggle.clock import Clock
-from waggle.ids import CellId
 
 if TYPE_CHECKING:
     from hivemind.cli.compose.deps import HiveParts
@@ -86,12 +83,10 @@ log = get_logger(__name__)
 __all__ = [
     "BROWSER_EXTRA_MODULE",
     "ExoskeletonWiring",
-    "RecordingSideChannel",
     "build_browser_launcher",
     "exoskeleton_config",
     "hive_stand_exoskeleton",
     "in_cell_exoskeleton",
-    "night_veil_side_channels",
     "open_hive_recordings",
     "resolve_ears",
     "running_as_root",
@@ -123,22 +118,6 @@ class ExoskeletonWiring:
             recording_store=self.recordings,
             ears=self.ears,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class RecordingSideChannel:
-    """A recording store as a Night Veil side channel (`hivemind.pheromone.SideChannelPurger`).
-
-    Codingrules section 12 lists flight recordings among the execution records a Night Veil Cell
-    never keeps after teardown; this adapter lets `NightVeilTeardownPurge` remove them with the
-    rest of the Cell's side channels.
-    """
-
-    store: RecordingStore  # The store whose recordings of the torn-down Cell go.
-
-    async def purge(self, cell_id: CellId) -> int:
-        """Delete every recording of `cell_id`, frames included; return how many went."""
-        return await self.store.purge_cell(str(cell_id))
 
 
 def hive_stand_exoskeleton(parts: HiveParts) -> ExoskeletonWiring:
@@ -284,16 +263,3 @@ def open_hive_recordings(
     if pruned:
         log.info("exoskeleton.recordings_pruned", pruned=pruned, cutoff=cutoff.isoformat())
     return store
-
-
-def night_veil_side_channels(recordings: RecordingStore) -> tuple[SideChannelPurger, ...]:
-    """Return every side channel this Hive's Night Veil teardown purge must run.
-
-    Args:
-        recordings: The Hive's recording store.
-
-    Returns:
-        The side channels, in purge order, for `hivemind.pheromone.NightVeilTeardownPurge`; the
-        flight recorder's store is the first registered.
-    """
-    return (RecordingSideChannel(recordings),)

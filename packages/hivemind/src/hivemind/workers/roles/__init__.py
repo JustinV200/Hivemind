@@ -13,6 +13,11 @@ roles.scout.Scout`, a strictly budgeted, read-only recon role -- both built on `
 roles.bounded_loop`, the tool-loop machinery step 6.9 factored out of the Drone so neither new
 role copies it. `worker_for` (`selection.py`) is the one place a `waggle.messages.task.WorkerRole`
 becomes a fresh Worker instance, for both composition roots' `WardenDeps.worker_factory` to share.
+Roadmap step 10.6 adds the sixth, `hivemind.workers.roles.guard_bee.GuardBee`, the security
+watcher: it runs in the Queen's process on her tick rather than on a Cell, reads the central trail
+against rules shipped as data, and reports or requests (ADR-0043). It is not a `Worker`-protocol
+implementation, because a Worker is handed a Cell and a session, exactly what the Guard Bee must
+never hold.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside the workers package. Handles one module (or package)
@@ -38,8 +43,9 @@ See Also:
     - hivemind.workers.roles.forager for Forager, this package's fourth role.
     - hivemind.workers.roles.scout for Scout, this package's fifth role.
     - hivemind.workers.roles.bounded_loop for the machinery Forager and Scout share with Drone.
+    - hivemind.workers.roles.guard_bee for GuardBee, this package's sixth role (step 10.6).
 
-Public API (roadmap 3.16, extended by 4.3, 5.8, 6.9 and 6.10):
+Public API (roadmap 3.16, extended by 4.3, 5.8, 6.9, 6.10 and 10.6):
     - worker_for, UnsupportedWorkerRoleError: build a fresh Worker for a TaskAssign.role
       (hivemind.workers.roles.selection).
     - Forager, FORAGER_MAX_ROUNDS, ForagerRequiresExoskeletonError: the Forager role
@@ -56,6 +62,8 @@ Public API (roadmap 3.16, extended by 4.3, 5.8, 6.9 and 6.10):
       for `SweepDeps`/`SweepReport` (`UndertakerSweepDeps`/`UndertakerSweepReport`), since HouseBee
       already owns the bare `SweepDeps` name at this package's own face; import from
       `hivemind.workers.roles.undertaker` directly for the unprefixed names.
+    - GuardBee, GuardBeeInputs, build_guard_bee: the Guard Bee and how a composition root builds
+      it (hivemind.workers.roles.guard_bee; the rest of its API is imported from there).
 """
 
 from hivemind.workers.roles.drone import DRONE_MAX_ROUNDS, Drone, HandoffRequestedError
@@ -64,6 +72,7 @@ from hivemind.workers.roles.forager import (
     Forager,
     ForagerRequiresExoskeletonError,
 )
+from hivemind.workers.roles.guard_bee import GuardBee, GuardBeeInputs, build_guard_bee
 from hivemind.workers.roles.house_bee import (
     HOUSE_BEE_HOT_WINDOW_S,
     SWEEP_DECISION_LIMIT,
@@ -118,6 +127,8 @@ __all__ = [
     "Forager",
     "ForagerRequiresExoskeletonError",
     "GrantRevoker",
+    "GuardBee",
+    "GuardBeeInputs",
     "HandoffRequestedError",
     "HouseBee",
     "LeavingsRemover",
@@ -139,6 +150,7 @@ __all__ = [
     "UndertakerSweepSchedule",
     "UnsupportedWorkerRoleError",
     "WaxRetirer",
+    "build_guard_bee",
     "orphan_real_leases",
     "orphan_virtual_cells",
     "run_sweep",

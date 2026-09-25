@@ -32,29 +32,42 @@ See Also:
       contract this backend is proven against, over FakeDockerClient and FakeReadinessGate.
 
 Public API:
-    - DockerCellBackend (`backend.py`): the CellBackend implementation.
+    - DockerCellBackend, DockerBackendConfig (`backend.py`): the CellBackend implementation and
+      its headroom and control network.
     - build_docker_backend (`backend.py`... factory, see below): what a composition root calls to
       get a `hivemind.hive.registry.CellBackendFactory` for `BackendRegistry.register`.
-    - DockerClientPort, DockerClientError, ContainerSpec, ContainerInfo, NetworkSpec, VolumeSpec
-      (`client.py`): the narrow Docker seam and its value types.
-    - SdkDockerClient (`sdk_client.py`): the real DockerClientPort, over the `docker` SDK.
+    - DockerClientPort, DockerNetworkPort, DockerClientError, ContainerSpec, ContainerInfo,
+      NetworkSpec, VolumeSpec (`client.py`): the narrow Docker seam, its network slice and its
+      value types.
+    - SdkDockerClient (`sdk_client/`): the real DockerClientPort, over the `docker` SDK.
     - FakeDockerClient (`fake.py`): the in-memory DockerClientPort for tests and demos.
     - NetworkPlan, plan_network, network_name, host_gateway_extra_hosts (`network.py`): what each
-      NetworkPolicy means at the Docker level.
+      NetworkPolicy means at the Docker level; ControlNetwork, control_network: the per-Hive
+      control network a dual-homed Cell's link rides (roadmap step 10.6a).
+    - cut_egress, restore_egress, ensure_control (`egress.py`): isolation's lever on a dual-homed
+      Cell's own network, and the control network made or reused before the listener binds.
 """
 
-from hivemind.hive.backends.docker.backend import DockerCellBackend, build_docker_backend
+from hivemind.hive.backends.docker.backend import (
+    DockerBackendConfig,
+    DockerCellBackend,
+    build_docker_backend,
+)
 from hivemind.hive.backends.docker.client import (
     ContainerInfo,
     ContainerSpec,
     DockerClientError,
     DockerClientPort,
+    DockerNetworkPort,
     NetworkSpec,
     VolumeSpec,
 )
+from hivemind.hive.backends.docker.egress import cut_egress, ensure_control, restore_egress
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.hive.backends.docker.network import (
+    ControlNetwork,
     NetworkPlan,
+    control_network,
     host_gateway_extra_hosts,
     network_name,
     plan_network,
@@ -64,16 +77,23 @@ from hivemind.hive.backends.docker.sdk_client import SdkDockerClient
 __all__ = [
     "ContainerInfo",
     "ContainerSpec",
+    "ControlNetwork",
+    "DockerBackendConfig",
     "DockerCellBackend",
     "DockerClientError",
     "DockerClientPort",
+    "DockerNetworkPort",
     "FakeDockerClient",
     "NetworkPlan",
     "NetworkSpec",
     "SdkDockerClient",
     "VolumeSpec",
     "build_docker_backend",
+    "control_network",
+    "cut_egress",
+    "ensure_control",
     "host_gateway_extra_hosts",
     "network_name",
     "plan_network",
+    "restore_egress",
 ]

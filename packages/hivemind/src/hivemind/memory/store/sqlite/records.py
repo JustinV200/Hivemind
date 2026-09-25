@@ -35,6 +35,7 @@ from hivemind.memory.episodes import EpisodeRecord
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR, Note
 from hivemind.memory.pins import Pin
+from hivemind.memory.taint import require_unlabelled
 from hivemind.pheromone import MemoryEvent, insert_event
 
 # No __all__: every name here is an internal collaborator of hivemind.memory.store.sqlite.store,
@@ -69,6 +70,8 @@ _INSERT_EPISODE_SQL = (
 _SELECT_EPISODES_SQL = "SELECT body FROM memory_episodes"
 _DELETE_EPISODES_BEFORE_SQL = "DELETE FROM memory_episodes WHERE at < ?"
 _ORDER_EPISODES_BY_DESC = " ORDER BY at DESC, id DESC"
+# Roadmap 10.6d: a read that could feed a prompt never returns a tainted row (migration 0004).
+UNTAINTED_CLAUSE = "taint_state IS NOT 'tainted'"
 
 
 def _allowed_clearance_values(allowance: HoneyClearance) -> tuple[str, ...]:
@@ -174,6 +177,7 @@ def put_handoff_transaction(
     event: MemoryEvent,
 ) -> None:
     """Insert one handoff row then its event, in one transaction; run on the store's thread."""
+    require_unlabelled(handoff.tainted, event_id)  # Only the taint ledger writes a label.
     with transaction(connection):
         connection.execute(
             _INSERT_HANDOFF_SQL,
@@ -198,6 +202,7 @@ def put_episode_transaction(
     connection: sqlite3.Connection, record: EpisodeRecord, event: MemoryEvent
 ) -> None:
     """Insert one episode row then its event, in one transaction; run on the store's thread."""
+    require_unlabelled(record.tainted, record.id)  # Only the taint ledger writes a label.
     with transaction(connection):
         connection.execute(
             _INSERT_EPISODE_SQL,
@@ -215,9 +220,9 @@ def put_episode_transaction(
 def select_episodes_rows(
     connection: sqlite3.Connection, principal: str | None, allowance: HoneyClearance, limit: int
 ) -> list[sqlite3.Row]:
-    """Select episodes within `allowance`, optionally filtered by `principal`, newest first."""
+    """Select untainted episodes within `allowance`, optionally by `principal`, newest first."""
     values = _allowed_clearance_values(allowance)
-    clauses = [f"clearance IN ({','.join('?' for _ in values)})"]
+    clauses = [f"clearance IN ({','.join('?' for _ in values)})", UNTAINTED_CLAUSE]
     params: list[object] = list(values)
     if principal is not None:
         clauses.append("principal = ?")

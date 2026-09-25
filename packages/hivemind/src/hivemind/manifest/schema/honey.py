@@ -10,14 +10,15 @@ are batched and when two chunks count as the same; ``HoneyRetrievalSection`` set
 ranked and budgeted: the weight of full-text against vector evidence, the floor a hit must clear,
 how much of a reader's context window a result may fill, and how many hits the Queen's pre-check
 attaches to an assignment. The three sit beside ``[honey.clearance]`` under ``[honey]``
-(``hivemind.manifest.schema.security.HoneySection``), which is where a dotted TOML header nests.
+(``hivemind.manifest.schema.security.tiers.HoneySection``), which is where a dotted TOML header
+nests.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
-    ``hivemind.manifest.schema.security.HoneySection``; read by ``hivemind.honey_store`` (Layer
-    2, which receives these slices directly, the same way ``hivemind.cell.local.config`` reads
-    its own section) and by the composition root. Calls into pydantic and
-    ``waggle.messages.honey`` only, for the wire's own default deposit cap.
+    ``hivemind.manifest.schema.security.tiers.HoneySection``; read by ``hivemind.honey_store``
+    (Layer 2, which receives these slices directly, the same way
+    ``hivemind.cell.local.config`` reads its own section) and by the composition root. Calls
+    into pydantic and ``waggle.messages.honey`` only, for the wire's own default deposit cap.
 
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
@@ -29,7 +30,7 @@ Key invariants:
 See Also:
     - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for what each number governs.
     - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the embedding pass fields.
-    - hivemind.manifest.schema.security for HoneySection, the ``[honey]`` table these nest in.
+    - hivemind.manifest.schema.security.tiers for HoneySection, the ``[honey]`` table these nest in.
     - docs/manifests/full.toml for every field shown with its default.
 """
 

@@ -5,7 +5,7 @@ model providers it may call, how Forage divides capacity, what its escalation po
 budgets are, and its security posture. Codingrules section 13 fixes the shape: "all configuration
 is a Hive Manifest... validated into HiveManifest (pydantic)... environment variables are read in
 exactly one place... secrets are never in the manifest file." This package is that whole pipeline:
-``schema`` (the fourteen-section model tree, ``HiveManifest`` at its root), ``loader``
+``schema`` (the fifteen-section model tree, ``HiveManifest`` at its root), ``loader``
 (``load_manifest``, TOML file to validated model), ``env`` (``read_env``/``apply_env``/
 ``provider_api_key``, the one place `HIVEMIND_*` is read), and ``errors`` (``ManifestError``, the
 one exception every failure in this package raises).
@@ -40,7 +40,8 @@ Public API:
       TierProfile, HoneySection, HoneyClearanceSection, ClearanceMatrix, HoneyStoreSection,
       HoneyRipeningSection, HoneyRetrievalSection (phase 7), PlacementSection,
       PlacementRoleOverride, VirtualCellsSection, VirtualCellsOverwinterSection (phase 5),
-      ExoskeletonSection (phase 6).
+      ExoskeletonSection (phase 6), EntranceSection, EntranceExposure, GuardSection,
+      GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -58,12 +59,17 @@ from hivemind.manifest.env import (
 from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.loader import load_manifest
 from hivemind.manifest.schema import (
+    DEFAULT_DIRE_PATTERNS,
     MANIFEST_KEY_PATTERN,
     BroodChamberSection,
     CapabilityOverrides,
     ClearanceMatrix,
+    EntranceExposure,
+    EntranceSection,
     ExoskeletonSection,
     ForageSection,
+    GuardRoleSection,
+    GuardSection,
     HiveManifest,
     HiveSection,
     HiveStandCapacityOverrides,
@@ -90,13 +96,18 @@ from hivemind.manifest.schema import (
 )
 
 __all__ = [
+    "DEFAULT_DIRE_PATTERNS",
     "MANIFEST_KEY_PATTERN",
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "EntranceExposure",
+    "EntranceSection",
     "EnvOverrides",
     "ExoskeletonSection",
     "ForageSection",
+    "GuardRoleSection",
+    "GuardSection",
     "HiveManifest",
     "HiveSection",
     "HiveStandCapacityOverrides",

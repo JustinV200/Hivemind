@@ -11,8 +11,8 @@ verdicts gets the same error shape a real reviewer's own unavailability would pr
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.supervision.capping.
-    checks`. Used by tests of `JudgeCheck` and `hivemind.supervision.capping.audit`, and by any
-    demo path that wants a `JudgeReviewer` with no model behind it. Calls into `hivemind.
+    checks`. Used by tests of `JudgeCheck` and `hivemind.supervision.capping.audit.sampler`, and
+    by any demo path that wants a `JudgeReviewer` with no model behind it. Calls into `hivemind.
     supervision.capping.checks.judge` and `hivemind.supervision.capping.errors` only.
 
 Key invariants:

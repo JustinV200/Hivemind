@@ -14,13 +14,15 @@ The image's `ENTRYPOINT` is `hivemind-in-cell`, the console script for
 
 1. Reads its configuration from `HIVEMIND_*` environment variables (the table below), the one
    place they are read (`hivemind.manifest.env.read_in_cell_env`, codingrules section 13).
-2. Probes this container's own platform, capabilities and Forage capacity (the same stdlib-only
-   probe `hivemind.cell.local.probe.probe_host` uses for the Hive Stand -- a Virtual Cell image is
-   Ubuntu Linux too) and builds the one `Cell` it is (`hivemind.wardens.spawn.in_cell.
+2. Probes this container's own platform and capabilities (the same stdlib-only probe
+   `hivemind.cell.local.probe.probe_host` uses for the Hive Stand -- a Virtual Cell image is
+   Ubuntu Linux too), takes its Forage capacity from `HIVEMIND_RESERVATION` (what its backend
+   reserved for it, with no load: a container probing itself would read the host's cores, memory
+   and load average) and builds the one `Cell` it is (`hivemind.wardens.spawn.in_cell.
    InCellSpawnSource`, the `in_cell` Warden spawn strategy).
 3. Dials **out** to `HIVEMIND_QUEEN_WAGGLE_URL` over a signed WebSocket connection -- this image
    exposes no inbound port, so it has to be the one that connects.
-4. Sends one signed `CellReady` announcing itself, then a `CapacityReport` naming its probed
+4. Sends one signed `CellReady` announcing itself, then a `CapacityReport` naming that
    `ForageCapacity`, then one `CellHeartbeat` -- the three frames `hivemind.queen.cell_gate.
    listener.CellListener`'s own readiness gate waits for before a real Warden ever exists
    (`hivemind.cli.in_cell.link`).
@@ -35,16 +37,22 @@ The image's `ENTRYPOINT` is `hivemind-in-cell`, the console script for
    build_in_cell_provider_registry`) resolves every slot against the operator's own
    `[llm.providers]`/`[llm.slots]` table when the Queen provisioned one (`HIVEMIND_PROVIDERS`/
    `HIVEMIND_SLOTS` below), or falls back to a scriptable fake with nothing reachable when it did
-   not -- see the variable table below and "Not yet in this image".
+   not -- see the variable table below and "Not yet in this image". Either way every model call
+   in the Cell, the Warden's own and each sub-bee's, passes through the Cell's own Fanner
+   (`hivemind.cli.in_cell.fanner`, the seat meter): metered by the seats and rate limits the
+   Queen shipped with each provider row, and recorded as an `llm.call` on this Cell's own trail
+   segment, so it reaches the Queen's trail with the rest of the segment. There is no Forage
+   ledger inside the Cell: its spend reaches the Queen in each `TaskResult` and in those shipped
+   `llm.call` events.
 6. Runs until a signed `Shutdown` or `CellTeardownRequest` arrives from the Queen, then stops --
    every sub-bee reaped, its lease released, a final best-effort trail sync -- and the container
    exits. Destroying the container (not a graceful in-container cleanup) is the Undertaker's
    actual teardown of a Virtual Cell -- see `hivemind.cell.in_cell`'s own module docstring for why
    nothing here tries to leave anything "restored".
 
-See `hivemind.cli.in_cell`'s own package docstring for the full composition-root detail, and this
-dispatch's own report (roadmap step 5.3) for exactly what the Queen side still needs before it
-actually reads the `TrailSegmentSync` chunks this image already sends.
+See `hivemind.cli.in_cell`'s own package docstring for the full composition-root detail; the
+Queen's `hivemind.queen.cell_gate.listener.CellListener` merges every `TrailSegmentSync` chunk
+this image sends into her own trail, under this Cell's own node id.
 
 ## Layers, in order
 
@@ -88,7 +96,9 @@ provision time -- code in this image still never names a model or vendor itself.
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `HIVEMIND_QUEEN_WAGGLE_URL` | yes | Where this Cell dials out to (`wss://` anywhere, `ws://` on loopback only -- `waggle.uris.check_waggle_uri`). |
+| `HIVEMIND_QUEEN_WAGGLE_URL` | yes | Where this Cell dials out to (`wss://` anywhere; `ws://` on loopback, a documented host-gateway alias or private address, or a Tor v3 onion service -- `waggle.uris.check_waggle_uri`). |
+| `HIVEMIND_COMB_SHIELD` | yes (written by every backend since roadmap step 10.3a) | The tier the Queen provisioned this Cell at (`MEADOW` or `NIGHT_VEIL`), announced on `CellReady` and seen by the Cell's own floors. Unset reads as `MEADOW`; `PROPOLIS` is refused (no in-Cell attestation for it yet). A `NIGHT_VEIL` Cell must dial a v3 onion Queen URL through `HIVEMIND_SOCKS_PROXY_URL`, and only a `NIGHT_VEIL` Cell may name an onion Queen URL. |
+| `HIVEMIND_RESERVATION` | yes (written by every backend) | What the backend reserved for this Cell, as JSON (`hivemind.hive.models.CellReservation`: `cpu_cores`, `memory_bytes`, `disk_bytes`, `max_sub_bees`, from its `VirtualCellSpec`). The Cell reports it as its Forage capacity, with no load, the same figures the Queen placed it by; its platform facts alone come from its own probe. Unset (a Cell minted before it existed) reports what the Cell probes; a malformed value is refused. |
 | `HIVEMIND_CELL_ID` | yes | The `cell_<ULID>` id the Queen minted for this Cell when it provisioned it. |
 | `HIVEMIND_HIVE_ID` | yes | The Queen's own bee address (`hive_<ULID>`), the `recipient` of every envelope this Cell sends. |
 | `HIVEMIND_QUEEN_NODE_ID` | yes | The `node_<ULID>` the Queen signs its own frames as, so this Cell's Verifier knows whose signature to check (signing is mandatory across a machine boundary, roadmap step 1.7). |
@@ -96,8 +106,8 @@ provision time -- code in this image still never names a model or vendor itself.
 | `HIVEMIND_CELL_SIGNING_KEY_FILE` | one of these two | A file holding the same hex text, for a mounted secret instead of a bare environment variable (preferred when both are set, codingrules section 15). |
 | `HIVEMIND_QUEEN_VERIFY_KEY` | one of these two | The Queen's own Ed25519 public key, hex-encoded. |
 | `HIVEMIND_QUEEN_VERIFY_KEY_FILE` | one of these two | A file holding the same hex text (preferred when both are set). |
-| `HIVEMIND_SOCKS_PROXY_URL` | no | A SOCKS proxy Waggle should dial through. Carried, not yet acted on -- Night Veil (roadmap step 5.7a) is what routes this over Tor; a `base-ubuntu` Cell never sets it. |
-| `HIVEMIND_PROVIDERS` | no | This Hive's own `[llm.providers]` table, as a bounded JSON array (`hivemind.hive.backends.provider_table.render_providers_json`): one object per provider, each naming its `kind`, its own Cell-reachable `base_url` (already rewritten from the Hive Stand's own loopback address), `default_model`, capability overrides and the `api_key_env` variable name its own key (if any) rides under. Absent means this Cell resolves every model slot to a scriptable fake instead (`hivemind.cli.in_cell.providers`). |
+| `HIVEMIND_SOCKS_PROXY_URL` | no | A `socks5h://` or `socks4a://` proxy on the Cell's own loopback that every Waggle dial goes through, the destination named to it and never resolved in the Cell (roadmap step 10.3a: a Night Veil Cell's Tor SOCKS port; `waggle.transport.socks`). Once set, the Cell never dials directly. A `base-ubuntu` Cell never sets it. |
+| `HIVEMIND_PROVIDERS` | no | This Hive's own `[llm.providers]` table, as a bounded JSON array (`hivemind.hive.backends.provider_table.render_providers_json`): one object per provider, each naming its `kind`, its own Cell-reachable `base_url` (already rewritten from the Hive Stand's own loopback address), `default_model`, capability overrides, the `api_key_env` variable name its own key (if any) rides under, and its `seats`, `requests_per_minute` and `tokens_per_minute`, which the Cell's own Fanner meters every call by (`hivemind.cli.in_cell.fanner`). Absent means this Cell resolves every model slot to a scriptable fake instead (`hivemind.cli.in_cell.providers`), still metered and recorded by the same Fanner at its one-seat default. |
 | `HIVEMIND_SLOTS` | no | This Hive's own `[llm.slots]` table, as a bounded JSON array (`render_slots_json`); present exactly when `HIVEMIND_PROVIDERS` is. |
 | `HIVEMIND_<NAME>_API_KEY` | no | One such variable per provider named in `HIVEMIND_PROVIDERS` that actually has a key configured (e.g. `HIVEMIND_ANTHROPIC_API_KEY`) -- the exact name `[llm.providers.<name>].api_key_env` derives, never the JSON above (a key VALUE never rides that blob). |
 | `HIVEMIND_LLM_OFFLINE` | no | Mirrors the Hive Stand's own `[llm] offline` flag; `"true"` when set, absent otherwise. A gateway-alias `base_url` (`host.docker.internal`, QEMU's `10.0.2.2`) is never treated as "non-local" for this check, since it IS the Hive Stand's own machine from inside the Cell. |
@@ -138,7 +148,3 @@ runner adds (a later roadmap step) must, at minimum:
   argument through, so a provider that needs an API key gets no `HIVEMIND_<NAME>_API_KEY` forwarded
   to the Cell until that one-line wiring lands (a local server with no auth configured is
   unaffected).
-- **The Queen actually reading `TrailSegmentSync`.** This image's Warden already ships its own
-  trail segment (`hivemind.wardens.trail_sync`) and `hivemind.queen.trail_sync.
-  TrailSegmentReceiver` already reassembles and merges it, but nothing in `hivemind.queen` calls
-  that receiver yet -- see this dispatch's own report for exactly which drain loop should own it.

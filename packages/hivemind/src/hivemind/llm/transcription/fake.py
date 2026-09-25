@@ -8,8 +8,9 @@ promises a real adapter keeps: it refuses a clip past its declared `max_clip_s` 
 unsupported language hint the same typed way (`check_request`), it streams by buffering exactly
 as a real adapter without native streaming does, and whatever it answers reports the clip's own
 duration and the caller's language hint, as every real adapter's transcript does. Scripted
-transcripts are returned in order; once the script runs dry, every clip gets the default
-transcript: the one the caller gave, or silence (no text, no segments) spanning the clip.
+transcripts are returned in order (a plain string is a transcript of that text spanning the whole
+clip); once the script runs dry, every clip gets the default transcript: the one the caller gave,
+or silence (no text, no segments) spanning the clip.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.transcription`.
@@ -18,8 +19,8 @@ Fits into the Hive:
     `capabilities` and `models`, and `waggle.clock` only.
 
 Key invariants:
-    - `calls` records what each transcription was asked for (duration, size, language), never the
-      audio itself: even a fake does not keep a clip past its call (ADR-0033).
+    - `calls` records what each transcription was asked for (duration, size, format, language),
+      never the audio itself: even a fake does not keep a clip past its call (ADR-0033).
     - The script is FIFO; an `LLMError` in it is raised, not returned, on its turn.
     - An answered transcript's `duration_s` is the clip's and, when the caller gave a language
       hint, its `language` is the hint: a scripted value never contradicts what a real adapter
@@ -43,6 +44,7 @@ from hivemind.llm.capabilities import HealthState, ProviderHealth
 from hivemind.llm.errors import LLMError, ProviderUnavailableError
 from hivemind.llm.transcription.buffered import stream_by_buffering
 from hivemind.llm.transcription.capabilities import TranscriptionCapabilities, check_request
+from hivemind.llm.transcription.media import AudioMediaType
 from hivemind.llm.transcription.models import AudioChunk, AudioClip, Transcript, TranscriptSegment
 from waggle.clock import Clock, FakeClock
 
@@ -54,8 +56,9 @@ class FakeTranscriptionCall:
     """What one transcription asked for, kept without the audio itself."""
 
     duration_s: float  # The clip's own duration, in seconds.
-    size_bytes: int  # The clip's WAV file size, so a test can check what a stream assembled.
+    size_bytes: int  # The clip's file size, so a test can check what a stream assembled.
     language: str | None  # The caller's language hint, or None.
+    media_type: AudioMediaType = AudioMediaType.WAV  # The clip's format, as its sender labelled it.
 
 
 class FakeTranscription:
@@ -87,7 +90,7 @@ class FakeTranscription:
         )
         self._clock: Clock = clock if clock is not None else FakeClock()
         self._default = default
-        self._script: deque[Transcript | LLMError] = deque()
+        self._script: deque[Transcript | str | LLMError] = deque()
         self._is_down = False
         self.calls: list[FakeTranscriptionCall] = []
 
@@ -101,11 +104,12 @@ class FakeTranscription:
         """Return this provider's declared capabilities."""
         return self._capabilities
 
-    def script(self, *items: Transcript | LLMError) -> None:
+    def script(self, *items: Transcript | str | LLMError) -> None:
         """Queue transcripts (or errors) to answer with, in order, one per call.
 
         Args:
-            items: Appended to the FIFO queue; an `LLMError` is raised when its turn comes.
+            items: Appended to the FIFO queue; an `LLMError` is raised when its turn comes, and a
+                `str` becomes a transcript of that text spanning the whole clip it answers.
         """
         self._script.extend(items)
 
@@ -124,7 +128,8 @@ class FakeTranscription:
             raise ProviderUnavailableError(self._name, "an outage is simulated via set_outage")
         # The same refusal a real adapter makes, before the script is touched or a call recorded.
         check_request(self._name, self._capabilities, clip, language)
-        self.calls.append(FakeTranscriptionCall(clip.duration_s, len(clip.data), language))
+        call = FakeTranscriptionCall(clip.duration_s, len(clip.data), language, clip.media_type)
+        self.calls.append(call)
         return _as_reported(self._next_answer(clip, language), clip, language)
 
     def stream(
@@ -159,6 +164,12 @@ class FakeTranscription:
         item = self._script.popleft()
         if isinstance(item, LLMError):
             raise item
+        if isinstance(item, str):
+            # Measured against the clip it answers, as a real transcript would be.
+            segment = TranscriptSegment(start_s=0.0, end_s=clip.duration_s, text=item)
+            return Transcript(
+                text=item, language=language, duration_s=clip.duration_s, segments=(segment,)
+            )
         return item
 
 

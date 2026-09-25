@@ -2,7 +2,7 @@
 #
 # A test in packages/hivemind/tests/unit/manifest/test_loader.py loads this file and round-trips
 # it through model_dump/model_validate, so it cannot silently drift from hivemind.manifest.schema.
-# [entrance] is not shown here: it is added in phase 10 (roadmap step 3.1).
+# [guard] is added by roadmap step 10.2; [guard.untrusted_content] by roadmap step 10.6b.
 
 [hive]
 # This Hive's identity: minted once with waggle.ids.new_hive_id/new_node_id, never regenerated.
@@ -14,6 +14,11 @@ name = "Full Example Hive"
 env = "prod"
 # Where this Hive's one SQLite file lives, resolved relative to this file's own directory.
 db = "data/hive.sqlite3"
+# Where the secret store keeps one owner-only file per secret (the Hive's own Ed25519 signing
+# key; the Hive Stand console's device key, wrapped under the operator password), resolved
+# relative to this file's own directory and created on first use. A directory, never a secret:
+# back it up like a private key and keep it out of version control.
+secrets_dir = "data/secrets"
 
 [queen]
 # Seconds between Queen tick loop passes: order inbox, run autopilot, wake for judgement.
@@ -132,6 +137,17 @@ audio = false
 # timeout_s = 120.0
 # seats = 1
 
+[llm.providers.speech]
+# A local Whisper server speaking POST /v1/audio/transcriptions (faster-whisper-server, LocalAI,
+# vLLM): the human's voice at the Hive Entrance is transcribed on the Hive Stand, never hosted.
+# Kept apart from "local" above because a chat server has no transcription route: binding the
+# transcriber to it would pass at start and fail on the first clip.
+kind = "openai_compat"
+base_url = "http://127.0.0.1:8000/v1"
+# Bounds one whole transcription, upload included.
+timeout_s = 120.0
+seats = 1
+
 # Every ModelSlot must resolve directly (LlmSection's own validator); "local_worker" below is an
 # extra named binding, used only as [llm.slots.worker]'s fallback target.
 [llm.slots.queen]
@@ -190,10 +206,11 @@ effort = "LOW"
 
 [llm.slots.transcriber]
 # The slot that hears: audio in, text out, for a Worker's ears and the human's voice (ADR-0033).
-# Here the OpenAI-compatible server's /audio/transcriptions; with the whisper provider above,
-# provider = "whisper" runs it in process instead. Until the eval harness measures them, prefer
-# "large-v3-turbo" with a GPU and "small" on a CPU. A fallback works as for every other slot.
-provider = "local"
+# Here the local Whisper server above ("speech", its /audio/transcriptions); with the whisper
+# provider above, provider = "whisper" runs it in process instead. Until the eval harness measures
+# them, prefer "large-v3-turbo" with a GPU and "small" on a CPU. A fallback works as for every
+# other slot.
+provider = "speech"
 model = "whisper-large-v3"
 effort = "LOW"
 
@@ -210,6 +227,14 @@ max_sub_bees_per_goal = 4
 # reading a live grant was computed from, before the ledger recomputes that grant instead of
 # reusing it (roadmap step 4.7).
 measurement_drift_threshold = 0.15
+# Seconds a fresh task may wait PENDING while a passing shortfall on its Cell leaves its grant
+# with no sub-bee: the Hive Stand's load or free memory right now (both re-read on every dispatch
+# pass). The Queen records one `forage.denied` with `deferred = true` when the wait starts, tries
+# again on every later pass, and past this fails the task with the figures. A shortfall no wait
+# can lift (a reserve that claims every seat, a Cell whose whole memory cannot hold one bee, a
+# Virtual Cell, whose resources its spec fixes) still fails the task at once. A task whose goal's
+# other running tasks hold its whole `max_sub_bees_per_goal` waits until one of them finishes.
+zero_grant_patience_s = 300.0
 
 [forage.roles.drone]
 # Logical cores this role's bee occupies while running.
@@ -290,11 +315,16 @@ seats = 2
 [forage.map.local_whisper]
 # The transcriber is a source like any other: graded on its own, and metered by the Fanner (one
 # seat per transcription; its latency and free seats are measured on every call).
-provider = "local"
+provider = "speech"
 model = "whisper-large-v3"
 grade = 2
-context_window = 8192
-seats = 2
+# Required of every source; a transcriber never reads it (audio is bounded in seconds instead).
+context_window = 448
+seats = 1
+
+[forage.map.local_whisper.cost]
+# Speech is billed by the minute of audio; a local server costs nothing per call.
+cost_per_audio_minute_usd = 0.0
 
 [forage.reserve]
 # Shared seats held back for the Queen, the Attendant and the House Bees.
@@ -312,7 +342,9 @@ headroom_fraction = 0.1
 # policy_file = "supervision/my-policy.toml"
 # A Capping risk-tier TOML file overriding the shipped one, resolved the same way.
 # capping_tiers_file = "supervision/my-tiers.toml"
-# Seconds between a supervised child's heartbeat reports.
+# Seconds between a supervised child's heartbeat reports. The Queen judges each Warden by the
+# interval its own Heartbeat declares (a Virtual Cell's every 15 s), never less than this, and her
+# tick waits no longer than this with nothing arriving.
 heartbeat_interval_s = 5.0
 # Missed heartbeats before a child is treated as stalled.
 heartbeat_miss_limit = 3
@@ -531,3 +563,186 @@ ready_timeout_s = 30.0
 # Days a flight recording (the before and after frames and the evidence of every GUI action) is
 # kept after its last action; the sweep that deletes older ones runs as the Hive starts.
 recording_retention_days = 30
+
+[entrance]
+# The Hive Entrance (roadmap phase 10, ADR-0040 and ADR-0041): the one door every client uses.
+# The loopback listener; always on, and always a loopback address. Approval of new devices,
+# unlocking, capability widening and reopening after a reduction exist only here.
+bind = "127.0.0.1:8710"
+# How the remote listener is exposed: "loopback" (no remote listener), "vpn" (bound to an overlay
+# address only; the recommended remote path), "lan" or "tunnel" (both need TLS and mutual TLS).
+# There is no public mode.
+expose = "vpn"
+# The remote listener's own address: a specific address, never a wildcard. In vpn mode it must be
+# assigned to vpn_interface and fall inside vpn_cidrs (a Tailscale address here); in tunnel mode
+# it is a loopback address the tunnel client forwards to.
+remote_bind = "100.101.102.103:8711"
+# The https URL devices use; the invite links' base, the only CORS origin, and the WebAuthn
+# relying party for passkeys enrolled through it (Tailscale MagicDNS name and `tailscale cert`).
+public_url = "https://hivestand.example-tailnet.ts.net:8711"
+# Require a client certificate from the Hive's own authority on the remote listener. Omitted, it
+# follows expose: true for lan and tunnel (which refuse to start with it false), false for vpn,
+# where the overlay already authenticates every packet and a phone enrols by QR code with a
+# passkey, never a certificate. Written out here to show it; true in vpn mode demands a
+# certificate from every remote device too (each gets one at approval).
+mutual_tls = false
+# Brood 1.0 has exactly one operator.
+operators = 1
+# Let a device holding entrance:steward approve other devices after full step-up (off by default).
+steward_devices = false
+# Step up and notify every device when a known device appears from a new network.
+travel_lock = false
+session_ttl_hours = 12.0
+idle_timeout_minutes = 30.0
+step_up_window_minutes = 5.0
+# A goal budget, in USD, above which submitting it needs step-up.
+step_up_spend = 5.0
+# Failed logins (with a valid device proof) before the device is LOCKED until a loopback unlock.
+lockout_attempts = 5
+# Capability denials inside lockout_denial_window_s before the device is LOCKED.
+lockout_denials = 20
+lockout_denial_window_s = 60.0
+# Requests per minute, per device and per network address.
+rate_limit_per_device = 60
+rate_limit_per_address = 30
+# How far a signed request's timestamp may drift from the Hive Stand's clock, in seconds.
+request_skew_s = 60.0
+invite_ttl_minutes = 15.0
+pending_ttl_hours = 24.0
+# The overlay's ranges; Tailscale's by default.
+vpn_cidrs = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
+# The overlay's interface remote_bind must be on; empty means the platform's Tailscale interface.
+vpn_interface = "tailscale0"
+# The WebAuthn relying party for remote devices; empty means public_url's host. Fixed once the
+# first remote device enrols (a passkey is bound to it).
+rp_id = "hivestand.example-tailnet.ts.net"
+
+[entrance.tls]
+# Paths to the remote listener's certificate chain and key (here, `tailscale cert` output). Every
+# remote mode requires TLS on a DNS name: browsers need a secure context for passkeys.
+cert = "tls/hivestand.example-tailnet.ts.net.crt"
+key = "tls/hivestand.example-tailnet.ts.net.key"
+
+[entrance.push]
+webhooks = true
+# The VAPID key comes from HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY (or the secret store), its contact
+# from HIVEMIND_ENTRANCE_VAPID_SUBJECT.
+web_push = true
+# Extra hosts or CIDRs a webhook may target beyond https URLs and vpn_cidrs addresses.
+webhook_allowlist = []
+
+[entrance.voice]
+# Audio in on POST /v1/chat/audio and push-to-talk on the chat socket, transcribed once on the
+# TRANSCRIBER slot; false leaves the route unmounted (a 404) and refuses every hold.
+enabled = true
+# Echo a spoken goal back for confirmation before it becomes a task.
+confirm_goals = true
+# Discard audio after transcription; true keeps it as C2 Nectar with a retention window.
+keep_audio = false
+# How long a kept clip lives before the retention sweep deletes it; read only with keep_audio.
+keep_audio_hours = 24.0
+# The longest clip accepted, read from a WAV header or the declared length, before any model runs.
+max_clip_seconds = 120.0
+# Each device's audio budget: this many seconds a minute (a bucket charged each clip's length
+# before it is heard); at least max_clip_seconds.
+audio_seconds_per_minute = 120.0
+
+[guard]
+# The Guard policy's overrides (roadmap step 10.2, ADR-0039). Every Hive starts from the policy
+# shipped in hivemind.guard.defaults: each role's default capability set, a hive-wide deny list
+# and what a denial at each enforcement point escalates to. `policy_file` replaces it outright
+# with a file of the same shape, resolved relative to this file's own directory; left unset here
+# on purpose, like [supervision]'s files, since any path written here would only exist in this
+# repository. Shown as a comment so the shape is still on record.
+# policy_file = "guard/my-policy.toml"
+# Capabilities no principal may exercise, whatever it holds; added to the policy's own deny list
+# and removed from every Warden's set. Here: no Exoskeleton on a Real Cell's own display, and no
+# host under one internal domain.
+deny = ["exoskeleton:real_display", "net:*.internal.example"]
+# The Guard Bee (roadmap step 10.6, ADR-0043; docs/guard/guard-bee.md) acts alone only to narrow
+# the whole Hive; anything aimed at one Cell or one bee it files as a request the Queen decides
+# on. `request_confidence` is the floor such a report must reach to be filed ("low", "medium",
+# "high" or "critical"); a weaker one is a guard.alert and nothing more. `requests_per_hour` caps
+# the requests it files in any hour; one over the cap is still a guard.alert, recorded as capped.
+# These are the defaults, written out.
+request_confidence = "high"
+requests_per_hour = 6
+# The Guard Bee rule keys whose requests the Queen acts on by autopilot rule, with no awake episode
+# (roadmap step 10.6a, ADR-0043): she isolates the Cell the report names (revokes its Warden's grant,
+# pauses its bees, writes a BLOCK Cell Wax, cuts a Virtual Cell's egress to its control link, taints
+# its memory from the report's first cited event on). On the Hive Stand, whose own lease only the
+# human may isolate, she quarantines the implicated bee, holds its goal off the Hive Stand and puts a
+# CRITICAL Alarm in front of the human instead. Every other request is judged by an awake episode;
+# when her awake mode is unavailable she isolates, since isolation only removes access. A key naming
+# no Guard Bee rule never fires. The shipped default, written out: a scanner flag followed by a
+# denial in the same episode, a frame that failed its signature on a Cell's own link, a trail
+# segment a Cell shipped under another node's identity, and a Cell's node recording what another
+# Cell owns.
+dire_patterns = ["injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery"]
+
+[guard.roles.drone]
+# Replaces the Drone role's whole default set (a Worker still keeps only what its Warden holds).
+# `{scratch}` becomes the lease's scratch root. This one is the shipped Drone set without Cell Wax
+# proposals and with Honey capped at the internal clearance.
+allow = [
+    "fs:write:{scratch}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "llm:worker",
+    "spend:*",
+    "question:human",
+    "honey:read:*",
+    "honey:clearance:c1",
+]
+
+[guard.escalation]
+# What a denial at an enforcement point leads to: "refuse" (hand the refusal back, the default
+# everywhere), "alarm" (also raise an Alarm to the principal's supervisor) or "ask_human".
+tool_invocation = "alarm"
+question_routing = "ask_human"
+
+[guard.bee]
+# The Guard Bee's own settings; every value here is the default, written out. It reads the trail
+# every `interval_s` seconds on the Queen's tick. Repeats of one rule against one Cell inside
+# `coalesce_window_s` are coalesced into the first request (0 files every one). An awake episode
+# on the judge slot, for a rule that asks for judgement, may take `judge_timeout_s` before the
+# rule's own verdict stands. One raise lifts a Capping tier's sampled-audit rate by
+# `audit_raise_step` (capped at 1.0) for `audit_raise_hold_s` seconds.
+interval_s = 5.0
+coalesce_window_s = 900.0
+judge_timeout_s = 60.0
+audit_raise_step = 0.25
+audit_raise_hold_s = 86400.0
+
+[guard.bee.rules.denial_burst]
+# Overrides one shipped rule (the rules ship as data in hivemind.workers.roles.guard_bee's
+# rules.toml; every key is listed in docs/guard/guard-bee.md). Any of enabled, window_s, threshold,
+# ratio, confidence, action and judgement; a field left out keeps the shipped value. Here: a
+# steadier Hive tolerates a few more refusals from one bee before the rule fires.
+threshold = 8
+
+[guard.untrusted_content]
+# The untrusted-content scanner (roadmap step 10.6b, ADR-0043): every tool result, Cell session
+# output and chat message is scored against the pattern families shipped in hivemind.guard.defaults
+# (untrusted-content.toml, explained in docs/guard/untrusted-content.md) before a model reads it.
+# How many characters of one text are read before matching; the rest is never matched and never
+# shown to a model, so a hostile document can neither make the scanner slow nor ride in past it.
+# 1024 to 1048576.
+max_scan_chars = 65536
+
+# Per Comb Shield tier: at `label` the text still reaches the model, fenced under a harder label;
+# at `drop` it never does (a withheld notice with its keyed hash stands in). Either way the flag is
+# recorded as guard.injection_suspected; a flag never stops a bee. A stricter tier must react at
+# least as soon as a looser one. These are the defaults, written out.
+[guard.untrusted_content.meadow]
+label = 3.0
+drop = 7.0
+
+[guard.untrusted_content.propolis]
+label = 2.5
+drop = 6.0
+
+[guard.untrusted_content.night_veil]
+label = 2.0
+drop = 5.0

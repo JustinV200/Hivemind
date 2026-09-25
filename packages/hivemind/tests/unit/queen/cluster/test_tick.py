@@ -64,7 +64,7 @@ async def _running_goal() -> tuple[QueenDeps, Queen, WardenEnd, TaskId]:
     orders = InMemoryOrderStore()
     deps, link, warden_end = make_queen_deps(fake_provider=provider, orders=orders)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     return deps, queen, warden_end, goal_id
@@ -165,7 +165,7 @@ async def test_run_cluster_tick_probes_a_clustered_provider_and_resumes_once_hea
         fake_provider=provider, orders=orders, provider_lookup=lambda _name: provider
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     state = ClusterState()
@@ -186,7 +186,7 @@ async def test_run_cluster_tick_leaves_a_still_down_provider_clustered() -> None
         fake_provider=provider, orders=orders, provider_lookup=lambda _name: provider
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     state = ClusterState()
@@ -214,7 +214,7 @@ async def _running_goal_with_probing(
         provider_lookup=lambda _name: provider,
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     return deps, queen, provider, goal_id

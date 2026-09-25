@@ -1,8 +1,9 @@
 """Define LifecycleVirtualCellProvider: the real `hivemind.queen.deps.VirtualCellProvider`.
 
-Roadmap step 5.6's own last piece: `hivemind.queen.dispatcher.acquire.resolve_link` calls
+Roadmap step 5.6's own last piece: `hivemind.queen.dispatcher.acquire.acquire_virtual` calls
 `QueenDeps.virtual_provider.acquire(placement, task)` whenever `hivemind.queen.placement.decide`
-returns a `ProvisionVirtual`/`ReuseDormant` Placement; `LifecycleVirtualCellProvider` is the
+returns a `ProvisionVirtual`/`ReuseDormant` Placement (beside the Queen's tick, as an acquisition
+`hivemind.queen.dispatcher.provisions` starts); `LifecycleVirtualCellProvider` is the
 implementation that actually drives a `hivemind.hive.lifecycle.CellLifecycle` and hands back the
 `WardenLink` `hivemind.queen.cell_gate.listener.CellListener` already attached to the Queen once
 the Cell's own `CellReady`/`CellHeartbeat` handshake verified.
@@ -34,7 +35,7 @@ path ultimately talks to is also still stubbed (this dispatch's own report names
 
 On any failure past a successful `lifecycle.provision`/`.resume` (a wait-ready timeout, or no
 matching link ever showing up in `queen.wardens`), this provider tears the Cell down and raises
-`hivemind.hive.CellProvisionError` so `hivemind.queen.dispatcher.acquire.resolve_link`'s own
+`hivemind.hive.CellProvisionError` so `hivemind.queen.dispatcher.acquire.acquire_virtual`'s own
 retry-once path runs (ADR-0028 Consequences); a failure from `lifecycle.provision`/`.resume`
 themselves already raises `CellProvisionError` on its own and needs no extra teardown (neither
 call ever leaves a dangling record on its own failure path -- see `hivemind.hive.lifecycle`'s own
@@ -57,6 +58,20 @@ a clear error, because `WardenLink` (`hivemind.queen.deps`) carries a Waggle `Tr
 `hivemind.cell.CellSession` `SessionNightVeilProbe` needs -- no session-opening seam exists yet
 from the Queen to a Virtual Cell (this module's own report names the gap).
 
+**The Night Veil boundary (codingrules section 12):** once a NIGHT_VEIL Cell is acquired for a
+task, `acquire` binds the task to it in the boundary's ephemeral segments (`night_veil`), before
+the dispatcher records the placement: from then on every record the Queen makes about the task
+(`queen.placed`, `queen.assigned`, its grant) waits whole in the Cell's segment and reaches the
+trail as the skeleton only, and it is purged with the Cell.
+
+**The announced tier (roadmap step 10.3a):** the link `CellListener` attaches carries the Comb
+Shield tier the Cell announced in its own `CellReady`, and the dispatcher binds the task to that
+tier (`hivemind.queen.dispatcher.ready`). So before anything else is checked, a freshly provisioned
+Cell whose link names a tier other than the one it was provisioned at is torn down and refused:
+a Cell that is misconfigured, or lying, never gets a task bound to the wrong tier. (Until the
+in-Cell Warden read its tier from its bootstrap, every Night Veil Cell announced MEADOW and its
+tasks were bound to MEADOW.)
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`: this
     provider names `WardenLink`/`Task`/`Queen`, all Layer-6 concepts `hive` (Layer 3) may never
@@ -67,9 +82,10 @@ Fits into the Hive:
     `QueenDeps.virtual_provider` must exist before `Queen(deps)` can be constructed at all). Calls
     into `hivemind.brood_chamber` (Task), `hivemind.hive` (CellProvisionError, VirtualCellSpec),
     `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.night_veil` (NightVeilProbe,
-    attest_cell), `hivemind.pheromone` (TrailRecorder), `hivemind.queen.cell_gate.gate`
-    (QueenReadinessGate), `hivemind.queen.deps` (WardenLink), `hivemind.queen.placement`
-    (Placement, ProvisionVirtual, ReuseDormant), `hivemind.queen.queen` (Queen) and waggle only.
+    attest_cell), `hivemind.pheromone` (TrailRecorder, EphemeralSegments),
+    `hivemind.queen.cell_gate.gate` (QueenReadinessGate), `hivemind.queen.deps` (WardenLink),
+    `hivemind.queen.placement` (Placement, ProvisionVirtual, ReuseDormant), `hivemind.queen.queen`
+    (Queen) and waggle only.
 
 Key invariants:
     - `acquire` never returns a `WardenLink` for a Cell `lifecycle.mark_ready`/`.resume` has not
@@ -77,9 +93,13 @@ Key invariants:
       this returns.
     - Every failure past a successful `provision`/`resume` tears the Cell down before raising, so
       a failed acquire never leaves an orphaned Cell for the Undertaker's own sweep to find later.
+    - A freshly provisioned Cell never reaches `mark_ready` unless its link carries the tier it
+      was provisioned at.
     - A NIGHT_VEIL Cell never reaches `mark_ready` without a passed `attest_cell` call first
       (ADR-0030): a red check, or the probe raising, tears the Cell down the same way any other
       post-provision failure does.
+    - A task handed a NIGHT_VEIL Cell's link is bound to that Cell's segment before `acquire`
+      returns it.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the acquire sequence this module implements.
@@ -90,7 +110,7 @@ See Also:
       of an image, never configuration of a Cell".
     - hivemind.hive.night_veil for NightVeilProbe and attest_cell, this module's own attestation
       call.
-    - hivemind.queen.dispatcher.acquire for resolve_link, this provider's one caller.
+    - hivemind.queen.dispatcher.acquire for acquire_virtual, this provider's one caller.
     - hivemind.queen.cell_gate.listener for CellListener, which attaches the WardenLink this
       provider looks up.
 """
@@ -107,7 +127,7 @@ from hivemind.hive import CellProvisionError
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.models import DEFAULT_READY_TIMEOUT_S
 from hivemind.hive.night_veil import NightVeilProbe, attest_cell
-from hivemind.pheromone import TrailRecorder
+from hivemind.pheromone import EphemeralSegments, TrailRecorder
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
@@ -135,6 +155,7 @@ class LifecycleVirtualCellProvider:
         gate: QueenReadinessGate,
         trail: TrailRecorder,
         probe_factory: NightVeilProbeFactory,
+        night_veil: EphemeralSegments | None = None,
     ) -> None:
         """Build a LifecycleVirtualCellProvider; call `bind_queen` before the first `acquire`.
 
@@ -147,11 +168,14 @@ class LifecycleVirtualCellProvider:
             probe_factory: Builds the `NightVeilProbe` a freshly provisioned NIGHT_VEIL Cell is
                 attested against (module docstring: never a bare fake, injected by the composition
                 root).
+            night_veil: The Night Veil boundary's ephemeral segments a task is bound into once it
+                is handed a NIGHT_VEIL Cell; None (a Hive with no Virtual side) binds nothing.
         """
         self._lifecycle = lifecycle
         self._gate = gate
         self._trail = trail
         self._probe_factory = probe_factory
+        self._night_veil = night_veil
         self._queen: _WardensView | None = None
 
     def bind_queen(self, queen: _WardensView) -> None:
@@ -170,10 +194,10 @@ class LifecycleVirtualCellProvider:
 
         Exposed so `hivemind.queen.cell_gate.quiesce.make_quiesce`'s own `queen_getter` can reuse
         this provider's late-bound reference instead of the composition root adding a second
-        `bind_queen` call site (`hivemind.cli.compose.hive._assemble_hive`, not in this dispatch's
-        allowed-to-fix list): `hivemind.cli.compose.virtual_cells.build_virtual_cells` closes over
-        `lambda: provider.queen` before either `provider` or the real `Queen` it will later be
-        bound to exists.
+        `bind_queen` call site (`hivemind.cli.compose.hive.build._assemble_hive`, not in this
+        dispatch's allowed-to-fix list): `hivemind.cli.compose.virtual_cells.build_virtual_cells`
+        closes over `lambda: provider.queen` before either `provider` or the real `Queen` it will
+        later be bound to exists.
         """
         return self._queen
 
@@ -183,12 +207,18 @@ class LifecycleVirtualCellProvider:
         See `hivemind.queen.deps.VirtualCellProvider.acquire` for the full contract.
         """
         if isinstance(placement, ReuseReal):
-            # Unreachable in practice: hivemind.queen.dispatcher.acquire.resolve_link resolves a
-            # ReuseReal placement itself and never calls this provider for one.
+            # Unreachable in practice: hivemind.queen.dispatcher.acquire resolves a ReuseReal
+            # placement itself (`resolve_link`) and never calls this provider for one.
             raise TypeError("LifecycleVirtualCellProvider.acquire got a ReuseReal placement.")
         if isinstance(placement, ProvisionVirtual):
-            return await self._acquire_provision(placement)
-        return await self._acquire_dormant(placement)
+            link = await self._acquire_provision(placement)
+        else:
+            link = await self._acquire_dormant(placement)
+        # Codingrules 12: bound before the dispatcher records this placement, so its records
+        # about the task wait in the Cell's segment and keep only their skeleton on the trail.
+        if self._night_veil is not None and link.cell.comb_shield is CombShieldLevel.NIGHT_VEIL:
+            self._night_veil.bind(task.id, link.cell.id)
+        return link
 
     async def _acquire_provision(self, placement: ProvisionVirtual) -> WardenLink:
         """Provision a fresh Cell from `placement.spec`, wait for it, and return its link."""
@@ -201,6 +231,8 @@ class LifecycleVirtualCellProvider:
             raise CellProvisionError(
                 placement.backend, placement.spec.image, f"never became reachable: {exc}"
             ) from exc
+        # The task is bound to the tier its link carries, which the Cell announced itself.
+        await self._require_provisioned_tier(cell, link, placement)
         if cell.comb_shield is CombShieldLevel.NIGHT_VEIL:
             # ADR-0030: "readiness is attestation of an image, never configuration of a Cell."
             # Runs after the link is found (attest_cell needs nothing from it) but strictly
@@ -208,6 +240,26 @@ class LifecycleVirtualCellProvider:
             await self._attest_or_teardown(cell, placement)
         await self._lifecycle.mark_ready(cell.id, link.warden_id)
         return link
+
+    async def _require_provisioned_tier(
+        self, cell: Cell, link: WardenLink, placement: ProvisionVirtual
+    ) -> None:
+        """Tear `cell` down unless its link carries the tier it was provisioned at.
+
+        Raises:
+            CellProvisionError: The Cell announced another tier; it is already torn down.
+        """
+        announced = link.cell.comb_shield
+        if announced is cell.comb_shield:
+            return
+        # Refused, never corrected: the Cell's own view of its tier is what its Warden enforces.
+        await self._teardown_best_effort(cell.id)
+        raise CellProvisionError(
+            placement.backend,
+            placement.spec.image,
+            f"announced Comb Shield tier {announced.value}, but was provisioned at "
+            f"{cell.comb_shield.value}",
+        )
 
     async def _attest_or_teardown(self, cell: Cell, placement: ProvisionVirtual) -> None:
         """Attest `cell` (NIGHT_VEIL only); a red check or a probe failure tears it down.

@@ -71,6 +71,14 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
 See the `Public API:` section of `__init__.py` for the full, current list; the summary above names
 each name's home module.
 
+## Enforcement (roadmap step 10.3)
+
+`WorkerContext.enforcer` is the Guard's `Enforcer` every tool asks before it acts (the Worker is
+the principal; `hivemind.workers.tools.authorize`). `worker_capabilities(..., goal=)` keeps a
+candidate only where the Warden's set and, when the goal carries one, the goal's set both allow
+it, and a Worker given a write root beyond scratch (`keep_root`, a declared leaving) now receives
+`cell:outside_scratch` for exactly that root, beside its `fs:write`.
+
 ## Public API (roadmap 3.16, extended by 6.9)
 
 `WorkerContext`'s three new fields (`capping`, `lease`, `call_gate`), and the `roles`/`tools`

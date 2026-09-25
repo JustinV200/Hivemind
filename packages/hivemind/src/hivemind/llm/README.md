@@ -4,7 +4,9 @@ The llm package defines the provider-agnostic boundary every model call in the H
 own request/response/message shapes, the declared capability and health shapes, the one
 `LLMProvider` protocol every adapter implements, its typed error tree, a scriptable fake for
 tests and demos, and `BoundModel`, the resolved slot-plus-provider value later roadmap steps
-build. No vendor SDK is imported here or anywhere else outside `llm/providers/<name>/`.
+build. Its `transcription` sub-package is the same boundary for audio (`TranscriptionProvider`,
+on the `TRANSCRIBER` slot). No vendor SDK is imported here or anywhere else outside
+`llm/providers/<name>/`.
 
 ## Public API (roadmap steps 3.2, 3.3)
 
@@ -196,6 +198,15 @@ protocol rather than a chat call. Everything below is re-exported from `hivemind
   tokens, `audio_seconds`, `latency_s`; never audio, never text). Both gates move along the
   fallback chain on `ProviderUnavailableError`/`RateLimitedError`, since no ladder sits above a
   transcription.
+- **Browser uploads** (roadmap step 10.5f): `AudioClip.from_upload(data, media_type,
+  duration_s)` builds a clip from a device's upload: `AudioMediaType` (WAV, Ogg/Opus, WebM/Opus,
+  MP3, M4A; `parse` folds every known spelling onto one and refuses the rest), checked against
+  `MAX_CLIP_BYTES` and `MAX_CLIP_SECONDS`, the duration read from the header for WAV and taken
+  from the sender for a compressed format; every refusal is an `InvalidAudioClipError` with a
+  `ClipProblem` (`TOO_LARGE`, `TOO_LONG`, `UNSUPPORTED_FORMAT`, `MISSING_DURATION`, `MALFORMED`)
+  for the caller to map to its own response. `EncodedAudioChunk` and `clip_from_chunks` gather a
+  push-to-talk stream of encoded chunks into one clip, and `normalise_language` reduces a device's
+  hint (`en-US`) to the primary subtag `check_request` accepts, dropping an implausible one.
 - **Adapters**: `hivemind.llm.providers.whisper` (faster-whisper in process) and
   `hivemind.llm.providers.openai_compat.transcription` (`/audio/transcriptions`); see their READMEs.
 - **`ProviderCapabilities.audio`**: whether a chat provider takes audio parts directly (`full()`
@@ -239,6 +250,26 @@ shape as the chat boundary above, but its own package because it needed several 
   both mirrored in `hivemind.manifest.schema.llm`, kept in sync by a dedicated test.
 - **`hive llm test embedder`**: embeds one short text through the resolved slot and prints the
   model, its vector dimension and the latency, in place of a completion's usage and reply.
+
+## Closing providers at shutdown
+
+Every `LLMProvider` has `aclose()`: idempotent, and the provider's last call. The openai_compat
+adapters close their `httpx.AsyncClient`, the anthropic adapter closes its SDK client
+(`AsyncAnthropic.close()`), the fakes only record it (`is_closed`); a transcriber or embedder that
+pools connections has one too, found structurally. `ProviderRegistry.aclose(timeout_s=
+PROVIDER_CLOSE_TIMEOUT_S)` closes everything the registry constructed (chat providers, transcribers
+and embedders alike), each under its own timeout; a failed close is logged at warning
+(`llm.provider_close_failed`, with the provider name) and never stops the next one; what was
+closed is forgotten, so a second call is a no-op. The composition root calls it once when the Hive
+stops, so no pooled connection outlives it.
+
+## Locality (roadmap step 10.3a)
+
+`runs_in_process(config)` (a kind in `RUNS_IN_PROCESS_KINDS`: the fake and the two in-process
+adapters) and `runs_locally(config)` (in process, or a `base_url` on this machine's own loopback)
+are what Night Veil's local-only rule reads. `runs_locally` is stricter than offline mode's own
+check on purpose: a Virtual Cell gateway host is the Hive Stand seen from inside a Cell, local
+enough for `offline` and never local for Night Veil.
 
 ## How to test this
 

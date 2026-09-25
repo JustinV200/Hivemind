@@ -11,13 +11,19 @@ dependencies = [
     "httpx",            # The OpenAI-compatible adapter's client and, later, the Entrance and the http tool (codingrules 8.6).
     "anthropic",        # The Anthropic adapter's SDK; imported only under llm/providers/anthropic/ (codingrules 8.6).
     "sqlite-vec>=0.1.6,<0.2",  # The Honey Store's vector distance functions, loaded into SQLite (ADR-0035); 0.1.6 added the metadata filtering 0.1.x relies on.
+    "fastapi>=0.141,<1",  # The Hive Entrance: OpenAPI generated from the pydantic route models (ADR-0040).
+    "uvicorn>=0.53,<1",   # Serves the Entrance's two listeners inside the Hive's own event loop (ADR-0040).
+    "webauthn>=3,<4",     # Passkey registration and assertion verification for enrolled browsers (ADR-0041).
+    "segno>=1.6,<2",      # The enrolment invite's QR code; pure Python, no dependencies (roadmap 10.5d).
+    "psutil>=7,<8",       # Local interface addresses for `vpn` and `lan` exposure; the standard library cannot list them portably across Windows and Linux (roadmap 10.5a).
 ]
 
 [project.optional-dependencies]
 # roadmap step 5.4: the Docker Engine SDK for Python, imported only inside
-# hive/backends/docker/sdk_client.py (and lazily, only inside its __init__ -- that module's own
-# docstring), so installing hivemind never requires Docker itself. `uv sync --extra docker` (or
-# `hivemind[docker]` from another project) pulls this in for a real DockerCellBackend.
+# hive/backends/docker/sdk_client/client.py (and lazily, only inside SdkDockerClient.__init__ --
+# that module's own docstring), so installing hivemind never requires Docker itself.
+# `uv sync --extra docker` (or `hivemind[docker]` from another project) pulls this in for a real
+# DockerCellBackend.
 docker = [
     "docker>=7,<8",  # 7.x is the current major; pin the major only, like every other dependency here.
 ]

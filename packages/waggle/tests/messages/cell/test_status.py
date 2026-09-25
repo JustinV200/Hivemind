@@ -49,6 +49,7 @@ from waggle.messages.cell.status import (
     ReleaseCause,
     TaskNeedsReport,
 )
+from waggle.messages.cell.taint import CellTaintOrder
 from waggle.messages.cell.wax import (
     CellWaxCleared,
     CellWaxProposed,
@@ -97,6 +98,7 @@ CELL_CLASSES: tuple[type[WaggleMessage], ...] = (
     CellSnapshotReply,
     CellRollbackRequest,
     CellRollbackReply,
+    CellTaintOrder,
 )
 
 # Member names in declaration order, per spec section 8.5; every value equals its name.
@@ -248,6 +250,14 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         cell_id=CELL_ID,
         ok=True,
         error=None,
+    ),
+    CellTaintOrder(
+        cell_id=CELL_ID,
+        cause_event_id=new_id(IdKind.EVENT, CLOCK),
+        suspect_at=NOW,
+        authors=(WARDEN_ID, WORKER_ID),
+        task_ids=(TASK_ID,),
+        reason="Cell isolated by the queen on a Guard report.",
     ),
 )
 

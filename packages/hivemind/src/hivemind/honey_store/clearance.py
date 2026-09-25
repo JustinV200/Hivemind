@@ -15,8 +15,8 @@ Fits into the Hive:
     query's clearance ceiling (`reader_ceiling`) and by `hive honey relabel`/the Capping-reviewed
     lowering flow (`check_lowering`, a later dispatch). Calls into `hivemind.cell` (HoneyClearance,
     CombShieldLevel), `hivemind.honey_store.errors` (LabelLoweringError), `hivemind.honey_store.
-    models.nectar` (NectarOrigin) and `hivemind.manifest.schema.security` (ClearanceMatrix, for the
-    wire-form matrix a Hive Manifest carries) only.
+    models.nectar` (NectarOrigin) and `hivemind.manifest.schema.security.tiers` (ClearanceMatrix,
+    for the wire-form matrix a Hive Manifest carries) only.
 
 Key invariants:
     - Every comparison here is by `.rank`, never by member identity or wire value (codingrules
@@ -31,7 +31,8 @@ See Also:
     - .claude/codingrules.md section 8.9 for "a model may raise a label; only a judge verdict or a
       human may lower one."
     - hivemind.cell.tiers for HoneyClearance/CombShieldLevel and their own from_wire/to_wire.
-    - hivemind.manifest.schema.security for ClearanceMatrix, the `[honey.clearance.matrix]` shape.
+    - hivemind.manifest.schema.security.tiers for ClearanceMatrix, the `[honey.clearance.matrix]`
+      shape.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ from enum import Enum
 from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.honey_store.errors import LabelLoweringError
 from hivemind.honey_store.models.nectar import NectarOrigin
-from hivemind.manifest.schema.security import ClearanceMatrix
+from hivemind.manifest.schema.security.tiers import ClearanceMatrix
 from waggle.messages import CombShieldLevel as WireCombShieldLevel
 
 __all__ = [
@@ -55,8 +56,9 @@ __all__ = [
 ]
 
 # A tier with no row in the manifest's matrix still needs a ceiling (roadmap 7.2 D2 brief): the
-# same default the manifest itself ships (hivemind.manifest.schema.security._DEFAULT_CLEARANCE_
-# MATRIX), restated here so reader_ceiling never depends on that module's private default table.
+# same default the manifest itself ships (hivemind.manifest.schema.security.tiers.
+# _DEFAULT_CLEARANCE_MATRIX), restated here so reader_ceiling never depends on that module's
+# private default table.
 _DEFAULT_CEILING_WITHOUT_ROW: dict[CombShieldLevel, HoneyClearance] = {
     CombShieldLevel.MEADOW: HoneyClearance.C2,
     CombShieldLevel.PROPOLIS: HoneyClearance.C2,

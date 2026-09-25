@@ -29,6 +29,7 @@ from hivemind.cell import (
 )
 from hivemind.forage import ForageCapacity
 from hivemind.hive import BackendCapabilities, NetworkPolicy, VirtualCellSpec
+from hivemind.hive.models import NIGHT_VEIL_IMAGE
 from hivemind.queen.placement import (
     DormantCandidate,
     ForageView,
@@ -93,8 +94,11 @@ def _backend(
     headroom: int | None = None,
     image: str = "base-ubuntu",
     capacity: ForageCapacity | None = None,
+    can_night_veil: bool = True,
 ) -> VirtualBackendCandidate:
-    capabilities = BackendCapabilities(can_snapshot=False, can_pause=True, headroom=headroom)
+    capabilities = BackendCapabilities(
+        can_snapshot=False, can_pause=True, headroom=headroom, can_night_veil=can_night_veil
+    )
     return VirtualBackendCandidate(
         name=name, capabilities=capabilities, specs=(_spec(image=image, capacity=capacity),)
     )
@@ -223,6 +227,20 @@ def test_night_veil_always_provisions_fresh_never_dormant_even_with_a_matching_i
     assert placement.spec.labels["hivemind.comb_shield"] == "NIGHT_VEIL"
 
 
+def test_night_veil_never_lands_on_a_backend_that_cannot_hold_it() -> None:
+    # A QEMU backend declares can_night_veil=False (fail-closed): passed over, even listed first.
+    cannot = _backend(name="qemu", image="night-veil-ubuntu", can_night_veil=False)
+    can = _backend(name="docker", image="night-veil-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    policy = _policy(night_veil=_night_veil_constraints())
+
+    placement = decide(needs, Inventory(virtual_backends=(cannot, can)), _forage(), policy)
+
+    assert isinstance(placement, ProvisionVirtual) and placement.backend == "docker"
+    with pytest.raises(PlacementError, match="qemu: cannot hold a Night Veil Cell"):
+        decide(needs, Inventory(virtual_backends=(cannot,)), _forage(), policy)
+
+
 def test_night_veil_with_no_backend_raises_placement_error() -> None:
     needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
     policy = _policy(night_veil=_night_veil_constraints())
@@ -276,6 +294,21 @@ def test_night_veil_requires_every_model_slot_to_resolve_locally() -> None:
 
     with pytest.raises(PlacementError, match="resolve locally"):
         decide(needs, Inventory(virtual_backends=(backend,)), forage, policy)
+
+
+def test_night_veil_stamps_its_own_image_and_a_broken_rule_is_final() -> None:
+    # Roadmap step 10.3a: the template names the ordinary image, and no backend runs VPN_TOR on it.
+    backend = _backend(image="base-ubuntu")
+    needs = TaskNeeds(isolation=Isolation.REQUIRED, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    inventory = Inventory(virtual_backends=(backend,))
+
+    placement = decide(needs, inventory, _forage(), _policy(night_veil=_night_veil_constraints()))
+
+    assert isinstance(placement, ProvisionVirtual)
+    assert placement.spec.image == NIGHT_VEIL_IMAGE
+    with pytest.raises(PlacementError) as refused:
+        decide(needs, inventory, _forage(), _policy(night_veil=None))
+    assert refused.value.final
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -361,6 +394,22 @@ def test_no_backend_headroom_excludes_a_virtual_candidate() -> None:
 
     with pytest.raises(PlacementError):
         decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
+
+
+def test_a_backend_held_back_is_passed_over_naming_why() -> None:
+    # Its provisions keep failing, so the dispatcher rests it; the next backend is used instead.
+    docker = _backend(name="docker")
+    held = VirtualBackendCandidate(
+        name=docker.name, capabilities=docker.capabilities, specs=docker.specs, held_back="resting"
+    )
+    both = Inventory(virtual_backends=(held, _backend(name="qemu")))
+    policy = _policy(prefer="virtual")
+
+    placed = decide(TaskNeeds(), both, _forage(), policy)
+
+    assert isinstance(placed, ProvisionVirtual) and placed.backend == "qemu"
+    with pytest.raises(PlacementError, match="Backend docker: resting"):
+        decide(TaskNeeds(), Inventory(virtual_backends=(held,)), _forage(), policy)
 
 
 def test_insufficient_spec_capacity_excludes_a_virtual_candidate() -> None:

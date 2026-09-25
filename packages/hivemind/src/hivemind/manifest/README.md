@@ -16,8 +16,10 @@ enums rather than the hivemind-side mirrors those two packages own.
   (`schema.forage`, embedding `hivemind.forage`'s `RoleFootprint`, `ModelSourceSpec` and
   `RoyalReserve` directly); `SupervisionSection`, `MemorySection` (`schema.supervision`);
   `SecuritySection` + `TierProfile`, `HoneySection` + `HoneyClearanceSection` + `ClearanceMatrix`
-  (`schema.security`, using `waggle.messages.CombShieldLevel`/`HoneyClearance` rather than
-  `hivemind.cell.tiers`'s mirror, since `manifest` may not import `hivemind.cell`).
+  (`schema.security.tiers`, using `waggle.messages.CombShieldLevel`/`HoneyClearance` rather than
+  `hivemind.cell.tiers`'s mirror, since `manifest` may not import `hivemind.cell`); `GuardSection`
+  and its tables (`schema.security.guard`, roadmap step 10.2). `schema.security` is a sub-package
+  whose face re-exports both.
 - **Loading** (`hivemind.manifest.loader`): `load_manifest(path, environ=None) -> HiveManifest`.
   Raises `ManifestError` naming the file and, for a validation failure, every field's dotted
   location.

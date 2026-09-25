@@ -1,0 +1,567 @@
+diff --git a/packages/hivemind/src/hivemind/queen/inbox/__init__.py b/packages/hivemind/src/hivemind/queen/inbox/__init__.py
+index e7b66bb..94743c6 100644
+--- a/packages/hivemind/src/hivemind/queen/inbox/__init__.py
++++ b/packages/hivemind/src/hivemind/queen/inbox/__init__.py
+@@ -8,8 +8,9 @@ liveness sweep judges by, so a stall of her own tick is never mistaken for a sil
+ `hivemind.supervision.attendant.Attendant` over `WeightTable.queen_default()` and classifies one
+ received envelope into the `InboxItem` shape it scores; `tie_breaker.py` is the model-backed
+ `TieBreaker` (`ModelSlot.ATTENDANT`) the Queen may enable for an exact score tie or an unknown
+-inbox kind. Unlike `hivemind.wardens.inbox`, this sub-package MAY import `hivemind.llm`: only
+-anything under an `autopilot/` directory may not (codingrules section 4).
++inbox kind. `claims.py` refuses a Warden's message about a task not placed on its own Cell before
++the Queen decides anything on it. Unlike `hivemind.wardens.inbox`, this sub-package MAY import
++`hivemind.llm`: only anything under an `autopilot/` directory may not (codingrules section 4).
+ 
+ Fits into the Hive:
+     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Handles
+@@ -32,8 +33,11 @@ Public API (roadmap step 3.20):
+     - to_inbox_item, queen_attendant: build the Queen's Attendant and wrap one envelope (weights);
+       human_inbox_item, HUMAN_PRINCIPAL: wrap one human chat message (weights, roadmap step 10.5).
+     - MAX_TIE_REASON_CHARS, ModelTieBreaker: the model-backed tie-break seam (tie_breaker).
++    - TaskClaims, TaskRefusal, TASK_REFUSED_KIND: a Warden speaks only for its own Cell's tasks
++      (claims).
+ """
+ 
++from hivemind.queen.inbox.claims import TASK_REFUSED_KIND, TaskClaims, TaskRefusal
+ from hivemind.queen.inbox.links import LINK_QUEUE_SIZE, LinkReaders, Pulse
+ from hivemind.queen.inbox.tie_breaker import MAX_TIE_REASON_CHARS, ModelTieBreaker
+ from hivemind.queen.inbox.weights import (
+@@ -47,9 +51,12 @@ __all__ = [
+     "HUMAN_PRINCIPAL",
+     "LINK_QUEUE_SIZE",
+     "MAX_TIE_REASON_CHARS",
++    "TASK_REFUSED_KIND",
+     "LinkReaders",
+     "ModelTieBreaker",
+     "Pulse",
++    "TaskClaims",
++    "TaskRefusal",
+     "human_inbox_item",
+     "queen_attendant",
+     "to_inbox_item",
+diff --git a/packages/hivemind/src/hivemind/queen/inbox/claims.py b/packages/hivemind/src/hivemind/queen/inbox/claims.py
+new file mode 100644
+index 0000000..6734d70
+--- /dev/null
++++ b/packages/hivemind/src/hivemind/queen/inbox/claims.py
+@@ -0,0 +1,137 @@
++"""Refuse a Warden's message about a task not placed on its Cell, before anything applies it.
++
++A Warden speaks for the tasks placed on its own Cell: their results, their progress, its bees'
++Alarms, questions and answers. The Queen's autopilot table turns each of those into an action on
++the task it names (complete it, retry or fail it, block it on a question, pause it), so a Warden
++naming a task placed on another Cell, or on none, could finish, fail or block work that is not its
++own. Every Warden link proves its Warden at its handshake, which is the principal of every inbox
++item drained off it, and the Brood Chamber says which Warden each task is placed with.
++`TaskClaims.refuse` compares the two for every item a Warden sent that names a live task; a
++mismatch is refused, never decided or applied, and recorded as `guard.task_refused` about the
++sending Cell (reason `another_cell` when the task is placed with another Warden, `unplaced` when
++with none), once per Warden, message kind and reason, which the Guard Bee's judged `task_claim`
++rule counts. A report about a task that has already ended stays the quiet no-op the autopilot
++table makes it: nothing can be applied to a finished task.
++
++Fits into the Hive:
++    Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's inbox
++    sub-package. Built once by `hivemind.queen.queen.Queen`, and called by her tick for every inbox
++    item after the task it names is read and before `decide`. Calls into `hivemind.brood_chamber`
++    (Task, is_terminal), `hivemind.common.logging`, `hivemind.pheromone` (GuardEvent),
++    `hivemind.supervision.attendant` (InboxItem) and waggle only; `QueenDeps` and `WardenLink`
++    only for their types.
++
++Key invariants:
++    - No item a Warden sent about a live task placed elsewhere, or nowhere, reaches `decide`.
++    - A refusal names the sending Cell and Warden and the message's kind, never the task, so it
++      never files the sender's record under another Cell (a Night Veil Cell's, say).
++    - The human's own messages, and every item that names no task, pass untouched.
++
++See Also:
++    - hivemind.queen.autopilot.table for what a Warden's message would otherwise do to a task.
++    - hivemind.queen.cell_gate.refusals for the Cell gate's refusals, the same record's siblings.
++    - hivemind/workers/roles/guard_bee/rules.toml for `task_claim`.
++"""
++
++from __future__ import annotations
++
++from enum import StrEnum
++from typing import TYPE_CHECKING
++
++from hivemind.brood_chamber import Task, is_terminal
++from hivemind.common.logging import get_logger
++from hivemind.pheromone import GuardEvent
++from hivemind.supervision.attendant import InboxItem
++from waggle.errors import InvalidIdError
++from waggle.ids import IdKind, WardenId, new_event_id, parse_id
++
++if TYPE_CHECKING:
++    # Only for the type hints: every hivemind.queen sub-package keeps QueenDeps type-only.
++    from collections.abc import Mapping
++
++    from hivemind.queen.deps import QueenDeps, WardenLink
++
++log = get_logger(__name__)
++
++TASK_REFUSED_KIND = "guard.task_refused"
++
++__all__ = ["TASK_REFUSED_KIND", "TaskClaims", "TaskRefusal"]
++
++
++class TaskRefusal(StrEnum):
++    """Why a Warden's message about a task was refused."""
++
++    ANOTHER_CELL = "another_cell"  # The task is placed with another Warden, on another Cell.
++    UNPLACED = "unplaced"  # The task is placed with no Warden at all right now.
++
++
++class TaskClaims:
++    """The Queen's check that a Warden only ever speaks for tasks placed on its own Cell."""
++
++    def __init__(self) -> None:
++        """Start having recorded nothing."""
++        # Codingrules 8.5: grows only in `_record`, one entry per Warden, message kind and reason.
++        self._recorded: set[tuple[str, str, str]] = set()
++
++    async def refuse(
++        self,
++        deps: QueenDeps,
++        wardens: Mapping[WardenId, WardenLink],
++        item: InboxItem,
++        task: Task | None,
++    ) -> bool:
++        """Refuse `item` when its Warden names a live task not placed with it; record why.
++
++        Args:
++            deps: The Queen's collaborators; `trail` records the refusal.
++            wardens: Every attached Warden, for the sending Warden's Cell.
++            item: One ordered inbox item; its principal is the Warden whose link carried it.
++            task: The task `item` names, as the Brood Chamber has it; None when it names none.
++
++        Returns:
++            True when `item` is refused and must not be decided; False when it may be.
++        """
++        if task is None or is_terminal(task.status) or not _from_a_warden(item):
++            return False  # No task, a finished one (a no-op), or the human's own words.
++        if task.warden_id == item.principal:
++            return False  # Its own task: the one thing a Warden may speak for.
++        reason = TaskRefusal.UNPLACED if task.warden_id is None else TaskRefusal.ANOTHER_CELL
++        await self._record(deps, wardens.get(WardenId(item.principal)), item, reason)
++        return True
++
++    async def _record(
++        self, deps: QueenDeps, link: WardenLink | None, item: InboxItem, reason: TaskRefusal
++    ) -> None:
++        """Record one refusal about the sending Cell, unless this one was recorded already."""
++        key = (item.principal, item.payload_kind, reason.value)
++        if key in self._recorded:
++            return
++        self._recorded.add(key)
++        # A Warden that detached since its item was drained names no Cell: the Warden stands in.
++        cell_id = str(link.cell.id) if link is not None else None
++        event = GuardEvent(
++            id=new_event_id(deps.clock),
++            hive_id=deps.identity.hive_id,
++            node_id=deps.identity.node_id,
++            at=deps.clock.now(),
++            actor="system",
++            kind=TASK_REFUSED_KIND,
++            subject_id=cell_id if cell_id is not None else item.principal,
++            payload={
++                "cell_id": cell_id,
++                "warden_id": item.principal,
++                "message": item.payload_kind,
++                "reason": reason.value,
++            },
++        )
++        await deps.trail.record(event)
++        log.warning("queen.task_refused", warden_id=item.principal, reason=reason.value)
++
++
++def _from_a_warden(item: InboxItem) -> bool:
++    """Return whether `item` came off a Warden's link: its principal is a Warden's id."""
++    try:
++        parse_id(item.principal, IdKind.WARDEN)
++    except InvalidIdError:
++        return False  # The human, or the Guard Bee filing through the Queen's door.
++    return True
+diff --git a/packages/hivemind/src/hivemind/queen/queen.py b/packages/hivemind/src/hivemind/queen/queen.py
+index d717315..89741e2 100644
+--- a/packages/hivemind/src/hivemind/queen/queen.py
++++ b/packages/hivemind/src/hivemind/queen/queen.py
+@@ -90,7 +90,7 @@ from hivemind.queen.errors import UnknownWardenError
+ from hivemind.queen.guard_requests import GuardDoor, guard_items
+ from hivemind.queen.guard_requests.decision import decide_guard_item
+ from hivemind.queen.human_inbox import HumanInbox
+-from hivemind.queen.inbox import LinkReaders, queen_attendant
++from hivemind.queen.inbox import LinkReaders, TaskClaims, queen_attendant
+ from hivemind.queen.isolation import IsolationDoor
+ from hivemind.queen.ticks.alarms import AlarmHandling
+ from hivemind.queen.ticks.liveness import WardenLiveness
+@@ -175,6 +175,8 @@ class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
+         # hivemind.queen.ticks.alarms.handle_alarm, popped here once the task actually succeeds.
+         self._pending_alarms: dict[TaskId, Alarm] = {}
+         self._human_inbox = HumanInbox()
++        # A Warden speaks only for its own Cell's tasks (hivemind.queen.inbox.claims).
++        self._claims = TaskClaims()
+         self._attendant = queen_attendant(deps.clock, tie_breaker)
+ 
+     @property
+@@ -434,6 +436,8 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
+     if handled:
+         return
+     task = await _task_for_item(queen._deps, item)
++    if await queen._claims.refuse(queen._deps, queen._wardens, item, task):
++        return  # Another Cell's task, or one placed nowhere: never decided, never applied.
+     # Read from the Queen's own counter, never Task.attempt: see hivemind.queen.dispatcher.
+     # redispatch's own docstring for why a RUNNING task's attempt count cannot live in the chamber.
+     attempts = queen._attempts.get(task.id, 1) if task is not None else 0
+diff --git a/packages/hivemind/tests/unit/queen/inbox/test_claims.py b/packages/hivemind/tests/unit/queen/inbox/test_claims.py
+new file mode 100644
+index 0000000..ae0406e
+--- /dev/null
++++ b/packages/hivemind/tests/unit/queen/inbox/test_claims.py
+@@ -0,0 +1,140 @@
++"""Tests for hivemind.queen.inbox.claims: a Warden speaks only for its own Cell's tasks.
++
++An item a Warden sent about a live task placed with another Warden is refused as `another_cell`,
++one about a task placed with no Warden as `unplaced`, and either is recorded as
++`guard.task_refused` about the sending Cell, naming its Warden and the message's kind but never
++the task, once per Warden, kind and reason. A Warden's item about its own task, the human's item
++about any task, and any item about a task that already ended all pass.
++
++Fits into the Hive:
++    Mirrors src/hivemind/queen/inbox/claims.py (codingrules section 3).
++
++Key invariants:
++    - None: this module holds tests only.
++
++See Also:
++    - tests.unit.queen.test_queen_claims for the same refusals inside the Queen's own tick.
++"""
++
++from __future__ import annotations
++
++from builders.cells import make_cell
++from builders.isolation import place_running
++from builders.queen import make_queen_deps, make_warden_link
++from builders.tasks import make_graph_draft
++
++from hivemind.brood_chamber import Task, TaskOutcome, TaskStatus
++from hivemind.pheromone import PheromoneEvent, TrailQuery
++from hivemind.queen.deps import QueenDeps, WardenLink
++from hivemind.queen.inbox import HUMAN_PRINCIPAL, TASK_REFUSED_KIND, TaskClaims, to_inbox_item
++from hivemind.supervision.attendant import InboxItem
++from waggle.envelope import Hop, wrap
++from waggle.ids import TaskId, WardenId, new_node_id, new_warden_id
++from waggle.messages.labels import HoneyClearance as WireHoneyClearance
++from waggle.messages.task import TaskOutcome as WireTaskOutcome
++from waggle.messages.task import TaskResult
++
++
++def _result(task_id: TaskId, warden_id: WardenId) -> TaskResult:
++    """A Warden's verified TaskResult(SUCCEEDED) for `task_id`."""
++    return TaskResult(
++        task_id=task_id,
++        attempt=1,
++        outcome=WireTaskOutcome.SUCCEEDED,
++        summary="Done.",
++        clearance=WireHoneyClearance.C1,
++        artifacts=(),
++        checked_by=warden_id,
++        handoff=None,
++        spend=0.0,
++        reason="Checks passed.",
++    )
++
++
++def _item(
++    deps: QueenDeps, principal: str, task_id: TaskId, checked_by: WardenId | None = None
++) -> InboxItem:
++    """The item a TaskResult about `task_id` becomes once drained as `principal`'s."""
++    checker = checked_by if checked_by is not None else WardenId(principal)
++    hop = Hop(sender=checker, recipient=deps.identity.hive_id, node_id=deps.identity.node_id)
++    envelope = wrap(_result(task_id, checker), hop, clock=deps.clock)
++    return to_inbox_item(envelope, principal)
++
++
++def _second_warden(deps: QueenDeps) -> WardenLink:
++    """Another attached Warden, on a Cell of its own."""
++    clock = deps.clock
++    cell = make_cell(clock=clock)
++    link, _end = make_warden_link(
++        deps.identity.hive_id, new_warden_id(clock), new_node_id(clock), cell, clock
++    )
++    return link
++
++
++async def _refused(deps: QueenDeps) -> list[PheromoneEvent]:
++    """Every `guard.task_refused` on the Queen's trail."""
++    return list(await deps.trail.query(TrailQuery(kind=TASK_REFUSED_KIND)))
++
++
++async def test_a_warden_is_refused_another_cells_task_and_the_refusal_names_only_itself() -> None:
++    deps, owner, owner_end = make_queen_deps()
++    other = _second_warden(deps)
++    task = await place_running(deps, owner)
++    claims = TaskClaims()
++
++    refused = await claims.refuse(
++        deps,
++        {owner.warden_id: owner, other.warden_id: other},
++        _item(deps, other.warden_id, task.id),
++        task,
++    )
++
++    assert refused
++    [event] = await _refused(deps)
++    assert event.subject_id == other.cell.id
++    assert event.payload == {
++        "cell_id": other.cell.id,
++        "warden_id": other.warden_id,
++        "message": "task.result",
++        "reason": "another_cell",
++    }
++    await owner_end.close()
++
++
++async def test_a_task_placed_nowhere_is_refused_as_unplaced_once_per_warden_and_kind() -> None:
++    deps, link, warden_end = make_queen_deps()
++    [pending] = await deps.chamber.submit(make_graph_draft({"root": ()}))
++    claims, wardens = TaskClaims(), {link.warden_id: link}
++    item = _item(deps, link.warden_id, pending.id)
++
++    first = await claims.refuse(deps, wardens, item, pending)
++    again = await claims.refuse(deps, wardens, item, pending)
++
++    assert first and again  # Refused every time...
++    [event] = await _refused(deps)  # ...and recorded once.
++    assert event.payload["reason"] == "unplaced"
++    await warden_end.close()
++
++
++async def test_its_own_task_the_humans_word_and_a_finished_task_all_pass() -> None:
++    deps, link, warden_end = make_queen_deps()
++    other = _second_warden(deps)
++    task = await place_running(deps, link)
++    wardens, claims = {link.warden_id: link, other.warden_id: other}, TaskClaims()
++    finished = await _finished(deps, other)
++
++    own = await claims.refuse(deps, wardens, _item(deps, link.warden_id, task.id), task)
++    human_item = _item(deps, HUMAN_PRINCIPAL, task.id, checked_by=link.warden_id)
++    human = await claims.refuse(deps, wardens, human_item, task)
++    stale = await claims.refuse(deps, wardens, _item(deps, link.warden_id, finished.id), finished)
++
++    assert not (own or human or stale)
++    assert await _refused(deps) == []
++    await warden_end.close()
++
++
++async def _finished(deps: QueenDeps, link: WardenLink) -> Task:
++    """A task `link`'s Warden ran and finished: its placement is gone with its terminal edge."""
++    task = await place_running(deps, link)
++    outcome = TaskOutcome(status=TaskStatus.SUCCEEDED, summary="Done.", verified_by=link.warden_id)
++    return await deps.chamber.complete(task.id, outcome)
+diff --git a/packages/hivemind/tests/unit/queen/test_queen_claims.py b/packages/hivemind/tests/unit/queen/test_queen_claims.py
+new file mode 100644
+index 0000000..13679b7
+--- /dev/null
++++ b/packages/hivemind/tests/unit/queen/test_queen_claims.py
+@@ -0,0 +1,200 @@
++"""Tests for hivemind.queen.queen.Queen: a Warden cannot report for another Cell's task.
++
++Two Wardens attached, each on a Cell of its own, and one task placed on the first. The second
++Warden sends everything a Warden may send about a task: a result that it succeeded, one that it
++failed, an Alarm, a question and an answer. The Queen's tick refuses every one before deciding
++anything, so the task is neither finished, retried, failed, rebound nor blocked, and each is one
++`guard.task_refused` about the second Cell. Its own Warden then finishes it as ever.
++
++Fits into the Hive:
++    Mirrors src/hivemind/queen/queen.py (codingrules section 3); split by feature (14.2) from
++    test_queen_results.py. Exercises hivemind.queen.inbox.claims together with the Queen's tick.
++
++Key invariants:
++    - None: this module holds tests only.
++
++See Also:
++    - hivemind.queen.inbox.claims for the check under test.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from collections.abc import Awaitable, Callable
++
++from builders.cells import make_cell
++from builders.queen import make_queen_deps, make_warden_link, plan_responder
++
++from hivemind.brood_chamber import TaskStatus
++from hivemind.cell import HoneyClearance
++from hivemind.llm import FakeLLMProvider
++from hivemind.pheromone import TrailQuery
++from hivemind.queen.deps import QueenDeps
++from hivemind.queen.inbox import TASK_REFUSED_KIND
++from hivemind.queen.queen import Queen
++from waggle.clock import Clock
++from waggle.ids import TaskId, WardenId, new_alarm_id, new_message_id, new_node_id, new_warden_id
++from waggle.messages.base import WaggleMessage
++from waggle.messages.labels import HoneyClearance as WireHoneyClearance
++from waggle.messages.supervision import (
++    AlarmContext,
++    AlarmKind,
++    AlarmRaised,
++    AlarmSeverity,
++    Answer,
++    AnswerSource,
++    Question,
++)
++from waggle.messages.task import TaskOutcome, TaskResult
++
++
++def _one_task_plan(goal: str) -> dict[str, object]:
++    return {
++        "tasks": [
++            {
++                "key": "root",
++                "title": "Root task",
++                "objective": f"Do the work for: {goal}",
++                "acceptance": [
++                    {
++                        "kind": "FILE_EXISTS",
++                        "subject": "scratch/r.txt",
++                        "argv": [],
++                        "expected": None,
++                    }
++                ],
++                "needs": {},
++                "clearance": "C1",
++                "depends_on": [],
++            }
++        ]
++    }
++
++
++def _result(task_id: TaskId, warden_id: WardenId, outcome: TaskOutcome) -> TaskResult:
++    return TaskResult(
++        task_id=task_id,
++        attempt=1,
++        outcome=outcome,
++        summary="Some outcome.",
++        clearance=WireHoneyClearance.C1,
++        artifacts=(),
++        checked_by=warden_id,
++        handoff=None,
++        spend=0.0,
++        reason="Some reason.",
++    )
++
++
++def _forged(clock: Clock, task_id: TaskId, sender: WardenId) -> tuple[WaggleMessage, ...]:
++    """Everything a Warden could say about `task_id`, said by `sender`, which does not hold it."""
++    question_id = new_message_id(clock)
++    context = AlarmContext(
++        task_id=task_id, cell_id=None, worker_id=None, event_id=None, handoff=None
++    )
++    return (
++        _result(task_id, sender, TaskOutcome.SUCCEEDED),
++        _result(task_id, sender, TaskOutcome.FAILED),
++        AlarmRaised(
++            alarm_id=new_alarm_id(clock),
++            kind=AlarmKind.PROVIDER_UNAVAILABLE,
++            severity=AlarmSeverity.WARNING,
++            origin=sender,
++            attempts=0,
++            raised_at=clock.now(),
++            context=context,
++            detail="The bound provider did not respond.",
++            clearance=WireHoneyClearance.C1,
++            reason="Cannot resolve locally.",
++        ),
++        Question(
++            question_id=question_id,
++            task_id=task_id,
++            asked_by=sender,
++            text="Which environment?",
++            options=("staging", "prod"),
++            clearance=WireHoneyClearance.C1,
++            asked_at=clock.now(),
++        ),
++        Answer(
++            question_id=question_id,
++            task_id=task_id,
++            text="staging",
++            chosen_option=0,
++            source=AnswerSource.WARDEN,
++            clearance=WireHoneyClearance.C1,
++        ),
++    )
++
++
++async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 400) -> None:
++    """Yield the event loop until `condition()` (an async callable) is True, or give up."""
++    for _ in range(limit):
++        if await condition():
++            return
++        await asyncio.sleep(0)
++    raise AssertionError("Condition never became true.")
++
++
++async def _refused_kinds(deps: QueenDeps) -> set[object]:
++    """The message kind of every `guard.task_refused` on the Queen's trail."""
++    events = await deps.trail.query(TrailQuery(kind=TASK_REFUSED_KIND))
++    return {event.payload["message"] for event in events}
++
++
++async def test_no_warden_finishes_fails_blocks_or_answers_for_another_cells_task() -> None:
++    provider = FakeLLMProvider(responder=plan_responder(_one_task_plan))
++    deps, owner, owner_end = make_queen_deps(fake_provider=provider)
++    clock = deps.clock
++    other, other_end = make_warden_link(
++        deps.identity.hive_id,
++        new_warden_id(clock),
++        new_node_id(clock),
++        make_cell(clock=clock),
++        clock,
++    )
++    queen = Queen(deps)
++    await queen.attach_warden(owner)
++    await queen.attach_warden(other)
++    await queen.submit_goal("One task.", clearance=HoneyClearance.C1)
++    assignment = await owner_end.wait_for_assignment()
++    run_task = asyncio.ensure_future(queen.run())
++
++    forged = _forged(clock, assignment.task_id, other.warden_id)
++    for message in forged:
++        await other_end.send(message)
++    kinds = {
++        "task.result",
++        "supervision.alarm_raised",
++        "supervision.question",
++        "supervision.answer",
++    }
++    await _wait_until(lambda: _is(deps, kinds))
++    held = await deps.chamber.get(assignment.task_id)
++    # Its own Warden still holds it: then its own result, and only that, finishes it.
++    await owner_end.send(_result(assignment.task_id, owner.warden_id, TaskOutcome.SUCCEEDED))
++    await _wait_until(lambda: _status(deps, assignment.task_id, TaskStatus.SUCCEEDED))
++    await queen.stop()
++    await asyncio.wait_for(run_task, timeout=5.0)
++
++    assert (held.status, held.warden_id, held.pending_question_id) == (
++        TaskStatus.RUNNING,
++        owner.warden_id,
++        None,
++    )
++    events = await deps.trail.query(TrailQuery(kind=TASK_REFUSED_KIND))
++    assert {event.subject_id for event in events} == {other.cell.id}
++    assert {event.payload["reason"] for event in events} == {"another_cell"}
++    assert owner_end.assignments == [assignment]  # No retry, no rebind, nothing more sent.
++    await owner_end.close()
++    await other_end.close()
++
++
++async def _is(deps: QueenDeps, kinds: set[str]) -> bool:
++    """Whether the Queen has refused a message of every one of `kinds`."""
++    return await _refused_kinds(deps) >= kinds
++
++
++async def _status(deps: QueenDeps, task_id: TaskId, status: TaskStatus) -> bool:
++    """Whether `task_id` is in `status` now."""
++    return (await deps.chamber.get(task_id)).status is status

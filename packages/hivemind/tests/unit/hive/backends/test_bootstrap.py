@@ -35,8 +35,10 @@ _A_PROVIDER = CellProviderSpec(
     kind="openai_compat",
     base_url="http://host.docker.internal:1234/v1",
     default_model="local-test-model",
+    seats=2,
     capabilities={"vision": False},
     api_key_env="HIVEMIND_LOCAL_API_KEY",
+    requests_per_minute=60,
 )
 _A_SLOT = CellSlotSpec(
     key="warden",
@@ -121,6 +123,7 @@ def test_environment_renders_every_required_hivemind_variable() -> None:
     assert env["HIVEMIND_QUEEN_NODE_ID"] == endpoint.queen_node_id
     assert env["HIVEMIND_CELL_SIGNING_KEY"] == bootstrap.private_key_hex.get_secret_value()
     assert env["HIVEMIND_QUEEN_VERIFY_KEY"] == endpoint.queen_verify_key_hex
+    assert env["HIVEMIND_COMB_SHIELD"] == "MEADOW"  # Roadmap step 10.3a: the Cell's own tier.
     assert "HIVEMIND_SOCKS_PROXY_URL" not in env
     # No provider table: the fake-backend e2e and every existing caller must see byte-for-byte
     # the same environment as before roadmap step 8.x (hivemind.cli.in_cell.providers's own
@@ -155,8 +158,11 @@ def test_environment_renders_providers_and_slots_as_a_json_round_trip() -> None:
             "kind": "openai_compat",
             "base_url": "http://host.docker.internal:1234/v1",
             "default_model": "local-test-model",
+            "seats": 2,
             "capabilities": {"vision": False},
             "api_key_env": "HIVEMIND_LOCAL_API_KEY",
+            "requests_per_minute": 60,
+            "tokens_per_minute": None,
         }
     ]
     assert slots == [

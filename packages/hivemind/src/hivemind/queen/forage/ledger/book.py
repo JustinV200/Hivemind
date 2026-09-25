@@ -16,7 +16,9 @@ directly, because both also need `ForageLedger`'s own state (the reserve and the
 same computation. Every mutating method writes through to its own
 `hivemind.queen.forage.ledger.store_protocol.LedgerStore` (Appendix C: the ledger is a SQLite
 store that survives a crash), and `restore` rebuilds every in-memory table -- its own three plus
-each sub-book's -- from it, for the start of a fresh Queen process.
+each sub-book's -- from it, for the start of a fresh Queen process. `forget_cell` is the Night Veil
+teardown's (codingrules section 12): every row keyed to the Cell or one of its Wardens
+(`cell_rows`) leaves memory and the store together.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage
@@ -54,17 +56,20 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import types
+from collections.abc import Iterable, Mapping
 
 from hivemind.forage import ForageCapacity, ForageGrant, RoyalReserve
 from hivemind.forage.grant_state import is_terminal
 from hivemind.queen.forage.ledger.decisions import DecisionBook
-from hivemind.queen.forage.ledger.model import Headroom, LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, Headroom, LocalPoolReport
 from hivemind.queen.forage.ledger.seats import SeatBook
 from hivemind.queen.forage.ledger.spend import SpendBook
 from hivemind.queen.forage.ledger.store_protocol import LedgerStore
-from waggle.ids import CellId, GrantId, TaskId, WardenId
+from waggle.errors import InvalidIdError
+from waggle.ids import CellId, GrantId, IdKind, TaskId, WardenId, parse_id
 
-__all__ = ["ForageLedger"]
+__all__ = ["ForageLedger", "cell_rows"]
 
 
 class ForageLedger:
@@ -183,28 +188,39 @@ class ForageLedger:
         """Return the latest reported capacity for `cell_id`, or None if none has arrived yet."""
         return self._capacities.get(cell_id)
 
+    def capacities(self) -> Mapping[CellId, ForageCapacity]:
+        """Return every Cell's latest reported capacity, keyed by Cell: a read-only snapshot.
+
+        The Hive Entrance's Forage view reads the whole book this way (ADR-0040: reads go to the
+        stores directly); a snapshot, so a report landing meanwhile never changes it under a reader.
+        """
+        return types.MappingProxyType(dict(self._capacities))
+
     def headroom(self) -> Headroom:
-        """Compute the shared pool's current sub-bee and shared-seat headroom.
+        """Compute the shared pool's current sub-bee and shared-seat headroom (`_headroom`).
 
         Returns:
-            `Headroom(sub_bees=..., shared_seats=...)`: `sub_bees` is every reported Cell's
-            `max_sub_bees`, less the reserve's headroom-fraction margin and its own `seats`, less
-            every live grant's `max_sub_bees`. `shared_seats` (roadmap step 4.8) is
-            `self.seats.total_capacity()`, less the reserve's own `seats`, less every live grant's
-            own `SeatReservation.seats`. Neither is ever negative.
+            `Headroom(sub_bees=..., shared_seats=...)`, neither ever negative.
         """
-        total = sum(capacity.max_sub_bees for capacity in self._capacities.values())
-        # The same headroom-fraction margin forage.allocate.grant applies to its own sub-bee
-        # ceiling, applied here to the shared total before the reserve's seats and every live
-        # grant are subtracted, so a burst of individually-valid grants can never collectively
-        # outrun what the Cells actually reported.
-        after_margin = int(total * (1 - self._reserve.headroom_fraction))
-        committed_sub_bees = sum(g.max_sub_bees for g in self._grants.values())
-        sub_bees = max(0, after_margin - self._reserve.seats - committed_sub_bees)
+        capacities, grants = self._capacities.values(), self._grants.values()
+        return _headroom(capacities, grants, self._reserve, self.seats.total_capacity())
 
-        committed_seats = sum(seat.seats for grant in self._grants.values() for seat in grant.seats)
-        shared_seats = max(0, self.seats.total_capacity() - self._reserve.seats - committed_seats)
-        return Headroom(sub_bees=sub_bees, shared_seats=shared_seats)
+    def rows_about(self, cell_id: CellId, members: frozenset[str]) -> CellRows:
+        """Return every row keyed to `cell_id` or its Wardens (`cell_rows`), as the book stands."""
+        return cell_rows(cell_id, members, self._local_reports.values(), self._grants.values())
+
+    async def forget_cell(self, cell_id: CellId, members: frozenset[str]) -> int:
+        """Forget `rows_about` the Cell, here and in the store; return how many rows went.
+
+        The Night Veil teardown's (codingrules section 12): nothing of the Cell outlives it.
+        """
+        async with self._lock:
+            rows = self.rows_about(cell_id, members)
+            removed = _forget(rows, self._capacities, self._local_reports, self._grants)
+            removed += self.decisions.forget(rows)
+            if self._store is not None:
+                await self._store.forget(rows)
+        return removed
 
     async def record_spend(self, grant_id: GrantId, goal_id: TaskId, amount_usd: float) -> None:
         """Add `amount_usd` to a goal's running spend, and to its grant's own `spent` field.
@@ -255,3 +271,75 @@ class ForageLedger:
         await self.seats.restore()
         await self.spend.restore()
         await self.decisions.restore()
+
+
+def cell_rows(
+    cell_id: CellId,
+    members: frozenset[str],
+    reports: Iterable[LocalPoolReport],
+    grants: Iterable[ForageGrant],
+) -> CellRows:
+    """Return every row keyed to `cell_id` or one of its Wardens (`ForageLedger.rows_about`).
+
+    A Warden is the Cell's when `members` names it, its pool report is about the Cell, or it holds
+    a grant on the Cell; a grant is the Cell's when it is on the Cell or held by one of those.
+    """
+    held = tuple(grants)
+    wardens = {WardenId(m) for m in members if _is_kind(m, IdKind.WARDEN)}
+    wardens |= {report.warden_id for report in reports if report.cell_id == cell_id}
+    wardens |= {grant.holder for grant in held if grant.cell_id == cell_id}
+    doomed = [grant for grant in held if grant.cell_id == cell_id or grant.holder in wardens]
+    return CellRows(
+        cell_id=cell_id,
+        wardens=frozenset(wardens),
+        grants=frozenset(grant.id for grant in doomed),
+        tasks=frozenset(grant.task_id for grant in doomed if grant.task_id is not None),
+    )
+
+
+def _is_kind(value: str, kind: IdKind) -> bool:
+    """Return whether `value` is a well-formed id of `kind`."""
+    try:
+        parse_id(value, kind)
+    except InvalidIdError:
+        return False  # Another kind of id: a task, a grant, a node.
+    return True
+
+
+def _forget(
+    rows: CellRows,
+    capacities: dict[CellId, ForageCapacity],
+    reports: dict[WardenId, LocalPoolReport],
+    grants: dict[GrantId, ForageGrant],
+) -> int:
+    """Drop `rows` from the book's own three tables; return how many were there."""
+    removed = int(capacities.pop(rows.cell_id, None) is not None)
+    removed += sum(reports.pop(holder, None) is not None for holder in rows.wardens)
+    return removed + sum(grants.pop(grant_id, None) is not None for grant_id in rows.grants)
+
+
+def _headroom(
+    capacities: Iterable[ForageCapacity],
+    grants: Iterable[ForageGrant],
+    reserve: RoyalReserve,
+    seats_total: int,
+) -> Headroom:
+    """Compute `ForageLedger.headroom` from the book's own tables.
+
+    `sub_bees` is every reported Cell's `max_sub_bees`, less the reserve's headroom-fraction margin
+    and its own `seats`, less every live grant's `max_sub_bees`. `shared_seats` (roadmap step 4.8)
+    is the declared seat total, less the reserve's own `seats`, less every live grant's own
+    `SeatReservation.seats`. Neither is ever negative.
+    """
+    held = tuple(grants)
+    total = sum(capacity.max_sub_bees for capacity in capacities)
+    # The same headroom-fraction margin forage.allocate.grant applies to its own sub-bee
+    # ceiling, applied here to the shared total before the reserve's seats and every live
+    # grant are subtracted, so a burst of individually-valid grants can never collectively
+    # outrun what the Cells actually reported.
+    after_margin = int(total * (1 - reserve.headroom_fraction))
+    committed_sub_bees = sum(g.max_sub_bees for g in held)
+    sub_bees = max(0, after_margin - reserve.seats - committed_sub_bees)
+    committed_seats = sum(seat.seats for grant in held for seat in grant.seats)
+    shared_seats = max(0, seats_total - reserve.seats - committed_seats)
+    return Headroom(sub_bees=sub_bees, shared_seats=shared_seats)

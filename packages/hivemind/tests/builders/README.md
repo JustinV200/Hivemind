@@ -58,3 +58,20 @@ override `content` when a test needs distinct rows. `honey_wire.py` builds what 
 it: `make_honey_access` (a whole `HoneyAccess` over one store), `make_honey_link` (a `WardenLink`
 for a given Cell), `make_honey_query`, `make_honey_hit`, `make_deposit_meta`, and `seed_finding`
 (one ripened finding a query can find).
+
+## `audio.py` (roadmap steps 6.5 and 10.5f, transcription)
+
+`silence_pcm`, `tone_pcm`, `make_silence_clip`, `make_tone_clip`, `make_chunks`: generated
+16-bit PCM clips (never recordings of anyone, ADR-0033) and their push-to-talk chunks;
+`StandInWhisperModel`/`StandInLoader`: the in-process Whisper adapter's model seam, scripted.
+`silent_wav` is a whole WAV file as a device uploads it, and `marked_wav` plants a distinctive byte
+run in a clip's samples, so a test can search every store, trail payload and log line for the
+audio itself (`tests/e2e/test_voice_on_hive_serve.py`).
+
+## `night_veil.py` (codingrules section 12, the Night Veil boundary)
+
+`make_night_veil(durable, clock, identity)`: build the Night Veil boundary over a
+`MemoryPheromoneTrail`, wired the way `hivemind.cli.compose.night_veil.build_night_veil` wires the
+real one over the Hive's SQLite trail: fresh `EphemeralSegments`, the `VeiledTrail` a lifecycle or
+Queen under test records through, and a `NightVeilTeardownPurge` whose recorder writes to the
+durable trail past the boundary, with no side channels (none is registered in production today).

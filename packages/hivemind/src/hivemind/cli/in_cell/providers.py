@@ -14,14 +14,14 @@ providers`/`.slots`), rewritten so every base URL is reachable from inside the C
 (`InCellRuntimeConfig.providers`/`.slots`).
 
 `build_in_cell_provider_registry` picks between that real table and today's placeholder: with a
-non-empty `config.providers`, it builds a real `ProviderRegistry` exactly the way `hivemind.cli.
-compose.deps.build_provider_registry` does; with none (the manifest carried no `[llm.providers]`
-at all, or an older Queen that predates this wiring), it falls back to one `FakeLLMProvider` bound
-to `ModelSlot.WARDEN` and `ModelSlot.WORKER`, so the in-Cell Warden always constructs and its
-autopilot table (which never awaits a model, codingrules section 4/8.8) keeps the Hive alive with
-no model reachable at all -- exactly this module's own pre-8.x behaviour, byte for byte, so every
-existing test and the fake-backend e2e (which never sets `HIVEMIND_PROVIDERS`) keep working
-unchanged.
+non-empty `config.providers`, it builds a real `ProviderRegistry` exactly the way
+`hivemind.cli.stores.build_provider_registry` does; with none (the manifest carried no
+`[llm.providers]` at all, or an older Queen that predates this wiring), it falls back to one
+`FakeLLMProvider` bound to `ModelSlot.WARDEN` and `ModelSlot.WORKER`, so the in-Cell Warden always
+constructs and its autopilot table (which never awaits a model, codingrules section 4/8.8) keeps the
+Hive alive with no model reachable at all -- exactly this module's own pre-8.x behaviour, byte for
+byte, so every existing test and the fake-backend e2e (which never sets `HIVEMIND_PROVIDERS`) keep
+working unchanged.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
@@ -58,13 +58,23 @@ from __future__ import annotations
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort, ModelSlot
-from hivemind.llm.registry import ProviderConfig, ProviderRegistry, RegistryDeps, default_factories
+from hivemind.llm.registry import (
+    ProviderConfig,
+    ProviderRegistry,
+    RegistryDeps,
+    default_factories,
+    runs_locally,
+)
 from waggle.clock import Clock
 
 DEFAULT_IN_CELL_PROVIDER_NAME = "fake"  # Never a real vendor or server name (codingrules 8.6).
 _FAKE_MODEL_ID = "in-cell-placeholder"  # Named, not a magic string repeated at each binding.
 
-__all__ = ["DEFAULT_IN_CELL_PROVIDER_NAME", "build_in_cell_provider_registry"]
+__all__ = [
+    "DEFAULT_IN_CELL_PROVIDER_NAME",
+    "build_in_cell_provider_registry",
+    "local_provider_names",
+]
 
 
 def build_in_cell_provider_registry(clock: Clock, config: InCellRuntimeConfig) -> ProviderRegistry:
@@ -86,6 +96,24 @@ def build_in_cell_provider_registry(clock: Clock, config: InCellRuntimeConfig) -
         factories=default_factories(), environ=config.environ, clock=clock, map=None
     )
     return ProviderRegistry(config.providers, config.slots, config.llm_offline, deps)
+
+
+def local_provider_names(config: InCellRuntimeConfig) -> frozenset[str]:
+    """Name the providers this Cell's own registry serves locally: in process, or on loopback.
+
+    Roadmap step 10.3a: a Night Veil binding is local only when every provider its chain reaches
+    is one of these. A gateway-host base URL is the Hive Stand's machine, never this Cell's.
+
+    Args:
+        config: This process's own validated runtime config; `.providers` is read.
+
+    Returns:
+        The fallback fake's name when no table was sent (the same branch the registry takes),
+        otherwise every provider `hivemind.llm.registry.runs_locally` accepts.
+    """
+    if not config.providers:
+        return frozenset({DEFAULT_IN_CELL_PROVIDER_NAME})  # The in-process fake, and only it.
+    return frozenset(name for name, cfg in config.providers.items() if runs_locally(cfg))
 
 
 def _build_fake_registry(clock: Clock) -> ProviderRegistry:

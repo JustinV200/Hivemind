@@ -13,9 +13,18 @@ dropped `asyncio.create_task` handle (codingrules section 11) -- before sending 
 first `TaskAssign` over the Warden's own end of the pair. It writes the one `worker.*` trail event
 the runtime itself never does: `worker.spawned` (`hivemind.workers.runtime.reporter.Reporter`
 writes every other `worker.*` kind; this is the one transition that happens before a
-`WorkerRuntime` exists to record it itself). `stop_sub_bee` is the one place that runtime is ever
-torn down: cooperative first, cancel-and-reap only as a bounded fallback, so `spawn_sub_bee`'s own
-owned task is never left cancelled-but-unawaited by whichever caller retires it.
+`WorkerRuntime` exists to record it itself). Roadmap step 10.3 (ADR-0039): the slice is read off
+the assignment by `hivemind.wardens.spawn.attenuate` (the task's Exoskeleton need, network scopes
+and goal's set all travel on it, Waggle minors 6 and 8), and before anything is started the
+binding passes the Guard's `slot_binding` point (`hivemind.wardens.spawn.binding.
+authorize_binding`); a refused binding raises `BindingRefusedError` with nothing started. The
+sub-bee's own `WorkerContext` carries the Warden's `Enforcer`, which its tools call at
+`tool_invocation` and `session_outside_scratch`. Roadmap phase 6 (ADR-0031): a task that needs an
+Exoskeleton is equipped here, after its binding passed and before its runtime starts
+(`hivemind.wardens.spawn.equip`), and unequipped in `stop_sub_bee`. `stop_sub_bee` is the one place
+that runtime is ever torn down: cooperative first, cancel-and-reap only as a bounded fallback, so
+`spawn_sub_bee`'s own owned task is never left cancelled-but-unawaited by whichever caller retires
+it.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's spawn
@@ -25,8 +34,10 @@ Fits into the Hive:
     shutdown-hygiene fix); `hivemind.wardens.ticks.alarms.retire_sub_bee` has the same
     cancel-without-reaping shape on its own respawn path and would want this same helper, but that
     module sat outside this dispatch's own file list. Calls into
-    `hivemind.cell` (CellIdentity, TaskNeeds), `hivemind.common.tasks` (reap),
-    `hivemind.forage.slots` (ModelSlot), `hivemind.pheromone` (WorkerEvent),
+    `hivemind.cell` (CellIdentity), `hivemind.common.tasks` (reap),
+    `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (the binding point's principals and
+    context), `hivemind.pheromone` (WorkerEvent), `hivemind.wardens.errors`
+    (BindingRefusedError), `hivemind.wardens.spawn.attenuate` and `.binding`,
     `hivemind.supervision.capping` (CappingGate, GateDeps), `hivemind.workers` (everything a
     Worker's role may use) and waggle only.
 
@@ -48,6 +59,7 @@ Key invariants:
       this Warden's own tick loop cannot promise across an indefinite lifetime.
     - `worker.spawned` is recorded here, and nowhere else (`hivemind.workers.runtime` never writes
       it): the one `worker.*` trail event this package owns.
+    - Nothing is started, and no id minted, for a binding the `slot_binding` point refuses.
     - `stop_sub_bee` never returns with `runtime_task` still pending: a cooperative stop that lands
       within `grace_s` is reaped as a clean finish, one that does not is cancelled and reaped
       instead (codingrules section 11's "never left cancelled-but-unawaited").
@@ -64,24 +76,27 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
-from hivemind.cell import AccessLevel, Cell, CellSession, RealCellLease, TaskNeeds
+from hivemind.cell import AccessLevel, Cell, CellSession, RealCellLease
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.forage.slots import ModelSlot
 from hivemind.forage.tempo import Tempo
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, PolicyContext, PrincipalRef, warden_principal
 from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
 from hivemind.supervision.capping import GateDeps, GuiSurface
-from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.links import send_guarded
+from hivemind.wardens.spawn.attenuate import sub_bee_capabilities
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
+from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
 from hivemind.wardens.spawn.equip import equip, gui_surface, unequip
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
@@ -91,12 +106,11 @@ from hivemind.workers import (
     WorkerContext,
     WorkerRuntime,
     WorkerState,
-    worker_capabilities,
 )
 from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Hop, wrap
-from waggle.ids import WardenId, WorkerId, new_event_id, new_worker_id
+from waggle.ids import EventId, WardenId, WorkerId, new_event_id, new_worker_id
 from waggle.messages.forage import GrantIssued
 from waggle.messages.supervision import Answer, Question
 from waggle.messages.task import TaskAssign
@@ -107,7 +121,7 @@ from waggle.transport.memory import MemoryTransport
 # round trip that follows -- past this, the sub-bee is presumed stuck and is cancelled instead.
 _DEFAULT_STOP_GRACE_S = 2.0
 
-__all__ = ["WardenCellContext", "spawn_sub_bee", "stop_sub_bee"]
+__all__ = ["WardenCellContext", "binding_check", "spawn_sub_bee", "stop_sub_bee"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +131,8 @@ class WardenCellContext:
     Attributes:
         warden_id: This Warden's own id; every sub-bee's own Hop addresses replies back here.
         deps: This Warden's collaborators.
-        ceiling: This Warden's own CapabilitySet, the widest anything it spawns may ever hold.
+        ceiling: This Warden's own CapabilitySet (`hivemind.guard.warden_set`), the widest
+            anything it spawns may ever hold.
         cell: The Cell this Warden owns.
         lease: This Warden's OPEN lease on `cell`.
         session: This Warden's own open CellSession on `cell`, shared with every sub-bee it
@@ -160,6 +175,19 @@ class _SpawnedBeeFacts:
     recording_id: str | None = None  # Where its GUI actions are recorded, named in its Alarms.
 
 
+@dataclass(frozen=True, slots=True)
+class _SpawnPlan:
+    """What `_plan_spawn` decided a sub-bee runs with, once its binding passed (codingrules 5.1).
+
+    Keeps `_start_sub_bee` within the parameter limit: the binding key the Guard allowed, the
+    sub-bee's own capability slice and the write roots its lease is widened to.
+    """
+
+    binding_key: str
+    capabilities: CapabilitySet
+    write_roots: tuple[Path, ...]
+
+
 class _NullAsker:
     """A placeholder QuestionChannel; `WorkerRuntime.__init__` always replaces it with its own.
 
@@ -181,6 +209,7 @@ async def spawn_sub_bee(
     assignment: TaskAssign,
     grant: GrantIssued,
     binding_override: str | None = None,
+    orderer: PrincipalRef | None = None,
 ) -> SubBee:
     """Start one new sub-bee on `ctx.cell`, within `grant`, running `assignment`.
 
@@ -189,37 +218,121 @@ async def spawn_sub_bee(
         assignment: The TaskAssign to run; `assignment.resume_from`, when set, is threaded through
             to the role as its starting Handoff reference via the sub-bee's own TaskAssign.
         grant: The GrantIssued this sub-bee's budgets and allowed bindings are carved from.
-        binding_override: A `[llm.slots]` key to resolve instead of `assignment.slot`'s own; set
-            by a REBIND respawn, whose target (`"local_worker"`) need not be a ModelSlot's key.
+        binding_override: A `[llm.slots]` manifest key to resolve instead of the one
+            `assignment.slot` names; set by a REBIND respawn, whose target binding (a named
+            binding such as `"local_worker"`) need not be any `ModelSlot`'s own manifest key.
+        orderer: Who ordered this binding, for the `slot_binding` point: the Queen for her own
+            `Intervene(REBIND)`; None (the default) is this Warden itself.
 
     Returns:
         A SubBee in `WorkerState.SPAWNED`, its runtime task already started (owned by the caller)
         and its first TaskAssign already sent; equipped when the task needs an Exoskeleton.
 
     Raises:
+        BindingRefusedError: The `slot_binding` point refused the binding (roadmap step 10.3);
+            `guard.denied` is already on the trail and nothing was started.
         hivemind.exoskeleton.AttachError: The task needs an Exoskeleton its Cell cannot attach.
     """
+    plan = await _plan_spawn(ctx, assignment, grant, binding_override, orderer)
+    return await _start_sub_bee(ctx, assignment, grant, plan)
+
+
+async def _plan_spawn(
+    ctx: WardenCellContext,
+    assignment: TaskAssign,
+    grant: GrantIssued,
+    binding_override: str | None,
+    orderer: PrincipalRef | None,
+) -> _SpawnPlan:
+    """Compute the sub-bee's slice and binding key, and pass the `slot_binding` point for it.
+
+    Raises:
+        BindingRefusedError: The Guard refused the binding; nothing has been started yet.
+    """
+    capabilities, write_roots = sub_bee_capabilities(
+        ctx.deps, ctx.ceiling, ctx.lease.scratch_root, assignment
+    )
+    binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
+    check = binding_check(ctx, assignment, grant, binding_key, capabilities)
+    if orderer is not None:
+        check = dataclasses.replace(check, orderer=orderer)
+    decision = await authorize_binding(ctx.deps, check)
+    if not decision.allowed:
+        raise BindingRefusedError(assignment.task_id, binding_key, decision.reason)
+    return _SpawnPlan(binding_key=binding_key, capabilities=capabilities, write_roots=write_roots)
+
+
+async def _start_sub_bee(
+    ctx: WardenCellContext, assignment: TaskAssign, grant: GrantIssued, plan: _SpawnPlan
+) -> SubBee:
+    """Bind, wire and start the planned sub-bee, send it its TaskAssign, and return its row."""
     deps = ctx.deps
     worker_id = new_worker_id(deps.clock)
-    capabilities, write_roots = _prepare_capabilities(ctx, assignment)
-    binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
-    bound = deps.rebind(binding_key)
+    bound = deps.rebind(plan.binding_key)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
-    _widen_lease_reachability(ctx, write_roots)
-    exoskeleton = await equip(ctx, assignment, capabilities)  # Before the role's first tool call.
+    _widen_lease_reachability(ctx, plan.write_roots)
+    # Equipped before the role's first tool call, so a GUI tool never finds its peripherals gone.
+    exoskeleton = await equip(ctx, assignment, plan.capabilities)
     surface = await gui_surface(ctx, assignment, exoskeleton)
     capping_gate = _build_capping_gate(ctx, assignment, surface)
     recording_id = surface.recording_id if surface is not None else None
-    facts = _SpawnedBeeFacts(worker_id, bound, capabilities, recording_id)
+    facts = _SpawnedBeeFacts(worker_id, bound, plan.capabilities, recording_id)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
-    await _record_spawned(deps, worker_id, assignment)
+    spawned_event_id = await _record_spawned(deps, worker_id, assignment)
     assign_hop = Hop(sender=ctx.warden_id, recipient=worker_id, node_id=deps.identity.node_id)
     # A fresh pair from _start_runtime just above; guarded rather than assumed infallible.
     await send_guarded(warden_link, wrap(assignment, assign_hop, clock=deps.clock))
 
-    started = _Started(warden_link, runtime, runtime_task, exoskeleton)
-    return _sub_bee_row(worker_id, assignment, binding_key, started)
+    return SubBee(
+        worker_id=worker_id,
+        task_id=assignment.task_id,
+        assignment=assignment,
+        attempt=assignment.attempt,
+        state=WorkerState.SPAWNED,
+        binding=plan.binding_key,
+        last_handoff=assignment.resume_from,
+        link=warden_link,
+        runtime=runtime,
+        runtime_task=runtime_task,
+        capabilities=plan.capabilities,
+        spawned_event_id=spawned_event_id,
+        exoskeleton=exoskeleton,
+    )
+
+
+def binding_check(
+    ctx: WardenCellContext,
+    assignment: TaskAssign,
+    grant: GrantIssued,
+    binding_key: str,
+    capabilities: CapabilitySet,
+) -> BindingCheck:
+    """Build the `slot_binding` check for binding a sub-bee of `assignment` to `binding_key`.
+
+    Args:
+        ctx: This Warden and the Cell it owns; the Cell's tier and access level are the context.
+        assignment: The sub-bee's TaskAssign; its own slot is what an unknown key is refused as.
+        grant: The grant the binding must stay inside.
+        binding_key: The `[llm.slots]` key being bound.
+        capabilities: The sub-bee's own set.
+
+    Returns:
+        A BindingCheck ordered by this Warden; a Queen-ordered rebind replaces `orderer`.
+    """
+    return BindingCheck(
+        orderer=warden_principal(ctx.warden_id),
+        capabilities=capabilities,
+        grant=grant,
+        binding_key=binding_key,
+        slot=ModelSlot.from_wire(assignment.slot),
+        # Roadmap step 10.3b: the task is bound to its Cell's tier; a rebind is checked against it.
+        context=PolicyContext(
+            comb_shield=ctx.cell.comb_shield,
+            access_level=ctx.cell.access_level,
+            bound_tier=ctx.cell.comb_shield,
+        ),
+    )
 
 
 async def stop_sub_bee(
@@ -248,70 +361,6 @@ async def stop_sub_bee(
     # Roadmap step 6.4: every retirement passes here, so this is where the task's display, sound
     # server and browser stop; the runtime is already gone, so no tool is still driving them.
     await unequip(sub_bee.exoskeleton)
-
-
-@dataclass(frozen=True, slots=True)
-class _Started:
-    """What spawn_sub_bee started for one sub-bee, bundled for its record (codingrules 5.1)."""
-
-    link: MemoryTransport
-    runtime: WorkerRuntime
-    runtime_task: asyncio.Task[None]
-    exoskeleton: ExoskeletonHandle | None
-
-
-def _sub_bee_row(
-    worker_id: WorkerId, assignment: TaskAssign, binding_key: str, started: _Started
-) -> SubBee:
-    """Build the Warden's bookkeeping row for a sub-bee that just started."""
-    return SubBee(
-        worker_id=worker_id,
-        task_id=assignment.task_id,
-        assignment=assignment,
-        attempt=assignment.attempt,
-        state=WorkerState.SPAWNED,
-        binding=binding_key,
-        last_handoff=assignment.resume_from,
-        link=started.link,
-        runtime=started.runtime,
-        runtime_task=started.runtime_task,
-        exoskeleton=started.exoskeleton,
-    )
-
-
-def _prepare_capabilities(
-    ctx: WardenCellContext, assignment: TaskAssign
-) -> tuple[CapabilitySet, tuple[Path, ...]]:
-    """Compute this sub-bee's own CapabilitySet slice, and the declared write roots it shares.
-
-    Roadmap step 5.0e: `write_roots` feeds both this slice's own `fs:write` candidates and
-    `_widen_lease_reachability`'s own lease widening -- an outside-scratch write needs both to
-    actually land (`hivemind.workers.capabilities.worker_capabilities`'s own module docstring).
-    """
-    needs = TaskNeeds.from_wire(
-        Tempo.from_wire(assignment.tempo), assignment.exoskeleton, assignment.network_scopes
-    )
-    write_roots = _declared_write_roots(ctx.deps, assignment)
-    capabilities = worker_capabilities(
-        ctx.ceiling, needs, ctx.lease.scratch_root, extra_write_roots=write_roots
-    )
-    return capabilities, write_roots
-
-
-def _declared_write_roots(deps: WardenDeps, assignment: TaskAssign) -> tuple[Path, ...]:
-    """Return the manifest's own `keep_root` plus each of `assignment`'s declared leaving roots.
-
-    Roadmap step 5.0e: the one set of roots both `worker_capabilities` (an outside-scratch
-    `fs:write` candidate per root) and `_widen_lease_reachability` (the same roots, as lease
-    `allowed_paths`) need; computed once per spawn so neither repeats `declared_leaving_root`'s
-    own `~`-expansion and wildcard-stripping work.
-    """
-    roots = [
-        declared_leaving_root(leaving.pattern, deps.leave_home) for leaving in assignment.leaves
-    ]
-    if deps.keep_root is not None:
-        roots.append(deps.keep_root)
-    return tuple(roots)
 
 
 def _widen_lease_reachability(ctx: WardenCellContext, write_roots: tuple[Path, ...]) -> None:
@@ -379,6 +428,7 @@ def _build_capping_gate(
             sink=deps.findings_sink,
             rates=deps.audit_rates,
             goal=assignment.objective,
+            carried=deps.carried_raises,
         ),
     )
 
@@ -426,9 +476,11 @@ def _build_worker_context(
         capping=capping_gate,
         lease=ctx.lease,
         call_gate=sub_bee_grant.call_gate,
+        enforcer=deps.enforcer,
         exoskeleton=exoskeleton,
         ears=deps.ears,
         recording_id=facts.recording_id,
+        scanner=deps.scanner,  # Roadmap 10.6b: every tool result is scanned on this node's key.
     )
 
 
@@ -469,8 +521,8 @@ def _grant_slice(grant: GrantIssued) -> GrantSlice:
     )
 
 
-async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: TaskAssign) -> None:
-    """Write the one worker.* trail event a WorkerRuntime never writes for itself."""
+async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: TaskAssign) -> EventId:
+    """Write the one worker.* trail event a WorkerRuntime never writes for itself; return its id."""
     event = WorkerEvent(
         id=new_event_id(deps.clock),
         hive_id=deps.identity.hive_id,
@@ -482,3 +534,4 @@ async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: Tas
         payload={"task_id": assignment.task_id, "role": assignment.role.value},
     )
     await deps.trail.record(event)
+    return event.id

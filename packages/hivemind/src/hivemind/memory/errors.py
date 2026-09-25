@@ -21,7 +21,12 @@ MAX_REF_IDS`). `InvalidWaxTransitionError` (roadmap step 4.2a) is `hivemind.memo
 assert_transition`'s own refusal, mirroring `hivemind.forage.errors.InvalidGrantTransitionError`
 exactly; `WaxTextTooLongError` is `hivemind.memory.cell_wax.writes.propose_wax`'s refusal of a
 proposal whose text exceeds the manifest's own (possibly lower than the wire shape's)
-`[memory] wax_text_cap_chars`.
+`[memory] wax_text_cap_chars`. Roadmap step 10.6d (ADR-0043) adds the taint label's four:
+`TaintedMemoryError` is what every Handoff loader and item lookup raises for an item labelled
+tainted (refused outright, whatever its relevance or clearance), `InvalidTaintTransitionError` is
+`hivemind.memory.taint.state.assert_transition`'s refusal of an illegal label edge,
+`TaintTargetNotFoundError` names a taint target no ledger holds, and `TaintJudgeError` is the
+taint judge failing to produce a verdict at all, which leaves the item tainted (fail closed).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by hivemind.memory.checkpoint
@@ -62,16 +67,21 @@ if TYPE_CHECKING:
     # from __future__ import annotations already makes every annotation below a string at
     # runtime, so InvalidWaxTransitionError.__init__ never needs to resolve the name.
     from hivemind.memory.cell_wax.state import WaxState
+    from hivemind.memory.taint.marker import TaintState
 
 __all__ = [
     "BeeBreadEntryNotFoundError",
     "ClearanceError",
     "EmptyCompactionError",
     "HandoffNotFoundError",
+    "InvalidTaintTransitionError",
     "InvalidWaxTransitionError",
     "MemoryTierError",
     "NoteTooLongError",
     "SummaryOfSummaryError",
+    "TaintJudgeError",
+    "TaintTargetNotFoundError",
+    "TaintedMemoryError",
     "TooManySourcesError",
     "WaxNotFoundError",
     "WaxTextTooLongError",
@@ -294,3 +304,95 @@ class WaxTextTooLongError(MemoryTierError):
         super().__init__(f"Cell Wax text is {length} chars, over the {limit}-char manifest cap.")
         self.length = length
         self.limit = limit
+
+
+class TaintedMemoryError(PermissionDeniedError):
+    """Raise when a Handoff loader or an item lookup meets an item labelled tainted.
+
+    Roadmap step 10.6d: a tainted checkpoint, Handoff, episode record or Bee Bread entry (and, from
+    phase 7, a Nectar or Honey item) is refused outright until a judge verdict on the taint rubric
+    clears it, so an injected instruction can never ride a resumed Handoff back into a prompt.
+    """
+
+    code: ClassVar[str] = "hivemind.memory.tainted"
+
+    def __init__(self, item_id: str, event_id: str) -> None:
+        """Build the error for one refused tainted item.
+
+        Args:
+            item_id: The refused item's own id (a Handoff's checkpoint event id, an episode id).
+            event_id: The `memory.tainted` trail event that labelled it.
+        """
+        super().__init__(
+            f"Memory item {item_id} is tainted (by trail event {event_id}) and is refused until "
+            "a judge verdict on the taint rubric clears it."
+        )
+        self.item_id = item_id
+        self.event_id = event_id
+
+
+class InvalidTaintTransitionError(ConflictError):
+    """Raise when `hivemind.memory.taint.state.assert_transition` is asked for an illegal edge.
+
+    The taint label (Appendix C, "Taint label" row) moves unlabelled or CLEARED -> TAINTED (one
+    setter) and TAINTED -> CLEARED (one judge verdict); every other move, tainting an item that is
+    already tainted or clearing one that is not, raises this instead of silently applying.
+    """
+
+    code: ClassVar[str] = "hivemind.memory.invalid_taint_transition"
+
+    def __init__(
+        self, from_state: TaintState | None, to_state: TaintState, *, item_id: str | None = None
+    ) -> None:
+        """Build the error for an illegal taint-label edge.
+
+        Args:
+            from_state: The label's state before the move; None for an unlabelled item.
+            to_state: The state the caller asked for.
+            item_id: The item's own id, when the caller has it.
+        """
+        subject = f" {item_id}" if item_id is not None else ""
+        before = from_state.value if from_state is not None else "unlabelled"
+        super().__init__(
+            f"The taint label of item{subject} cannot move from {before} to {to_state.value}: "
+            "no such edge in the taint state machine."
+        )
+        self.from_state = from_state
+        self.to_state = to_state
+
+
+class TaintTargetNotFoundError(NotFoundError):
+    """Raise when a taint ledger holds no item for a `TaintTarget`."""
+
+    code: ClassVar[str] = "hivemind.memory.taint_target_not_found"
+
+    def __init__(self, kind: str, item_id: str) -> None:
+        """Build the error for a missing taint target.
+
+        Args:
+            kind: The target's kind (`TaintedKind` value).
+            item_id: The id that was looked up and not found.
+        """
+        super().__init__(f"No {kind} item with id {item_id!r} exists to label or clear.")
+        self.kind = kind
+        self.item_id = item_id
+
+
+class TaintJudgeError(MemoryTierError):
+    """Raise when the taint judge cannot produce a verdict at all (its ladder was exhausted).
+
+    Raised by `hivemind.memory.taint.judge.ModelTaintJudge` in place of the model layer's own
+    malformed-output error; `hivemind.memory.taint.clear.clear_taint` catches it and leaves the
+    item tainted, since only a verdict may clear one (fail closed).
+    """
+
+    code: ClassVar[str] = "hivemind.memory.taint_judge_failed"
+
+    def __init__(self, detail: str) -> None:
+        """Build the error for a judge that could not answer.
+
+        Args:
+            detail: Why, bounded by the caller; never the item's own content.
+        """
+        super().__init__(f"The taint judge could not produce a verdict: {detail}")
+        self.detail = detail

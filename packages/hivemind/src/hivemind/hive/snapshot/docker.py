@@ -63,7 +63,7 @@ from hivemind.hive.snapshot.ledger import (
 from waggle.clock import Clock
 from waggle.ids import CellId
 
-__all__ = ["DEFAULT_RETENTION_S", "DockerSnapshotter"]
+__all__ = ["DEFAULT_RETENTION_S", "DockerSnapshotImages", "DockerSnapshotter"]
 
 DEFAULT_RETENTION_S = (
     3600.0  # One hour; matches [virtual_cells] snapshot_retention_s's own default.
@@ -175,6 +175,42 @@ class DockerSnapshotter:
         self._ledger.delete(evict_id)
         if image is not None:
             await self._client.remove_image(image)
+
+
+class DockerSnapshotImages:
+    """Remove every snapshot image of one Cell: a Night Veil teardown's side channel.
+
+    A committed image outlives its container and its ledger record: nothing removes it when the
+    Cell is destroyed, so a Night Veil Cell's root filesystem, as it stood at each snapshot, would
+    outlive the Cell (codingrules section 12). Every commit stamps the image with the Cell it was
+    taken of (`_LABEL_SNAPSHOT_OF`), so this finds them by that label alone, in any process: the
+    Snapshotter that took them may be long gone. Implements `hivemind.pheromone.
+    SideChannelPurger`.
+    """
+
+    def __init__(self, client: DockerClientPort) -> None:
+        """Remove images through the same DockerClientPort the backend provisions through.
+
+        Args:
+            client: The Docker backend's own client (`DockerCellBackend.client`).
+        """
+        self._client = client
+
+    async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
+        """Remove every image labelled a snapshot of `cell_id`; return how many went.
+
+        Args:
+            cell_id: The Night Veil Cell being purged.
+            members: Unused: an image names only the Cell it was taken of.
+
+        Returns:
+            How many images were removed.
+        """
+        del members  # A snapshot image names its Cell alone.
+        images = await self._client.list_images({_LABEL_SNAPSHOT_OF: str(cell_id)})
+        for image in images:
+            await self._client.remove_image(image)  # Idempotent: one gone already is fine.
+        return len(images)
 
 
 def _snapshot_tag(cell_id: CellId, clock: Clock, seq: int) -> str:

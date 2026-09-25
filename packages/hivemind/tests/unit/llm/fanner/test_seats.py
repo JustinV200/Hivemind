@@ -126,3 +126,37 @@ async def test_acquire_measures_how_long_a_queued_caller_actually_waited() -> No
 
     waited_s = await waiter
     assert waited_s == 2.5
+
+
+async def test_a_caller_cancelled_while_queued_takes_no_seat_with_it() -> None:
+    # A sub-bee killed while its call queued for the only seat: that seat must still come back.
+    meter = SeatMeter(capacity=1, clock=FakeClock())
+    await meter.acquire(_tempo(AccuracyBar.NORMAL))
+    killed = asyncio.ensure_future(meter.acquire(_tempo(AccuracyBar.NORMAL)))
+    await asyncio.sleep(0)  # Let it queue behind the holder.
+
+    killed.cancel()
+    await asyncio.gather(killed, return_exceptions=True)
+    await meter.release()
+
+    assert meter.queued == 0
+    assert meter.in_flight == 0
+    assert await meter.acquire(_tempo(AccuracyBar.NORMAL)) == 0.0
+
+
+async def test_a_seat_handed_to_a_caller_cancelled_before_it_resumed_goes_to_the_next() -> None:
+    # The holder's release hands the seat over, and the receiver is killed before it runs again.
+    meter = SeatMeter(capacity=1, clock=FakeClock())
+    await meter.acquire(_tempo(AccuracyBar.NORMAL))
+    killed = asyncio.ensure_future(meter.acquire(_tempo(AccuracyBar.NORMAL)))
+    await asyncio.sleep(0)
+    next_in_line = asyncio.ensure_future(meter.acquire(_tempo(AccuracyBar.NORMAL)))
+    await asyncio.sleep(0)
+
+    await meter.release()  # The seat is now the killed caller's, which has not resumed yet.
+    killed.cancel()
+    await asyncio.gather(killed, return_exceptions=True)
+
+    await asyncio.wait_for(next_in_line, timeout=5.0)
+    assert meter.in_flight == 1
+    assert meter.queued == 0

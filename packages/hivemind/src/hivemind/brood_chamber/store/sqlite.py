@@ -27,6 +27,8 @@ Key invariants:
     - A task or question row and the event(s) that accompany it are written inside one
       `hivemind.common.sqlite.transaction` block, so a failure partway through (a duplicate id, a
       missing row, a duplicate event id) rolls back every write that call made, event included.
+    - `scrub_night_veil` is the one write with no event (the Night Veil teardown's, counted by
+      its `cell.purged`): it rewrites bodies only, never a status or a timestamp column.
 
 See Also:
     - docs/adr/0006-sqlite-as-the-single-hive-store.md and docs/adr/0007-pheromone-trail-append-
@@ -43,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.resources
+import json
 import sqlite3
 from collections.abc import Sequence
 
@@ -53,6 +56,12 @@ from hivemind.brood_chamber.errors import (
 )
 from hivemind.brood_chamber.questions import Question, QuestionStatus
 from hivemind.brood_chamber.store.protocol import TaskFilter, check_task_event
+from hivemind.brood_chamber.store.scrub import (
+    SCRUBBED_TEXT,
+    due_for_scrub,
+    scrub_question,
+    scrub_task,
+)
 from hivemind.brood_chamber.task.model import Task
 from hivemind.common.errors import ConflictError, InvariantViolationError, MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
@@ -91,6 +100,15 @@ _SELECT_QUESTIONS_BODY_SQL = "SELECT body FROM questions"
 _ORDER_QUESTIONS_BY = (
     " ORDER BY asked_at, id"  # Matches TaskStore.list_questions's documented order.
 )
+# The Night Veil scrub's candidates: a task the Cell's segment named, or one that asked for the
+# tier, not reduced already; `scrub.due_for_scrub` makes the final choice on each decoded row.
+_SELECT_SCRUB_CANDIDATES_SQL = (
+    "SELECT body FROM tasks WHERE (id IN (SELECT value FROM json_each(?)) "
+    "OR json_extract(body, '$.spec.needs.comb_shield') = 'NIGHT_VEIL') "
+    "AND json_extract(body, '$.spec.title') IS NOT ?"
+)
+_SCRUB_TASK_SQL = "UPDATE tasks SET body = ? WHERE id = ?"
+_SCRUB_QUESTION_SQL = "UPDATE questions SET body = ? WHERE id = ?"
 
 __all__ = [
     "MIGRATIONS_PACKAGE",
@@ -240,6 +258,13 @@ class SqliteTaskStore:
             rows = await self._thread.run(_select_questions_rows, self._connection, task_id, status)
         return tuple(Question.model_validate_json(row["body"]) for row in rows)
 
+    async def scrub_night_veil(self, task_ids: frozenset[str]) -> int:
+        """Reduce finished Night Veil tasks and their questions; see TaskStore.scrub_night_veil."""
+        async with self._lock:
+            # Blocking: one SELECT (the terminal Night Veil rows not yet reduced), then one
+            # UPDATE per row it reduces, all in one transaction.
+            return await self._thread.run(_scrub_night_veil_transaction, self._connection, task_ids)
+
 
 def _pheromone_table_exists(connection: sqlite3.Connection) -> bool:
     """Return whether `connection`'s database already has a `pheromone_events` table."""
@@ -317,7 +342,7 @@ def _select_tasks_rows(connection: sqlite3.Connection, query: TaskFilter) -> lis
     clauses, params = _task_query_where(query)
     sql = _SELECT_TASKS_BODY_SQL
     if clauses:
-        # clauses holds only fixed column-name literals chosen from the branches in
+        # clauses holds only fixed column-name (or JSON-path) literals chosen from the branches in
         # _task_query_where below; every value is bound through "?" in params, never interpolated.
         sql = f"{sql} WHERE {' AND '.join(clauses)}"
     sql += _ORDER_TASKS_BY
@@ -336,6 +361,16 @@ def _task_query_where(query: TaskFilter) -> tuple[list[str], list[object]]:
     if query.goal_id is not None:
         clauses.append("goal_id = ?")
         params.append(query.goal_id)
+    if query.goal_request_id is not None:
+        # The request id rides in the task's JSON body (TaskSpec.goal_request_id), not a column:
+        # only the Queen's crash recovery looks a goal up by it, so a scan beats a migration.
+        clauses.append("json_extract(body, '$.spec.goal_request_id') = ?")
+        params.append(query.goal_request_id)
+    if query.after is not None:
+        # Keyset paging on the list order's own index; an unknown cursor's subquery is NULL, so
+        # the row-value comparison is never true and the page is empty, never a restart.
+        clauses.append("(created_at, id) > (SELECT created_at, id FROM tasks WHERE id = ?)")
+        params.append(query.after)
     return clauses, params
 
 
@@ -421,3 +456,24 @@ def _select_questions_rows(
         sql = f"{sql} WHERE {' AND '.join(clauses)}"
     sql += _ORDER_QUESTIONS_BY
     return connection.execute(sql, params).fetchall()
+
+
+def _scrub_night_veil_transaction(connection: sqlite3.Connection, task_ids: frozenset[str]) -> int:
+    """Rewrite every task `due_for_scrub` chooses and its questions; return how many rows."""
+    with transaction(connection):
+        rows = connection.execute(
+            _SELECT_SCRUB_CANDIDATES_SQL, (json.dumps(sorted(task_ids)), SCRUBBED_TEXT)
+        ).fetchall()
+        due = [
+            task
+            for task in (Task.model_validate_json(row["body"]) for row in rows)
+            if due_for_scrub(task, task_ids)
+        ]
+        changed = 0
+        for task in due:
+            connection.execute(_SCRUB_TASK_SQL, (scrub_task(task).model_dump_json(), task.id))
+            for row in _select_questions_rows(connection, task.id, None):
+                question = scrub_question(Question.model_validate_json(row["body"]))
+                connection.execute(_SCRUB_QUESTION_SQL, (question.model_dump_json(), question.id))
+                changed += 1
+        return changed + len(due)

@@ -70,13 +70,12 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
-from builders.cli import ManifestTuning, fake_manifest
+from builders.cli import ManifestTuning, fake_manifest, printed_object
 from e2e.kernel_helpers import (
     HaikuScript,
     WorkerTurn,
@@ -104,6 +103,7 @@ from hivemind.llm import LLMRequest, LLMResponse, Responder
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.supervision import DEFAULT_BUDGET_FRACTION
 from hivemind.pheromone import PheromoneEvent, TrailQuery
+from hivemind.queen.chat import ChatKind, ChatQuery
 from hivemind.supervision import Checkpoint
 from hivemind.workers.telemetry import ROLLBACKS_BEFORE_ALARM
 from waggle.clock import Clock, SystemClock
@@ -433,6 +433,19 @@ def test_a_drone_that_crashes_repeatedly_escalates_and_the_queen_rebinds_it_to_c
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+async def _question_is_posted(hive: Hive) -> bool:
+    """Return whether the Queen has posted the blocked task's question to the chat.
+
+    Posting is the last thing she does for a question, after the task turns BLOCKED: she appends
+    the chat line, then tells the human channel, whose unbound relay writes a debug line to
+    stdout before the chat store lets any reader see that line. `hive inbox` runs under
+    `CliRunner`, which swaps the process-wide stdout while it runs, so invoking it before this
+    holds let that debug line land at the head of its JSON output.
+    """
+    lines = await hive.stores.chat.read(ChatQuery())
+    return any(line.kind is ChatKind.QUESTION for line in lines)
+
+
 async def _task_is_blocked(hive: Hive) -> bool:
     """Return whether the goal's own (only) task is currently BLOCKED on a question."""
     tasks = await hive.stores.chamber.list(TaskFilter())
@@ -502,11 +515,14 @@ async def _run_blocked_question(hive: Hive, manifest_path: Path) -> None:
             run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
         )
         await wait_until(lambda: _task_is_blocked(hive), timeout_s=_TIMEOUT_S)
+        # Only once the question has reached the chat can nothing the Queen writes for it land
+        # inside the CLI's own captured stdout (`_question_is_posted`'s own docstring).
+        await wait_until(lambda: _question_is_posted(hive), timeout_s=_TIMEOUT_S)
         listed = await asyncio.to_thread(
             runner.invoke, app, ["inbox", "--manifest", str(manifest_path), "--json"]
         )
         assert listed.exit_code == 0, listed.output
-        question_id = json.loads(listed.output)["questions"][0]["id"]
+        question_id = printed_object(listed.output)["questions"][0]["id"]
         answered = await asyncio.to_thread(
             runner.invoke,
             app,

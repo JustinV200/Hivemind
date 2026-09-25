@@ -19,8 +19,13 @@ Key invariants:
       MemoryTaskStore`'s own shape.
     - `add_note` evicts `note.author`'s oldest note past `MAX_NOTES_PER_AUTHOR`, the same duty
       `hivemind.memory.store.sqlite.SqliteMemoryStore` documents for its own third DELETE.
+    - `purge_night_veil` (`hivemind.memory.store.night_veil`) is the one removal beyond those and
+      the retention window, and only the Night Veil teardown purge calls it.
     - Every method holds `self._lock` for its whole body, so two coroutines can never interleave a
       read with a write, or two writes with each other.
+    - The taint label (roadmap 10.6d, `_TaintMemoryStore`) is checked against its transition table
+      and written with its event under the same lock hold; no list or lookup that could feed a
+      prompt returns a TAINTED episode or Bee Bread entry, and no insert accepts a labelled item.
 
 See Also:
     - hivemind.memory.store.protocol for the MemoryStore protocol this class implements.
@@ -41,13 +46,35 @@ from hivemind.memory.errors import (
     BeeBreadEntryNotFoundError,
     ClearanceError,
     HandoffNotFoundError,
+    TaintedMemoryError,
+    TaintTargetNotFoundError,
     WaxNotFoundError,
 )
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR, Note
 from hivemind.memory.pins import Pin
+from hivemind.memory.store.night_veil import _NightVeilMemoryStore
+from hivemind.memory.store.review import review_text
+from hivemind.memory.taint import (
+    TaintableItem,
+    TaintedKind,
+    TaintMarker,
+    TaintScope,
+    TaintTarget,
+    assert_transition,
+    is_refused,
+    require_unlabelled,
+)
 from hivemind.pheromone import MemoryEvent, PheromoneTrail
 from waggle.ids import CellId, EventId, TaskId
+
+# One stored Handoff: the document, its task, and when its checkpoint was written (the taint
+# scope's clock; the SQLite store's own written_at column).
+_StoredHandoff = tuple[Handoff, TaskId | None, datetime]
+# Any item the memory tables can label.
+_Taintable = Handoff | EpisodeRecord | BeeBreadEntry
+# One item's facts for a taint scope: when, which, who wrote it, which task, its label.
+_Facts = tuple[datetime, TaintTarget, str | None, TaskId | None, TaintMarker | None]
 
 __all__ = ["InMemoryMemoryStore"]
 
@@ -103,10 +130,123 @@ class _WaxMemoryStore:
             self._wax[wax.id] = wax
 
 
-class InMemoryMemoryStore(_WaxMemoryStore):
+class _TaintMemoryStore:
+    """The taint quarter of InMemoryMemoryStore (roadmap 10.6d), split out for codingrules 5.1.
+
+    Reads the handoff, episode and Bee Bread dicts, `self._lock` and `self._trail`, all set by
+    `InMemoryMemoryStore.__init__`; never instantiated on its own. The annotations declare that
+    shared state for mypy --strict, as `_WaxMemoryStore`'s do.
+    """
+
+    _handoffs: dict[str, _StoredHandoff]
+    _episodes: dict[str, EpisodeRecord]
+    _bee_bread: dict[str, BeeBreadEntry]
+    _lock: asyncio.Lock
+    _trail: PheromoneTrail
+
+    async def find_taintable(self, scope: TaintScope) -> tuple[TaintTarget, ...]:
+        """Return what `scope` covers that is not TAINTED, oldest first; see `MemoryStore`."""
+        async with self._lock:
+            facts = self._facts()
+        covered = [
+            (at, target)
+            for at, target, author, task_id, marker in facts
+            if not is_refused(marker) and scope.covers(target.kind, author, task_id, at)
+        ]
+        covered.sort(key=lambda pair: (pair[0], pair[1].item_id))
+        return tuple(target for _at, target in covered)
+
+    async def read_taintable(self, target: TaintTarget) -> TaintableItem:
+        """Return one item's label, clearance and review text; see `MemoryStore.read_taintable`."""
+        async with self._lock:
+            item = self._taintable(target)
+        return TaintableItem(
+            target=target, marker=item.tainted, clearance=item.clearance, content=review_text(item)
+        )
+
+    async def write_taint(
+        self, target: TaintTarget, marker: TaintMarker, event: MemoryEvent
+    ) -> None:
+        """Replace one item's label and record `event`; see `MemoryStore.write_taint`."""
+        async with self._lock:
+            item = self._taintable(target)
+            # Checked against the stored label under the same lock hold that writes the new one,
+            # so a concurrent writer can never slip an illegal edge through.
+            before = item.tainted.state if item.tainted is not None else None
+            assert_transition(before, marker.state, target.item_id)
+            await self._trail.record(event)
+            self._relabel(target, marker)
+
+    def _facts(self) -> list[_Facts]:
+        """Every labelable item's scope facts, whatever its kind. Caller must hold the lock."""
+        handoffs = [
+            (
+                at,
+                TaintTarget(kind=TaintedKind.HANDOFF, item_id=key),
+                doc.written_by,
+                task,
+                doc.tainted,
+            )
+            for key, (doc, task, at) in self._handoffs.items()
+        ]
+        episodes = [
+            (
+                rec.at,
+                TaintTarget(kind=TaintedKind.EPISODE, item_id=rec.id),
+                rec.principal,
+                None,
+                rec.tainted,
+            )
+            for rec in self._episodes.values()
+        ]
+        entries = [
+            (
+                ent.created_at,
+                TaintTarget(kind=TaintedKind.BEE_BREAD, item_id=ent.id),
+                None,
+                ent.task_id,
+                ent.tainted,
+            )
+            for ent in self._bee_bread.values()
+        ]
+        return [*handoffs, *episodes, *entries]
+
+    def _taintable(self, target: TaintTarget) -> _Taintable:
+        """Return the stored item `target` names. Caller must hold `self._lock`."""
+        found: _Taintable | None = None
+        if target.kind is TaintedKind.HANDOFF and target.item_id in self._handoffs:
+            found = self._handoffs[target.item_id][0]
+        elif target.kind is TaintedKind.EPISODE:
+            found = self._episodes.get(target.item_id)
+        elif target.kind is TaintedKind.BEE_BREAD:
+            found = self._bee_bread.get(target.item_id)
+        # NECTAR and HONEY live in the Honey Store (phase 7), never in these tables.
+        if found is None:
+            raise TaintTargetNotFoundError(target.kind.value, target.item_id)
+        return found
+
+    def _relabel(self, target: TaintTarget, marker: TaintMarker) -> None:
+        """Store `target`'s item again with `marker` as its label. Caller must hold the lock."""
+        if target.kind is TaintedKind.HANDOFF:
+            doc, task_id, at = self._handoffs[target.item_id]
+            self._handoffs[target.item_id] = (
+                doc.model_copy(update={"tainted": marker}),
+                task_id,
+                at,
+            )
+        elif target.kind is TaintedKind.EPISODE:
+            record = self._episodes[target.item_id]
+            self._episodes[target.item_id] = record.model_copy(update={"tainted": marker})
+        else:
+            entry = self._bee_bread[target.item_id]
+            self._bee_bread[target.item_id] = entry.model_copy(update={"tainted": marker})
+
+
+class InMemoryMemoryStore(_WaxMemoryStore, _TaintMemoryStore, _NightVeilMemoryStore):
     """An in-process MemoryStore: 6 dicts (pins/notes/handoffs/episodes/bee_bread/wax), 1 lock.
 
-    Composed with `_WaxMemoryStore` (Cell Wax's own quarter, split out purely for codingrules
+    Composed with `_WaxMemoryStore`, `_TaintMemoryStore` and `_NightVeilMemoryStore` (Cell Wax's,
+    the taint label's and the Night Veil purge's own quarters, split out purely for codingrules
     5.1's class-length limit); `InMemoryMemoryStore` itself is the whole class every caller names.
     """
 
@@ -119,7 +259,7 @@ class InMemoryMemoryStore(_WaxMemoryStore):
         self._trail = trail
         self._pins: dict[str, Pin] = {}
         self._notes: dict[str, Note] = {}
-        self._handoffs: dict[str, tuple[Handoff, TaskId | None]] = {}
+        self._handoffs: dict[str, _StoredHandoff] = {}
         self._episodes: dict[str, EpisodeRecord] = {}
         self._bee_bread: dict[str, BeeBreadEntry] = {}
         self._wax: dict[str, CellWax] = {}
@@ -184,9 +324,10 @@ class InMemoryMemoryStore(_WaxMemoryStore):
 
         See `MemoryStore.put_handoff` for the full contract.
         """
+        require_unlabelled(handoff.tainted, event_id)
         async with self._lock:
             await self._trail.record(event)
-            self._handoffs[event_id] = (handoff, task_id)
+            self._handoffs[event_id] = (handoff, task_id, event.at)
 
     async def get_handoff(self, event_id: EventId) -> tuple[Handoff, HoneyClearance]:
         """Return the stored Handoff and its clearance; see `MemoryStore.get_handoff`."""
@@ -194,11 +335,12 @@ class InMemoryMemoryStore(_WaxMemoryStore):
             entry = self._handoffs.get(event_id)
         if entry is None:
             raise HandoffNotFoundError(event_id)
-        handoff, _task_id = entry
+        handoff, _task_id, _written_at = entry
         return handoff, handoff.clearance
 
     async def put_episode(self, record: EpisodeRecord, event: MemoryEvent) -> None:
         """Insert `record` and record `event`; see `MemoryStore.put_episode`."""
+        require_unlabelled(record.tainted, record.id)
         async with self._lock:
             await self._trail.record(event)
             self._episodes[record.id] = record
@@ -214,6 +356,7 @@ class InMemoryMemoryStore(_WaxMemoryStore):
             for record in episodes
             if record.clearance.rank <= allowance.rank
             and (principal is None or record.principal == principal)
+            and not is_refused(record.tainted)
         ]
         matches.sort(key=lambda record: (record.at, record.id), reverse=True)
         return tuple(matches[:limit])
@@ -233,6 +376,7 @@ class InMemoryMemoryStore(_WaxMemoryStore):
 
     async def add_bee_bread_entry(self, entry: BeeBreadEntry, event: MemoryEvent) -> None:
         """Insert `entry` and record `event`; see `MemoryStore.add_bee_bread_entry`."""
+        require_unlabelled(entry.tainted, entry.id)
         async with self._lock:
             await self._trail.record(event)
             self._bee_bread[entry.id] = entry
@@ -247,6 +391,8 @@ class InMemoryMemoryStore(_WaxMemoryStore):
             raise BeeBreadEntryNotFoundError(entry_id)
         if entry.clearance.rank > allowance.rank:
             raise ClearanceError(entry.clearance, allowance)
+        if entry.tainted is not None and is_refused(entry.tainted):
+            raise TaintedMemoryError(entry.id, entry.tainted.event_id)
         return entry
 
     async def list_bee_bread_by_task(
@@ -258,7 +404,9 @@ class InMemoryMemoryStore(_WaxMemoryStore):
         matches = [
             entry
             for entry in entries
-            if entry.task_id == task_id and entry.clearance.rank <= allowance.rank
+            if entry.task_id == task_id
+            and entry.clearance.rank <= allowance.rank
+            and not is_refused(entry.tainted)
         ]
         matches.sort(key=lambda entry: (entry.created_at, entry.id))
         return tuple(matches)
@@ -272,7 +420,9 @@ class InMemoryMemoryStore(_WaxMemoryStore):
         matches = [
             entry
             for entry in entries
-            if start <= entry.created_at <= end and entry.clearance.rank <= allowance.rank
+            if start <= entry.created_at <= end
+            and entry.clearance.rank <= allowance.rank
+            and not is_refused(entry.tainted)
         ]
         matches.sort(key=lambda entry: (entry.created_at, entry.id))
         return tuple(matches)

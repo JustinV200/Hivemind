@@ -173,7 +173,7 @@ def _worker_turn(scout: Turn, forager: Turn) -> Turn:
     return turn
 
 
-def _pair(worker: Turn) -> ClusterPair:
+async def _pair(worker: Turn) -> ClusterPair:
     """Wire a real Queen and Warden over a fake-site browser, scripted with `worker`."""
     clock = SystemClock()
     script = HaikuScript(worker, plan=_plan(""))
@@ -184,12 +184,12 @@ def _pair(worker: Turn) -> ClusterPair:
         "recording_store": InMemoryRecordingStore(),
     }
     options = PairOptions(responder=script.responder, cell=cell, warden_overrides=overrides)
-    return build_cluster_pair(clock, _plan(""), worker_for, pair_options=options)
+    return await build_cluster_pair(clock, _plan(""), worker_for, pair_options=options)
 
 
 async def _run_goal(worker: Turn) -> QueenDeps:
     """Run the Scout-then-Forager goal until every task of it is terminal; return the deps."""
-    pair = _pair(worker)
+    pair = await _pair(worker)
     await pair.warden.start()
     queen_task = asyncio.ensure_future(pair.queen.run())
     warden_task = asyncio.ensure_future(pair.warden.run())

@@ -8,17 +8,23 @@ library alone (`struct`, `math`, and `hivemind.llm.transcription`'s own WAV writ
 exact, deterministic and tiny, and split a clip's frames into push-to-talk chunks. The in-process
 Whisper adapter needs one more thing to hear them with and no real model to download: a stand-in
 model and loader at the adapter's own seam (`hivemind.llm.providers.whisper.ModelLoader`), whose
-segments carry the same field names faster-whisper's do, scripted per test.
+segments carry the same field names faster-whisper's do, scripted per test. The Hive Entrance's
+voice tests (roadmap step 10.5f) send whole WAV files the way a device uploads them: `silent_wav`
+is one, and `marked_wav` plants a distinctive byte run in a clip's samples, so a test can search
+every store, trail payload and log line for the audio itself and prove it is found nowhere.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the transcription unit
-    tests under packages/hivemind/tests/unit/llm and by
-    contracts.test_transcription_provider_contract.
+    tests under packages/hivemind/tests/unit/llm, by
+    contracts.test_transcription_provider_contract, and by the Hive Entrance's voice tests
+    (unit/entrance/voice, e2e/test_voice_on_hive_serve).
 
 Key invariants:
     - Every clip is 16-bit PCM (the width `hivemind.llm.transcription.encode_wav` writes) at
       `SAMPLE_RATE` unless a caller asks otherwise; nothing here reads a file or the network.
     - `make_chunks` splits only on whole frames, so every chunk it returns is a valid AudioChunk.
+    - `silent_wav` and `marked_wav` are whole mono files whose header duration is exactly `seconds`
+      for any whole number of frames.
     - `StandInWhisperModel.hold`, when given, blocks a run on a worker thread until the test sets
       it: a test that uses it must set it before finishing, or the event loop's executor waits.
 
@@ -37,7 +43,7 @@ from dataclasses import dataclass, field
 from typing import BinaryIO
 
 from hivemind.llm.providers.whisper import LoadedModel, WhisperConfig
-from hivemind.llm.transcription import PCM_SAMPLE_WIDTH_BYTES, AudioChunk, AudioClip
+from hivemind.llm.transcription import PCM_SAMPLE_WIDTH_BYTES, AudioChunk, AudioClip, encode_wav
 
 SAMPLE_RATE = 16_000  # Whisper's own native rate, so no clip here needs resampling.
 TONE_HZ = 440.0  # Concert A: an obviously synthetic sound, never mistaken for speech.
@@ -54,7 +60,9 @@ __all__ = [
     "make_chunks",
     "make_silence_clip",
     "make_tone_clip",
+    "marked_wav",
     "silence_pcm",
+    "silent_wav",
     "tone_pcm",
 ]
 
@@ -84,6 +92,35 @@ def make_silence_clip(seconds: float = 1.0, sample_rate: int = SAMPLE_RATE) -> A
 def make_tone_clip(seconds: float = 1.0, sample_rate: int = SAMPLE_RATE) -> AudioClip:
     """Build a validated AudioClip of `seconds` of a mono `TONE_HZ` tone."""
     return AudioClip.from_pcm(tone_pcm(seconds, sample_rate), sample_rate, 1)
+
+
+def silent_wav(seconds: float = 1.0, sample_rate: int = SAMPLE_RATE) -> bytes:
+    """Return a whole 16-bit mono WAV file of `seconds` of silence, as a device would upload it.
+
+    Args:
+        seconds: The clip's length; rounded to a whole number of frames.
+        sample_rate: Frames per second.
+
+    Returns:
+        The complete file, RIFF header included.
+    """
+    return encode_wav(silence_pcm(seconds, sample_rate), sample_rate, 1)
+
+
+def marked_wav(marker: bytes, seconds: float = 1.0) -> bytes:
+    """Return a WAV file of `seconds` whose samples begin with `marker`, then silence.
+
+    Args:
+        marker: The byte run to plant; padded with a zero byte to a whole 16-bit sample.
+        seconds: The clip's length; the marker must fit inside it.
+
+    Returns:
+        The complete file, RIFF header included, its header duration exactly `seconds`.
+    """
+    silence = silence_pcm(seconds)
+    planted = marker + b"\x00" * (len(marker) % PCM_SAMPLE_WIDTH_BYTES)
+    assert len(planted) <= len(silence), "the marker must fit inside the clip"
+    return encode_wav(planted + silence[len(planted) :], SAMPLE_RATE, 1)
 
 
 def make_chunks(

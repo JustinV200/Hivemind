@@ -23,6 +23,8 @@ Key invariants:
       every adapter is wired, and stays so the completeness test and the next adapter have a home.
     - An `IN_PROCESS_KINDS` member is provably local regardless of its `base_url`, because it never
       opens one at all; every other kind must name a loopback or Virtual Cell gateway host offline.
+    - `runs_locally` is stricter than offline's rule (roadmap step 10.3a, Night Veil): in process
+      or on this machine's own loopback, never a Virtual Cell gateway host.
     - `_resolve_api_key` is the only place the registry reads an environment mapping; it mirrors
       `hivemind.manifest.env.provider_api_key`'s derivation so a provider's secret still comes from
       exactly one environment variable, never the config itself (codingrules section 13).
@@ -68,14 +70,23 @@ EMBEDDING_ONLY_KINDS: frozenset[ProviderKind] = frozenset({"sentence_transformer
 # inside this process, local by construction, so offline mode checks no base_url for them.
 IN_PROCESS_KINDS: frozenset[ProviderKind] = frozenset({"whisper_local", "sentence_transformers"})
 
+# Roadmap step 10.3a: every kind whose model answers inside the calling process, so a call to one
+# never leaves the machine it is made on (Night Veil's local-only rule, `runs_locally`): the two
+# in-process adapters, and the fake, which answers from memory. Not mirrored in the manifest:
+# unlike IN_PROCESS_KINDS it says nothing about whether a row may carry a base_url.
+RUNS_IN_PROCESS_KINDS: frozenset[ProviderKind] = IN_PROCESS_KINDS | {"fake"}
+
 __all__ = [
     "EMBEDDING_ONLY_KINDS",
     "IN_PROCESS_KINDS",
     "PENDING_KINDS",
+    "RUNS_IN_PROCESS_KINDS",
     "MissingDefaultModelError",
     "ProviderConfig",
     "ProviderKind",
     "TranscriptionUnsupportedError",
+    "runs_in_process",
+    "runs_locally",
 ]
 
 
@@ -167,6 +178,40 @@ class _DoorContext:
     offline: bool  # [llm] offline: checked before any factory runs.
     environ: Mapping[str, str]  # Read only through _resolve_api_key (codingrules section 13).
     clock: Clock  # Passed to every factory and, through it, to every constructed provider.
+
+
+def runs_in_process(config: ProviderConfig) -> bool:
+    """Return whether a provider's model runs inside whichever process binds it.
+
+    Args:
+        config: One provider's configuration.
+
+    Returns:
+        True for a kind in `RUNS_IN_PROCESS_KINDS`: local to any Cell that binds it (roadmap
+        10.3a).
+    """
+    return config.kind in RUNS_IN_PROCESS_KINDS
+
+
+def runs_locally(config: ProviderConfig) -> bool:
+    """Return whether a provider serves from the calling machine itself: in process, or loopback.
+
+    Roadmap step 10.3a (ADR-0030): a Night Veil task binds only local models, never a hosted one
+    and never the Hive Stand's. Stricter than offline's own `_is_provably_local` on purpose: a
+    Virtual Cell gateway host is the Hive Stand's machine seen from inside a Cell, so it is
+    local enough for `offline` and never local for Night Veil.
+
+    Args:
+        config: One provider's configuration, as the caller's own registry holds it.
+
+    Returns:
+        True for an in-process kind (`RUNS_IN_PROCESS_KINDS`) or a base URL on a loopback host;
+        False for a hosted endpoint, a gateway host or any other address.
+    """
+    if runs_in_process(config):
+        return True  # Nothing leaves the process, so nothing leaves the machine.
+    hostname = urlsplit(config.base_url).hostname if config.base_url else None
+    return hostname is not None and is_loopback_host(hostname)
 
 
 def _check_offline(name: str, config: ProviderConfig, offline: bool) -> None:

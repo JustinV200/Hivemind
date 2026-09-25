@@ -18,14 +18,19 @@ from pathlib import Path
 from builders.cli import fake_manifest
 
 from hivemind.cell import CombShieldLevel
-from hivemind.cli.compose.deps import build_fanner, build_provider_registry
+from hivemind.cli.compose.deps import build_fanner
 from hivemind.cli.compose.honey import (
     HONEY_ACTOR,
     build_honey_access,
     resolve_embedder,
     resolve_ripener,
 )
-from hivemind.cli.stores import build_forage_map, open_honey_store, open_trail
+from hivemind.cli.stores import (
+    build_forage_map,
+    build_provider_registry,
+    open_honey_store,
+    open_trail,
+)
 from hivemind.forage import ModelSlot
 from hivemind.honey_store import NectarOrigin, NectarSubmission
 from hivemind.llm import FakeEmbedding, ProviderRegistry

@@ -796,7 +796,7 @@ failing.
   independent review on `ModelSlot.JUDGE` with no shared context with the proposing bee, a rubric
   per risk tier, and a structured verdict (approve, request changes, reject) with reasons; the
   manifest may pin `JUDGE` to a different provider than `WORKER` so blind spots do not correlate.
-  `supervision/capping/audit.py`: for tiers the table marks as not gated in real time, sample
+  `supervision/capping/audit/sampler.py`: for tiers the table marks as not gated in real time, sample
   completed work at a per-tier rate, review it with the judge after the fact, deposit findings as
   Nectar, raise an Alarm on a failed audit, and feed rates to the Guard Bee (phase 10). Both are
   extra checks on the gate from 3.17; the tier table decides where each applies, and the task's
@@ -1526,7 +1526,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
 
 ### Steps
 
-- [ ] **10.1 Capability model.** Extends the `CapabilitySet` from 3.13a with every family:
+- [x] **10.1 Capability model.** Extends the `CapabilitySet` from 3.13a with every family:
   `tool:<name>`, `tool:scope:cell`,
   `net:<scope>`, `cell:virtual`, `cell:hive_stand`, `cell:real:<node>`, `cell:outside_scratch:<path>`,
   `cell:comb_shield:<tier>`, `exoskeleton`, `exoskeleton:real_display`,
@@ -1537,29 +1537,29 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   `observe`, `observe:thoughts`, `observe:honey:<scope>`, `entrance:submit`, `entrance:answer`,
   `entrance:push`, `entrance:steward`, `supersede`, `sting_cut`. `CapabilitySet` with `allows()`
   and `attenuate(subset)`; pure.
-- [ ] **10.2 Policy engine.** `[guard]` manifest section (per-role default sets, deny lists,
+- [x] **10.2 Policy engine.** `[guard]` manifest section (per-role default sets, deny lists,
   escalation rules), pure `evaluate` with a reason; denials are `guard.*` events.
-- [ ] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
+- [x] **10.3 Enforcement points.** Placement, lease creation, grant issue, Warden spawn, tool
   invocation, session calls outside scratch, Exoskeleton attach on a real display, Honey access,
   slot binding and rebinding, question routing to the human, Nuc promotion, device commands,
   tactic invocation, and Comb Shield egress policy activation. A test enumerates them and fails if a new state-changing action
   lacks one.
-- [ ] **10.3a Night Veil guardrails.** Enforce at policy level that `cell:comb_shield:night_veil`
+- [x] **10.3a Night Veil guardrails.** Enforce at policy level that `cell:comb_shield:night_veil`
   implies `cell:virtual` and forbids `cell:real:*`; enforce that Night Veil model slot bindings are
   local-only; enforce that a Night Veil Cell's Waggle transport may reach the Hive Stand only
   through the Tor SOCKS proxy to its hidden-service address, never the VPN interface or the default
   route; and enforce that Night Veil capability
   sets allow `honey:clearance:c0` and `honey:clearance:c1` while denying any attempt to read or
   write `c2` Honey.
-- [ ] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
+- [x] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
   `CombShieldLevel`; no runtime path may weaken controls after placement. A task moved between
   Cells is re-evaluated and re-bound to the new Cell's tier before resume.
-- [ ] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
+- [x] **10.3c Night Veil initiation policy.** Enforce that Night Veil placement may only be
   initiated by explicit human request through the inbox or API, never by autonomous escalation.
-- [ ] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
+- [x] **10.3d Night Veil location guardrails.** Enforce deny-by-default for location-sensitive
   capabilities on Night Veil Cells (`geo:*`, Wi-Fi scan, host metadata access), and reject task
   tool plans that request them.
-- [ ] **10.4 Principals, the operator and device keys.** Principals: the human operator, Queen,
+- [x] **10.4 Principals, the operator and device keys.** Principals: the human operator, Queen,
   Warden, Worker, Swarm device, and **enrolled client device**. Brood 1.0 has exactly one
   operator; the password is Argon2id-hashed in the Entrance tables and set at `hive init`.
   Clients never hold a shared API key: each enrolled device holds its own keypair, a WebAuthn
@@ -1567,7 +1567,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   Capacitor build) or an Ed25519 key in secure storage for programs. Every Waggle-side principal
   keeps its Ed25519 keypair as before. Secrets are hashed or in the secret store; nothing in the
   manifest.
-- [ ] **10.5 Hive Entrance.** `entrance/app.py` (composition root) running **two listeners**:
+- [x] **10.5 Hive Entrance.** `entrance/app.py` (composition root) running **two listeners**:
   loopback on `[entrance] bind`, always on, and a remote listener on `remote_bind` only when
   exposed (10.5a). `entrance/routes/` with one file per resource under `/v1/` (`goals`, `tasks`,
   `cells`, `wardens`, `forage`, `inbox`, `chat`, `episodes`, `tools`, `honey`, `trail`, `swarm`,
@@ -1584,7 +1584,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   loopback-only routes; it is committed as `docs/entrance/openapi.json` and CI fails when the
   generated document differs. The Entrance also serves `packages/observation-web/`'s build as
   static files.
-- [ ] **10.5a Remote exposure.** `entrance/expose.py` and the `[entrance]` manifest section
+- [x] **10.5a Remote exposure.** `entrance/expose.py` and the `[entrance]` manifest section
   (coding rules 13): `expose = "loopback" | "vpn" | "lan" | "tunnel"`, `remote_bind`,
   `public_url`, `tls`, `mutual_tls`, `rate_limit_per_device`. `loopback` is the default and the
   loopback listener never goes away. `vpn` is the recommended remote path: the remote listener
@@ -1594,7 +1594,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   runs the tunnel client as a supervised child of the Entrance. There is no `public` value.
   Per-device rate limiting, CORS only for `public_url`. A test starts the Entrance in every mode
   and asserts every refusal.
-- [ ] **10.5b Push channel.** `entrance/push/`: `PushChannel` protocol; `websocket.py` for live
+- [x] **10.5b Push channel.** `entrance/push/`: `PushChannel` protocol; `websocket.py` for live
   clients, `webhook.py` (signed with the Hive key, retried with backoff, idempotent by event id),
   `web_push.py` (VAPID; keys from `HIVEMIND_ENTRANCE_VAPID_*`), and the native channel the
   Android build registers through (12.12). Subscriptions are per device, filtered by capability,
@@ -1603,14 +1603,14 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   security event. Payloads say only that something is waiting, never the content. A question
   answered on any device is withdrawn from every other; a test asks from the CLI, answers by
   webhook, and asserts the web-push copy is withdrawn.
-- [ ] **10.5c Landing Board contract and client guide.** `docs/entrance/landing-board.md`: the
+- [x] **10.5c Landing Board contract and client guide.** `docs/entrance/landing-board.md`: the
   three calls a client needs (submit a goal, subscribe, answer) with `curl` examples, the
   enrolment flow from the device's side, the push contract, and the versioning rule (additive
   within `/v1/`, breaking means `/v2/` with `/v1/` kept for one Brood). A conformance test drives
   the Entrance through the committed OpenAPI document with a generic client and nothing else, so
   a third-party program written from the document alone is known to work. A Python client
   package is post-1.0.
-- [ ] **10.5d Device enrolment, approved at the Hive Stand.** `entrance/enrol/`: `hive entrance
+- [x] **10.5d Device enrolment, approved at the Hive Stand.** `entrance/enrol/`: `hive entrance
   invite --device "phone"` on loopback mints a short-lived, single-use invite shown as a code and
   a QR; the device opens the Entrance, presents the invite, generates its keypair and sends the
   public key with a self-description; the request lands in a pending table and is pushed to every
@@ -1624,8 +1624,10 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   `entrance:steward` approve after full step-up, and nothing else can. The device state machine
   (`INVITED → PENDING → APPROVED`, `PENDING → DENIED | EXPIRED`, `APPROVED ↔ LOCKED`,
   `→ REVOKED`) lives in `entrance/enrol/state.py` (Appendix C); every edge is a
-  `guard.entrance.*` event.
-- [ ] **10.5e Login, sessions, step-up and the Entrance Reducer.** `entrance/auth/`: login is
+  `guard.entrance_*` event (a trail kind has exactly one dot).
+  *The Observation Hive's approve and revoke screens are 12.8a's; the loopback routes they call
+  are these, and `hive entrance` drives the same routes today.*
+- [x] **10.5e Login, sessions, step-up and the Entrance Reducer.** `entrance/auth/`: login is
   the device key (a passkey assertion with user verification, or a signed challenge) plus the
   operator password; sessions carry `session_ttl_hours` and `idle_timeout_minutes` and are bound
   to the device key (a token presented without a matching device signature is refused); step-up
@@ -1643,7 +1645,11 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   anything. Tests: a stolen session token without the device key is refused; an approve request
   on the remote listener is a 404; the Reducer closes a live WebSocket subscription within a
   second.
-- [ ] **10.5f Voice in at the Landing Board.** `entrance/voice.py`: `POST /v1/chat/audio` for
+  *The Guard Bee's door rules (failure bursts, cross-device lockouts, invite abuse, request
+  forgery) reduce a real Entrance under `hive serve` since 10.6. Supersedure, Sting Cut and
+  Absconding are 13.2a's, 13.4's and 13.4a's to build; their step-up and typed-phrase checks are
+  here for them. No route changes a device's key yet; the step that adds one requires step-up.*
+- [x] **10.5f Voice in at the Landing Board.** `entrance/voice/`: `POST /v1/chat/audio` for
   clips and an audio frame type on the chat WebSocket for push-to-talk, both from enrolled devices
   only; transcription on `ModelSlot.TRANSCRIBER` through 6.5a, so the Hive Stand's own Whisper
   serves it by default; the transcript becomes a `HumanMessage` in the Queen's inbox. A spoken
@@ -1654,7 +1660,7 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   retention window; `max_clip_seconds` caps a clip and the rate limiter counts audio seconds per
   device. Tests with fixture clips through `FakeTranscription`; a clip from a pending or revoked
   device is refused before any model runs.
-- [ ] **10.6 Guard Bee role.** `workers/roles/guard_bee.py`, run in the Queen's process on the
+- [x] **10.6 Guard Bee role.** `workers/roles/guard_bee.py`, run in the Queen's process on the
   Hive Stand like the House Bee (7.6), so no Cell action can take it down and it always reads the
   central trail. Deterministic rules first; its awake episodes run on `ModelSlot.JUDGE`, so the
   manifest can pin them to a different provider than `WORKER` and blind spots do not correlate.
@@ -1676,9 +1682,17 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   and is deposited as `C2` Nectar so it appears in the Honey browser; a report the Queen acts on,
   or one at `CRITICAL`, also reaches the human on the existing path, an Alarm that reached the
   human in the inbox, pushed to every enrolled device (10.5b), with the report linked. `AlarmKind`
-  gains `SECURITY` and `PolicyAction` gains `ISOLATE` and `QUARANTINE`, a waggle minor bump
-  since both mirror wire enums.
-- [ ] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
+  gains `SECURITY` and the wire's `InterventionAction` gains `QUARANTINE` (10.6c), a waggle minor
+  bump since both are wire enums; the Hive-side `PolicyAction` gains `ISOLATE` and `QUARANTINE`,
+  which no wire enum mirrors (ADR-0043).
+  *Landed as `hivemind.workers.roles.guard_bee`, composed into every Hive `hive run` and `hive
+  serve` build (`hivemind.cli.compose.guard`) and filing through the Queen's own door; C2
+  deposits are a named seam (`GuardReportSink`, in memory until then) that phase 7's Nectar
+  intake fills. Node integrity counts what the Hive records today (a forged Entrance request, and
+  a forged frame or an unmerged segment at the Cell gate); Waggle replay refusal (11.3b),
+  frame-ceiling closes (11.3a), key-verified merges (11.9) and capability reports (13.4a) each
+  become one rule when their step records its kind.*
+- [x] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
   never a Guard Bee's or a Warden's: revoke the Warden's grant, checkpoint and pause every bee on
   the Cell, write a `BLOCK` Cell Wax so nothing is placed there, set a Virtual Cell's network
   policy to `none`, and keep the lease and its scratch intact for forensics. Recorded as
@@ -1694,7 +1708,21 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   goal on the Hive Stand, and raising a `CRITICAL` Alarm to the human with the report. Tests: a
   Guard request never isolates without a Queen decision on the trail; a tainted Handoff is
   refused; the Hive Stand path is human-only and the fallback fires instead.
-- [ ] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
+  *Landed as `hivemind.queen.isolation` (the one path, checked at `EnforcementPoint.ISOLATION`;
+  the human's lift; `IsolationDoor`) and `hivemind.queen.guard_requests` (the durable request
+  table, its `GUARD_REQUEST` items, the decision by rule, episode or fallback, and
+  `GuardRequestDoor.report_to_human` for a CRITICAL report, shown once per report id), with the
+  human's `POST /v1/cells/{cell_id}/isolate` and `/lift` (interactive, step-up,
+  `entrance:steward`). The Hive Stand's fallback holds goals through `PlacementHold` rows that
+  placement reads; a quarantine checkpoint a judge clears resumes its task on the Queen's tick.
+  The taint reaches the Hive's own memory tables and, by Waggle 1.10's `cell.taint_order`
+  (resent while the isolation stands), the store a Virtual Cell's Warden keeps inside the Cell,
+  whose resume gate then refuses a tainted Handoff (`hivemind.wardens.isolation`). Docker cuts a
+  running Cell's egress by dual-homing it on a per-Hive internal control network
+  (`[virtual_cells] control_subnet`, the listener on its gateway) beside its own egress network,
+  detached by the cut and reattached by the lift; proved on a real daemon by
+  `tests/integration/test_docker_egress.py`. QEMU declares why not, and what a cut needs.*
+- [x] **10.6b Untrusted-content scanner.** `guard/scanner.py`, deterministic, no model: runs at
   every point where outside text enters a prompt, tool results in the Worker runtime (3.16),
   session output, Honey hits at assembly (7.7), Nectar intake (7.4) and Landing Board messages
   (10.5). It emits `guard.injection_suspected` carrying the source, the consuming bee and a
@@ -1703,14 +1731,18 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   of the injection signal the Guard Bee watches. The invariant, tested with seeded payloads
   through Honey and a tool result: an injected instruction can at most make a bee ask; it never
   widens a grant, never reaches an outside-scratch write uncapped, and always leaves a `guard.*`
-  event. The patterns are data, not code: `docs/guard/untrusted-content.toml`, one family per
+  event. The patterns are data, not code: `guard/defaults/untrusted-content.toml` (shipped,
+  read through `importlib.resources`, explained in `docs/guard/`), one family per
   table (imperatives addressed to the model, role and identity overrides, secrets paths beside
   exfiltration verbs, encoded blobs over a size, tool-call-shaped text, hosts outside the task's
   targets), each with a weight, and the `[guard] untrusted_content` thresholds for label and
   drop per Comb Shield tier. A flag alone never stops a bee; only the correlation rule in 10.6
   escalates. The chaos seeds in 13.6 are drawn from the same file, so a pattern change is a
   visible diff and the invariant stays testable.
-- [ ] **10.6c Quarantine, one intervention.** `Quarantine` joins the `Intervention` union (3.13)
+  *Landed for tool results, session output and Landing Board messages; Honey hits at assembly
+  and Nectar intake are named seams (`ScanSource.HONEY_HIT`, `NECTAR_INTAKE`,
+  `AssembleRequest.retrieved`) that phase 7 fills.*
+- [x] **10.6c Quarantine, one intervention.** `Quarantine` joins the `Intervention` union (3.13)
   and `InterventionAction` on the wire (minor bump), carrying the episode id from which the
   bee's memory is suspect. One code path in `wardens/`, nothing composed by hand anywhere else:
   checkpoint, cancel, kill the tracked process, revoke the bee's slice of the grant, label every
@@ -1720,7 +1752,11 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   policy row for its own sub-bee, since a Warden may already cancel it; the Queen is told
   either way. The only way out is a respawn from a Handoff the judge has cleared. A test
   asserts no other path marks memory tainted.
-- [ ] **10.6d Taint, one label.** `tainted` is one marker on checkpoints, Handoffs, episode
+  *Landed with Waggle 1.9 as `hivemind.wardens.quarantine` (the path, and the gate that is the
+  only way out), ordered through `Queen.intervene`, `hivemind.queen.quarantine.order_quarantine`
+  or a `QUARANTINE` policy row at either level; the Queen holds the task on the Warden's PAUSED
+  report and hears a SECURITY Alarm. The Guard request that pulls the lever lands with 10.6.*
+- [x] **10.6d Taint, one label.** `tainted` is one marker on checkpoints, Handoffs, episode
   records, Nectar and Honey items, with the reason and the event that set it. Set by isolation
   (10.6a), by quarantine (10.6c), or by the Queen on a Guard report about a Honey item, and by
   nothing else. `memory.assemble` and retrieval (7.7) refuse a tainted item outright; the
@@ -1730,7 +1766,11 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   retired, never edited. `memory.tainted` and `memory.taint_cleared` on the trail. A test seeds
   a tainted Handoff, a tainted Honey hit and a tainted Nectar deposit and asserts none reaches a
   prompt until cleared.
-- [ ] **10.7 Access levels.** `guard/access.py` (3.13a) grows the full permission data for
+  *Landed on checkpoints, Handoffs, episode records and Bee Bread entries, with the one setter
+  (`memory.taint.taint_memory`) and the one clearer (a judge verdict through `TAINT_CLEAR`); the
+  Honey and Nectar halves and the House Bee's re-ripening are declared seams (`TaintLedger`,
+  `TaintedNectarRipener`) that phase 7's stores implement.*
+- [x] **10.7 Access levels.** `guard/access.py` (3.13a) grows the full permission data for
   `AccessLevel` (2.3a) on every Real Cell (`read_only`, `scratch`, `full`), stored with the node
   and the lease and shown in the UI. Virtual Cells are
   always `full`. The Pollen Packet requests `full` at enrolment by default; the operator may grant
@@ -1738,7 +1778,15 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   bound what watch mode (11.10) may observe: `read_only` allows process list, resource use, logs
   in allowed roots and file-change events in allowed roots; screen or input capture is never part
   of watch mode and needs an explicit, separately granted capability.
-- [ ] **10.8 CLI.** `hive entrance invite|pending|approve|deny|devices|revoke|steward|
+  *Landed for the one Real Cell phase 10 has: the level is stored with the Hive Stand's node
+  (`[hive_stand] access_level`, and no lease above it) and with every lease (`cell.leased`
+  carries it), shown by `GET /v1/cells`, the Cell stream and `hive cells list`, and it caps the
+  Warden's set (`guard.policy.roles.warden_set`), every Worker's (a subset of its Warden's) and
+  every check (`evaluate`). Swarm nodes store theirs with the registry (11.2) and take the
+  operator's grant through `hive swarm access` (11.12); the Pollen Packet's `requested_access`
+  is on the wire (`waggle.messages.swarm.enrolment`) for 11.1 and 11.3 to send and honour; the
+  web screens are 12.4 and 12.6.*
+- [x] **10.8 CLI.** `hive entrance invite|pending|approve|deny|devices|revoke|steward|
   reduce|open|status|expose|operator add`; `hive keys create|revoke|list` for Waggle-side
   principals; `hive run --remote`, `hive inbox --remote` (the CLI on a laptop is an enrolled
   device like any other).
@@ -2329,4 +2377,5 @@ borrowed device and revoking every grant.
 | A lost or stolen phone. | Its key is one device among several; revoking it on loopback kills its sessions instantly; every login and step-up is pushed to the other devices; the passkey needs the phone's biometric or PIN; push payloads carry no content. |
 | A prompt injection through Honey, hot state or a tool result steers a bee. | Untrusted content labelled and delimited in every prompt (3.9, 7.8); the scanner and its trail event (10.6b); tool calls validated against schema and capabilities whichever rung produced them (3.16); Capping on every side effect outside scratch (3.17); the Guard Bee's injection-then-denial rule (10.6); Queen-only isolation and tainted memory (10.6a); the chaos seeds (13.6). |
 | A compromised Swarm device lies in its reports or poisons its session output. | Pollen has no brain and holds no capabilities, so its key speaks only as that node (11.3); signed envelopes and replay rejection (1.7, 11.3); session output is untrusted content to the scanner (10.6b); a capability report changed without re-enrolment is a dire pattern (13.4a); trail segments verified on merge (11.9); the dead-man switch (11.4); isolation and Sting Cut on the Queen's decision only (10.6a, 13.4a). |
+| A bee on the Hive Stand reads or rewrites the Hive's own state (its database, secret store or manifest). | Bees run as the Hive's own OS user today. The console key is wrapped under the operator password, so reading the secret store yields nothing usable (ADR-0041); a guard floor denies every bee `fs:*` on the state paths, `exec` of the Hive's entry points and `net` to loopback (10.3); arbitrary commands stay Capping-gated; work that must not be trusted with the Hive Stand runs with `isolation = "required"`. A separate OS user for Hive Stand bees is the lasting fix, not yet scheduled. |
 | A stolen client key or an abusive enrolled program. | Sessions bound to the device key and step-up for anything sensitive (10.5e); narrow capability sets and spend caps per device (10.5d); lockout on capability-denial bursts, undone only on loopback (10.5e); revocation on loopback; every Entrance event pushed to every other device (10.5b). |

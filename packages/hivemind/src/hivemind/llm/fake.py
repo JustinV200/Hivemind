@@ -30,6 +30,8 @@ Key invariants:
       before touching the scripted queue or `calls`, and makes `health()` report `HealthState.DOWN`.
     - `answer_slot` reroutes only its own slot's calls: every other call still reaches whichever
       responder answered it before, the scripted queue included.
+    - `aclose()` releases nothing (the fake holds no connection) and changes no behaviour; it only
+      sets `is_closed`, so a test can assert that a registry closed what it built.
 
 See Also:
     - .claude/codingrules.md section 14.4 for the fakes-over-mocks rule this module follows.
@@ -117,12 +119,18 @@ class FakeLLMProvider:
         self._clock: Clock = clock if clock is not None else FakeClock()
         self._script: deque[LLMResponse | LLMError] = deque()
         self._is_down = False
+        self._is_closed = False
         self.calls: list[LLMRequest] = []
 
     @property
     def name(self) -> str:
         """Return this provider's name; see `LLMProvider.name`."""
         return self._name
+
+    @property
+    def is_closed(self) -> bool:
+        """Return whether `aclose()` has been called at least once."""
+        return self._is_closed
 
     @property
     def capabilities(self) -> ProviderCapabilities:
@@ -217,6 +225,14 @@ class FakeLLMProvider:
                 state=HealthState.DOWN, detail="set_outage(True)", checked_at=self._clock.now()
             )
         return ProviderHealth(state=HealthState.HEALTHY, detail="ok", checked_at=self._clock.now())
+
+    async def aclose(self) -> None:
+        """Record the close and release nothing; see `LLMProvider.aclose`.
+
+        The fake keeps answering afterwards: it holds no connection a closed state could protect,
+        and a scenario that closes its registry before reading `calls` should still read them.
+        """
+        self._is_closed = True
 
     def _check_outage(self) -> None:
         """Raise ProviderUnavailableError when `set_outage(True)` is in effect."""

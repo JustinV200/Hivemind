@@ -23,8 +23,8 @@ from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
 from hivemind.hive.backends.qemu.backend import QemuBackendConfig, QemuCellBackend
 from hivemind.hive.backends.qemu.fake import FakeQemuRunner
-from hivemind.hive.snapshot.docker import DockerSnapshotter
-from hivemind.hive.snapshot.factory import snapshotter_for
+from hivemind.hive.snapshot.docker import DockerSnapshotImages, DockerSnapshotter
+from hivemind.hive.snapshot.factory import snapshot_images_for, snapshotter_for
 from hivemind.hive.snapshot.ledger import SnapshotLedger
 from hivemind.hive.snapshot.qemu import QemuSnapshotter
 from waggle.clock import FakeClock
@@ -90,3 +90,15 @@ async def test_snapshotter_for_a_backend_with_no_registered_builder_degrades_to_
     snapshotter = snapshotter_for(backend, SnapshotLedger(), clock)
 
     assert isinstance(snapshotter, NoopSnapshotter)
+
+
+async def test_only_a_docker_backend_has_snapshot_images_to_purge(tmp_path: Path) -> None:
+    clock = FakeClock()
+    snapshotting_fake = FakeCellBackend(
+        clock, BackendCapabilities(can_snapshot=True, can_pause=True, headroom=None)
+    )
+
+    assert isinstance(snapshot_images_for(_docker_backend(clock)), DockerSnapshotImages)
+    # A QEMU snapshot lives in the Cell's own overlay, removed with its VM directory.
+    assert snapshot_images_for(_qemu_backend(clock, tmp_path)) is None
+    assert snapshot_images_for(snapshotting_fake) is None

@@ -25,7 +25,7 @@ from hivemind.honey_store.clearance import (
 )
 from hivemind.honey_store.errors import LabelLoweringError
 from hivemind.honey_store.models import NectarOrigin
-from hivemind.manifest.schema.security import ClearanceMatrix
+from hivemind.manifest.schema.security.tiers import ClearanceMatrix
 from waggle.messages import CombShieldLevel as WireCombShieldLevel
 from waggle.messages import HoneyClearance as WireHoneyClearance
 

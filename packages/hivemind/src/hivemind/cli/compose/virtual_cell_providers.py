@@ -3,11 +3,12 @@
 Split out of `hivemind.cli.compose.virtual_cells` for its own line budget (codingrules 5.1): that
 module builds everything else a Virtual Cell needs; this one concept -- convert this Hive's own
 manifest `[llm]` section into `hivemind.hive.backends.provider_table.CellProviderSpec`/
-`CellSlotSpec` rows a Cell can actually use -- is one `_cell_providers`/`_cell_slots`/
-`_provider_api_keys` call away from `virtual_cells._endpoint_for`, its one caller. Reuses
-`hivemind.cli.stores.provider_configs`/`slot_bindings`, the exact manifest -> `ProviderConfig`/
-`SlotBinding` conversion the Hive Stand's own `ProviderRegistry` is already built from
-(`hivemind.cli.compose.deps.build_provider_registry`), never a second, drifting copy; every
+`CellSlotSpec` rows a Cell can actually use, each provider's seats and rate limits included so
+the Cell's own Fanner meters by the operator's own figures -- is one `_cell_providers`/
+`_cell_slots`/`_provider_api_keys` call away from `virtual_cells._endpoint_for`, its one caller.
+Reuses `hivemind.cli.stores.provider_configs`/`slot_bindings`, the exact manifest ->
+`ProviderConfig`/`SlotBinding` conversion the Hive Stand's own `ProviderRegistry` is already built
+from (`hivemind.cli.stores.build_provider_registry`), never a second, drifting copy; every
 loopback `base_url` is rewritten through `hivemind.cli.in_cell.config.rewrite_loopback_base_url` so
 it is reachable from inside a Cell, and every provider's own API key is resolved from this
 composition root's own environment through `hivemind.manifest.env.provider_api_key`, the same
@@ -19,7 +20,7 @@ Fits into the Hive:
     (rewrite_loopback_base_url), `hivemind.cli.stores` (provider_configs, slot_bindings),
     `hivemind.hive.backends.provider_table` (CellProviderSpec, CellSlotSpec), `hivemind.manifest`
     (HiveManifest), `hivemind.manifest.env` (provider_api_key), `hivemind.manifest.schema.llm`
-    (ProviderSpec) and waggle only.
+    (ProviderSpec), `hivemind.llm.registry` (ProviderConfig, a type only) and waggle only.
 
 Key invariants:
     - `_cell_providers`/`_cell_slots` never read `environ`: an API key's own VALUE only ever
@@ -47,6 +48,7 @@ from pydantic import SecretStr
 from hivemind.cli.in_cell.config import rewrite_loopback_base_url
 from hivemind.cli.stores import provider_configs, slot_bindings
 from hivemind.hive.backends.provider_table import CellProviderSpec, CellSlotSpec
+from hivemind.llm.registry import ProviderConfig
 from hivemind.manifest import HiveManifest
 from hivemind.manifest.env import provider_api_key
 from hivemind.manifest.schema.llm import ProviderSpec
@@ -66,14 +68,7 @@ def cell_providers(
             base_url unchanged (the "fake" backend: same process, loopback genuinely reachable).
     """
     return tuple(
-        CellProviderSpec(
-            name=name,
-            kind=config.kind,
-            base_url=_rewritten_base_url(config.base_url, gateway_host),
-            default_model=config.default_model,
-            capabilities=config.capability_overrides,
-            api_key_env=_provider_api_key_env(name, manifest.llm.providers[name]),
-        )
+        _cell_provider(name, config, manifest.llm.providers[name], gateway_host)
         for name, config in provider_configs(manifest).items()
     )
 
@@ -116,6 +111,24 @@ def provider_api_keys(manifest: HiveManifest, environ: Mapping[str, str]) -> dic
         if key is not None:
             keys[_provider_api_key_env(name, spec)] = key
     return keys
+
+
+def _cell_provider(
+    name: str, config: ProviderConfig, spec: ProviderSpec, gateway_host: str | None
+) -> CellProviderSpec:
+    """Build one Cell-reachable provider row: `config`'s wire fields, `spec`'s seats and limits."""
+    return CellProviderSpec(
+        name=name,
+        kind=config.kind,
+        base_url=_rewritten_base_url(config.base_url, gateway_host),
+        default_model=config.default_model,
+        # The operator's own figures, so the Cell's Fanner meters exactly as the Hive Stand's does.
+        seats=spec.seats,
+        capabilities=config.capability_overrides,
+        api_key_env=_provider_api_key_env(name, spec),
+        requests_per_minute=spec.requests_per_minute,
+        tokens_per_minute=spec.tokens_per_minute,
+    )
 
 
 def _rewritten_base_url(base_url: str, gateway_host: str | None) -> str:

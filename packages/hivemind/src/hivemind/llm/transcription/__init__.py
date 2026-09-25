@@ -30,12 +30,16 @@ See Also:
     - hivemind.llm.fanner.transcription for FannerTranscriptionGate.
 
 Public API:
-    - Values (`models`): AudioClip, AudioChunk, AudioMediaType, Transcript, TranscriptSegment,
-      and the bounds MAX_CLIP_BYTES, MAX_PCM_BYTES, LANGUAGE_PATTERN.
+    - Values (`models`): AudioClip (`from_upload` for a device's recording), AudioChunk,
+      Transcript, TranscriptSegment, and the bounds MAX_CLIP_BYTES, MAX_CLIP_SECONDS,
+      MAX_PCM_BYTES, LANGUAGE_PATTERN.
+    - Formats and refusals (`media`, `errors`, roadmap step 10.5f): AudioMediaType (WAV, Opus in
+      Ogg or WebM, MP3, M4A), ClipProblem, InvalidAudioClipError.
     - Capabilities (`capabilities`): TranscriptionCapabilities, check_request,
-      DEFAULT_MAX_CLIP_S.
+      DEFAULT_MAX_CLIP_S, normalise_language, MAX_LANGUAGE_CHARS.
     - The door (`provider`): TranscriptionProvider.
-    - Buffered streaming (`buffered`): stream_by_buffering, collect_clip.
+    - Buffered streaming (`buffered`): stream_by_buffering, collect_clip; a device's
+      push-to-talk frames: EncodedAudioChunk, clip_from_chunks.
     - The fake (`fake`): FakeTranscription, FakeTranscriptionCall.
     - The slot (`binding`): BoundTranscriber, TranscriberLookup, resolve_transcriber.
     - The seam (`gate`): TranscriptionGate, DirectTranscriptionGate, and Ears (a gate plus the
@@ -48,21 +52,31 @@ from hivemind.llm.transcription.binding import (
     TranscriberLookup,
     resolve_transcriber,
 )
-from hivemind.llm.transcription.buffered import collect_clip, stream_by_buffering
+from hivemind.llm.transcription.buffered import (
+    EncodedAudioChunk,
+    clip_from_chunks,
+    collect_clip,
+    stream_by_buffering,
+)
 from hivemind.llm.transcription.capabilities import (
     DEFAULT_MAX_CLIP_S,
+    MAX_LANGUAGE_CHARS,
     TranscriptionCapabilities,
     check_request,
+    normalise_language,
 )
+from hivemind.llm.transcription.errors import ClipProblem, InvalidAudioClipError
 from hivemind.llm.transcription.fake import FakeTranscription, FakeTranscriptionCall
 from hivemind.llm.transcription.gate import DirectTranscriptionGate, Ears, TranscriptionGate
+from hivemind.llm.transcription.media import AudioMediaType
 from hivemind.llm.transcription.models import (
     LANGUAGE_PATTERN,
     MAX_CLIP_BYTES,
+    MAX_CLIP_SECONDS,
     MAX_PCM_BYTES,
+    MAX_TRANSCRIPT_CHARS,
     AudioChunk,
     AudioClip,
-    AudioMediaType,
     Transcript,
     TranscriptSegment,
 )
@@ -78,16 +92,22 @@ __all__ = [
     "DEFAULT_MAX_CLIP_S",
     "LANGUAGE_PATTERN",
     "MAX_CLIP_BYTES",
+    "MAX_CLIP_SECONDS",
+    "MAX_LANGUAGE_CHARS",
     "MAX_PCM_BYTES",
+    "MAX_TRANSCRIPT_CHARS",
     "PCM_SAMPLE_WIDTH_BYTES",
     "AudioChunk",
     "AudioClip",
     "AudioMediaType",
     "BoundTranscriber",
+    "ClipProblem",
     "DirectTranscriptionGate",
     "Ears",
+    "EncodedAudioChunk",
     "FakeTranscription",
     "FakeTranscriptionCall",
+    "InvalidAudioClipError",
     "TranscriberLookup",
     "Transcript",
     "TranscriptSegment",
@@ -96,8 +116,10 @@ __all__ = [
     "TranscriptionProvider",
     "WavHeader",
     "check_request",
+    "clip_from_chunks",
     "collect_clip",
     "encode_wav",
+    "normalise_language",
     "read_wav_header",
     "resolve_transcriber",
     "stream_by_buffering",

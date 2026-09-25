@@ -72,7 +72,9 @@ async def _run_outside_scratch_write(
         postconditions=(make_postcondition(subject=str(target)),),
     )
     lease = FakeLeaseView(scratch_root, allowed_paths=(target_root,))
-    capabilities = CapabilitySet.parse(f"fs:write:{target.resolve(strict=False).as_posix()}")
+    resolved = target.resolve(strict=False).as_posix()
+    # Roadmap step 10.3: leaving scratch needs `cell:outside_scratch` as well as `fs:write`.
+    capabilities = CapabilitySet.parse(f"fs:write:{resolved}", f"cell:outside_scratch:{resolved}")
 
     proposal_id = await gate.propose(proposal)
     outcome = await gate.run(proposal_id, capabilities, lease)

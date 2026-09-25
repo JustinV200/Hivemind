@@ -17,12 +17,14 @@ See Also:
     - hivemind.common.errors, hivemind.common.logging, hivemind.common.migrations,
       hivemind.common.result, hivemind.common.sqlite for the modules behind this package's public
       API.
+    - hivemind.common.secrets for the secret store (its own sub-package and face): one
+      owner-only file per secret, and the Hive's persisted Ed25519 signing key.
 
 Public API:
     - HiveMindError: root of every error a hivemind subsystem raises on purpose.
     - ConfigurationError, NotFoundError, ConflictError, PermissionDeniedError,
-      DeadlineExceededError, InvariantViolationError, MigrationError: the base error categories
-      subsystems extend, plus the migrations-specific error.
+      DeadlineExceededError, InvariantViolationError, MigrationError, SecretStoreError: the base
+      error categories subsystems extend, plus the migrations- and secret-store-specific errors.
     - configure_logging: one-time structlog configuration, called only by a composition root.
     - get_logger: hand a subsystem its own bound structlog logger.
     - Ok, Err, Result, ResultUnwrapError: the Result type used only at the LLM boundary.
@@ -41,6 +43,7 @@ from hivemind.common.errors import (
     MigrationError,
     NotFoundError,
     PermissionDeniedError,
+    SecretStoreError,
 )
 from hivemind.common.logging import configure_logging, get_logger
 from hivemind.common.migrations import (
@@ -72,6 +75,7 @@ __all__ = [
     "PermissionDeniedError",
     "Result",
     "ResultUnwrapError",
+    "SecretStoreError",
     "applied_versions",
     "apply_migrations",
     "configure_logging",

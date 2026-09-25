@@ -23,7 +23,8 @@ Fits into the Hive:
     hivemind.cell.tiers and hivemind.pheromone (CellEvent) only; never hivemind.guard (codingrules
     section 4: nothing at Layer 2 or below imports guard for an enum), so this module holds no
     CapabilitySet -- a Warden builds one from `access_level` and `scratch_root` via
-    `hivemind.guard.access.ceiling_for` once it has both a Cell and a Layer-2 lease in hand.
+    `hivemind.guard.warden_set` (its Guard policy role default, narrowed to the access level by
+    `hivemind.guard.access`) once it has both a Cell and a Layer-2 lease in hand.
 
 Key invariants:
     - `RealCellLease.__init__` leaves `state` at `LeaseState.REQUESTED`; only `open()` transitions

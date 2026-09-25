@@ -4,9 +4,11 @@ Transcription is speech in, text out, on `ModelSlot.TRANSCRIBER` (the one model 
 Codingrules section 8.6 keeps every vendor and library type inside its adapter, so the values that
 cross this boundary are HiveMind's own frozen models (ADR-0033): an `AudioClip` goes in (a whole
 WAV file plus the facts its header states, checked against that header so a caller can never
-under-report how long a clip is), an `AudioChunk` is one piece of a push-to-talk stream (raw PCM
-frames, assembled into a clip by `hivemind.llm.transcription.buffered`), and a `Transcript` of
-time-stamped `TranscriptSegment`s comes back. Audio is personal data (`C2` when it came from a
+under-report how long a clip is; or, since roadmap step 10.5f, a device's compressed recording
+-- Opus in Ogg or WebM, MP3, M4A -- whose length its sender states, built with `from_upload`), an
+`AudioChunk` is one piece of a push-to-talk stream (raw PCM frames, assembled into a clip by
+`hivemind.llm.transcription.buffered`), and a `Transcript` of time-stamped `TranscriptSegment`s
+comes back. Audio is personal data (`C2` when it came from a
 Real Cell or the human) and transient: it lives in memory for the call only, so neither audio
 model ever puts its bytes in a `repr`, and none of these models is ever written to the Pheromone
 Trail (the Hive's append-only audit log).
@@ -17,13 +19,17 @@ Fits into the Hive:
     Entrance's voice route, roadmap step 10.5f) and by every transcription adapter's own mapping;
     read by `hivemind.llm.transcription.capabilities` (the limits check) and the Fanner (the seat
     meter every model call passes through), which meters `AudioClip.duration_s`. Calls into
-    `hivemind.llm.transcription.wav` and pydantic only.
+    `hivemind.llm.transcription.errors`, `.media`, `.wav` and pydantic only.
 
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5); bytes
       travel as base64 in JSON so a clip survives a JSON round trip unchanged.
-    - An `AudioClip`'s `sample_rate`, `channels` and `duration_s` agree with its own WAV header,
-      to within `DURATION_TOLERANCE_S`; `from_wav` and `from_pcm` derive them so they always do.
+    - A WAV `AudioClip`'s `sample_rate`, `channels` and `duration_s` agree with its own header,
+      to within `DURATION_TOLERANCE_S`; `from_wav`, `from_pcm` and `from_upload` derive them so
+      they always do. A compressed clip states no sample rate or channels (they are not known
+      without decoding it), and `from_upload` refuses one with no positive duration.
+    - `from_upload` reports every refusal as an `InvalidAudioClipError` with a `ClipProblem`,
+      never a pydantic error, so the Entrance's voice route answers without parsing a message.
     - `AudioClip.data` and `AudioChunk.pcm` are excluded from `repr`: audio never reaches a log
       line by way of an f-string (codingrules section 12).
     - A `TranscriptSegment` never ends before it starts, and a `Transcript`'s segments are in
@@ -37,11 +43,13 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Literal
+import math
+from collections.abc import Callable, Iterable
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from hivemind.llm.transcription.errors import ClipProblem, InvalidAudioClipError
+from hivemind.llm.transcription.media import AudioMediaType
 from hivemind.llm.transcription.wav import (
     PCM_SAMPLE_WIDTH_BYTES,
     WAV_HEADER_BYTES,
@@ -58,35 +66,36 @@ DURATION_TOLERANCE_S = 0.001  # A declared duration may differ from the header's
 LANGUAGE_PATTERN = r"^[a-z]{2,3}$"  # An ISO 639-1 code ("en"), or 639-3 where Whisper uses one.
 MAX_TRANSCRIPT_CHARS = 100_000  # Far above what the longest clip can hold spoken (about 20
 # characters a second); only a runaway reply ever reaches it.
+MAX_CLIP_SECONDS = 600.0  # Ten minutes: the longest upload `from_upload` accepts from a device.
 
-# Every container an AudioClip may carry. WAV only: the standard library can check its header
-# without a codec; a compressed type joins this Literal with a header check of its own.
-AudioMediaType = Literal["audio/wav"]
-WAV_MEDIA_TYPE: AudioMediaType = "audio/wav"  # The container every clip carries (see `wav`).
+# The one container whose facts the standard library reads without a codec (see `wav`); every
+# other AudioMediaType is a compressed recording whose length its sender states.
+WAV_MEDIA_TYPE = AudioMediaType.WAV
 
 __all__ = [
     "DURATION_TOLERANCE_S",
     "LANGUAGE_PATTERN",
     "MAX_CHANNELS",
     "MAX_CLIP_BYTES",
+    "MAX_CLIP_SECONDS",
     "MAX_PCM_BYTES",
     "MAX_SAMPLE_RATE",
     "MAX_TRANSCRIPT_CHARS",
     "WAV_MEDIA_TYPE",
     "AudioChunk",
     "AudioClip",
-    "AudioMediaType",
     "Transcript",
     "TranscriptSegment",
 ]
 
 
 class AudioClip(BaseModel):
-    """One whole recording to transcribe: a WAV file and what its header says about it.
+    """One whole recording to transcribe: a WAV file and what its header says, or an upload.
 
     Crosses the transcription boundary inward (`TranscriptionProvider.transcribe`). Build one with
-    `from_wav` or `from_pcm` rather than field by field, so the stated facts are measured, not
-    typed in; the validator still checks a hand-built clip against its own header.
+    `from_wav`, `from_pcm` or (a device's upload, in any `AudioMediaType`) `from_upload` rather
+    than field by field, so the stated facts are measured, not typed in; the validator still
+    checks a hand-built WAV clip against its own header.
     """
 
     # Frozen, extras-forbidding, and bytes as base64 in JSON: raw audio is not UTF-8, so
@@ -98,16 +107,23 @@ class AudioClip(BaseModel):
     data: bytes = Field(
         max_length=MAX_CLIP_BYTES,
         repr=False,
-        description="The whole WAV file, header and frames. Never logged, never on the trail.",
+        description="The whole recording, container header included. Never logged, never on "
+        "the trail.",
     )
     media_type: AudioMediaType = Field(
-        default=WAV_MEDIA_TYPE, description="The container `data` is in; WAV only for now."
+        default=WAV_MEDIA_TYPE, description="The container and codec `data` is in."
     )
-    sample_rate: int = Field(
-        gt=0, le=MAX_SAMPLE_RATE, description="Frames per second, as the WAV header states."
+    sample_rate: int | None = Field(
+        default=None,
+        gt=0,
+        le=MAX_SAMPLE_RATE,
+        description="Frames per second, as the WAV header states; None for a compressed clip.",
     )
-    channels: int = Field(
-        ge=1, le=MAX_CHANNELS, description="Channels per frame, as the WAV header states."
+    channels: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_CHANNELS,
+        description="Channels per frame, as the WAV header states; None for a compressed clip.",
     )
     duration_s: float = Field(
         ge=0, description="How long the audio lasts, in seconds, measured from its frames."
@@ -116,6 +132,14 @@ class AudioClip(BaseModel):
     @model_validator(mode="after")
     def _facts_match_the_header(self) -> AudioClip:
         """Reject a clip whose stated sample rate, channels or duration its header contradicts."""
+        if self.media_type is not AudioMediaType.WAV:
+            # A compressed clip's header needs a codec to read; its sender's length stands, and
+            # no sample rate or channel count can be stated for it at all.
+            if self.sample_rate is not None or self.channels is not None:
+                raise ValueError(
+                    f"a {self.media_type.value} clip states no sample rate or channels."
+                )
+            return self
         header = read_wav_header(self.data)
         # The Fanner meters audio seconds from duration_s, so a clip that under-reports its own
         # length would be under-billed; the header, not the caller, is the source of truth.
@@ -168,6 +192,49 @@ class AudioClip(BaseModel):
             ValueError: The frames cannot be wrapped, or the result breaks a bound above.
         """
         return cls.from_wav(encode_wav(pcm, sample_rate, channels))
+
+    @classmethod
+    def from_upload(
+        cls, data: bytes, media_type: str | AudioMediaType, duration_s: float | None = None
+    ) -> AudioClip:
+        """Build a clip from what a device sent (roadmap step 10.5f), checking every ceiling.
+
+        Args:
+            data: The encoded audio as received.
+            media_type: The sender's label (`"audio/webm;codecs=opus"`) or an already-parsed
+                format.
+            duration_s: The sender's stated length in seconds. Required for a compressed
+                format; ignored for WAV, whose header is authoritative.
+
+        Returns:
+            A validated AudioClip.
+
+        Raises:
+            InvalidAudioClipError: The format is not accepted (`UNSUPPORTED_FORMAT`), the clip
+                is too big (`TOO_LARGE`) or too long (`TOO_LONG`), a compressed clip came with
+                no duration (`MISSING_DURATION`), or it is empty or unreadable (`MALFORMED`).
+        """
+        format_ = (
+            media_type
+            if isinstance(media_type, AudioMediaType)
+            else AudioMediaType.parse(media_type)
+        )
+        # Size first: it is the cheapest check and bounds every later one's work.
+        if not data:
+            raise InvalidAudioClipError(ClipProblem.MALFORMED, "the clip is empty")
+        if len(data) > MAX_CLIP_BYTES:
+            raise InvalidAudioClipError(
+                ClipProblem.TOO_LARGE, f"{len(data)} bytes exceeds the {MAX_CLIP_BYTES} limit"
+            )
+        if format_ is not AudioMediaType.WAV:
+            seconds = _checked_duration(format_, duration_s)
+            return _build(lambda: cls(data=data, media_type=format_, duration_s=seconds))
+        try:
+            header = read_wav_header(data)
+        except ValueError as exc:
+            raise InvalidAudioClipError(ClipProblem.MALFORMED, str(exc)) from exc
+        _checked_duration(format_, header.duration_s)
+        return _build(lambda: cls.from_wav(data))
 
 
 class AudioChunk(BaseModel):
@@ -279,3 +346,35 @@ class Transcript(BaseModel):
         ordered = tuple(sorted(segments, key=lambda segment: segment.start_s))
         text = " ".join(segment.text for segment in ordered if segment.text)
         return cls(text=text, language=language, duration_s=duration_s, segments=ordered)
+
+
+def _checked_duration(format_: AudioMediaType, seconds: float | None) -> float:
+    """Return an upload's duration once it is known, positive, finite and within the ceiling.
+
+    Raises:
+        InvalidAudioClipError: No duration for a compressed clip (`MISSING_DURATION`), one that
+            is not a positive finite number (`MALFORMED`), or one past `MAX_CLIP_SECONDS`
+            (`TOO_LONG`).
+    """
+    if seconds is None:
+        raise InvalidAudioClipError(
+            ClipProblem.MISSING_DURATION,
+            f"a {format_.value} clip needs its duration from its sender",
+        )
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise InvalidAudioClipError(ClipProblem.MALFORMED, f"duration {seconds!r} is not positive")
+    if seconds > MAX_CLIP_SECONDS:
+        raise InvalidAudioClipError(
+            ClipProblem.TOO_LONG, f"{seconds:.1f} s exceeds the {MAX_CLIP_SECONDS:.0f} s limit"
+        )
+    return seconds
+
+
+def _build(make: Callable[[], AudioClip]) -> AudioClip:
+    """Run `make`, turning a model validation failure into a MALFORMED clip refusal."""
+    try:
+        return make()
+    except ValidationError as exc:
+        # Every named rule has passed, so what is left is a malformed value those checks could
+        # not name more precisely; chained so the trail keeps pydantic's own detail.
+        raise InvalidAudioClipError(ClipProblem.MALFORMED, "the clip failed validation") from exc

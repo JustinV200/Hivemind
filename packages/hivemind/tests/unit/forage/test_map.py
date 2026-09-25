@@ -20,7 +20,7 @@ import pytest
 from builders.forage import make_source
 
 from hivemind.forage.errors import UnknownSourceError
-from hivemind.forage.map import ForageMap, SlotBinding
+from hivemind.forage.map import ForageMap, SlotBinding, slot_for_binding
 from hivemind.forage.slots import Effort, ModelSlot
 from waggle.clock import FakeClock
 
@@ -288,3 +288,44 @@ async def test_observe_and_set_abundance_on_different_sources_do_not_interfere()
 
     assert forage_map.get("src_1").distance is not None
     assert forage_map.get("src_2").abundance.seats_free == 7
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# slot_for_binding (roadmap step 10.3: a named binding resolves to the slot it serves)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _row(key: str, fallback: str | None = None) -> SlotBinding:
+    """One `[llm.slots]` row on a fake provider."""
+    return SlotBinding(
+        key=key, provider="fake", model="test-model", fallback=fallback, effort=Effort.MEDIUM
+    )
+
+
+def test_a_slots_own_key_resolves_to_that_slot() -> None:
+    assert slot_for_binding("worker", ()) is ModelSlot.WORKER
+
+
+def test_a_named_binding_resolves_to_the_slot_whose_chain_names_it() -> None:
+    rows = (
+        _row("worker", fallback="local_worker"),
+        _row("local_worker", fallback="last_resort"),
+        _row("last_resort"),
+    )
+
+    assert slot_for_binding("local_worker", rows) is ModelSlot.WORKER
+    assert slot_for_binding("last_resort", rows) is ModelSlot.WORKER
+
+
+def test_a_binding_no_chain_reaches_resolves_to_nothing() -> None:
+    rows = (_row("worker"), _row("orphan"))
+
+    assert slot_for_binding("orphan", rows) is None
+    assert slot_for_binding("never_declared", rows) is None
+
+
+def test_a_cyclic_chain_never_hangs() -> None:
+    rows = (_row("worker", fallback="a"), _row("a", fallback="b"), _row("b", fallback="a"))
+
+    assert slot_for_binding("b", rows) is ModelSlot.WORKER
+    assert slot_for_binding("elsewhere", rows) is None

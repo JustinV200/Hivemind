@@ -13,14 +13,21 @@ text are written once. A rolled-back GUI action (roadmap step 6.5, ADR-0032) rai
 once rather than after three: the screen no longer matches what the bee believes, so every later
 step would act on a misread. An applied irreversible GUI action also comes back with the judge's
 review (`GateOutcome.review`): a REJECT becomes a failed result (`tool_output`) and a CRITICAL
-AUDIT_FAILED Alarm, whose escalation ends the attempt (ADR-0032).
+AUDIT_FAILED Alarm, whose escalation ends the attempt (ADR-0032). Roadmap step 10.3 (ADR-0039):
+the gate's ALLOWLIST rung is a capability check, so when it refuses because the Worker's set lacks
+one capability (`CheckResultRecord.denied_capability`), `cap` also records that refusal through
+the Guard's `Enforcer` as `guard.denied` -- at `session_outside_scratch` for an outside-scratch
+write, at `tool_invocation` for anything else (a command's `exec`, a network step's `net`, a GUI
+step's `exoskeleton` scope) -- so every capability refusal a Worker meets is on the trail as a
+Guard decision, not only as `capping.*`.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Called by
     `hivemind.workers.tools.session`, `.http`, `.keep` and the `.exoskeleton` action tools. Calls
-    into `hivemind.cell`, `hivemind.forage.tempo`, `hivemind.supervision.capping`,
-    `hivemind.workers.context`, `hivemind.workers.telemetry` (through `ctx.telemetry.note_alarm`
-    and `note_rollback`), `hivemind.workers.tools.registry` (ToolOutput) and waggle only.
+    into `hivemind.cell`, `hivemind.forage.tempo`, `hivemind.guard`,
+    `hivemind.supervision.capping`, `hivemind.workers.context`, `hivemind.workers.telemetry`
+    (through `ctx.telemetry.note_alarm` and `note_rollback`), `hivemind.workers.tools.authorize`,
+    `hivemind.workers.tools.registry` (ToolInvocation, ToolOutput) and waggle only.
 
 Key invariants:
     - `make_proposal` never reads `ctx.capabilities` or `ctx.lease`: those are checked by
@@ -39,6 +46,9 @@ Key invariants:
       toward `hivemind.workers.telemetry.ROLLBACKS_BEFORE_ALARM`.
     - A judge's REJECT is noted as exactly one CRITICAL AUDIT_FAILED Alarm, here: the gate only
       records the verdict, so the Warden's policy (escalation to a person) ends the attempt.
+    - `cap` records at most one `guard.denied` per proposal, and only for a REJECTED outcome whose
+      failing check named a missing capability: the Guard re-checks that capability against the
+      same set, so it is recorded only when the Guard agrees it is not held.
 
 See Also:
     - .claude/codingrules.md section 5.1 for the parameter-count limit `ProposalRequest` exists
@@ -57,6 +67,7 @@ from dataclasses import dataclass
 
 from hivemind.cell import HoneyClearance
 from hivemind.forage.tempo import Tempo
+from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint, InvalidCapabilityError
 from hivemind.supervision.capping import (
     GateOutcome,
     JudgeOutcome,
@@ -67,7 +78,8 @@ from hivemind.supervision.capping import (
 )
 from hivemind.supervision.capping.leave import LeaveDecisionRecord
 from hivemind.workers.context import WorkerContext
-from hivemind.workers.tools.registry import ToolOutput
+from hivemind.workers.tools.authorize import authorize
+from hivemind.workers.tools.registry import ToolInvocation, ToolOutput
 from waggle.ids import new_message_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.capping import ActionKind, ProposedAction
@@ -83,6 +95,12 @@ ROLLBACK_ALARM_KIND = AlarmKind.POSTCONDITION_FAILED
 MAX_REVIEW_CHARS = 600  # A judge's reasons as the model reads them: a few sentences, never notes.
 # Why a Worker escalates a judged irreversible GUI action: it already happened and cannot be undone.
 REVIEW_REJECTED_REASON = "A judge rejected an irreversible GUI action after it was applied."
+# Roadmap step 10.3: the families a path refusal names. An outside-scratch write refused on one of
+# them is the session_outside_scratch point; every other allowlist refusal (a command's `exec`, a
+# network step's `net`, a path inside scratch) is the tool's own call, tool_invocation.
+_PATH_FAMILIES = frozenset(
+    {CapabilityFamily.FS_READ, CapabilityFamily.FS_WRITE, CapabilityFamily.CELL_OUTSIDE_SCRATCH}
+)
 
 __all__ = [
     "MAX_REVIEW_CHARS",
@@ -136,7 +154,7 @@ def make_proposal(ctx: WorkerContext, assignment: TaskAssign, request: ProposalR
     )
 
 
-async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
+async def cap(invocation: ToolInvocation, proposal: Proposal) -> GateOutcome:
     """Propose, then run, `proposal` through this attempt's Capping gate.
 
     A ROLLED_BACK outcome is also counted on `ctx.telemetry`, which queues an Alarm once this
@@ -147,17 +165,19 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
     into a real `AlarmRaised` on its next tick).
 
     Args:
-        ctx: This attempt's WorkerContext: supplies the gate, the capabilities to check the
-            proposal against, the lease view for path reachability, the telemetry tracker a
-            rollback is noted on, and (roadmap step 5.0d) `ctx.asker`, the real transport-backed
-            asker `WorkerRuntime` has already substituted in by the time a tool call runs, so an
-            ASK-verdict leaving can raise its Question up the same Worker -> Warden -> Queen chain
-            `hivemind.workers.tools.ask.ask` uses.
+        invocation: This attempt's context and assignment. `ctx` supplies the gate, the
+            capabilities to check the proposal against, the lease view for path reachability, the
+            telemetry tracker a rollback is noted on, the Enforcer an allowlist refusal is recorded
+            through (roadmap step 10.3), and (roadmap step 5.0d) `ctx.asker`, the real
+            transport-backed asker `WorkerRuntime` has already substituted in by the time a tool
+            call runs, so an ASK-verdict leaving can raise its Question up the same Worker ->
+            Warden -> Queen chain `hivemind.workers.tools.ask.ask` uses.
         proposal: A freshly built Proposal, from `make_proposal`.
 
     Returns:
         The gate's terminal outcome: VERIFIED, REJECTED or ROLLED_BACK.
     """
+    ctx = invocation.ctx
     await ctx.capping.propose(proposal)
     outcome = await ctx.capping.run(proposal.id, ctx.capabilities, ctx.lease, ctx.asker)
     if outcome.state is ProposalState.ROLLED_BACK:
@@ -173,6 +193,8 @@ async def cap(ctx: WorkerContext, proposal: Proposal) -> GateOutcome:
             reason=REVIEW_REJECTED_REASON,
             severity=AlarmSeverity.CRITICAL,
         )
+    if outcome.state is ProposalState.REJECTED:
+        await _record_refusal(invocation, proposal, outcome)
     return outcome
 
 
@@ -193,6 +215,27 @@ def tool_output(outcome: GateOutcome) -> ToolOutput:
     if review is not None and review.outcome is JudgeOutcome.REJECT:
         return ToolOutput(text=f"judge=REJECT ({_reasons(review)}); {text}", is_error=True)
     return ToolOutput(text=text, is_error=outcome.state is not ProposalState.VERIFIED)
+
+
+async def _record_refusal(
+    invocation: ToolInvocation, proposal: Proposal, outcome: GateOutcome
+) -> None:
+    """Record the gate's capability refusal, if it was one, as the Guard's own `guard.denied`."""
+    denied = next((c.denied_capability for c in outcome.checks if c.denied_capability), None)
+    if denied is None:
+        return  # Refused for a reason no capability names (a schema, a size, a path's reach).
+    try:
+        needed = Capability.parse(denied)
+    except InvalidCapabilityError:
+        return  # The gate built this string from a Capability; this is unreachable defence.
+    # Leaving scratch is its own point; every other allowlist refusal is the tool's own call.
+    leaving = proposal.risk_tier is RiskTier.OUTSIDE_SCRATCH_WRITE
+    point = (
+        EnforcementPoint.SESSION_OUTSIDE_SCRATCH
+        if leaving and needed.family in _PATH_FAMILIES
+        else EnforcementPoint.TOOL_INVOCATION
+    )
+    await authorize(invocation, point, needed)
 
 
 def describe(outcome: GateOutcome) -> str:

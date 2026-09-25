@@ -34,6 +34,8 @@ Key invariants:
       against yet.
     - `health()` never raises: every failure mode becomes a `ProviderHealth` reading instead,
       per `LLMProvider.health`'s contract.
+    - `aclose()` closes the one `httpx.AsyncClient` this provider owns, and with it every pooled
+      connection; it is idempotent because httpx's own `aclose` is.
 
 See Also:
     - .claude/codingrules.md section 8.6 for the LLM provider independence rules this implements.
@@ -282,15 +284,14 @@ class OpenAICompatProvider:
         return ProviderHealth(state=state, detail=detail, checked_at=self._clock.now())
 
     async def aclose(self) -> None:
-        """Close this provider's HTTP client and every keep-alive connection it pooled.
+        """Close the httpx client and its pooled connections; see `LLMProvider.aclose`.
 
-        Not part of `LLMProvider`: only an adapter that owns a connection pool has anything to
-        close, and `hivemind.llm.registry.ProviderRegistry.aclose` finds this method structurally.
         A local server keeps connections alive between calls (llama.cpp, Ollama, LM Studio, vLLM
         all do), so a client never closed leaves open sockets behind its Hive (found 2026-09-24,
         the phase 7 `local_llm` eval's first run on a real local server).
         """
-        # Local, milliseconds: closes idle pooled sockets; no request is in flight at shutdown.
+        # External await, local work: closing pooled sockets takes milliseconds. The registry
+        # bounds it (PROVIDER_CLOSE_TIMEOUT_S) so one slow teardown never stalls a shutdown.
         await self._http.aclose()
 
     def _ensure_model_served(self, model: str) -> None:

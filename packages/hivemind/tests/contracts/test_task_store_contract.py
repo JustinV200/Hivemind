@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from builders.tasks import make_answer, make_question, make_task
+from builders.tasks import make_answer, make_question, make_task, make_task_spec
 
 from hivemind.brood_chamber import (
     MemoryTaskStore,
@@ -108,6 +108,22 @@ async def test_insert_tasks_then_get_task_returns_an_equal_task(
     result = await store_and_trail.store.get_task(task.id)
 
     assert result == task
+
+
+async def test_insert_tasks_round_trips_a_goal_capability_set(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    # Roadmap step 10.3: a goal's ceiling is stored with each of its tasks, absence included.
+    clock = FakeClock()
+    spec = make_task_spec(clock=clock, capabilities=("tool:*", "cell:virtual"))
+    ceilinged, unceilinged = make_task(clock=clock, spec=spec), make_task(clock=clock)
+    events = [_make_task_event(clock, ceilinged), _make_task_event(clock, unceilinged)]
+
+    await store_and_trail.store.insert_tasks([ceilinged, unceilinged], events)
+
+    stored = await store_and_trail.store.get_task(ceilinged.id)
+    assert stored.spec.capabilities == ("cell:virtual", "tool:*")
+    assert (await store_and_trail.store.get_task(unceilinged.id)).spec.capabilities is None
 
 
 async def test_insert_tasks_records_one_submitted_event_per_task_on_the_trail(
@@ -298,6 +314,39 @@ async def test_list_tasks_respects_limit(store_and_trail: _StoreAndTrail) -> Non
     results = await store_and_trail.store.list_tasks(TaskFilter(limit=2))
 
     assert len(results) == 2
+
+
+async def test_list_tasks_pages_after_a_cursor_in_list_order(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    tasks = []
+    for _ in range(5):
+        task = make_task(clock=clock)
+        await store_and_trail.store.insert_tasks([task], [_make_task_event(clock, task)])
+        tasks.append(task)
+        clock.advance(1)
+
+    first = await store_and_trail.store.list_tasks(TaskFilter(limit=2))
+    second = await store_and_trail.store.list_tasks(TaskFilter(after=first[-1].id, limit=2))
+    last = await store_and_trail.store.list_tasks(TaskFilter(after=second[-1].id, limit=2))
+    end = await store_and_trail.store.list_tasks(TaskFilter(after=last[-1].id, limit=2))
+
+    pages = [task.id for page in (first, second, last) for task in page]
+    assert pages == [task.id for task in tasks]
+    assert end == ()
+
+
+async def test_list_tasks_after_an_unknown_cursor_is_empty(
+    store_and_trail: _StoreAndTrail,
+) -> None:
+    clock = FakeClock()
+    task = make_task(clock=clock)
+    await store_and_trail.store.insert_tasks([task], [_make_task_event(clock, task)])
+
+    results = await store_and_trail.store.list_tasks(TaskFilter(after=make_task(clock=clock).id))
+
+    assert results == ()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

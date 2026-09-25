@@ -37,7 +37,8 @@ Public API:
       the task state machine (task.state).
     - TaskSpec, TaskOutcome, Task, TaskDraft, TaskGraphDraft: the task model and the JSON graph
       file `hive tasks submit` reads (task.model).
-    - is_acyclic_edges, is_acyclic, ready_tasks, descendants: pure functions over a task graph
+    - is_acyclic_edges, is_acyclic, ready_tasks, descendants, stranded_tasks: pure functions over
+      a task graph
       (task.graph).
     - QuestionStatus, AnswerSource, Answer, Question, QUESTION_TRANSITIONS,
       assert_question_transition: the question model and its state machine (questions).
@@ -93,6 +94,7 @@ from hivemind.brood_chamber.task import (
     is_acyclic_edges,
     is_terminal,
     ready_tasks,
+    stranded_tasks,
 )
 
 __all__ = [
@@ -133,4 +135,5 @@ __all__ = [
     "is_acyclic_edges",
     "is_terminal",
     "ready_tasks",
+    "stranded_tasks",
 ]

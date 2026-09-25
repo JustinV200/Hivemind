@@ -33,6 +33,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from builders.hot_state import make_verdict
 from builders.memory import make_trigger_event
 from builders.queen import make_queen_deps
 from builders.supervision import make_alarm
@@ -45,6 +46,7 @@ from hivemind.memory import (
     EstimateCounter,
     MemoryContext,
     Principal,
+    RetrievedItem,
     Scorable,
     TokenBudget,
     assemble,
@@ -129,7 +131,11 @@ async def test_ten_thousand_hits_on_top_of_the_alarm_flood_never_overflow_either
     human_inbox = HumanInbox()
     for i in range(_EVENT_COUNT):
         human_inbox.add_alarm(make_alarm(clock=deps.clock, detail=f"flood alarm {i}"))
-    hits = tuple(_flood_hit(deps.clock, i) for i in range(_EVENT_COUNT))
+    # Scanned as retrieval hands them over (roadmap 10.6b): a PASS verdict on every excerpt.
+    verdict = make_verdict()
+    hits = tuple(
+        RetrievedItem.from_hit(_flood_hit(deps.clock, i), verdict) for i in range(_EVENT_COUNT)
+    )
     principal = Principal(
         id=deps.identity.hive_id, slot=ModelSlot.QUEEN, clearance=HoneyClearance.C2, role="queen"
     )

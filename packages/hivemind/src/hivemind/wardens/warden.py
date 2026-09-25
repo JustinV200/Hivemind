@@ -21,8 +21,8 @@ Fits into the Hive:
     composition root builds one -- the CLI (roadmap step 3.21) in production, `tests.builders.
     wardens.make_warden_deps` plus a `QueenEnd` in tests. Calls into `hivemind.cell`,
     `hivemind.guard`, `hivemind.memory` (TriggerEvent), `hivemind.pheromone` (WardenEvent),
-    `hivemind.supervision`, `hivemind.wardens.autopilot`, `.awake`, `.inbox`, `.spawn`, `.state`,
-    `.ticks` and waggle only.
+    `hivemind.supervision`, `hivemind.wardens.autopilot`, `.awake`, `.inbox`, `.isolation`,
+    `.quarantine`, `.spawn`, `.state`, `.ticks` and waggle only.
 
 Key invariants:
     - Every `WardenState` change goes through `hivemind.wardens.state.assert_transition` and is
@@ -37,12 +37,12 @@ Key invariants:
       link the composition root closes right after `stop()` returns
       (`hivemind.wardens.ticks.heartbeat.send_heartbeat`), so `stop()` itself never raises for
       that reason.
-    - `stop()` never returns with a task it owns still pending: every sub-bee's own runtime is
-      stopped cooperatively, falling back to a bounded cancel
-      (`hivemind.wardens.spawn.spawn.stop_sub_bee`), and every receive task this Warden started
-      is reaped (`hivemind.common.tasks.reap_all`) before the method returns -- a shutdown-hygiene
-      fix so no `asyncio.Task` is ever destroyed pending once the composition root's event loop
-      closes (codingrules section 11).
+    - `stop()` never returns with a task it owns still pending: every sub-bee is retired the one
+      way every sub-bee ends (`hivemind.wardens.ticks.alarms.retire_sub_bee`: its runtime stopped
+      cooperatively, falling back to a bounded cancel, and its slot freed), and every receive task
+      this Warden started is reaped (`hivemind.common.tasks.reap_all`) before the method returns
+      -- a shutdown-hygiene fix so no `asyncio.Task` is ever destroyed pending once the
+      composition root's event loop closes (codingrules section 11).
     - `_run_tick`'s own throwaway `stop_task` is reaped in a `finally`, so a tick cancelled from
       outside (a sub-bee's `runtime_task`, `run_hive`'s `TaskGroup`, a test) never abandons it.
     - The Hive Stand's Warden exists whenever the Queen runs: a `LeaseRefusedError` on `start()`
@@ -66,14 +66,14 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from hivemind.cell import Cell, CellSession, LeaseRefusedError, LeaseRequest, RealCellLease
+from hivemind.cell import Cell, CellSession, RealCellLease
 from hivemind.cell import HoneyClearance as _HoneyClearance
 from hivemind.common.tasks import reap, reap_all, reaping
 from hivemind.forage import Ceilings, HostingPlan
-from hivemind.guard import CapabilitySet, ceiling_for
+from hivemind.guard import CapabilitySet
 from hivemind.memory import TriggerEvent
 from hivemind.pheromone import WardenEvent
-from hivemind.supervision import ChildKind, ChildRef, Intervention
+from hivemind.supervision import ChildKind, ChildRef, Intervention, Quarantine
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens import ticks
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
@@ -81,13 +81,16 @@ from hivemind.wardens.awake import decide_awake
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
+from hivemind.wardens.isolation import admit_resume, taint_own_memory
 from hivemind.wardens.local_pool import SubBeeSlots
-from hivemind.wardens.spawn import SubBee, stop_sub_bee
-from hivemind.wardens.state import WardenState, assert_transition
+from hivemind.wardens.quarantine import QuarantineRecord, admit_respawn, carry_out, quarantine_child
+from hivemind.wardens.spawn import SubBee
+from hivemind.wardens.state import WardenState
 from waggle.envelope import Envelope
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
+from waggle.messages.cell import CellTaintOrder
 from waggle.messages.forage import GrantIssued
 from waggle.messages.supervision import CompactView, ContextTelemetry
 from waggle.messages.task import TaskAssign
@@ -143,6 +146,12 @@ class Warden(TickLoop):
         # Roadmap 4.8: the Queen's own CeilingsSet/PlanWritten (ticks.control), None until sent.
         self._ceilings: Ceilings | None = None
         self._hosting_plan: HostingPlan | None = None
+        # Roadmap step 10.6c: every task a quarantine holds, until a judge-cleared respawn lifts it
+        # (hivemind.wardens.quarantine.gate); this Warden's half of the task's PAUSED state.
+        self._quarantined: dict[TaskId, QuarantineRecord] = {}
+        # A relayed snapshot freezes this Warden with its Cell: announced first, so the Queen
+        # never reads the Hive's own freeze as this Warden gone silent (ticks.heartbeat).
+        ticks.heartbeat.bind_freeze_announcer(self)
 
     @property
     def state(self) -> WardenState:
@@ -163,37 +172,11 @@ class Warden(TickLoop):
         """Lease this Warden's Cell and open its own session, or move to WATCH if refused.
 
         The Hive Stand's Warden exists even when its lease is refused (codingrules section 8.8):
-        this method never raises for that case, only for a truly unrecoverable state.
+        this method never raises for that case, only for a truly unrecoverable state. Roadmap
+        step 10.3: the lease is refused, too, when the Guard's `lease_creation` point does not
+        allow this Warden's `lease_capability` (`hivemind.wardens.ticks.lease.open_lease`).
         """
-        cells = await self._deps.source.cells()
-        if not cells:
-            self._state = WardenState.WATCH
-            await _record_event(self, "warden.watch")
-            return
-        cell = cells[0]  # v0: one Warden, one Cell (the Hive Stand's own).
-        request = LeaseRequest(
-            cell_id=cell.id,
-            holder=self._warden_id,
-            task_id=None,
-            access_level=cell.access_level,
-            allowed_paths=(),
-        )
-        try:
-            lease = await self._deps.source.lease(request)
-        except LeaseRefusedError:
-            self._state = WardenState.WATCH
-            await _record_event(self, "warden.watch")
-            return
-        self._lease = lease
-        self._cell = cell
-        self._session = await self._deps.source.open_session(lease)
-        # The operator's real-display opt-in rides on the Cell's own report (roadmap step 6.3).
-        allowed = cell.capabilities.real_display_allowed
-        self._ceiling = ceiling_for(lease.access_level, lease.scratch_root, real_display=allowed)
-        assert_transition(self._state, WardenState.ACTIVE, warden_id=self._warden_id)
-        self._state = WardenState.ACTIVE
-        await _record_event(self, "warden.started")
-        await _record_event(self, "warden.active")
+        await ticks.lease.open_lease(self)
 
     async def stop(self) -> None:  # type: ignore[override]
         """End the loop first, then stop this Warden's heartbeats, every sub-bee and its lease.
@@ -214,24 +197,15 @@ class Warden(TickLoop):
             await reap(self._heartbeat_task)
         self._heartbeat_task = None
         for sub_bee in tuple(self._sub_bees.values()):
-            # Cooperative first, cancel-and-reap only as stop_sub_bee's own bounded fallback:
-            # never left cancelled-but-unawaited (codingrules section 11; this dispatch's rule 2).
-            await stop_sub_bee(sub_bee, self._deps.clock)
-            # This link's own receive task is reaped BEFORE the link closes: closing a link while
-            # a task is still suspended inside its receive() generator closes that generator while
-            # it is running (codingrules section 11). The reap_all below then covers the queen
-            # link's own receive task, and any entry a respawn left behind.
-            receive_task = self._receive_tasks.pop(sub_bee.worker_id, None)
-            if receive_task is not None:
-                await reap(receive_task)
-            await sub_bee.link.close()
+            # The one path every ending takes (ticks.alarms.retire_sub_bee): stopped cooperatively,
+            # cancel-and-reap only as a bounded fallback, its receive task reaped BEFORE its link
+            # closes (codingrules section 11; this dispatch's rule 2), and its slot freed.
+            await ticks.alarms.retire_sub_bee(self, sub_bee)
         # Every receive task this Warden still owns (the queen link's own, and any sub-bee's
         # whose respawn or a slow stop_sub_bee left one outstanding): reaped before stop()
         # returns, so none is ever destroyed pending once the event loop closes (rules 1-3).
         await reap_all(self._receive_tasks.values())
         self._receive_tasks.clear()
-        self._sub_bees.clear()
-        self._sub_bee_iters.clear()
         if self._lease is not None:
             await self._lease.release()
         self._state = WardenState.STOPPED
@@ -288,6 +262,10 @@ class Warden(TickLoop):
         Raises:
             UnknownSubBeeError: `child` names no current sub-bee.
         """
+        # A quarantine is this Warden's to carry out on its sub-bee, never a lever to relay to it.
+        if isinstance(intervention, Quarantine):
+            await quarantine_child(self, child, intervention)
+            return
         await ticks.control.send_intervention(self, child, intervention)
 
 
@@ -316,8 +294,9 @@ async def _run_tick(warden: Warden) -> None:
         await ticks.heartbeat.send_heartbeat(warden)
         # Sub-bee staleness is checked on this same cadence: simpler than a second per-sub-bee
         # timer, and generous enough that a sub-bee reporting on its own (shorter) interval never
-        # trips it early.
-        await ticks.heartbeat.raise_stalled_alarms(warden)
+        # trips it early. Each stalled Alarm takes the path a wire Alarm takes, policy and all.
+        for stalled in await ticks.heartbeat.raise_stalled_alarms(warden):
+            await _handle_item(warden, stalled)
         # On the same cadence, and for the same reason the staleness check shares it: one timer,
         # not two. A Warden with no `trail_sync` (the Hive Stand's own) does nothing here.
         await _sync_trail(warden)
@@ -400,7 +379,7 @@ async def _handle_item(warden: Warden, item: InboxItem) -> None:
         sources = ticks.heartbeat.hot_state_sources(warden)
         decision = await decide_awake(warden._deps, _trigger_event(item), sources)
         action, binding = decision.action, decision.binding
-    await ticks.dispatch.act(warden, action, item, sub_bee, binding)
+    await _act(warden, action, item, sub_bee, binding)
 
 
 def _trigger_event(item: InboxItem) -> TriggerEvent:
@@ -411,6 +390,38 @@ def _trigger_event(item: InboxItem) -> TriggerEvent:
         payload_ref=item.id,
         clearance=_HoneyClearance.C1,
     )
+
+
+async def _act(
+    warden: Warden,
+    action: WardenAction,
+    item: InboxItem,
+    sub_bee: SubBee | None,
+    binding: str | None,
+) -> None:
+    """Carry out one decided WardenAction: the isolation orders here, every other in `ticks`.
+
+    Roadmap phase 10's quarantine (10.6c) and memory taint (10.6a), and the gates a spawn passes
+    first, stay in this module rather than `hivemind.wardens.ticks.dispatch`: the quarantine and
+    isolation packages import tick handlers themselves, so no tick module imports them back.
+    """
+    payload = item.payload
+    if action is WardenAction.QUARANTINE:
+        # The Queen's Intervene(QUARANTINE), or this Warden's own policy row for a sub-bee's
+        # Alarm; either way the one code path in hivemind.wardens.quarantine.
+        await carry_out(warden, payload, sub_bee)
+    elif action is WardenAction.TAINT_MEMORY:
+        # Only the Queen isolates, so only her order labels this Cell's own store; one from
+        # anyone else is dropped here.
+        if isinstance(payload, CellTaintOrder) and item.principal == _QUEEN_LINK:
+            await taint_own_memory(warden, payload)
+    elif action is WardenAction.SPAWN and isinstance(payload, TaskAssign):
+        # A quarantined task spawns only by its one way out (the gate), and nothing resumes from
+        # a Handoff this Cell's own store labels tainted.
+        if await admit_respawn(warden, payload) and await admit_resume(warden, payload):
+            await ticks.dispatch.act(warden, action, item, sub_bee, binding)
+    else:
+        await ticks.dispatch.act(warden, action, item, sub_bee, binding)
 
 
 async def _sync_trail(warden: Warden) -> None:

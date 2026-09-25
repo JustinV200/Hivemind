@@ -204,11 +204,6 @@ class AnthropicClient:
             raise map_error(exc, self._provider, context_window=self._context_window) from exc
         return result.input_tokens
 
-    async def aclose(self) -> None:
-        """Close the SDK client and its pooled connections; see `AnthropicProvider.aclose`."""
-        # Local, milliseconds: closes idle pooled sockets; no request is in flight at shutdown.
-        await self._sdk.close()
-
     async def probe_health(self, clock: Clock) -> ProviderHealth:
         """Probe the API with `models.list(limit=1)`; see `LLMProvider.health`.
 
@@ -242,6 +237,17 @@ class AnthropicClient:
                 state=HealthState.DOWN, detail=_describe(exc), checked_at=clock.now()
             )
         return ProviderHealth(state=HealthState.HEALTHY, detail="ok", checked_at=clock.now())
+
+    async def aclose(self) -> None:
+        """Close the SDK client's own HTTP connection pool; see `LLMProvider.aclose`.
+
+        `AsyncAnthropic.close()` is the SDK's documented way to release its pooled connections,
+        and it is idempotent (closing an already-closed underlying client is a no-op), so this
+        wrapper needs no closed flag of its own.
+        """
+        # External await, local work: tearing down pooled sockets takes milliseconds; the
+        # registry bounds it with PROVIDER_CLOSE_TIMEOUT_S so a shutdown never hangs here.
+        await self._sdk.close()
 
 
 def map_error(exc: anthropic.APIError, provider: str, *, context_window: int) -> LLMError:

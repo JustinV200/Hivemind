@@ -1,5 +1,12 @@
 """Tests for hivemind.queen.dispatcher.snapshot: build_inventory and build_forage_view.
 
+The dispatcher lifecycle fix's placement figures are pinned here too: an attached Cell's room is
+its live capacity less the grants in force on it, and a backend's room is less every fresh Cell
+still being provisioned on it (both used to read figures that never moved).
+
+An attached Night Veil Cell is never a placement candidate: it holds only the task it was
+provisioned for, isolated or not (codingrules 8.7 and 12).
+
 Fits into the Hive:
     Mirrors src/hivemind/queen/dispatcher/snapshot.py (codingrules section 3).
 
@@ -12,32 +19,49 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from collections.abc import Sequence
 
-from builders.forage import make_source
+from builders.cells import make_cell
+from builders.forage import make_capacity, make_grant, make_host_capacity, make_source
 from builders.queen import make_queen_deps
 from builders.tasks import make_task, make_task_spec
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin
-from hivemind.forage import ForageMap, HostingPlan, SlotPlan, SourceChain
+from hivemind.cell import CellKind, CombShieldLevel, HoneyClearance, RequestOrigin
+from hivemind.forage import (
+    ForageCapacity,
+    ForageGrant,
+    ForageMap,
+    HostingPlan,
+    SlotPlan,
+    SourceChain,
+)
+from hivemind.forage.grant_state import GrantState
 from hivemind.forage.slots import ModelSlot
-from hivemind.hive import BackendCapabilities
+from hivemind.hive import BackendCapabilities, VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import MemoryContext, WaxSeverity
 from hivemind.memory.cell_wax.writes import WaxProposalInput, propose_wax, write_wax
-from hivemind.queen.deps import QueenDeps
+from hivemind.queen.deps import ProvisionJob, QueenDeps, WardenLink
 from hivemind.queen.dispatcher.snapshot import (
     build_forage_view,
     build_inventory,
     dormant_candidate_from_lifecycle,
     virtual_backend_candidate_from_lifecycle,
 )
-from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
+from hivemind.queen.placement import (
+    DormantCandidate,
+    Placement,
+    ProvisionVirtual,
+    VirtualBackendCandidate,
+)
 from waggle.clock import FakeClock
-from waggle.ids import CellId, new_cell_id
+from waggle.ids import CellId, TaskId, new_cell_id, new_task_id
 from waggle.messages.cell.wax import WaxDecision, WaxOrigin
+
+_MIB = 1024**2
 
 
 async def _write_wax(deps: QueenDeps, cell_id: CellId, severity: WaxSeverity, text: str) -> None:
@@ -68,6 +92,102 @@ async def test_build_inventory_carries_one_real_candidate_per_attached_warden() 
     # READ_ONLY and no Real Cell could ever take Exoskeleton work.
     assert inventory.real[0].access_level is link.cell.access_level
     await warden_end.close()
+
+
+async def test_build_inventory_counts_the_grants_in_force_against_a_cells_cap() -> None:
+    # A two-bee Cell: one task's grant (twice, a retry's too) leaves room; a second task's fills it.
+    deps, link, warden_end = make_queen_deps(cell=make_cell(capacity=make_capacity(max_sub_bees=2)))
+    retried = new_task_id(deps.clock)
+    for _attempt in range(2):
+        await deps.ledger.record_grant(_grant_on(deps, link, retried))
+
+    one_task = await build_inventory(deps, (link,))
+    await deps.ledger.record_grant(_grant_on(deps, link, new_task_id(deps.clock)))
+    two_tasks = await build_inventory(deps, (link,))
+
+    assert one_task.real[0].has_free_capacity is True
+    assert two_tasks.real[0].has_free_capacity is False
+    await warden_end.close()
+
+
+async def test_build_inventory_reads_a_cells_capacity_live_where_its_link_can() -> None:
+    # Probed with 8 GiB free when the Hive was built; read now, 256 MiB are left: no 512 MiB bee.
+    deps, link, warden_end = make_queen_deps()
+    starved = make_capacity(host=make_host_capacity(memory_free_bytes=256 * _MIB))
+
+    async def read() -> ForageCapacity:
+        return starved
+
+    inventory = await build_inventory(deps, (dataclasses.replace(link, live_capacity=read),))
+
+    assert inventory.real[0].has_free_capacity is False
+    await warden_end.close()
+
+
+async def test_a_fresh_cell_being_provisioned_holds_its_backends_room_until_it_ends() -> None:
+    deps, link, warden_end = make_queen_deps()
+    deps = dataclasses.replace(deps, virtual_backends=(_backend_with_room(deps, headroom=1),))
+    placement = ProvisionVirtual(spec=_spec(deps), backend="fake", reason="test")
+    landed = asyncio.Event()
+
+    async def acquisition() -> tuple[WardenLink, Placement]:
+        await landed.wait()
+        return link, placement
+
+    job = asyncio.ensure_future(acquisition())
+    deps.dispatch.provisions.jobs[new_task_id(deps.clock)] = ProvisionJob(placement, job)
+
+    in_flight = await build_inventory(deps, (link,))
+    landed.set()
+    await job
+    ended = await build_inventory(deps, (link,))
+
+    assert in_flight.virtual_backends[0].capabilities.headroom == 0
+    # Ended: its Cell is the lifecycle's to count now (none here: this backend's room is static).
+    assert ended.virtual_backends[0].capabilities.headroom == 1
+    await warden_end.close()
+
+
+def _grant_on(deps: QueenDeps, link: WardenLink, task_id: TaskId) -> ForageGrant:
+    """A live grant on `link`'s Cell, held by its Warden, for `task_id`."""
+    return make_grant(
+        state=GrantState.ACTIVE,
+        clock=deps.clock,
+        holder=link.warden_id,
+        cell_id=link.cell.id,
+        task_id=task_id,
+    )
+
+
+def _spec(deps: QueenDeps) -> VirtualCellSpec:
+    """A plain MEADOW spec for this Hive."""
+    return VirtualCellSpec(
+        image="base-ubuntu",
+        cpu_cores=1.0,
+        memory_bytes=1024**3,
+        disk_bytes=8 * 1024**3,
+        capacity=make_capacity(),
+        hive_id=deps.identity.hive_id,
+    )
+
+
+def _backend_with_room(deps: QueenDeps, *, headroom: int) -> VirtualBackendCandidate:
+    """The `fake` backend, with `headroom` Cells' room left."""
+    capabilities = BackendCapabilities(can_snapshot=False, can_pause=True, headroom=headroom)
+    return VirtualBackendCandidate(name="fake", capabilities=capabilities, specs=(_spec(deps),))
+
+
+async def test_an_attached_night_veil_cell_is_never_a_placement_candidate() -> None:
+    clock = FakeClock()
+    veiled = make_cell(CellKind.VIRTUAL, clock, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    deps, night_veil, warden_end = make_queen_deps(clock, cell=veiled)
+    _, meadow, meadow_end = make_queen_deps(clock, cell=make_cell(CellKind.VIRTUAL, clock))
+
+    inventory = await build_inventory(deps, (night_veil, meadow))
+
+    assert [candidate.cell_id for candidate in inventory.real] == [meadow.cell.id]
+    await warden_end.close()
+    await meadow_end.close()
 
 
 async def test_build_inventory_reads_blocked_and_cautioned_wax() -> None:

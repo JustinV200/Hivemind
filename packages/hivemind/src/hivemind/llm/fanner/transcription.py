@@ -58,11 +58,19 @@ from hivemind.llm.transcription import AudioClip, BoundTranscriber, Transcript
 from waggle.ids import new_event_id
 
 TRANSCRIPTION_TOKENS = 0  # A transcription spends one request and no tokens against rate limits.
+# The llm.call payload key carrying a transcription's audio length in seconds, public so a reader
+# of the trail (a test, a spend view) never spells it twice.
+AUDIO_SECONDS_KEY = "audio_seconds"
 # A transcription generates no tokens, so the map's speed figure for it is zero; its distance is
 # its latency, which is what routing reads.
 TRANSCRIPTION_TOKENS_PER_S = 0.0
 
-__all__ = ["TRANSCRIPTION_TOKENS", "TRANSCRIPTION_TOKENS_PER_S", "FannerTranscriptionGate"]
+__all__ = [
+    "AUDIO_SECONDS_KEY",
+    "TRANSCRIPTION_TOKENS",
+    "TRANSCRIPTION_TOKENS_PER_S",
+    "FannerTranscriptionGate",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,7 +263,7 @@ class FannerTranscriptionGate:
             # A transcription spends no tokens; an unpriced call costs 0 on the trail (LlmUsage).
             "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "cost_usd": 0.0},
             "latency_s": latency_s,
-            "audio_seconds": clip.duration_s,
+            AUDIO_SECONDS_KEY: clip.duration_s,
         }
         if self._grant_id is not None:
             payload["grant_id"] = self._grant_id

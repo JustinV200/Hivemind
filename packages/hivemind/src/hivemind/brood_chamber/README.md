@@ -33,7 +33,11 @@ Task` without knowing the split.
   scout_report` (roadmap step 6.10) carries a Scout's own `waggle.messages.task.ScoutReport`,
   copied unchanged from the Warden-verified `TaskResult` that closed the task -- set on SUCCEEDED
   for a feasible Scout and on FAILED for an infeasible one (`hivemind.queen.autopilot.table`),
-  None for every other role.
+  None for every other role. Roadmap step 10.3 adds `capabilities` to both (`task/goal_set.py`'s
+  `GoalCapabilities`): the goal's capability set as sorted, unique capability strings, bounded like
+  Waggle 1.8's `task.assign.capabilities`; `None` (the default) means the operator's own local
+  path, with no ceiling, and `()` a goal allowed nothing. It is part of the task's JSON body, so
+  both stores round-trip it with no migration.
 - `task/graph.py` -- pure functions over a task graph: `is_acyclic_edges` (generic, used by
   `TaskGraphDraft`'s own validator), `is_acyclic`, `ready_tasks`, `descendants`. No I/O.
 
@@ -80,7 +84,25 @@ module in the package is private. Every mutating method loads the current `Task`
 asserts the move is legal against `task/state.py`'s `TRANSITIONS` or `questions.py`'s
 `QUESTION_TRANSITIONS`, builds the new value with `model_copy`, and writes it with its `TaskEvent`
 (payload: ids, reasons, statuses and counts only, never a task's objective or a question's text)
-through `TaskStore` in one call.
+through `TaskStore` in one call. A Night Veil task's event (the task asks for `NIGHT_VEIL`, or is
+bound to it before or by this move) is cut at the source to the transition and the task id alone
+(`_build_event`, `hivemind.pheromone.retention.skeleton_event`, codingrules section 12): the store
+commits it inside its own transaction, past the Queen's `VeiledTrail`, so nothing else would cut
+it.
+
+`chamber/night_veil.py` is what the Night Veil teardown purge asks of the chamber (codingrules
+section 12, `hivemind.cli.compose.night_veil.side_channels`). `bound_to(cell_id)` is its member
+source: the live tasks placed on the ending Cell and their Wardens, which a Queen that never held
+the Cell's segment (a restart's sweep, an offline Absconding) knows of nowhere else.
+`end_night_veil(cell_id, ids)` is its side channel: a task still placed on the ending Cell is
+cancelled first (its work was the Cell's, and a Night Veil Cell is teardown-only, so it can never
+finish now), then `scrub_night_veil` reduces every finished Night Veil task among `ids`, and every
+one that asked at that tier, to its skeleton through `TaskStore.scrub_night_veil`
+(`store/scrub.py`): ids, states, attempts and timestamps stay; its title, objective and
+acceptance words become `SCRUBBED_TEXT`, its planned leavings and progress summary are dropped,
+its outcome keeps its status, verifier and spend but not its summary (replaced) or artifacts
+(dropped), and its questions' text, context and answers are replaced too. A task still live on
+another Cell is never reduced: it may yet be retried.
 
 ## How to test this
 
@@ -100,3 +122,5 @@ them as `from builders.tasks import make_task`. `tests/contracts/test_task_store
 parametrises one behavioural suite over `MemoryTaskStore` (over `MemoryPheromoneTrail`) and
 `SqliteTaskStore` (over `SqlitePheromoneTrail`, both on the same `tmp_path` SQLite file); every
 test builds events with `TaskEvent(...)` and `waggle.ids.new_event_id`, never wall-clock time.
+`tests/contracts/test_task_store_night_veil_contract.py` holds what a reduced row keeps, over both
+stores.

@@ -75,6 +75,20 @@ def test_forage_section_rejects_a_non_positive_measurement_drift_threshold() -> 
         ForageSection(roles={"drone": _DRONE_FOOTPRINT}, measurement_drift_threshold=0.0)
 
 
+def test_forage_section_zero_grant_patience_defaults_to_five_minutes_and_overrides() -> None:
+    default_section = ForageSection(roles={"drone": _DRONE_FOOTPRINT})
+    overridden = ForageSection(roles={"drone": _DRONE_FOOTPRINT}, zero_grant_patience_s=30.0)
+
+    assert default_section.zero_grant_patience_s == 300.0
+    assert overridden.zero_grant_patience_s == 30.0
+
+
+def test_forage_section_rejects_a_non_positive_zero_grant_patience() -> None:
+    # A patience of zero would fail every waiting task on the pass that starts its wait.
+    with pytest.raises(ValidationError, match="zero_grant_patience_s"):
+        ForageSection(roles={"drone": _DRONE_FOOTPRINT}, zero_grant_patience_s=0.0)
+
+
 def test_forage_section_is_frozen_and_forbids_extras() -> None:
     section = ForageSection(roles={"drone": _DRONE_FOOTPRINT})
 

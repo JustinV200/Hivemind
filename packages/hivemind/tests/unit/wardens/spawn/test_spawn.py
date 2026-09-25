@@ -24,7 +24,7 @@ from builders.workers import ScriptedWorker, make_assignment, make_outcome
 from hivemind.cell import CellKind
 from hivemind.cell.lease import LeaseRequest
 from hivemind.cell.tiers import AccessLevel
-from hivemind.guard.access import ceiling_for
+from hivemind.guard import warden_set
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
@@ -91,7 +91,7 @@ async def test_spawn_sub_bee_never_grants_capabilities_wider_than_the_ceiling() 
         )
     )
     session = await deps.source.open_session(lease)
-    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    ceiling = warden_set(deps.guard, lease.access_level, lease.scratch_root)
     assignment = make_assignment(clock=deps.clock)
     grant = _grant(deps.clock, assignment.grant_id)
     ctx = WardenCellContext(
@@ -108,6 +108,10 @@ async def test_spawn_sub_bee_never_grants_capabilities_wider_than_the_ceiling() 
     assert granted.issubset(ceiling)  # type: ignore[attr-defined]
     # SCRATCH never grants net/device: proves the slice is strictly narrower, not merely equal.
     assert not any(cap.family.value == "net" for cap in granted.capabilities)  # type: ignore[attr-defined]
+    # Roadmap step 10.2: the slice starts from the Drone's policy default, scratch root filled.
+    strings = granted.as_strings()  # type: ignore[attr-defined]
+    assert f"fs:write:{lease.scratch_root.as_posix()}/**" in strings
+    assert "llm:worker" in strings
 
     await stop_sub_bee(sub_bee, deps.clock)
     await sub_bee.link.close()
@@ -144,7 +148,7 @@ async def test_spawn_sub_bee_threads_assignment_leaves_into_the_capping_gate() -
         )
     )
     session = await deps.source.open_session(lease)
-    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    ceiling = warden_set(deps.guard, lease.access_level, lease.scratch_root)
     leaves = (PlannedLeaving(pattern="~/keep.txt", reason="the goal asked for it"),)
     assignment = make_assignment(clock=deps.clock, leaves=leaves)
     grant = _grant(deps.clock, assignment.grant_id)
@@ -178,7 +182,7 @@ async def test_spawn_sub_bee_widens_lease_reachability_under_full_access(tmp_pat
         )
     )
     session = await deps.source.open_session(lease)
-    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    ceiling = warden_set(deps.guard, lease.access_level, lease.scratch_root)
     leaves = (PlannedLeaving(pattern="~/Projects/app", reason="the goal asked for it"),)
     assignment = make_assignment(clock=deps.clock, leaves=leaves)
     grant = _grant(deps.clock, assignment.grant_id)
@@ -205,7 +209,7 @@ async def test_spawn_sub_bee_never_widens_lease_reachability_under_scratch_acces
         )
     )
     session = await deps.source.open_session(lease)
-    ceiling = ceiling_for(lease.access_level, lease.scratch_root)
+    ceiling = warden_set(deps.guard, lease.access_level, lease.scratch_root)
     leaves = (PlannedLeaving(pattern="~/Projects/app", reason="the goal asked for it"),)
     assignment = make_assignment(clock=deps.clock, leaves=leaves)
     grant = _grant(deps.clock, assignment.grant_id)

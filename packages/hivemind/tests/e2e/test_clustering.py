@@ -252,8 +252,12 @@ def _build_warden_deps(
     return warden_deps
 
 
-def _build_scenario(clock: SystemClock) -> _Scenario:
-    """Wire one real Queen to one real Warden over one real (in-process) Waggle link."""
+async def _build_scenario(clock: SystemClock) -> _Scenario:
+    """Wire one real Queen to one real Warden over one real (in-process) Waggle link.
+
+    Async since roadmap step 10.3: attaching the Warden is the Queen's awaited `warden_spawn`
+    Guard check.
+    """
     provider = FakeLLMProvider(responder=plan_responder(lambda _goal: _plan()))
     wiring = _build_wiring(clock)
     second_fresh_starts: list[int] = []
@@ -268,7 +272,7 @@ def _build_scenario(clock: SystemClock) -> _Scenario:
         hop=wiring.queen_hop,
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     warden = Warden(wiring.warden_id, warden_deps)
     return _Scenario(
         deps=deps,
@@ -344,7 +348,7 @@ async def test_clustering_pauses_and_wake_resumes_with_no_duplicated_work() -> N
     # causal order would tie on `at` and sort by ULID randomness instead -- exactly the kind of
     # flake this scenario's own "checkpoint before PAUSED" trail-order assertion cannot tolerate.
     clock = SystemClock()
-    scenario = _build_scenario(clock)
+    scenario = await _build_scenario(clock)
     deps, queen, warden = scenario.deps, scenario.queen, scenario.warden
     await warden.start()
     queen_task = asyncio.ensure_future(queen.run())

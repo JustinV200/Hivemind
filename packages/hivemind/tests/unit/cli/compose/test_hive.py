@@ -1,8 +1,9 @@
 """Tests for hivemind.cli.compose.hive and .deps: the Honey Store wired into a whole Hive.
 
 Fits into the Hive:
-    Mirrors src/hivemind/cli/compose/hive.py and the Honey half of src/hivemind/cli/compose/
-    deps.py (codingrules section 3; split by feature, 14.2, from tests/unit/cli/test_compose.py,
+    Mirrors src/hivemind/cli/compose/hive/ (build, run) and the Honey half of
+    src/hivemind/cli/compose/deps.py (codingrules section 3; split by feature, 14.2, from
+    tests/unit/cli/test_compose.py,
     which covers the rest of build_hive/run_hive/run_goal). Every Hive here is built from a real
     `builders.cli.fake_manifest` over the real Hive Stand; the Honey Store is the Hive's own
     SQLite file.
@@ -31,6 +32,8 @@ from hivemind.honey_store import SqliteHoneyStore
 from hivemind.manifest import load_manifest
 from hivemind.memory import InMemoryMemoryStore
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen.chat import InMemoryChatLog
+from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.workers.roles.house_bee import HouseBeeRipening
 from waggle.clock import FakeClock, SystemClock
 
@@ -75,6 +78,8 @@ def test_build_hive_over_hand_built_stores_has_no_honey_store(tmp_path: Path) ->
         chamber=BroodChamber(MemoryTaskStore(trail), clock, identity),
         memory=InMemoryMemoryStore(trail),
         leavings=InMemoryLeavingsStore(trail),
+        goal_requests=InMemoryGoalRequestStore(trail),
+        chat=InMemoryChatLog(trail),
     )
 
     hive = build_hive(manifest, environ={}, clock=clock, stores=stores)

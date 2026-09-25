@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import pytest
 
+from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.trail.sync import (
     CorruptSegmentError,
+    ForeignSegmentError,
     TrailSegmentReceiver,
     UnknownSegmentFormatError,
 )
@@ -152,3 +154,18 @@ async def test_receive_refuses_a_reassembled_export_with_a_mismatched_digest() -
     receiver = TrailSegmentReceiver(MemoryPheromoneTrail(clock))
     with pytest.raises(CorruptSegmentError):
         await receiver.receive(corrupted)
+
+
+async def test_receive_refuses_another_nodes_segment_shipped_as_its_own() -> None:
+    # Roadmap step 10.6: only the chunk's node is proved by its link, so its segment must be it.
+    clock = FakeClock()
+    other = new_node_id(clock)
+    source_trail = MemoryPheromoneTrail(clock)
+    await source_trail.record(_event(clock, other))
+    [chunk] = await _sent_chunks(clock, other, source_trail)
+    shipped_as = chunk.model_copy(update={"node_id": new_node_id(clock)})
+
+    queen_trail = MemoryPheromoneTrail(clock)
+    with pytest.raises(ForeignSegmentError):
+        await TrailSegmentReceiver(queen_trail).receive(shipped_as)
+    assert await queen_trail.query(TrailQuery()) == ()

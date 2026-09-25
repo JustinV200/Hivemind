@@ -24,26 +24,46 @@ a strictly read-only role, so its own, much narrower registry lives beside that 
   `ToolOutput`; an unknown tool or a schema violation returns readable text, never raises; a
   `hivemind.workers.tools.errors.ToolError` becomes its message; a control exception such as
   `HandoffRequestedError` or `WorkerCancelledError` propagates unchanged) and `build_registry`
-  (offers `run_command`/`read_file`/`write_file`/`ask`/`keep` always, `http_request` only when the
-  Worker holds a `net` capability, each Exoskeleton tool only when its peripheral is attached and
-  the bound model can take what it returns, and `recall`/`remember` only when `ctx.honey` is set
-  and the Worker holds `tool:recall`/`tool:remember`). The Drone's executor passes a
-  `ToolOutput`'s media through as `hivemind.llm.ToolResultPart.media` and records the text alone.
+  (offers `run_command`/`read_file`/`write_file`/`ask`/`keep`/`http_request` always -- since
+  roadmap step 10.3 a capability decides at invocation, so a refusal is visible -- each
+  Exoskeleton tool only when its peripheral is attached and the bound model can take what it
+  returns, and `recall`/`remember` only when `ctx.honey` is set). `execute` checks `tool:<name>`
+  through the Guard's `Enforcer` (`tool_invocation`) before running a tool, and scans the result's
+  text (roadmap step 10.6b) before returning it. The Drone's executor passes a `ToolOutput`'s media
+  through as `hivemind.llm.ToolResultPart.media` and records the text alone.
+- `authorize.py` (roadmap step 10.3) -- `authorize(invocation, point, needed)`: the one way a tool
+  asks the Guard, as the Worker itself, holding its own set, on its own Cell; a refusal is already
+  `guard.denied` on the trail. `refusal_text` renders it for the model, behind the fixed
+  `GUARD_REFUSAL_PREFIX` the Drone's outcome records read.
+- `screen.py` (roadmap step 10.6b) -- `screen_tool_result` scans a tool's result text as the
+  Worker reads it and applies the verdict; `screen_honey_hits` scans every Honey hit a task's
+  assignment carries before assembly, wrapping each as a `hivemind.memory.RetrievedItem`.
 - `session.py` -- `run_command` (a COMMAND proposal, `SCRATCH_WRITE` or `OUTSIDE_SCRATCH_WRITE`
-  depending on the resolved working directory), `read_file` (no proposal; requires an `fs:read`
-  capability outside scratch; truncates to `MAX_TOOL_RESULT_CHARS`) and `write_file` (a whole-file
+  depending on the resolved working directory), `read_file` (no proposal; outside scratch it
+  passes the `session_outside_scratch` point for `fs:read:<path>`; truncates to
+  `MAX_TOOL_RESULT_CHARS`) and `write_file` (a whole-file
   DIFF proposal with one `FILE_EXISTS` postcondition, at the same two tiers as `run_command`).
   Every side-effecting call goes through `hivemind.workers.tools.proposals.cap` first, inside
   scratch included: nothing lands uncapped, and the scratch-tier check ladder is cheap.
-- `http.py` -- `http_request`: checks a `net` capability for the URL's host, then proposes an
-  `ACTION_SEQUENCE` at `RiskTier.NETWORK_EGRESS`. `waggle.messages.capping.ActionKind` has no
-  network shape yet, so v0's `SchemaCheck` always rejects it; the tool reports that rejection and
-  the request is never actually sent. `httpx` is imported only inside the one branch a `VERIFIED`
-  outcome would reach (unreachable in v0), and nowhere else under `workers/`. A real network
-  `ActionKind` is a later waggle minor bump.
+- `http.py` -- `http_request`: checks `net:<host>` for the URL's host through the Guard
+  (`tool_invocation`; a refusal is on the trail), then (roadmap step 10.3a) resolves the host
+  through `WorkerContext.resolver` and has the Guard's floors judge every address it got back, so
+  a loopback, link-local or Hive Stand address is refused as `guard.state_floor.loopback` however
+  the name spelled it; a host the Worker does not hold is never looked up. It then proposes a
+  one-step `ACTION_SEQUENCE` (`"<METHOD> <url>"`) at `RiskTier.NETWORK_EGRESS`. Since roadmap step
+  10.3 the Capping gate passes a well-formed network step on that tier (its ALLOWLIST rung checks
+  `net:<host>` again; its apply is the authorisation itself), and once the outcome is `VERIFIED`
+  `_send` makes the one request to the checked address (a `PinnedRequest`), the name kept in
+  `Host` and in TLS's SNI; a connection failure is a readable result, never an exception. `httpx`
+  is imported here (its URL parser is the one the request is sent with), and nowhere else under
+  `workers/`.
+- The Hive-state floor also stands in front of `run_command` (`exec:<argv[0]>`: never `hive` or
+  `hivemind-*`), `write_file` and `keep` (`fs:write:<path>`: never the Hive's database, secrets or
+  manifest), through `authorize.floor_refusal_text`, before anything is proposed.
 - `ask.py` -- `ask`: raises a blocking `waggle.messages.supervision.Question` through
   `ctx.asker.ask` and returns its `Answer`'s text (plus the chosen option's own wording, when one
-  was offered) as the tool result. No proposal: asking has no side effect to check.
+  was offered) as the tool result. No proposal: asking has no side effect to check; since roadmap
+  step 10.3 it needs `question:human` (the `question_routing` point).
 - `keep.py` (roadmap step 5.0e) -- `keep(source, destination)`: moves a scratch file to a path
   outside it, an ordinary `outside_scratch_write` through the same gate, leave policy and Leavings
   ledger every other outside-scratch write goes through. `source` must resolve inside scratch
@@ -69,14 +89,17 @@ a strictly read-only role, so its own, much narrower registry lives beside that 
   notes `ROLLBACK_ALARM_KIND` (`POSTCONDITION_FAILED`) on `ctx.telemetry` -- at once for a GUI
   action (ADR-0032: every later step would act on a misread screen), and toward the count of
   three for any other -- so the runtime raises a real Alarm instead of the rollback only ever
-  showing up as tool-result text), `describe` (render a `GateOutcome` as tool-result text: state,
-  reason, every check and postcondition, and -- roadmap step 5.0e, only when the proposal touched
-  a path outside scratch -- each such path's own leave verdict and whether it will actually
-  remain; never the diff, command or typed text itself) and `tool_output` (roadmap step 6.5:
-  `describe`'s text as a `ToolOutput`, an error unless it VERIFIED; a judge's REJECT of an applied
-  irreversible GUI action leads the text with the verdict and its reasons and is an error too,
-  with no second Alarm, since the gate raised one when the judge ruled; APPROVE and
-  REQUEST_CHANGES add one line of verdict).
+  showing up as tool-result text; since roadmap step 10.3 it takes the whole `ToolInvocation`, and
+  an ALLOWLIST refusal that names a missing capability is also recorded as the Guard's
+  `guard.denied`, at `session_outside_scratch` for an outside-scratch write and `tool_invocation`
+  otherwise), `describe` (render a `GateOutcome` as tool-result text: state, reason, every check
+  and postcondition, and -- roadmap step 5.0e, only when the proposal touched a path outside
+  scratch -- each such path's own leave verdict and whether it will actually remain; never the
+  diff, command or typed text itself) and `tool_output` (roadmap step 6.5: `describe`'s text as a
+  `ToolOutput`, an error unless it VERIFIED; a judge's REJECT of an applied irreversible GUI
+  action leads the text with the verdict and its reasons and is an error too, with no second
+  Alarm, since the gate raised one when the judge ruled; APPROVE and REQUEST_CHANGES add one line
+  of verdict).
 - `errors.py` -- `ToolError` (root) and `UnreachablePathError` (a path this Worker's session
   cannot reach at all, distinct from merely lacking a capability for it).
 - `exoskeleton/` (roadmap step 6.5) -- the Worker's hands, eyes and ears on the Exoskeleton: the

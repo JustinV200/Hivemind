@@ -12,8 +12,8 @@ Fits into the Hive:
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
     hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
-    hivemind.cli.recordings and hivemind.cli.honey now; later phases add entrance and friends
-    through their own public APIs.
+    hivemind.cli.recordings, hivemind.cli.honey and hivemind.cli.serve (`hive serve`, roadmap
+    step 10.5) now; later phases add entrance and friends through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -47,18 +47,25 @@ from typing import Annotated
 import typer
 
 from hivemind.cli import capping, forage, honey, llm, memory, recordings, tasks, trail
+from hivemind.cli.entrance import app as entrance_app
+from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
-from hivemind.cli.run import run_command
+from hivemind.cli.remote import app as remote_app
+from hivemind.cli.run import RunCommand, run_command
+from hivemind.cli.serve import serve_command
 from hivemind.cli.version import collect_version_info, format_version
 from hivemind.common.logging import configure_logging
+from hivemind.manifest.env import read_env
 
 __all__ = ["app", "main"]
+
+# When HIVEMIND_LOG_LEVEL is unset; lines go to standard error. An operator's terminal shows
+# trouble, not every heartbeat.
+_DEFAULT_LOG_LEVEL = "WARNING"
 
 # The one Typer application every command group below attaches to. Building it at module level
 # is the composition root itself doing its job (codingrules 5.5 bars *side effects* on import,
 # not the object construction a composition root exists to perform).
-LOG_LEVEL_ENV = "HIVEMIND_LOG_LEVEL"  # The same variable the in-Cell Warden reads.
-DEFAULT_CLI_LOG_LEVEL = "WARNING"  # An operator's terminal shows trouble, not every heartbeat.
 
 app = typer.Typer(
     name="hive",
@@ -66,6 +73,9 @@ app = typer.Typer(
     # invoke_without_command lets `hive --version` and a bare `hive` both reach the callback
     # below instead of typer demanding a subcommand first.
     invoke_without_command=True,
+    # Help text is plain: Rich markup read `[hive]`, `[entrance]` and `[llm.providers]`, the
+    # manifest sections the help names, as style tags and printed nothing in their place.
+    rich_markup_mode=None,
 )
 
 # Roadmap step 2.9: submit and inspect tasks in the Brood Chamber, and read the Pheromone Trail.
@@ -82,7 +92,7 @@ app.add_typer(capping.app, name="capping")
 # `run` is a bare command, not a group (see this module's own "Key invariants" and
 # hivemind.cli.run's own docstring for why `app.command` and not `app.add_typer` here); `cells`,
 # `inbox` and `wardens` (hivemind.cli.readback) are ordinary single- or multi-subcommand groups.
-app.command("run")(run_command)
+app.command("run", cls=RunCommand)(run_command)
 app.add_typer(cells_app, name="cells")
 app.add_typer(inbox_app, name="inbox")
 app.add_typer(wardens_app, name="wardens")
@@ -105,12 +115,22 @@ app.command("wake")(wake_command)
 app.add_typer(recordings.app, name="recordings")
 # Roadmap steps 7.10 and 7.11: query, count, ripen, re-embed, browse and relabel the Honey Store.
 app.add_typer(honey.app, name="honey")
+# Roadmap step 10.5: run the Queen with the Hive Entrance (the Hive's one HTTP door) until
+# interrupted. A bare command like `run` (`hive serve`, not `hive serve serve`).
+app.command("serve")(serve_command)
+
+# Roadmap step 10.8: keep the Hive Entrance from the Hive Stand (the operator password, devices,
+# the door), each decision made as the console device over a running serve's loopback listener.
+app.add_typer(entrance_app, name="entrance")
+# Roadmap step 10.8: this device's side of a remote Hive (`hive remote enrol`; `hive run --remote`
+# and `hive inbox --remote` are options of the commands above), and the Hive's Waggle-side keys.
+app.add_typer(remote_app, name="remote")
+app.add_typer(keys_app, name="keys")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
 #   doctor     - environment and manifest diagnostics
-#   entrance   - manage the Hive Entrance's listeners and enrolled devices
 #   supersede  - move the Hive Stand to a new machine
 #   backup     - snapshot the Brood Chamber, Honey Store and Pheromone Trail
 #   restore    - restore a Hive from a backup
@@ -155,10 +175,9 @@ def main_callback(
     """
     _print_version(version)
     # Once, before any subcommand builds a Hive: a command's standard output is its own report
-    # (`hive run --json` is JSON and nothing else), so logs go to standard error, and at WARNING
-    # unless the operator asks for more, the way the in-Cell Warden reads HIVEMIND_LOG_LEVEL.
-    level = os.environ.get(LOG_LEVEL_ENV) or DEFAULT_CLI_LOG_LEVEL
-    configure_logging(json_output=False, level=level, to_stderr=True)
+    # (`hive run --json` is JSON and nothing else), so logs go to standard error. Here rather
+    # than in `main` so every invocation configures it, a test runner's included.
+    _configure_logging()
     # No subcommand exists yet (this step only adds --version), so a bare `hive` prints help
     # instead of typer's default "Missing command" error, and still exits 0.
     if ctx.invoked_subcommand is None:
@@ -174,6 +193,19 @@ def main() -> None:
     """
     _tolerate_console_encoding()
     app()
+
+
+def _configure_logging() -> None:
+    """Send every log line to standard error, at `HIVEMIND_LOG_LEVEL` (WARNING by default).
+
+    Unconfigured, structlog prints every level, debug included, to standard output, where it
+    corrupted `hive run --json` and interleaved with every table (a real `hive run` printed the
+    Entrance's debug lines between its progress lines). Production (`HIVEMIND_ENV=prod`) logs JSON
+    lines for an aggregator; anywhere else a person reads them.
+    """
+    env = read_env(os.environ)
+    level = env.log_level or _DEFAULT_LOG_LEVEL
+    configure_logging(json_output=env.env == "prod", level=level)
 
 
 def _tolerate_console_encoding() -> None:

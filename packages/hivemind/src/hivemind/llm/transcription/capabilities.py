@@ -7,6 +7,8 @@ single words, the longest clip it accepts and, when it is limited, the languages
 read the declaration, never the provider's name. `check_request` is the one shared guard every
 adapter runs first, so a clip that is too long or a language hint that is malformed or unsupported
 fails the same typed way on every adapter, before any model work, network call or seat is spent.
+`normalise_language` is the step before it for a hint from a device (roadmap step 10.5f): a
+browser's `"en-US"` becomes the `"en"` that check accepts.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.transcription`.
@@ -21,6 +23,8 @@ Key invariants:
       retrying unchanged will not help" error) with a synthesized status code, since the refusal
       happens before any HTTP exchange exists: 413 for a clip past `max_clip_s`, 400 for a
       language hint that is malformed or outside `languages`.
+    - `normalise_language` never raises: a hint it cannot read becomes None (the model detects
+      the language), so a device's locale never fails a transcription.
     - `streaming` False does not mean `stream()` is missing: such an adapter buffers the chunks
       and transcribes once (`hivemind.llm.transcription.buffered`), exactly as ADR-0033 decides.
 
@@ -44,14 +48,19 @@ DEFAULT_MAX_CLIP_S = 600.0  # Ten minutes: longer than any push-to-talk turn or 
 # and it keeps a 16 kHz mono clip under the 25 MiB upload cap hosted servers enforce.
 CLIP_TOO_LONG_STATUS_CODE = 413  # "Payload Too Large", synthesized: no HTTP exchange happened.
 BAD_LANGUAGE_STATUS_CODE = 400  # "Bad Request", synthesized for a malformed or unknown language.
+MAX_LANGUAGE_CHARS = 32  # The longest language hint a device may send; never a sentence.
+_MIN_LANGUAGE_SUBTAG_CHARS = 2  # No language code is a single letter.
+_MAX_LANGUAGE_SUBTAG_CHARS = 3  # ISO 639-1 codes are two letters, ISO 639-2/3 three.
 _LANGUAGE_RE = re.compile(LANGUAGE_PATTERN)  # Compiled once; checked on every language hint.
 
 __all__ = [
     "BAD_LANGUAGE_STATUS_CODE",
     "CLIP_TOO_LONG_STATUS_CODE",
     "DEFAULT_MAX_CLIP_S",
+    "MAX_LANGUAGE_CHARS",
     "TranscriptionCapabilities",
     "check_request",
+    "normalise_language",
 ]
 
 
@@ -130,3 +139,27 @@ def check_request(
             error_type="unsupported_language",
             detail=f"language {language!r} is not one this provider declares",
         )
+
+
+def normalise_language(language: str | None) -> str | None:
+    """Reduce a device's language hint to the primary subtag `check_request` accepts.
+
+    A device's locale arrives as `"en-US"` or `"EN"`; a transcriber takes `"en"`. A hint is
+    advisory, so one that is not a plausible language code is dropped (the provider then detects
+    the language itself) rather than refused.
+
+    Args:
+        language: A BCP 47 tag, an ISO 639 code, or None.
+
+    Returns:
+        The lower-cased primary subtag when it is two or three ASCII letters; None otherwise.
+
+    Example:
+        >>> normalise_language("en-US")
+        'en'
+    """
+    if language is None:
+        return None
+    primary = language.strip().replace("_", "-").partition("-")[0].lower()
+    fits = _MIN_LANGUAGE_SUBTAG_CHARS <= len(primary) <= _MAX_LANGUAGE_SUBTAG_CHARS
+    return primary if fits and primary.isascii() and primary.isalpha() else None

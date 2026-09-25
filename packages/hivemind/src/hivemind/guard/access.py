@@ -1,144 +1,247 @@
-"""Define what each AccessLevel permits, as data: ceiling_for and cap_to_access.
+"""Define what each AccessLevel permits on a Cell, as data, and narrow a set to it.
 
-`AccessLevel` (`hivemind.cell.tiers`: `READ_ONLY`, `SCRATCH`, `FULL`) is set at enrolment for a
-Real Cell (an existing device the Hive borrows and leaves exactly as found) and caps every
-capability set issued for that Cell "however the policy is configured" (codingrules section 8.7).
-This module is where that cap becomes code: `ceiling_for` builds the widest `CapabilitySet` a
-level ever permits, and `cap_to_access` narrows a requested set down to what a level's ceiling
-allows, so "a READ_ONLY device can never receive a write capability" is a property of this
-function's output, not of whoever calls it correctly.
+`AccessLevel` (`hivemind.cell.tiers`: `READ_ONLY`, `SCRATCH`, `FULL`) is set when a Real Cell (an
+existing device the Hive borrows and leaves exactly as found) joins, is stored with the node and
+every lease, and caps every capability set issued for that Cell; a Virtual Cell is always `FULL`.
+ADR-0039 fixes what it caps: only the families that act on the machine itself
+(`CELL_EFFECT_FAMILIES`: filesystem reads and writes, exec, network, devices, paths outside
+scratch, the Exoskeleton, location and host metadata). Every other family (a tool, a model slot, a
+question to the human, a spend ceiling, a tactic, watch) passes through untouched, so a
+`READ_ONLY` Warden still holds `question:human` and `llm:warden` and can never hold a write, an
+exec or a network scope. `ceiling_for` builds the widest governed set a level permits,
+`cap_to_access` narrows a requested set to it, and `admits` says whether a level permits a family
+at all, which is what the policy engine's access-level rule reads. The Exoskeleton's peripherals
+split by level (ADR-0031): the browser fast path at SCRATCH, the lease's own display and sound
+server at FULL, and the operator's running display only at FULL with that Cell's own opt-in
+(`real_display`).
+
+This step changes phase 3's `ceiling_for` (roadmap 3.13a): `tool` and `spend` are no longer in
+any ceiling, because neither is an effect on the Cell; a tool's effects are checked through the
+families it exercises (its `fs:write`, `exec` or `net`), and spend is bounded by grants.
+
+Watch mode (a Real Cell's Warden observing with no active bees, phase 11.10) is bounded by
+`READ_ONLY` on that device, whatever `watch:<node>` capability names it (roadmap 10.7): it may
+observe the process list, resource use, logs in allowed roots and file-change events in allowed
+roots, never writes, and never captures the screen or input, which is a separate capability that
+is never issued implicitly. `watch` itself is not governed here, because it grants no effect on
+the Cell; what a watcher may touch is exactly the `READ_ONLY` ceiling above.
 
 Fits into the Hive:
-    Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.cell.local` and
-    `hivemind.swarm` (Layer 3) when a lease is opened, and by `hivemind.workers.capabilities`
-    (phase 3 step 3.15) when a Warden's set is attenuated down to one Worker's. Calls into
-    `hivemind.guard.capabilities` and `hivemind.cell.tiers` (`AccessLevel`) only.
+    Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.guard.policy`
+    (a Warden's set, and the access-level rule of `evaluate`) and by any layer that issues a set
+    for a Cell. Calls into `hivemind.guard.capabilities` and `hivemind.cell.tiers` only.
 
 Key invariants:
-    - `ceiling_for` never reads `scratch_root`'s contents; it only writes the path into a
-      capability scope string. This module is pure (no I/O, per this step's brief).
-    - `cap_to_access(requested, level, scratch_root).issubset(ceiling_for(level, scratch_root))`
-      always holds, for any `requested` (a hypothesis property test in
-      `tests/unit/guard/test_access.py` checks it): `cap_to_access` only ever keeps entries from
-      `requested` that the ceiling already allows, so it can narrow but never widen.
-    - `AccessLevel.FULL` is the only level whose ceiling includes `net`, `device` or `spend`
-      capabilities at all; Virtual Cells are always `FULL` (codingrules section 6.1).
+    - `cap_to_access(requested, level, root)` is always a subset of `requested`, and its governed
+      part is always a subset of `ceiling_for(level, root)`; it narrows and never widens
+      (hypothesis property tests in `tests/unit/guard/test_access.py`).
+    - A `READ_ONLY` result holds no governed family but `fs:read`: no write, exec, network,
+      device, outside-scratch, Exoskeleton, location or host-metadata capability, however
+      `requested` was built.
+    - The levels nest: each ceiling holds everything the level below it holds.
+    - Pure: `scratch_root` is only written into a scope string, never read from disk.
 
 See Also:
-    - .claude/codingrules.md section 8.7 for "Every Real Cell has an access level" and what each
-      one permits.
-    - .claude/codingrules.md section 15 for "Capabilities and Forage only attenuate down the
-      tree", the property `cap_to_access` guarantees.
-    - hivemind.cell.tiers for `AccessLevel` itself.
-    - hivemind.guard.capabilities for `Capability` and `CapabilitySet`, the values this module
-      builds and narrows.
+    - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Access levels narrow
+      only what touches the Cell".
+    - .claude/codingrules.md section 8.7 for what each AccessLevel means for a Real Cell.
+    - .claude/roadmap.md step 10.7 for the access-level data and watch mode's bound.
+    - hivemind.cell.tiers for AccessLevel itself.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Mapping
+from pathlib import PurePath, PurePosixPath
+from types import MappingProxyType
 
 from hivemind.cell.tiers import AccessLevel
-from hivemind.guard.capabilities import CapabilitySet
+from hivemind.guard.capabilities import CapabilityFamily, CapabilitySet, glob_literal
 
-# SCRATCH adds commands and tools, since Capping still gates their effects, and the browser fast
-# path, which keeps its profile and home inside the lease's scratch (ADR-0031); a display or a
-# sound server touches the host outside scratch, so neither is here.
-_SCRATCH_EXTRAS = ("exec:*", "tool:*", "exoskeleton:browser")
-# FULL unlocks writes outside scratch, network, device, spend, and the lease's own display and
-# sound server. `exoskeleton:real_display` (the operator's own screen) is deliberately in no
-# level's list: it is issued only where a Cell's capability report says the operator allowed it
-# (codingrules section 15, "never issued implicitly").
-_FULL_EXTRAS = (
-    "fs:write:**",
-    "net:*",
-    "device:*",
-    "spend:*",
-    "exoskeleton:display",
-    "exoskeleton:audio",
+SCRATCH_PLACEHOLDER = "{scratch}"  # Stands for a lease's POSIX scratch root inside a capability.
+_SAMPLE_SCRATCH_ROOT = PurePosixPath("/scratch")  # Any root will do where only families matter.
+
+# The families that act on the machine itself (ADR-0039): the only ones an AccessLevel caps.
+CELL_EFFECT_FAMILIES: frozenset[CapabilityFamily] = frozenset(
+    {
+        CapabilityFamily.FS_READ,
+        CapabilityFamily.FS_WRITE,
+        CapabilityFamily.EXEC,
+        CapabilityFamily.NET,
+        CapabilityFamily.DEVICE,
+        CapabilityFamily.CELL_OUTSIDE_SCRATCH,
+        CapabilityFamily.EXOSKELETON,
+        CapabilityFamily.GEO,
+        CapabilityFamily.WIFI_SCAN,
+        CapabilityFamily.HOST_METADATA,
+    }
 )
 
-__all__ = ["cap_to_access", "ceiling_for"]
+# What each level adds to the one below it (READ_ONLY < SCRATCH < FULL, AccessLevel.rank).
+_LEVEL_GRANTS: Mapping[AccessLevel, tuple[str, ...]] = MappingProxyType(
+    {
+        # Reading is harmless to the machine, so even READ_ONLY reads anywhere.
+        AccessLevel.READ_ONLY: ("fs:read:**",),
+        # Writes stay inside the lease's own scratch directory; commands may run, since Capping
+        # still gates any effect they have outside scratch before it lands; and so may the
+        # browser fast path, which keeps its profile and home inside scratch (ADR-0031). A
+        # display or a sound server touches the host outside scratch, so neither is here.
+        AccessLevel.SCRATCH: (
+            f"fs:write:{SCRATCH_PLACEHOLDER}/**",
+            "exec:*",
+            "exoskeleton:browser",
+        ),
+        # The whole Cell, within its other controls: writes anywhere, the network, devices,
+        # paths outside scratch, the lease's own display and sound server (ADR-0031), and the
+        # location and host facts only a full grant should ever reveal.
+        AccessLevel.FULL: (
+            "fs:write:**",
+            "net:*",
+            "device:*",
+            "cell:outside_scratch:**",
+            "exoskeleton:display",
+            "exoskeleton:audio",
+            "geo:*",
+            "wifi:scan",
+            "host:metadata",
+        ),
+    }
+)
+# The operator's own screen (ADR-0031) is deliberately in no level's list: `ceiling_for` adds it at
+# FULL only where the Cell's capability report says its operator allowed it (codingrules section
+# 15, "never issued implicitly").
+_REAL_DISPLAY = "exoskeleton:real_display"
+
+__all__ = [
+    "CELL_EFFECT_FAMILIES",
+    "SCRATCH_PLACEHOLDER",
+    "admits",
+    "cap_to_access",
+    "ceiling_for",
+    "fill_scratch",
+    "governs",
+]
+
+
+def governs(family: CapabilityFamily) -> bool:
+    """Decide whether an AccessLevel caps `family` at all.
+
+    Args:
+        family: Any capability family.
+
+    Returns:
+        True for a family in `CELL_EFFECT_FAMILIES`; False for every other family, which access
+        levels pass through untouched.
+    """
+    return family in CELL_EFFECT_FAMILIES
 
 
 def ceiling_for(
-    level: AccessLevel, scratch_root: Path, *, real_display: bool = False
+    level: AccessLevel, scratch_root: PurePath, *, real_display: bool = False
 ) -> CapabilitySet:
-    """Build the widest CapabilitySet an AccessLevel ever permits on one Cell.
-
-    The three levels nest (READ_ONLY < SCRATCH < FULL, `AccessLevel.rank`): each ceiling below
-    includes everything the previous one grants, plus what that level adds.
+    """Build the widest set of Cell-effect capabilities an AccessLevel permits on one Cell.
 
     Args:
-        level: The Real Cell's access level (Virtual Cells are always FULL).
-        scratch_root: The lease's scratch directory. Only used to build the SCRATCH/FULL
-            `fs:write` scope; READ_ONLY never reads it.
-        real_display: Whether the Cell's operator allowed the Hive to drive the display
-            already running there (`CellCapabilities.real_display_allowed`, roadmap step 6.3).
-            Adds `exoskeleton:real_display` at FULL only; ignored below FULL, and never implied.
+        level: The Cell's access level (a Virtual Cell is always FULL).
+        scratch_root: The lease's scratch directory; written into SCRATCH's `fs:write` scope
+            (and so FULL's, which includes it) in POSIX form.
+        real_display: Whether the Cell's operator allowed the Hive to drive the display already
+            running there (`CellCapabilities.real_display_allowed`, roadmap step 6.3). Adds
+            `exoskeleton:real_display` at FULL only; ignored below FULL, and never implied.
 
     Returns:
-        The CapabilitySet no capability set issued for a Cell at `level` may exceed.
+        Every governed capability `level` permits, each level including the ones below it. No
+        family outside `CELL_EFFECT_FAMILIES` ever appears here.
     """
-    # Every level, including READ_ONLY, may read anywhere: "READ_ONLY: fs:read:** only, no exec,
-    # no write, no net" (this step's brief) still means reads are unrestricted.
-    specs: list[str] = ["fs:read:**"]
-    if level is AccessLevel.READ_ONLY:
-        return CapabilitySet.parse(*specs)
-
-    # SCRATCH: writes stay inside the lease's own scratch directory (codingrules section 8.7,
-    # "Writes stay inside the lease's own scratch directory"); commands and tools may run, since
-    # Capping (supervision.capping) still gates their effects before anything lands.
-    specs.append(_scratch_write_scope(scratch_root))
-    specs.extend(_SCRATCH_EXTRAS)
-    if level is AccessLevel.SCRATCH:
-        return CapabilitySet.parse(*specs)
-
-    # FULL: "the whole Cell is reachable, within the Cell's other controls" (codingrules 8.7).
-    specs.extend(_FULL_EXTRAS)
-    if real_display:
+    # Levels nest by rank: gather every level's grants up to and including this one.
+    specs = [
+        fill_scratch(spec, scratch_root)
+        for granted_level, grants in _LEVEL_GRANTS.items()
+        if granted_level.rank <= level.rank
+        for spec in grants
+    ]
+    if real_display and level is AccessLevel.FULL:
         # The operator's own opt-in for this Cell, and only at FULL: driving someone's screen
         # reaches far outside any lease's scratch.
-        specs.append("exoskeleton:real_display")
+        specs.append(_REAL_DISPLAY)
     return CapabilitySet.parse(*specs)
 
 
+def admits(level: AccessLevel, family: CapabilityFamily) -> bool:
+    """Decide whether an AccessLevel permits any capability of `family`, whatever its scope.
+
+    The policy engine's access-level rule reads this: it knows a Cell's level but not the lease's
+    scratch root, so it refuses a family the level never permits (an `exec` on a READ_ONLY Cell)
+    and leaves the exact scope (a SCRATCH write inside or outside scratch) to the held set, which
+    was narrowed with the real root when it was built.
+
+    Args:
+        level: The Cell's access level.
+        family: The family of the capability an action needs.
+
+    Returns:
+        True for a family `level` does not govern, or one its ceiling holds at some scope.
+    """
+    return not governs(family) or family in _ADMITTED[level]
+
+
 def cap_to_access(
-    requested: CapabilitySet, level: AccessLevel, scratch_root: Path
+    requested: CapabilitySet,
+    level: AccessLevel,
+    scratch_root: PurePath,
+    *,
+    real_display: bool = False,
 ) -> CapabilitySet:
-    """Narrow a requested CapabilitySet down to what an AccessLevel's ceiling allows.
-
-    Keeps only the entries of `requested` the ceiling already permits; it can shrink `requested`
-    but never grow it, so a READ_ONLY device can never receive a write capability, however
-    `requested` was built.
+    """Narrow a requested set to what an AccessLevel permits, leaving ungoverned families alone.
 
     Args:
-        requested: The capability set someone would like to grant.
-        level: The Cell's access level to check `requested` against.
-        scratch_root: Passed through to `ceiling_for` to build its SCRATCH/FULL `fs:write` scope.
+        requested: The set someone would like to issue for a Cell at `level`.
+        level: That Cell's access level.
+        scratch_root: The lease's scratch directory, for the ceiling's `fs:write` scope.
+        real_display: The Cell operator's running-display opt-in; see `ceiling_for`.
 
     Returns:
-        The subset of `requested` the level's ceiling allows.
+        Every capability of `requested` whose family access levels do not govern, unchanged, plus
+        every governed one the level's ceiling allows. Never anything `requested` lacks.
     """
-    ceiling = ceiling_for(level, scratch_root)
-    granted = frozenset(
-        capability for capability in requested.capabilities if ceiling.allows(capability)
+    ceiling = ceiling_for(level, scratch_root, real_display=real_display)
+    kept = frozenset(
+        capability
+        for capability in requested
+        if not governs(capability.family) or ceiling.allows(capability)
     )
-    return CapabilitySet(capabilities=granted)
+    return CapabilitySet(capabilities=kept)
 
 
-def _scratch_write_scope(scratch_root: Path) -> str:
-    """Build the `fs:write` capability string confined to one lease's scratch directory.
+def fill_scratch(template: str, scratch_root: PurePath) -> str:
+    """Substitute a scratch root for every `{scratch}` placeholder in a capability string.
 
     Args:
-        scratch_root: The lease's scratch directory, in whatever path style the platform gives it.
+        template: A capability string that may contain `SCRATCH_PLACEHOLDER`.
+        scratch_root: The lease's scratch directory, in whatever path style the platform gives.
 
     Returns:
-        `"fs:write:<posix-path>/**"`, with `scratch_root` rendered forward-slash style (`Path.
-        as_posix`) so it compares correctly against a Windows caller's backslash paths too
-        (`Capability.matches` normalises both sides the same way).
+        `template` with each placeholder replaced by the root's POSIX form, stripped of a
+        trailing "/" so `{scratch}/**` never becomes a doubled `//**` for a root of "/", and
+        escaped (`glob_literal`) so a root containing `*`, `?` or `[` matches only itself rather
+        than widening the grant to every sibling it would match as a pattern. Glob matching
+        normalises backslashes on both sides, so a Windows root still compares correctly.
     """
-    posix_root = scratch_root.as_posix().rstrip(
-        "/"
-    )  # Avoid a doubled "//**" for a root ending in "/".
-    return f"fs:write:{posix_root}/**"
+    posix_root = glob_literal(scratch_root.as_posix().rstrip("/"))
+    return template.replace(SCRATCH_PLACEHOLDER, posix_root)
+
+
+def _admitted_families() -> Mapping[AccessLevel, frozenset[CapabilityFamily]]:
+    """Map each level to the governed families its ceiling holds at any scope."""
+    return MappingProxyType(
+        {
+            level: frozenset(
+                capability.family for capability in ceiling_for(level, _SAMPLE_SCRATCH_ROOT)
+            )
+            for level in AccessLevel
+        }
+    )
+
+
+# Computed once at import from the table above (pure, codingrules 5.5), so admits() is a lookup.
+_ADMITTED = _admitted_families()

@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.manifest.schema.honey for the module under test.
-    - hivemind.manifest.schema.security for HoneySection, which nests all three.
+    - hivemind.manifest.schema.security.tiers for HoneySection, which nests all three.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from hivemind.manifest.schema.honey import (
     HoneyRipeningSection,
     HoneyStoreSection,
 )
-from hivemind.manifest.schema.security import HoneySection
+from hivemind.manifest.schema.security.tiers import HoneySection
 from waggle.messages.honey.exchange import DEFAULT_MAX_NECTAR_BYTES
 
 

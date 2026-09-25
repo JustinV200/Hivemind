@@ -289,3 +289,20 @@ async def test_fake_provider_accepts_and_records_a_tool_results_media() -> None:
     (part,) = recorded.messages[0].parts
     assert isinstance(part, ToolResultPart)
     assert part.media == result.media
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# aclose
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_aclose_records_the_close_and_the_fake_keeps_answering() -> None:
+    provider = FakeLLMProvider()
+    provider.script(text_response("still here"))
+
+    await provider.aclose()
+    await provider.aclose()
+    response = await provider.complete(make_request())
+
+    assert provider.is_closed
+    assert response.text == "still here"

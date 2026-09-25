@@ -7,6 +7,12 @@
 > operator runs `docs/runbooks/phase6-windows-exit-check.md` for it. **6.13 Pheromone Mask was not
 > built; section 4.1 says why and what to do instead.** Section 4 lists everything left, in order.
 
+> **Since this handoff:** phases 6, 7 and 10 were merged into `main` on 2026-09-25. That merge
+> closed open item 4.4: phase 10 wires `NightVeilTeardownPurge`, and the flight recorder's side
+> channel now lives in `H/cli/compose/night_veil/side_channels.py`, so a Night Veil Cell's
+> recordings are purged at teardown. Every other open item below still stands. Branch from
+> `main`.
+
 Read first:
 
 - `CLAUDE.md` and `.claude/codingrules.md`: sections 3, 5, 7.2, 8.7, 8.12, 14, 15 and Appendix C.
@@ -71,7 +77,7 @@ Path shorthands used below:
 | 6.4 | `H/exoskeleton/attach/` (`plan.py` is the pure plan; also `core.py`, `display.py`, `openbox.py`, `audio.py`, `ready.py`, `handle.py`), `H/wardens/spawn/equip.py` | A private Xvfb (`-displayfd`, no TCP, a fresh cookie) plus openbox under a generated rc, proven ready by a pointer round trip. A private PulseAudio with `norewinds=1`. The browser comes through an injected `BrowserLauncher` with the lease's scratch as its only file root. HOME and the XDG directories point into scratch. `detach()` stops exactly what attach started, newest first. `spawn_sub_bee` equips and `stop_sub_bee` detaches; a Cell that cannot equip raises `EXOSKELETON_FAILED`. |
 | 6.5a | `H/llm/transcription/`, `H/llm/providers/whisper/`, `H/llm/providers/openai_compat/transcription/`, `H/llm/fanner/transcription.py` | `ModelSlot.TRANSCRIBER` and `BoundTranscriber` chains. `Ears` (a gate plus a chain) travels `WardenDeps.ears` → `WorkerContext.ears`. `whisper_local` is in the Virtual Cell and in-Cell provider-kind lists. |
 | 6.5 | `H/workers/tools/exoskeleton/` (`offer.py`, `act.py`, `desktop.py`, `browser.py`, `look.py`, `audio.py`, `expect.py`, `arguments.py`, `errors.py`), `H/supervision/capping/gui.py`, `H/supervision/capping/gate/gui.py`, `GuiAllowlistCheck`, LLM media (`AudioPart`, `ToolResultPart.media`, `H/llm/providers/openai_compat/media.py`, the Anthropic mapping), `BoundModel.sees`/`.hears` in `H/llm/slots.py` | Action tools: click, move, type, press, scroll, browser_navigate/click/fill/press and say. Read-only tools: see and browser_screenshot (vision models only), browser_snapshot, browser_read and listen. Tiers come from `act.py` (section 3). |
-| 6.6 | `H/exoskeleton/surface/` (`core.py`, `steps.py`, `verify.py`, `evidence.py`), `H/exoskeleton/recorder/` (models, recorder, redact, store, sqlite with migrations, playback), `H/cli/recordings.py`, `H/cli/compose/exoskeleton.py`, `[exoskeleton]` in `H/manifest/schema/exoskeleton.py`, `H/supervision/capping/audit.py` (`review_applied`), `H/wardens/spawn/audited_gate.py`, `H/wardens/judge.py`, Bee Bread `RECORDING` | `ExoskeletonSurface` implements the gate's `GuiSurface`. The recorder keeps two tables in the Hive's SQLite file. `hive recordings list/show/export`; export writes `<id>.html` (frames inline, with a CSP that forbids scripts and network requests) and `<id>.json`. `JudgeRequest` gains `evidence` and `goal`. |
+| 6.6 | `H/exoskeleton/surface/` (`core.py`, `steps.py`, `verify.py`, `evidence.py`), `H/exoskeleton/recorder/` (models, recorder, redact, store, sqlite with migrations, playback), `H/cli/recordings.py`, `H/cli/compose/exoskeleton.py`, `[exoskeleton]` in `H/manifest/schema/exoskeleton.py`, `H/supervision/capping/audit/sampler.py` (`review_applied`), `H/wardens/spawn/audited_gate.py`, `H/wardens/judge.py`, Bee Bread `RECORDING` | `ExoskeletonSurface` implements the gate's `GuiSurface`. The recorder keeps two tables in the Hive's SQLite file. `hive recordings list/show/export`; export writes `<id>.html` (frames inline, with a CSP that forbids scripts and network requests) and `<id>.json`. `JudgeRequest` gains `evidence` and `goal`. |
 | 6.7 | `H/queen/planner/schema.py`, `H/llm/prompts/decompose_goal.md`, `H/wardens/acceptance.py`, `H/wardens/ticks/results.py`, `H/exoskeleton/rehearsal/` | Acceptance on URL_MATCHES and ELEMENT_TEXT is plannable only on Exoskeleton subtasks. The Warden checks it on the attached browser before it detaches. `export_procedure` → `rebase` → `rehearse` → `RehearsalReport`. |
 | 6.9, 6.10 (Worker side) | `H/workers/roles/bounded_loop/` (`profile.py`, `runner.py`, `executor.py`, `prompt.py`, `outcome.py`, `records.py`, `sources.py`, `fields.py`), `H/workers/roles/forager/` (`role.py`, `nectar.py`), `H/workers/roles/scout/` (`role.py`, `tools.py`), `H/workers/roles/selection.py`, `H/llm/prompts/{forager,scout}_system.md` | The Drone's loop became `run_bounded_loop(ctx, assignment, resume_from, profile)`; Drone, Forager and Scout differ only in their `RoleProfile`. `worker_for(role)` maps DRONE, FORAGER and SCOUT through one registry; both composition roots use it. `WorkerOutcome.scout_report` rides the claimed result to the Warden and the Queen. |
 | 6.9, 6.10 (Queen side) | `H/brood_chamber/task/model.py`, `H/queen/planner/schema.py`, `H/llm/prompts/decompose_goal.md`, `H/queen/dispatcher/{ready,snapshot}.py`, `H/queen/autopilot/table.py`, `H/queen/ticks/results.py` | `role` on `PlannedTask` → `TaskDraft` → `TaskSpec` (default DRONE; stored specs load as DRONE). `TaskOutcome.scout_report`. The dispatcher sends the task's role and its recon. An infeasible Scout fails without retry and cancels the work behind it. |
@@ -231,7 +237,7 @@ To match CI's unit job exactly (no extras, plus coverage floors), use a separate
 **Forcing every audit sample.** Audit sampling hashes each proposal's random id, so a test whose scripted fake also answers a judge can fail about one run in six and pass on rerun. That is how the Virtual Cell suite flaked until `FakeLLMProvider.answer_slot` fixed it. To flush such a test out, save this as `<scratchpad>/force_audit.py` and run pytest with `PYTHONPATH=<scratchpad>` and `-p force_audit`:
 
 ```python
-from hivemind.supervision.capping.audit import AuditSampler
+from hivemind.supervision.capping.audit.sampler import AuditSampler
 
 AuditSampler.should_sample = lambda self, proposal_id, tier, audit_rate: audit_rate > 0.0
 ```

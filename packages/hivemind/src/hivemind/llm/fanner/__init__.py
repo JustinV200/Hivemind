@@ -77,9 +77,10 @@ from hivemind.llm.fanner.recorder import (
     TrailLlmEventRecorder,
 )
 from hivemind.llm.fanner.spill import SPILL_WAIT_FRACTION, SpillReason
-from hivemind.llm.fanner.transcription import FannerTranscriptionGate
+from hivemind.llm.fanner.transcription import AUDIO_SECONDS_KEY, FannerTranscriptionGate
 
 __all__ = [
+    "AUDIO_SECONDS_KEY",
     "DEFAULT_SEATS",
     "DEFAULT_THROTTLE_S",
     "LLM_CALL_KIND",

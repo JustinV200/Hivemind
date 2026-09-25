@@ -1,21 +1,22 @@
-"""Unit tests for hivemind.queen.dispatcher.ready: role, recon and the footprint fallback.
+"""Unit tests for hivemind.queen.dispatcher.ready.assign: the role and recon a TaskAssign carries.
 
-Roadmap steps 6.9/6.10: `_recon_for`, `_grant_inputs` and `_task_assign` are exercised directly
-here, the same way `hivemind.wardens.ticks.test_results` tests `_gui_check` directly, because the
-behaviour worth pinning down (exact ordering, exact truncation, exact fallback) is easiest to see
-one function at a time; `test_queen_dispatch.py` and `test_queen_results.py` cover the same
-fields end to end, through a real `Queen` tick.
+Roadmap steps 6.9/6.10: `_recon_for` and `_task_assign` are exercised directly here (the footprint
+fallback's `_grant_inputs` now lives in `sizing`, tested beside it), the same way
+`hivemind.wardens.ticks.test_results` tests `_gui_check` directly, because the behaviour worth
+pinning down (exact ordering, exact truncation, exact fallback) is easiest to see one function at a
+time; `test_queen_dispatch.py` and `test_queen_results.py` cover the same fields end to end, through
+a real `Queen` tick.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/dispatcher/ready.py (codingrules section 3); this is the module's
-    first dedicated unit test file (it previously had none, only `test_queen_dispatch.py`'s
+    Mirrors src/hivemind/queen/dispatcher/ready/assign.py (codingrules section 3); the ready
+    path's first dedicated unit test file (it previously had none, only `test_queen_dispatch.py`'s
     end-to-end coverage).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.queen.dispatcher.ready for the module under test.
+    - hivemind.queen.dispatcher.ready.assign for the module under test.
     - hivemind.wardens.ticks.test_results for the precedent of testing a mirrored module's own
       private helper directly.
 """
@@ -32,12 +33,7 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity, MemoryTaskStor
 from hivemind.forage import RoleFootprint
 from hivemind.pheromone import TaskEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.queen.dispatcher.ready import (
-    _AssignmentTerms,
-    _grant_inputs,
-    _recon_for,
-    _task_assign,
-)
+from hivemind.queen.dispatcher.ready.assign import AssignmentTerms, _recon_for, _task_assign
 from waggle.clock import FakeClock
 from waggle.ids import (
     TaskId,
@@ -214,39 +210,6 @@ async def test_recon_for_orders_newest_completion_first_and_caps_at_max_recon_re
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# _grant_inputs: the role's own footprint, falling back to DRONE's
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-async def test_grant_inputs_uses_the_role_s_own_footprint_when_the_manifest_set_one() -> None:
-    drone_fp, forager_fp = _footprint(1), _footprint(2)
-    deps, link, warden_end = make_queen_deps(
-        footprints={WorkerRole.DRONE: drone_fp, WorkerRole.FORAGER: forager_fp}
-    )
-    task = make_task(spec=make_task_spec(role=WorkerRole.FORAGER))
-
-    inputs = _grant_inputs(deps, link, link.warden_id, link.cell.id, task)
-
-    assert inputs.role is WorkerRole.FORAGER
-    assert inputs.footprint == forager_fp
-    await warden_end.close()
-
-
-async def test_grant_inputs_falls_back_to_the_drone_footprint_for_an_unbound_role() -> None:
-    # forager/scout are never required manifest keys: deps.footprints here only ever has DRONE.
-    deps, link, warden_end = make_queen_deps()
-    task = make_task(spec=make_task_spec(role=WorkerRole.SCOUT))
-
-    inputs = _grant_inputs(deps, link, link.warden_id, link.cell.id, task)
-
-    assert (
-        inputs.role is WorkerRole.SCOUT
-    )  # The real role is still recorded, only sizing falls back.
-    assert inputs.footprint == deps.footprints[WorkerRole.DRONE]
-    await warden_end.close()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # _task_assign: role and recon on the wire TaskAssign
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -255,7 +218,7 @@ def test_task_assign_carries_the_task_s_own_role_and_the_given_recon() -> None:
     clock = FakeClock()
     report = ScoutReport(feasible=True, summary="The login form is at /login.")
     task = make_task(spec=make_task_spec(role=WorkerRole.SCOUT), clock=clock)
-    terms = _AssignmentTerms(attempt=1, recon=(report,))
+    terms = AssignmentTerms(attempt=1, recon=(report,))
 
     assign = _task_assign(task, new_cell_id(clock), new_grant_id(clock), terms)
 
@@ -266,7 +229,7 @@ def test_task_assign_carries_the_task_s_own_role_and_the_given_recon() -> None:
 def test_task_assign_defaults_recon_to_empty() -> None:
     clock = FakeClock()
     task = make_task(spec=make_task_spec(role=WorkerRole.DRONE), clock=clock)
-    terms = _AssignmentTerms(attempt=1)
+    terms = AssignmentTerms(attempt=1)
 
     assign = _task_assign(task, new_cell_id(clock), new_grant_id(clock), terms)
 

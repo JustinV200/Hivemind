@@ -12,14 +12,15 @@ Cell"), was lost -- the Queen's own trail held only her own node id for that Cel
 `make_quiesce` is the fix: it gives the Warden a chance to leave cleanly first. It looks the Cell's
 own `hivemind.queen.deps.WardenLink` up in the live Queen's `wardens` (the same late-bound view
 `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider` already reads, reused here rather
-than adding a second `bind_queen` call site to `hivemind.cli.compose.hive._assemble_hive`, which is
-not in this dispatch's allowed-to-fix list), sends a graceful `waggle.messages.cell.
-CellTeardownRequest` over it, and waits up to `grace_s` for the link to detach -- which only happens
-once `hivemind.wardens.ticks.control.handle_stop` has run the Warden's own `stop()` to completion,
-`_sync_trail` included, and the closed connection has made `hivemind.queen.cell_gate.listener.
-CellListener._handle`'s own `finally` call `hivemind.queen.attach.detach_warden`. A timeout is not
-an error: `hivemind.hive.lifecycle.CellLifecycle.teardown`'s own `backend.destroy` is always the
-backstop, so a Warden that never answers still gets torn down, just without its last few events.
+than adding a second `bind_queen` call site to `hivemind.cli.compose.hive.build._assemble_hive`,
+which is not in this dispatch's allowed-to-fix list), sends a graceful
+`waggle.messages.cell.CellTeardownRequest` over it, and waits up to `grace_s` for the link to detach
+-- which only happens once `hivemind.wardens.ticks.control.handle_stop` has run the Warden's own
+`stop()` to completion, `_sync_trail` included, and the closed connection has made
+`hivemind.queen.cell_gate.listener.CellListener._handle`'s own `finally` call
+`hivemind.queen.attach.detach_warden`. A timeout is not an error:
+`hivemind.hive.lifecycle.CellLifecycle.teardown`'s own `backend.destroy` is always the backstop, so
+a Warden that never answers still gets torn down, just without its last few events.
 
 `CellTeardownRequest` over `waggle.messages.control.protocol.Shutdown`: both map to
 `WardenAction.STOP` in `hivemind.wardens.autopilot.table.decide` and both reach the same

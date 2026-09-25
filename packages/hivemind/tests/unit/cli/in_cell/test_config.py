@@ -31,6 +31,7 @@ from hivemind.cli.in_cell.config import (
 )
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage.slots import Effort
+from hivemind.llm import RateLimit
 from hivemind.llm.registry import ProviderKind
 from hivemind.manifest.env import read_in_cell_env
 from waggle.clock import FakeClock
@@ -187,6 +188,8 @@ def test_build_runtime_config_defaults_to_no_providers_when_unset() -> None:
     config = build_runtime_config(read_in_cell_env(_full_environ()), FakeClock())
 
     assert config.providers == {}
+    assert config.provider_seats == {}
+    assert config.provider_limits == {}
     assert config.slots == ()
     assert config.llm_offline is False
 
@@ -207,6 +210,34 @@ def test_build_runtime_config_parses_providers_and_slots_json() -> None:
     assert config.slots[0].key == "warden"
     assert config.slots[0].provider == "local"
     assert config.slots[0].effort == Effort.MEDIUM
+
+
+def test_build_runtime_config_reads_each_providers_seats_and_rate_limits() -> None:
+    # One row as a current Queen ships it, one from a Queen that shipped no seats or limits.
+    rows = [
+        {"name": "local", "kind": "fake", "base_url": "", "seats": 3, "tokens_per_minute": 9000},
+        {"name": "older", "kind": "fake", "base_url": ""},
+    ]
+    environ = _full_environ(HIVEMIND_PROVIDERS=json.dumps(rows))
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.provider_seats == {"local": 3}
+    assert config.provider_limits == {
+        "local": RateLimit(tokens_per_minute=9000),
+        "older": RateLimit(),
+    }
+
+
+@pytest.mark.parametrize("seats", [0, -1, True, "4", 1.5])
+def test_build_runtime_config_rejects_seats_that_are_not_a_positive_integer(
+    seats: object,
+) -> None:
+    rows = [{"name": "local", "kind": "fake", "base_url": "", "seats": seats}]
+    environ = _full_environ(HIVEMIND_PROVIDERS=json.dumps(rows))
+
+    with pytest.raises(ConfigurationError, match="seats"):
+        build_runtime_config(read_in_cell_env(environ), FakeClock())
 
 
 def test_build_runtime_config_rejects_malformed_providers_json() -> None:

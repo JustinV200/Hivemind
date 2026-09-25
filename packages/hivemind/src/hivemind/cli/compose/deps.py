@@ -1,34 +1,42 @@
-"""Convert a loaded Hive Manifest into HiveStores, a ProviderRegistry, a Fanner, and both deps bags.
+"""Convert a loaded Hive Manifest into HiveStores, a Fanner, and both deps bags.
 
 Codingrules section 13: the composition root is the only place a `HiveManifest` is turned into the
 deps every subsystem actually takes; this module is that conversion for roadmap step 3.21's second
 half, one function per collaborator so `hivemind.cli.compose.hive.build_hive` stays a short list of
 calls. `HiveStores` groups the stores every Hive shares one SQLite file for (mirrors
-`hivemind.cli.stores`'s own `open_trail`/`open_chamber`/`open_memory`, now composed together, plus
-the flight recorder's store, roadmap step 6.6, opened with its retention sweep applied);
+`hivemind.cli.stores`'s own `open_*` functions, composed together: the flight recorder's store
+(roadmap step 6.6, opened with its retention sweep applied), the Honey Store (roadmap phase 7), and
+the Queen's goal-request table and chat log (roadmap step 10.5), which the Hive Entrance reads
+directly);
 `HiveParts` groups what `build_warden_deps` and `build_queen_deps` both need (codingrules section
 5.1: "introduce a frozen dataclass for the argument group"), built by `build_hive` only once its
 own `Fanner` and `ProviderRegistry` already exist -- `build_hive_stand_source` and `build_fanner`
 take `manifest`/`trail`/`clock` directly instead, since `build_hive` calls each of them earlier,
-before a `HiveParts` naming their own return values could exist.
+before a `HiveParts` naming their own return values could exist. Roadmap step 10.3: `build_enforcer`
+builds the one Guard `Enforcer` (over `[guard]`'s policy) that the Queen and the Hive Stand's Warden
+share, carried on `HiveParts.enforcer`; the Warden's lease needs `cell:hive_stand`, because this
+module is the one place that knows it built the Hive Stand's own source (`build_enforcer` itself
+lives in `hivemind.cli.compose.guard` since roadmap step 10.3a, beside the policy that names the
+Hive's own state, and is re-exported here). Roadmap step 10.3a also has the placement policy carry
+the Night Veil tier profile and both deps bags say which providers serve locally
+(`hivemind.cli.compose.night_veil`).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.brood_chamber`,
     `hivemind.cell.leavings` (roadmap step 5.0a), `hivemind.cell.local`, `hivemind.cli.stores`,
     `hivemind.cli.compose.exoskeleton` (roadmap steps 6.4-6.6: the Warden's Exoskeleton wiring),
-    `hivemind.exoskeleton.recorder`, `hivemind.forage`, `hivemind.honey_store` (the store type and
-    `HoneyAccess`, roadmap phase 7), `hivemind.llm`, `hivemind.manifest`, `hivemind.memory`,
-    `hivemind.pheromone`, `hivemind.queen` (`ForageLedger`, roadmap step 4.7),
-    `hivemind.supervision`, `hivemind.wardens`, `hivemind.workers` and waggle only.
+    `hivemind.cli.compose.guard` (the Enforcer, roadmap step 10.3), `hivemind.exoskeleton.recorder`,
+    `hivemind.forage`, `hivemind.guard` (the Guard policy, roadmap step 10.2),
+    `hivemind.honey_store` (the store type and `HoneyAccess`, roadmap phase 7), `hivemind.llm`,
+    `hivemind.manifest`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen`
+    (`ForageLedger`, roadmap step 4.7), `hivemind.supervision`, `hivemind.wardens`,
+    `hivemind.workers` and waggle only.
 
 Key invariants:
     - Every identity this module builds (`MemoryIdentity`, `ChamberIdentity`, `CellIdentity`)
       stamps `actor="system"`: the composition root itself is not a bee, and every write it makes
       on a bee's behalf is attributed the same way `tests.builders.queen`/`.wardens` already do.
-    - `build_provider_registry`'s `"fake"` factory substitution is selected by `ProviderConfig.
-      kind`, never by branching on a provider's own name or kind elsewhere (codingrules section 4;
-      `scripts/check_no_kind_branches.py`); see that function's own docstring.
     - `build_warden_deps`'s `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step
       6.9): a fresh Drone, Forager or Scout per `TaskAssign.role`, the same mapping `hivemind.cli.
       in_cell.deps.build_in_cell_warden_deps` wires for a Virtual Cell.
@@ -36,8 +44,9 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 13 for "the composition root is the only place a HiveManifest
       is converted".
-    - hivemind.cli.stores for open_trail/open_chamber/open_memory/build_registry/build_forage_map/
-      slot_bindings, the conversions this module composes rather than repeats.
+    - hivemind.cli.stores for open_trail/open_chamber/open_memory/build_provider_registry/
+      build_registry/build_forage_map/slot_bindings, the conversions this module composes rather
+      than repeats.
     - hivemind.queen.deps and hivemind.wardens.deps for QueenDeps and WardenDeps, the two bags
       this module's two builder functions return.
     - hivemind.cli.compose.hive for build_hive, this module's one caller.
@@ -51,19 +60,26 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic import SecretStr
-
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
 from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
 from hivemind.cli.compose.exoskeleton import hive_stand_exoskeleton, open_hive_recordings
+
+# Roadmap step 10.3's one Enforcer; built beside the policy it decides against, re-exported here.
+from hivemind.cli.compose.guard import build_enforcer
 from hivemind.cli.compose.links import HiveLinks
+from hivemind.cli.compose.night_veil import (
+    in_process_providers,
+    local_providers,
+    night_veil_constraints,
+)
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import (
-    build_registry,
     open_chamber,
+    open_chat_log,
     open_cluster_orders,
+    open_goal_requests,
     open_honey_store,
     open_leavings,
     open_ledger,
@@ -73,32 +89,26 @@ from hivemind.cli.stores import (
 )
 from hivemind.exoskeleton.recorder import InMemoryRecordingStore, RecordingStore
 from hivemind.forage import ForageMap, GoalBudgets, ModelSlot, RoleFootprint, RoyalReserve, Tempo
+from hivemind.guard import Capability, CapabilityFamily, Enforcer
 from hivemind.honey_store import HoneyAccess, SqliteHoneyStore
 from hivemind.llm import (
     CallGate,
     CompositeLlmEventRecorder,
-    FakeLLMProvider,
     Fanner,
     FannerDeps,
-    LLMProvider,
-    ProviderCapabilities,
-    ProviderConfig,
-    ProviderFactory,
     ProviderRegistry,
     RateLimit,
-    Responder,
     TrailLlmEventRecorder,
-    apply_overrides,
-    default_factories,
 )
 from hivemind.manifest import ForageSection, HiveManifest
-from hivemind.manifest.schema import PlacementSection
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
+from hivemind.queen.chat import ChatLog
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
+from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import PlacementPolicy
-from hivemind.supervision import load_policy
+from hivemind.supervision import load_policy, load_warden_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer, WardenDeps
@@ -106,13 +116,18 @@ from hivemind.workers.roles import worker_for
 from waggle.clock import Clock, SystemClock
 from waggle.messages.task import WorkerRole
 
+# Roadmap step 10.3: what the Hive Stand's own Warden's lease needs of its set (the lease_creation
+# point); set here because this module built the Hive Stand's source, never read off a Cell's kind.
+HIVE_STAND_LEASE = Capability(family=CapabilityFamily.CELL_HIVE_STAND)
+
 __all__ = [
+    "HIVE_STAND_LEASE",
     "HiveParts",
     "HiveStores",
+    "build_enforcer",
     "build_fanner",
     "build_hive_stand_source",
     "build_ledger",
-    "build_provider_registry",
     "build_queen_deps",
     "build_warden_deps",
     "open_default_stores",
@@ -129,6 +144,9 @@ class HiveStores:
         memory: Where every Pin, Note, Handoff and episode this Hive writes lives.
         leavings: The Leavings ledger `build_hive_stand_source` hands to every
             `HiveStandLeaseReleaser` this Hive builds (roadmap step 5.0a).
+        goal_requests: The Queen's durable goal-request table (roadmap step 10.5, ADR-0040).
+        chat: The Queen's chat log, the human end of her inbox (roadmap step 10.5); the Hive
+            Entrance reads both directly, since reading never changes state.
         recordings: The flight recorder's store (roadmap step 6.6), where the Hive Stand's
             Warden records every GUI action. Defaulted to an in-memory store so a `HiveStores` a
             test builds by hand keeps working; `open_default_stores` opens the durable one.
@@ -141,6 +159,8 @@ class HiveStores:
     chamber: BroodChamber
     memory: MemoryStore
     leavings: LeavingsStore
+    goal_requests: GoalRequestStore
+    chat: ChatLog
     recordings: RecordingStore = field(default_factory=InMemoryRecordingStore)
     honey: SqliteHoneyStore | None = None
 
@@ -160,6 +180,8 @@ class HiveParts:
         fanner: The Fanner every `CallGate` this Hive hands out is a lane of.
         stores: This Hive's trail, chamber, memory and leavings stores.
         clock: Injected time source shared by every collaborator this composes.
+        enforcer: The Guard's one Enforcer (`build_enforcer`, roadmap step 10.3), shared by the
+            Queen and the Hive Stand's Warden so both decide against the same policy.
     """
 
     manifest: HiveManifest
@@ -167,6 +189,7 @@ class HiveParts:
     fanner: Fanner
     stores: HiveStores
     clock: Clock
+    enforcer: Enforcer
 
 
 def open_default_stores(manifest: HiveManifest) -> HiveStores:
@@ -194,6 +217,8 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         leavings=open_leavings(db),
         recordings=open_hive_recordings(db, manifest.exoskeleton, SystemClock()),
         honey=open_honey_store(db),  # ADR-0035: the Honey Store lives in the Hive's one file.
+        goal_requests=open_goal_requests(db),
+        chat=open_chat_log(db),
     )
 
 
@@ -224,36 +249,6 @@ def build_hive_stand_source(
     return HiveStandSource(config, identity, trail, clock, leavings)
 
 
-def build_provider_registry(
-    manifest: HiveManifest,
-    environ: Mapping[str, str],
-    clock: Clock,
-    forage_map: ForageMap,
-    responders: Mapping[str, Responder] | None,
-) -> ProviderRegistry:
-    """Build a ProviderRegistry sharing `forage_map`, optionally scripting every `"fake"` provider.
-
-    Args:
-        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
-        environ: The composition root's own environment mapping, for provider API keys.
-        clock: Passed to every provider this registry later constructs.
-        forage_map: Shared with the Fanner and `QueenDeps.map`: one live map for the whole Hive,
-            never a second instance the routing figures the Fanner writes never reach.
-        responders: When given and non-empty, every `[llm.providers.<name>] kind = "fake"` row is
-            built with `responders.get(name)` installed as its `hivemind.llm.fake.FakeLLMProvider.
-            __init__`'s own `responder`, so a test can script one without reaching into the
-            registry's private cache after the fact. `None` or empty keeps
-            `hivemind.llm.registry.default_factories`'s own plain `FakeLLMProvider` unchanged.
-
-    Returns:
-        A ProviderRegistry ready to resolve any `[llm.slots]` binding this manifest declares.
-    """
-    factories = dict(default_factories())
-    if responders:
-        factories["fake"] = _responder_installing_fake_factory(responders)
-    return build_registry(manifest, environ, clock, factories=factories, forage_map=forage_map)
-
-
 def build_fanner(
     manifest: HiveManifest,
     forage_map: ForageMap,
@@ -270,7 +265,8 @@ def build_fanner(
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[llm.providers]`
             sizes every provider's seats and rate limit.
-        forage_map: The same live map `build_provider_registry` gave the registry.
+        forage_map: The same live map `hivemind.cli.stores.build_provider_registry` gave the
+            registry.
         trail: Where every `llm.call`/`llm.spill` occurrence is recorded.
         clock: Injected time source for every wait and every recorded event.
         ledger: The Queen's live book of Forage (roadmap step 4.8's own wiring step), built by
@@ -308,19 +304,15 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
 
     Args:
         parts: This Hive's shared collaborators.
-        source: The Hive Stand's own RealCellSource (`build_hive_stand_source`); the Warden leases
-            and releases through it, never provisions (CLAUDE.md).
-        links: Both ends of the Queen<->Warden link (`hivemind.cli.compose.links.build_hive_
-            links`); `links.warden_transport`/`.warden_hop` are this Warden's own end.
+        source: The Hive Stand's own RealCellSource: leased and released, never provisioned.
+        links: Both ends of the Queen<->Warden link; `.warden_transport`/`.warden_hop` are its end.
 
     Returns:
         A WardenDeps ready for `hivemind.wardens.Warden(links.warden_id, deps)`.
     """
     manifest = parts.manifest
     supervision = manifest.supervision
-    identity = _system_identity(manifest)
-    # Roadmap step 4.10: a model-backed JudgeReviewer, merged into the deterministic check
-    # registry so CheckKind.JUDGE is available wherever a tier's own `judge` flag turns it on.
+    # Roadmap step 4.10: a model JudgeReviewer, so CheckKind.JUDGE runs where a tier turns it on.
     judge_rubrics = load_judge_rubrics()
     judge_reviewer = _build_judge_reviewer(parts)
     deps = WardenDeps(
@@ -329,9 +321,9 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         hop=links.warden_hop,
         memory=parts.stores.memory,
         trail=parts.stores.trail,
-        identity=identity,
+        identity=_system_identity(manifest),
         clock=parts.clock,
-        policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
+        policy=load_warden_policy(_supervision_file(manifest, supervision.policy_file)),
         tiers=load_tiers(_supervision_file(manifest, supervision.capping_tiers_file)),
         checks={**deterministic_checks(), **judge_checks(judge_reviewer, judge_rubrics)},
         bound=parts.registry.bound(ModelSlot.WARDEN),
@@ -349,6 +341,11 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         # Roadmap step 5.0e: resolved the same way build_queen_deps resolves scratch_root.
         keep_root=_keep_root(manifest),
         disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
+        guard=parts.enforcer.policy,  # Roadmap step 10.2: every set this Warden builds.
+        enforcer=parts.enforcer,  # Roadmap step 10.3: the Guard's adapter, lease and slots.
+        lease_capability=HIVE_STAND_LEASE,
+        bindings=slot_bindings(manifest),
+        local_providers=local_providers(manifest),  # Roadmap step 10.3a: a binding's locality.
     )
     # Roadmap steps 6.4-6.6: screen, browser launcher, flight recorder and ears (.exoskeleton).
     return hive_stand_exoskeleton(parts).apply(deps)
@@ -387,7 +384,8 @@ def build_queen_deps(
 
     Args:
         parts: This Hive's shared collaborators.
-        forage_map: The same live map `build_provider_registry`/`build_fanner` share.
+        forage_map: The same live map the registry (`hivemind.cli.stores.
+            build_provider_registry`) and `build_fanner` share.
         ledger: The Queen's live book of Forage, built by `build_ledger` ahead of `build_fanner`
             (roadmap step 4.8's own wiring step: `build_fanner` needs it too, before `QueenDeps`
             itself can exist to carry it).
@@ -419,6 +417,9 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         identity=_system_identity(manifest),
         clock=parts.clock,
         policy=load_policy(_supervision_file(manifest, supervision.policy_file)),
+        enforcer=parts.enforcer,  # Roadmap step 10.3: every enforcement point the Queen passes.
+        goal_requests=parts.stores.goal_requests,  # Roadmap step 10.5: her durable goal requests.
+        chat=parts.stores.chat,  # Roadmap step 10.5: the human end of her inbox.
         bound_for=parts.registry.bound,
         rebind=parts.registry.bound_for_key,
         bindings=slot_bindings(manifest),
@@ -443,13 +444,16 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         # Roadmap step 4.3: the manifest's own sweep cadence for the Queen's House Bee sweep.
         sweep_interval_s=manifest.memory.sweep_interval_s,
         hot_window_s=manifest.memory.hot_window_s,
-        # Roadmap step 5.7: the [placement] section, as the slice decide() reads.
-        placement_policy=_placement_policy(manifest.placement),
+        # Roadmap step 5.7: the [placement] section, as the slice decide() reads; roadmap step
+        # 10.3a adds the Night Veil tier profile, which no composition root used to build.
+        placement_policy=_placement_policy(manifest),
+        in_process_providers=in_process_providers(manifest),  # Roadmap step 10.3a.
     )
 
 
-def _placement_policy(section: PlacementSection) -> PlacementPolicy:
-    """Convert the manifest's `[placement]` section into the `PlacementPolicy` decide() reads."""
+def _placement_policy(manifest: HiveManifest) -> PlacementPolicy:
+    """Convert `[placement]` and the Night Veil tier profile into the policy decide() reads."""
+    section = manifest.placement
     return PlacementPolicy(
         prefer=section.prefer,
         allow_hive_stand=section.allow_hive_stand,
@@ -458,6 +462,7 @@ def _placement_policy(section: PlacementSection) -> PlacementPolicy:
             for key, override in section.roles.items()
             if override.prefer is not None
         },
+        night_veil=night_veil_constraints(manifest),
     )
 
 
@@ -537,28 +542,6 @@ def _manifest_dir(manifest: HiveManifest) -> Path:
 def _footprints(roles: Mapping[str, RoleFootprint]) -> dict[WorkerRole, RoleFootprint]:
     """Convert `[forage.roles]`'s lowercase manifest keys into `WorkerRole` members."""
     return {WorkerRole[key.upper()]: footprint for key, footprint in roles.items()}
-
-
-def _responder_installing_fake_factory(responders: Mapping[str, Responder]) -> ProviderFactory:
-    """Build a `"fake"` ProviderFactory that installs a scripted Responder, if one is named.
-
-    Not a `cell.kind`/`provider.name` branch (`scripts/check_no_kind_branches.py`): this factory
-    is reached only because `ProviderConfig.kind == "fake"` already selected it, exactly the way
-    `hivemind.llm.registry.default_factories` itself dispatches by kind for every adapter;
-    `responders.get(name)` only varies what that one already-selected factory builds, the same
-    way `hivemind.llm.registry.apply_overrides` already varies a provider's declared capabilities.
-    """
-
-    def factory(
-        name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
-    ) -> LLMProvider:
-        """Build a FakeLLMProvider for `name`, scripted with `responders[name]` when present."""
-        capabilities = apply_overrides(ProviderCapabilities.full(), config.capability_overrides)
-        return FakeLLMProvider(
-            name=name, capabilities=capabilities, responder=responders.get(name), clock=clock
-        )
-
-    return factory
 
 
 def _supervision_file(manifest: HiveManifest, path: Path | None) -> Path | None:

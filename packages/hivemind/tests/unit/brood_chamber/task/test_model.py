@@ -17,7 +17,7 @@ import pytest
 from builders.tasks import make_outcome, make_task, make_task_spec
 from pydantic import ValidationError
 
-from hivemind.brood_chamber.task.model import Task, TaskDraft, TaskGraphDraft, TaskOutcome, TaskSpec
+from hivemind.brood_chamber.task.model import Task, TaskOutcome, TaskSpec
 from hivemind.brood_chamber.task.state import TaskStatus
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_task_id, new_warden_id
@@ -89,7 +89,7 @@ def test_task_spec_leaves_defaults_to_empty_and_carries_a_declared_leaving() -> 
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# TaskSpec/TaskDraft.role (roadmap steps 6.9/6.10)
+# TaskSpec.role (roadmap steps 6.9/6.10)
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -110,28 +110,6 @@ def test_task_spec_rejects_a_role_the_task_graph_never_assigns(role: WorkerRole)
     # "additive with a default"); only a role explicitly outside PLANNABLE_ROLES is rejected.
     with pytest.raises(ValidationError, match="must be one of"):
         make_task_spec(role=role)
-
-
-def test_task_draft_role_defaults_to_drone() -> None:
-    draft = TaskDraft(
-        key="task",
-        title="Do the thing",
-        objective="Do the thing.",
-        acceptance=make_task_spec().acceptance,
-    )
-
-    assert draft.role is WorkerRole.DRONE
-
-
-def test_task_draft_rejects_a_role_the_task_graph_never_assigns() -> None:
-    with pytest.raises(ValidationError, match="must be one of"):
-        TaskDraft(
-            key="task",
-            title="Do the thing",
-            objective="Do the thing.",
-            acceptance=make_task_spec().acceptance,
-            role=WorkerRole.GUARD_BEE,
-        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -384,79 +362,3 @@ def test_task_json_round_trips_for_every_status() -> None:
         restored = Task.model_validate_json(original.model_dump_json())
 
         assert restored == original
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# TaskDraft / TaskGraphDraft
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def _draft(key: str, depends_on: tuple[str, ...] = ()) -> TaskDraft:
-    """Build one valid TaskDraft for the graph tests below."""
-    return TaskDraft(
-        key=key,
-        title=f"Task {key}",
-        objective=f"Do the work for {key}.",
-        acceptance=make_task_spec().acceptance,
-        depends_on=depends_on,
-    )
-
-
-def test_task_draft_rejects_a_malformed_key() -> None:
-    with pytest.raises(ValidationError):
-        _draft("Not Valid!")
-
-
-def test_task_graph_draft_accepts_a_linear_chain() -> None:
-    graph = TaskGraphDraft(tasks=(_draft("a"), _draft("b", ("a",))))
-
-    assert [entry.key for entry in graph.tasks] == ["a", "b"]
-
-
-def test_task_graph_draft_rejects_a_duplicate_key() -> None:
-    with pytest.raises(ValidationError, match="duplicate key"):
-        TaskGraphDraft(tasks=(_draft("a"), _draft("a")))
-
-
-def test_task_graph_draft_rejects_an_unknown_dependency_key() -> None:
-    with pytest.raises(ValidationError, match="unknown key"):
-        TaskGraphDraft(tasks=(_draft("a", ("nope",)),))
-
-
-def test_task_graph_draft_rejects_a_self_dependency() -> None:
-    with pytest.raises(ValidationError, match="cannot depend on itself"):
-        TaskGraphDraft(tasks=(_draft("a", ("a",)),))
-
-
-def test_task_graph_draft_rejects_a_cycle() -> None:
-    with pytest.raises(ValidationError, match="cycle"):
-        TaskGraphDraft(tasks=(_draft("a", ("b",)), _draft("b", ("a",))))
-
-
-def test_task_graph_draft_rejects_an_empty_tasks_tuple() -> None:
-    with pytest.raises(ValidationError):
-        TaskGraphDraft(tasks=())
-
-
-def test_task_graph_draft_json_round_trips() -> None:
-    original = TaskGraphDraft(tasks=(_draft("a"), _draft("b", ("a",))))
-
-    restored = TaskGraphDraft.model_validate_json(original.model_dump_json())
-
-    assert restored == original
-
-
-def test_task_draft_leaves_defaults_to_empty_and_round_trips_a_declared_leaving() -> None:
-    assert _draft("a").leaves == ()
-
-    leaving = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
-    draft = TaskDraft(
-        key="a",
-        title="Task a",
-        objective="Install the project.",
-        acceptance=make_task_spec().acceptance,
-        leaves=(leaving,),
-    )
-
-    assert draft.leaves == (leaving,)
-    assert TaskDraft.model_validate_json(draft.model_dump_json()).leaves == (leaving,)

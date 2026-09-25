@@ -11,13 +11,18 @@ with `AnswerSource.HUMAN`, exactly `hive inbox answer`'s roadmap job, and also l
 `hivemind.memory.Note` (`hivemind.queen.answer_note_author`) a running `hive run`'s own
 `hivemind.queen.sync_answers_from_chamber` polls for and forwards on its next poll -- see that
 function's own module docstring for why a Note, not the chamber's own `Answer`, carries the text
-across the process boundary.
+across the process boundary. Roadmap step 10.8: the group also carries `--remote [--profile P]
+[--password-stdin]`, and with it every command asks a remote Hive's Entrance, as the device `hive
+remote enrol` enrolled, instead of this machine's stores: the inbox the running Queen holds,
+an answer she forwards at once, and `acknowledge`, which only a running Queen can do (an Alarm
+waits in her memory), so it exists only with `--remote` (`hivemind.cli.remote`).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script (`hivemind.cli.app`). Calls into `hivemind.brood_chamber`, `hivemind.cell`
-    (HoneyClearance), `hivemind.cli.stores`, `hivemind.memory` (Note), `hivemind.pheromone`,
-    `hivemind.queen` (`answer_note_author`) and waggle only.
+    (HoneyClearance), `hivemind.cli.landing` and `hivemind.cli.remote` (for `--remote`),
+    `hivemind.cli.stores`, `hivemind.memory` (Note), `hivemind.pheromone`, `hivemind.queen`
+    (`answer_note_author`) and waggle only.
 
 Key invariants:
     - `open_trail`/`open_chamber`/`open_memory` (each running its own `asyncio.run` internally,
@@ -43,6 +48,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import Annotated
 
 import typer
@@ -57,6 +63,15 @@ from hivemind.brood_chamber import (
     Task,
 )
 from hivemind.cell import HoneyClearance
+from hivemind.cli.landing import PASSWORD_STDIN, carried_flag, carried_group, carried_text
+from hivemind.cli.remote import (
+    DEFAULT_PROFILE,
+    PROFILE,
+    REMOTE,
+    remote_acknowledge,
+    remote_answer,
+    remote_inbox,
+)
 from hivemind.cli.stores import (
     DEFAULT_MANIFEST,
     JsonOption,
@@ -66,6 +81,7 @@ from hivemind.cli.stores import (
     open_memory,
     open_trail,
 )
+from hivemind.entrance.models import AnswerBody
 from hivemind.manifest import HiveManifest
 from hivemind.memory import MemoryContext, MemoryIdentity, Note, add_note
 from hivemind.pheromone import PheromoneEvent, PheromoneTrail, TrailQuery
@@ -75,8 +91,13 @@ from waggle.ids import MessageId, new_event_id
 
 app = typer.Typer(
     name="inbox",
-    help="List pending questions and Alarms at the human; answer a question.",
+    help="List pending questions and Alarms at the human; answer a question; with --remote, "
+    "at a remote Hive, as this device.",
     invoke_without_command=True,
+    # Roadmap step 10.8: `hive inbox --remote [--profile P] [--password-stdin] ...` asks a remote
+    # Hive's Entrance instead of this machine's stores; the group carries the three options so
+    # every subcommand reads them (`hive inbox --remote answer ID "text"`).
+    cls=carried_group(REMOTE, PROFILE, PASSWORD_STDIN),
 )
 
 __all__ = ["app"]
@@ -118,6 +139,10 @@ def list_command(
     """List every pending question and every Alarm still escalated to the human."""
     if ctx.invoked_subcommand is not None:
         return  # `hive inbox answer ...` was named; let that subcommand run instead.
+    remote = _remote(ctx)
+    if remote is not None:
+        remote_inbox(remote.profile, remote.from_stdin, as_json)
+        return
     loaded = load_manifest_or_exit(manifest)
     db = loaded.resolve_path(loaded.hive.db)
     # Both run their own asyncio.run internally (module docstring): called here, synchronously,
@@ -137,6 +162,7 @@ def list_command(
 
 @app.command("answer")
 def answer_command(
+    ctx: typer.Context,
     question_id: Annotated[str, typer.Argument(help="A pending question's own id.")],
     text: Annotated[str, typer.Argument(help="The answer text.")],
     manifest: ManifestOption = DEFAULT_MANIFEST,
@@ -146,6 +172,11 @@ def answer_command(
     ] = None,
 ) -> None:
     """Record TEXT as the human's answer to QUESTION_ID, and leave it for a running `hive run`."""
+    remote = _remote(ctx)
+    if remote is not None:
+        answer = AnswerBody(text=text, chosen_option=option)
+        remote_answer(remote.profile, remote.from_stdin, question_id, answer)
+        return
     loaded = load_manifest_or_exit(manifest)
     db = loaded.resolve_path(loaded.hive.db)
     chamber = open_chamber(db, _identity(loaded))
@@ -154,6 +185,40 @@ def answer_command(
     )
     task = asyncio.run(_answer(chamber, memory_ctx, MessageId(question_id), text, option))
     typer.echo(f"recorded: task {task.id} is now {task.status.value}")
+
+
+@app.command("acknowledge")
+def acknowledge_command(
+    ctx: typer.Context,
+    alarm_id: Annotated[str, typer.Argument(help="An Alarm waiting on the human.")],
+) -> None:
+    """Acknowledge ALARM_ID at a remote Hive (--remote): it is resolved and withdrawn everywhere."""
+    remote = _remote(ctx)
+    # An Alarm waits in a running Queen's memory: only her Entrance can resolve it.
+    if remote is None:
+        typer.echo(
+            "hive inbox acknowledge refused: an Alarm waits in a running Queen's memory; "
+            "acknowledge it through her Entrance: hive inbox --remote acknowledge ALARM_ID.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    remote_acknowledge(remote.profile, remote.from_stdin, alarm_id)
+
+
+@dataclass(frozen=True, slots=True)
+class _Remote:
+    """``--remote``'s two companions, when ``--remote`` was given."""
+
+    profile: str
+    from_stdin: bool
+
+
+def _remote(ctx: typer.Context) -> _Remote | None:
+    """What the group's ``--remote`` options said; None when the local stores are meant."""
+    if not carried_flag(ctx, REMOTE):
+        return None
+    profile = carried_text(ctx, PROFILE) or DEFAULT_PROFILE
+    return _Remote(profile=profile, from_stdin=carried_flag(ctx, PASSWORD_STDIN))
 
 
 async def _read_inbox(

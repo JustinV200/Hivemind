@@ -14,24 +14,52 @@ task. Both `build_inventory`'s `role` keyword (DRONE by default) and `build_fora
 falling back to the DRONE entry every manifest carries when the role has none of its own, so a
 FORAGER or SCOUT task is measured and granted against its own cost rather than always the Drone's.
 
+Roadmap step 10.6a: `goal_id` names the goal being placed, and every active Guard
+`PlacementHold` on that goal (the Hive Stand's fallback, where the Queen may not isolate) joins the
+blocked Cells for this one decision, exactly as a BLOCK Cell Wax note would: placement data, never
+a special case inside `decide`. An attached Night Veil Cell is never a candidate at all: it was
+provisioned for one task and is torn down when that task ends (codingrules 8.7, "teardown-only"),
+so no other task is ever placed there, isolated or not, and no other task's placement reasons
+name it; that is also the hold its isolation needs, since it gets no BLOCK note (codingrules 12).
+
+The dispatcher lifecycle fix makes every figure placement reads live. An attached Cell's room is
+measured on its capacity as it stands (`WardenLink.live_capacity`, the Hive Stand's load and free
+memory re-read now; a Virtual Cell's spec otherwise) less the grants in force on it: each task
+holding a live grant there runs one bee, whatever its grant's ceiling (the ledger releases a grant
+once its task ends, `hivemind.queen.forage.grants.release_finished`). Before, the Cell as probed
+when the Hive was built was read, so a Cell already full of running work still counted as free.
+And a backend's room is less every fresh Cell being provisioned on it right now
+(`hivemind.queen.dispatcher.provisions`): an acquisition in flight has reserved room the
+lifecycle does not count until its Cell exists, and a placement decided meanwhile must not count
+on it too. A backend whose provisions keep failing is marked held back for a while
+(`hivemind.queen.dispatcher.backoff`), placement data like any other, so `decide` skips it.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
-    acquire`. Calls into `hivemind.cell` (HIVE_STAND_SOURCE, HoneyClearance), `hivemind.memory`
-    (WaxSeverity, WaxState), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
-    placement` (Inventory, ForageView, RealCandidate, VirtualBackendCandidate, WaxMention) and
-    waggle (including `waggle.messages.task.WorkerRole`) only.
+    acquire`. Calls into `hivemind.cell` (HIVE_STAND_SOURCE, HoneyClearance), `hivemind.forage`
+    (ForageCapacity, ForageGrant, RoleFootprint), `hivemind.memory` (WaxSeverity, WaxState),
+    `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps, WardenLink),
+    `hivemind.queen.dispatcher.backoff` (mark_held),
+    `hivemind.queen.placement` (Inventory, ForageView, ProvisionVirtual, RealCandidate,
+    VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's placement holds),
+    `QueenDeps.ledger` (the grants in force) and waggle (including `waggle.messages.task.
+    WorkerRole`) only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
       for a placement decision: `hivemind.queen.placement.decide` itself never touches a store.
-    - `has_free_capacity` is a simple, cheap signal (room for one more sub-bee, and enough free
-      memory for the placed bee's own footprint), not a re-run of `hivemind.forage.allocate.grant`;
-      the real grant computation still happens once placement has already chosen a Cell
-      (`hivemind.queen.dispatcher.ready._send_grant_and_assign`).
+    - `has_free_capacity` is a simple, cheap signal (room for one more sub-bee once the grants in
+      force are counted, and enough free memory for the placed bee's own footprint), read from the
+      Cell's live figures, not a re-run of `hivemind.forage.allocate.grant`; the real grant
+      computation still happens once placement has already chosen a Cell
+      (`hivemind.queen.dispatcher.ready.assign.send_grant_and_assign`).
     - `build_inventory`'s `role` and `build_forage_view`'s `task.spec.role` never require a
       `[forage.roles]` entry to exist for that role: `deps.footprints.get(role, ...)` always falls
       back to DRONE, which every manifest binds (`hivemind.manifest.schema.forage.REQUIRED_ROLE`).
+    - A backend's headroom is never above what its declared cap leaves once every tracked Cell and
+      every fresh Cell still being provisioned on it are counted, each once.
+    - No attached Night Veil Cell is ever in an `Inventory`'s Real candidates.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for "the caller precomputes... before
@@ -45,26 +73,31 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import dataclasses
+from collections import Counter
+from collections.abc import Iterable, Sequence
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import HIVE_STAND_SOURCE, Cell, HoneyClearance
-from hivemind.forage import RoleFootprint
+from hivemind.cell import HIVE_STAND_SOURCE, CombShieldLevel, HoneyClearance
+from hivemind.forage import ForageCapacity, ForageGrant, RoleFootprint
 from hivemind.hive import VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import WaxSeverity, WaxState
+from hivemind.queen.authority import goal_held
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.dispatcher.backoff import mark_held
 from hivemind.queen.forage.night_veil import night_veil_local_only
 from hivemind.queen.placement import (
     DormantCandidate,
     ForageView,
     Inventory,
     NightVeilHostingView,
+    ProvisionVirtual,
     RealCandidate,
     VirtualBackendCandidate,
     WaxMention,
 )
-from waggle.ids import CellId
+from waggle.ids import CellId, TaskId
 from waggle.messages.task import WorkerRole
 
 __all__ = [
@@ -80,7 +113,7 @@ async def build_inventory(
     deps: QueenDeps,
     wardens: Sequence[WardenLink],
     *,
-    role: WorkerRole = WorkerRole.DRONE,
+    task: Task | None = None,
     virtual_backends: tuple[VirtualBackendCandidate, ...] | None = None,
     exclude_dormant: frozenset[CellId] = frozenset(),
 ) -> Inventory:
@@ -92,10 +125,11 @@ async def build_inventory(
             `deps.dormant_cells` for the Virtual side (empty until roadmap steps 5.6/5.9 wire
             them).
         wardens: Every attached Warden; one `RealCandidate` per Cell it owns.
-        role: The role of the task this placement decision is for; DRONE by default, matching
-            every caller before roadmap steps 6.9/6.10. Looked up in `deps.footprints` with a
-            DRONE fallback (`forager`/`scout` are never required manifest keys), so headroom is
-            measured against the role that will actually run, not always the Drone's.
+        task: The task this placement decision is for. Its role picks the footprint headroom is
+            measured against (roadmap steps 6.9/6.10: looked up in `deps.footprints` with a DRONE
+            fallback, since `forager`/`scout` are never required manifest keys), and the Guard's
+            active holds on its goal block their Cells for this decision (roadmap step 10.6a).
+            None measures against the Drone's footprint and applies no hold.
         virtual_backends: Overrides `deps.virtual_backends`, for the retry-once-with-zeroed-
             headroom path (ADR-0028 Consequences) -- `hivemind.queen.dispatcher.acquire` passes a
             copy with one backend's headroom zeroed rather than mutating `deps` itself.
@@ -106,9 +140,13 @@ async def build_inventory(
     Returns:
         The `Inventory` `decide()` reads for this one placement decision.
     """
+    role = task.spec.role if task is not None else WorkerRole.DRONE
     footprint = deps.footprints.get(role, deps.footprints[WorkerRole.DRONE])
     blocked, cautioned = await _wax_maps(deps)
-    real = tuple(_real_candidate(link, footprint) for link in wardens)
+    if task is not None:
+        # A Cell's own BLOCK note, when it has one, is the mention its placement reason names.
+        blocked = {**await _held_for(deps, task.goal_id), **blocked}
+    real = await _real_candidates(deps, wardens, footprint)
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
     else:
@@ -135,6 +173,8 @@ def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
     `task.cell_id` already names a Cell with a written `HostingPlan` -- true only when `decide` is
     re-run for a task still nominally tied to one (a retry, or a re-dispatch after Clustering),
     never on a fresh NIGHT_VEIL provision's first decide() call, which has no Cell yet to check.
+    `goal_capabilities` (roadmap step 10.3) is the task's goal set, parsed: the ceiling every
+    candidate must be allowed by, or None for the operator's own local path.
 
     Args:
         deps: The Queen's collaborators; `deps.footprints` is looked up by `task.spec.role`
@@ -150,6 +190,7 @@ def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
         footprint=deps.footprints.get(task.spec.role, deps.footprints[WorkerRole.DRONE]),
         request_origin=task.spec.origin,
         night_veil_hosting=_night_veil_hosting(deps, task),
+        goal_capabilities=goal_held(task),
     )
 
 
@@ -216,30 +257,65 @@ def dormant_candidate_from_lifecycle(cell: LifecycleDormantCell) -> DormantCandi
     )
 
 
-def _real_candidate(link: WardenLink, footprint: RoleFootprint) -> RealCandidate:
-    """Build one RealCandidate from an attached WardenLink's own Cell."""
+async def _real_candidates(
+    deps: QueenDeps, wardens: Sequence[WardenLink], footprint: RoleFootprint
+) -> tuple[RealCandidate, ...]:
+    """Return one RealCandidate per attached Warden's Cell, no Night Veil Cell among them."""
+    # One bee per task holding a grant in force on a Cell (module docstring), counted once.
+    in_use = _bees_in_use(deps.ledger.live_grants())
+    # A Night Veil Cell holds only the task it was provisioned for (module docstring).
+    return tuple(
+        [
+            await _real_candidate(link, footprint, in_use[link.cell.id])
+            for link in wardens
+            if link.cell.comb_shield is not CombShieldLevel.NIGHT_VEIL
+        ]
+    )
+
+
+async def _real_candidate(
+    link: WardenLink, footprint: RoleFootprint, bees_in_use: int
+) -> RealCandidate:
+    """Build one RealCandidate from an attached WardenLink's Cell, as it stands right now."""
     cell = link.cell
+    # Read live where the link can (normally a handful of fast system reads on this host), so a
+    # Cell's load and free memory are today's, never the probe taken when the Hive was built.
+    capacity = await link.live_capacity() if link.live_capacity is not None else cell.capacity
     return RealCandidate(
         warden_id=link.warden_id,
         cell_id=cell.id,
         capabilities=cell.capabilities,
         comb_shield=cell.comb_shield,
         is_hive_stand=cell.source == HIVE_STAND_SOURCE,
-        has_free_capacity=_has_free_capacity(cell, footprint),
+        has_free_capacity=_has_free_capacity(capacity, footprint, bees_in_use),
         # Roadmap step 6.12: the level caps which exoskeleton scopes the Cell's bees can hold;
         # left unset it defaults to READ_ONLY (fail closed) and no Real Cell takes Exoskeleton work.
         access_level=cell.access_level,
+        # Copied for placement, the one caller allowed to branch on it (codingrules 8.7).
+        kind=cell.kind,
     )
 
 
-def _has_free_capacity(cell: Cell, footprint: RoleFootprint) -> bool:
-    """Return whether `cell` has room for one more bee at `footprint`'s own cost.
+def _has_free_capacity(capacity: ForageCapacity, footprint: RoleFootprint, in_use: int) -> bool:
+    """Return whether a Cell at `capacity`, `in_use` bees busy, has room for one bee more.
 
     A cheap signal, not a re-run of `hivemind.forage.allocate.grant` (module docstring): room in
-    the Cell's own sub-bee cap, and enough free host memory for the placed bee's own footprint.
+    the Cell's own sub-bee cap once its grants in force are counted, and enough free host memory
+    for the placed bee's own footprint.
     """
-    capacity = cell.capacity
-    return capacity.max_sub_bees >= 1 and capacity.host.memory_free_bytes >= footprint.memory_bytes
+    has_a_bee_left = capacity.max_sub_bees - in_use >= 1
+    return has_a_bee_left and capacity.host.memory_free_bytes >= footprint.memory_bytes
+
+
+def _bees_in_use(grants: Iterable[ForageGrant]) -> Counter[str]:
+    """Count, per Cell, the tasks its grants in force are for: each runs one bee there.
+
+    Counted by task, not by grant or by ceiling: a retried task holds a grant per attempt until
+    it ends, and a ceiling is only the most a Warden may spawn (`zero_grant.hold_for_room`'s own
+    rule for a goal's allowance).
+    """
+    holders = {(grant.cell_id, grant.task_id or grant.id) for grant in grants}
+    return Counter(cell_id for cell_id, _holder in holders)
 
 
 async def _wax_maps(
@@ -260,15 +336,57 @@ async def _wax_maps(
     return blocked, cautioned
 
 
-async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandidate, ...]:
-    """Return the Virtual backends placement sees right now.
+async def _held_for(deps: QueenDeps, goal_id: TaskId) -> dict[CellId, WaxMention]:
+    """Read the Guard's active placement holds on `goal_id`, as the Cells they block."""
+    held: dict[CellId, WaxMention] = {}
+    for hold in await deps.guard.requests.holds():
+        if hold.is_active and goal_id in hold.goal_ids:
+            text = f"placement of goal {goal_id} held here by Guard report {hold.report_id}"
+            held[CellId(hold.cell_id)] = WaxMention(id=hold.report_id, text=text)
+    return held
 
-    The live source when wired, else the static tuple. The retry-once path
+
+async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandidate, ...]:
+    """Return the Virtual backends placement sees right now, less the room provisions will take.
+
+    The live source when wired, else the static tuple, each marked held back while its
+    provisions keep failing (`hivemind.queen.dispatcher.backoff.mark_held`). The retry-once path
     (`hivemind.queen.dispatcher.acquire`) zeroes one backend's headroom in a copy of THIS, never
     of `deps.virtual_backends` alone: in a real Hive the static tuple is empty and only the live
     source names the configured backend, so zeroing the static tuple made the retry see no
     Virtual side at all and fall back to the Hive Stand (the first real Docker run).
     """
     if deps.virtual_backend_source is not None:
-        return await deps.virtual_backend_source()
-    return deps.virtual_backends
+        backends = await deps.virtual_backend_source()
+    else:
+        backends = deps.virtual_backends
+    reserved = _provisioning_by_backend(deps)
+    return tuple(
+        mark_held(deps, _less_room(backend, reserved[backend.name]), reserved[backend.name])
+        for backend in backends
+    )
+
+
+def _provisioning_by_backend(deps: QueenDeps) -> Counter[str]:
+    """Count the fresh Cells being provisioned right now, per backend: room already reserved.
+
+    Only an acquisition still in flight counts: once it ends, its Cell is one the lifecycle
+    tracks (and counts) or none at all, so counting it here too would count it twice. Resuming a
+    dormant Cell takes no fresh room: the lifecycle already counts that Cell.
+    """
+    jobs = deps.dispatch.provisions.jobs.values()
+    return Counter(
+        job.placement.backend
+        for job in jobs
+        if isinstance(job.placement, ProvisionVirtual) and not job.job.done()
+    )
+
+
+def _less_room(backend: VirtualBackendCandidate, reserved: int) -> VirtualBackendCandidate:
+    """Return `backend` with `reserved` Cells' worth less headroom (none declared: unchanged)."""
+    headroom = backend.capabilities.headroom
+    if reserved == 0 or headroom is None:
+        return backend
+    left = max(0, headroom - reserved)
+    capabilities = backend.capabilities.model_copy(update={"headroom": left})
+    return dataclasses.replace(backend, capabilities=capabilities)

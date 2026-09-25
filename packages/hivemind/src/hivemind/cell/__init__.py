@@ -45,7 +45,8 @@ See Also:
 Public API:
     - AccessLevel, CombShieldLevel, HoneyClearance: the three Cell security dimensions
       (hivemind.cell.tiers).
-    - Isolation, OsFamily, TaskNeeds: what a task requires from its Cell (hivemind.cell.needs).
+    - Isolation, OsFamily, TaskNeeds, MAX_SCOPE_CHARS: what a task requires from its Cell, and
+      the longest network scope it may name (hivemind.cell.needs).
     - RequestOrigin: who asked for a task to exist -- HUMAN, QUEEN or WARDEN (roadmap step 5.7a,
       hivemind.cell.needs).
     - CellKind, CellCapabilities, Cell: what a Cell is and can do (hivemind.cell.models).
@@ -104,7 +105,7 @@ from hivemind.cell.lease import (
 from hivemind.cell.lease_state import TRANSITIONS, LeaseState, assert_transition, can_transition
 from hivemind.cell.local import HIVE_STAND_SOURCE, hive_stand_cell_id
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
-from hivemind.cell.needs import Isolation, OsFamily, RequestOrigin, TaskNeeds
+from hivemind.cell.needs import MAX_SCOPE_CHARS, Isolation, OsFamily, RequestOrigin, TaskNeeds
 from hivemind.cell.session import (
     DEFAULT_EXEC_TIMEOUT_S,
     SCRATCH_DIR_MODE,
@@ -127,6 +128,7 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel, HoneyClearance
 __all__ = [
     "DEFAULT_EXEC_TIMEOUT_S",
     "HIVE_STAND_SOURCE",
+    "MAX_SCOPE_CHARS",
     "NOOP_SNAPSHOT_ID",
     "SCRATCH_DIR_MODE",
     "TRANSITIONS",

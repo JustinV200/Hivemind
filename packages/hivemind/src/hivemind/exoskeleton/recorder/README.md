@@ -31,8 +31,9 @@ ever sees scrubbed text. Frames are PNG bytes; they never reach a log, the trail
   its own, so its recordings live with the Cell and go when it is torn down; shipping them to the
   Queen's store is a later step.
 - **Night Veil:** the recording store is registered as a Night Veil side channel
-  (`hivemind.cli.compose.exoskeleton.night_veil_side_channels`), so a Night Veil Cell's
-  recordings are purged with the Cell (codingrules section 12).
+  (`SideChannels.flight_recordings`, attached by `hivemind.cli.compose.night_veil.
+  attach_side_channels`), so a Night Veil Cell's recordings are purged with the Cell
+  (codingrules section 12).
 - A Bee Bread `RECORDING` entry references each recording by id; that is how an episode record
   reaches it until phase 7's Nectar intake exists.
 

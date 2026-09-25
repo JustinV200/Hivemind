@@ -132,6 +132,14 @@ def test_settled_state_is_clustered_when_every_sub_bee_is_clustered() -> None:
     assert settled_state((task_id,), frozenset({task_id})) is WardenState.CLUSTERED
 
 
+def test_settled_state_stays_clustered_once_every_paused_bee_has_been_retired() -> None:
+    # A bee the Queen paused stops after its Handoff and its row is retired; the Warden holds
+    # only the paused task, and CLUSTERED has no edge to WATCH (Appendix C): it waits on her.
+    task_id = make_assignment().task_id
+
+    assert settled_state((), frozenset({task_id})) is WardenState.CLUSTERED
+
+
 def test_settled_state_is_active_when_only_some_sub_bees_are_clustered() -> None:
     clustered_id = make_assignment().task_id
     running_id = make_assignment().task_id

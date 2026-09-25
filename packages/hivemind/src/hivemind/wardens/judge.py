@@ -32,7 +32,7 @@ Key invariants:
     - Screens go to the model only when every binding in its fallback chain declares vision.
     - The returned `JudgeVerdict.rubric_id` is always `request.rubric.rubric_id`, never a value the
       model produced: a hallucinated or mistyped id would silently misattribute every later audit
-      finding (`hivemind.supervision.capping.audit`) to the wrong rubric version.
+      finding (`hivemind.supervision.capping.audit.sampler`) to the wrong rubric version.
     - `review` never accumulates a transcript across calls (codingrules section 4): every call
       builds its `LLMRequest` fresh from `request` alone, matching every other awake-episode-style
       call in the Hive (codingrules section 8.8).

@@ -6,10 +6,13 @@ for `NEEDS_JUDGEMENT` by an awake episode; either way it ends with one `WardenAc
 the step after that decision: it routes the action and its item to the handler in this package
 that does the work -- spawn (`assign`), acceptance (`results`), an Alarm's levers (`alarms`), the
 relays between the Queen and a sub-bee (`questions`, `control`, and `honey` for the Honey Store's
-traffic, roadmap step 7.8), the routine records (`heartbeat`, `control`) and the Queen's two
-orders that end or narrow this Warden (`control`). It lived in `hivemind.wardens.warden` as
-`_act`; it moved here, unchanged in behaviour, so that module stays within codingrules 5.1's size
-limit as the table grows, the same reason every other tick handler lives in this package.
+traffic, roadmap step 7.8), the routine records (`heartbeat`, `control`, and `assign` for a grant
+or its revocation) and the Queen's two orders that end or narrow this Warden (`control`). It lived
+in `hivemind.wardens.warden` as `_act`; it moved here, unchanged in behaviour, so that module stays
+within codingrules 5.1's size limit as the table grows, the same reason every other tick handler
+lives in this package. Roadmap phase 10's isolation orders (a quarantine, a memory taint) and the
+gates a spawn passes first stay in `hivemind.wardens.warden`, which calls `act` for every other
+action: the quarantine and isolation packages import this package's handlers, never the reverse.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -38,7 +41,7 @@ from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.ticks import alarms, assign, control, heartbeat, honey, questions, results
 from waggle.ids import MessageId
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
-from waggle.messages.forage import CeilingsSet, GrantIssued, PlanWritten
+from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
 from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Intervene, Question
 from waggle.messages.task import (
     TaskAssign,
@@ -128,13 +131,15 @@ async def _relay(
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
-    """Handle a RECORD-only item: a grant, a heartbeat, routine progress, ceilings or a plan."""
+    """Handle a RECORD-only item: a grant or its revocation, a heartbeat, progress, ceilings..."""
     if isinstance(payload, GrantIssued):
         await assign.handle_grant(warden, payload)
+    elif isinstance(payload, GrantRevoked):
+        await assign.handle_revoke(warden, payload)
     elif isinstance(payload, Heartbeat):
-        heartbeat.record_heartbeat(warden, item.principal, payload)
+        await heartbeat.record_heartbeat(warden, item.principal, payload)
     elif isinstance(payload, TaskProgress):
-        heartbeat.record_progress(warden, item.principal, payload)
+        await heartbeat.record_progress(warden, item.principal, payload)
     elif isinstance(payload, CeilingsSet):
         # Roadmap step 4.8's own wiring step: the Queen's own ceilings never record a fresh trail
         # event here (module docstring of hivemind.queen.forage.ceilings: she already recorded

@@ -193,8 +193,11 @@ persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU
    raises leaves the lease ORPHANED and `ORPHANED → RELEASING` lets it be tried again.
    `Undertaker.release_real` now retries `lease.release()` with backoff like every other step it
    owns (`test_release_real_retries_a_failed_releaser_then_succeeds`).
-5. **Queen signing key is minted per process** in `cli/compose/virtual_cells.py`; a Cell that
-   outlives a Queen restart cannot verify the new Queen. Needs a manifest field or key file.
+5. ~~**Queen signing key is minted per process**~~ **Closed by roadmap 10.4 (2026-09-24)**: the
+   Hive's Ed25519 key now lives in the secret store at `[hive] secrets_dir`
+   (`hivemind.common.secrets.load_or_mint_hive_signer`, secret `hive.ed25519`), and `build_hive`
+   hands it to `build_virtual_cells(hive_signer=...)`, so the Queen signs with the same key after a
+   restart. Only the offline `hive cells` commands, which never provision, still use a throwaway.
 6. **`max_sub_bees` for Virtual specs is hardcoded to 4** in `cli/compose/virtual_cells.py`.
 7. **Snapshot relay matches replies FIFO per kind**, not by request id; fine for one in-flight
    proposal per Warden, wrong under concurrency. Carry the envelope `correlation_id` into

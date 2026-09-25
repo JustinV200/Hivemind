@@ -10,14 +10,19 @@ the `InboxKind`, severity and task linkage `hivemind.supervision.attendant.score
 without the Queen having to know each payload's exact wire shape beyond an `isinstance` check. A
 `waggle.messages.cell.CellWaxProposed` (roadmap step 4.2a) classifies the same as any other
 routine Waggle message, so it is scored low by construction rather than through a dedicated rule.
+A human's chat message (`waggle.messages.control.HumanMessage`, roadmap step 10.5) is its own
+`InboxKind.HUMAN_MESSAGE`, which `WeightTable.queen_default()` already weighs heavily but not
+absolutely; `human_inbox_item` wraps one read from the chat log (it arrives through her wake
+signal, not a Warden link, so there is no envelope), always under the `human` principal.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's inbox
     sub-package (which MAY import `hivemind.llm`; only `autopilot/` may not). `queen_attendant` is
     called once by `hivemind.queen.queen.Queen.__init__`; `to_inbox_item` is called by its tick for
-    every envelope drained off an attached Warden's own link. Calls into `hivemind.supervision`
-    (Alarm, AlarmSeverity), `hivemind.supervision.attendant` (Attendant, InboxItem, InboxKind,
-    TieBreaker, WeightTable) and waggle only.
+    every envelope drained off an attached Warden's own link, and `human_inbox_item` by
+    `hivemind.queen.ticks.human.chat` for every waiting human message. Calls into
+    `hivemind.supervision` (Alarm, AlarmSeverity), `hivemind.supervision.attendant` (Attendant,
+    InboxItem, InboxKind, TieBreaker, WeightTable) and waggle only.
 
 Key invariants:
     - `to_inbox_item` never raises on an unrecognised payload type: it falls back to
@@ -37,15 +42,21 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from hivemind.supervision import Alarm, AlarmSeverity
 from hivemind.supervision.attendant import Attendant, InboxItem, InboxKind, TieBreaker, WeightTable
 from waggle.clock import Clock
 from waggle.envelope import Envelope
 from waggle.messages.cell import CellWaxProposed
+from waggle.messages.control import HumanMessage
+from waggle.messages.registry import kind_for
 from waggle.messages.supervision import AlarmRaised, Answer, Question
-from waggle.messages.task import TaskResult
+from waggle.messages.task import TaskProgress, TaskResult
 
-__all__ = ["queen_attendant", "to_inbox_item"]
+HUMAN_PRINCIPAL = "human"  # The principal every human message is scored and addressed under.
+
+__all__ = ["HUMAN_PRINCIPAL", "human_inbox_item", "queen_attendant", "to_inbox_item"]
 
 
 def queen_attendant(clock: Clock, tie_breaker: TieBreaker | None = None) -> Attendant:
@@ -89,6 +100,31 @@ def to_inbox_item(envelope: Envelope, principal: str) -> InboxItem:
     )
 
 
+def human_inbox_item(message: HumanMessage, item_id: str, received_at: datetime) -> InboxItem:
+    """Wrap a human's chat message as one InboxItem, from the `human` principal.
+
+    Args:
+        message: The wire form of the human's message, rebuilt from its chat line.
+        item_id: The chat line's own id, so acting on the item can mark that line handled.
+        received_at: When the line was appended: the item's age for the Attendant.
+
+    Returns:
+        A validated HUMAN_MESSAGE InboxItem, ready for `Attendant.order`.
+    """
+    kind, severity, task_id = _classify(message)
+    return InboxItem(
+        id=item_id,
+        kind=kind,
+        received_at=received_at,
+        principal=HUMAN_PRINCIPAL,
+        severity=severity,
+        task_id=task_id,
+        latency_budget_s=None,
+        payload_kind=kind_for(HumanMessage),
+        payload=message,
+    )
+
+
 def _classify(payload: object) -> tuple[InboxKind, AlarmSeverity | None, object | None]:
     """Return `(InboxKind, severity, task_id)` for `payload`'s own type.
 
@@ -101,10 +137,14 @@ def _classify(payload: object) -> tuple[InboxKind, AlarmSeverity | None, object 
         return InboxKind.ALARM, alarm.severity, payload.context.task_id
     if isinstance(payload, Question):
         return InboxKind.QUESTION, None, payload.task_id
-    if isinstance(payload, Answer | TaskResult | CellWaxProposed):
+    if isinstance(payload, HumanMessage):
+        # Its own kind, never a routine Waggle message: the human is weighed heavily (8.8).
+        return InboxKind.HUMAN_MESSAGE, None, payload.task_id
+    if isinstance(payload, Answer | TaskResult | TaskProgress | CellWaxProposed):
         # CellWaxProposed (roadmap step 4.2a) is deliberately not its own InboxKind: it scores
         # like any other routine Waggle message (WAGGLE_MESSAGE's base weight sits well below
         # ALARM/HUMAN_MESSAGE/QUESTION in WeightTable.queen_default), matching "a proposal is an
-        # inbox item the Attendant scores low".
+        # inbox item the Attendant scores low". TaskProgress (roadmap step 10.6c) is a Warden's
+        # report that its task is held, linked to that task like a result.
         return InboxKind.WAGGLE_MESSAGE, None, payload.task_id
     return InboxKind.WAGGLE_MESSAGE, None, None

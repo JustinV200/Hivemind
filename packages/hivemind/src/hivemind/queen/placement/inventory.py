@@ -31,9 +31,10 @@ Fits into the Hive:
     do the I/O -- reading Cell Wax, the attached Wardens' own Cells, and `QueenDeps.
     virtual_backends`/`.dormant_cells` -- that fills these fields); read by `hivemind.queen.
     placement.decide.decide` and `hivemind.queen.placement.rules`. Calls into `hivemind.cell`
-    (AccessLevel, CellCapabilities, CombShieldLevel, RequestOrigin), `hivemind.forage`
-    (RoleFootprint), `hivemind.hive` (BackendCapabilities, VirtualCellSpec), this package's own
-    `policy` module (NightVeilHostingView) and `waggle.ids` only.
+    (AccessLevel, CellCapabilities, CellKind, CombShieldLevel, RequestOrigin), `hivemind.forage`
+    (RoleFootprint), `hivemind.guard` (CapabilitySet), `hivemind.hive` (BackendCapabilities,
+    VirtualCellSpec), this package's own `policy` module (NightVeilHostingView) and `waggle.ids`
+    only.
 
 Key invariants:
     - Every type here is a frozen, slotted dataclass (codingrules section 8.5): a snapshot is a
@@ -46,6 +47,8 @@ Key invariants:
     - `RealCandidate.access_level` defaults to READ_ONLY, the least any Real Cell holds: a caller
       that does not report the level never has an Exoskeleton need placed on a Cell whose real
       level might refuse every scope attach needs (codingrules section 15, least privilege).
+    - `VirtualBackendCandidate.held_back` is the caller's own judgement too (a backend whose
+      provisions keep failing, rested a while): `decide` only reads whether it is set.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Inventory/ForageView split
@@ -60,8 +63,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from hivemind.cell import AccessLevel, CellCapabilities, CombShieldLevel, RequestOrigin
+from hivemind.cell import (
+    AccessLevel,
+    CellCapabilities,
+    CellKind,
+    CombShieldLevel,
+    RequestOrigin,
+)
 from hivemind.forage import RoleFootprint
+from hivemind.guard import CapabilitySet
 from hivemind.hive import BackendCapabilities, VirtualCellSpec
 from hivemind.queen.placement.policy import NightVeilHostingView
 from waggle.ids import CellId, WardenId
@@ -104,6 +114,10 @@ class RealCandidate:
             caps the Exoskeleton scopes any bee on it can ever hold (`hivemind.guard.
             ceiling_for`); rule 4c reads it (roadmap step 6.12). Defaults to READ_ONLY, the level
             that grants no Exoskeleton scope at all, so an unreported level fails closed.
+        kind: The attached Cell's own `CellKind`, copied (never compared) by the caller: an
+            already-attached Virtual Cell is reused through this same candidate shape, and the
+            goal ceiling (roadmap step 10.3) asks `cell:virtual` of it, not `cell:real:<id>`.
+            Placement is one of the two callers codingrules 8.7 lets read a Cell's kind.
     """
 
     warden_id: WardenId
@@ -113,6 +127,7 @@ class RealCandidate:
     is_hive_stand: bool
     has_free_capacity: bool
     access_level: AccessLevel = AccessLevel.READ_ONLY
+    kind: CellKind = CellKind.REAL
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,11 +140,15 @@ class VirtualBackendCandidate:
             docstring's own key invariant): `decide` only ever compares it against zero.
         specs: The `VirtualCellSpec`s this backend can provision right now, in the caller's own
             preference order; `decide` picks the first one that fits a task's needs and Forage.
+        held_back: Why the caller holds this backend back right now, or None: its provisions
+            keep failing, so it rests a while (`hivemind.queen.dispatcher.backoff`); `decide`
+            skips a held backend, naming this reason.
     """
 
     name: str
     capabilities: BackendCapabilities
     specs: tuple[VirtualCellSpec, ...] = ()
+    held_back: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,11 +206,12 @@ class ForageView:
     `hivemind.queen.placement.policy.check_night_veil` needs beyond `TaskNeeds` itself to judge a
     NIGHT_VEIL placement; both default to the permissive, "assume human, nothing known to violate
     yet" case so every existing caller that builds a `ForageView` with only `footprint=...` keeps
-    compiling and behaving exactly as before this step. The real values -- `task.spec.origin` and a
-    `NightVeilHostingView` built from `hivemind.queen.forage.night_veil.night_veil_local_only` --
-    are not yet threaded through from `hivemind.queen.dispatcher.snapshot.build_forage_view`, which
-    sits outside this dispatch's file list; this module's own report names the exact call to add
-    there once that dispatch is free to change.
+    compiling and behaving exactly as before this step. `hivemind.queen.dispatcher.snapshot.
+    build_forage_view` fills both from the task (`task.spec.origin`, and a `NightVeilHostingView`
+    from `hivemind.queen.forage.night_veil.night_veil_local_only` once the task's Cell has a
+    written plan). Roadmap step 10.3 adds `goal_capabilities` (ADR-0039, "a goal carries a
+    ceiling"): the capability set the task's goal carries, which every candidate must be allowed
+    by before any other rule looks at it, defaulting to None (no ceiling).
 
     Attributes:
         footprint: The `RoleFootprint` of the bee this task would run as -- ordinarily
@@ -203,8 +223,14 @@ class ForageView:
             resolve to a local provider; defaults to `NightVeilHostingView()`, "not yet knowable"
             (that dataclass's own docstring explains why a fresh NIGHT_VEIL provision cannot know
             this before its Cell exists).
+        goal_capabilities: The capability set the task's goal carries (roadmap step 10.3,
+            `TaskSpec.capabilities` parsed): a candidate the set does not allow (`cell:virtual`,
+            `cell:hive_stand`, `cell:real:<cell id>`, `cell:comb_shield:<tier>`) is excluded
+            before any other rule. None, the default, is the operator's own local path: no
+            ceiling at all.
     """
 
     footprint: RoleFootprint
     request_origin: RequestOrigin = RequestOrigin.HUMAN
     night_veil_hosting: NightVeilHostingView = field(default_factory=NightVeilHostingView)
+    goal_capabilities: CapabilitySet | None = None

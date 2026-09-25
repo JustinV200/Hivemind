@@ -117,7 +117,8 @@ async def test_navigate_to_a_page_in_scratch_is_a_scratch_write_navigate_step() 
 
 async def test_navigate_to_a_remote_page_is_network_egress_and_needs_its_net_grant() -> None:
     granted = _Session(FIXTURE_ORIGIN)
-    ungranted = _Session(FIXTURE_ORIGIN, CapabilitySet.parse("exoskeleton:browser"))
+    # Every tool held (roadmap step 10.3), so the refusal is Capping's, for the missing net grant.
+    ungranted = _Session(FIXTURE_ORIGIN, CapabilitySet.parse("exoskeleton:browser", "tool:*"))
 
     allowed = await granted.call("browser_navigate", {"url": f"{FIXTURE_ORIGIN}/login"})
     refused = await ungranted.call("browser_navigate", {"url": f"{FIXTURE_ORIGIN}/login"})

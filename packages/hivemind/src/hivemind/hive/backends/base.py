@@ -11,6 +11,14 @@ infrastructure actually holds, read by the Undertaker's orphan sweep and `hive c
 `pause`/`resume` (Overwintering, roadmap step 5.9), and a `name` plus `BackendCapabilities` so a
 caller branches on what a backend can do, never on which one it is (codingrules section 8.6's
 "capabilities are declared, not assumed" applied to Cell backends instead of LLM providers).
+Roadmap step 10.6a adds one narrow, optional capability for a RUNNING Cell: `EgressCutter`, which a
+backend declaring `can_cut_egress` implements, cuts the Cell's egress to its Waggle control link
+alone (isolation, ADR-0043: the link checkpointing, pausing and forensics need stays up) and puts
+the Cell's own network policy back when the human lifts it. It is a separate Protocol, not two more
+`CellBackend` members, because most backends cannot do it to a running Cell at all (Docker can
+only by dual-homing its Cells on a control network, `hivemind.hive.backends.docker.network`; QEMU
+cannot yet), and a caller that finds the capability undeclared, or a backend that refuses it for one
+Cell, records that the egress stayed as it was rather than attempting a cut.
 
 Fits into the Hive:
     Layer 3 (sources of Cells). Called by hivemind.hive.lifecycle (roadmap step 5.6, not yet
@@ -31,6 +39,9 @@ Key invariants:
       a failed provision() leaves nothing to list, and a destroyed Cell disappears from it.
     - pause()/resume() raise BackendCapabilityError, never attempt a partial pause, when
       capabilities.can_pause is False: callers branch on capabilities, never on backend name.
+    - cut_egress() never touches the Cell's Waggle control link, and neither it nor
+      restore_egress() touches the Cell's lease, disk or scratch: isolation keeps them for
+      forensics (ADR-0043).
 
 See Also:
     - .claude/codingrules.md Appendix A.1, which this module implements almost verbatim, extended
@@ -47,7 +58,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Protocol
+from typing import Annotated, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -56,7 +67,7 @@ from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.models import VirtualCellSpec
 from waggle.ids import CellId, HiveId
 
-__all__ = ["BackendCapabilities", "CellBackend", "VirtualCellRecord"]
+__all__ = ["BackendCapabilities", "CellBackend", "EgressCutter", "VirtualCellRecord"]
 
 
 class BackendCapabilities(BaseModel):
@@ -80,6 +91,19 @@ class BackendCapabilities(BaseModel):
         default=None,
         description="The most Virtual Cells this backend may hold at once, or None when it "
         "declares no limit of its own (a manifest-level cap may still apply above it).",
+    )
+    can_cut_egress: bool = Field(
+        default=False,
+        description="Whether this backend can cut a RUNNING Cell's egress to its Waggle control "
+        "link alone, and restore it (roadmap step 10.6a); a backend declaring it implements "
+        "EgressCutter. False, the default, for every backend that cannot.",
+    )
+    can_night_veil: bool = Field(
+        default=False,
+        description="Whether this backend can hold a NIGHT_VEIL Cell and meet its teardown rule "
+        "(codingrules section 12: nothing of the Cell outlives it on the host); placement never "
+        "chooses one that cannot, and it refuses such a spec itself. False, the default: a "
+        "backend declares it only once its teardown is shown to meet the rule.",
     )
 
 
@@ -111,6 +135,37 @@ class VirtualCellRecord:
     created_at: datetime
 
 
+@runtime_checkable
+class EgressCutter(Protocol):
+    """Cut a RUNNING Virtual Cell's egress to its control link alone, and restore it later.
+
+    The narrow, optional capability roadmap step 10.6a adds (module docstring): implemented only by
+    a backend whose `BackendCapabilities.can_cut_egress` is True, and called only through
+    `hivemind.hive.egress.LifecycleEgress`, which checks both before it cuts anything.
+    """
+
+    async def cut_egress(self, cell_id: CellId) -> None:
+        """Leave `cell_id` able to reach its Waggle control link and nothing else.
+
+        Idempotent: cutting an already-cut Cell changes nothing. The lease, the disk and the
+        scratch directory are left exactly as they are, for forensics (ADR-0043).
+
+        Args:
+            cell_id: The running Cell to cut off.
+        """
+        ...
+
+    async def restore_egress(self, cell_id: CellId) -> None:
+        """Give `cell_id` back the egress its own network policy allows.
+
+        Idempotent: restoring a Cell never cut changes nothing.
+
+        Args:
+            cell_id: The Cell whose isolation the human lifted.
+        """
+        ...
+
+
 class CellBackend(Protocol):
     """Provision, destroy, pause and inspect Virtual Cells on one kind of infrastructure.
 
@@ -136,6 +191,8 @@ class CellBackend(Protocol):
         Args:
             spec: Image, resources, lifetime and network policy for the new Cell. Already
                 validated against the manifest; implementations may assume it is well-formed.
+                When `spec.cell_id` is set (its lifecycle minted it as provisioning began, and has
+                already recorded it), the Cell carries exactly that id.
 
         Returns:
             A Cell of kind VIRTUAL whose capabilities reflect the image (a desktop image reports

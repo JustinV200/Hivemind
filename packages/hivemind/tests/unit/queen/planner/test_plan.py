@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from builders.cells import make_cell
+from builders.hot_state import make_verdict
 from builders.house_bee import make_retrieved_hit
 from builders.llm import make_bound
 from builders.queen import plan_responder
@@ -26,7 +27,7 @@ from builders.queen import plan_responder
 from hivemind.cell import HoneyClearance
 from hivemind.llm import DirectCallGate, FakeLLMProvider
 from hivemind.llm.errors import MalformedOutputError
-from hivemind.memory import RETRIEVED_PREAMBLE
+from hivemind.memory import RETRIEVED_PREAMBLE, RetrievedItem
 from hivemind.queen.planner import PlanBrief, PlannerError, describe_fleet, plan_goal
 from waggle.clock import FakeClock
 from waggle.messages import HoneyClearance as WireHoneyClearance
@@ -382,7 +383,8 @@ async def test_plan_goal_renders_honey_hits_into_the_retrieved_section() -> None
     provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
     bound = make_bound(provider=provider)
     hit = make_retrieved_hit(FakeClock())
-    brief = PlanBrief("Write the widget port to a file.", HoneyClearance.C1, honey=(hit,))
+    item = RetrievedItem.from_hit(hit, make_verdict())  # Scanned first (roadmap 10.6b).
+    brief = PlanBrief("Write the widget port to a file.", HoneyClearance.C1, honey=(item,))
 
     await plan_goal(brief, bound, gate=DirectCallGate())
 
@@ -408,7 +410,8 @@ async def test_plan_goal_never_shows_a_hit_above_the_goals_clearance() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
     bound = make_bound(provider=provider)
     royal = make_retrieved_hit(FakeClock(), clearance=WireHoneyClearance.C2, excerpt="Royal.")
-    brief = PlanBrief("A goal.", HoneyClearance.C1, honey=(royal,))
+    item = RetrievedItem.from_hit(royal, make_verdict())
+    brief = PlanBrief("A goal.", HoneyClearance.C1, honey=(item,))
 
     await plan_goal(brief, bound, gate=DirectCallGate())
 

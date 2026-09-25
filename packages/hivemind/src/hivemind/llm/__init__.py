@@ -88,7 +88,8 @@ Public API (roadmap step 6.5a, ADR-0033: the transcription boundary, `hivemind.l
       TranscriptionProvider; buffered streaming: stream_by_buffering, collect_clip.
     - The fake: FakeTranscription, FakeTranscriptionCall.
     - The slot and the seam: BoundTranscriber, TranscriberLookup, resolve_transcriber,
-      TranscriptionGate, DirectTranscriptionGate, Ears, and the Fanner's FannerTranscriptionGate.
+      TranscriptionGate, DirectTranscriptionGate, Ears, and the Fanner's FannerTranscriptionGate
+      with AUDIO_SECONDS_KEY, the `llm.call` payload key carrying a transcription's seconds.
     - The registry's transcription half: TranscriptionUnsupportedError, IN_PROCESS_KINDS and
       `ProviderRegistry.transcriber`/`bound_transcriber`; its factory table (TranscriptionBuild,
       TranscriptionFactory, default_transcription_factories) from `hivemind.llm.registry` itself.
@@ -146,6 +147,7 @@ from hivemind.llm.fake import (
     tool_call_response,
 )
 from hivemind.llm.fanner import (
+    AUDIO_SECONDS_KEY,
     DEFAULT_SEATS,
     DEFAULT_THROTTLE_S,
     LLM_CALL_KIND,
@@ -228,6 +230,7 @@ from hivemind.llm.slots import (
     UnresolvableSlotError,
     resolve,
     resolve_key,
+    walk_chain,
 )
 from hivemind.llm.transcription import (
     DEFAULT_MAX_CLIP_S,
@@ -259,6 +262,7 @@ from hivemind.llm.transcription import (
 )
 
 __all__ = [
+    "AUDIO_SECONDS_KEY",
     "CHARS_PER_TOKEN_ESTIMATE",
     "DEFAULT_MAX_CLIP_S",
     "DEFAULT_SEATS",
@@ -278,6 +282,7 @@ __all__ = [
     "MAX_PCM_BYTES",
     "MAX_RAW_PREVIEW_CHARS",
     "MAX_TOOL_ROUNDS_DEFAULT",
+    "MAX_TRANSCRIPT_CHARS",
     "NATIVE_SCHEMA_RETRIES",
     "NONE_CONTEXT_WINDOW_DEFAULT",
     "PCM_SAMPLE_WIDTH_BYTES",
@@ -395,4 +400,5 @@ __all__ = [
     "text_response",
     "tool_call_response",
     "validate_arguments",
+    "walk_chain",
 ]

@@ -219,10 +219,11 @@ async def _wait_for_trail_kind(
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Per task, from its own queen.placed onward: a Cell reused from the pool for a later task in the
-# same batch carries the earlier task's cell.* history before this task's own placement, and a
-# fresh Cell's provisioning precedes its placement; _cell_kinds_from_placement handles both.
+# same batch carries the earlier task's cell.* history before this task's own placement, and a fresh
+# Cell's provisioning precedes its placement; _cell_kinds_from_placement handles both.
 # queen.assigned precedes cell.granted: the chamber's PENDING -> ASSIGNED -> RUNNING edges land
-# before the grant is minted and sent (hivemind.queen.dispatcher.ready._dispatch_one's docstring).
+# before the grant is minted and sent (hivemind.queen.dispatcher.ready.dispatch._dispatch_one's
+# docstring).
 _TRAIL_ORDER_OVERWINTER = [
     "queen.placed",
     "queen.assigned",
@@ -472,7 +473,7 @@ def _assert_scenario_d_reused_the_same_cell(
         e for e in events if e.kind == "queen.placed" and e.subject_id == second_task_id
     )
     # queen.placed's own payload names the placement's outcome type verbatim
-    # (hivemind.queen.dispatcher.ready._record_placed); ReuseDormant is the Queen's own
+    # (hivemind.queen.dispatcher.ready.dispatch._record_placed); ReuseDormant is the Queen's own
     # structured way of naming "this was a dormant reuse", since the reason string itself
     # ("[placement] prefer=virtual: placed on a Virtual Cell.") reads the same for a fresh
     # provision and a dormant reuse alike.

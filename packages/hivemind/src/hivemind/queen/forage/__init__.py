@@ -32,8 +32,8 @@ Public API (roadmap steps 4.7-4.8):
     - ForageLedger, Headroom, LocalPoolReport, SeatBook, SpendBook, DecisionBook, LedgerRecorder,
       LedgerStore, InMemoryLedgerStore, SqliteLedgerStore, apply_ledger_migrations: the live book,
       its three sub-books, its Fanner-facing feed and its persistence (ledger).
-    - activate, revise, renew_grants_for_warden, revoke, sweep_expired: a grant's own lease
-      (grants).
+    - activate, revise, renew_grants_for_warden, revoke, release_finished, sweep_expired: a
+      grant's own lease (grants).
     - ForageRequestOutcome, grant_wanted, handle_forage_request_for_kind: ForageRequest handling
       (requests; renamed from handle_sub_bee_request, roadmap step 4.7's own leftover).
     - PlanReason, write_hosting_plan: a Cell's HostingPlan (hosting).
@@ -45,6 +45,7 @@ Public API (roadmap steps 4.7-4.8):
 from hivemind.queen.forage.ceilings import change_ceilings, set_ceilings
 from hivemind.queen.forage.grants import (
     activate,
+    release_finished,
     renew_grants_for_warden,
     revise,
     revoke,
@@ -95,6 +96,7 @@ __all__ = [
     "grant_wanted",
     "handle_forage_request_for_kind",
     "night_veil_local_only",
+    "release_finished",
     "renew_grants_for_warden",
     "restrict_to_local",
     "revise",

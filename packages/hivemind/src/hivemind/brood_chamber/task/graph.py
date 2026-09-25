@@ -6,12 +6,14 @@ the three questions the rest of the Hive asks of that graph, as pure functions o
 (codingrules section 8.3: "Decision logic ... is written as pure functions over plain data"), with
 no store, no I/O, and no knowledge of how a graph got the shape it has: `is_acyclic_edges` (and
 `is_acyclic`, its `Task`-shaped wrapper) checks a graph has no dependency cycle, `ready_tasks` picks
-the PENDING tasks every one of whose dependencies has already SUCCEEDED, and `descendants` finds
+the PENDING tasks every one of whose dependencies has already SUCCEEDED, `descendants` finds
 every task that transitively depends on a given one, so cancelling or blocking it can be understood
-to affect them too.
+to affect them too, and `stranded_tasks` finds the PENDING tasks that can never become ready
+because something they transitively depend on ended FAILED or CANCELLED, each paired with that
+cause, so the Queen can close them instead of leaving a finished goal waiting forever.
 
 `is_acyclic_edges` is generic over a type parameter bound to `Hashable` (PEP 695 syntax) rather
-than fixed to `TaskId`, because `hivemind.brood_chamber.task.model.TaskGraphDraft` (a submission
+than fixed to `TaskId`, because `hivemind.brood_chamber.task.draft.TaskGraphDraft` (a submission
 before any `TaskId` has been minted) needs the same cycle check over its own string keys; that is
 also why this module never imports `hivemind.brood_chamber.task.model` at the top level (see Key
 invariants). The DFS is written iteratively with an explicit stack, never recursively:
@@ -21,7 +23,7 @@ depend on the caller's stack depth at all, so the iterative form is used regardl
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by
-    `hivemind.brood_chamber.task.model.TaskGraphDraft` (`is_acyclic_edges`, over draft keys) and by
+    `hivemind.brood_chamber.task.draft.TaskGraphDraft` (`is_acyclic_edges`, over draft keys) and by
     `hivemind.brood_chamber.chamber` (roadmap step 2.8: `ready_tasks` for `next_ready`,
     `descendants` when cancelling a goal). Calls into `hivemind.brood_chamber.task.state` only, for
     `TaskStatus`.
@@ -61,7 +63,10 @@ if TYPE_CHECKING:
     from hivemind.brood_chamber.task.model import Task
     from waggle.ids import TaskId
 
-__all__ = ["descendants", "is_acyclic", "is_acyclic_edges", "ready_tasks"]
+# The terminal statuses a dependent can never recover from: only SUCCEEDED lets it run.
+_DEAD_ENDS = frozenset({TaskStatus.FAILED, TaskStatus.CANCELLED})
+
+__all__ = ["descendants", "is_acyclic", "is_acyclic_edges", "ready_tasks", "stranded_tasks"]
 
 
 class _Colour(Enum):
@@ -163,6 +168,38 @@ def descendants(tasks: Iterable[Task], task_id: TaskId) -> frozenset[TaskId]:
                 found.add(dependent)
                 frontier.append(dependent)
     return frozenset(found)
+
+
+def stranded_tasks(tasks: Iterable[Task]) -> tuple[tuple[Task, TaskId], ...]:
+    """Return every PENDING task that can never become ready, with the task that stranded it.
+
+    A task runs only once every dependency has SUCCEEDED, so one whose dependency (direct or
+    transitive) ended FAILED or CANCELLED would otherwise wait forever.
+
+    Args:
+        tasks: The tasks to consider, in any order; usually one goal's, or the whole chamber's.
+
+    Returns:
+        `(stranded task, cause id)` pairs ordered by the stranded task's `(created_at, id)`; the
+        cause is the FAILED or CANCELLED task it depends on, the earliest such when several are.
+    """
+    all_tasks = tuple(tasks)
+    by_id = {task.id: task for task in all_tasks}
+    causes: dict[TaskId, TaskId] = {}
+    # Earliest dead end first, so a task stranded by two of them names the same one every time.
+    dead_ends = sorted(
+        (task for task in all_tasks if task.status in _DEAD_ENDS),
+        key=lambda task: (task.created_at, task.id),
+    )
+    for dead_end in dead_ends:
+        for dependent_id in descendants(all_tasks, dead_end.id):
+            dependent = by_id.get(dependent_id)
+            # Only a PENDING dependent is waiting; one already terminal needs nothing from here.
+            if dependent is not None and dependent.status is TaskStatus.PENDING:
+                causes.setdefault(dependent_id, dead_end.id)
+    stranded = [(by_id[task_id], cause) for task_id, cause in causes.items()]
+    stranded.sort(key=lambda pair: (pair[0].created_at, pair[0].id))
+    return tuple(stranded)
 
 
 def _dfs_from[K: Hashable](

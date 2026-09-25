@@ -139,11 +139,10 @@ async def _answer_like_hive_inbox_answer(
 ) -> None:
     """Simulate `hive inbox answer ... --option` (`cli/readback/inbox.py`'s own two writes).
 
-    The only path that remembers "keep for this whole goal" (`hivemind.queen.questions.
-    _forward_from_note`, called from `sync_answers_from_chamber` below): `Queen.answer_question`
-    is the in-process path a test harness might use directly, and deliberately never writes
-    `queen._leave_memory` itself (`hivemind.queen.questions.answer_question_in_process`'s own
-    docstring), to stay within `hivemind.queen.queen`'s own size limit.
+    The cross-process path that remembers "keep for this whole goal" (`hivemind.queen.questions.
+    _forward_from_note`, called from `sync_answers_from_chamber` below); the in-process
+    `Queen.answer_question` path the Hive Entrance uses remembers it too (roadmap step 10.5,
+    tests/unit/queen/test_queen_chat.py).
     """
     answer = Answer(
         text=text,
@@ -204,7 +203,7 @@ async def test_keep_for_this_whole_goal_answers_a_later_leaving_without_asking_a
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Install a checker.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -250,7 +249,7 @@ async def test_leave_remembered_is_recorded_on_the_trail_with_the_source_questio
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Install a checker.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())

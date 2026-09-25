@@ -29,7 +29,7 @@ Key invariants:
       `hivemind.common.errors`' six base categories (NotFoundError, ConflictError) because a
       missing or duplicate id maps cleanly onto one of those; InvalidGraphError does not, because
       a cyclic or malformed task graph is specific to
-      `hivemind.brood_chamber.task.model.TaskGraphDraft` and no base category fits it.
+      `hivemind.brood_chamber.task.draft.TaskGraphDraft` and no base category fits it.
 
 See Also:
     - .claude/codingrules.md section 10 for the exceptions and errors rules this module follows.
@@ -146,7 +146,7 @@ class InvalidTransitionError(ConflictError):
 class InvalidGraphError(BroodChamberError):
     """Raise when a task graph is malformed: a cycle, an unknown key, or a duplicate key.
 
-    `hivemind.brood_chamber.task.model.TaskGraphDraft` is a pydantic model, so its own validators
+    `hivemind.brood_chamber.task.draft.TaskGraphDraft` is a pydantic model, so its own validators
     raise `ValueError` (pydantic wraps it into a `ValidationError`), the ordinary
     boundary-validation path for anything read from JSON (codingrules section 9) -- not this
     class. This is the domain-error counterpart `hivemind.brood_chamber.chamber` (roadmap step

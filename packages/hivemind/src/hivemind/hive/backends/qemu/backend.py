@@ -28,6 +28,14 @@ Key invariants:
     - provision() either returns a Cell of kind VIRTUAL or raises CellProvisionError; any resource
       already created (overlay disk, seed image, VM process) is removed before the error is
       raised, and the ReadinessGate registration is forgotten too (codingrules Appendix A.1).
+    - A NIGHT_VEIL spec is refused, fail-closed, and `capabilities.can_night_veil` says so, so
+      placement never chooses this backend for the tier. Codingrules section 12 lets nothing of a
+      Night Veil Cell outlive it on the host, and a VM leaves its overlay qcow2 (with every
+      internal snapshot) and its serial console log in its VM directory, removed by an unverified
+      delete and never shredded; no roadmap step promises Night Veil on QEMU (5.3a builds the
+      tier's image for Docker only). A later step lifts this by meeting the rule: a verified
+      delete of the VM directory, the overlay on a RAM disk or encrypted with a key shredded at
+      teardown, no serial log on disk, and volatile journald inside the guest.
     - destroy() is idempotent even after this backend's own process restarted with no in-memory
       state: `hivemind.hive.backends.qemu.runner.vm_dir_for` recomputes every VM's own directory
       from `cell_id` alone, never a table this instance might not still hold.
@@ -54,13 +62,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from hivemind.cell import AccessLevel, Cell, CellKind
+from hivemind.cell import AccessLevel, Cell, CellKind, CombShieldLevel
 from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
 from hivemind.hive.backends.bootstrap import (
     CellBootstrap,
     CellReadyInfo,
     QueenEndpoint,
     ReadinessGate,
+    cell_endpoint,
     mint_cell_bootstrap,
 )
 from hivemind.hive.backends.qemu.cloud_init import (
@@ -166,14 +175,30 @@ class QemuCellBackend:
 
     @property
     def capabilities(self) -> BackendCapabilities:
-        """QEMU can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count."""
+        """QEMU can snapshot (roadmap 5.10) and pause; headroom tracks this instance's count.
+
+        It cannot hold Night Veil (module docstring): nothing yet proves its teardown leaves
+        nothing of the Cell on the host.
+        """
         max_cells = self._config.max_cells
         headroom = None if max_cells is None else max(0, max_cells - len(self._active_ids))
-        return BackendCapabilities(can_snapshot=True, can_pause=True, headroom=headroom)
+        return BackendCapabilities(
+            can_snapshot=True, can_pause=True, headroom=headroom, can_night_veil=False
+        )
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         """See `CellBackend.provision`."""
         self._check_headroom(spec)
+        if spec.comb_shield is CombShieldLevel.NIGHT_VEIL and not self.capabilities.can_night_veil:
+            # Fail closed (module docstring): placement never chooses this backend for the tier,
+            # and a spec that reaches it anyway is refused before anything exists on the host.
+            raise CellProvisionError(
+                self.name,
+                spec.image,
+                "this backend cannot hold a NIGHT_VEIL Cell: its teardown does not yet meet "
+                "codingrules section 12 (a verified delete of the VM directory, an overlay on RAM "
+                "or crypto-shredded, no serial log on disk)",
+            )
         if spec.network_policy is NetworkPolicy.VPN_TOR and spec.image != _NIGHT_VEIL_IMAGE:
             # The in-image nftables kill-switch is VPN_TOR's only real enforcement (mirrors
             # DockerCellBackend's own refusal, hive.backends.docker.backend); a spec that does not
@@ -184,7 +209,10 @@ class QemuCellBackend:
                 f"VPN_TOR requires image={_NIGHT_VEIL_IMAGE!r} (roadmap step 5.3a), so its own "
                 "kill-switch is what actually enforces this Cell's network policy",
             )
-        bootstrap = mint_cell_bootstrap(spec.hive_id, self._endpoint, self._clock)
+        # Roadmap step 10.3a: a NIGHT_VEIL Cell dials the hidden service through Tor, or is
+        # refused here before anything exists; every other tier keeps this backend's endpoint.
+        endpoint = cell_endpoint(self._endpoint, spec, self.name)
+        bootstrap = mint_cell_bootstrap(spec.hive_id, endpoint, self._clock)
         # Registered before any infrastructure exists (ADR-0027): the Queen must be able to verify
         # this Cell's very first signed frame the instant the VM's Warden dials out.
         await self._gate.expect(bootstrap.cell_id, bootstrap.public_key_hex)
@@ -204,7 +232,9 @@ class QemuCellBackend:
         overlay_path = await self._runner.create_overlay_disk(
             cell_id, vm_dir, self._config.base_image, spec.disk_bytes
         )
-        plan = plan_network(spec, self._endpoint)
+        # The Cell's own endpoint, not this backend's: a Night Veil Cell's is its hidden service,
+        # which no QEMU-level rewrite may replace with a clearnet address (roadmap step 10.3a).
+        plan = plan_network(spec, bootstrap.endpoint)
         user_data = render_user_data(bootstrap, queen_waggle_url_override=plan.queen_waggle_url)
         meta_data = render_meta_data(bootstrap)
         seed_path = await self._runner.write_seed_image(cell_id, vm_dir, user_data, meta_data)

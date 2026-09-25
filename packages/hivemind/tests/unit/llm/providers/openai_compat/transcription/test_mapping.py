@@ -26,11 +26,11 @@ from hivemind.llm.models import JsonObject
 from hivemind.llm.providers.openai_compat.transcription.mapping import (
     FILE_FIELD,
     RESPONSE_FORMAT,
-    UPLOAD_FILENAME,
     request_files,
     request_form,
     transcript_from_json,
 )
+from hivemind.llm.transcription import AudioClip
 from hivemind.llm.transcription.models import MAX_TRANSCRIPT_CHARS
 
 FIXTURES_DIR = Path(__file__).resolve().parents[5] / "fixtures" / "llm" / "openai_compat"
@@ -57,7 +57,15 @@ def test_request_form_carries_a_language_hint_only_when_given() -> None:
 def test_request_files_uploads_the_wav_bytes_under_the_file_field() -> None:
     clip = make_tone_clip(0.1)
 
-    assert request_files(clip) == {FILE_FIELD: (UPLOAD_FILENAME, clip.data, "audio/wav")}
+    assert request_files(clip) == {FILE_FIELD: ("clip.wav", clip.data, "audio/wav")}
+
+
+def test_request_files_names_a_compressed_clip_by_its_own_extension() -> None:
+    # A browser's Opus recording: a server picks its decoder from the extension, so a WebM clip
+    # uploaded as clip.wav would be misread.
+    clip = AudioClip.from_upload(b"\x1aE\xdf\xa3webm", "audio/webm;codecs=opus", 2.5)
+
+    assert request_files(clip) == {FILE_FIELD: ("clip.webm", clip.data, "audio/webm")}
 
 
 def test_transcript_from_a_verbose_reply_keeps_its_segments_and_trims_the_text() -> None:

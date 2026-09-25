@@ -6,10 +6,17 @@ it needs.
 ## Public API (roadmap step 3.19)
 
 - `SubBee` (`sub_bee.py`): the Warden's own bookkeeping row for one spawned Worker -- its
-  mirrored `WorkerState`, its current binding, its last Handoff and its owned runtime task/link.
+  mirrored `WorkerState`, its current binding, its last Handoff and its owned runtime task/link;
+  `has_ended` says the row can go, and `awaits_successor` that it stopped at a Handoff its own
+  Warden ordered, so a fresh bee resumes the task from it.
 - `WardenCellContext`, `spawn_sub_bee` (`spawn.py`): attenuate capabilities, carve a grant slice,
   resolve the assignment's slot to a live model, build the sub-bee's own `CappingGate` and
   `WorkerContext`, start its `WorkerRuntime`, and send it its first `TaskAssign`.
+- `sub_bee_capabilities`, `declared_write_roots` (`attenuate.py`, roadmap step 10.3): one sub-bee's
+  slice, read off its `TaskAssign` -- the role default, the task's network scopes and the goal's
+  set, narrowed by `hivemind.workers.worker_capabilities`.
+- `BindingCheck`, `authorize_binding` (`binding.py`, roadmap step 10.3): the `slot_binding` point;
+  `spawn_sub_bee` raises `BindingRefusedError` when it refuses.
 
 ## How to test this
 

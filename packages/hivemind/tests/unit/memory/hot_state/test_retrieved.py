@@ -13,21 +13,25 @@ See Also:
 
 from __future__ import annotations
 
+from builders.hot_state import make_verdict
 from builders.memory import make_token_budget
 from hypothesis import given
 from hypothesis import strategies as st
 
 from hivemind.cell import HoneyClearance
 from hivemind.memory.counter import EstimateCounter
+from hivemind.memory.hot_state import RetrievedItem
 from hivemind.memory.hot_state.retrieved import (
     RETRIEVED_PREAMBLE,
     hit_item_id,
     pack_retrieved,
     render_hit,
+    render_item,
     retrieved_share,
 )
+from hivemind.memory.taint import TaintMarker, TaintSource, TaintState
 from waggle.clock import FakeClock
-from waggle.ids import new_cell_id, new_task_id, new_worker_id
+from waggle.ids import new_cell_id, new_event_id, new_task_id, new_worker_id
 from waggle.messages.honey import HoneyHit, HoneyProvenance
 from waggle.messages.labels import CombShieldLevel
 from waggle.messages.labels import HoneyClearance as WireClearance
@@ -54,6 +58,12 @@ def _hit(index: int, **overrides: object) -> HoneyHit:
     }
     fields.update(overrides)
     return HoneyHit(**fields)
+
+
+def _item(hit: HoneyHit, **overrides: object) -> RetrievedItem:
+    """Wrap `hit` as retrieval hands it to packing: scanned (a PASS verdict), then `overrides`."""
+    item = RetrievedItem.from_hit(hit, make_verdict())
+    return RetrievedItem.model_validate({**item.model_dump(), **overrides}) if overrides else item
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -141,7 +151,9 @@ def test_render_hit_spaces_out_delimiter_runs_so_a_hit_cannot_close_its_section(
 async def test_pack_retrieved_packs_best_score_first_under_the_preamble() -> None:
     low, high = _hit(1, score=0.2), _hit(2, score=0.9)
 
-    pack = await pack_retrieved([low, high], HoneyClearance.C2, 10_000, 4_000, EstimateCounter())
+    items = [_item(low), _item(high)]
+
+    pack = await pack_retrieved(items, HoneyClearance.C2, 10_000, 4_000, EstimateCounter())
 
     assert pack.included == (hit_item_id(high), hit_item_id(low))
     assert pack.dropped == ()
@@ -154,7 +166,7 @@ async def test_pack_retrieved_drops_a_hit_above_the_clearance_unseen() -> None:
     public = _hit(2, clearance=WireClearance.C0)
 
     pack = await pack_retrieved(
-        [royal, public], HoneyClearance.C1, 10_000, 4_000, EstimateCounter()
+        [_item(royal), _item(public)], HoneyClearance.C1, 10_000, 4_000, EstimateCounter()
     )
 
     assert pack.included == (hit_item_id(public),)
@@ -165,7 +177,9 @@ async def test_pack_retrieved_drops_a_hit_above_the_clearance_unseen() -> None:
 async def test_pack_retrieved_keeps_one_copy_per_honey_ref() -> None:
     best, repeat = _hit(1, score=0.9), _hit(1, score=0.3)
 
-    pack = await pack_retrieved([repeat, best], HoneyClearance.C2, 10_000, 4_000, EstimateCounter())
+    items = [_item(repeat), _item(best)]
+
+    pack = await pack_retrieved(items, HoneyClearance.C2, 10_000, 4_000, EstimateCounter())
 
     assert pack.included == (hit_item_id(best),)
     assert pack.text.count(best.title) == 1
@@ -179,9 +193,10 @@ async def test_pack_retrieved_stops_at_the_first_hit_that_does_not_fit() -> None
         _hit(3, score=0.1),
     )
     preamble = await counter.count(f"{RETRIEVED_PREAMBLE}\n\n")
-    room = preamble + await counter.count(f"{render_hit(first, 4_000)}\n\n") + 40
+    room = preamble + await counter.count(f"{render_item(_item(first), 4_000)}\n\n") + 40
+    items = [_item(first), _item(big), _item(small)]
 
-    pack = await pack_retrieved([first, big, small], HoneyClearance.C2, room, 4_000, counter)
+    pack = await pack_retrieved(items, HoneyClearance.C2, room, 4_000, counter)
 
     assert pack.included == (hit_item_id(first),)
     assert pack.dropped == (hit_item_id(big), hit_item_id(small))  # Small never jumps ahead.
@@ -191,7 +206,9 @@ async def test_pack_retrieved_stops_at_the_first_hit_that_does_not_fit() -> None
 async def test_pack_retrieved_packs_nothing_and_writes_no_section_without_room() -> None:
     hits = [_hit(1), _hit(2)]
 
-    pack = await pack_retrieved(hits, HoneyClearance.C2, 0, 4_000, EstimateCounter())
+    pack = await pack_retrieved(
+        [_item(hit) for hit in hits], HoneyClearance.C2, 0, 4_000, EstimateCounter()
+    )
 
     assert pack.text == ""
     assert pack.tokens == 0
@@ -215,8 +232,33 @@ async def test_pack_retrieved_never_counts_past_its_room(
     counter = EstimateCounter()
     hits = [_hit(i, excerpt="z" * n, score=1 / (i + 1)) for i, n in enumerate(excerpt_lengths)]
 
-    pack = await pack_retrieved(hits, HoneyClearance.C2, room, 4_000, counter)
+    pack = await pack_retrieved(
+        [_item(hit) for hit in hits], HoneyClearance.C2, room, 4_000, counter
+    )
 
     assert pack.tokens <= room
     assert await counter.count(pack.text) <= pack.tokens  # The joined text never counts higher.
     assert len(pack.included) + len(pack.dropped) == len(hits)
+
+
+async def test_pack_retrieved_refuses_a_tainted_item_by_name_and_hides_one_above_clearance() -> (
+    None
+):
+    """Roadmap 10.6d: a TAINTED item never reaches a prompt, and the refusal is listed."""
+    marker = TaintMarker(
+        state=TaintState.TAINTED,
+        source=TaintSource.GUARD_REPORT,
+        reason="A Guard report named it.",
+        event_id=new_event_id(_CLOCK),
+        at=_CLOCK.now(),
+    )
+    shown, tainted = _item(_hit(1)), _item(_hit(2), tainted=marker)
+    royal = _item(_hit(3, clearance=WireClearance.C2))
+
+    pack = await pack_retrieved(
+        [shown, tainted, royal], HoneyClearance.C1, 10_000, 4_000, EstimateCounter()
+    )
+
+    assert pack.included == (hit_item_id(_hit(1)),)
+    assert pack.refused == (tainted.id,)  # The over-cleared one is filtered silently.
+    assert "Finding 2" not in pack.text and "Finding 3" not in pack.text

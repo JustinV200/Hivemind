@@ -33,7 +33,13 @@ handling, hosting plans and Ceilings per Warden.
   (`InMemoryLedgerStore` for tests, `SqliteLedgerStore` for durability -- Appendix C: "Forage
   ledger (SQLite) | Yes") is the persistence seam every mutation writes through, including all
   four of the roadmap step 4.8 tables (its own `0002_add_seats_spend_plans_ceilings.sql`
-  migration).
+  migration). The ledger's one removal path is the Night Veil teardown's (codingrules section 12):
+  `rows_about(cell_id, members)` names every row keyed to the Cell or one of its Wardens (its
+  capacity, its Wardens' pool reports, hosting plans and ceilings, any grant on it and the tasks
+  those grants were for), and `forget_cell` removes them all, from the book and through
+  `LedgerStore.forget` in one store transaction; `hivemind.cli.compose.night_veil` hands both to
+  the purge as its ledger side channel and member source, and the purge records only their count.
+  A goal's running spend (keyed by the goal, the human's) is kept.
 - **`grants`**: `activate`, `revise`, `renew_grants_for_warden`, `revoke`, `sweep_expired` -- a
   grant's own lease, every edge through `hivemind.forage.grant_state.assert_transition`. `activate`
   moves a freshly issued grant (`hivemind.forage.allocate.grant` always starts one at `ISSUED`)

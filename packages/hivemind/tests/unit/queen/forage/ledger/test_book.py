@@ -42,6 +42,22 @@ def test_report_capacity_increases_headroom() -> None:
     assert capacity.max_sub_bees == 4
 
 
+def test_capacities_is_a_snapshot_of_every_cells_latest_report() -> None:
+    ledger = ForageLedger()
+    clock = FakeClock()
+    first, second = new_cell_id(clock), new_cell_id(clock)
+    asyncio.run(ledger.report_capacity(first, make_capacity(max_sub_bees=2)))
+
+    snapshot = ledger.capacities()
+    asyncio.run(ledger.report_capacity(second, make_capacity(max_sub_bees=3)))
+
+    assert set(snapshot) == {first}
+    assert {cell: capacity.max_sub_bees for cell, capacity in ledger.capacities().items()} == {
+        first: 2,
+        second: 3,
+    }
+
+
 def test_headroom_subtracts_the_reserves_seats_and_fraction() -> None:
     ledger = ForageLedger(reserve=make_reserve(seats=1, headroom_fraction=0.5))
     clock = FakeClock()

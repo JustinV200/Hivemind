@@ -50,7 +50,7 @@ from hivemind.llm.transcription import (
 
 RESPONSE_FORMAT = "verbose_json"  # The reply shape that carries segments; plain json is accepted.
 FILE_FIELD = "file"  # The multipart part holding the audio.
-UPLOAD_FILENAME = "clip.wav"  # A neutral filename; servers read the format from its extension.
+UPLOAD_STEM = "clip"  # A neutral filename stem; servers read the format from its extension.
 _LANGUAGE_RE = re.compile(LANGUAGE_PATTERN)  # Screens a reply's language before it is kept.
 
 # One multipart file part: (filename, content, media type), the shape httpx's `files=` takes.
@@ -59,7 +59,7 @@ FilePart = tuple[str, bytes, str]
 __all__ = [
     "FILE_FIELD",
     "RESPONSE_FORMAT",
-    "UPLOAD_FILENAME",
+    "UPLOAD_STEM",
     "FilePart",
     "request_files",
     "request_form",
@@ -84,15 +84,19 @@ def request_form(model: str, language: str | None) -> dict[str, str]:
 
 
 def request_files(clip: AudioClip) -> dict[str, FilePart]:
-    """Build the multipart form's one file part: the clip's WAV bytes.
+    """Build the multipart form's one file part: the clip's bytes, named for their format.
 
     Args:
-        clip: The audio to upload.
+        clip: The audio to upload, in any accepted format (a device's Opus recording as much as
+            a WAV).
 
     Returns:
-        The file part, keyed by the wire's own field name.
+        The file part, keyed by the wire's own field name. The filename's extension is the
+        format's own (`clip.webm`, `clip.wav`): a Whisper-style server picks its decoder from it,
+        so a fixed `.wav` would mislabel a compressed clip.
     """
-    return {FILE_FIELD: (UPLOAD_FILENAME, clip.data, clip.media_type)}
+    filename = f"{UPLOAD_STEM}.{clip.media_type.extension}"
+    return {FILE_FIELD: (filename, clip.data, clip.media_type.value)}
 
 
 def transcript_from_json(

@@ -40,13 +40,14 @@ from typing import Annotated
 import typer
 
 from hivemind.cell import HoneyClearance
-from hivemind.cli.compose.deps import build_fanner, build_provider_registry
+from hivemind.cli.compose.deps import build_fanner
 from hivemind.cli.compose.honey import build_honey_access
 from hivemind.cli.stores import (
     DEFAULT_MANIFEST,
     DbOption,
     ManifestOption,
     build_forage_map,
+    build_provider_registry,
     load_manifest_or_exit,
     open_honey_store,
     open_trail,

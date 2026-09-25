@@ -177,6 +177,46 @@ def test_apply_env_rejects_an_override_that_makes_the_manifest_inconsistent() ->
         apply_env(manifest, EnvOverrides(llm_offline=True))
 
 
+def test_read_env_collects_every_tunnel_variable_under_the_name_the_client_reads() -> None:
+    overrides = read_env(
+        {
+            "HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN": "t0k3n-for-cloudflared",
+            "HIVEMIND_ENTRANCE_TUNNEL_NGROK_AUTHTOKEN": "t0k3n-for-ngrok",
+            "HIVEMIND_ENTRANCE_TUNNELING": "not a tunnel variable",
+            "TUNNEL_TOKEN": "not read: no HIVEMIND_ prefix",
+        }
+    )
+
+    revealed = {
+        name: secret.get_secret_value()
+        for name, secret in overrides.entrance_tunnel_environ.items()
+    }
+    assert revealed == {
+        "TUNNEL_TOKEN": "t0k3n-for-cloudflared",
+        "NGROK_AUTHTOKEN": "t0k3n-for-ngrok",
+    }
+    assert "t0k3n" not in repr(overrides)
+
+
+def test_read_env_has_no_tunnel_variables_when_none_are_set() -> None:
+    assert read_env({"HIVEMIND_DB": "x.sqlite3"}).entrance_tunnel_environ == {}
+
+
+def test_read_env_rejects_the_bare_tunnel_prefix_without_echoing_its_value() -> None:
+    with pytest.raises(ManifestError, match="HIVEMIND_ENTRANCE_TUNNEL_<NAME>") as caught:
+        read_env({"HIVEMIND_ENTRANCE_TUNNEL_": "a-token-in-the-wrong-place"})
+
+    assert "a-token-in-the-wrong-place" not in str(caught.value)
+
+
+def test_apply_env_leaves_the_manifest_alone_for_tunnel_variables() -> None:
+    manifest = _local_offline_manifest()
+
+    overrides = read_env({"HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN": "t0k3n"})
+
+    assert apply_env(manifest, overrides) is manifest
+
+
 def test_provider_api_key_reads_the_derived_variable_name() -> None:
     spec = ProviderSpec(kind="anthropic")
 

@@ -31,7 +31,7 @@ from hivemind.cli.compose.virtual_cells import (
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.placement import VirtualCellsSection
-from hivemind.manifest.schema.security import SecuritySection, TierProfile
+from hivemind.manifest.schema.security.tiers import SecuritySection, TierProfile
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.placement import (
     ForageView,
@@ -74,6 +74,24 @@ async def test_build_virtual_cells_registers_only_fake_when_selected(tmp_path: P
     # virtual_cell_backends.build_registry's own docstring: a real Docker run found placement
     # picking "fake" first by registry.names() order when both were registered).
     assert set(parts.registry.names()) == {"fake"}
+
+
+async def test_the_composed_cell_gate_records_what_it_refuses_on_the_hives_trail(
+    tmp_path: Path,
+) -> None:
+    manifest = _load_with_virtual_cells(tmp_path)
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+
+    parts = build_virtual_cells(manifest, trail, clock)
+
+    # Roadmap step 10.6: a forged frame or segment is the Queen's own record, for the Guard Bee,
+    # made through the Night Veil boundary over the Hive's trail (a Night Veil Cell's stays veiled).
+    assert parts is not None
+    recorder = parts.listener._deps.recorder
+    assert recorder is not None and recorder.trail is parts.night_veil.veiled
+    assert parts.night_veil.veiled.durable is trail
+    assert (recorder.hive_id, recorder.node_id) == (manifest.hive.id, manifest.hive.node_id)
 
 
 async def test_build_virtual_cells_registers_only_the_selected_backend(tmp_path: Path) -> None:

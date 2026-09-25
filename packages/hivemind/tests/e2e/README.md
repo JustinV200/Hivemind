@@ -51,7 +51,10 @@ exist to catch problems that only show up when every layer runs at once.
   set_forage_reserve_seats`, since that builder exposes no reserve knob of its own) makes the
   Queen's first grant compute to `max_sub_bees = 0`; asserts `run_goal` returns FAILED with a
   readable reason well inside its own timeout, never a timeout itself, and that `forage.denied`
-  and `task.failed` both land on the trail.
+  and `task.failed` both land on the trail. Then the zero-grant fix, on a FakeClock pump: with the
+  host's load faked (`os.getloadavg`) at nearly all of the Hive Stand's pinned cores, a goal waits
+  PENDING behind one `forage.denied` with `deferred = true` and finishes once the load drops; one
+  whose load never drops fails with the figures once `[forage] zero_grant_patience_s` passes.
 - `test_honey_compounds.py` (`@pytest.mark.e2e`) -- roadmap phase 7's first two exit criteria:
   (a) a goal run twice on the Hive Stand at C2 -- the first Drone discovers a fact with a command,
   the Queen deposits the verified outcome, one ripening pass turns it into Honey, and the second
@@ -70,6 +73,125 @@ exist to catch problems that only show up when every layer runs at once.
   Stand Cell id (`hivemind.cell.hive_stand_cell_id`, derived from `[hive] node_id`), and the
   second leaseholder reads back, at that same `cell:<id>` scope, a Honey row the first one
   deposited and ripened before releasing.
+
+Every manifest this suite writes pins `[hive_stand.capacity] cores` (`builders.cli.fake_manifest`,
+`tests.e2e.scripted_openai.write_manifest`), so the test host's own load average can never leave a
+Drone's grant without a free core.
+- `test_injection_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 10.6b's invariant on a
+  real run: a Drone's question is answered through `hive inbox answer` with seed payloads from the
+  shipped pattern file, as a compromised device would answer it. The Worker's registry withholds
+  the answer from the model, `guard.injection_suspected` lands on the real trail with the keyed
+  hash (never the words), the steered outside-scratch write is capped and rejected, the goal still
+  finishes, and the scanner's key is minted in the manifest's secrets dir on that first flag.
+- `test_quarantine_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 10.6c on a real run: a
+  real Drone writes its first haiku and starts a real minute-long command; while it runs, the Queen
+  orders a quarantine through `Queen.intervene` (the lever a Guard request pulls), suspect from the
+  command's `capping.proposed`. The Hive Stand's Warden writes the checkpoint first, stops the
+  Drone, and the command's process dies with it while the lease is still open; `warden.intervened`
+  and `memory.tainted` land, the Handoff loader refuses the checkpoint, the task is PAUSED and a
+  SECURITY Alarm reaches the human's inbox. Then the only way out: a resume from the still tainted
+  checkpoint is refused at the `quarantine` point and the task held again with nothing spawned;
+  once a judge clears it, the same resume lets a fresh Drone out from it and the goal finishes. Its
+  manifest heartbeat is 0.5 s: the quarantine runs in one Warden tick (a 0.2 s kill grace
+  included), which the builder's own 0.05 s cadence would read as an unreachable Cell.
+- `test_night_veil_floors.py` (`@pytest.mark.e2e`) -- roadmap steps 10.3a-d through a running
+  Queen: a human's goal request naming NIGHT_VEIL is planned on her own tick, placed on a fresh
+  Virtual Cell (the real `CellLifecycle`/`QueenReadinessGate`/`LifecycleVirtualCellProvider` path
+  over a fake backend and a fake attestation probe) whose minted bootstrap dials the hidden service
+  through the Tor SOCKS proxy, and assigned bound to NIGHT_VEIL with `queen.placed` citing the
+  request; a tier the planner set on its own is refused at placement
+  (`guard.tier_floor.night_veil_initiation`) before any Cell is provisioned; a Night Veil goal
+  whose plan needs the cloud metadata endpoint is refused before anything is persisted
+  (`guard.tier_floor.night_veil_location`).
+- `test_night_veil_link.py` (`@pytest.mark.e2e`) -- roadmap step 10.3a's exit bullet through a
+  whole Hive (`build_hive`/`run_hive`): a human's Night Veil request is provisioned on the phase 5
+  suite's container-spawning fake backend, whose real in-Cell Warden reads its tier, the onion
+  Queen URL and the Tor proxy from its minted bootstrap and dials the real `CellListener` only
+  through a `FakeSocksProxy` playing Tor (asked for the onion name, never resolved locally). The
+  Cell announces NIGHT_VEIL, the task is bound to NIGHT_VEIL (a Cell announcing MEADOW, as every
+  one did before, fails it) and the Drone's work succeeds. The attestation probe is the all-green
+  fake: production's is fail-closed until a Queen-side CellSession exists. The task's
+  `task.assigned` on the trail is its skeleton (no Cell, no tier), so the binding is read off the
+  Brood Chamber's own `assign`.
+- `test_night_veil_boundary.py` (`@pytest.mark.e2e`) -- codingrules section 12's Night Veil
+  boundary through the same Hive, on every path a Night Veil Cell ends: a release after its task
+  succeeds, a provision whose attestation fails after the Cell existed (the retry's second Cell
+  then does the work), an Absconding that finds the Cell still working after its Queen stopped,
+  and a restarted Queen whose reconcile finds the Cell gone. While the Cell works, its whole record
+  (its Warden's shipped segments and the Queen's own detail about it) is in its ephemeral segment
+  and none of it on the durable trail; after each end, every durable event about the Cell, its
+  task, its grant or its Warden is a skeleton kind with its skeleton payload (or the purge's own
+  `cell.purged`), no task words appear anywhere, no row from the Cell's node exists, the
+  ephemeral store is empty, and the in-Cell trail was a `MemoryPheromoneTrail`. Every other store
+  is read back too, and none names the work: no memory row (a Queen episode about it is seeded
+  first), no word of its task in the Brood Chamber (a task still running when its Cell ends is
+  cancelled), no Forage ledger or checkpoint row, and no snapshot image (one is left on a Docker
+  daemon beside the Hive's backend: `FakeDockerClient` behind a `DockerCellBackend` with no room).
+  The Absconding and restart scenarios hold the Worker after its first round of Capped writes
+  (shipping the Cell's trail, as its next heartbeat would) so the Cell is still working when its
+  Queen stops, and each purge still summarises that Capping: the restarted Queen's from the counts
+  the first one checkpointed. A MEADOW Cell's whole local trail still merges into the durable trail
+  exactly as recorded, title and all, with no purge. The Hive, its reads and its store checks live
+  in `night_veil_hive/` (`rig`, `reads`, `stores`).
+- `test_phase10_remote_laptop.py` (`@pytest.mark.e2e`) -- roadmap phase 10's second exit
+  criterion over `hive serve`'s own composition (a real Queen, her Hive Stand Warden and a Drone
+  over a scripted `FakeLLMProvider`, the Hive's SQLite file, the Entrance on a real loopback
+  listener): the operator sets the password and mints an invite with `hive entrance`, a second
+  config directory (the laptop) enrols with `hive remote enrol` and is approved, and a real `hive
+  run --remote` process follows a goal to its end while the laptop's other terminal answers the
+  Drone's question with `hive inbox --remote answer` (the task SUCCEEDED). Requests without
+  credentials, with a stolen token signed by another key and replayed are refused, as is the laptop
+  while pending, locked by five wrong passwords (unlocked on loopback) and revoked. The follower is
+  a child process because `CliRunner` swaps the process's standard streams while a command runs.
+- `test_mutual_tls.py` (`@pytest.mark.e2e`; skipped on a machine with no private IPv4 address) --
+  mutual-TLS device certificates on real sockets (roadmap 10.5a/10.5d, ADR-0041): `hive serve`'s
+  own composition in `lan` mode, its remote listener bound to this machine's own private address
+  behind a throwaway authority's server certificate the laptop pins with `--ca-file` (no trust
+  store or hosts file is touched). A laptop enrolled on loopback gets its certificate at
+  approval, fetches it, moves to the remote listener and runs a goal with `hive run --remote` (the
+  task SUCCEEDED); a device without a certificate is refused at the handshake; after `hive entrance
+  revoke` the laptop's next handshake is refused while another device's still succeeds; a laptop
+  enrolled `--offline` is registered with `hive entrance register`, imports the certificate
+  `approve --certificate-out` wrote, and reads its inbox; and `vpn` with `mutual_tls = true`
+  admits a device with its certificate the same way.
+- `test_phase10_phone.py` (`@pytest.mark.e2e`) -- roadmap phase 10's third exit criterion: a phone
+  that speaks only to the remote listener. `hive serve`'s own Hive (the scripted goal whose Drone
+  asks one question) is served by `remote_serve.py`, which builds the Entrance exactly as `hive
+  serve` does but under the serving rig's test-only vpn plan (public origin and passkey relying
+  party `hive.example.ts.net`, the remote listener on a second loopback port, plain HTTP), since
+  `hive serve` rightly refuses a vpn bind without an overlay address and TLS. Every push delivery
+  goes to `push_network.py`'s recorder. The phone takes the invite code from the link the QR
+  encodes (no QR decoder is locked; the QR shown is proven to be that link by encoding it again),
+  redeems it with a `SoftPasskey`, is refused while pending and approved at the Hive Stand, logs in
+  with passkey plus password, subscribes to Web Push, and decrypts the question's notice, its
+  withdrawal and its goal's completion with its own key after answering; the approve route is a
+  404 for it on the remote listener.
+- `test_phase10_program_webhook.py` (`@pytest.mark.e2e`) -- roadmap phase 10's fourth exit
+  criterion over `hive serve`'s composition: the document-only client (`landing_client/`) enrols
+  an Ed25519 program approved with no `observe` capability and a one-dollar daily cap, registers a
+  webhook, submits a goal, verifies the question's notice under the Hive key it pinned (for its
+  subscription and no other, `X-Hive-Event-Id` its event id), answers it, and hears the withdrawal
+  and the completion. The same key is refused `GET /v1/cells` (`capability_denied`, `observe`) and
+  a goal above its cap (`step_up_required`, `over_daily_cap`, a pending id the console lists).
+- `test_push_withdrawal.py` (`@pytest.mark.e2e`) -- roadmap step 10.5b's named test: a laptop's
+  `hive run --remote` asks, a program answers the question it heard by signed webhook, and a
+  phone's Web Push copy is withdrawn under the same Topic (decrypted with the phone's own key); the
+  program's webhook hears the withdrawal too and the laptop's follow sees the goal end.
+- `test_slow_provision.py` (`@pytest.mark.e2e`) -- a Virtual Cell provision slowed far past the
+  manifest's liveness window (the container-spawning fake backend's `set_provision_delay`): the
+  Hive Stand's Warden, heartbeating the whole time the Queen's tick is stalled, is never reported
+  unreachable, and the Drone's model calls inside the Cell go through the Cell's own Fanner, so
+  its `llm.call` rows reach the Queen's trail with the Cell's shipped segment.
+- `test_cell_heartbeat_cadence.py` (`@pytest.mark.e2e`) -- a Virtual Cell whose in-Cell Warden
+  heartbeats every 15 s (its own default, declared on every Heartbeat) outlives its task through
+  Overwintering; the Queen goes on judging it for ten of the manifest's 0.3 s windows past its
+  first Heartbeat and raises no `CELL_UNREACHABLE` about it: each Warden is judged by the cadence
+  it declares, never below the manifest's. About twenty seconds, most of it that first 15 s.
+- `test_virtual_cell_capacity.py` (`@pytest.mark.e2e`) -- the whole process reads a busy host
+  (`os.getloadavg` faked at 3.9, as a container sharing a four-core Hive Stand's kernel would read
+  it): a goal placed on a Virtual Cell still gets its bee and succeeds, because the Cell reports
+  the reservation its bootstrap names (`HIVEMIND_RESERVATION`, from its `VirtualCellSpec`, no
+  load) -- exactly the capacity the Queen placed it by -- instead of the host's figures.
 
 ## Budget
 

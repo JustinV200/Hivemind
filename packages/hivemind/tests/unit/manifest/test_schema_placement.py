@@ -173,3 +173,50 @@ def test_full_toml_sets_the_snapshot_retention_and_budget_fields() -> None:
 
     assert manifest.virtual_cells.snapshot_retention_s == 3600.0
     assert manifest.virtual_cells.snapshot_disk_budget_mb == 4096
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 10.6a: control_subnet, the Docker control network a Cell's link rides.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_control_subnet_holds_the_listener_on_its_gateway() -> None:
+    section = VirtualCellsSection(
+        backend="docker",
+        control_subnet="10.213.7.0/24",
+        listen_host="10.213.7.1",
+        listen_port=8710,
+        advertise_url="ws://10.213.7.1:8710",
+    )
+
+    assert section.control_gateway == "10.213.7.1"
+
+
+def test_no_control_subnet_names_no_gateway() -> None:
+    assert VirtualCellsSection(backend="docker").control_gateway is None
+
+
+@pytest.mark.parametrize(
+    ("fields", "reason"),
+    [
+        ({"backend": "qemu"}, "Docker's alone"),
+        ({"control_subnet": "8.8.8.0/24", "listen_host": "8.8.8.1"}, "private IPv4"),
+        ({"control_subnet": "10.213.7.0/30", "listen_host": "10.213.7.1"}, "smaller than"),
+        ({"listen_host": "172.17.0.1"}, "listen_host must be the control gateway"),
+        ({"listen_host": "0.0.0.0"}, "listen_host must be the control gateway"),  # noqa: S104  # SAFETY: a refused value, never bound.
+        ({"advertise_url": "ws://host.docker.internal:8710"}, "advertise_url must name"),
+    ],
+)
+def test_a_control_subnet_the_cells_could_not_use_is_refused(
+    fields: dict[str, object], reason: str
+) -> None:
+    # A wrong backend or range, or a listener or URL a Cell cannot reach once its egress is cut.
+    values: dict[str, object] = {
+        "backend": "docker",
+        "control_subnet": "10.213.7.0/24",
+        "listen_host": "10.213.7.1",
+    }
+    values.update(fields)
+
+    with pytest.raises(ValidationError, match=reason):
+        VirtualCellsSection.model_validate(values)

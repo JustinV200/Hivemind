@@ -36,11 +36,17 @@ def test_model_cost_defaults_every_rate_to_zero() -> None:
     assert cost.cost_per_million_input_usd == 0.0
     assert cost.cost_per_million_output_usd == 0.0
     assert cost.cost_per_seat_hour_usd == 0.0
+    assert cost.cost_per_audio_minute_usd == 0.0
 
 
 @pytest.mark.parametrize(
     "field",
-    ["cost_per_million_input_usd", "cost_per_million_output_usd", "cost_per_seat_hour_usd"],
+    [
+        "cost_per_million_input_usd",
+        "cost_per_million_output_usd",
+        "cost_per_seat_hour_usd",
+        "cost_per_audio_minute_usd",
+    ],
 )
 def test_model_cost_rejects_a_negative_rate(field: str) -> None:
     with pytest.raises(ValidationError, match="greater than or equal to 0"):

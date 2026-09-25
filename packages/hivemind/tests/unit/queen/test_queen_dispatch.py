@@ -78,7 +78,7 @@ async def test_submit_goal_persists_the_plan_and_records_queen_planned() -> None
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
 
@@ -92,7 +92,7 @@ async def test_submit_goal_dispatches_the_ready_task_grant_then_assignment_in_or
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
 
@@ -113,7 +113,7 @@ async def test_submit_goal_carries_a_declared_leaving_all_the_way_to_the_assignm
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan_with_leaves))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Set up a project.", clearance=HoneyClearance.C1)
 
@@ -144,7 +144,7 @@ async def test_submit_goal_carries_the_exoskeleton_need_and_scopes_to_the_assign
     cell = make_cell(access_level=AccessLevel.FULL, capabilities=capabilities)
     deps, link, warden_end = make_queen_deps(fake_provider=provider, cell=cell)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     await queen.submit_goal("Read a page.", clearance=HoneyClearance.C1)
 
@@ -200,7 +200,7 @@ async def test_a_succeeded_scout_s_report_reaches_its_dependent_s_assignment() -
     provider = FakeLLMProvider(responder=plan_responder(_scout_then_drone_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Look around, then act.", clearance=HoneyClearance.C1)
     scout_assignment = await warden_end.wait_for_assignment()
     assert scout_assignment.role is WorkerRole.SCOUT
@@ -239,7 +239,7 @@ async def test_submit_goal_records_queen_assigned_for_the_dispatched_task() -> N
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
@@ -260,7 +260,7 @@ async def test_forage_granted_is_recorded_after_queen_assigned_with_the_task_and
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()
@@ -290,7 +290,7 @@ async def test_overriding_reserve_reaches_the_allocator_and_can_zero_it_out() ->
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     default_grant = await warden_end.wait_for_grant()
     await warden_end.close()
@@ -302,7 +302,7 @@ async def test_overriding_reserve_reaches_the_allocator_and_can_zero_it_out() ->
     provider2 = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps2, link2, warden_end2 = make_queen_deps(fake_provider=provider2, reserve=exhausting_reserve)
     queen2 = Queen(deps2)
-    queen2.attach_warden(link2)
+    await queen2.attach_warden(link2)
     goal_id2 = await queen2.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     task2 = await deps2.chamber.get(goal_id2)
     assert task2.status is TaskStatus.FAILED
@@ -339,7 +339,7 @@ async def test_overriding_footprints_and_grant_ttl_change_the_computed_grant() -
         grant_ttl_s=42.0,
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     fresh_grant = await warden_end.wait_for_grant()
@@ -377,7 +377,7 @@ async def test_a_footprint_no_cell_can_bear_fails_placement_instead_of_a_zero_be
         footprints={WorkerRole.DRONE: huge_footprint},
     )
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
 
@@ -394,12 +394,12 @@ async def test_a_zero_grant_is_denied_and_fails_the_task_instead_of_being_sent()
 
     A grant computing to `max_sub_bees == 0` used to be sent anyway; the Warden raised
     GRANT_EXCEEDED, the Queen escalated to the human inbox, and the task sat RUNNING for the whole
-    timeout with nothing on screen saying why. `hivemind.queen.dispatcher._send_grant_and_assign`
-    now denies it and fails the task at once instead. `warden_end.wait_for_plan_written()` is safe
-    to await here (unlike a grant or an assignment): `_ensure_warden_provisioned` always sends
-    `CeilingsSet` then `PlanWritten` on a Warden's first dispatch, before the zero-grant check
-    runs, so both are guaranteed to arrive even though the grant and assignment that would
-    normally follow them never do.
+    timeout with nothing on screen saying why.
+    `hivemind.queen.dispatcher.ready.assign.send_grant_and_assign` now denies it and fails the task
+    at once instead. `warden_end.wait_for_plan_written()` is safe to await here (unlike a grant or
+    an assignment): `_ensure_warden_provisioned` always sends `CeilingsSet` then `PlanWritten` on a
+    Warden's first dispatch, before the zero-grant check runs, so both are guaranteed to arrive even
+    though the grant and assignment that would normally follow them never do.
     """
     exhausting_reserve = RoyalReserve(
         seats=FORAGE_SOURCE_SEATS, memory_bytes=0, headroom_fraction=0.0
@@ -407,7 +407,7 @@ async def test_a_zero_grant_is_denied_and_fails_the_task_instead_of_being_sent()
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider, reserve=exhausting_reserve)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     # Guaranteed to arrive, both of them, in order (see docstring); pumps the transport without
@@ -455,7 +455,7 @@ async def _assert_forage_denied_with_figures(
 
 
 async def test_a_closed_link_fails_the_task_instead_of_leaving_it_running_forever() -> None:
-    """Phase-7 handoff open item 8: `_send_grant_and_assign`'s own new "warden link closed" fold.
+    """Phase-7 handoff open item 8: `send_grant_and_assign`'s own new "warden link closed" fold.
 
     By the time this choke point ever sends, the task is already RUNNING with no legal chamber
     edge back to PENDING (module docstring); this dispatch's own fix mirrors the sibling
@@ -468,7 +468,7 @@ async def test_a_closed_link_fails_the_task_instead_of_leaving_it_running_foreve
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("First, ordinary goal.", clearance=HoneyClearance.C1)
     await (
         warden_end.wait_for_assignment()
@@ -509,7 +509,7 @@ async def test_resuming_a_paused_task_with_a_zero_grant_fails_it_the_same_way() 
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
     await warden_end.wait_for_assignment()  # The normal, positive-grant dispatch.
 
@@ -532,7 +532,7 @@ async def test_resuming_a_paused_task_with_a_zero_grant_fails_it_the_same_way() 
     assert task.status is TaskStatus.FAILED
     assert task.outcome is not None
     assert "zero sub-bees" in task.outcome.summary
-    # _send_grant_and_assign's own zero-grant branch returns before either wire send (dispatcher
+    # send_grant_and_assign's own zero-grant branch returns before either wire send (dispatcher
     # module docstring), so nothing beyond the original dispatch's own envelopes ever exists here
     # to pump; polling `warden_end` further would hang rather than prove anything (the transport's
     # own module docstring: "no timeout is needed because only the peer ... or cancellation can
@@ -556,7 +556,7 @@ async def test_a_question_right_after_dispatch_never_raises_invalid_transition()
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)

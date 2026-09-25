@@ -18,7 +18,12 @@ from pydantic import ValidationError
 
 from hivemind.supervision.alarm import AlarmSeverity
 from hivemind.supervision.attendant.items import InboxKind
-from hivemind.supervision.attendant.weights import Priority, WeightTable
+from hivemind.supervision.attendant.weights import (
+    GUARD_PRINCIPAL,
+    GUARD_REQUEST_WEIGHT,
+    Priority,
+    WeightTable,
+)
 
 
 def test_queen_default_ranks_alarm_above_human_message_above_waggle_message() -> None:
@@ -33,10 +38,33 @@ def test_queen_default_ranks_alarm_above_human_message_above_waggle_message() ->
     assert alarm_and_critical > human_message > waggle_message
 
 
-def test_queen_default_has_no_principal_favouritism_by_default() -> None:
+def test_queen_default_names_only_the_guard_principal_and_favours_nobody() -> None:
     weights = WeightTable.queen_default()
 
-    assert weights.principal_weights == {}
+    # ADR-0043: the Guard principal's multiplier is named, so it can be tuned; neutral as shipped.
+    assert weights.principal_weights == {GUARD_PRINCIPAL: 1.0}
+
+
+def test_queen_default_puts_a_guard_request_above_every_alarm_and_human_message() -> None:
+    weights = WeightTable.queen_default()
+
+    critical_alarm = (
+        weights.kind_weights[InboxKind.ALARM]
+        + weights.severity_weights[AlarmSeverity.CRITICAL]
+        + weights.task_link_weight
+    )
+    human_message = weights.kind_weights[InboxKind.HUMAN_MESSAGE] + weights.task_link_weight
+
+    assert weights.kind_weights[InboxKind.GUARD_REQUEST] == GUARD_REQUEST_WEIGHT == 100.0
+    assert GUARD_REQUEST_WEIGHT > critical_alarm > human_message
+    assert not weights.refuses(InboxKind.GUARD_REQUEST)
+
+
+def test_warden_default_refuses_a_guard_request_and_gives_it_no_weight() -> None:
+    weights = WeightTable.warden_default()
+
+    assert weights.refuses(InboxKind.GUARD_REQUEST)
+    assert InboxKind.GUARD_REQUEST not in weights.kind_weights
 
 
 def test_queen_default_covers_every_inbox_kind_and_severity() -> None:
@@ -71,7 +99,7 @@ def test_warden_default_lets_a_critical_alarm_outrank_everything_routine() -> No
         < weights.severity_weights[AlarmSeverity.CRITICAL]
     )
     assert critical > max(
-        weights.kind_weights[kind] for kind in InboxKind if kind is not InboxKind.ALARM
+        weight for kind, weight in weights.kind_weights.items() if kind is not InboxKind.ALARM
     )
 
 

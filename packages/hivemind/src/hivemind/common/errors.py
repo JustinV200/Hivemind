@@ -38,6 +38,7 @@ __all__ = [
     "MigrationError",
     "NotFoundError",
     "PermissionDeniedError",
+    "SecretStoreError",
 ]
 
 
@@ -122,3 +123,17 @@ class MigrationError(HiveMindError):
     """
 
     code: ClassVar[str] = "hivemind.migration_error"
+
+
+class SecretStoreError(HiveMindError):
+    """Raise when a secret store refuses a name or a value, or holds a secret its reader rejects.
+
+    Covers what `hivemind.common.secrets` can detect on purpose: a secret name outside the
+    store's portable grammar, a value over the store's size bound, and a stored secret that is not
+    the shape its reader needs (an Ed25519 key of the wrong length). Its message names the secret
+    and the store, never the value: a secret belongs in the store, not in an exception that may be
+    logged (codingrules section 13). Specific to `hivemind.common.secrets` for the same reason
+    `MigrationError` is specific to `hivemind.common.migrations`.
+    """
+
+    code: ClassVar[str] = "hivemind.secret_store_error"

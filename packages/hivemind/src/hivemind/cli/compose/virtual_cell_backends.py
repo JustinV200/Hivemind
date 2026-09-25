@@ -9,7 +9,10 @@ module owns the overall `build_virtual_cells` orchestration; this one concept --
 `_endpoint_for` is where a Cell's dial-back address, provider/slot table and Night Veil SOCKS
 proxy all come together; `_listener_url` is the one place an offline command (`hive cells
 inspect`/`destroy`/`abscond`, `cli/readback/virtual*.py`) is let through even though it never
-starts `CellListener` -- see its own docstring.
+starts `CellListener` -- see its own docstring. Roadmap step 10.6a: with `[virtual_cells]
+control_subnet` set, the Docker backend gets the Hive's control network and dual-homes every Cell
+on it, and `prepare_backend` makes (or reuses) that network before the listener binds its gateway;
+the backend and the preparation share one Docker client (`RegistryContext.docker`).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -45,10 +48,11 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
 
 from hivemind.cell import CombShieldLevel
+from hivemind.cli.compose.night_veil import night_veil_link
 from hivemind.cli.compose.virtual_cell_providers import (
     cell_providers,
     cell_slots,
@@ -57,6 +61,12 @@ from hivemind.cli.compose.virtual_cell_providers import (
 from hivemind.common.errors import ConfigurationError
 from hivemind.hive import BackendRegistry, build_docker_backend, build_qemu_backend
 from hivemind.hive.backends.bootstrap import QueenEndpoint
+from hivemind.hive.backends.docker import (
+    ControlNetwork,
+    DockerBackendConfig,
+    control_network,
+    ensure_control,
+)
 from hivemind.hive.backends.docker.backend import DockerCellBackend
 from hivemind.hive.backends.docker.sdk_client import SdkDockerClient
 from hivemind.hive.backends.fake import FakeCellBackend
@@ -76,7 +86,20 @@ _DOCKER_GATEWAY_HOST = "host.docker.internal"  # docker_gateway_url's own rewrit
 # (module docstring) needs a QueenEndpoint before CellListener.start() has ever run; never dialled.
 _UNSTARTED_LISTENER_PLACEHOLDER = "ws://127.0.0.1:0"
 
-__all__ = ["build_registry", "docker_gateway_url", "night_veil_socks_proxy_url"]
+__all__ = ["build_registry", "docker_gateway_url", "night_veil_socks_proxy_url", "prepare_backend"]
+
+
+@dataclass(slots=True)
+class _SharedDockerClient:
+    """One SdkDockerClient per Hive, made on first use by the backend or its preparation."""
+
+    client: SdkDockerClient | None = None
+
+    def get(self) -> SdkDockerClient:
+        """Return the Hive's Docker client, connecting to the daemon the first time."""
+        if self.client is None:
+            self.client = SdkDockerClient()
+        return self.client
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +113,26 @@ class RegistryContext:
     queen_signer: Ed25519Signer
     queen_node_id: NodeId
     environ: Mapping[str, str]
+    docker: _SharedDockerClient = field(default_factory=_SharedDockerClient)
+
+
+async def prepare_backend(ctx: RegistryContext) -> None:
+    """Make or reuse the Docker control network before the listener binds its gateway.
+
+    Roadmap step 10.6a: the listener binds the control gateway, an address that exists on the
+    host only once the network does, so this runs first (`run_hive`); a Hive with no control
+    subnet has nothing to prepare.
+
+    Args:
+        ctx: This backend's own registry context.
+
+    Raises:
+        hivemind.hive.CellEgressError: The daemon refused the network, or one of its name exists
+            that is not the planned internal network.
+    """
+    control = _docker_control(ctx)
+    if control is not None:
+        await ensure_control(ctx.docker.get(), control)
 
 
 def build_registry(ctx: RegistryContext, clock: Clock) -> BackendRegistry:
@@ -143,10 +186,17 @@ def _build_docker(ctx: RegistryContext, clock: Clock) -> DockerCellBackend:
     endpoint = _endpoint_for(
         ctx, docker=True, gateway_host=_DOCKER_GATEWAY_HOST, require_started_listener=False
     )
-    factory = build_docker_backend(
-        SdkDockerClient(), ctx.gate, endpoint, clock, max_cells=ctx.section.max_cells
-    )
+    config = DockerBackendConfig(max_cells=ctx.section.max_cells, control=_docker_control(ctx))
+    factory = build_docker_backend(ctx.docker.get(), ctx.gate, endpoint, clock, config)
     return factory()
+
+
+def _docker_control(ctx: RegistryContext) -> ControlNetwork | None:
+    """Return the Hive's control network when `[virtual_cells]` names a subnet for Docker."""
+    subnet = ctx.section.control_subnet
+    if ctx.section.backend != "docker" or subnet is None:
+        return None
+    return control_network(ctx.manifest.hive.id, subnet)
 
 
 def _build_qemu(ctx: RegistryContext, clock: Clock) -> QemuCellBackend:
@@ -235,6 +285,9 @@ def _endpoint_for(
         slots=cell_slots(ctx.manifest),
         provider_api_keys=provider_api_keys(ctx.manifest, ctx.environ),
         llm_offline=ctx.manifest.llm.offline,
+        # Roadmap step 10.3a: how a Night Veil Cell reaches the Queen instead, chosen per Cell
+        # at provisioning (`hivemind.hive.backends.bootstrap.cell_endpoint`).
+        night_veil=night_veil_link(ctx.manifest),
     )
 
 
@@ -293,7 +346,7 @@ _HOSTS_UNREACHABLE_FROM_A_CONTAINER = frozenset({"127.0.0.1", "localhost", "0.0.
 def night_veil_socks_proxy_url(manifest: HiveManifest, comb_shield: CombShieldLevel) -> str | None:
     """Return this Hive's own `[security]` NIGHT_VEIL `tor_socks`, only for a NIGHT_VEIL endpoint.
 
-    Roadmap step 5.7a: threads `hivemind.manifest.schema.security.TierProfile.tor_socks` onto
+    Roadmap step 5.7a: threads `hivemind.manifest.schema.security.tiers.TierProfile.tor_socks` onto
     `QueenEndpoint.socks_proxy_url`, the field a Night Veil Cell's own Waggle transport must route
     through instead of the VPN tunnel (ADR-0030: sharing the tunnel with the control link would
     let an observer at the tunnel's exit correlate anonymised work with a known Hive Stand

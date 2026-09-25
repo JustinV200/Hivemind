@@ -4,13 +4,13 @@ Fifteen documented sections is more than one module can hold under codingrules s
 300-line limit, so the schema is a package: ``core`` (identity and lifecycle: ``[hive]``,
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
-``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (``[security]`` and
-``[honey.clearance]``), ``honey`` (``[honey.store]``, ``[honey.ripening]`` and
-``[honey.retrieval]``, roadmap phase 7), ``placement`` (``[placement]`` and ``[virtual_cells]``,
-roadmap step 5.7), ``exoskeleton`` (``[exoskeleton]``, roadmap step 6.6), and ``manifest``
-(``HiveManifest``, the root that gathers all of the above). This file is the
-schema's face: a caller imports any section model from here without knowing which module defines
-it.
+``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (a sub-package: ``tiers`` for
+``[security]`` and ``[honey.clearance]``, ``guard`` for ``[guard]``, the Guard policy's overrides,
+roadmap step 10.2), ``honey`` (``[honey.store]``, ``[honey.ripening]`` and ``[honey.retrieval]``,
+roadmap phase 7), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
+``exoskeleton`` (``[exoskeleton]``, roadmap step 6.6), ``entrance`` (``[entrance]``, phase 10), and
+``manifest`` (``HiveManifest``, the root that gathers all of the above). This file is the schema's
+face: a caller imports any section model from here without knowing which module defines it.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Imported by ``hivemind.manifest.loader``
@@ -32,8 +32,12 @@ Public API:
     - LLM (llm): LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
       MANIFEST_KEY_PATTERN.
     - Forage (forage): ForageSection.
+    - Guard policy overrides (security.guard): GuardSection, GuardRoleSection,
+      DEFAULT_DIRE_PATTERNS.
+    - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
+      EntrancePushSection, EntranceVoiceSection.
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
-    - Security and clearance (security): SecuritySection, TierProfile, HoneySection,
+    - Security and clearance (security.tiers): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
     - The Honey Store (honey): HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection.
     - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
@@ -49,6 +53,13 @@ from hivemind.manifest.schema.core import (
     HiveStandSection,
     PheromoneSection,
     QueenSection,
+)
+from hivemind.manifest.schema.entrance import (
+    EntranceExposure,
+    EntrancePushSection,
+    EntranceSection,
+    EntranceTlsSection,
+    EntranceVoiceSection,
 )
 from hivemind.manifest.schema.exoskeleton import ExoskeletonSection
 from hivemind.manifest.schema.forage import ForageSection
@@ -72,7 +83,12 @@ from hivemind.manifest.schema.placement import (
     VirtualCellsOverwinterSection,
     VirtualCellsSection,
 )
-from hivemind.manifest.schema.security import (
+from hivemind.manifest.schema.security.guard import (
+    DEFAULT_DIRE_PATTERNS,
+    GuardRoleSection,
+    GuardSection,
+)
+from hivemind.manifest.schema.security.tiers import (
     ClearanceMatrix,
     HoneyClearanceSection,
     HoneySection,
@@ -82,12 +98,20 @@ from hivemind.manifest.schema.security import (
 from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
 
 __all__ = [
+    "DEFAULT_DIRE_PATTERNS",
     "MANIFEST_KEY_PATTERN",
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "EntranceExposure",
+    "EntrancePushSection",
+    "EntranceSection",
+    "EntranceTlsSection",
+    "EntranceVoiceSection",
     "ExoskeletonSection",
     "ForageSection",
+    "GuardRoleSection",
+    "GuardSection",
     "HiveManifest",
     "HiveSection",
     "HiveStandCapacityOverrides",

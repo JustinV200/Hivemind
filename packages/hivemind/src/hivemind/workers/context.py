@@ -4,9 +4,13 @@
 session on it, the model it is bound to, its own slice of the Warden's `ForageGrant`
 (`GrantSlice`), its `CapabilitySet` (`hivemind.workers.capabilities.worker_capabilities` computes
 it), where to write memory and the trail, a way to ask a blocking `Question`
-(`QuestionChannel`), its mutable telemetry, its Capping gate, a view of its Real Cell lease and the
-seam every model call passes through. It never carries a provider, a subprocess handle, or the
-Cell's `kind` (codingrules section 8.7: "branch on capabilities, never on kind") -- a role reads
+(`QuestionChannel`), its mutable telemetry, its Capping gate, a view of its Real Cell lease, the
+seam every model call passes through, (roadmap step 10.3) the Guard's `Enforcer` its tools
+check every action against, (roadmap step 10.6b) the untrusted-content scanner every tool result
+passes through before the model reads it, and (roadmap step 10.3a) the resolver its network tool
+resolves a destination with before the Guard judges the addresses it got back. It never carries a
+provider, a subprocess handle, or the Cell's `kind` (codingrules section 8.7: "branch on
+capabilities, never on kind") -- a role reads
 `ctx.cell.capabilities`, never `ctx.cell.kind`. `GrantSlice` is deliberately nothing model-shaped:
 no provider, no model id, because `ctx.bound` (a `hivemind.llm.BoundModel`) already names the model
 this Worker calls, and `GrantSlice` only ever answers "how much" (spend, tokens, which named
@@ -24,7 +28,8 @@ Fits into the Hive:
     and sets `honey` to its own `hivemind.workers.runtime.honey.MailboxHoneyChannel`, and passes a
     `hivemind.llm.FannerLane` or a bare `hivemind.llm.DirectCallGate` as `call_gate`; read by
     `hivemind.workers.base.Worker.run` implementations (the Drone, roadmap step 3.16) and by every
-    tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.guard`,
+    tool under `hivemind.workers.tools`. Calls into `hivemind.cell`, `hivemind.exoskeleton`
+    (ExoskeletonHandle), `hivemind.guard` (its `net` resolver seam and its `scanner`),
     `hivemind.llm`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.supervision.capping`,
     `hivemind.workers.telemetry` and waggle only.
 
@@ -40,6 +45,9 @@ Key invariants:
       mutates either directly, only through `capping.propose`/`capping.run`.
     - `honey` is None unless a runtime wired a real channel: nothing a role or tool does may
       assume the Honey Store is reachable, and a tool offered only with it checks it first.
+    - `enforcer` is the one door a tool's own capability checks go through (`tool_invocation`,
+      `session_outside_scratch`, `question_routing`), so every refusal is a `guard.denied` row;
+      a tool never decides a capability with `capabilities.allows` alone.
 
 See Also:
     - .claude/codingrules.md section 8.7 for "branch on capabilities, never on kind".
@@ -57,14 +65,16 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import Cell, CellSession
 from hivemind.exoskeleton import ExoskeletonHandle
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, Enforcer
+from hivemind.guard.net import Resolver, system_resolver
+from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm import BoundModel, CallGate, Ears
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -198,6 +208,17 @@ class WorkerContext:
             (`hivemind.llm.ladders.run_tool_loop`'s own `gate` option); the Warden passes its own
             `hivemind.llm.FannerLane` (the seat meter, roadmap step 3.12a) or a bare
             `hivemind.llm.DirectCallGate` when no metering is wired up yet.
+        enforcer: The Guard's adapter (roadmap step 10.3, ADR-0039) every one of this Worker's
+            tools calls before acting; its Warden's own, so each refusal is a `guard.denied` row
+            on the same trail the Warden records to.
+        scanner: The untrusted-content scanner (roadmap step 10.6b, ADR-0043) every tool result
+            passes through before the model reads it (`hivemind.workers.tools.screen`); its
+            Warden's own, so one key hashes every flag on the node. Defaults to the shipped
+            patterns and thresholds with an in-memory key, for a context built without a Warden.
+        resolver: Resolves a destination host to the addresses a connection would use, so the
+            HTTP tool can have the Guard judge them and pin its request to the one it checked
+            (roadmap step 10.3a). The operating system's resolver by default; a test passes a
+            `hivemind.guard.net.FakeResolver`, so no test ever performs a lookup.
         exoskeleton: The display, input, audio and browser attached for this Worker's task
             (roadmap step 6.4), or None for a terminal-only task; the Exoskeleton tools read their
             peripherals from it and are offered only when it is set.
@@ -228,8 +249,11 @@ class WorkerContext:
     capping: CappingGate
     lease: LeaseView
     call_gate: CallGate
+    enforcer: Enforcer
     exoskeleton: ExoskeletonHandle | None = None
     ears: Ears | None = None
     recording_id: str | None = None
     # Additive and defaulted (roadmap step 7.8): a WorkerContext built before it still builds.
     honey: HoneyChannel | None = None
+    scanner: ContentScanner = field(default_factory=default_content_scanner)
+    resolver: Resolver = system_resolver

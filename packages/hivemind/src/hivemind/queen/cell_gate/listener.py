@@ -37,9 +37,11 @@ Fits into the Hive:
     by the composition root when `[virtual_cells] backend` is set; attaches Wardens onto whichever
     `Queen` it is given. Calls into `hivemind.cell` (CellCapabilities), `hivemind.forage`
     (ForageCapacity, HostCapacity), `hivemind.queen.attach` (detach_warden), `hivemind.queen.deps`
-    (WardenLink), `hivemind.queen.queen` (Queen), `hivemind.queen.cell_gate.gate`
+    (WardenLink), `hivemind.queen.errors` (WardenSpawnRefusedError), `hivemind.queen.queen`
+    (Queen), `hivemind.queen.cell_gate.gate`
     (QueenReadinessGate), `hivemind.queen.cell_gate.snapshot` (CellSnapshotHandler),
-    `hivemind.queen.trail.sync` (TrailSegmentReceiver), waggle (codec, envelope, errors, ids,
+    `hivemind.queen.trail.sync` (TrailSegmentReceiver), `hivemind.pheromone` (TrailRecorder),
+    `hivemind.queen.cell_gate.refusals` (LinkRefusals), waggle (codec, envelope, errors, ids,
     signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
 
 Key invariants:
@@ -49,13 +51,24 @@ Key invariants:
     - `QueenReadinessGate.resolve` is called exactly once per Cell, only once both `CellReady` and
       a first `CellHeartbeat` on the same connection have arrived (the Protocol's own contract).
     - Every accepted connection is either attached (a `WardenLink` handed to `Queen.attach_warden`)
-      or closed outright; none is left open and un-tracked.
+      or closed outright; none is left open and un-tracked. A Warden the Queen's own set refuses
+      to spawn (roadmap step 10.3, `WardenSpawnRefusedError`, already `guard.denied` on the trail)
+      is closed the same way and its Cell's gate is never resolved, so the provider's own ready
+      wait tears the Cell down.
     - `_handle_connection` always calls `hivemind.queen.attach.detach_warden` on its own way out
       once attached, whether the connection ended cleanly or the listener is stopping.
     - A `CellSnapshotRequest`/`CellRollbackRequest` is answered on the same connection it arrived
       on, correlated to its own envelope id; a `TrailSegmentSync` is handed to `trail_receiver`
       and never answered (the wire kind is an event, not a request). Both are no-ops when
       `CellListenerDeps` names no handler/receiver (roadmap step 5.10/ADR-0027's own follow-up).
+    - Node integrity (roadmap step 10.6, `.refusals`): a segment chunk reaches `trail_receiver`
+      only when it names its link's own node and Warden, and a refused one is
+      `guard.segment_refused` while the link stays up; an attached link that ends on a frame
+      whose signature failed is `guard.envelope_refused`. Both about the link's Cell, and only
+      with `CellListenerDeps.recorder` set.
+    - At most `FANOUT_QUEUE_SIZE` envelopes wait in one connection's fan-out for the Queen's
+      reader: past that its pump stops reading the socket, so a Queen that is not reading backs
+      the Cell's own sends up (backpressure), rather than the Queen's memory growing with them.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -76,9 +89,12 @@ from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.forage.models.capacity import ForageCapacity, HostCapacity
 from hivemind.hive.backends.bootstrap import CellReadyInfo
+from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
+from hivemind.queen.cell_gate.refusals import LinkRefusals
 from hivemind.queen.deps import WardenLink, send_guarded
+from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.queen import Queen
 from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
@@ -98,10 +114,19 @@ from waggle.messages.labels import OsFamily
 from waggle.messages.reports import PlatformReport
 from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_from_hex
+from waggle.transport.base import Transport
 from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
 
-__all__ = ["CellListener", "CellListenerDeps", "SnapshotRequestHandler"]
+__all__ = ["FANOUT_QUEUE_SIZE", "CellListener", "CellListenerDeps", "SnapshotRequestHandler"]
+
+# The most envelopes one connection's fan-out holds for the Queen's reader before its pump stops
+# reading the socket. Sixteen is websockets' own receive buffer (`max_queue`'s default, which
+# `WebSocketServer` keeps): once both are full the library stops reading the TCP socket and the
+# Cell's own sends block, backpressure all the way to the Cell. The Queen's real per-link buffer
+# is `hivemind.queen.inbox.links.LINK_QUEUE_SIZE`, behind this; more here would only hold frames
+# she cannot read yet, and fewer would make every frame a lock-step hand-off between two tasks.
+FANOUT_QUEUE_SIZE = 16
 
 # A placeholder ForageCapacity for a Cell that has reported CellReady/CellHeartbeat but no
 # forage.capacity_report (CapacityReport): today's only sender, hivemind.cli.in_cell.link.CellLink,
@@ -153,6 +178,8 @@ class CellListenerDeps:
         hive_id: The Queen's own bee address; the `sender` of every envelope this listener sends.
         host: The interface to bind (`[virtual_cells] listen_host`).
         port: The port to bind, 0 for OS-assigned (`[virtual_cells] listen_port`).
+        recorder: The Queen's trail and identity, where what a link refused is recorded (roadmap
+            step 10.6); None records nothing, for a test that never reads the trail.
     """
 
     gate: QueenReadinessGate
@@ -161,6 +188,7 @@ class CellListenerDeps:
     hive_id: HiveId
     host: str = DEFAULT_HOST
     port: int = OS_ASSIGNED_PORT
+    recorder: TrailRecorder | None = None
 
 
 class CellListener:
@@ -171,9 +199,7 @@ class CellListener:
 
         Args:
             deps: Every collaborator this listener needs.
-            clock: Stamps every `CellSnapshotReply`/`CellRollbackReply` this listener sends back;
-                held for a future step that also needs to timestamp a rejected connection on the
-                trail.
+            clock: Stamps every `CellSnapshotReply`/`CellRollbackReply` this listener sends back.
         """
         self._clock = clock
         self._deps = deps
@@ -278,44 +304,73 @@ class CellListener:
             await transport.close()
             return  # Never became ready; nothing was attached, so nothing to detach either.
         assert self._queen is not None  # noqa: S101 - start() always runs before a connection.
-        fanout = self._attach(transport, binding)
+        refusals = LinkRefusals(self._deps.recorder, binding.cell_id, binding.node_id)
+        try:
+            fanout = await self._attach(transport, binding, refusals)
+        except WardenSpawnRefusedError:
+            # The Queen's set refused this Warden (the refusal is already on the trail): it is
+            # never attached, so there is nothing to detach, only the connection to close.
+            await transport.close()
+            return
         try:
             # Ends normally once fanout's own pump notices the connection close (or a decode
             # failure); never raises on that path (_FanoutTransport.pump's own docstring), so the
             # only exception that can reach here is a genuine external cancel (stop(), below).
             await fanout.pump_task
+            if isinstance(fanout.closed_by, SignatureError):
+                # A forged frame on a proved link (roadmap step 10.6): the Guard Bee hears of it.
+                await refusals.envelope(fanout.closed_by)
         finally:
             if not fanout.pump_task.done():
                 fanout.pump_task.cancel()
             await asyncio.gather(fanout.pump_task, return_exceptions=True)
             await detach_warden(self._queen, binding.warden_id)
 
-    def _attach(self, transport: WebSocketTransport, binding: _ReadyBinding) -> _FanoutTransport:
+    async def _attach(
+        self, transport: WebSocketTransport, binding: _ReadyBinding, refusals: LinkRefusals
+    ) -> _FanoutTransport:
         """Build the fan-out link for a ready Cell, attach it to the Queen, then resolve the gate.
 
         Attach before resolving the gate: a caller waking from QueenReadinessGate.wait_ready
         (hivemind.queen.cell_gate.provider, roadmap step 5.6) looks this Cell's own link up in
         `queen.wardens` next, so it must already be there the instant wait_ready returns.
+
+        Raises:
+            WardenSpawnRefusedError: The Queen's own set refused `warden:spawn` (roadmap step
+                10.3); the fan-out's pump is stopped and reaped before this propagates.
         """
         assert self._queen is not None  # noqa: S101 - _handle checked already.
         hop = Hop(
             sender=self._deps.hive_id, recipient=binding.warden_id, node_id=self._deps.queen_node_id
         )
         fanout = _FanoutTransport(
-            transport, lambda envelope: self._dispatch(transport, hop, envelope)
+            transport, lambda envelope: self._dispatch(transport, hop, refusals, envelope)
         )
         link = WardenLink(
-            warden_id=binding.warden_id, cell=_cell_from_binding(binding), transport=fanout, hop=hop
+            warden_id=binding.warden_id,
+            cell=_cell_from_binding(binding),
+            transport=fanout,
+            hop=hop,
+            node_id=binding.node_id,  # Proved by the handshake: the node that speaks for the Cell.
         )
-        self._queen.attach_warden(link)
+        try:
+            await self._queen.attach_warden(link)
+        except WardenSpawnRefusedError:
+            # The pump started at construction; reap it here so no task outlives the refusal.
+            fanout.pump_task.cancel()
+            await asyncio.gather(fanout.pump_task, return_exceptions=True)
+            raise
         self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
         return fanout
 
-    async def _dispatch(self, transport: WebSocketTransport, hop: Hop, envelope: Envelope) -> None:
+    async def _dispatch(
+        self, transport: WebSocketTransport, hop: Hop, refusals: LinkRefusals, envelope: Envelope
+    ) -> None:
         """Answer a snapshot relay request, or merge a trail segment chunk; else do nothing.
 
         Called only from `_FanoutTransport.pump` now (this class's own module docstring): never
-        directly on `_handle`'s own former read loop, which no longer exists.
+        directly on `_handle`'s own former read loop, which no longer exists. A segment chunk is
+        merged through the link's `refusals`, which hold the receiver rule and record a refusal.
         """
         payload = envelope.payload
         if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
@@ -332,7 +387,7 @@ class CellListener:
                 transport, wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
             )
         elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
-            await self._trail_receiver.receive(payload)
+            await refusals.merge(self._trail_receiver, envelope, payload)
 
 
 # Marks "the pump will never put another envelope" on _FanoutTransport's own internal queue; a
@@ -352,7 +407,9 @@ class _FanoutTransport:
     only task that ever calls the real transport's own `receive()`; every envelope it reads either
     answers inline (a snapshot relay request, a trail segment sync -- `CellListener._dispatch`) or
     is queued for `receive()` here to yield to the Queen, so both "readers" still see every
-    envelope meant for them without a second `recv()` ever happening.
+    envelope meant for them without a second `recv()` ever happening. At most `FANOUT_QUEUE_SIZE`
+    wait unread (`_room`'s credits, not the queue's own `maxsize`, so the end-of-stream marker
+    always fits): past that the pump parks and leaves the socket unread (backpressure).
 
     Implements `waggle.transport.base.Transport` structurally (`send`/`receive`/`close`/
     `is_connected`/`connect`, every one forwarded to or fed from the real transport): `hivemind.
@@ -360,9 +417,7 @@ class _FanoutTransport:
     more than that, so neither has to change to accept this in place of a real `WebSocketTransport`.
     """
 
-    def __init__(
-        self, real: WebSocketTransport, dispatch: Callable[[Envelope], Awaitable[None]]
-    ) -> None:
+    def __init__(self, real: Transport, dispatch: Callable[[Envelope], Awaitable[None]]) -> None:
         """Wrap `real`, starting `pump` immediately so nothing else may ever call its `receive()`.
 
         Args:
@@ -374,6 +429,9 @@ class _FanoutTransport:
         self._real = real
         self._dispatch = dispatch
         self._queue: asyncio.Queue[Envelope | object] = asyncio.Queue()
+        # One credit per envelope that may wait unread (class docstring: the bound lives here,
+        # so the end-of-stream marker never waits for room, even while the pump is cancelled).
+        self._room = asyncio.Semaphore(FANOUT_QUEUE_SIZE)
         self._closed_exc: Exception | None = None
         self.pump_task: asyncio.Task[None] = asyncio.ensure_future(self._pump())
 
@@ -381,6 +439,11 @@ class _FanoutTransport:
     def is_connected(self) -> bool:
         """See `waggle.transport.base.Transport.is_connected`; forwarded to the real transport."""
         return self._real.is_connected
+
+    @property
+    def closed_by(self) -> Exception | None:
+        """What ended the pump's read: a lost link, an undecodable frame or a failed signature."""
+        return self._closed_exc
 
     async def connect(self) -> None:
         """See `waggle.transport.base.Transport.connect`; forwarded (already connected, a no-op)."""
@@ -412,6 +475,7 @@ class _FanoutTransport:
                     raise self._closed_exc
                 return  # A clean end (StopAsyncIteration-shaped): nothing more will ever arrive.
             assert isinstance(item, Envelope)  # noqa: S101 - only Envelope or _FANOUT_DONE is ever queued.
+            self._room.release()  # Taken off the fan-out: the pump may read one more frame.
             yield item
 
     async def close(self) -> None:
@@ -435,11 +499,16 @@ class _FanoutTransport:
                     # Queen's own bee-protocol dispatch (class docstring).
                     await self._dispatch(envelope)
                 else:
-                    await self._queue.put(envelope)
+                    # Parks while FANOUT_QUEUE_SIZE wait unread, the socket left unread with it:
+                    # a Queen that is not reading backs the Cell's own sends up (backpressure).
+                    await self._room.acquire()
+                    self._queue.put_nowait(envelope)
         except (ConnectionLostError, CodecError, SignatureError) as exc:
             self._closed_exc = exc
         finally:
-            await self._queue.put(_FANOUT_DONE)
+            # Never waits for room (the queue itself is unbounded): the stream still ends when
+            # nobody reads it, and a cancelled pump never parks here in its own finally.
+            self._queue.put_nowait(_FANOUT_DONE)
 
 
 class _GateVerifier:
@@ -509,9 +578,9 @@ async def _await_ready(transport: WebSocketTransport) -> _ReadyBinding | None:
     `CellReady` and the first `CellHeartbeat` (that module's own module docstring: "sends the three
     frames that must go out before a Warden exists... announce/send_capacity_report/
     send_cell_heartbeat, in that order"). This function simply never looked for it, so
-    `_PLACEHOLDER_CAPACITY` (`max_sub_bees=0`) was used unconditionally for every real Virtual
-    Cell, which zeros `hivemind.queen.forage.ceilings._initial_ceilings`'s own `max_sub_bees` the
-    moment `hivemind.queen.dispatcher.ready._ensure_warden_provisioned` runs -- every grant this
+    `_PLACEHOLDER_CAPACITY` (`max_sub_bees=0`) was used unconditionally for every real Virtual Cell,
+    which zeros `hivemind.queen.forage.ceilings._initial_ceilings`'s own `max_sub_bees` the moment
+    `hivemind.queen.dispatcher.ready.assign._ensure_warden_provisioned` runs -- every grant this
     Warden is ever issued then allows zero sub-bees (`Ceilings.max_sub_bees` caps every later
     grant), so a Drone can never be spawned on it and its task sits RUNNING forever, escalating a
     `GRANT_EXCEEDED` Alarm on every attempt. Confirmed directly: the first time any test actually

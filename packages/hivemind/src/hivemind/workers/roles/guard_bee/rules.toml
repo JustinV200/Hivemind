@@ -1,0 +1,331 @@
+# The Guard Bee's rules (roadmap step 10.6, ADR-0043): what it counts on the Pheromone Trail, over
+# what window, and what it recommends when a count crosses its threshold. Read through
+# importlib.resources by hivemind.workers.roles.guard_bee.rules; explained rule by rule in
+# docs/guard/guard-bee.md. A manifest's [guard.bee.rules.<key>] table overrides any field of one
+# rule but what it counts.
+#
+# Shapes. `shape = "count"` (the default) fires when the events a rule `counts` for one key reach
+# `threshold` inside `window_s` seconds; with `distinct` it counts distinct values of that key
+# instead, and with `measure = "cost_usd"` it sums the spend an llm.call carries. `shape =
+# "ratio"` fires when `counts` over `of` for one key reaches `ratio`, once `of` holds at least
+# `threshold` events. `shape = "sequence"` fires when, for one key, a `first` event is followed by
+# `threshold` events it `counts`.
+#
+# Keys. `group_by` is hive (everything together), bee (one worker id: a worker id is minted per
+# spawn, so it names one attempt of one task, one episode), task, cell, grant, device, address or
+# tier. The Guard Bee reads each from the event itself (its subject and id fields) or joins it
+# through the ids other events carry: a Capping proposal's task, Cell and tier from its
+# capping.proposed, a task's bee from worker.spawned, its Cell from queen.assigned and its grant
+# from forage.granted.
+#
+# Matchers. Each entry of counts, of and first is a trail kind and, optionally, `where`: payload
+# fields that must hold one of the listed values. `capability_family` is a guard.denied
+# capability's family, the part before its first colon. Rules count ids and kinds, never content:
+# the trail carries none. One kind is the Guard Bee's own, derived rather than read:
+# `guard_bee.subject_forged`, below.
+#
+# Attribution. A Virtual Cell's Warden ships its own trail segment, so every rule counts only what
+# the Guard Bee can attribute: an event the Hive Stand recorded, or one a Cell's node recorded about
+# what that Cell owns (its own id, its Warden, the bees it spawned, the tasks the Queen placed on
+# it, their grants, its proposals), as the Queen's own records say (`warden.spawned` names the node
+# a Warden's link proved, `queen.assigned` where a task was placed). An event a Cell's node recorded
+# about what another Cell owns is never counted as what it says.
+#
+# Verdicts. `confidence` and `action` are the rule's own. raise_audit_rate and reduce_entrance
+# narrow the whole Hive and are carried out at once, by rule, never with judgement.
+# quarantine_bee, isolate_cell and sting_cut are requests the Queen decides on, filed only at or
+# above [guard] request_confidence, coalesced per rule and Cell and capped per hour. observe is a
+# guard.alert and nothing more. `judgement = true` hands a finding to one awake episode on the
+# judge slot first, which may change the confidence and the action (to observe or a request).
+#
+# Node integrity seams (no rule yet, because no step has built what records them): Waggle replay
+# refusal (11.3b, guard.replay_refused), repeated frame-ceiling closes (11.3a,
+# guard.frame_ceiling), a merged segment whose events fail the node's key (11.9) and a capability
+# report that changed without re-enrolment (13.4a). Each becomes one table here with its kind. A
+# frame that fails its signature before its link is attached proves no Cell and is not recorded.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# A bee's own behaviour
+# ──────────────────────────────────────────────────────────────────────────────
+
+# The injection correlation (roadmap 10.6b): outside text flagged by the untrusted-content scanner
+# (guard.injection_suspected; its subject is the reading bee, its payload the task), then a denial
+# by that same bee in the same episode. A denial is a guard.denied about the bee (subject and
+# principal_id) or a capping.rejected whose failing check is ALLOWLIST: a lease-boundary refusal
+# (PathAllowlistCheck) is recorded only that way, and it is exactly the outside-scratch write an
+# injection attempts. The proposal's task, from its capping.proposed, names the bee.
+[rules.injection_then_denial]
+title = "an injection flag followed by a denial in the same episode"
+shape = "sequence"
+first = [{ kind = "guard.injection_suspected" }]
+counts = [
+    { kind = "guard.denied" },
+    { kind = "capping.rejected", where = { failing_check = ["ALLOWLIST"] } },
+]
+group_by = "bee"
+window_s = 900.0
+threshold = 1
+confidence = "high"
+action = "quarantine_bee"
+
+# One bee reading flagged text again and again: a hostile source, or a bee being fed one.
+[rules.injection_burst]
+title = "repeated injection flags on one bee's inputs"
+counts = [{ kind = "guard.injection_suspected" }]
+group_by = "bee"
+window_s = 600.0
+threshold = 3
+confidence = "medium"
+action = "quarantine_bee"
+judgement = true
+
+# Denial rates: guard.denied refusals of one worker at any enforcement point (principal_kind
+# "worker"; the principal's id is the event's subject).
+[rules.denial_burst]
+title = "a burst of Guard refusals for one bee"
+counts = [{ kind = "guard.denied", where = { principal_kind = ["worker"] } }]
+group_by = "bee"
+window_s = 300.0
+threshold = 5
+confidence = "medium"
+action = "quarantine_bee"
+judgement = true
+
+# Unexpected network attempts: refusals of a `net:` capability (the HTTP tool's host check, a
+# network step's ALLOWLIST rung, the Hive-state floor on the Hive Stand's own addresses).
+[rules.network_attempts]
+title = "repeated reaches for network hosts the bee does not hold"
+counts = [
+    { kind = "guard.denied", where = { principal_kind = ["worker"], capability_family = ["net"] } },
+]
+group_by = "bee"
+window_s = 600.0
+threshold = 3
+confidence = "medium"
+action = "quarantine_bee"
+judgement = true
+
+# Out-of-scratch touches: cell.touched_outside_scratch, which a lease records (its subject the
+# Cell, its payload the lease and the path) for every path a session touches outside scratch.
+[rules.outside_scratch_touches]
+title = "many paths touched outside scratch on one Cell"
+counts = [{ kind = "cell.touched_outside_scratch" }]
+group_by = "cell"
+window_s = 600.0
+threshold = 25
+confidence = "medium"
+action = "isolate_cell"
+judgement = true
+
+# Out-of-scratch attempts the lease refused: an OUTSIDE_SCRATCH_WRITE proposal rejected at the
+# ALLOWLIST rung, joined to its bee through the proposal's task.
+[rules.outside_scratch_refusals]
+title = "repeated refused writes outside one bee's lease"
+counts = [
+    { kind = "capping.rejected", where = { failing_check = ["ALLOWLIST"], tier = ["OUTSIDE_SCRATCH_WRITE"] } },
+]
+group_by = "bee"
+window_s = 600.0
+threshold = 3
+confidence = "medium"
+action = "quarantine_bee"
+judgement = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Spend
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Over-grant: the trail carries no grant's budget, so the Hive's own over-grant signal is counted:
+# the GRANT_EXCEEDED Alarm a Warden raises when a grant cannot cover what runs under it
+# (alarm.raised, its payload the Alarm kind and task). Capacity, not misbehaviour: an alert.
+[rules.over_grant]
+title = "repeated over-grant Alarms for one task"
+counts = [{ kind = "alarm.raised", where = { kind = ["GRANT_EXCEEDED"] } }]
+group_by = "task"
+window_s = 3600.0
+threshold = 3
+confidence = "low"
+action = "observe"
+
+# Spend surge: the model spend llm.call events attribute to one grant (its payload's grant_id,
+# the typed usage's cost), summed; the grant's task names the bee spending it.
+[rules.grant_spend_surge]
+title = "a surge of model spend under one grant"
+counts = [{ kind = "llm.call" }]
+measure = "cost_usd"
+group_by = "grant"
+window_s = 600.0
+threshold = 5.0
+confidence = "medium"
+action = "quarantine_bee"
+judgement = true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Capping
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Rejections over proposals per tier (capping.rejected and capping.proposed both carry the tier):
+# a tier refused this often gets more of what does pass audited after the fact.
+[rules.capping_rejection_rate]
+title = "a Capping tier rejecting a large share of its proposals"
+shape = "ratio"
+counts = [{ kind = "capping.rejected" }]
+of = [{ kind = "capping.proposed" }]
+group_by = "tier"
+window_s = 3600.0
+threshold = 10
+ratio = 0.5
+confidence = "medium"
+action = "raise_audit_rate"
+
+# Rollbacks over applied proposals per tier (the tier joined from each proposal's
+# capping.proposed): work whose postconditions fail this often is audited more.
+[rules.capping_rollback_rate]
+title = "a Capping tier rolling back a large share of what it applied"
+shape = "ratio"
+counts = [{ kind = "capping.rolled_back" }]
+of = [{ kind = "capping.applied" }]
+group_by = "tier"
+window_s = 3600.0
+threshold = 5
+ratio = 0.3
+confidence = "medium"
+action = "raise_audit_rate"
+
+# Failed sampled audits (codingrules 8.12): capping.audited verdicts of REJECT over every verdict
+# the judge returned for a tier (an inconclusive sample carries no outcome and is not counted).
+# This is AuditRates' failure rate, read from the trail across every Warden.
+[rules.audit_failure_rate]
+title = "a Capping tier failing its sampled audits"
+shape = "ratio"
+counts = [{ kind = "capping.audited", where = { outcome = ["REJECT"] } }]
+of = [{ kind = "capping.audited", where = { outcome = ["APPROVE", "REQUEST_CHANGES", "REJECT"] } }]
+group_by = "tier"
+window_s = 86400.0
+threshold = 3
+ratio = 0.25
+confidence = "high"
+action = "raise_audit_rate"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Node integrity (what the trail records today)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# An event a Cell's node recorded about a bee, task, grant, proposal or Cell another Cell owns
+# (guard_bee.subject_forged, derived by the Guard Bee from what it reads, key the recording node's
+# Cell): a Cell writing records in another Cell's name, framing it. Only the framer is named; the
+# framed Cell's own records still count as its own. A shipped dire pattern.
+[rules.subject_forgery]
+title = "records a Cell's node made about what another Cell owns"
+counts = [{ kind = "guard_bee.subject_forged" }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
+
+# A frame that failed its signature on a Virtual Cell's own proved link (guard.envelope_refused,
+# recorded by the Cell gate, which closes the link): a tampered link, or a Cell signing as a node
+# it cannot prove. A shipped dire pattern: the Queen isolates the Cell by rule.
+[rules.envelope_forgery]
+title = "a frame that failed its signature on a Cell's own link"
+counts = [{ kind = "guard.envelope_refused" }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
+
+# A trail segment shipped under a node, Warden or Cell its Cell's link never proved
+# (guard.segment_refused, reason another_node or another_cell): a Cell writing the Hive's audit
+# record in another node's name, or routing it as another Cell's (a Night Veil Cell's onto the
+# durable trail, say). Nothing of it was merged. A shipped dire pattern.
+[rules.segment_forgery]
+title = "a trail segment shipped under another node's or Cell's identity"
+counts = [
+    { kind = "guard.segment_refused", where = { reason = ["another_node", "another_cell"] } },
+]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
+
+# A trail segment the Queen could not merge (guard.segment_refused, reason format or corrupt): a
+# gap in the Cell's audit record, from a fault or a tampered export; the Queen judges which.
+[rules.segment_unmergeable]
+title = "a trail segment the Queen could not merge"
+counts = [{ kind = "guard.segment_refused", where = { reason = ["format", "corrupt"] } }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "high"
+action = "isolate_cell"
+
+# A signature or replay failure: a live session token presented with a request signature that
+# does not verify, or with a nonce already spent (guard.entrance_login_failed, reason
+# request_signature or request_replay). Someone holds a token without its device's key.
+[rules.request_forgery]
+title = "signed requests that fail their signature or replay a nonce"
+counts = [
+    { kind = "guard.entrance_login_failed", where = { reason = ["request_signature", "request_replay"] } },
+]
+group_by = "hive"
+window_s = 600.0
+threshold = 2
+confidence = "high"
+action = "reduce_entrance"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The Hive Entrance
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Failure bursts: logins refused on the remote listener (guard.entrance_login_failed, listener
+# "remote") for a bad device proof, a wrong password, a device that may not log in, or the console
+# trying the remote listener; a reduced Entrance's own refusals are not counted.
+[rules.login_failure_burst]
+title = "a burst of failed remote logins"
+counts = [
+    { kind = "guard.entrance_login_failed", where = { listener = ["remote"], reason = ["proof", "password", "device", "listener"] } },
+]
+group_by = "hive"
+window_s = 300.0
+threshold = 20
+confidence = "high"
+action = "reduce_entrance"
+
+# Lockouts across devices: guard.entrance_locked for a lockout or a denial burst (not a lock one
+# device put on another), counted by distinct device.
+[rules.lockouts_across_devices]
+title = "lockouts on more than one device"
+counts = [{ kind = "guard.entrance_locked", where = { reason = ["lockout", "denial_burst"] } }]
+group_by = "hive"
+distinct = "device"
+window_s = 3600.0
+threshold = 2
+confidence = "high"
+action = "reduce_entrance"
+
+# Invite-route abuse by an unknown client: guard.entrance_redeem_failed for a code that is no
+# invite, already used or expired, from one address.
+[rules.invite_abuse]
+title = "an unknown client knocking on the invite route"
+counts = [
+    { kind = "guard.entrance_redeem_failed", where = { reason = ["unknown_code", "used_code", "expired_code"] } },
+]
+group_by = "address"
+window_s = 600.0
+threshold = 5
+confidence = "high"
+action = "reduce_entrance"
+
+# Travel-lock triggers: guard.entrance_travel_lock, a known device seen on a network it never used.
+# The Entrance already forces step-up and tells every device; the Guard Bee keeps the record.
+[rules.travel_lock_triggered]
+title = "a known device appearing from a new network"
+counts = [{ kind = "guard.entrance_travel_lock" }]
+group_by = "device"
+window_s = 3600.0
+threshold = 1
+confidence = "medium"
+action = "observe"

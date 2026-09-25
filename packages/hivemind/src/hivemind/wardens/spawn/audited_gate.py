@@ -1,20 +1,25 @@
 """Define AuditingCappingGate: sample a terminal proposal for after-the-fact judge review.
 
-Roadmap step 4.10: "for tiers the table marks as not gated in real time, sample completed work at
-a per-tier rate, review it with the judge after the fact, deposit findings as Nectar, raise an
-Alarm on a failed audit." `hivemind.supervision.capping.audit.audit_completed` is that whole rule;
+Roadmap step 4.10: "for tiers the table marks as not gated in real time, sample completed work at a
+per-tier rate, review it with the judge after the fact, deposit findings as Nectar, raise an Alarm
+on a failed audit." `hivemind.supervision.capping.audit.sampler.audit_completed` is that whole rule;
 this module is the one place it is actually called from, because a `Proposal` reaches its terminal
 state (`VERIFIED` or `ROLLED_BACK`) inside `hivemind.supervision.capping.gate.CappingGate.run`
 itself, and that module is outside this phase's own file list. `AuditingCappingGate` subclasses
 `CappingGate` and overrides `run` to call `super().run()` first, then `audit_completed` once the
 outcome is terminal -- the same "wrap, don't fork" shape `hivemind.wardens.spawn.spawn._build_
-capping_gate` already uses everywhere else in this package (a fresh `CappingGate` per sub-bee).
-One kind of proposal is not sampled but always judged, right after it is applied (ADR-0032,
-"Judges read recordings"): a VERIFIED `irreversible` GUI proposal, reviewed with the evidence its
-GUI surface recorded, before the tool returns, so the bee's next step waits on the verdict. The
-verdict rides back on `GateOutcome.review`, and the Worker's tool raises the one Alarm a REJECT
-calls for, on the escalation path that ends the attempt. Every other GUI proposal that is sampled
-is audited with the same evidence.
+capping_gate` already uses everywhere else in this package (a fresh `CappingGate` per sub-bee). One
+kind of proposal is not sampled but always judged, right after it is applied (ADR-0032, "Judges read
+recordings"): a VERIFIED `irreversible` GUI proposal, reviewed with the evidence its GUI surface
+recorded, before the tool returns, so the bee's next step waits on the verdict. The verdict rides
+back on `GateOutcome.review`, and the Worker's tool raises the one Alarm a REJECT calls for, on the
+escalation path that ends the attempt. Every other GUI proposal that is sampled is audited with the
+same evidence. Roadmap step 10.6: the rate a terminal proposal is sampled at is the higher of its
+tier's `TierSpec.audit_rate` and a live Guard Bee raise read back from the trail this gate records
+to (`hivemind.supervision.capping.raised_audit_rate`). On the Hive Stand that trail is the Queen's
+own, where the Guard Bee records every `guard.audit_rate_raised`, so a raise takes effect on the
+next proposal and survives a restart; a Virtual Cell's Warden records to its own segment, which no
+raise reaches in phase 10 (the Guard Bee's package README names what carries one there later).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's spawn
@@ -23,8 +28,8 @@ Fits into the Hive:
     `findings_sink` and `audit_rates` (`hivemind.wardens.deps.WardenDeps`, roadmap step 4.10's own
     additive fields). Calls into `hivemind.supervision.capping` (AuditDeps, AuditRates,
     AuditSampler, FindingsSink, GateDeps, GateOutcome, JudgeEvidence, JudgeReviewer, JudgeRubric,
-    Proposal, ProposalState, RiskTier, audit_completed, review_applied, and the gate's GuiSurface
-    for evidence) and waggle only.
+    Proposal, ProposalState, RiskTier, TierSpec, audit_completed, raised_audit_rate,
+    review_applied, and the gate's GuiSurface for evidence) and waggle only.
 
 Key invariants:
     - `run` returns what `CappingGate.run` returned, with `review` set only for a judged
@@ -33,12 +38,13 @@ Key invariants:
     - Auditing only ever runs for a terminal outcome with a configured tier: a proposal whose own
       `risk_tier` has no `TierSpec` at all (an unconfigured tier, already REJECTED by `_check_and_
       cap`) is never sampled, since there is no `audit_rate` to sample it at.
+    - A raise can only add sampling: the rate used is never below the tier table's own.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "what cannot be gated is sampled".
     - .claude/roadmap.md step 4.10 for this module's own deliverable, verbatim.
-    - hivemind.supervision.capping.audit for AuditSampler and audit_completed, this module's one
-      collaborator pair.
+    - hivemind.supervision.capping.audit.sampler for AuditSampler and audit_completed, this
+      module's one collaborator pair.
     - hivemind.wardens.spawn.spawn for _build_capping_gate, this class's one caller.
 """
 
@@ -52,6 +58,7 @@ from hivemind.supervision.capping import (
     AuditRates,
     AuditSampler,
     CappingGate,
+    CarriedAuditRaises,
     FindingsSink,
     GateDeps,
     GateOutcome,
@@ -61,7 +68,9 @@ from hivemind.supervision.capping import (
     Proposal,
     ProposalState,
     RiskTier,
+    TierSpec,
     audit_completed,
+    raised_audit_rate,
     review_applied,
 )
 from hivemind.supervision.capping.lease_view import LeaseView
@@ -92,6 +101,7 @@ class AuditWiring:
     sink: FindingsSink  # WardenDeps.findings_sink.
     rates: AuditRates  # WardenDeps.audit_rates.
     goal: str | None = None  # The sub-bee's TaskAssign.objective, what its work is judged against.
+    carried: CarriedAuditRaises | None = None  # WardenDeps.carried_raises (roadmap step 10.6).
 
 
 class AuditingCappingGate(CappingGate):
@@ -116,6 +126,7 @@ class AuditingCappingGate(CappingGate):
             goal=wiring.goal,
         )
         self._rates = wiring.rates
+        self._carried = wiring.carried
 
     async def run(
         self,
@@ -139,8 +150,23 @@ class AuditingCappingGate(CappingGate):
         if _judged_now(proposal, outcome):
             verdict = await review_applied(self._audit, proposal, evidence)
             return outcome.model_copy(update={"review": verdict})
-        await audit_completed(self._audit, proposal, tier, self._rates, evidence)
+        sampled_at = await self._with_live_raise(proposal.risk_tier, tier)
+        await audit_completed(self._audit, proposal, sampled_at, self._rates, evidence)
         return outcome
+
+    async def _with_live_raise(self, risk_tier: RiskTier, tier: TierSpec) -> TierSpec:
+        """Return `tier` sampled at the higher of its own rate and a live Guard Bee raise.
+
+        A raise reaches this gate by either road: its own trail (the Hive Stand's is the Queen's)
+        or a grant this Warden holds, which carried the raises in force when it was issued.
+        """
+        now = self._deps.clock.now()
+        raised = await raised_audit_rate(self._deps.trail, risk_tier, now)
+        if self._carried is not None:
+            raised = max(raised, self._carried.rate(risk_tier, now))
+        if raised <= tier.audit_rate:
+            return tier  # No live raise, or one below the table's rate: the table's rate stands.
+        return tier.model_copy(update={"audit_rate": raised})
 
     async def _evidence(self, proposal: Proposal) -> JudgeEvidence | None:
         """What the GUI surface recorded for a GUI proposal; None for any other kind."""

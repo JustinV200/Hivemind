@@ -18,7 +18,8 @@ unchanged and the Drone's own module now calls them with its own constants.
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Called by
     `hivemind.workers.roles.bounded_loop.runner.run_bounded_loop`. Calls into `hivemind.cell`
-    (HoneyClearance), `hivemind.llm`, `hivemind.memory`, `hivemind.workers.context` and waggle.
+    (HoneyClearance), `hivemind.llm`, `hivemind.memory`, `hivemind.workers.context`,
+    `hivemind.workers.tools.screen` (screen_honey_hits) and waggle.
 
 Key invariants:
     - `select_counter` returns a `hivemind.memory.ProviderCounter` only when the bound provider
@@ -33,7 +34,8 @@ Key invariants:
       `hivemind.llm.prompts.loader` uses for a durable-state section, never as an instruction
       (codingrules section 15).
     - The assignment's Honey hits (`TaskAssign.honey`, the Queen's pre-check, roadmap step 7.9)
-      reach the model only inside assemble's RETRIEVED section, which render() delimits and every
+      are scanned first (`screen_honey_hits`, roadmap step 10.6b) and reach the model only inside
+      assemble's RETRIEVED section, each under its verdict, which render() delimits and every
       role's system prompt names as reference data, never instructions (codingrules section 15);
       they never displace hot state, and a hit left out for the budget is not deposited anywhere
       (it already lives in the Honey Store).
@@ -81,6 +83,7 @@ from hivemind.memory import (
 )
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.roles.bounded_loop.profile import RoleProfile
+from hivemind.workers.tools.screen import screen_honey_hits
 from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind
 from waggle.messages.task import ScoutReport, TaskAssign
 
@@ -168,11 +171,11 @@ async def assemble_role_prompt(
     event = TriggerEvent(
         kind=TASK_ASSIGN_EVENT_KIND, summary=assignment.objective, clearance=clearance
     )
-    # The Queen's pre-check hits (roadmap 7.9) ride on the assignment; assemble packs them into
-    # the RETRIEVED section after hot state, labelled as reference data, never instructions.
-    request = AssembleRequest(
-        principal=principal, event=event, budget=budget, retrieved=assignment.honey
-    )
+    # The Queen's pre-check hits (roadmap 7.9) ride on the assignment; each is scanned first
+    # (roadmap 10.6b), then assemble packs them into the RETRIEVED section after hot state, under
+    # each one's verdict, labelled as reference data, never instructions.
+    retrieved = await screen_honey_hits(ctx, assignment.task_id, assignment.honey)
+    request = AssembleRequest(principal=principal, event=event, budget=budget, retrieved=retrieved)
     dropped: list[Scorable] = []
     prompt = await assemble(request, sources, select_counter(ctx), on_drop=dropped.append)
     if dropped:

@@ -57,9 +57,9 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.7"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.10"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 7  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 10  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
 # Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 3 for
 # TaskAssign.leaves, a new optional field (roadmap step 5.0b, "the plan declares what stays"); 4
@@ -70,7 +70,17 @@ PROTOCOL_MINOR = 7  # Additive changes bump it; any minor of a known major is ac
 # phase 6): ActionKind.GUI with its typed GuiStep, PostconditionKind.URL_MATCHES/REGION_CHANGED,
 # RollbackMethod.GUI_STATE, AlarmKind.EXOSKELETON_FAILED, CellCapabilitiesReport.
 # real_display_allowed, TaskAssign.exoskeleton/network_scopes/recon and TaskResult.scout_report; 7
-# for TaskAssign.honey, a new optional field (roadmap step 7.9, the Queen's Honey pre-check).
+# for TaskAssign.honey, a new optional field (roadmap step 7.9, the Queen's Honey pre-check); 8 for
+# TaskAssign.capabilities, a new optional field (roadmap step 10.3, ADR-0039: a goal's capability
+# set reaches the Warden that attenuates its Worker's set, beside the network scopes minor 6
+# already carries); 9 for AlarmKind.SECURITY, InterventionAction.QUARANTINE and
+# Intervene.suspect_episode_id (roadmap steps 10.6 and 10.6c, ADR-0043: a security Alarm reaches
+# the human, and a quarantine names the episode from which the bee's memory is suspect); 10 for
+# GrantIssued.audit_raises, a new optional field (roadmap step 10.6: a Guard Bee raise of a
+# Capping tier's audit rate reaches every Warden, a Virtual Cell's in-Cell one included, on the
+# grant it holds), and cell.taint_order (roadmap step 10.6a, ADR-0043: the Queen orders an
+# isolated Cell's Warden to taint the memory store it keeps inside the Cell, which her own label
+# cannot reach).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

@@ -16,12 +16,24 @@ neither `Undertaker.destroy_virtual` nor `.release_real` hands its own revoked-g
 its caller. `left_as_found` is a fresh re-read after every effect, not a running tally: True only
 when nothing this pass could find is still there to find.
 
+A Night Veil Cell ends here too, so it is purged here too (codingrules section 12): each Cell is
+checked against the Night Veil boundary `virtual_cells` carries (its labels, a segment this
+process holds, or the trail's skeleton, `hivemind.hive.night_veil.adopt_night_veil`), its
+destruction is recorded through the boundary's own trail so only the skeleton of it survives, and
+the teardown purge runs once it is gone. In a running Hive's process that boundary is the Queen's
+own, so the Cell's ephemeral segment goes with it; a separate `hive cells abscond` process holds no
+segment, and purges what the trail and the registered side channels still hold. That process
+never saw the Cell's grants issued either, so it files every grant the ledger holds on the Cell
+under it first: the Undertaker's `forage.revoked` rows then stay out of the trail too. Both are
+`virtual_offline.destroy_virtual_cell`, which `hive cells destroy` shares.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.readback`. Called only by
     `hivemind.cli.readback.virtual`'s own `abscond` command. Calls into `hivemind.cell`
     (CellIdentity), `hivemind.cli.readback.virtual_offline`, `hivemind.hive.backends.fake`
-    (FakeCellBackend), `hivemind.manifest` (HiveManifest), `hivemind.pheromone` (PheromoneTrail),
-    `hivemind.queen.cluster` (ClusterOrder, OrderKind, OrderStore, new_order_id),
+    (FakeCellBackend), `hivemind.hive.night_veil` (NightVeilBoundary), `hivemind.manifest`
+    (HiveManifest), `hivemind.pheromone`
+    (PheromoneTrail), `hivemind.queen.cluster` (ClusterOrder, OrderKind, OrderStore, new_order_id),
     `hivemind.queen.forage.ledger` (ForageLedger) and waggle only.
 
 Key invariants:
@@ -30,6 +42,7 @@ Key invariants:
       lands in exactly one of `leases_deferred_to_queen`/`leases_released`/`leases_left_untouched`.
     - `grants_revoked` is never negative (`max(0, before - after)`): a grant some other process
       issues between the two reads would otherwise make the subtraction go the wrong way.
+    - Every Night Veil Cell this pass destroys is purged right after, at most once.
 
 See Also:
     - .claude/roadmap.md step 5.13's own exit criterion: "`hive cells abscond` leaves zero
@@ -51,6 +64,7 @@ from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.readback.virtual_offline import (
     OfflineCellDeps,
     build_undertaker,
+    destroy_virtual_cell,
     list_all_virtual,
     open_real_leases,
     queen_likely_running,
@@ -58,6 +72,7 @@ from hivemind.cli.readback.virtual_offline import (
 )
 from hivemind.hive import VirtualCellRecord
 from hivemind.hive.backends.fake import FakeCellBackend
+from hivemind.hive.night_veil import NightVeilBoundary
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen.cluster import ClusterOrder, OrderKind, OrderStore, new_order_id
@@ -151,22 +166,32 @@ async def run_abscond(deps: AbscondDeps) -> AbscondSummary:
     )
 
 
-def _offline(deps: AbscondDeps, identity: CellIdentity) -> OfflineCellDeps:
-    """Bundle the four collaborators every offline Cell effect in this pass needs."""
+def _offline(
+    deps: AbscondDeps, identity: CellIdentity, night_veil: NightVeilBoundary | None = None
+) -> OfflineCellDeps:
+    """Bundle the collaborators every offline Cell effect in this pass needs."""
     return OfflineCellDeps(
-        trail=deps.trail, clock=deps.clock, identity=identity, leavings=deps.leavings
+        trail=deps.trail,
+        clock=deps.clock,
+        identity=identity,
+        leavings=deps.leavings,
+        night_veil=night_veil,
     )
 
 
 async def _destroy_every_virtual(deps: AbscondDeps, identity: CellIdentity) -> int:
-    """Destroy every Virtual Cell every registered backend lists for this Hive; return how many."""
+    """Destroy every Virtual Cell every registered backend lists for this Hive; return how many.
+
+    A Night Veil Cell is destroyed through the boundary's own trail and purged once it is gone
+    (module docstring), so an Absconding leaves no more of it than a teardown does.
+    """
     if deps.virtual_cells is None:
         return 0  # No [virtual_cells] backend configured: nothing this Hive could have provisioned.
+    offline = _offline(deps, identity, deps.virtual_cells.night_veil)
     rows = await _virtual_rows(deps)
     for backend_name, record in rows:
         backend = deps.virtual_cells.registry.get(backend_name)
-        undertaker = build_undertaker(backend, _offline(deps, identity), deps.ledger)
-        await undertaker.destroy_virtual(record.cell_id)
+        await destroy_virtual_cell(backend, offline, deps.ledger, record.cell_id, record.labels)
     return len(rows)
 
 

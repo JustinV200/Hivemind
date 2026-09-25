@@ -23,6 +23,7 @@ from hivemind.common.errors import (
     InvariantViolationError,
     NotFoundError,
     PermissionDeniedError,
+    SecretStoreError,
 )
 
 _CATEGORIES = [
@@ -57,3 +58,11 @@ def test_base_categories_each_have_a_distinct_code() -> None:
     codes = [code for _, code in _CATEGORIES]
 
     assert len(codes) == len(set(codes))
+
+
+def test_secret_store_error_is_a_hivemind_error_with_its_own_code() -> None:
+    error = SecretStoreError("Secret name 'X' is invalid.")
+
+    assert isinstance(error, HiveMindError)
+    assert error.code == "hivemind.secret_store_error"
+    assert error.code not in {code for _, code in _CATEGORIES}

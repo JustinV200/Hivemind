@@ -102,6 +102,9 @@ class AlarmKind(Enum):
     CELL_UNREACHABLE = "CELL_UNREACHABLE"
     QUOTA_EXCEEDED = "QUOTA_EXCEEDED"  # A lease's scratch directory outgrew its configured quota.
     EXOSKELETON_FAILED = "EXOSKELETON_FAILED"  # Attach could not equip the Cell (protocol 1.6).
+    # Waggle 1.9 (roadmap steps 10.6 and 10.6c, ADR-0043): a security event, such as a bee its
+    # Warden quarantined. Every shipped policy row sends it up the chain, never retried or rebound.
+    SECURITY = "SECURITY"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 

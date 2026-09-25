@@ -42,12 +42,14 @@ Public API:
       implementation, so a rollback in a separate CLI process can see an earlier snapshot.
     - DockerSnapshotter (hivemind.hive.snapshot.docker), QemuSnapshotter
       (hivemind.hive.snapshot.qemu): the two backend-specific Snapshotter implementations.
-    - snapshotter_for (hivemind.hive.snapshot.factory): chooses a Cell's own Snapshotter by
-      backend capability, never by name.
+    - DockerSnapshotImages (hivemind.hive.snapshot.docker): removes a Night Veil Cell's snapshot
+      images at its teardown (codingrules section 12).
+    - snapshotter_for, snapshot_images_for (hivemind.hive.snapshot.factory): choose a Cell's own
+      Snapshotter, and what removes its snapshot images, by backend capability, never by name.
 """
 
-from hivemind.hive.snapshot.docker import DockerSnapshotter
-from hivemind.hive.snapshot.factory import snapshotter_for
+from hivemind.hive.snapshot.docker import DockerSnapshotImages, DockerSnapshotter
+from hivemind.hive.snapshot.factory import snapshot_images_for, snapshotter_for
 from hivemind.hive.snapshot.ledger import (
     SnapshotLedger,
     SnapshotLedgerPort,
@@ -58,6 +60,7 @@ from hivemind.hive.snapshot.qemu import QemuSnapshotter
 from hivemind.hive.snapshot.sqlite_ledger import SqliteSnapshotLedger
 
 __all__ = [
+    "DockerSnapshotImages",
     "DockerSnapshotter",
     "QemuSnapshotter",
     "SnapshotLedger",
@@ -65,5 +68,6 @@ __all__ = [
     "SnapshotNotFoundError",
     "SnapshotRecord",
     "SqliteSnapshotLedger",
+    "snapshot_images_for",
     "snapshotter_for",
 ]

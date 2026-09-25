@@ -6,8 +6,8 @@ Fits into the Hive:
     test_queen_questions.py, test_queen_supervisor.py and test_queen_invariants.py. The first test
     drives a real Heartbeat through the Queen's own tick loop; `check_liveness` itself is exercised
     directly (as `hivemind.queen.autopilot.table` is in test_table.py), since going offline is a
-    pure function of elapsed wall-clock time that a live tick loop only ever wakes on a new
-    envelope (module docstring of hivemind.queen.queen: "never gated behind an inbox item").
+    pure function of elapsed wall-clock time; test_queen_liveness_cadence.py drives the same sweep
+    through a live tick loop woken only by her own quiet-interval timer.
 
 Key invariants:
     - None: this module holds tests only.
@@ -75,7 +75,7 @@ async def test_heartbeat_updates_the_queens_own_liveness_view() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
 
     await warden_end.send(_heartbeat())
@@ -103,7 +103,7 @@ async def test_a_heartbeat_past_the_handoff_threshold_orders_an_intervene() -> N
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
     full_telemetry = make_telemetry(tokens_used=7_500, context_window=8_192)  # ~92% full.
     heartbeat = Heartbeat(
@@ -138,7 +138,7 @@ async def test_a_closed_link_during_the_handoff_intervene_never_stops_liveness()
     """
     deps, link, warden_end = make_queen_deps()
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
     full_telemetry = make_telemetry(tokens_used=7_500, context_window=8_192)  # ~92% full.
     heartbeat = Heartbeat(
@@ -221,7 +221,7 @@ async def test_heartbeat_renews_live_grants_for_that_warden() -> None:
     original_expiry = grant.expires_at
     clock.advance(120.0)  # Time passes before the heartbeat arrives.
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     run_task = asyncio.ensure_future(queen.run())
 
     await warden_end.send(_heartbeat())

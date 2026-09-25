@@ -18,6 +18,9 @@ declared `BackendCapabilities` says it cannot honour -- "pause/resume ... cleanl
 capabilities" (roadmap step 5.2's contract suite) -- the same capability-refusal shape
 `SnapshotUnsupportedError` gives Real Cells; it is not one of the four names roadmap step 5.2 lists
 by name, added because `CellBackend.pause`/`resume` (also step 5.2) need a typed way to refuse.
+`CellEgressError` (roadmap step 10.6a) is a backend that could not cut or restore a running Cell's
+egress, or make the network the cut relies on; `hivemind.hive.egress.LifecycleEgress` records it
+as a failed cut, never a crash.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Raised by every other module in this
@@ -53,6 +56,7 @@ from hivemind.common.errors import ConfigurationError, ConflictError, HiveMindEr
 __all__ = [
     "BackendCapabilityError",
     "CellDestroyError",
+    "CellEgressError",
     "CellProvisionError",
     "HiveError",
     "InvalidCellTransitionError",
@@ -119,6 +123,33 @@ class CellDestroyError(HiveError):
         super().__init__(f"Backend {backend_name!r} could not destroy cell {cell_id!r}: {reason}.")
         self.backend_name = backend_name
         self.cell_id = cell_id
+        self.reason = reason
+
+
+class CellEgressError(HiveError):
+    """Raise when a backend cannot cut or restore a Cell's egress, or make the network it needs.
+
+    Roadmap step 10.6a: a Docker Cell's egress is its own network, which a cut detaches and a
+    restore attaches again, beside the per-Hive control network its link rides; the daemon
+    refusing either, or a control network of the right name that is not what the Hive planned,
+    is this error. The isolation records the cut as failed and carries on.
+    """
+
+    code: ClassVar[str] = "hivemind.hive.cell_egress_failed"
+
+    def __init__(self, backend_name: str, subject: str, reason: str) -> None:
+        """Build the error for an egress lever that failed.
+
+        Args:
+            backend_name: The CellBackend.name that refused or failed.
+            subject: The `CellId` whose egress was being changed, or the control network's name.
+            reason: Why it failed, folded into the message.
+        """
+        super().__init__(
+            f"Backend {backend_name!r} could not change the egress of {subject!r}: {reason}."
+        )
+        self.backend_name = backend_name
+        self.subject = subject
         self.reason = reason
 
 

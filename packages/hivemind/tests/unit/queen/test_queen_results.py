@@ -23,6 +23,7 @@ from builders.queen import make_queen_deps, plan_responder
 from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.ids import TaskId, WardenId
@@ -136,7 +137,7 @@ async def test_succeeded_result_completes_the_task_and_dispatches_its_dependant(
     provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
     root_assignment = await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -159,7 +160,7 @@ async def test_failed_result_retries_with_attempt_plus_one_up_to_the_limit_then_
     provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider, alarm_attempt_limit=2)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
     first_assignment = await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -200,7 +201,7 @@ async def test_an_infeasible_scout_fails_without_retry_and_holds_its_dependent_b
     provider = FakeLLMProvider(responder=plan_responder(_scout_then_child_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider, alarm_attempt_limit=2)
     queen = Queen(deps)
-    queen.attach_warden(link)
+    await queen.attach_warden(link)
     await queen.submit_goal("Look around a site.", clearance=HoneyClearance.C1)
     scout_assignment = await warden_end.wait_for_assignment()
     run_task = asyncio.ensure_future(queen.run())
@@ -255,3 +256,56 @@ async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 200
             return
         await asyncio.sleep(0)
     raise AssertionError("Condition never became true.")
+
+
+async def test_a_dependant_of_a_task_that_failed_for_good_is_cancelled_not_left_pending() -> None:
+    # Handoff known issue 3: the child could never run, so leaving it PENDING kept `hive run`
+    # waiting out its whole timeout on a goal that was already over.
+    provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider, alarm_attempt_limit=1)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
+    root = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    await warden_end.send(_result(root.task_id, link.warden_id, TaskOutcome.FAILED))
+    [child] = [
+        task
+        for task in await deps.chamber.list(TaskFilter(goal_id=goal_id))
+        if task.id != root.task_id
+    ]
+    await _wait_until(lambda: _is_terminal(deps, child.id))
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    cancelled = await deps.chamber.get(child.id)
+    assert cancelled.status is TaskStatus.CANCELLED
+    assert cancelled.outcome is not None and root.task_id in cancelled.outcome.summary
+    assert len(warden_end.assignments) == 1  # The child was never dispatched.
+    await warden_end.close()
+
+
+async def test_a_finished_tasks_grant_goes_back_to_the_pool_on_the_trail() -> None:
+    # The ledger used to keep a finished task's grant for good (renewed on every Heartbeat), so
+    # its Cell looked busy and its seats looked taken long after the work was done.
+    provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
+    root = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    await warden_end.send(_result(root.task_id, link.warden_id, TaskOutcome.SUCCEEDED))
+    await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    child = warden_end.assignments[1].task_id
+    assert [grant.task_id for grant in deps.ledger.live_grants()] == [child]
+    [released] = await deps.trail.query(TrailQuery(kind="forage.revoked"))
+    assert released.subject_id == root.grant_id
+    assert released.payload["cause"] == "RELEASED"
+    assert released.payload["task_id"] == root.task_id
+    await warden_end.close()

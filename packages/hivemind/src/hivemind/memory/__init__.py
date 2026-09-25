@@ -28,8 +28,14 @@ a Queen-written caution about one Cell, its state machine (`PROPOSED -> WRITTEN 
 CLEARED | EXPIRED`, `PROPOSED -> REJECTED`) and the five functions that walk it; it enters hot
 state, through `hot_state`'s own `CellWaxSummary` and `HotStateSources.wax`, only while its Cell is
 in `AssembleRequest.cells_in_play`. `store` is the durable half, six SQLite tables plus an
-in-memory fake for tests. Bee terms used here: a **Handoff** is a structured document a bee writes
-to resume its own work later (possibly on a different model or host); **hot state** is the
+in-memory fake for tests. `taint` (roadmap step 10.6d, ADR-0043) is the one label that keeps memory
+written while a bee may have been compromised out of every later prompt: `taint_memory` sets it on
+every checkpoint, Handoff, episode record and Bee Bread deposit a `TaintScope` covers, and only
+`clear_taint`, on a judge verdict, clears it; until then `assemble`, every Bee Bread lookup,
+`list_episodes` and `read_handoff` refuse the item. `hot_state` also renders outside text under the
+untrusted-content scanner's verdict (`render_untrusted`, roadmap 10.6b). Bee terms used here: a
+**Handoff** is a structured document a bee writes to resume its own work later (possibly on a
+different model or host); **hot state** is the
 always-loaded, bounded slice of memory an episode's prompt is built from; **Bee Bread** is the warm
 tier bees ferment pollen into so it keeps until needed -- what leaves hot state, findable by id,
 time or task; a **Pin** is a fact that never decays out of hot state; **Cell Wax** marks a Cell (it
@@ -51,6 +57,8 @@ Key invariants:
       in this package (codingrules section 12).
     - Episode records live in the memory tables with a retention window, never on the Pheromone
       Trail (codingrules section 12: "Thoughts are memory, not audit").
+    - A TAINTED item never reaches a prompt or a resumed bee, and only `hivemind.memory.taint`
+      writes the label (roadmap 10.6d).
 
 See Also:
     - .claude/codingrules.md section 8.9 for this package's whole design.
@@ -63,8 +71,9 @@ See Also:
 Public API:
     - MemoryTierError, ClearanceError, HandoffNotFoundError, NoteTooLongError,
       BeeBreadEntryNotFoundError, SummaryOfSummaryError, EmptyCompactionError,
-      TooManySourcesError, InvalidWaxTransitionError, WaxTextTooLongError, WaxNotFoundError: this
-      subsystem's error tree (errors).
+      TooManySourcesError, InvalidWaxTransitionError, WaxTextTooLongError, WaxNotFoundError,
+      TaintedMemoryError, InvalidTaintTransitionError, TaintTargetNotFoundError, TaintJudgeError:
+      this subsystem's error tree (errors).
     - MemoryContext, MemoryIdentity: the collaborators every write function shares (context).
     - CellWax, WaxSeverity, WaxState, WaxProposalInput, MAX_WAX_REASON_CHARS, MAX_WAX_TEXT_CHARS,
       propose_wax, write_wax, reject_wax, clear_wax, expire_wax, retire_wax_for_cell,
@@ -79,8 +88,16 @@ Public API:
     - write_checkpoint, read_handoff: the write and read paths for a Handoff (checkpoint).
     - Principal, TokenBudget, TriggerEvent, TaskSummary, AlarmSummary, QuestionSummary,
       DecisionSummary, CellWaxSummary, HotStateSources, AssembleRequest, Prompt, assemble,
-      ITEM_CAP_CHARS, DEFAULT_RETRIEVED_FRACTION, RETRIEVED_PREAMBLE, render_hit: hot state and
-      retrieved-Honey packing (hot_state).
+      ITEM_CAP_CHARS, DEFAULT_RETRIEVED_FRACTION, RESUMED_HANDOFF_ID, RETRIEVED_PREAMBLE,
+      render_hit, render_item: hot state and retrieved-Honey packing (hot_state).
+    - UntrustedText, RetrievedItem, RetrievedKind, HONEY_HIT_LABEL, render_untrusted,
+      within_scan: outside text under its scan verdict, and the scanned item every retrieved hit
+      becomes (hot_state, roadmap 10.6b).
+    - TaintMarker, TaintSource, TaintState, TaintedKind, TaintTarget, TaintScope, TaintStamp,
+      TaintReport, TaintLedger, TaintableItem, taint_memory, is_refused, TaintJudge,
+      ModelTaintJudge, TaintReview, TaintVerdict, TaintJudgement, TAINT_RUBRIC_ID, clear_taint,
+      TaintClearRequest, TaintClearDeps, TaintClearResult, ClearOutcome, TaintedNectarRipener: the
+      taint label, its one setter and its one clearer (taint, roadmap 10.6d).
     - RelevanceScore, Scorable, score, item_id, item_timestamp, RECENCY_HALF_LIFE_S,
       TASK_LINKAGE_BONUS, PIN_FLOOR: relevance scoring (relevance).
     - DemotionReason, should_demote, demote: what leaves hot state, and the write path (demote).
@@ -155,10 +172,14 @@ from hivemind.memory.errors import (
     ClearanceError,
     EmptyCompactionError,
     HandoffNotFoundError,
+    InvalidTaintTransitionError,
     InvalidWaxTransitionError,
     MemoryTierError,
     NoteTooLongError,
     SummaryOfSummaryError,
+    TaintedMemoryError,
+    TaintJudgeError,
+    TaintTargetNotFoundError,
     TooManySourcesError,
     WaxNotFoundError,
     WaxTextTooLongError,
@@ -166,7 +187,9 @@ from hivemind.memory.errors import (
 from hivemind.memory.handoff import Decision, Handoff
 from hivemind.memory.hot_state import (
     DEFAULT_RETRIEVED_FRACTION,
+    HONEY_HIT_LABEL,
     ITEM_CAP_CHARS,
+    RESUMED_HANDOFF_ID,
     RETRIEVED_PREAMBLE,
     AlarmSummary,
     AssembleRequest,
@@ -176,11 +199,17 @@ from hivemind.memory.hot_state import (
     Principal,
     Prompt,
     QuestionSummary,
+    RetrievedItem,
+    RetrievedKind,
     TaskSummary,
     TokenBudget,
     TriggerEvent,
+    UntrustedText,
     assemble,
     render_hit,
+    render_item,
+    render_untrusted,
+    within_scan,
 )
 from hivemind.memory.notes import MAX_NOTE_CHARS, MAX_NOTES_PER_AUTHOR, Note, add_note
 from hivemind.memory.overflow import (
@@ -210,6 +239,32 @@ from hivemind.memory.store import (
     SqliteMemoryStore,
     apply_memory_migrations,
 )
+from hivemind.memory.taint import (
+    TAINT_RUBRIC_ID,
+    ClearOutcome,
+    ModelTaintJudge,
+    TaintableItem,
+    TaintClearDeps,
+    TaintClearRequest,
+    TaintClearResult,
+    TaintedKind,
+    TaintedNectarRipener,
+    TaintJudge,
+    TaintJudgement,
+    TaintLedger,
+    TaintMarker,
+    TaintReport,
+    TaintReview,
+    TaintScope,
+    TaintSource,
+    TaintStamp,
+    TaintState,
+    TaintTarget,
+    TaintVerdict,
+    clear_taint,
+    is_refused,
+    taint_memory,
+)
 from hivemind.memory.thresholds import (
     MAX_COMPACT_VIEW_CHARS,
     InterventionKind,
@@ -221,6 +276,7 @@ from hivemind.memory.thresholds import (
 __all__ = [
     "DEFAULT_QUEUE_SIZE",
     "DEFAULT_RETRIEVED_FRACTION",
+    "HONEY_HIT_LABEL",
     "ITEM_CAP_CHARS",
     "MAX_COMPACT_VIEW_CHARS",
     "MAX_KEY_FACTS",
@@ -237,10 +293,12 @@ __all__ = [
     "MIN_BUDGET_TOKENS",
     "PIN_FLOOR",
     "RECENCY_HALF_LIFE_S",
+    "RESUMED_HANDOFF_ID",
     "RETRIEVED_PREAMBLE",
     "RIPENER_OUTPUT_TOKENS",
     "SHRINK_FACTOR",
     "SUBSYSTEM",
+    "TAINT_RUBRIC_ID",
     "TASK_LINKAGE_BONUS",
     "AlarmSummary",
     "AssembleRequest",
@@ -250,6 +308,7 @@ __all__ = [
     "BeeBreadEntryNotFoundError",
     "CellWax",
     "CellWaxSummary",
+    "ClearOutcome",
     "ClearanceError",
     "CompactionDeps",
     "CompactionRequest",
@@ -268,11 +327,13 @@ __all__ = [
     "HotStateSources",
     "InMemoryMemoryStore",
     "InterventionKind",
+    "InvalidTaintTransitionError",
     "InvalidWaxTransitionError",
     "MemoryContext",
     "MemoryIdentity",
     "MemoryStore",
     "MemoryTierError",
+    "ModelTaintJudge",
     "Note",
     "NoteTooLongError",
     "Pin",
@@ -282,15 +343,39 @@ __all__ = [
     "ProviderCounter",
     "QuestionSummary",
     "RelevanceScore",
+    "RetrievedItem",
+    "RetrievedKind",
     "Scorable",
     "SqliteMemoryStore",
     "SummaryOfSummaryError",
+    "TaintClearDeps",
+    "TaintClearRequest",
+    "TaintClearResult",
+    "TaintJudge",
+    "TaintJudgeError",
+    "TaintJudgement",
+    "TaintLedger",
+    "TaintMarker",
+    "TaintReport",
+    "TaintReview",
+    "TaintScope",
+    "TaintSource",
+    "TaintStamp",
+    "TaintState",
+    "TaintTarget",
+    "TaintTargetNotFoundError",
+    "TaintVerdict",
+    "TaintableItem",
+    "TaintedKind",
+    "TaintedMemoryError",
+    "TaintedNectarRipener",
     "TaskSummary",
     "Thresholds",
     "TokenBudget",
     "TokenCounter",
     "TooManySourcesError",
     "TriggerEvent",
+    "UntrustedText",
     "WaxNotFoundError",
     "WaxProposalInput",
     "WaxSeverity",
@@ -302,6 +387,7 @@ __all__ = [
     "assemble",
     "cap_wax_for_hot_state",
     "capped_compact_view",
+    "clear_taint",
     "clear_wax",
     "compact",
     "demote",
@@ -313,6 +399,7 @@ __all__ = [
     "deposit_transcript",
     "expire_wax",
     "intervention_kind_for",
+    "is_refused",
     "item_id",
     "item_timestamp",
     "propose_wax",
@@ -320,11 +407,15 @@ __all__ = [
     "record_episode",
     "reject_wax",
     "render_hit",
+    "render_item",
+    "render_untrusted",
     "retire_wax_for_cell",
     "run_with_overflow_retry",
     "score",
     "should_demote",
     "shrink",
+    "taint_memory",
+    "within_scan",
     "write_checkpoint",
     "write_wax",
 ]

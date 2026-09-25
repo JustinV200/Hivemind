@@ -1,7 +1,8 @@
 # hivemind.workers.roles
 
 The roles package holds one module (or package) per Worker role: Forager, Scout, GuardBee,
-Undertaker, Drone and HouseBee, each implementing the shared Worker protocol. `worker_for(role)`
+Undertaker, Drone and HouseBee, each implementing the shared Worker protocol, except the Guard Bee,
+which runs in the Queen's process rather than on a Cell (see `guard_bee/`). `worker_for(role)`
 (`selection.py`) is the one place a `waggle.messages.task.WorkerRole` becomes a fresh instance of
 the role that implements it, for both composition roots' `WardenDeps.worker_factory` to share; it
 raises `UnsupportedWorkerRoleError` for GUARD_BEE, HOUSE_BEE and UNDERTAKER, none of which is
@@ -90,7 +91,20 @@ spawned through a `TaskAssign` (see `selection.py`'s own docstring).
   the full shape, including the ten-line adapter `LeavingsRemover` documents for
   `hivemind.cell.leavings.LeavingsStore` once that (unmerged, another-branch) module lands.
 
-## Public API (roadmap 3.16, extended by 4.3, 5.8, 6.9 and 6.10)
+- `guard_bee/` -- `GuardBee` (roadmap step 10.6, ADR-0043): the security watcher. It runs in the
+  Queen's process on her tick (`hivemind.queen.ticks.guard_bee`), beside the House Bee's sweep,
+  reads the central trail against rules shipped as data (`rules.toml`, overridden by
+  `[guard.bee.rules]`), and turns every finding into a `GuardReport`, a `guard.alert` and a C2
+  deposit. It narrows the whole Hive alone (a Capping tier's audit-rate raise, an Entrance reduce
+  order) and files anything aimed at one Cell or bee as a request through the Queen's
+  `GuardRequestDoor`, above a confidence floor, coalesced and capped per hour. Rules that ask for
+  judgement get one awake episode on the judge slot, in a lane beside the tick. Its windows are
+  rebuilt from the trail on every start, its own `guard.alert` events restoring what it already
+  reported. It is not a `Worker`-protocol implementation: a Worker is handed a Cell and a session,
+  exactly what the Guard Bee must never hold. `build_guard_bee` is what a composition root calls;
+  see the package's own `README.md` and `docs/guard/guard-bee.md`.
+
+## Public API (roadmap 3.16, extended by 4.3, 5.8, 6.9, 6.10 and 10.6)
 
 See the `Public API:` section of `__init__.py` for the full, current list.
 
@@ -99,6 +113,8 @@ See the `Public API:` section of `__init__.py` for the full, current list.
 ```
 uv run --frozen pytest packages/hivemind/tests/unit/workers/roles
 ```
+
+`tests/builders/guard_bee/` builds a Guard Bee over fakes and seeds the trails its rules count.
 
 `tests/unit/workers/roles/` mirrors this package module for module. `tests/builders/workers.py`'s
 `make_context` now builds a real `hivemind.supervision.capping.CappingGate`, so a Drone test's

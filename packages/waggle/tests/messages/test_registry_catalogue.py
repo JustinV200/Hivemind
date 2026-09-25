@@ -90,6 +90,7 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "cell.snapshot_reply",
     "cell.rollback_request",
     "cell.rollback_reply",
+    "cell.taint_order",
     "session.open",
     "session.exec",
     "session.stdin",
@@ -168,7 +169,7 @@ ALL_EXAMPLES: tuple[WaggleMessage, ...] = tuple(
 
 
 def test_all_kinds_lists_the_catalogue_kinds_in_table_order() -> None:
-    assert len(CATALOGUE_KINDS) == 70
+    assert len(CATALOGUE_KINDS) == 71
     assert all_kinds() == CATALOGUE_KINDS
 
 

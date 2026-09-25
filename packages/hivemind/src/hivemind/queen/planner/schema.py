@@ -9,7 +9,7 @@ near-miss on those rules is a validation retry within the `hivemind.llm.ladders.
 degradation ladder, with the rule it broke fed back as the correction, rather than a hard
 `PlannerError` after the ladder has already returned. `hivemind.queen.planner.plan` is the one
 place that then converts a `PlannedPostcondition` into a real `Postcondition`. `PlannedTask`
-mirrors `hivemind.brood_chamber.task.model.TaskDraft`'s own fields (key, title, objective,
+mirrors `hivemind.brood_chamber.task.draft.TaskDraft`'s own fields (key, title, objective,
 acceptance, needs, clearance, depends_on, leaves), reusing `hivemind.cell.TaskNeeds` and
 `hivemind.cell.HoneyClearance` directly since both are already fully defaulted, lenient shapes a
 model can fill in without a second, parallel definition; `leaves` (roadmap step 5.0b) reuses
@@ -86,7 +86,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-from hivemind.brood_chamber.task.model import KEY_PATTERN, PLANNABLE_ROLES
+from hivemind.brood_chamber.task.draft import KEY_PATTERN
+from hivemind.brood_chamber.task.model import PLANNABLE_ROLES
 from hivemind.cell import HoneyClearance, TaskNeeds
 from hivemind.supervision.capping import ACCEPTANCE_GUI_KINDS, CHECKABLE_KINDS
 from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind

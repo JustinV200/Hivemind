@@ -9,12 +9,28 @@ tests/evals.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Loaded automatically by pytest before every test
-    module under packages/hivemind/tests/. Nothing depends on it; it depends on nothing yet.
+    module under packages/hivemind/tests/. Nothing depends on it; it depends on structlog only.
 
 Key invariants:
-    - None yet: no fixtures are defined until later roadmap steps populate the subsystems they
-      would fake.
+    - Every test starts from structlog's own defaults: `_structlog_defaults` restores them after
+      each test, since a test that runs the CLI configures logging for the whole process (WARNING
+      and up, to standard error), and a later test capturing INFO events
+      (`structlog.testing.capture_logs`) would otherwise see nothing.
 
 See Also:
     - .claude/codingrules.md section 8.2 for the composition-root rule this file follows.
 """
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import pytest
+import structlog
+
+
+@pytest.fixture(autouse=True)
+def _structlog_defaults() -> Iterator[None]:
+    """Give structlog its own defaults back once each test ends (module docstring)."""
+    yield
+    structlog.reset_defaults()

@@ -4,7 +4,8 @@ Codingrules section 13: the composition root is the only place configuration bec
 `hivemind.manifest.env.read_in_cell_env` only extracts what `os.environ` holds (`InCellEnv`, every
 field optional); this module is where a Virtual Cell image's entry point (roadmap step 5.5)
 decides which of those are required, parses them into typed ids and Ed25519 keys, mints this
-process's own node id, probes this Cell's own platform and capacity, and assembles the
+process's own node id, probes this Cell's own platform, takes its capacity from the reservation its
+bootstrap names (`HIVEMIND_RESERVATION`), and assembles the
 `hivemind.wardens.spawn.in_cell.InCellSpawnConfig` a real Warden will eventually lease through
 (roadmap steps 5.4/5.6). Signing is mandatory across a machine boundary (roadmap step 1.7), so
 every key field is required here even though `InCellEnv` itself leaves them optional.
@@ -17,16 +18,36 @@ Fits into the Hive:
     (InCellEnv), `hivemind.wardens.spawn` (InCellSpawnConfig), `waggle.clock`, `waggle.ids` and
     `waggle.signing` only.
 
+Roadmap step 10.3a: this Cell's tier is no longer assumed MEADOW. It comes from the bootstrap
+(`HIVEMIND_COMB_SHIELD`, which the provisioning backend always writes; unset reads as MEADOW, the
+tier of every Cell minted before it existed), and the link has to match it: a Night Veil Cell must
+dial a v3 onion service through a loopback SOCKS proxy (`HIVEMIND_SOCKS_PROXY_URL`), and a Queen
+URL that is an onion service is a Night Veil Cell's only, so a missing tier can never pass a Night
+Veil link off as MEADOW. PROPOLIS is refused: no in-Cell attestation exists for it yet, and a
+Cell that cannot attest its tier must not announce it.
+
+Its capacity comes from the bootstrap too. A container shares its host's kernel, so probing it
+reads the host's cores, the host's memory and the host's load average: on a busy Hive Stand every
+Virtual Cell looked just as busy, and its grants shrank to nothing. What the backend reserved for
+the Cell (`hivemind.hive.models.CellReservation`, from its `VirtualCellSpec`) is all it has and
+no other tenant contends for it, so that is its capacity, with no load; the probe still supplies
+its platform facts (architecture, OS) and capability flags. A Cell whose bootstrap names no
+reservation (minted before one was shipped) reports what it probes, as every Cell used to.
+
 Key invariants:
     - `build_runtime_config` raises `ConfigurationError` naming the missing or malformed variable
       for any of: the Queen's Waggle URL, this Cell's id, the Queen's bee address, the Queen's own
-      node id, this Cell's signing key, or the Queen's verify key -- never a bare `KeyError` or a
-      cryptography-library exception.
+      node id, this Cell's signing key, the Queen's verify key, the Cell's tier or the SOCKS proxy
+      -- never a bare `KeyError` or a cryptography-library exception.
+    - A NIGHT_VEIL config always names a v3 onion Queen URL and a loopback socks5h/socks4a proxy;
+      no other tier's config names an onion Queen URL.
     - A key given as both `..._FILE` and the inline hex variable prefers the file (a mounted
       secret is harder to leak than a bare environment variable, codingrules section 15).
     - `node_id` and `warden_id` are freshly minted every time this process starts: a container is
       disposable (roadmap step 5.5's own key invariant on `hivemind.cell.in_cell`), so there is no
       identity to persist across restarts the way the Hive Stand's own node key is.
+    - A Cell with a reservation reports exactly `CellReservation.capacity` of it, whatever the
+      host's load: the same figures the Queen placed it by.
 
 See Also:
     - .claude/roadmap.md step 5.5 for the env var list this module reads.
@@ -51,8 +72,12 @@ from hivemind.cell.local.config import HiveStandConfig
 from hivemind.cell.local.probe import probe_host
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.common.errors import ConfigurationError
+from hivemind.forage import ForageCapacity
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
+from hivemind.guard.net import IPAddress
+from hivemind.hive import CellReservation
+from hivemind.llm import RateLimit
 from hivemind.llm.registry import ProviderConfig, ProviderKind
 from hivemind.manifest.env import InCellEnv
 from hivemind.wardens.spawn import InCellSpawnConfig
@@ -69,16 +94,18 @@ from waggle.ids import (
     parse_id,
 )
 from waggle.signing import Ed25519Signer, Ed25519Verifier
-from waggle.uris import check_waggle_uri, is_loopback_host
+from waggle.transport.socks import SocksProxy
+from waggle.uris import check_waggle_uri, is_loopback_host, is_onion_service_host
 
 # Where this dispatch's Cell keeps every lease's own scratch subdirectory (roadmap step 5.5:
 # InCellSpawnSource.lease() creates one under this root per lease). Matches the non-root `hive`
 # user's data directory the base-ubuntu image creates (images/base-ubuntu/Dockerfile/README).
 DEFAULT_SCRATCH_ROOT = Path("/var/lib/hivemind/scratch")
 
-# How often this Cell sends CellHeartbeat; no manifest exists inside a Virtual Cell image to read
-# a configured cadence from (this module's own docstring), so a fixed, generous constant stands in
-# until a future step threads one through CellReady/an explicit env var if that proves too coarse.
+# How often this Cell sends CellHeartbeat and its Warden its Heartbeat; no manifest exists inside a
+# Virtual Cell image to read a configured cadence from (this module's own docstring), so a fixed,
+# generous constant stands in. Every Heartbeat declares it (`Heartbeat.interval_s`) and the Queen
+# judges this Warden by it (hivemind.queen.ticks.liveness), not by the manifest's own cadence.
 DEFAULT_HEARTBEAT_INTERVAL_S = 15.0
 
 # Derived from hivemind.llm.registry.ProviderKind rather than copied, so a new kind (roadmap 7.1's
@@ -113,11 +140,17 @@ class InCellRuntimeConfig:
         spawn_config: What describes this Cell to `hivemind.wardens.spawn.in_cell.
             InCellSpawnSource`, once a Warden is wired up to use one (roadmap steps 5.4/5.6).
         heartbeat_interval_s: How often `CellHeartbeat` is sent.
-        socks_proxy_url: A SOCKS proxy Waggle should dial through, once Night Veil wires it up
-            (roadmap step 5.7a); carried unchanged, never acted on here.
+        socks_proxy_url: The loopback SOCKS proxy every Waggle dial goes through (a Night Veil
+            Cell's Tor SOCKS port, roadmap step 10.3a), already validated; None dials directly.
         providers: This Hive's own `[llm.providers]` table, parsed from `HIVEMIND_PROVIDERS`
             (`hivemind.cli.in_cell.providers.build_in_cell_provider_registry`'s own input); empty
             when the variable is unset, in which case that module keeps building today's fake.
+        provider_seats: Each provider's `seats`, from the same rows: the concurrency budget this
+            Cell's own Fanner meters its bees' calls against (`hivemind.cli.in_cell.fanner`). A
+            provider left out (no table, or a row from a Queen that shipped no seats) gets the
+            Fanner's own one-seat default.
+        provider_limits: Each provider's `requests_per_minute`/`tokens_per_minute`, from the same
+            rows, as the Fanner's `RateLimit`; a provider left out is unlimited.
         slots: This Hive's own `[llm.slots]` table, parsed from `HIVEMIND_SLOTS` the same way.
         llm_offline: This Hive's own `[llm] offline` flag, from `HIVEMIND_LLM_OFFLINE`; `False`
             when unset, matching `hivemind.manifest.schema.llm.LlmSection.offline`'s own default.
@@ -125,6 +158,9 @@ class InCellRuntimeConfig:
             `build_in_cell_provider_registry` can resolve each provider's own API key by the exact
             variable name `providers`' own `api_key_env` names (`hivemind.manifest.env.InCellEnv.
             environ`'s own docstring explains why this is not a second environment read).
+        hive_stand_addresses: The addresses the Queen's host resolved to, once, at start
+            (`hivemind.cli.in_cell.hive_stand`); empty until then, and always for a Night Veil
+            Cell, whose onion host is never resolved here.
     """
 
     queen_waggle_url: str
@@ -138,9 +174,12 @@ class InCellRuntimeConfig:
     heartbeat_interval_s: float
     socks_proxy_url: str | None
     providers: Mapping[str, ProviderConfig]
+    provider_seats: Mapping[str, int]
+    provider_limits: Mapping[str, RateLimit]
     slots: tuple[SlotBinding, ...]
     llm_offline: bool
     environ: Mapping[str, str]
+    hive_stand_addresses: tuple[IPAddress, ...] = ()
 
 
 def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
@@ -162,37 +201,59 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
     queen_node_id = NodeId(
         _parse_required(env.queen_node_id, IdKind.NODE, "HIVEMIND_QUEEN_NODE_ID")
     )
-    signer = Ed25519Signer(_signing_key_bytes(env))
-    verifier = Ed25519Verifier({queen_node_id: _verify_key_bytes(env)})
-    # HIVEMIND_SCRATCH_ROOT overrides the image's own path: a test or an in-process Cell on a host
-    # that cannot create /var/lib/hivemind (Linux CI) sets it; a real container never needs to.
-    scratch_root = env.scratch_root if env.scratch_root is not None else DEFAULT_SCRATCH_ROOT
-    probed = probe_host(_probe_config(scratch_root))
-    spawn_config = InCellSpawnConfig(
-        cell_id=cell_id,
-        capabilities=probed.capabilities,
-        capacity=probed.capacity,
-        # New Virtual Cells default to MEADOW (codingrules section 8.7); a higher tier is a Queen
-        # provisioning decision (roadmap step 5.7), not something this entry point chooses itself.
-        comb_shield=CombShieldLevel.MEADOW,
-        scratch_root=scratch_root,
-    )
+    # The tier is the Queen's provisioning decision, read from the bootstrap and held to the
+    # link it came with (module docstring), never chosen by this entry point itself.
+    comb_shield = _parse_comb_shield(env.comb_shield)
+    queen_waggle_url = _require_queen_waggle_url(env.queen_waggle_url)
+    _check_link_matches_tier(comb_shield, queen_waggle_url, env.socks_proxy_url)
+    providers = _parse_providers(env.providers_json)
     return InCellRuntimeConfig(
-        queen_waggle_url=_require_queen_waggle_url(env.queen_waggle_url),
+        queen_waggle_url=queen_waggle_url,
         hive_id=hive_id,
         queen_node_id=queen_node_id,
         node_id=new_node_id(clock),
         warden_id=new_warden_id(clock),
-        signer=signer,
-        verifier=verifier,
-        spawn_config=spawn_config,
+        signer=Ed25519Signer(_signing_key_bytes(env)),
+        verifier=Ed25519Verifier({queen_node_id: _verify_key_bytes(env)}),
+        spawn_config=_spawn_config(env, cell_id, comb_shield),
         heartbeat_interval_s=DEFAULT_HEARTBEAT_INTERVAL_S,
         socks_proxy_url=env.socks_proxy_url,
-        providers=_parse_providers(env.providers_json),
+        providers=providers.configs,
+        provider_seats=providers.seats,
+        provider_limits=providers.limits,
         slots=_parse_slots(env.slots_json),
         llm_offline=env.llm_offline or False,
         environ=env.environ,
     )
+
+
+def _spawn_config(
+    env: InCellEnv, cell_id: CellId, comb_shield: CombShieldLevel
+) -> InCellSpawnConfig:
+    """Describe this Cell at the tier and reservation its bootstrap named, on its own platform."""
+    # HIVEMIND_SCRATCH_ROOT overrides the image's own path: a test or an in-process Cell on a host
+    # that cannot create /var/lib/hivemind (Linux CI) sets it; a real container never needs to.
+    scratch_root = env.scratch_root if env.scratch_root is not None else DEFAULT_SCRATCH_ROOT
+    probed = probe_host(_probe_config(scratch_root))
+    return InCellSpawnConfig(
+        cell_id=cell_id,
+        capabilities=probed.capabilities,
+        capacity=_capacity(env.reservation_json, probed.capacity),
+        comb_shield=comb_shield,
+        scratch_root=scratch_root,
+    )
+
+
+def _capacity(raw: str | None, probed: ForageCapacity) -> ForageCapacity:
+    """Return the reservation `raw` names as this Cell's capacity; the probe's with none."""
+    if raw is None:
+        return probed  # Minted before its bootstrap shipped one (module docstring).
+    try:
+        reservation = CellReservation.model_validate_json(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"HIVEMIND_RESERVATION is not a Cell reservation: {exc}") from exc
+    # Platform facts only from the probe: the host's cores, memory and load are not this Cell's.
+    return reservation.capacity(arch=probed.host.arch, os=probed.host.os)
 
 
 def _require(value: str | None, var_name: str) -> str:
@@ -219,6 +280,57 @@ def _require_queen_waggle_url(value: str | None) -> str:
         return check_waggle_uri(raw, allow_virtual_cell_gateway_host=True)
     except ValueError as exc:
         raise ConfigurationError(f"HIVEMIND_QUEEN_WAGGLE_URL={raw!r} is invalid: {exc}") from exc
+
+
+def _parse_comb_shield(value: str | None) -> CombShieldLevel:
+    """Return the tier `HIVEMIND_COMB_SHIELD` names; MEADOW when it is unset.
+
+    Raises:
+        ConfigurationError: The value names no tier, or names PROPOLIS, which this Cell cannot
+            attest (module docstring).
+    """
+    if value is None:
+        return CombShieldLevel.MEADOW  # A bootstrap from before the tier was written.
+    try:
+        tier = CombShieldLevel[value.strip().upper()]
+    except KeyError as exc:
+        raise ConfigurationError(
+            f"HIVEMIND_COMB_SHIELD={value!r} is not a Comb Shield tier (MEADOW or NIGHT_VEIL)."
+        ) from exc
+    if tier is CombShieldLevel.PROPOLIS:
+        raise ConfigurationError(
+            "HIVEMIND_COMB_SHIELD=PROPOLIS: no in-Cell attestation exists for PROPOLIS yet, and a "
+            "Cell that cannot attest its tier must not announce it."
+        )
+    return tier
+
+
+def _check_link_matches_tier(
+    tier: CombShieldLevel, queen_waggle_url: str, socks_proxy_url: str | None
+) -> None:
+    """Refuse a link that does not fit the tier: Night Veil dials an onion through Tor, only.
+
+    Raises:
+        ConfigurationError: The proxy is not a loopback socks5h/socks4a one; a NIGHT_VEIL Cell's
+            Queen URL is not a v3 onion service or it names no proxy; or another tier's Queen URL
+            is an onion service.
+    """
+    try:
+        proxy = SocksProxy.parse(socks_proxy_url) if socks_proxy_url is not None else None
+    except ValueError as exc:
+        raise ConfigurationError(f"HIVEMIND_SOCKS_PROXY_URL is invalid: {exc}") from exc
+    onion = is_onion_service_host(urlsplit(queen_waggle_url).hostname or "")
+    if tier is CombShieldLevel.NIGHT_VEIL and (not onion or proxy is None):
+        raise ConfigurationError(
+            "A NIGHT_VEIL Cell dials the Queen only at her v3 onion service, through the Tor "
+            f"SOCKS proxy on its own loopback; got HIVEMIND_QUEEN_WAGGLE_URL={queen_waggle_url!r} "
+            f"and HIVEMIND_SOCKS_PROXY_URL={socks_proxy_url!r}."
+        )
+    if tier is not CombShieldLevel.NIGHT_VEIL and onion:
+        raise ConfigurationError(
+            f"HIVEMIND_QUEEN_WAGGLE_URL names an onion service, which only a NIGHT_VEIL Cell "
+            f"dials, but HIVEMIND_COMB_SHIELD is {tier.value}."
+        )
 
 
 def rewrite_loopback_base_url(base_url: str, gateway_host: str) -> str:
@@ -329,45 +441,89 @@ def _decode_hex(hex_text: str, var_name: str) -> bytes:
         raise ConfigurationError(f"{var_name} is not valid hex-encoded key material.") from exc
 
 
-def _parse_providers(raw: str | None) -> dict[str, ProviderConfig]:
-    """Parse `HIVEMIND_PROVIDERS` into ProviderRegistry-facing ProviderConfigs, keyed by name.
+@dataclass(frozen=True, slots=True)
+class _ProviderTable:
+    """`HIVEMIND_PROVIDERS`, parsed once: the registry's configs and what the Fanner meters."""
+
+    configs: dict[str, ProviderConfig]
+    seats: dict[str, int]
+    limits: dict[str, RateLimit]
+
+
+def _parse_providers(raw: str | None) -> _ProviderTable:
+    """Parse `HIVEMIND_PROVIDERS` into ProviderConfigs, seats and rate limits, keyed by name.
 
     Args:
         raw: The variable's raw JSON text (`hivemind.hive.backends.provider_table.
             render_providers_json`'s own output), or None when this Cell has no provider table.
 
     Returns:
-        An empty dict when `raw` is None (`hivemind.cli.in_cell.providers.
+        Empty tables when `raw` is None (`hivemind.cli.in_cell.providers.
         build_in_cell_provider_registry`'s own cue to keep building today's fake); otherwise one
-        ProviderConfig per row, in the JSON array's own order.
+        ProviderConfig and one RateLimit per row, and its seats when the row names them.
 
     Raises:
         ConfigurationError: `raw` is not a JSON array of well-formed provider rows.
     """
+    table = _ProviderTable(configs={}, seats={}, limits={})
     if raw is None:
-        return {}
-    providers: dict[str, ProviderConfig] = {}
+        return table
     for row in _load_json_array(raw, "HIVEMIND_PROVIDERS"):
         if not isinstance(row, dict):
             raise ConfigurationError("HIVEMIND_PROVIDERS contains a row that is not a JSON object.")
-        kind = row.get("kind")
-        if kind not in _VALID_PROVIDER_KINDS:
-            raise ConfigurationError(
-                f"HIVEMIND_PROVIDERS names an unknown provider kind: {kind!r}."
-            )
-        try:
-            name = str(row["name"])
-            api_key_env = row.get("api_key_env") or None
-            providers[name] = ProviderConfig(
-                kind=cast(ProviderKind, kind),
-                base_url=str(row["base_url"]),
-                api_key_env=str(api_key_env) if api_key_env else None,
-                capability_overrides=dict(row.get("capabilities") or {}),
-                default_model=row.get("default_model"),
-            )
-        except KeyError as exc:
-            raise ConfigurationError(f"HIVEMIND_PROVIDERS row is missing {exc}.") from exc
-    return providers
+        name, config = _provider_config(row)
+        table.configs[name] = config
+        # What this Cell's own Fanner meters the provider's calls by (hivemind.cli.in_cell.
+        # fanner); a row with no seats (an older Queen) leaves the Fanner's one-seat default.
+        seats = _positive_int(row, "seats")
+        if seats is not None:
+            table.seats[name] = seats
+        table.limits[name] = RateLimit(
+            requests_per_minute=_positive_int(row, "requests_per_minute"),
+            tokens_per_minute=_positive_int(row, "tokens_per_minute"),
+        )
+    return table
+
+
+def _provider_config(row: dict[str, object]) -> tuple[str, ProviderConfig]:
+    """Build one `HIVEMIND_PROVIDERS` row's own registry-facing ProviderConfig, with its name.
+
+    Raises:
+        ConfigurationError: The row names an unknown kind, or misses its name or base URL.
+    """
+    kind = row.get("kind")
+    if kind not in _VALID_PROVIDER_KINDS:
+        raise ConfigurationError(f"HIVEMIND_PROVIDERS names an unknown provider kind: {kind!r}.")
+    try:
+        api_key_env = row.get("api_key_env") or None
+        capabilities = cast(dict[str, bool | int], row.get("capabilities") or {})
+        config = ProviderConfig(
+            kind=cast(ProviderKind, kind),
+            base_url=str(row["base_url"]),
+            api_key_env=str(api_key_env) if api_key_env else None,
+            capability_overrides=dict(capabilities),
+            default_model=cast(str | None, row.get("default_model")),
+        )
+        return str(row["name"]), config
+    except KeyError as exc:
+        raise ConfigurationError(f"HIVEMIND_PROVIDERS row is missing {exc}.") from exc
+
+
+def _positive_int(row: dict[str, object], key: str) -> int | None:
+    """Return `row[key]` as a positive integer, or None when the row leaves it out or null.
+
+    Raises:
+        ConfigurationError: The value is present but not a positive integer.
+    """
+    value = row.get(key)
+    if value is None:
+        return None
+    # A JSON true is a Python bool, itself an int: refused like any other non-count.
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ConfigurationError(
+            f"HIVEMIND_PROVIDERS row has {key}={value!r}; it must be a positive integer."
+        )
+    return value
 
 
 def _parse_slots(raw: str | None) -> tuple[SlotBinding, ...]:
@@ -421,7 +577,8 @@ def _probe_config(scratch_root: Path) -> HiveStandConfig:
 
     `HiveStandConfig` is a Real Cell concept (its own module docstring); nothing here reads its
     `access_level`/`comb_shield` back -- `InCellSpawnConfig` above sets those itself for a Virtual
-    Cell. Only `probe_host`'s `capabilities`/`capacity` output is used; `scratch_root` is the one
+    Cell. Only `probe_host`'s `capabilities` and platform facts are used (its capacity only for
+    a Cell whose bootstrap names no reservation, `_capacity`); `scratch_root` is the one
     the Cell will really use, so the probe measures (and may create) the same directory.
     """
     return HiveStandConfig(

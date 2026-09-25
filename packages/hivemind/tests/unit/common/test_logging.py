@@ -58,38 +58,25 @@ def test_get_logger_respects_the_configured_minimum_level() -> None:
     assert captured == []
 
 
-def test_configure_logging_can_keep_standard_output_for_the_report(
+def test_log_lines_go_to_standard_error_and_never_standard_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # The operator's CLI: `hive run --json` prints JSON on stdout, so every log line goes to
-    # whatever stderr is at the time of the write (a harness swaps it per invocation).
-    configure_logging(json_output=True, level="INFO", to_stderr=True)
-
-    get_logger(__name__).warning("hivemind.test_to_stderr")
-
-    out, err = capsys.readouterr()
-    assert out == ""
-    assert '"event": "hivemind.test_to_stderr"' in err
-
-
-def test_to_stderr_keeps_stdout_clean_for_a_commands_own_output(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    configure_logging(json_output=False, level="WARNING", to_stderr=True)
-
-    get_logger("hivemind.test_stderr").warning("hivemind.stderr_event")
+    # Standard output is the program's own (hive run --json, a table): a log line there
+    # corrupted it before logging was configured anywhere but inside a Cell.
+    configure_logging(json_output=True, level="INFO")
+    get_logger(__name__).info("hivemind.stream_probe")
 
     captured = capsys.readouterr()
+    assert "hivemind.stream_probe" in captured.err
     assert captured.out == ""
-    assert "hivemind.stderr_event" in captured.err
 
 
-def test_to_stderr_writes_to_the_stream_current_at_write_time(
+def test_log_lines_follow_the_standard_error_current_at_write_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # A test runner swaps sys.stderr per invocation and closes the old one: a logger configured
     # earlier must follow the swap, never write to the stream it saw at configuration time.
-    configure_logging(json_output=False, level="WARNING", to_stderr=True)
+    configure_logging(json_output=False, level="WARNING")
     logger = get_logger("hivemind.test_stderr_swap")
     later = io.StringIO()
     monkeypatch.setattr(sys, "stderr", later)

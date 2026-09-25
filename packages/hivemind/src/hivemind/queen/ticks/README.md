@@ -7,10 +7,19 @@ class stay within codingrules 5.1's size limits.
 
 - `alarms.handle_alarm`: `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an escalated
   Alarm; `REBIND` is sent as a real `hivemind.supervision.intervention.Rebind`, converted through
-  the same `to_wire` machinery `Queen.intervene` uses.
+  the same `to_wire` machinery `Queen.intervene` uses. `FAIL_TASK` also sends the Alarm's Warden a
+  `TaskCancel` (bounded by `CANCEL_SEND_TIMEOUT_S`), so a task failed for good keeps no bee.
 - `liveness.WardenLiveness`, `.record_heartbeat`, `.check_liveness`: track each attached Warden's
   own pulse, and mark one offline (raising an Alarm at the human) after it misses
-  `heartbeat_miss_limit` heartbeats. `.renew_grants_on_heartbeat` extends every live grant a
+  `heartbeat_miss_limit` heartbeats of its own cadence -- the interval its newest Heartbeat
+  declared (`Heartbeat.interval_s`: 15 s for a Virtual Cell's in-Cell Warden, whatever a Swarm
+  device keeps), never less than the manifest's `heartbeat_interval_s`; a recorded Heartbeat is
+  then handed to
+  `QueenDeps.on_heartbeat` when one is set (the Hive Entrance's telemetry board). A Warden whose
+  Cell the Hive itself holds paused -- Overwintered, read from the lifecycle's own dormant list
+  (`QueenDeps.dormant_cell_source`, or the static `dormant_cells`) -- is never judged while the
+  hold lasts, and gets a whole window from the moment it resumes; a snapshot's shorter freeze is
+  announced by the Warden itself, as a longer declared interval. `.renew_grants_on_heartbeat` extends every live grant a
   Heartbeat's own Warden holds; `.check_liveness`'s own sweep also calls
   `hivemind.queen.forage.grants.sweep_expired` every tick, unconditionally, so a grant whose lease
   lapses returns to the pool the same tick it expires. `.handle_infrastructure_item` is the one
@@ -46,6 +55,16 @@ class stay within codingrules 5.1's size limits.
   `cells_in_play = {the Cell in question}` and applies its `WRITE_WAX`/`REJECT_WAX` decision
   (anything else, including `CLEAR_WAX`, falls back to a rejection). Sends a `CellWaxWritten` back
   to the proposing Warden's own link once written, when it is still attached.
+- `guard_bee.run_guard_bee` (roadmap step 10.6): one Guard Bee round on the Queen's tick, called
+  by `housekeeping.run_housekeeping` beside the House Bee's sweep, when `QueenDeps.guard_bee` is
+  set (the Guard Bee decides whether its interval is due). A failed round is one `GuardBeeError`,
+  logged, and the tick carries on. A package of one module, because this directory already holds
+  the ten modules codingrules 5.6 allows.
+- `human.chat`, `human.intake` (roadmap step 10.5, ADR-0040): the human end of the tick. `chat`
+  drains the human's waiting messages into the inbox (`human_items`), writes a `REPLY` decision's
+  words back (`reply`) and stamps each message handled once decided (`mark_handled`); `intake`
+  settles, holds or plans every durable goal request, one plan at a time beside the tick
+  (`drain_goal_requests`, `stop_planning`). A sub-package, for the same ten-module limit.
 
 ## How to test this
 

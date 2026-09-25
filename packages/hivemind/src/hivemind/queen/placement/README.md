@@ -52,7 +52,19 @@ adds the Exoskeleton to the fit rule (`docs/adr/0031-exoskeleton-on-x11-with-pla
   ranked (a `CAUTION` note behind a clean candidate, a dormant Cell before a fresh provision,
   attachment order breaking every other tie); only then is `prefer` read, and if the preferred
   side has nothing, the other side is used with a reason saying why. `PlacementError` names every
-  rule that eliminated a candidate, on both sides, when neither has one.
+  rule that eliminated a candidate, on both sides, when neither has one. A backend the dispatcher
+  holds back (`VirtualBackendCandidate.held_back`: its provisions keep failing, so it rests a
+  while) is passed over like one with no headroom left, under the reason the dispatcher gave.
+- The goal ceiling (roadmap step 10.3, ADR-0039) runs ahead of every rule above: with
+  `ForageView.goal_capabilities` set, a candidate the goal does not allow is excluded with a reason
+  naming what it lacked (`rules.placement_needs`, `virtual_placement_needs`, `goal_lacks`): the
+  Hive Stand needs `cell:hive_stand`, any other Real Cell `cell:real:<cell id>`, a Virtual Cell
+  `cell:virtual`, a Cell at a tier `cell:comb_shield:<tier>`. So `prefer = "real"` with a goal
+  lacking `cell:hive_stand` reads `prefer=real found no Real Cell (Hive Stand: goal lacks
+  cell:hive_stand); using Virtual instead.` When the ceiling alone leaves no candidate,
+  `PlacementError.denied` names the missing capabilities; `decide` stays pure, and the dispatcher
+  records one `guard.denied` for each. `RealCandidate.kind` lets a Virtual Cell attached through
+  the listener ask `cell:virtual` (placement may read a Cell's kind, codingrules 8.7).
 
 Never branches on `cell.kind`: `scripts/check_no_kind_branches.py` allowlists
 `hivemind/queen/placement/` in full.

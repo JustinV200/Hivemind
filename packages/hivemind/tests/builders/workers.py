@@ -14,8 +14,10 @@ in-process policy every phase-3 bee link uses): `send` wraps and sends an order
 also wires a real `hivemind.supervision.capping.CappingGate` (over the same `FakeSession`, a
 `NoopSnapshotter`, the shared trail and `supervision/defaults/capping-tiers.toml`), a
 `builders.capping.FakeLeaseView` and a bare `hivemind.llm.DirectCallGate`, so a Worker or a tool
-test exercises the real gate rather than a stub. `make_gui_context` (roadmap step 6.5) builds the
-same context with an Exoskeleton attached: the peripherals a test passes, and a real gate whose
+test exercises the real gate rather than a stub; since roadmap step 10.3 it also wires a
+`hivemind.guard.Enforcer` over the shipped Guard policy and the same trail, and its default set
+holds `question:human` for the `ask` tool. `make_gui_context` (roadmap step 6.5) builds the same
+context with an Exoskeleton attached: the peripherals a test passes, and a real gate whose
 `GateDeps.gui` is a real `hivemind.exoskeleton.surface.ExoskeletonSurface` over them, so an
 Exoskeleton tool's proposal is applied, verified and rolled back exactly as a Warden's gate does.
 
@@ -61,7 +63,8 @@ from hivemind.cell.fake import FakeSession
 from hivemind.exoskeleton import AttachPlan, DisplaySource, ExoskeletonHandle, Peripherals
 from hivemind.exoskeleton.attach import ExoskeletonTrail
 from hivemind.exoskeleton.surface import ExoskeletonSurface
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, Enforcer, load_guard_policy
+from hivemind.guard.net import FakeResolver
 from hivemind.llm import DirectCallGate, JsonObject
 from hivemind.memory import Handoff, InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import TrailQuery
@@ -101,15 +104,26 @@ from waggle.messages.task import TaskAssign, TaskProgress, TaskResult, TaskStage
 from waggle.transport.memory import MemoryTransport
 
 DEFAULT_PUMP_LIMIT = 50  # Generous cap: a stalled test fails fast instead of hanging forever.
-# What a Worker driving an Exoskeleton holds in make_gui_context: every exoskeleton scope, and the
-# network host the fake login site's default origin names, so navigation there can be capped.
+# What a Worker driving an Exoskeleton holds in make_gui_context: every exoskeleton scope, the
+# network host the fake login site's default origin names, so navigation there can be capped, and
+# (roadmap step 10.3) `tool:*`, since every tool call now passes the Guard's tool_invocation point.
 GUI_GRANTS = (
     "exoskeleton:display",
     "exoskeleton:browser",
     "exoskeleton:audio",
     "net:fixture.test",
+    "tool:*",
 )
 _SCRATCH_DIR = Path("scratch")  # A FakeSession never touches a real filesystem; any path works.
+# `make_context`'s default set: scratch writes, reads anywhere, any command and tool, and (roadmap
+# step 10.3) `question:human`, which the `ask` tool now needs.
+_DEFAULT_CAPABILITIES = (
+    f"fs:write:{_SCRATCH_DIR.as_posix()}/**",
+    "fs:read:**",
+    "exec:*",
+    "tool:*",
+    "question:human",
+)
 # packages/hivemind/tests/builders/workers.py -> parents[4] is the repo root (matches the same
 # climb tests/unit/supervision/capping/test_tiers.py uses, one directory shallower here).
 
@@ -253,9 +267,7 @@ def make_context(clock: Clock | None = None, **overrides: object) -> WorkerConte
         "session": session,
         "bound": make_bound(),
         "grant": make_grant_slice(clock=active_clock),
-        "capabilities": CapabilitySet.parse(
-            f"fs:write:{_SCRATCH_DIR.as_posix()}/**", "fs:read:**", "exec:*", "tool:*"
-        ),
+        "capabilities": CapabilitySet.parse(*_DEFAULT_CAPABILITIES),
         "memory": InMemoryMemoryStore(trail),
         "trail": trail,
         "clock": active_clock,
@@ -266,6 +278,10 @@ def make_context(clock: Clock | None = None, **overrides: object) -> WorkerConte
         "capping": _make_capping_gate(cell, session, trail, active_clock, cell_identity),
         "lease": FakeLeaseView(session.scratch_dir),
         "call_gate": DirectCallGate(),
+        # Roadmap step 10.3: the shipped Guard policy's Enforcer, recording to the same trail.
+        "enforcer": Enforcer(load_guard_policy(), trail, active_clock, cell_identity),
+        # Roadmap step 10.3a: a table-driven resolver, so no test ever performs a DNS lookup.
+        "resolver": FakeResolver(),
     }
     fields.update(overrides)
     return WorkerContext(**fields)  # type: ignore[arg-type]  # a plain dataclass; see builders/llm.py

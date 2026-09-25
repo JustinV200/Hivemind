@@ -54,6 +54,7 @@ dev = [
     "hypothesis",         # Property-based testing for the pure-core decision functions (section 8.3).
     "pre-commit",         # Runs ruff, mypy and import-linter locally before a commit lands.
     "pip-audit",          # Scans locked dependencies for known vulnerabilities.
+    "types-psutil",       # psutil ships no inline types; its typeshed stubs keep mypy --strict honest (roadmap 10.5a).
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -217,8 +218,8 @@ exclude = [
 # WHY: "docker" (the Docker Engine SDK for Python, roadmap step 5.4) ships no inline types and no
 # official stub package as of this writing; it is also an *optional* dependency (the
 # `hivemind[docker]` extra, packages/hivemind/pyproject.toml) imported by exactly one module,
-# `hivemind.hive.backends.docker.sdk_client`, lazily inside `__init__` so the rest of the workspace
-# imports fine without it (that module's own docstring). A typings/docker/*.pyi stub would have to
+# `hivemind.hive.backends.docker.sdk_client.client`, lazily inside `SdkDockerClient.__init__` so the
+# rest of the workspace imports fine without it (that module's own docstring). A typings/docker/*.pyi stub would have to
 # cover the SDK's own dynamic, resource-manager-heavy surface (client.containers, client.networks,
 # client.volumes, docker.errors.*) for one module's worth of calls; ignore_missing_imports here is
 # the narrowly-scoped override the comment above documents, confined to that one module by the
@@ -346,9 +347,16 @@ name = "hivemind layer table (codingrules section 4)"
 type = "layers"
 containers = ["hivemind"]
 layers = [
-    # Layer 7: edges (HTTP, dashboard, terminal). Independent siblings -- none of the three needs
-    # to import another, and codingrules doesn't document a dependency between them.
-    "entrance | observation | cli",
+    # Layer 7, outer half: the terminal. `hive serve` composes the Hive Entrance over the Hive
+    # `hive run` builds, and `hive entrance ...` administers it, so cli may import entrance and
+    # observation (codingrules section 4); neither ever imports cli.
+    "cli",
+    # Layer 7, inner half: the HTTP and dashboard edges, as ordered sub-ranks (the guard-over-cell
+    # pattern below): the Entrance answers its read routes and streams with the Observation Hive's
+    # read models (codingrules 8.11) and publishes them in the OpenAPI document, so it imports
+    # observation, the one same-layer edge ADR-0040 lists; observation never imports the Entrance.
+    "entrance",
+    "observation",
     "queen",  # Layer 6: the kernel; the only global view; divides Forage.
     "wardens",  # Layer 5: per-Cell supervisors; spawn and supervise Workers.
     "workers",  # Layer 4: roles that do the work.
@@ -380,6 +388,16 @@ layers = [
     "pheromone | forage",
     "common",  # Layer 0: primitives; imports nothing internal.
 ]
+
+[[tool.importlinter.contracts]]
+# codingrules section 4: "Two subsystems on the same layer may import each other only through their
+# `__init__` public API". The layers contract above allows the entrance -> observation edge; this
+# one holds it to the face. Indirect imports are allowed, since the face itself imports the views.
+name = "entrance reaches observation only through its face"
+type = "forbidden"
+source_modules = ["hivemind.entrance"]
+forbidden_modules = ["hivemind.observation.views"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "waggle... imports nothing from hivemind"; section 3 makes waggle the
@@ -442,14 +460,14 @@ unmatched_ignore_imports_alerting = "warn"
 [[tool.importlinter.contracts]]
 # codingrules section 8.6's vendor-SDK confinement pattern, applied to a vendor *infrastructure*
 # SDK instead of an LLM one (roadmap step 5.4): the Docker Engine SDK for Python is imported only
-# inside hivemind.hive.backends.docker.sdk_client (and, lazily, only inside its __init__, never at
-# module scope -- that module's own docstring), so the rest of the workspace, "hivemind[docker]"
-# extra installed or not, never needs it to import cleanly.
+# inside hivemind.hive.backends.docker.sdk_client.client (and, lazily, only inside
+# SdkDockerClient.__init__, never at module scope -- that module's own docstring), so the rest of
+# the workspace, "hivemind[docker]" extra installed or not, never needs it to import cleanly.
 name = "vendor Docker SDK only inside hive/backends/docker/sdk_client"
 type = "forbidden"
 source_modules = ["hivemind", "waggle", "pollen"]
 forbidden_modules = ["docker"]
-ignore_imports = ["hivemind.hive.backends.docker.sdk_client -> docker"]
+ignore_imports = ["hivemind.hive.backends.docker.sdk_client.client -> docker"]
 
 [[tool.importlinter.contracts]]
 # ADR-0031 and roadmap step 6.11, the Docker SDK's confinement pattern above applied to Playwright:
@@ -467,10 +485,11 @@ ignore_imports = ["hivemind.exoskeleton.browser.playwright.** -> playwright"]
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "subprocess... importable only from `hivemind.cell.*`...
-# `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`, `pollen.*`
-# and `scripts/`." pollen is deliberately not a source module of this contract -- it has no Cell
-# session of its own to delegate through, so it may use subprocess anywhere (section 4). waggle
-# never needs it and stays out of the source list too.
+# `hivemind.hive.backends.*`, `hivemind.royal_jelly.quarantine_comb.sandbox_subprocess`,
+# `hivemind.entrance.expose.tunnel`..., `pollen.*` and `scripts/`." pollen is deliberately not a
+# source module of this contract -- it has no Cell session of its own to delegate through, so it
+# may use subprocess anywhere (section 4). waggle never needs it and stays out of the source list
+# too.
 name = "subprocess only from Cell sessions and hive backends"
 type = "forbidden"
 source_modules = ["hivemind"]
@@ -479,6 +498,9 @@ ignore_imports = [
     "hivemind.cell.** -> subprocess",
     "hivemind.hive.backends.** -> subprocess",
     "hivemind.royal_jelly.quarantine_comb.sandbox_subprocess -> subprocess",
+    # The tunnel client the Entrance supervises in `tunnel` mode (ADR-0041): the one Entrance
+    # module that starts a process, and only the argv the manifest's tunnel_command names.
+    "hivemind.entrance.expose.tunnel -> subprocess",
 ]
 # Same "warn" rationale as the vendor-SDK contract above: none of these carve-outs has real code
 # behind it yet, so the default "error" alerting would hard-fail every run before phase 3+ exists.

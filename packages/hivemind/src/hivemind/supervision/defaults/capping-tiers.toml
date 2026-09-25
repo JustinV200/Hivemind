@@ -34,7 +34,7 @@
 #                         (hivemind.cli.compose.deps.build_warden_deps), so CheckKind.JUDGE is
 #                         always available wherever this flag turns it on.
 #   audit_rate        -- roadmap step 4.10: the fraction (0.0 to 1.0) of this tier's completed
-#                         proposals hivemind.supervision.capping.audit.AuditSampler samples for
+#                         proposals hivemind.supervision.capping.audit.sampler.AuditSampler samples for
 #                         after-the-fact judge review, for a tier judge does not gate live. 0.0
 #                         for every tier `judge` already covers live (a live review already sees
 #                         every proposal there, so nothing is left ungated to sample); still > 0
@@ -45,7 +45,7 @@
 # checks.deterministic.deterministic_checks()) plus, as of roadmap step 4.10, a model-backed
 # independent-review rung (JUDGE; hivemind.wardens.judge.ModelJudgeReviewer, called through
 # hivemind.supervision.capping.checks.judge.JudgeCheck) and after-the-fact sampled audit
-# (hivemind.supervision.capping.audit.AuditSampler, run by hivemind.wardens.spawn.audited_gate.
+# (hivemind.supervision.capping.audit.sampler.AuditSampler, run by hivemind.wardens.spawn.audited_gate.
 # AuditingCappingGate) for whatever `judge` leaves ungated. The check ladder's remaining rungs --
 # SANDBOX_TESTS (a sandbox Cell runs the proposed tests) and HUMAN (the operator approves) -- join
 # this table in a later roadmap phase; each tier's own comment below repeats which it will add.

@@ -1,12 +1,13 @@
 """Provide the Pheromone Trail: the Hive's append-only audit log, event model and Night Veil purge.
 
 Every state-changing action anywhere in the Hive leaves a `PheromoneEvent` here before the action
-counts as complete (codingrules section 12). `events` defines the eleven event families and the
-JSON codec; `trail` groups the `PheromoneTrail` protocol, its two implementations and live-tail
-follow behind its own face (codingrules 5.6: at most ten modules per directory); `retention` is
-the Night Veil boundary, the package's one deletion path. This face re-exports every module's
-public names so a caller writes `from hivemind.pheromone import SqlitePheromoneTrail` without
-knowing the split (codingrules 5.2).
+counts as complete (codingrules section 12). `events` defines the fourteen event families and
+the JSON codec; `trail` groups the `PheromoneTrail` protocol, its two implementations and
+live-tail follow behind its own face (codingrules 5.6: at most ten modules per directory);
+`retention` is the Night Veil boundary (a package: the skeleton, the Queen-side ephemeral segments,
+the trail decorator every Queen-side writer records through, and the teardown purge, the package's
+one deletion path). This face re-exports every module's public names so a caller writes `from
+hivemind.pheromone import SqlitePheromoneTrail` without knowing the split (codingrules 5.2).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by every layer above it, each time
@@ -28,20 +29,24 @@ See Also:
       modules and packages behind this package's public API.
 
 Public API:
-    - PheromoneEvent, LlmUsage and the thirteen event families (CellEvent, TaskEvent, AlarmEvent,
-      ForageEvent, MemoryEvent, QueenEvent, WardenEvent, ToolEvent, SwarmEvent, CappingEvent,
-      LlmEvent, WorkerEvent, HoneyEvent), plus EVENT_FAMILIES, event_class_for, parse_event,
-      parse_event_json
-      and the vocabulary/validation bounds: KIND_PATTERN, ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS,
-      MAX_ACTOR_CHARS, MAX_PAYLOAD_STRING_CHARS, MAX_PAYLOAD_BYTES, MAX_PROVIDER_CHARS.
+    - PheromoneEvent, LlmUsage and the fourteen event families (CellEvent, TaskEvent,
+      AlarmEvent, ForageEvent, MemoryEvent, QueenEvent, WardenEvent, ToolEvent, SwarmEvent,
+      CappingEvent, LlmEvent, WorkerEvent, GuardEvent, HoneyEvent), plus EVENT_FAMILIES,
+      event_class_for, parse_event, parse_event_json and the vocabulary/validation bounds:
+      KIND_PATTERN, ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS, MAX_ACTOR_CHARS,
+      MAX_PAYLOAD_STRING_CHARS, MAX_PAYLOAD_BYTES, MAX_PROVIDER_CHARS.
     - PheromoneTrail: the protocol every trail store implements. TrailQuery, TrailSegment,
       TRAIL_ORDER_KEY, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT: its query and segment shapes.
     - MemoryPheromoneTrail: an in-process PheromoneTrail for tests and demos.
     - SqlitePheromoneTrail: the durable PheromoneTrail, plus apply_pheromone_migrations and
       insert_event (the primitive another store's own transaction calls), SUBSYSTEM and
       MIGRATIONS_PACKAGE.
-    - SegmentPurge, SqliteSegmentPurge, MemorySegmentPurge, SideChannelPurger, PurgeReport,
-      TrailRecorder, NightVeilTeardownPurge: the Night Veil boundary.
+    - SegmentPurge, SqliteSegmentPurge, LazySqliteSegmentPurge, MemorySegmentPurge,
+      SideChannelPurger, MemberSource, SideChannels, PurgeReport, TrailRecorder,
+      NightVeilTeardownPurge, EphemeralSegments, VeiledTrail, segments_of, query_cell,
+      SKELETON_KINDS, skeleton_event, NightVeilCheckpoints, MemoryCheckpoints,
+      LazySqliteCheckpoints: the Night Veil boundary (its whole public API lives on
+      `hivemind.pheromone.retention`).
     - follow, DEFAULT_POLL_INTERVAL_S: live-tail the trail.
     - PheromoneError, DuplicateEventError, UnknownEventFamilyError: the error tree, so a
       caller in another subsystem can catch a duplicate id by name.
@@ -65,6 +70,7 @@ from hivemind.pheromone.events import (
     CappingEvent,
     CellEvent,
     ForageEvent,
+    GuardEvent,
     HoneyEvent,
     LlmEvent,
     LlmUsage,
@@ -81,13 +87,25 @@ from hivemind.pheromone.events import (
     parse_event_json,
 )
 from hivemind.pheromone.retention import (
+    SKELETON_KINDS,
+    EphemeralSegments,
+    LazySqliteCheckpoints,
+    LazySqliteSegmentPurge,
+    MemberSource,
+    MemoryCheckpoints,
     MemorySegmentPurge,
+    NightVeilCheckpoints,
     NightVeilTeardownPurge,
     PurgeReport,
     SegmentPurge,
     SideChannelPurger,
+    SideChannels,
     SqliteSegmentPurge,
     TrailRecorder,
+    VeiledTrail,
+    query_cell,
+    segments_of,
+    skeleton_event,
 )
 from hivemind.pheromone.trail import (
     DEFAULT_POLL_INTERVAL_S,
@@ -119,19 +137,27 @@ __all__ = [
     "MAX_PROVIDER_CHARS",
     "MAX_QUERY_LIMIT",
     "MIGRATIONS_PACKAGE",
+    "SKELETON_KINDS",
     "SUBSYSTEM",
     "TRAIL_ORDER_KEY",
     "AlarmEvent",
     "CappingEvent",
     "CellEvent",
     "DuplicateEventError",
+    "EphemeralSegments",
     "ForageEvent",
+    "GuardEvent",
     "HoneyEvent",
+    "LazySqliteCheckpoints",
+    "LazySqliteSegmentPurge",
     "LlmEvent",
     "LlmUsage",
+    "MemberSource",
+    "MemoryCheckpoints",
     "MemoryEvent",
     "MemoryPheromoneTrail",
     "MemorySegmentPurge",
+    "NightVeilCheckpoints",
     "NightVeilTeardownPurge",
     "PheromoneError",
     "PheromoneEvent",
@@ -140,6 +166,7 @@ __all__ = [
     "QueenEvent",
     "SegmentPurge",
     "SideChannelPurger",
+    "SideChannels",
     "SqlitePheromoneTrail",
     "SqliteSegmentPurge",
     "SwarmEvent",
@@ -149,6 +176,7 @@ __all__ = [
     "TrailRecorder",
     "TrailSegment",
     "UnknownEventFamilyError",
+    "VeiledTrail",
     "WardenEvent",
     "WorkerEvent",
     "apply_pheromone_migrations",
@@ -157,4 +185,7 @@ __all__ = [
     "insert_event",
     "parse_event",
     "parse_event_json",
+    "query_cell",
+    "segments_of",
+    "skeleton_event",
 ]

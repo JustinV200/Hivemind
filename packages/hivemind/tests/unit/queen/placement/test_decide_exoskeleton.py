@@ -204,7 +204,7 @@ def test_no_qualifying_real_cell_provisions_a_virtual_cell_from_the_desktop_imag
     assert placement.spec.exoskeleton is True
     # The reason says why the preferred Real side lost: the Hive Stand's own shortfall.
     assert "prefer=real found no Real Cell" in placement.reason
-    assert f"Cell {hive_stand.cell_id}: desktop Exoskeleton needs a display" in placement.reason
+    assert "Hive Stand: desktop Exoskeleton needs a display" in placement.reason
 
 
 def test_a_terminal_only_task_still_boots_the_default_image() -> None:

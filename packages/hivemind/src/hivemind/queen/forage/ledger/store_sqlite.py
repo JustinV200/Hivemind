@@ -1,21 +1,21 @@
 """Provide SqliteLedgerStore, the durable LedgerStore, and its four-table schema.
 
 The Forage ledger's durable home is four tables, `forage_ledger_capacities`,
-`forage_ledger_local_reports`, `forage_ledger_grants` and `forage_ledger_reserve`, one JSON body
-per row (`0001_create_forage_ledger.sql`, this module's own migration, next to it rather than in
-a further `migrations/` package: `queen/forage/ledger/` already sits three levels below
-`src/hivemind`, codingrules section 3's own depth limit, so a fourth-level `migrations/` package
-is not available here the way `hivemind.memory.store.migrations` is).
-`hivemind.common.migrations.load_migrations`
-does not care whether its `.sql` files sit in a dedicated sub-package or beside the module that
-applies them, since it only reads whatever in `location` matches its own filename pattern.
-`SqliteLedgerStore` mirrors `hivemind.memory.store.sqlite.SqliteMemoryStore`'s own shape (one
-upsert per `put_*`, one `ConnectionThread` hop per method, one lock per instance) but pairs no
-`PheromoneEvent` with any write: unlike the memory tables, a ledger row is bookkeeping the
-allocator reads back, not itself an audited state transition -- `hivemind.queen.forage.grants`
-records the `forage.*` trail events for the transitions that matter (granted, denied, revoked,
-expired) as its own, separate calls, the same way `hivemind.queen.dispatcher._record_forage_granted`
-already does for a task-dispatch grant.
+`forage_ledger_local_reports`, `forage_ledger_grants` and `forage_ledger_reserve`, one JSON body per
+row (`0001_create_forage_ledger.sql`, this module's own migration, next to it rather than in a
+further `migrations/` package: `queen/forage/ledger/` already sits three levels below
+`src/hivemind`, codingrules section 3's own depth limit, so a fourth-level `migrations/` package is
+not available here the way `hivemind.memory.store.migrations` is).
+`hivemind.common.migrations.load_migrations` does not care whether its `.sql` files sit in a
+dedicated sub-package or beside the module that applies them, since it only reads whatever in
+`location` matches its own filename pattern. `SqliteLedgerStore` mirrors
+`hivemind.memory.store.sqlite.SqliteMemoryStore`'s own shape (one upsert per `put_*`, one
+`ConnectionThread` hop per method, one lock per instance) but pairs no `PheromoneEvent` with any
+write: unlike the memory tables, a ledger row is bookkeeping the allocator reads back, not itself an
+audited state transition -- `hivemind.queen.forage.grants` records the `forage.*` trail events for
+the transitions that matter (granted, denied, revoked, expired) as its own, separate calls, the same
+way `hivemind.queen.dispatcher.ready.assign.record_forage_granted` already does for a task-dispatch
+grant.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage
@@ -29,6 +29,8 @@ Key invariants:
       `SqliteMemoryStore`'s own contract.
     - `put_*` is an upsert (`INSERT ... ON CONFLICT ... DO UPDATE`), matching `LedgerStore`'s own
       contract; `delete_grant` is idempotent.
+    - `forget` (the Night Veil teardown's, codingrules section 12) deletes one Cell's rows from
+      five tables in one transaction: all of them, or none.
 
 See Also:
     - hivemind.memory.store.sqlite for SqliteMemoryStore, the pattern this module follows.
@@ -45,7 +47,7 @@ import sqlite3
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
-from hivemind.queen.forage.ledger.model import LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport
 from waggle.clock import Clock
 from waggle.ids import CellId, GrantId, TaskId, WardenId
 
@@ -105,6 +107,15 @@ _UPSERT_CEILINGS_SQL = (
     "ON CONFLICT (warden_id) DO UPDATE SET body = excluded.body"
 )
 _SELECT_CEILINGS_SQL = "SELECT warden_id, body FROM forage_ledger_ceilings"
+# The Night Veil teardown's deletes: the Cell's own rows, then each Warden's, then each grant's.
+_FORGET_CELL_SQL = (
+    "DELETE FROM forage_ledger_capacities WHERE cell_id = ?",
+    "DELETE FROM forage_ledger_hosting_plans WHERE cell_id = ?",
+)
+_FORGET_WARDEN_SQL = (
+    "DELETE FROM forage_ledger_local_reports WHERE warden_id = ?",
+    "DELETE FROM forage_ledger_ceilings WHERE warden_id = ?",
+)
 
 __all__ = ["MIGRATIONS_PACKAGE", "SUBSYSTEM", "SqliteLedgerStore", "apply_ledger_migrations"]
 
@@ -293,6 +304,25 @@ class SqliteLedgerStore:
         return tuple(
             (WardenId(row["warden_id"]), Ceilings.model_validate_json(row["body"])) for row in rows
         )
+
+    async def forget(self, rows: CellRows) -> int:
+        """Delete every row `rows` names, in one transaction; see `LedgerStore.forget`."""
+        async with self._lock:
+            # Blocking: a handful of primary-key DELETEs in one transaction.
+            return await self._thread.run(_forget, self._connection, rows)
+
+
+def _forget(connection: sqlite3.Connection, rows: CellRows) -> int:
+    """Delete the Cell's, its Wardens' and its grants' rows together; return how many went."""
+    with transaction(connection):
+        removed = sum(connection.execute(sql, (rows.cell_id,)).rowcount for sql in _FORGET_CELL_SQL)
+        for holder in sorted(rows.wardens):
+            removed += sum(
+                connection.execute(sql, (holder,)).rowcount for sql in _FORGET_WARDEN_SQL
+            )
+        for grant_id in sorted(rows.grants):
+            removed += connection.execute(_DELETE_GRANT_SQL, (grant_id,)).rowcount
+        return removed
 
 
 def _upsert(connection: sqlite3.Connection, sql: str, key: str, body: str) -> None:

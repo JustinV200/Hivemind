@@ -38,8 +38,10 @@ Key invariants:
       one `SeatMeter`, because seats are that provider's concurrency budget (a hosted API's
       tier, a local server's parallel slots) and a second manifest row does not buy a second
       budget. Per-source `SeatReservation`s from a grant refine this in phase 4.
-    - A seat is always released, success or error (`FannerLane._call`'s `finally`): a provider
-      error propagates unchanged to the caller, never swallowed here, but never leaks a held seat.
+    - A seat is always released, on success, error or cancellation (`FannerLane._call`'s
+      `finally`, and `SeatMeter.acquire` for a caller cancelled while queued): a provider error
+      propagates unchanged to the caller, never swallowed here, but never leaks a held seat, and
+      a sub-bee killed mid-call gives its seat back to the next caller in line.
     - `Fanner` never refuses a call: with no fallback left, `FannerLane.complete` makes the call on
       the current binding regardless of any spill reason it found.
 
@@ -351,20 +353,20 @@ class FannerLane:
         source_id = attempt.source.source_id if attempt.source is not None else None
         provider = attempt.bound.provider.name
         start_s = self._fanner.deps.clock.monotonic()
-        # Roadmap step 4.8: the seat is already held (SeatMeter.acquire, in _meter) by this point,
-        # so call_started brackets the actual window a shared source's seat is in flight on,
-        # regardless of how long queueing for it took.
-        await self._fanner.deps.recorder.call_started(source_id, provider)
+        started = False
         try:
-            # External await: the actual model call. Its own timeout is the provider adapter's
-            # concern (llm/providers/<name>); the Fanner only measures how long it took.
+            # Roadmap step 4.8: the seat is held (SeatMeter.acquire, in _meter), so call_started
+            # brackets the window it is in flight on, however long queueing for it took.
+            await self._fanner.deps.recorder.call_started(source_id, provider)
+            started = True
+            # External await: the model call; its timeout is the provider adapter's concern.
             response = await attempt.bound.provider.complete(stamped)
         finally:
-            # Always release, success or error, so a raised exception never leaks a held seat;
-            # call_finished always matches call_started for the same reason (LlmEventRecorder's
-            # own "Key invariants").
+            # Always, on success, error or a cancel at either await (a killed sub-bee): the held
+            # seat is never leaked, and call_finished matches exactly a call_started that ran.
             await attempt.seat_meter.release()
-            await self._fanner.deps.recorder.call_finished(source_id, provider)
+            if started:
+                await self._fanner.deps.recorder.call_finished(source_id, provider)
         latency_s = self._fanner.deps.clock.monotonic() - start_s
         actual_tokens = response.usage.input_tokens + response.usage.output_tokens
         attempt.rate_limiter.observe_actual_tokens(attempt.estimated_tokens, actual_tokens)

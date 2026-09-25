@@ -7,20 +7,34 @@ rule, plus the Hive Stand Warden's own retry: when this Warden currently holds n
 (`WardenState.WATCH` from a refused `start()`), it retries the lease exactly once before giving up
 and escalating `AlarmKind.CELL_UNREACHABLE` to the Queen, per this Warden's own `start()` docstring.
 `handle_grant` is the mirror image for the other arrival order: record the grant, then spawn
-whatever assignment was waiting for exactly this `grant_id`.
+whatever assignment was waiting for exactly this `grant_id`. `handle_revoke` is its undoing
+(roadmap step 10.6a: the Queen isolating this Warden's Cell revokes its grants): forget the grant,
+drop what was parked for it, and shrink the pool so nothing new starts under it. Roadmap step
+10.3: a sub-bee's first binding passes the Guard's `slot_binding` point inside `spawn_sub_bee`; a
+refused one frees the pool slot it took and reports the task FAILED to the Queen with the Guard's
+reason. Every TaskAssign the Queen sends is a new attempt (a first dispatch, a retry, a resume; she
+owns the attempt number and never re-sends a running one), so `handle_assign` first supersedes
+whatever this Warden still holds for the task: its bee (the FAILED row an escalated crash left
+waiting on her, a stalled bee she retried, a paused one she resumed) is retired and its slot freed,
+an older parked assignment is dropped, and a resumed task is no longer counted as clustered.
+Before, the retry parked behind the FAILED row's slot at a cap of one and ran beside it above that.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. These are `hivemind.wardens.warden.Warden`'s own delegates (not general-purpose
     functions: they read and write its private state directly, the same way `hivemind.workers.
     runtime.attempt.AttemptManager` does for `WorkerRuntime`), called from its tick's own dispatch.
-    Calls into `hivemind.wardens.spawn` (WardenCellContext, spawn_sub_bee) and waggle only.
+    Calls into `hivemind.wardens.errors` (BindingRefusedError), `hivemind.wardens.spawn`
+    (WardenCellContext, spawn_sub_bee), `hivemind.wardens.ticks.alarms` (report_refused,
+    retire_sub_bee, send_alarm_to_queen) and waggle only.
 
 Key invariants:
     - `handle_assign` never spawns twice for the same `task_id`: once a matching grant lets it
       through, the assignment is removed from `warden._pending` in the same call that spawns it.
     - A local-pool refusal parks the assignment exactly like a missing grant does; both are the
       same "not yet, try again later" outcome, never an error.
+    - A refused binding never holds a pool slot: it is released before the task is reported.
+    - One task never has two rows here: a new attempt retires the old row before it spawns.
 
 See Also:
     - .claude/roadmap.md step 3.19's own dispatch map for "TaskAssign ... else park... local_pool
@@ -35,18 +49,19 @@ from typing import TYPE_CHECKING
 
 from hivemind.exoskeleton import AttachError
 from hivemind.pheromone import WardenEvent
+from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
-from hivemind.wardens.ticks.alarms import send_alarm_to_queen
-from waggle.ids import new_event_id
-from waggle.messages.forage import GrantIssued
+from hivemind.wardens.ticks.alarms import report_refused, retire_sub_bee, send_alarm_to_queen
+from waggle.ids import TaskId, new_event_id
+from waggle.messages.forage import GrantIssued, GrantRevoked
 from waggle.messages.supervision import AlarmKind
 from waggle.messages.task import TaskAssign
 
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
 
-__all__ = ["handle_assign", "handle_grant", "spawn_parked"]
+__all__ = ["handle_assign", "handle_grant", "handle_revoke", "spawn_parked"]
 
 
 async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
@@ -56,6 +71,7 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
         warden: The owning Warden (read and written directly; see the module docstring).
         assignment: The TaskAssign to spawn or park.
     """
+    await _supersede(warden, assignment.task_id)
     if warden._lease is None or warden._cell is None or warden._session is None:
         await _retry_lease_or_escalate(warden, assignment)
         return
@@ -88,9 +104,26 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
             reason="Attach refused or failed before the sub-bee started; nothing is left running.",
             task_id=assignment.task_id,
         )
+    except BindingRefusedError as refused:
+        # The Guard refused the first binding (already guard.denied): free the slot, tell the Queen.
+        warden._sub_bee_slots.release()
+        await report_refused(warden, assignment, refused.reason)
         return
     warden._sub_bees[sub_bee.worker_id] = sub_bee
     warden._sub_bee_iters[sub_bee.worker_id] = sub_bee.link.receive()
+
+
+async def _supersede(warden: Warden, task_id: TaskId) -> None:
+    """Retire every bee and drop every parked assignment this Warden holds for `task_id`.
+
+    The Queen's new attempt replaces them (module docstring); it also ends the task's Clustering
+    pause here, since her resume of a clustered task is exactly such a new attempt.
+    """
+    for sub_bee in [row for row in warden._sub_bees.values() if row.task_id == task_id]:
+        # Stopped and reaped, its link closed and its slot freed for the attempt replacing it.
+        await retire_sub_bee(warden, sub_bee)
+    warden._pending.pop(task_id, None)
+    warden._clustered_tasks.discard(task_id)
 
 
 async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
@@ -101,6 +134,9 @@ async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
         grant: The GrantIssued to record.
     """
     warden._grants[grant.grant_id] = grant
+    # Roadmap step 10.6 (Waggle 1.10): the raises in force travel on the grant; every gate this
+    # Warden builds samples at them, since its own trail never sees the Queen's.
+    warden._deps.carried_raises.carry(grant.audit_raises, warden._deps.clock.now())
     # Read before resize(): SubBeeSlots.resize's own docstring leaves in_use as-is even when the
     # new capacity is smaller, so this is the one place that still knows what it used to allow
     # (roadmap step 4.7: "a Warden over its grant gets an Alarm, not a crash").
@@ -139,6 +175,30 @@ async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
         await handle_assign(warden, assignment)
 
 
+async def handle_revoke(warden: Warden, revoked: GrantRevoked) -> None:
+    """Forget a grant the Queen took back, drop what was parked for it, and start nothing new.
+
+    The bees already running under it are the Queen's to pause (she sends the levers herself when
+    she isolates a Cell), so nothing here stops a sub-bee; it only stops this Warden drawing on
+    the grant, as the message asks ("the holder must stop drawing on shared Forage at once").
+
+    Args:
+        warden: The owning Warden.
+        revoked: The Queen's GrantRevoked.
+    """
+    held = warden._grants.get(revoked.grant_id)
+    if held is None or held.revision > revoked.revision:
+        return  # Never held, or a stale replay of an older revision (the message's receiver rule).
+    del warden._grants[revoked.grant_id]
+    # An assignment parked for this grant can never start now; the Queen re-sends a paused task.
+    for task_id in [t for t, a in warden._pending.items() if a.grant_id == revoked.grant_id]:
+        del warden._pending[task_id]
+    # Shrink only: what the grants left still allow, never above what the pool (and so the
+    # ceilings already applied to it) allows now.
+    left = max((grant.max_sub_bees for grant in warden._grants.values()), default=0)
+    warden._sub_bee_slots.resize(min(warden._sub_bee_slots.capacity, left))
+
+
 async def spawn_parked(warden: Warden) -> None:
     """Spawn every parked assignment whose grant is known once the local pool has room again.
 
@@ -165,8 +225,9 @@ async def settle_after_tick(warden: Warden) -> None:
     `spawn_parked` runs first so a task parked for a full pool starts the same tick the pool has
     room again (nothing else ever re-drove it); `hivemind.wardens.state.settled_state` then reads
     the sub-bee table (and, roadmap step 4.9, `warden._clustered_tasks`) that spawn may just have
-    grown, through `assert_transition`, so a state this pair can never legally reach (CLUSTERED
-    with no sub-bees left, say) raises loudly rather than being written silently. Every settled
+    grown, through `assert_transition`, so a move the machine has no edge for raises loudly
+    rather than being written silently (a clustered Warden whose paused bees have all been retired
+    stays CLUSTERED rather than asking for WATCH, `settled_state`'s own docstring). Every settled
     state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`), beside
     the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel file stays
     inside its size cap (codingrules 5.1); it is the second half of this module's spawn duty.

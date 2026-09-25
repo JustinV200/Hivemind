@@ -174,7 +174,7 @@ def test_real_cell_login_leaves_the_stand_as_found_and_records_both_frames(
     a screenshot's bytes. The recording plays back with a before and an after frame per action.
     """
     _skip_unless_real_desktop()
-    configure_logging(json_output=True, level="DEBUG", to_stderr=True)
+    configure_logging(json_output=True, level="DEBUG")
 
     manifest_path = fake_manifest(tmp_path)
     grant_hive_stand_full_access(manifest_path)
@@ -217,7 +217,7 @@ def test_browser_only_login_needs_no_x11_and_leaves_the_stand_as_found(
     operator runs on an actual Windows machine to prove the rest.
     """
     _skip_unless_browser()
-    configure_logging(json_output=True, level="DEBUG", to_stderr=True)
+    configure_logging(json_output=True, level="DEBUG")
 
     manifest_path = fake_manifest(tmp_path)
     grant_hive_stand_full_access(manifest_path)

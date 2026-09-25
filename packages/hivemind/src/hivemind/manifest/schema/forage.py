@@ -8,11 +8,14 @@ role costs its Cell, keyed by the lowercase ``waggle.messages.task.WorkerRole`` 
 there), ``[forage.map.<source_id>]`` (every source that can serve a model --
 ``hivemind.forage.ModelSourceSpec`` embedded as-is), ``[forage.reserve]`` (what the Queen holds
 back before any grant -- ``hivemind.forage.RoyalReserve`` embedded as-is, whose own defaults are
-already sensible for local development), and ``measurement_drift_threshold`` (roadmap step 4.7: how
+already sensible for local development), ``measurement_drift_threshold`` (roadmap step 4.7: how
 far a Cell's reported figures -- free memory, free cores, free seats -- must move, as a fraction of
 the previous reading, before the Queen's ledger, ``hivemind.queen.forage.ledger``, recomputes a
-grant rather than trusting the one it already issued). This module's own validator covers only what
-the three embedded models cannot check themselves: that every role key actually names a
+grant rather than trusting the one it already issued), and ``zero_grant_patience_s`` (how long a
+fresh task whose grant a passing shortfall zeroes -- the Hive Stand's live load or free memory --
+waits PENDING for room before the Queen fails it with the figures, so a busy moment delays work
+instead of failing it, and nothing waits for ever unseen). This module's own validator covers only
+what the three embedded models cannot check themselves: that every role key actually names a
 ``WorkerRole`` member and that ``drone`` (the one role phase 3 implements) is always bound. The one
 cross-section check the roadmap also calls for -- that every ``[forage.map]`` entry's provider is
 declared in ``[llm.providers]`` -- cannot live here, because this section has no visibility into
@@ -61,6 +64,10 @@ REQUIRED_ROLE = "drone"  # The only Worker role phase 3 implements; every manife
 # (RoyalReserve's own default headroom_fraction is 10%, so this sits just above the margin a grant
 # already absorbs); the ledger reads this to decide when to recompute rather than reuse a grant.
 DEFAULT_MEASUREMENT_DRIFT_THRESHOLD = 0.15
+# The zero-grant fix: five minutes, long enough for a one-minute load average to fall back after a
+# burst (a build, another Drone's test run), short enough that a host busy for good fails the task
+# with the figures well before a goal's own timeout would.
+DEFAULT_ZERO_GRANT_PATIENCE_S = 300.0
 
 __all__ = [
     "DEFAULT_GRANT_TTL_S",
@@ -68,6 +75,7 @@ __all__ = [
     "DEFAULT_MEASUREMENT_DRIFT_THRESHOLD",
     "DEFAULT_SPEND_CAP_PER_GOAL_USD",
     "DEFAULT_TOKEN_BUDGET_PER_GOAL",
+    "DEFAULT_ZERO_GRANT_PATIENCE_S",
     "REQUIRED_ROLE",
     "ForageSection",
 ]
@@ -116,6 +124,13 @@ class ForageSection(BaseModel):
         description="Fraction a Cell's reported free memory, free cores or free seats must move, "
         "relative to the reading a live grant was computed from, before the ledger recomputes "
         "that grant instead of reusing it.",
+    )
+    zero_grant_patience_s: float = Field(
+        default=DEFAULT_ZERO_GRANT_PATIENCE_S,
+        gt=0,
+        description="Seconds a fresh task may wait PENDING while a passing shortfall on its Cell "
+        "(the Hive Stand's live load or free memory) leaves its grant with no sub-bee; past this, "
+        "the Queen fails it with the figures instead.",
     )
 
     @model_validator(mode="after")

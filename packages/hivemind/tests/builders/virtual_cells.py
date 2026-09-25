@@ -38,12 +38,6 @@ without knowing in advance which task the Queen's dispatcher will place on it.
 `clear_wax` behind a `hivemind.memory.context.MemoryContext` built from a running `Hive`, for
 roadmap step 5's own exit-criterion scenario "a BLOCK Cell Wax on the Hive Stand."
 
-`patch_placement_policy` works around a confirmed, documented defect: `hivemind.cli.compose.deps.
-_base_queen_deps` never builds a `PlacementPolicy` from a manifest's own `[placement]` section at
-all, so `prefer`/`allow_hive_stand` have no effect on a real `hive run` today. See that function's
-own docstring for the full defect description and why it is patched here rather than "fixed" in
-`cli/compose/deps.py`/`cli/compose/hive.py` (neither is in this dispatch's allowed-to-fix list).
-
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used only by
     `tests.e2e.test_virtual_cells`.
@@ -82,10 +76,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from builders.cli import fake_manifest
+from builders.cli import ManifestTuning, fake_manifest
 from builders.llm import judge_approve_response
 
-import hivemind.cli.compose.hive as _hive_compose
 from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, HoneyClearance
 from hivemind.cli.compose import Hive
@@ -111,7 +104,6 @@ from hivemind.memory.cell_wax import (
 from hivemind.pheromone import PheromoneEvent
 from hivemind.queen import ForageLedger
 from hivemind.queen.cluster.orders import OrderStore
-from hivemind.queen.placement.policy import PlacementPolicy
 from hivemind.wardens.deps import WardenDeps
 from waggle.clock import Clock, SystemClock
 from waggle.ids import CellId
@@ -127,7 +119,6 @@ __all__ = [
     "clear_wax_note",
     "default_container_script",
     "independent_haiku_plan",
-    "patch_placement_policy",
     "patch_submit_goal_dispatch_race",
     "single_haiku_plan",
     "virtual_cells_manifest",
@@ -198,6 +189,9 @@ class VirtualCellsTuning:
             dormant Cell, so a second Cell overwintering in the very same run would otherwise trip
             `hivemind.hive.overwinter.policy._requires_disk_budget` every time. Set to ten Cells'
             worth here so this suite's own three-container haiku run always has headroom.
+        heartbeat_interval_s: `[queen]`/`[supervision] heartbeat_interval_s`, forwarded to
+            `builders.cli.ManifestTuning`; None keeps `fake_manifest`'s own short default. A
+            liveness scenario widens it so its window is well clear of scheduling jitter.
     """
 
     prefer: str = "virtual"
@@ -207,6 +201,7 @@ class VirtualCellsTuning:
     overwinter_max_cells: int = 8
     overwinter_max_per_image: int = 8
     overwinter_disk_budget_mb: int = 81920
+    heartbeat_interval_s: float | None = None
 
 
 def virtual_cells_manifest(
@@ -224,7 +219,8 @@ def virtual_cells_manifest(
         The written manifest's own path, ready for `hivemind.manifest.load_manifest`.
     """
     active = tuning if tuning is not None else VirtualCellsTuning()
-    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    heartbeat = ManifestTuning(heartbeat_interval_s=active.heartbeat_interval_s)
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities, tuning=heartbeat)
     section = (
         f'\n[placement]\nprefer = "{active.prefer}"\n'
         f"allow_hive_stand = {_toml_bool(active.allow_hive_stand)}\n\n"
@@ -291,54 +287,6 @@ def patch_submit_goal_dispatch_race(monkeypatch: pytest.MonkeyPatch) -> None:
             await real_dispatch_ready(deps, wardens)  # type: ignore[arg-type]
 
     monkeypatch.setattr(queen_module, "dispatch_ready", patched)
-
-
-def patch_placement_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make `build_hive` actually wire `[placement]` into `QueenDeps.placement_policy`.
-
-    **Documented defect, a report item, not fixed in shipped code:** `hivemind.cli.compose.deps.
-    _base_queen_deps` never builds a `hivemind.queen.placement.policy.PlacementPolicy` from
-    `HiveManifest.placement` (or from `[virtual_cells]`'s own default template) at all --
-    `QueenDeps.placement_policy` is left at its own default (`prefer="real"`,
-    `allow_hive_stand=True`, no per-role override, no Night Veil profile) regardless of what a
-    manifest's `[placement]` section says, so a real `hive run` today always behaves as
-    `prefer = "real"` no matter what the manifest names. This is confirmed directly: every
-    scenario in `tests.e2e.test_virtual_cells` that needs `prefer = "virtual"` to take effect
-    failed with `queen.placed` reasons reading `"[placement] prefer=real: ..."` before this
-    function existed.
-
-    `hivemind.cli.compose.hive.build_queen_deps` (the name `_assemble_hive` actually calls,
-    imported from `.deps`) is monkeypatched here, at the test level, to wrap the real conversion
-    and replace `placement_policy` with one built from the manifest -- so this whole suite still
-    exercises the REAL `hivemind.queen.placement.decide.decide` against every real `[placement]
-    prefer`/`allow_hive_stand` value it writes, rather than weakening what it asserts. Not "fixed"
-    in `cli/compose/deps.py` or `cli/compose/hive.py`, since neither file is in this dispatch's
-    allowed-to-fix list (`cli/compose/virtual_cells.py`, `hive/backends/fake.py`,
-    `queen/cell_gate/**`, `hive/lifecycle.py`, `cli/in_cell/main.py` only).
-
-    Args:
-        monkeypatch: The test's own fixture; the patch is undone automatically at teardown.
-    """
-    # Not in hivemind.cli.compose.hive's own __all__ either (same reason as dispatch_ready above).
-    real_build_queen_deps = _hive_compose.build_queen_deps  # type: ignore[attr-defined]
-
-    def patched(
-        parts: object, forage_map: object, ledger: object, virtual_cells: object = None
-    ) -> object:
-        deps = real_build_queen_deps(parts, forage_map, ledger, virtual_cells)  # type: ignore[arg-type]
-        section = parts.manifest.placement  # type: ignore[attr-defined]
-        policy = PlacementPolicy(
-            prefer=section.prefer,
-            allow_hive_stand=section.allow_hive_stand,
-            role_overrides={
-                key: override.prefer
-                for key, override in section.roles.items()
-                if override.prefer is not None
-            },
-        )
-        return dataclasses.replace(deps, placement_policy=policy)
-
-    monkeypatch.setattr(_hive_compose, "build_queen_deps", patched)
 
 
 def independent_haiku_plan(

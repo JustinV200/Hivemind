@@ -8,6 +8,13 @@
 > Phase 6's Forager therefore does not exist, and a Drone stands in for it in the first exit
 > criterion.
 
+> **Since this handoff:** phases 6, 7 and 10 were merged into `main` on 2026-09-25, so phase 6's
+> Forager now exists (open item 1 can run). The merge closed open item 8: every send a Queen or
+> Warden tick makes goes through phase 10's guarded helpers (`WardenLink.send`,
+> `hivemind.wardens.links.send_guarded`), or catches a closed link itself. Every Honey hit now
+> reaches a prompt through phase 10's untrusted-content scan (`RetrievedItem.from_hit`). Every
+> other open item still stands. Branch from `main`.
+
 Read these first: `CLAUDE.md`, `.claude/codingrules.md`, `.claude/roadmap.md` phase 7 (its "Met"
 note lists every deviation from the step text), `docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md`,
 `docs/adr/0036-embedding-provider-and-reembedding-policy.md`, then

@@ -12,12 +12,13 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.queen.inbox.weights import to_inbox_item
+from hivemind.queen.inbox.weights import HUMAN_PRINCIPAL, human_inbox_item, to_inbox_item
 from hivemind.supervision.attendant import InboxKind
 from waggle.clock import FakeClock
 from waggle.envelope import Hop, wrap
 from waggle.ids import (
     new_cell_id,
+    new_device_id,
     new_hive_id,
     new_message_id,
     new_node_id,
@@ -26,6 +27,7 @@ from waggle.ids import (
 )
 from waggle.messages.cell import CellWaxProposed
 from waggle.messages.cell.wax import WaxOrigin, WaxSeverity
+from waggle.messages.control import HumanMessage
 from waggle.messages.honey import HoneyResponse
 from waggle.messages.labels import HoneyClearance
 
@@ -72,3 +74,15 @@ def test_an_items_correlation_id_is_its_envelopes_own() -> None:
     item = to_inbox_item(wrap(response, hop, clock=clock, correlation_id=answered), warden_id)
 
     assert item.correlation_id == answered
+
+
+def test_a_human_message_is_its_own_kind_under_the_human_principal() -> None:
+    clock = FakeClock()
+    device_id = new_device_id(clock)
+    message = HumanMessage(text="Is it done?", task_id=new_task_id(clock), device_id=device_id)
+
+    item = human_inbox_item(message, "chat_1", clock.now())
+
+    assert item.kind is InboxKind.HUMAN_MESSAGE
+    assert (item.id, item.principal, item.task_id) == ("chat_1", HUMAN_PRINCIPAL, message.task_id)
+    assert item.payload is message

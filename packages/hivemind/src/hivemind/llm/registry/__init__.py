@@ -30,13 +30,20 @@ from hivemind.llm.registry.config import (
     EMBEDDING_ONLY_KINDS,
     IN_PROCESS_KINDS,
     PENDING_KINDS,
+    RUNS_IN_PROCESS_KINDS,
     MissingDefaultModelError,
     ProviderConfig,
     ProviderKind,
     TranscriptionUnsupportedError,
+    runs_in_process,
+    runs_locally,
 )
 from hivemind.llm.registry.embedding import EmbeddingFactory, default_embedding_factories
-from hivemind.llm.registry.provider_registry import ProviderRegistry, RegistryDeps
+from hivemind.llm.registry.provider_registry import (
+    PROVIDER_CLOSE_TIMEOUT_S,
+    ProviderRegistry,
+    RegistryDeps,
+)
 from hivemind.llm.registry.transcription import (
     TranscriptionBuild,
     TranscriptionFactory,
@@ -47,6 +54,8 @@ __all__ = [
     "EMBEDDING_ONLY_KINDS",
     "IN_PROCESS_KINDS",
     "PENDING_KINDS",
+    "PROVIDER_CLOSE_TIMEOUT_S",
+    "RUNS_IN_PROCESS_KINDS",
     "EmbeddingFactory",
     "MissingDefaultModelError",
     "ProviderConfig",
@@ -61,4 +70,6 @@ __all__ = [
     "default_embedding_factories",
     "default_factories",
     "default_transcription_factories",
+    "runs_in_process",
+    "runs_locally",
 ]

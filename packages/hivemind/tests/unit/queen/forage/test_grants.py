@@ -1,4 +1,4 @@
-"""Tests for hivemind.queen.forage.grants: activate, revise, renew, revoke, sweep_expired.
+"""Tests for hivemind.queen.forage.grants: activate, revise, renew, revoke, release, sweep.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/forage/grants.py (codingrules section 3).
@@ -21,13 +21,14 @@ from hivemind.forage.grant_state import GrantState
 from hivemind.pheromone.trail import TrailQuery
 from hivemind.queen.forage.grants import (
     activate,
+    release_finished,
     renew_grants_for_warden,
     revise,
     revoke,
     sweep_expired,
 )
 from waggle.clock import FakeClock
-from waggle.ids import new_cell_id
+from waggle.ids import new_cell_id, new_task_id
 from waggle.messages.forage.values import RevocationCause
 
 
@@ -145,3 +146,26 @@ async def test_sweep_expired_is_a_no_op_with_nothing_expired() -> None:
 
     assert revoked == ()
     assert deps.ledger.grant(fresh.id) is not None
+
+
+async def test_release_finished_returns_only_an_ended_tasks_grants_to_the_pool() -> None:
+    # Its grant used to stay live for good: renewed on every Heartbeat its Warden sent.
+    deps, _link, _warden_end = make_queen_deps()
+    await deps.ledger.report_capacity(new_cell_id(deps.clock), make_capacity(max_sub_bees=10))
+    ended, running = new_task_id(deps.clock), new_task_id(deps.clock)
+    drawn = make_grant(clock=deps.clock, state=GrantState.ACTIVE, max_sub_bees=3, task_id=ended)
+    never_drawn = make_grant(clock=deps.clock, state=GrantState.ISSUED, task_id=ended)
+    still_live = make_grant(clock=deps.clock, state=GrantState.ACTIVE, task_id=running)
+    for grant in (drawn, never_drawn, still_live):
+        await deps.ledger.record_grant(grant)
+    headroom_before = deps.ledger.headroom().sub_bees
+
+    released = await release_finished(deps.ledger, deps, {ended})
+
+    assert {grant.id for grant in released} == {drawn.id, never_drawn.id}
+    assert [grant.id for grant in deps.ledger.live_grants()] == [still_live.id]
+    assert deps.ledger.headroom().sub_bees > headroom_before
+    events = await deps.trail.query(TrailQuery(kind="forage.revoked"))
+    assert {event.subject_id for event in events} == {drawn.id, never_drawn.id}
+    assert {event.payload["cause"] for event in events} == {RevocationCause.RELEASED.value}
+    assert {event.payload["task_id"] for event in events} == {ended}

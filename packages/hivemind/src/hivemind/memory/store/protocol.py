@@ -7,8 +7,10 @@ memory v0 lives. This module fixes the one seam both implementations
 SqliteMemoryStore`) must honour: every write takes the `MemoryEvent` to record alongside it and
 commits both together, in the same transaction, exactly the way `hivemind.brood_chamber.store.
 sqlite.SqliteTaskStore` does for tasks (codingrules section 12). `remove_pin`, `remove_note`
-(roadmap step 4.2, for `hivemind.memory.demote.demote`) and `purge_episodes_before` are this
-protocol's deletion paths named here; `SqliteMemoryStore` documents a fourth (evicting a note past
+(roadmap step 4.2, for `hivemind.memory.demote.demote`), `purge_episodes_before` and
+`purge_night_veil` (the Night Veil teardown's, codingrules section 12: rows about a Night Veil
+Cell or its tasks never outlive it) are this protocol's deletion paths named here;
+`SqliteMemoryStore` documents one more (evicting a note past
 `hivemind.memory.notes.MAX_NOTES_PER_AUTHOR`) as an internal duty of `add_note` rather than a
 separate method, since nothing above the store ever needs to trigger it directly. The four
 `*_bee_bread_*` methods (roadmap step 4.2) are Bee Bread's (the warm memory tier's) own persistence:
@@ -17,7 +19,15 @@ one write, one lookup by id, one by task, one by a time range -- lookup only, no
 persistence: `put_wax` inserts a fresh proposal, `update_wax_state` overwrites an already-
 transitioned row (`hivemind.memory.cell_wax.writes` is the only caller of either, and it always
 validates the edge with `hivemind.memory.cell_wax.state.assert_transition` first), `get_wax` and
-`list_wax` are the two reads.
+`list_wax` are the two reads. The three `*_taint*` methods (roadmap step 10.6d, ADR-0043) make the
+memory tables a `hivemind.memory.taint.TaintLedger`: `find_taintable` lists what a `TaintScope`
+covers that is not already TAINTED, `read_taintable` shows one item as the taint judge sees it, and
+`write_taint` replaces one item's label and records its `memory.tainted` or `memory.taint_cleared`
+event in the same transaction, checking the label's transition table against the stored label
+inside it. Every read that could feed a prompt refuses a TAINTED item: `list_episodes` and the Bee
+Bread lists leave it out, `get_bee_bread_entry` raises `TaintedMemoryError`, and `get_handoff`
+returns it labelled so `hivemind.memory.checkpoint.read_handoff` can refuse it; and every insert
+refuses an item that arrives already labelled.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by `hivemind.memory.store.
@@ -39,6 +49,9 @@ Key invariants:
     - `get_handoff` returns the stored clearance alongside the Handoff itself, so a caller (
       `hivemind.memory.checkpoint.read_handoff`) can refuse an over-clearance read without first
       decoding the whole document.
+    - No list or lookup here ever returns a TAINTED episode record or Bee Bread entry; a TAINTED
+      Handoff comes back from `get_handoff` carrying its label, and only `read_taintable` shows
+      any item's content regardless of its label (roadmap 10.6d).
     - The `BeeBreadEntry` import below is TYPE_CHECKING-only: `hivemind.memory.bee_bread.index`
       imports `MemoryStore` from this module (also TYPE_CHECKING-only, for the same reason) to
       type `BeeBread.__init__`, so a real, eager import here would close that cycle.
@@ -64,6 +77,7 @@ from hivemind.memory.episodes import EpisodeRecord
 from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
+from hivemind.memory.taint import TaintableItem, TaintMarker, TaintScope, TaintTarget
 from hivemind.pheromone import MemoryEvent
 from waggle.ids import CellId, EventId, TaskId
 
@@ -357,13 +371,89 @@ class _WaxStore(Protocol):
         ...
 
 
+class _TaintStore(Protocol):
+    """A sixth of MemoryStore (the taint label, roadmap 10.6d): the `TaintLedger` it satisfies."""
+
+    async def find_taintable(self, scope: TaintScope) -> tuple[TaintTarget, ...]:
+        """Return every Handoff, episode and Bee Bread entry `scope` covers not already TAINTED.
+
+        Args:
+            scope: The authors, tasks, kinds and moment a taint covers.
+
+        Returns:
+            Their targets, oldest first; empty when the scope covers nothing new.
+        """
+        ...
+
+    async def read_taintable(self, target: TaintTarget) -> TaintableItem:
+        """Return one item's label, clearance and the text a taint judge reviews.
+
+        Args:
+            target: A HANDOFF, EPISODE or BEE_BREAD item.
+
+        Returns:
+            The item as `hivemind.memory.taint.clear.clear_taint` needs it.
+
+        Raises:
+            hivemind.memory.errors.TaintTargetNotFoundError: No such item (or not a kind the
+                memory tables hold).
+        """
+        ...
+
+    async def write_taint(
+        self, target: TaintTarget, marker: TaintMarker, event: MemoryEvent
+    ) -> None:
+        """Replace `target`'s label with `marker` and record `event`, atomically.
+
+        Args:
+            target: The item to label.
+            marker: Its new label.
+            event: The accompanying `memory.tainted` or `memory.taint_cleared` event.
+
+        Raises:
+            hivemind.memory.errors.TaintTargetNotFoundError: No such item.
+            hivemind.memory.errors.InvalidTaintTransitionError: The stored label cannot move to
+                `marker.state` (hivemind.memory.taint.state); nothing is written.
+        """
+        ...
+
+
+class _NightVeilStore(Protocol):
+    """The Night Veil purge (codingrules section 12): the memory tables' one exception."""
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Remove every memory row naming one of `ids`, with its taint label.
+
+        An episode record, Handoff, Bee Bread entry, note or Cell Wax row names an id as its key
+        (principal, task, author, Cell) or anywhere in its stored body. The one deletion path
+        beyond the retention and eviction rules above, and only the Night Veil teardown purge
+        calls it (`hivemind.memory.store.night_veil`): the rows about a Night Veil Cell or its
+        tasks must not outlive the Cell. Pins are never touched. No event is recorded; the purge's
+        own `cell.purged` counts what went.
+
+        Args:
+            ids: The Night Veil Cell's id and every id that belongs to it (its tasks, Wardens,
+                grants, ...); an empty set removes nothing.
+
+        Returns:
+            How many rows were removed, across every table.
+        """
+        ...
+
+
 class MemoryStore(
-    _PinsAndNotesStore, _HandoffsAndEpisodesStore, _BeeBreadStore, _WaxStore, Protocol
+    _PinsAndNotesStore,
+    _HandoffsAndEpisodesStore,
+    _BeeBreadStore,
+    _WaxStore,
+    _TaintStore,
+    _NightVeilStore,
+    Protocol,
 ):
     """Persist pins, notes, Handoffs, episodes, Bee Bread entries and Cell Wax, atomic with events.
 
-    Composed from the four private Protocols above, split only to keep each one under codingrules
+    Composed from the six private Protocols above, split only to keep each one under codingrules
     5.1's class-length limit; `MemoryStore` itself is the whole contract every caller and
     implementation (`InMemoryMemoryStore`, `SqliteMemoryStore`) actually names. Implementations
-    must be safe to call concurrently.
+    must be safe to call concurrently. It is also a `hivemind.memory.taint.TaintLedger`.
     """
