@@ -23,6 +23,7 @@ from builders.queen import make_queen_deps, plan_responder
 from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.ids import TaskId, WardenId
@@ -184,4 +185,29 @@ async def test_a_dependant_of_a_task_that_failed_for_good_is_cancelled_not_left_
     assert cancelled.status is TaskStatus.CANCELLED
     assert cancelled.outcome is not None and root.task_id in cancelled.outcome.summary
     assert len(warden_end.assignments) == 1  # The child was never dispatched.
+    await warden_end.close()
+
+
+async def test_a_finished_tasks_grant_goes_back_to_the_pool_on_the_trail() -> None:
+    # The ledger used to keep a finished task's grant for good (renewed on every Heartbeat), so
+    # its Cell looked busy and its seats looked taken long after the work was done.
+    provider = FakeLLMProvider(responder=plan_responder(_two_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    await queen.submit_goal("Two tasks.", clearance=HoneyClearance.C1)
+    root = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    await warden_end.send(_result(root.task_id, link.warden_id, TaskOutcome.SUCCEEDED))
+    await warden_end.pump_until(lambda: len(warden_end.assignments) >= 2)
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    child = warden_end.assignments[1].task_id
+    assert [grant.task_id for grant in deps.ledger.live_grants()] == [child]
+    [released] = await deps.trail.query(TrailQuery(kind="forage.revoked"))
+    assert released.subject_id == root.grant_id
+    assert released.payload["cause"] == "RELEASED"
+    assert released.payload["task_id"] == root.task_id
     await warden_end.close()

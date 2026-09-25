@@ -525,6 +525,8 @@ async def test_a_sub_bees_llm_call_carries_its_grant_id_and_moves_the_ledgers_sp
     grant in the ledger. A priced source is needed to prove spend actually moves, not just that
     the id rides along -- `fake_manifest`'s own default source is free (see `_price_the_fake_
     source`), so `priced_three_haiku_hive` patches one in rather than reusing `three_haiku_hive`.
+    Once its task has ended the grant goes back to the pool (the dispatcher lifecycle fix), so
+    what it spent is read from its release on the trail, the ledger keeping no revoked grant.
     """
     hive, clock = priced_three_haiku_hive
 
@@ -549,9 +551,12 @@ async def test_a_sub_bees_llm_call_carries_its_grant_id_and_moves_the_ledgers_sp
 
     (grant_id,) = grant_ids
     assert isinstance(grant_id, str)
-    grant = hive.queen._deps.ledger.grant(GrantId(grant_id))
-    assert grant is not None
-    assert grant.spent > 0.0  # The ledger's own spend for that grant actually moved.
+    assert hive.queen._deps.ledger.grant(GrantId(grant_id)) is None  # Released with its task.
+    [released] = await hive.stores.trail.query(
+        TrailQuery(kind="forage.revoked", subject_id=grant_id)
+    )
+    spent = released.payload["spent"]
+    assert isinstance(spent, float) and spent > 0.0  # The ledger's spend for that grant moved.
 
 
 async def test_run_goal_times_out_cleanly(blocked_hive: tuple[Hive, FakeClock]) -> None:

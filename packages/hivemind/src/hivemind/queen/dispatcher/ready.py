@@ -58,7 +58,10 @@ The dispatcher lifecycle fix: a pass no longer awaits a Virtual Cell's provision
 Virtual placement (`acquire.authorize_virtual`), starts its acquisition beside the tick
 (`hivemind.queen.dispatcher.provisions`, bounded) and moves on, the task still PENDING; a later
 pass collects the Cell and places the task on it, and a Cell whose task was cancelled or failed
-meanwhile, or whose grant was denied, is released rather than left behind.
+meanwhile, or whose grant was denied, is released rather than left behind. Every pass first
+returns the grants of every task that has ended to the pool (`hivemind.queen.forage.grants.
+release_finished`), so the ledger, and the placement snapshot that now reads the grants in force
+on each Cell, never count finished work.
 
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
@@ -86,7 +89,7 @@ Fits into the Hive:
     `hivemind.forage` (Ceilings, ForageGrant, ModelSlot), `hivemind.pheromone` (ForageEvent,
     MAX_PAYLOAD_STRING_CHARS), `hivemind.guard` (the placement point), `hivemind.queen.authority`,
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
-    roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError,
+    roadmap step 4.7; release_finished), `hivemind.queen.placement` (Placement, PlacementError,
     ProvisionVirtual, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.grants`/
     `.night_veil`/`.provisions`/`.sizing`/`.snapshot`/`.zero_grant`, `hivemind.queen.trail`
     (record_event) and waggle only.
@@ -114,6 +117,7 @@ Key invariants:
       stops it from trying the ready tasks behind it.
     - No pass awaits a Virtual Cell's provision; a Cell acquired for a task is placed for it on a
       later pass, or released once the task is gone or its grant denied.
+    - A pass releases the grants of every ended task before it places anything.
     - `guard.denied` for placement is recorded only when the goal's capability set alone left no
       candidate; a capacity or fit failure records `queen.decided` and nothing more.
 
@@ -136,7 +140,7 @@ from dataclasses import dataclass
 
 from pydantic import JsonValue
 
-from hivemind.brood_chamber import Task, TaskFilter, ready_tasks
+from hivemind.brood_chamber import Task, TaskFilter, is_terminal, ready_tasks
 from hivemind.cell import Cell
 from hivemind.forage import Ceilings, ForageGrant, ModelSlot
 from hivemind.guard import CapabilitySet, EnforcementPoint
@@ -199,7 +203,11 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
     # lose the chamber's own PENDING -> ASSIGNED transition (DispatchBook.lock's own docstring).
     async with deps.dispatch.lock:
         attempted: set[TaskId] = set()
-        ready = await _ready_tasks(deps)
+        tasks = await deps.chamber.list(TaskFilter())
+        # A task that has ended gives its grants back first, so this very pass sees their room.
+        ended = {task.id for task in tasks if is_terminal(task.status)}
+        await forage_grants.release_finished(deps.ledger, deps, ended)
+        ready = ready_tasks(tasks)
         # A task that left PENDING some other way (its goal cancelled, say) waits no longer, and a
         # Cell acquired for it is released rather than left behind.
         forget_waits(deps, {task.id for task in ready})
