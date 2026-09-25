@@ -37,6 +37,8 @@ See Also:
     - hivemind.workers.runtime.deps for RuntimeDeps, the pattern this bundle follows for a
       sub-bee's own runtime.
     - hivemind.wardens.warden for Warden, this bundle's one consumer.
+    - hivemind.wardens.links for send_guarded, the one way code holding these links sends on
+      them.
 """
 
 from __future__ import annotations

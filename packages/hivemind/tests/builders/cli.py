@@ -32,7 +32,7 @@ Key invariants:
       vendor id (`scripts/check_no_model_ids.py`).
     - `capabilities="none"` writes exactly `hivemind.llm.ProviderCapabilities.none()`'s own field
       values as `[llm.providers.fake.capabilities]` overrides; `"full"` (the default) omits that
-      section entirely, so `hivemind.llm.registry._build_fake`'s own base
+      section entirely, so `hivemind.llm.registry.chat._build_fake`'s own base
       (`ProviderCapabilities.full()`) travels unchanged.
     - Every `hivemind.forage.slots.ModelSlot` resolves to the one `"fake"` provider
       (`hivemind.manifest.schema.llm.LlmSection`'s own validator requires this of any manifest).

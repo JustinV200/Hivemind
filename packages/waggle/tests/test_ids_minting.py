@@ -1,4 +1,4 @@
-"""Tests for waggle.ids: the thirteen typed new_<kind>_id wrappers.
+"""Tests for waggle.ids: the fifteen typed new_<kind>_id wrappers.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises every wrapper against a FakeClock so
@@ -30,8 +30,10 @@ from waggle.ids import (
     new_event_id,
     new_grant_id,
     new_hive_id,
+    new_honey_id,
     new_lease_id,
     new_message_id,
+    new_nectar_id,
     new_node_id,
     new_task_id,
     new_tool_id,
@@ -43,7 +45,7 @@ from waggle.ids import (
 from waggle.ulid import ULID_LENGTH
 
 # One (wrapper, expected IdKind) pair per new_*_id wrapper, so the tests below run once per kind
-# via parametrize instead of being copy-pasted thirteen times. Every wrapper returns a NewType
+# via parametrize instead of being copy-pasted fifteen times. Every wrapper returns a NewType
 # over str, which is a subtype of Callable[[Clock], str] by return-type covariance.
 _WRAPPERS: list[tuple[Callable[[Clock], str], IdKind]] = [
     (new_hive_id, IdKind.HIVE),
@@ -59,6 +61,8 @@ _WRAPPERS: list[tuple[Callable[[Clock], str], IdKind]] = [
     (new_event_id, IdKind.EVENT),
     (new_device_id, IdKind.DEVICE),
     (new_message_id, IdKind.MESSAGE),
+    (new_nectar_id, IdKind.NECTAR),
+    (new_honey_id, IdKind.HONEY),
 ]
 
 

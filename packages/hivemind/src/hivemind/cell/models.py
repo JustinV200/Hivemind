@@ -15,10 +15,11 @@ decide anything about where a task runs.
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read by queen.placement (Layer 6, which
     picks a Cell), wardens (Layer 5, which each own one Cell), workers (Layer 4, which read
-    capabilities, never kind) and every RealCellSource (`hive`, `swarm`, `cell.local`) that builds
-    one. Calls into hivemind.cell.needs (OsFamily), hivemind.cell.tiers (AccessLevel,
-    CombShieldLevel), hivemind.forage (ForageCapacity) and waggle.messages.reports (the wire split
-    this module's to_wire/from_wire convert through) only.
+    capabilities, never kind), hivemind.honey_store (Layer 2, via `Cell.is_borrowed`, for its
+    intake-label floor) and every RealCellSource (`hive`, `swarm`, `cell.local`) that builds one.
+    Calls into hivemind.cell.needs (OsFamily), hivemind.cell.tiers (AccessLevel, CombShieldLevel),
+    hivemind.forage (ForageCapacity) and waggle.messages.reports (the wire split this module's
+    to_wire/from_wire convert through) only.
 
 Key invariants:
     - A REAL Cell is never CombShieldLevel.NIGHT_VEIL (codingrules section 8.7: "Real Cell
@@ -28,6 +29,13 @@ Key invariants:
     - CellCapabilities.to_wire/from_wire split platform facts onto waggle's PlatformReport and
       capability flags onto CellCapabilitiesReport, the same split hivemind.forage.HostCapacity
       uses for the same reason (the wire carries the two on separate messages).
+    - `Cell.is_borrowed` is the one property outside `queen.placement` and
+      `workers.roles.undertaker` that reads `kind` (`scripts/check_no_kind_branches.py` allows
+      the whole `hivemind/cell/` package for exactly this reason); everywhere else reads
+      `is_borrowed`, never `kind`, because roadmap 7.3 and codingrules 8.9 need to know whether a
+      Cell is borrowed to set the Honey Store's intake-label floor ("anything from a Real Cell...
+      is C2"), and that question should never turn into a `cell.kind == CellKind.REAL` branch
+      scattered outside this package.
 
 See Also:
     - .claude/codingrules.md section 8.7 for "One abstraction, two sources" and the Real/Virtual
@@ -247,3 +255,17 @@ class Cell(BaseModel):
                 "Virtual Cells are always FULL access (codingrules section 6.1)."
             )
         return self
+
+    @property
+    def is_borrowed(self) -> bool:
+        """Whether this Cell is borrowed (Real) rather than provisioned (Virtual).
+
+        The Honey Store's intake floor (roadmap 7.3, codingrules 8.9) labels anything captured on
+        a Real Cell `C2`; this property is the one place outside `queen.placement` and
+        `workers.roles.undertaker` allowed to read `kind` to answer that question, so a caller
+        never has to compare against `CellKind` itself (see the module docstring's invariants).
+
+        Returns:
+            True when `kind` is `CellKind.REAL`; False when it is `CellKind.VIRTUAL`.
+        """
+        return self.kind is CellKind.REAL

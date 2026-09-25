@@ -243,7 +243,10 @@ async def _send_written(
         proposer=written.proposer,
         decided_by=notice.decided_by,
     )
-    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
+    # The note is already written and durable (module docstring); an unreachable Warden only
+    # misses the immediate wire push, the same "no link, nothing more to do" rule this module's
+    # own docstring already states for a Warden that detached before this point.
+    await link.send(wrap(message, link.hop, clock=deps.clock))
 
 
 def _to_input(proposed: CellWaxProposed) -> WaxProposalInput:

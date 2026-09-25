@@ -169,7 +169,10 @@ async def _rebind(deps: QueenDeps, wardens: Sequence[WardenLink], handling: Alar
         alarm_id=payload.alarm_id,
         reason=intervention.reason,
     )
-    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
+    # A Warden that never receives this REBIND is, by definition, one this tick cannot reach
+    # anyway: the same task sits RUNNING either way, and liveness (hivemind.queen.ticks.liveness)
+    # is what eventually raises a human-visible Alarm for a Warden that stays unreachable.
+    await link.send(wrap(message, link.hop, clock=deps.clock))
     await record_event(deps, "queen.decided", task_id, action="REBIND", binding=fallback_key)
     await _record_handled(deps, handling, task_id, "REBIND")
 

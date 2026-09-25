@@ -28,10 +28,11 @@ Fits into the Hive:
     functions), and by every later CLI step that needs a live `ProviderRegistry`;
     `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8); `build_
     hive_stand_source` calls `open_leavings` (roadmap step 5.0a); `hive recordings` and
-    `hivemind.cli.compose.exoskeleton` call `open_recordings` (roadmap step 6.6). Calls into
+    `hivemind.cli.compose.exoskeleton` call `open_recordings` (roadmap step 6.6); the Hive's
+    composition root and `hive honey` call `open_honey_store` (roadmap phase 7). Calls into
     `hivemind.brood_chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`,
-    `hivemind.exoskeleton.recorder`, `hivemind.pheromone`, `hivemind.forage`, `hivemind.llm`,
-    `hivemind.manifest` and `hivemind.queen.forage.ledger`.
+    `hivemind.exoskeleton.recorder`, `hivemind.honey_store`, `hivemind.pheromone`,
+    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
 
 Key invariants:
     - `open_chamber` always applies the Pheromone Trail's migrations on its own connection before
@@ -84,7 +85,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from pathlib import Path
 from typing import Annotated
 
@@ -97,6 +98,7 @@ from hivemind.exoskeleton.recorder import SqliteRecordingStore
 from hivemind.forage import Abundance, ForageMap, ModelSource
 from hivemind.forage.map import SlotBinding
 from hivemind.hive.snapshot import SqliteSnapshotLedger
+from hivemind.honey_store import SqliteHoneyStore
 from hivemind.llm import (
     ProviderConfig,
     ProviderFactory,
@@ -142,9 +144,11 @@ __all__ = [
     "ManifestOption",
     "build_forage_map",
     "build_registry",
+    "closing_registry",
     "load_manifest_or_exit",
     "open_chamber",
     "open_cluster_orders",
+    "open_honey_store",
     "open_leavings",
     "open_ledger",
     "open_memory",
@@ -225,6 +229,28 @@ def open_memory(db: Path) -> MemoryStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteMemoryStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_honey_store(db: Path) -> SqliteHoneyStore:
+    """Open `db` and return a ready SqliteHoneyStore, applying both subsystems' migrations first.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteHoneyStore whose tables exist and are current, on its own connection, with
+        sqlite-vec loaded when this host can load it (the Python fallback otherwise, ADR-0035).
+    """
+
+    async def _open() -> SqliteHoneyStore:
+        connection = connect(db)
+        clock = SystemClock()
+        # Same "trail's migration runs first" rule open_memory follows: SqliteHoneyStore.create
+        # refuses without a pheromone_events table already on this connection.
+        await SqlitePheromoneTrail.create(connection, clock)
+        return await SqliteHoneyStore.create(connection, clock)
 
     return asyncio.run(_open())
 
@@ -441,6 +467,10 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
         Every `[llm.providers]` row, keyed by its own manifest name, as a ProviderConfig; each
         one's `default_model` is that provider's first `[llm.slots]` model id, regardless of kind
         (see this module's Key invariants) -- `None` only for a configured provider no slot binds.
+        Each row's embedding options (roadmap 7.1) carry straight through from `spec.embedding`,
+        except `embedding_local_files_only`, which this composition root forces `True` whenever
+        `manifest.llm.offline` is set, regardless of what the manifest itself said: an in-process
+        embedder must never reach a model hub on a Hive proven offline.
     """
     default_models = _first_model_by_provider(manifest)
     return {
@@ -451,6 +481,9 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
             timeout_s=spec.timeout_s,
             capability_overrides=spec.capabilities.as_overrides(),
             default_model=default_models.get(name),
+            embedding_batch_size=spec.embedding.batch_size,
+            embedding_device=spec.embedding.device,
+            embedding_local_files_only=spec.embedding.local_files_only or manifest.llm.offline,
         )
         for name, spec in manifest.llm.providers.items()
     }
@@ -474,6 +507,28 @@ def build_forage_map(manifest: HiveManifest, clock: Clock) -> ForageMap:
         for source_id, spec in manifest.forage.map.items()
     )
     return ForageMap(sources, clock=clock)
+
+
+async def closing_registry[ResultT](
+    registry: ProviderRegistry, work: Awaitable[ResultT]
+) -> ResultT:
+    """Await `work`, then close `registry`'s pooled model-server connections in the same loop.
+
+    A command's model calls pool keep-alive connections on the event loop that made them, so the
+    registry must close inside that same `asyncio.run`: once that loop ends, nothing can close
+    them and they stay open until the process exits (`ProviderRegistry.aclose`).
+
+    Args:
+        registry: The registry `work`'s model calls went through.
+        work: The command's own coroutine.
+
+    Returns:
+        Whatever `work` returned; the registry is closed whether or not `work` raised.
+    """
+    try:
+        return await work
+    finally:
+        await registry.aclose()
 
 
 def build_registry(

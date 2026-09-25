@@ -345,7 +345,9 @@ async def _send_intervene(queen: Queen, child: str, intervention: Intervention) 
         alarm_id=None,
         reason=intervention.reason,
     )
-    await link.transport.send(wrap(message, link.hop, clock=queen._deps.clock))
+    # Supervisor.intervene returns None on every path today; a Warden this cannot reach never
+    # learns of the order, but nothing here is durable state this method could repair itself.
+    await link.send(wrap(message, link.hop, clock=queen._deps.clock))
 
 
 async def _run_tick(queen: Queen) -> None:
@@ -438,8 +440,9 @@ def _drain_items(
 
 async def _handle_item(queen: Queen, item: InboxItem) -> None:
     """Decide and act on one ordered InboxItem, waking a model only for NEEDS_JUDGEMENT."""
-    # A Heartbeat or a ForageRequest is handled directly (hivemind.queen.ticks.liveness.
-    # handle_infrastructure_item's own docstring explains why the two share this one dispatch).
+    # A Heartbeat, a ForageRequest, a CellWaxProposed or a Honey deposit or query is handled
+    # directly (hivemind.queen.ticks.liveness.handle_infrastructure_item's own docstring explains
+    # why they share this one dispatch ahead of decide).
     handled = await ticks.liveness.handle_infrastructure_item(
         queen._deps, queen._wardens, item, queen._last_heartbeat, queen._liveness
     )

@@ -41,3 +41,21 @@ instruction list included -- into a resuming bee's own prompt.
 Set `HIVEMIND_EVAL_REPORT_DIR` to also write each run's `HandoffEvalReport` as JSON under
 `docs/evals/` (see that directory's own README); unset (the default, and always the case in CI),
 `grader.build_report` still returns the report, only nothing is written to disk.
+
+## `honey/`: roadmap phase 7, ripening on local models
+
+`test_ripening_local.py` is phase 7's third exit criterion: Nectar ripens into Honey with the
+`RIPENER` and `EMBEDDER` slots on a local OpenAI-compatible server, bound from
+`docs/manifests/local.toml` through the same `hivemind.cli.compose.honey.build_honey_access` a
+running Hive uses. One finding is deposited; one ripening pass must summarise it on the model
+(the SUMMARY row records its ripener model), embed every row, and a paraphrased query must find it
+with vectors in the ranking.
+
+```bash
+HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+  uv run pytest -m local_llm packages/hivemind/tests/evals/honey
+```
+
+`HIVEMIND_LOCAL_RIPENER_MODEL` and `HIVEMIND_LOCAL_EMBED_MODEL` replace the two slots' model ids
+for a server that hosts different ones than the manifest names. Like the handoff eval it skips
+cleanly when unset, and nothing about it runs in CI.

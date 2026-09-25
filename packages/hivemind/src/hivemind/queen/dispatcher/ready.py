@@ -51,6 +51,12 @@ manifest keys. Both `_task_assign` and `_grant_inputs` are the one choke point e
 (`dispatch_ready`, `redispatch`, `resume_paused`) funnels through, so a role and its recon are
 carried the same way regardless of which one sent the assign.
 
+Every assignment also carries what the Queen's Honey pre-check found (roadmap steps 7.9 and 7.9a,
+`hivemind.queen.dispatcher.honey.consult_for_assignment`): Honey about the task's objective and
+the chosen Cell's own history, plus that Cell's live Cell Wax, on `TaskAssign.honey`. The
+pre-check runs inside `_send_grant_and_assign`, once the grant is known to be sendable, so a fresh
+dispatch, a retry and a resume all get one; it never raises, and yields no hits when it fails.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called unconditionally at the end of every `hivemind.queen.queen.Queen` tick, and
@@ -61,7 +67,7 @@ Fits into the Hive:
     (Ceilings, ForageGrant, GrantInputs, ModelSlot, grant), `hivemind.pheromone` (ForageEvent),
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
     roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
-    ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.snapshot`,
+    ReuseDormant, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.honey`/`.snapshot`,
     `hivemind.queen.trail` (record_event, record_forage_event) and waggle (including
     `waggle.messages.task.recon.MAX_RECON_REPORTS`) only.
 
@@ -80,6 +86,8 @@ Key invariants:
       came from a fresh dispatch, a retry or a resume.
     - `_recon_for` never returns more than `MAX_RECON_REPORTS` reports, and only from the task's
       own direct dependencies (never the transitive graph), ordered newest completion first.
+    - The Honey pre-check never stops an assignment: it runs only for a grant that will be sent,
+      and a failed or unwired pre-check leaves `TaskAssign.honey` empty.
 
 See Also:
     - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
@@ -91,6 +99,8 @@ See Also:
     - hivemind.forage.allocate for grant, this module's one allocation call.
     - waggle.messages.task.recon for ScoutReport and MAX_RECON_REPORTS, and hivemind.brood_chamber.
       task.model.TaskOutcome.scout_report, the field `_recon_for` reads.
+    - hivemind.queen.dispatcher.honey for consult_for_assignment, the pre-check every assignment
+      carries.
 """
 
 from __future__ import annotations
@@ -108,6 +118,7 @@ from hivemind.forage.models.sources import ModelSource
 from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.acquire import resolve_link
+from hivemind.queen.dispatcher.honey import consult_for_assignment
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
@@ -117,6 +128,8 @@ from hivemind.queen.trail import record_event, record_forage_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id, new_grant_id
 from waggle.messages import HandoffRef
+from waggle.messages.forage.values import RevocationCause
+from waggle.messages.honey import HoneyHit
 from waggle.messages.task import ScoutReport, TaskAssign, WorkerRole
 from waggle.messages.task.recon import MAX_RECON_REPORTS
 
@@ -309,8 +322,8 @@ async def _send_grant_and_assign(
     """Mint a fresh grant, record it live in the ledger, and send it then a TaskAssign.
 
     Returns None instead, having denied the grant and failed `task`, when the fresh grant computes
-    to `max_sub_bees < 1` (module docstring's own zero-grant fix): a grant that empty can run no
-    Drone at all, so it is never sent.
+    to `max_sub_bees < 1` (module docstring's own zero-grant fix), or when neither wire message
+    ever reached this Warden's own link (`_send_or_fail`'s own docstring).
     """
     cell_id, warden_id = link.cell.id, link.warden_id
     # Roadmap step 4.8's own wiring step: the first dispatch ever sent to a Warden sets its
@@ -344,10 +357,68 @@ async def _send_grant_and_assign(
     # redispatch or resume) since a dependency the task was placed against never changes once
     # terminal, so recomputing costs a few cheap chamber reads and never disagrees with itself.
     recon = await _recon_for(deps, task)
-    assign = _task_assign(task, cell_id, fresh_grant.id, replace(terms, recon=recon))
-    await link.transport.send(wrap(fresh_grant.to_wire(sources), link.hop, clock=deps.clock))
-    await link.transport.send(wrap(assign, link.hop, clock=deps.clock))
+    # Roadmap 7.9/7.9a: what the Hive already knows about this task and Cell; never raises, and
+    # bounded by its own timeout, so the assignment always goes out.
+    honey = await consult_for_assignment(deps, task, link)
+    assign = _task_assign(task, cell_id, fresh_grant.id, replace(terms, recon=recon), honey=honey)
+    pending = _PendingSend(fresh_grant=fresh_grant, sources=sources, assign=assign)
+    if not await _send_or_fail(deps, link, task, pending):
+        return None
     return fresh_grant
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingSend:
+    """What `_send_or_fail` sends: the fresh grant, its sources and the built assignment."""
+
+    fresh_grant: ForageGrant
+    sources: dict[str, ModelSource]
+    assign: TaskAssign
+
+
+async def _send_or_fail(
+    deps: QueenDeps, link: WardenLink, task: Task, pending: _PendingSend
+) -> bool:
+    """Send the grant then the assignment; fail `task` and report False if either never arrives.
+
+    By this point the task is already RUNNING in the chamber (module docstring: "assign/start
+    land before either wire message is sent"), so a send that never reaches this Warden would
+    otherwise leave it RUNNING with no Worker and nothing but liveness's own much slower,
+    task-blind CELL_UNREACHABLE Alarm to ever notice it (no code path returns a RUNNING task to
+    PENDING today: only the narrower ASSIGNED -> PENDING edge exists, and this task has already
+    left ASSIGNED). Fail it now instead, the same way `_deny_zero_grant` already fails an
+    unsendable assignment.
+    """
+    grant_wire = wrap(pending.fresh_grant.to_wire(pending.sources), link.hop, clock=deps.clock)
+    if not await link.send(grant_wire):
+        await _deny_unreachable_link(deps, link, task, pending.fresh_grant)
+        return False
+    if not await link.send(wrap(pending.assign, link.hop, clock=deps.clock)):
+        await _deny_unreachable_link(deps, link, task, pending.fresh_grant)
+        return False
+    return True
+
+
+async def _deny_unreachable_link(
+    deps: QueenDeps, link: WardenLink, task: Task, fresh_grant: ForageGrant
+) -> None:
+    """Revoke the grant and fail `task` when either wire message could not reach this Warden.
+
+    The grant is already ACTIVE in the ledger (`_send_grant_and_assign` recorded it before
+    sending), so it is revoked here as HOLDER_OFFLINE rather than left to the expiry sweep: the
+    ledger's headroom and the trail then agree at once that nobody holds it. `activate` is pure,
+    so re-deriving the ACTIVE copy of `fresh_grant` gives exactly the row the ledger holds.
+    """
+    await forage_grants.revoke(
+        deps.ledger,
+        deps,
+        forage_grants.activate(fresh_grant),
+        RevocationCause.HOLDER_OFFLINE,
+        "warden_link_closed",
+    )
+    summary = "The Warden's link closed before its grant or assignment could be delivered."
+    outcome = TaskOutcome(status=TaskStatus.FAILED, summary=summary)
+    await deps.chamber.fail(task.id, outcome)
 
 
 async def _deny_zero_grant(
@@ -466,9 +537,14 @@ async def _record_forage_granted(
 
 
 def _task_assign(
-    task: Task, cell_id: CellId, grant_id: GrantId, terms: _AssignmentTerms
+    task: Task,
+    cell_id: CellId,
+    grant_id: GrantId,
+    terms: _AssignmentTerms,
+    *,
+    honey: tuple[HoneyHit, ...] = (),
 ) -> TaskAssign:
-    """Build the TaskAssign a task's Warden receives, at `terms.attempt`."""
+    """Build the TaskAssign a task's Warden receives, at `terms.attempt`, carrying `honey`."""
     reason = (
         "Resumed by the Queen's dispatcher (Clustering)."
         if terms.resume_from is not None
@@ -495,6 +571,7 @@ def _task_assign(
         grant_id=grant_id,
         attempt=terms.attempt,
         resume_from=terms.resume_from,
+        honey=honey,
         reason=reason,
     )
 

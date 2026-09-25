@@ -678,6 +678,10 @@ class WardenEnd:
         """Close this end of the transport, so the Worker's own receive() ends cleanly."""
         await self._transport.close()
 
+    def drop(self) -> None:
+        """Drop the link under both ends, as a lost connection would: every later send raises."""
+        self._transport.drop()
+
     async def answer(
         self,
         question: Question,

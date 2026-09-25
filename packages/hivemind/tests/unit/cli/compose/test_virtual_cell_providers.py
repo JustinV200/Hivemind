@@ -14,6 +14,7 @@ See Also:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import get_args
 
 from builders.cli import fake_manifest
 
@@ -22,6 +23,8 @@ from hivemind.cli.compose.virtual_cell_providers import (
     cell_slots,
     provider_api_keys,
 )
+from hivemind.hive.backends.provider_table import CellProviderKind
+from hivemind.llm.registry import ProviderKind
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.llm import ProviderSpec
 
@@ -107,3 +110,18 @@ def test_provider_api_keys_skips_a_provider_with_no_key_set(tmp_path: Path) -> N
     keys = provider_api_keys(manifest, {})
 
     assert "HIVEMIND_LOCAL_API_KEY" not in keys
+
+
+def test_cell_provider_kind_mirrors_the_registrys_provider_kind() -> None:
+    # hive.backends may not import hivemind.llm, so CellProviderKind is a copy; this keeps it whole.
+    assert set(get_args(CellProviderKind)) == set(get_args(ProviderKind))
+
+
+def test_cell_providers_carries_an_in_process_embedding_provider(tmp_path: Path) -> None:
+    # An embedding-only provider still ships in the table; the Cell never builds it for chat.
+    manifest = _with_local_provider(tmp_path, kind="sentence_transformers", base_url="")
+
+    providers = cell_providers(manifest, "host.docker.internal")
+
+    local = next(p for p in providers if p.name == "local")
+    assert local.kind == "sentence_transformers"

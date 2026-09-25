@@ -47,3 +47,14 @@ evidence exist as a test scripts them, recording the order the gate called it in
 through `redact_step`); `login_recording`: a whole recording of the fixture site's login, one
 rolled-back mistake included.
 
+## `honey.py` and `honey_wire.py` (roadmap phase 7, honey_store)
+
+`honey.py` builds the Honey Store's own data and stores: `make_nectar_draft`, `make_honey_draft`,
+`make_nectar`, `make_nectar_submission`, `make_nectar_deposit`/`make_deposit_chunks` (a chunked
+Waggle deposit), `make_honey_identity`, `make_ripener_deps`, and `open_test_honey_store` /
+`open_test_honey_store_with_trail` (a real temp-file SQLite store, the Pheromone Trail migrated
+first). `make_nectar_draft`'s default content is fixed, and the store dedupes by content digest:
+override `content` when a test needs distinct rows. `honey_wire.py` builds what crosses Waggle for
+it: `make_honey_access` (a whole `HoneyAccess` over one store), `make_honey_link` (a `WardenLink`
+for a given Cell), `make_honey_query`, `make_honey_hit`, `make_deposit_meta`, and `seed_finding`
+(one ripened finding a query can find).

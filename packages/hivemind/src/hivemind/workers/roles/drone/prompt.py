@@ -8,7 +8,9 @@ whole attempt to `hivemind.workers.roles.bounded_loop.runner.run_bounded_loop`, 
 longer calls the generalised builders itself. `brief_for` and `select_counter` carried no
 Drone-specific behaviour at all and moved unchanged; this module still re-exports both, at their
 original path, so this package's own tests (which import `brief_for` from here directly) see no
-change at all.
+change at all. Roadmap step 7.9's additions (the Queen's Honey pre-check hits packed as the
+RETRIEVED section, and a reply's reserve capped at a quarter of a small model's window) were made
+there too, so every bounded-loop role gets them.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.drone`. `DRONE_ROLE`,

@@ -25,7 +25,7 @@ import pytest
 from builders.llm import make_provider_config, make_registry_deps
 from typer.testing import CliRunner
 
-import hivemind.cli.llm as llm_module
+import hivemind.cli.llm.commands as llm_module
 from hivemind.cli.app import app
 from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
@@ -120,6 +120,18 @@ _EXTRA_PROVIDERS = {
 }
 
 
+def _write_in_process_embedder_manifest(tmp_path: Path) -> Path:
+    """Write the fake manifest with its embedder slot moved to an in-process embedding provider."""
+    path = _write_fake_manifest(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        '[llm.slots.embedder]\nprovider = "fake"\nmodel = "test-model"',
+        '[llm.providers.local_embed]\nkind = "sentence_transformers"\n\n'
+        '[llm.slots.embedder]\nprovider = "local_embed"\nmodel = "test-embed-model"',
+    )
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def _scripted_registry(*responses: LLMResponse | LLMError) -> ProviderRegistry:
     """Build a ProviderRegistry whose 'fake' provider always returns the same pre-scripted one.
 
@@ -192,7 +204,7 @@ def test_providers_reports_refused_offline_instead_of_raising(
 ) -> None:
     manifest = _write_fake_manifest(tmp_path)
     # A registry offline=True with a non-loopback (empty) base_url: registry.provider() raises
-    # OfflineViolationError on construction (hivemind.llm.registry._check_offline).
+    # OfflineViolationError on construction (hivemind.llm.registry.config._check_offline).
     providers = {"fake": make_provider_config(kind="fake", base_url="")}
     registry = ProviderRegistry(providers, [], offline=True, deps=make_registry_deps())
     monkeypatch.setattr(llm_module, "build_registry", lambda manifest, environ, clock: registry)
@@ -276,6 +288,33 @@ def test_providers_probes_a_transcription_only_provider_through_its_transcriber(
     assert not rows["whisper"]["health"].startswith("not probed")
 
 
+def test_slots_lists_an_in_process_embedder_without_a_chat_binding(tmp_path: Path) -> None:
+    # An embedding-only kind has no chat door: resolving EMBEDDER through bound() would raise.
+    manifest = _write_in_process_embedder_manifest(tmp_path)
+
+    result = runner.invoke(app, ["llm", "slots", "--manifest", str(manifest), "--json"])
+
+    assert result.exit_code == 0, result.output
+    rows = {row["slot"]: row for row in json.loads(result.output)}
+    assert rows["embedder"]["provider"] == "local_embed"
+    assert rows["embedder"]["model"] == "test-embed-model"
+    assert rows["embedder"]["context_window"] is None
+    assert rows["worker"]["provider"] == "fake"
+
+
+def test_providers_probes_an_in_process_embedder_through_the_embedder_slot(
+    tmp_path: Path,
+) -> None:
+    manifest = _write_in_process_embedder_manifest(tmp_path)
+
+    result = runner.invoke(app, ["llm", "providers", "--manifest", str(manifest), "--json"])
+
+    assert result.exit_code == 0, result.output
+    rows = {row["name"]: row for row in json.loads(result.output)}
+    # Probed for real: DOWN when the embeddings extra is absent, HEALTHY once it loads a model.
+    assert rows["local_embed"]["health"].split(":")[0] in {"down", "healthy"}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # hive llm test
 # ──────────────────────────────────────────────────────────────────────────────
@@ -313,3 +352,20 @@ def test_test_command_rejects_an_unknown_slot(tmp_path: Path) -> None:
     result = runner.invoke(app, ["llm", "test", "not-a-slot", "--manifest", str(manifest)])
 
     assert result.exit_code == 2
+
+
+def test_test_command_embeds_and_prints_model_dimension_and_latency_for_embedder(
+    tmp_path: Path,
+) -> None:
+    # The fake manifest's own [llm.slots.embedder] already binds kind="fake" (roadmap 7.1: the
+    # same kind serves both chat and embeddings), so this runs the real build_registry, no
+    # monkeypatch needed -- FakeEmbedding needs no network either.
+    manifest = _write_fake_manifest(tmp_path)
+
+    result = runner.invoke(app, ["llm", "test", "embedder", "--manifest", str(manifest)])
+
+    assert result.exit_code == 0
+    assert "model: test-model" in result.output  # The binding's model, never the fake's own.
+    assert "dimension: 128" in result.output
+    assert "latency:" in result.output
+    assert "reply:" not in result.output  # Never the completion-shaped output for EMBEDDER.

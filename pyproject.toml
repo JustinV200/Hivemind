@@ -13,6 +13,16 @@ dependencies = [
     "pollen",    # Device-side connector; depends only on waggle.
 ]
 
+# Pass-through extras: `--extra` names an extra of the root project, never of a workspace member,
+# so each member extra a workflow needs is re-exported here under the same name. The Integration
+# workflow syncs `--extra docker` (never `--all-extras`, which would also pull `embeddings` and with
+# it a deep learning framework no integration test needs).
+[project.optional-dependencies]
+docker = ["hivemind[docker]"]  # The Docker Engine SDK the Docker Cell backend imports (roadmap 5.4).
+embeddings = ["hivemind[embeddings]"]  # The in-process EMBEDDER adapter's library (roadmap 7.1, ADR-0036).
+browser = ["hivemind[browser]"]  # Playwright, the Exoskeleton's browser fast path (roadmap 6.11, ADR-0031).
+whisper = ["hivemind[whisper]"]  # faster-whisper, in-process transcription (roadmap 6.5a, ADR-0033).
+
 [tool.uv]
 package = false  # Virtual root: uv manages the workspace but never tries to build/install this project itself.
 

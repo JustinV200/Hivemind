@@ -13,6 +13,9 @@ field name nor an `httpx` type is meant to be seen from outside this package. Ro
 adds the `transcription` sub-package: the same servers' `/audio/transcriptions` wire, as a
 `hivemind.llm.transcription.TranscriptionProvider` for `ModelSlot.TRANSCRIBER` (the model slot
 that hears), re-exported here as `OpenAICompatTranscription`/`OpenAICompatTranscriptionConfig`.
+Roadmap step 7.1 adds this package's embedding half: `OpenAICompatEmbeddingConfig` and
+`OpenAICompatEmbedding` (`embedding.py`), speaking `POST /embeddings` on the same servers over the
+same `client.py`.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm.providers`. Imported
@@ -43,8 +46,15 @@ Public API:
     - OpenAICompatProvider: the LLMProvider implementation, with `.create(name, config, clock)`.
     - OpenAICompatTranscriptionConfig, OpenAICompatTranscription: the transcriber over
       `/audio/transcriptions` (roadmap step 6.5a), with `.create(name, config, clock)`.
+    - OpenAICompatEmbeddingConfig: this provider's validated embedding configuration (roadmap 7.1).
+    - OpenAICompatEmbedding: the EmbeddingProvider implementation, with the same `.create(name,
+      config, clock)` shape.
 """
 
+from hivemind.llm.providers.openai_compat.embedding import (
+    OpenAICompatEmbedding,
+    OpenAICompatEmbeddingConfig,
+)
 from hivemind.llm.providers.openai_compat.provider import OpenAICompatConfig, OpenAICompatProvider
 from hivemind.llm.providers.openai_compat.transcription import (
     OpenAICompatTranscription,
@@ -53,6 +63,8 @@ from hivemind.llm.providers.openai_compat.transcription import (
 
 __all__ = [
     "OpenAICompatConfig",
+    "OpenAICompatEmbedding",
+    "OpenAICompatEmbeddingConfig",
     "OpenAICompatProvider",
     "OpenAICompatTranscription",
     "OpenAICompatTranscriptionConfig",

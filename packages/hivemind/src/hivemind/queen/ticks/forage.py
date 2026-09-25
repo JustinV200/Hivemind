@@ -220,9 +220,9 @@ async def _shrink_and_notify(
     if holder_link is None:
         return  # Unreachable: the shrink is still committed (mirrors this module's own rule).
     sources = {b.source_id: deps.map.get(b.source_id) for b in revised.allowed}
-    await holder_link.transport.send(
-        wrap(revised.to_wire(sources), holder_link.hop, clock=deps.clock)
-    )
+    # A closed link here is no worse than "unreachable" just above: the shrink is committed
+    # either way, and a holder that missed this notice learns its new grant on its next contact.
+    await holder_link.send(wrap(revised.to_wire(sources), holder_link.hop, clock=deps.clock))
 
 
 def _shrunk(target: ForageGrant, amount: float, kind: WireForageRequestKind) -> ForageGrant:
@@ -273,7 +273,10 @@ async def _send_grant(deps: QueenDeps, reply: _Reply, grant: ForageGrant, reason
     """Send the fresh GrantIssued, then the matching ForageReply, and record forage.granted."""
     link = reply.link
     sources = {binding.source_id: deps.map.get(binding.source_id) for binding in grant.allowed}
-    await link.transport.send(wrap(grant.to_wire(sources), link.hop, clock=deps.clock))
+    # The grant is already live in the ledger (handle_forage_request_for_kind's own doing): an
+    # undelivered send leaves the requester unaware until it asks again, or the grant's own TTL
+    # sweep reclaims it if nothing ever renews it (hivemind.queen.forage.grants.sweep_expired).
+    await link.send(wrap(grant.to_wire(sources), link.hop, clock=deps.clock))
     wire_reply = ForageReply(
         grant_id=grant.id,
         outcome=ForageOutcome.GRANTED,
@@ -282,9 +285,7 @@ async def _send_grant(deps: QueenDeps, reply: _Reply, grant: ForageGrant, reason
         expires_at=grant.expires_at,
         reason=reason,
     )
-    await link.transport.send(
-        wrap(wire_reply, link.hop, clock=deps.clock, correlation_id=reply.request_id)
-    )
+    await link.send(wrap(wire_reply, link.hop, clock=deps.clock, correlation_id=reply.request_id))
     await record_forage_event(
         deps, "forage.granted", grant.id, holder=grant.holder, max_sub_bees=grant.max_sub_bees
     )
@@ -302,9 +303,9 @@ async def _send_denial(deps: QueenDeps, reply: _Reply, reason: str, *, contested
         expires_at=None,
         reason=reason,
     )
-    await link.transport.send(
-        wrap(wire_reply, link.hop, clock=deps.clock, correlation_id=reply.request_id)
-    )
+    # Nothing durable depends on this reply landing: the request was simply denied, so an
+    # unreachable requester loses only the wire notice, never a grant it should have kept.
+    await link.send(wrap(wire_reply, link.hop, clock=deps.clock, correlation_id=reply.request_id))
     await record_forage_event(
         deps,
         "forage.denied",

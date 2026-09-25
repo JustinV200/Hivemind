@@ -9,10 +9,10 @@ holder (revision 0); `change_ceilings` is every one after (the old and new value
 trail, per codingrules section 8.10's own "changing a ceiling is a Queen decision on the trail").
 Both share one effectful edge (`_apply`): write the ledger's own copy
 (`hivemind.forage.Ceilings`, `hivemind.queen.forage.ledger.decisions.DecisionBook`), send
-`waggle.messages.forage.CeilingsSet` to the Warden over its `WardenLink` (the same
-`link.transport.send(wrap(...))` shape `hivemind.queen.dispatcher._send_grant_and_assign` already
-uses for `GrantIssued`), and record `forage.ceilings_set` -- in that order, so the trail always
-shows a ceilings change that has already reached its Warden.
+`waggle.messages.forage.CeilingsSet` to the Warden over its `WardenLink` (the same guarded
+`link.send(wrap(...))` shape `hivemind.queen.dispatcher._send_grant_and_assign` already uses for
+`GrantIssued`; phase-7 handoff open item 8), and record `forage.ceilings_set` -- in that order, so
+the trail always shows a ceilings change that has already reached its Warden when it could.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage
@@ -93,7 +93,11 @@ async def _apply(
         ceilings=ceilings.to_wire(),
         reason=reason,
     )
-    await warden.transport.send(wrap(message, warden.hop, clock=deps.clock))
+    # The ledger write above is already durable; an unreachable Warden simply never provisions
+    # from this one message and is re-sent nothing else until it is dispatched to again
+    # (hivemind.queen.dispatcher.ready._ensure_warden_provisioned only runs once per attachment,
+    # a residual gap this dispatch reports rather than widens the scope to fix).
+    await warden.send(wrap(message, warden.hop, clock=deps.clock))
     await record_forage_event(
         deps,
         "forage.ceilings_set",

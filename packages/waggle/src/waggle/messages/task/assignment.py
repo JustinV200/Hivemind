@@ -8,8 +8,10 @@ messages here travel down the tree, Queen to Warden and Warden to Worker. ``Task
 the task over with its acceptance criteria, its Tempo (a speed-against-accuracy setting), its
 clearance, its Forage grant (Forage is capacity as data: cores, memory, GPU, model seats and
 spend), its Leavings (roadmap step 5.0b: what the plan declared should stay on the Cell once the
-lease is released, a `PlannedLeaving` tuple carried unchanged from the plan) and an optional
-Handoff (the document a bee writes before its context is reset) to resume from; ``TaskCancel``,
+lease is released, a `PlannedLeaving` tuple carried unchanged from the plan), the Honey the Queen's
+pre-check found for it (roadmap step 7.9: hits from the Honey Store, the Hive's knowledge base,
+plus the chosen Cell's live Cell Wax, carried as `HoneyHit`s) and an optional Handoff (the
+document a bee writes before its context is reset) to resume from; ``TaskCancel``,
 ``TaskPause`` and ``TaskResume`` are the orders on a task in flight. The reports that travel back
 up (``TaskProgress``, ``TaskResult``) live in ``waggle.messages.task.reports``, split out by
 responsibility so each file stays under the codingrules 5.1 size limit. ``WorkerRole`` names the
@@ -20,7 +22,8 @@ Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Registered by waggle.messages.registry, which maps
     each class to its kind; built by the Queen and every Warden and read by every Warden and
-    Worker; calls into waggle.messages.base and waggle.messages.labels only.
+    Worker; calls into waggle.messages.base, waggle.messages.labels and
+    waggle.messages.honey.hit (HoneyHit, the retrieval result the pre-check attaches) only.
 
 Key invariants:
     - No class here carries its kind string; the registry is the only place kinds live.
@@ -28,6 +31,7 @@ Key invariants:
     - Every rule the spec marks (validator) is a pydantic validator on the class; every rule it
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A task never resumes from a Handoff labelled above its own clearance (TaskAssign).
+    - A task is never handed Honey labelled above its own clearance (TaskAssign).
 
 See Also:
     - docs/waggle/spec.md section 8.2 for the normative fields, bounds and validators.
@@ -52,6 +56,7 @@ from waggle.messages.base import (
     TaskIdField,
     WaggleMessage,
 )
+from waggle.messages.honey.hit import HoneyHit
 from waggle.messages.labels import HandoffRef, HoneyClearance, PlannedLeaving, Postcondition, Tempo
 from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES, ExoskeletonNeed, NetworkScope
 from waggle.messages.task.recon import MAX_RECON_REPORTS, ScoutReport
@@ -63,12 +68,15 @@ MAX_ACCEPTANCE_ITEMS = 32  # More criteria than one task should carry; split the
 MAX_ACCEPTANCE_CHARS = 65_536  # 64 KiB across every criterion, so an assign always fits one frame.
 MAX_LEAVES_ITEMS = 16  # roadmap 5.0b: a task that leaves more than a handful of paths behind is
 # really declaring a whole directory, not enumerating files one by one.
+MAX_ASSIGN_HONEY_ITEMS = 16  # roadmap 7.9: a page of pre-check hits plus the Cell's live wax,
+# never a whole search; the bee can still query for more (honey.query).
 MIN_ATTEMPT = 1  # The first try is attempt 1, so 0 can never pass for a real attempt.
 MIN_GRACE_S = 0.0  # A grace period is never negative; exactly 0 kills at once (Sting Cut).
 
 __all__ = [
     "MAX_ACCEPTANCE_CHARS",
     "MAX_ACCEPTANCE_ITEMS",
+    "MAX_ASSIGN_HONEY_ITEMS",
     "MAX_LEAVES_ITEMS",
     "MAX_OBJECTIVE_CHARS",
     "MIN_ACCEPTANCE_ITEMS",
@@ -142,6 +150,15 @@ class TaskAssign(WaggleMessage):
         "released, carried unchanged from the plan; empty by default so an older peer's "
         "task.assign still validates. A Drone cannot widen this set, only raise a Question.",
     )
+    honey: tuple[HoneyHit, ...] = Field(
+        default=(),
+        max_length=MAX_ASSIGN_HONEY_ITEMS,
+        description="What the Queen's pre-check found for this task (roadmap step 7.9): Honey "
+        "about its objective and its chosen Cell, plus that Cell's live Cell Wax, as hits. Each "
+        "reaches the bee's model delimited and labelled as untrusted retrieved content, and none "
+        "is labelled above clearance (validator). Empty by default, so an older peer's "
+        "task.assign still validates.",
+    )
     tempo: Tempo = Field(description="The task's latency budget and accuracy bar.")
     exoskeleton: ExoskeletonNeed | None = Field(
         default=None,
@@ -210,6 +227,20 @@ class TaskAssign(WaggleMessage):
                 f"TaskAssign resume_from is labelled {self.resume_from.clearance.value}, above "
                 f"the task's clearance {self.clearance.value}."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _honey_within_clearance(self) -> TaskAssign:
+        """Reject a pre-check hit labelled above the task's own clearance."""
+        # The same rule as resume_from: the bee may read nothing above `clearance`, and the Queen
+        # filters before she attaches, so a hit above it here is a Queen-side bug that must fail
+        # loudly at the wire rather than put Royal data into a lower-cleared bee's first prompt.
+        for hit in self.honey:
+            if hit.clearance.rank > self.clearance.rank:
+                raise ValueError(
+                    f"TaskAssign honey hit {hit.honey_ref!r} is labelled {hit.clearance.value}, "
+                    f"above the task's clearance {self.clearance.value}."
+                )
         return self
 
 

@@ -281,6 +281,18 @@ class OpenAICompatProvider:
         state, detail = _health_from_status(response.status_code)
         return ProviderHealth(state=state, detail=detail, checked_at=self._clock.now())
 
+    async def aclose(self) -> None:
+        """Close this provider's HTTP client and every keep-alive connection it pooled.
+
+        Not part of `LLMProvider`: only an adapter that owns a connection pool has anything to
+        close, and `hivemind.llm.registry.ProviderRegistry.aclose` finds this method structurally.
+        A local server keeps connections alive between calls (llama.cpp, Ollama, LM Studio, vLLM
+        all do), so a client never closed leaves open sockets behind its Hive (found 2026-09-24,
+        the phase 7 `local_llm` eval's first run on a real local server).
+        """
+        # Local, milliseconds: closes idle pooled sockets; no request is in flight at shutdown.
+        await self._http.aclose()
+
     def _ensure_model_served(self, model: str) -> None:
         """Raise if `probe()` has run and `model` is not in the server's listing.
 

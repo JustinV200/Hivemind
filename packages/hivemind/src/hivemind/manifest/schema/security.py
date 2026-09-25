@@ -21,8 +21,9 @@ construction.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
-    ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``waggle.messages`` only, for
-    the wire ``CombShieldLevel`` and ``HoneyClearance`` enums.
+    ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``waggle.messages``, for
+    the wire ``CombShieldLevel`` and ``HoneyClearance`` enums, and ``hivemind.manifest.schema.
+    honey`` for the three Honey Store sub-sections ``HoneySection`` also carries (phase 7).
 
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
@@ -44,6 +45,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hivemind.manifest.schema.honey import (
+    HoneyRetrievalSection,
+    HoneyRipeningSection,
+    HoneyStoreSection,
+)
 from waggle.messages import CombShieldLevel, HoneyClearance
 
 DEFAULT_COMB_SHIELD = CombShieldLevel.MEADOW  # The baseline tier: any machine, no VPN required.
@@ -167,12 +173,13 @@ class HoneyClearanceSection(BaseModel):
 
 
 class HoneySection(BaseModel):
-    """``[honey]``: the wrapper TOML's dotted `[honey.clearance]` header nests under.
+    """``[honey]``: the wrapper TOML's dotted `[honey.*]` headers nest under.
 
     A dotted TOML section header (`[honey.clearance]`) parses into a genuinely nested table, not a
     flat key named ``"honey.clearance"``; this thin wrapper is what lets `HiveManifest.honey`
     carry that nesting the same way `LlmSection.providers` carries `[llm.providers.<name>]`'s.
-    Phase 3 gives `[honey]` exactly one sub-section; a later phase may add siblings beside it.
+    Phase 3 gave `[honey]` its clearance sub-section; phase 7 (the Honey Store itself, ADR-0035)
+    adds `store`, `ripening` and `retrieval` beside it (`hivemind.manifest.schema.honey`).
     """
 
     model_config = _MODEL_CONFIG
@@ -180,6 +187,18 @@ class HoneySection(BaseModel):
     clearance: HoneyClearanceSection = Field(
         default_factory=HoneyClearanceSection,
         description="Honey Clearance defaults and the per-tier read/write matrix.",
+    )
+    store: HoneyStoreSection = Field(
+        default_factory=HoneyStoreSection,
+        description="What one Nectar deposit may weigh at intake (roadmap step 7.4).",
+    )
+    ripening: HoneyRipeningSection = Field(
+        default_factory=HoneyRipeningSection,
+        description="The House Bee's ripening cadence, chunking, summaries and embeddings.",
+    )
+    retrieval: HoneyRetrievalSection = Field(
+        default_factory=HoneyRetrievalSection,
+        description="Hybrid ranking weights, the score floor and the result budget (7.7, 7.9).",
     )
 
 

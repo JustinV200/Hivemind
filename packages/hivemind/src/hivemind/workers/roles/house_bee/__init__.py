@@ -1,29 +1,33 @@
-"""Implement HouseBee: the maintenance role that sweeps hot state and Bee Bread (roadmap step 4.3).
+"""Implement HouseBee: the maintenance role that sweeps memory down its tiers and ripens Honey.
 
-A House Bee keeps memory from growing without bound: its one duty, a **sweep**, first demotes
-whatever `hivemind.memory.should_demote` says has left hot state's own window into Bee Bread (the
-warm tier), expires every WRITTEN Cell Wax note (a Queen-written caution about one Cell) whose own
-`expires_at` has passed (`hivemind.memory.cell_wax.expire_wax`, roadmap step 4.2a's own named
-wax-expiry hook), then folds Bee Bread entries older than that same window, for closed tasks, into
-new `SUMMARY` entries through `hivemind.memory.compact` -- never from a previous summary
-(docs/adr/0022, "one level"). A fourth phase, ripening Bee Bread (and cleared/expired Cell Wax)
-into Honey (the cold tier), is a named no-op hook until phase 7's Honey Store exists. This package
-is split by responsibility (codingrules section
-5.2): `sweep.py` holds `run_sweep` and the pure counts/bundles it works over
-(`SweepDeps`/`SweepWindow`/`SweepOutcome`), decoupled from the Worker protocol so a future
-timer-driven supervisor can call it directly; `schedule.py` holds `SweepSchedule`, the pure timer a
-supervisor checks before doing so; `role.py` holds `HouseBee` itself, the `hivemind.workers.base.
-Worker`-protocol adapter around one sweep. This face only re-exports (codingrules section 5.4).
+A House Bee keeps memory from growing without bound. Its **sweep** (roadmap step 4.3) first
+demotes whatever `hivemind.memory.should_demote` says has left hot state's own window into Bee
+Bread (the warm tier), expires every WRITTEN Cell Wax note (a Queen-written caution about one
+Cell) whose own `expires_at` has passed (`hivemind.memory.cell_wax.expire_wax`, roadmap step
+4.2a's own named wax-expiry hook), then folds Bee Bread entries older than that same window, for
+closed tasks, into new `SUMMARY` entries through `hivemind.memory.compact` -- never from a previous
+summary (docs/adr/0022, "one level"). A fourth phase (roadmap steps 7.6 and 7.9a) deposits aged
+Bee Bread and cleared or expired Cell Wax into the Honey Store (the cold tier, the Hive's
+searchable knowledge base) as Nectar, its raw material. Its **ripening loop** (`HouseBeeRipening`)
+runs beside the Queen, never inside her tick, and turns that Nectar into Honey on the ripener and
+embedder slots, draining the operator's proposed notes first. This package is split by
+responsibility (codingrules section 5.2): `sweep.py` holds `run_sweep` and the pure
+counts/bundles it works over (`SweepDeps`/`SweepWindow`/`SweepOutcome`), decoupled from the Worker
+protocol so the Queen's own housekeeping tick calls it directly; `honey.py` holds the sweep's two
+Honey deposit duties and the Cell records they are attributed through; `loop.py` holds
+`HouseBeeRipening`; `schedule.py` holds `SweepSchedule`, the pure timer a supervisor checks before
+sweeping; `role.py` holds `HouseBee` itself, the `hivemind.workers.base.Worker`-protocol adapter
+around one sweep. This face only re-exports (codingrules section 5.4).
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles`. Constructed by a Warden's
     spawn logic (roadmap step 3.19, a parallel dispatch) and run once per attempt by
-    `hivemind.workers.runtime.WorkerRuntime`; `run_sweep` is also exposed directly so that same
-    parallel dispatch can wire `SweepSchedule` onto the Queen's or a Warden's own timer without
-    going through a `TaskAssign` at all. Calls into `hivemind.cell`, `hivemind.llm`,
-    `hivemind.memory`, `hivemind.workers.base`, `hivemind.workers.context` and waggle only; never
-    `hivemind.wardens` or `hivemind.queen` (codingrules section 4: "a Worker never imports its
-    Warden").
+    `hivemind.workers.runtime.WorkerRuntime`; `run_sweep` is also exposed directly so the Queen's
+    own housekeeping tick runs it on `SweepSchedule`'s timer without going through a `TaskAssign`
+    at all, and `HouseBeeRipening` is run by the composition root beside the Queen. Calls into
+    `hivemind.cell`, `hivemind.honey_store`, `hivemind.llm`, `hivemind.memory`,
+    `hivemind.workers.base`, `hivemind.workers.context` and waggle only; never `hivemind.wardens`
+    or `hivemind.queen` (codingrules section 4: "a Worker never imports its Warden").
 
 Key invariants:
     - `HouseBee.run` never marks a task SUCCEEDED (codingrules section 8.7): every attempt returns
@@ -31,6 +35,8 @@ Key invariants:
     - `run_sweep` never summarises a `BeeBreadEntryKind.SUMMARY` entry (docs/adr/0022's "one level
       of summary"), and never a compaction batch larger than `hivemind.memory.bee_bread.entry.
       MAX_REF_IDS`.
+    - Nothing here ripens inside the Queen's tick: the sweep only deposits Nectar; model calls
+      for ripening happen in `HouseBeeRipening`'s own loop (docs/adr/0035).
 
 See Also:
     - .claude/codingrules.md section 8.7 for "a Worker never marks itself SUCCEEDED."
@@ -40,6 +46,7 @@ See Also:
     - hivemind.workers.roles.drone for Drone, the sibling role this package's shape mirrors.
     - hivemind.memory.compact and hivemind.memory.demote for this package's two memory-side
       collaborators.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for where ripening runs and why.
 
 Public API (roadmap 4.3):
     - HouseBee, HOUSE_BEE_HOT_WINDOW_S: the role itself, and its mirrored hot-window constant
@@ -48,8 +55,32 @@ Public API (roadmap 4.3):
       sweep's own work, decoupled from the Worker protocol (hivemind.workers.roles.house_bee.sweep).
     - SweepSchedule: the pure timer a supervisor checks before running a sweep
       (hivemind.workers.roles.house_bee.schedule).
+
+Public API (roadmap 7.6, 7.9a):
+    - HouseBeeHoney, CellRecords, GatheredOn, deposit_aged_bee_bread, deposit_retired_wax,
+      bee_or_none, BEE_BREAD_WATERMARK, BEE_BREAD_SOURCE_KEY_PREFIX, WAX_SOURCE_KEY_PREFIX: the
+      sweep's Honey deposit duties and what they are attributed through
+      (hivemind.workers.roles.house_bee.honey).
+    - HouseBeeRipening, RipeningPass, MAX_PROPOSALS_PER_PASS: the ripening loop beside the Queen
+      (hivemind.workers.roles.house_bee.loop).
 """
 
+from hivemind.workers.roles.house_bee.honey import (
+    BEE_BREAD_SOURCE_KEY_PREFIX,
+    BEE_BREAD_WATERMARK,
+    WAX_SOURCE_KEY_PREFIX,
+    CellRecords,
+    GatheredOn,
+    HouseBeeHoney,
+    bee_or_none,
+    deposit_aged_bee_bread,
+    deposit_retired_wax,
+)
+from hivemind.workers.roles.house_bee.loop import (
+    MAX_PROPOSALS_PER_PASS,
+    HouseBeeRipening,
+    RipeningPass,
+)
 from hivemind.workers.roles.house_bee.role import HOUSE_BEE_HOT_WINDOW_S, HouseBee
 from hivemind.workers.roles.house_bee.schedule import SweepSchedule
 from hivemind.workers.roles.house_bee.sweep import (
@@ -62,13 +93,25 @@ from hivemind.workers.roles.house_bee.sweep import (
 )
 
 __all__ = [
+    "BEE_BREAD_SOURCE_KEY_PREFIX",
+    "BEE_BREAD_WATERMARK",
     "HOUSE_BEE_HOT_WINDOW_S",
+    "MAX_PROPOSALS_PER_PASS",
     "SWEEP_DECISION_LIMIT",
     "SWEEP_NOTE_LIMIT",
+    "WAX_SOURCE_KEY_PREFIX",
+    "CellRecords",
+    "GatheredOn",
     "HouseBee",
+    "HouseBeeHoney",
+    "HouseBeeRipening",
+    "RipeningPass",
     "SweepDeps",
     "SweepOutcome",
     "SweepSchedule",
     "SweepWindow",
+    "bee_or_none",
+    "deposit_aged_bee_bread",
+    "deposit_retired_wax",
     "run_sweep",
 ]

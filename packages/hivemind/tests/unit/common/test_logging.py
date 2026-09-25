@@ -16,6 +16,9 @@ See Also:
 
 from __future__ import annotations
 
+import io
+import sys
+
 import pytest
 import structlog
 
@@ -67,3 +70,30 @@ def test_configure_logging_can_keep_standard_output_for_the_report(
     out, err = capsys.readouterr()
     assert out == ""
     assert '"event": "hivemind.test_to_stderr"' in err
+
+
+def test_to_stderr_keeps_stdout_clean_for_a_commands_own_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging(json_output=False, level="WARNING", to_stderr=True)
+
+    get_logger("hivemind.test_stderr").warning("hivemind.stderr_event")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "hivemind.stderr_event" in captured.err
+
+
+def test_to_stderr_writes_to_the_stream_current_at_write_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A test runner swaps sys.stderr per invocation and closes the old one: a logger configured
+    # earlier must follow the swap, never write to the stream it saw at configuration time.
+    configure_logging(json_output=False, level="WARNING", to_stderr=True)
+    logger = get_logger("hivemind.test_stderr_swap")
+    later = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", later)
+
+    logger.warning("hivemind.after_the_swap")
+
+    assert "hivemind.after_the_swap" in later.getvalue()

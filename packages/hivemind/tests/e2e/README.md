@@ -52,6 +52,24 @@ exist to catch problems that only show up when every layer runs at once.
   Queen's first grant compute to `max_sub_bees = 0`; asserts `run_goal` returns FAILED with a
   readable reason well inside its own timeout, never a timeout itself, and that `forage.denied`
   and `task.failed` both land on the trail.
+- `test_honey_compounds.py` (`@pytest.mark.e2e`) -- roadmap phase 7's first two exit criteria:
+  (a) a goal run twice on the Hive Stand at C2 -- the first Drone discovers a fact with a command,
+  the Queen deposits the verified outcome, one ripening pass turns it into Honey, and the second
+  run's `TaskAssign` carries it (`queen.honey_consulted` on the trail) and the second Drone makes
+  fewer model calls; run at both capability levels, the 8,192-token "none" window included; (b)
+  the same at C1 attaches nothing (Hive Stand Honey is C2 by provenance); (c) a Handoff written at
+  t0 is deposited by the House Bee's sweep a day later, ripened, and found with full provenance.
+- `test_honey_wire.py` (`@pytest.mark.e2e`) -- roadmap step 7.8: a real Queen tick handler, a real
+  Warden running its own loop and a real `WorkerRuntime` using the real `recall`/`remember` tools,
+  over memory transports and a seeded SQLite Honey Store. Proves a query's round trip hop by hop
+  (Worker -> Warden -> Queen -> Warden -> Worker, correlation ids intact) and a two-chunk deposit
+  reaching intake whole with the Worker's provenance.
+- `test_hive_stand_identity.py` (`@pytest.mark.e2e`) -- phase 7 handoff item 4: two separate
+  `HiveStandSource`/`HoneyAccess` builds from the same manifest and database file, driven one
+  after the other (standing in for two separate `hive run` processes), lease the identical Hive
+  Stand Cell id (`hivemind.cell.hive_stand_cell_id`, derived from `[hive] node_id`), and the
+  second leaseholder reads back, at that same `cell:<id>` scope, a Honey row the first one
+  deposited and ripened before releasing.
 
 ## Budget
 

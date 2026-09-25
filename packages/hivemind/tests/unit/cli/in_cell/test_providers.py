@@ -149,7 +149,7 @@ def test_offline_does_not_refuse_a_gateway_host_base_url() -> None:
     """`[llm] offline = true` must not reject a base_url already rewritten to a gateway alias.
 
     From inside the Cell, `host.docker.internal` IS the Hive Stand's own machine (roadmap step
-    8.x's own gap; `hivemind.llm.registry._is_provably_local`'s own gateway carve-out).
+    8.x's own gap; `hivemind.llm.registry.config._is_provably_local`'s own gateway carve-out).
     """
     slots_json = json.dumps([_slot_row("warden"), _slot_row("worker")])
     config = _config(

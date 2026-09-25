@@ -57,9 +57,9 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.6"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.7"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 6  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 7  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
 # Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 3 for
 # TaskAssign.leaves, a new optional field (roadmap step 5.0b, "the plan declares what stays"); 4
@@ -69,7 +69,8 @@ PROTOCOL_MINOR = 6  # Additive changes bump it; any minor of a known major is ac
 # InterventionAction.RELEASE_LEASE (roadmap steps 5.10 and 5.13); 6 for the Exoskeleton (roadmap
 # phase 6): ActionKind.GUI with its typed GuiStep, PostconditionKind.URL_MATCHES/REGION_CHANGED,
 # RollbackMethod.GUI_STATE, AlarmKind.EXOSKELETON_FAILED, CellCapabilitiesReport.
-# real_display_allowed, TaskAssign.exoskeleton/network_scopes/recon and TaskResult.scout_report.
+# real_display_allowed, TaskAssign.exoskeleton/network_scopes/recon and TaskResult.scout_report; 7
+# for TaskAssign.honey, a new optional field (roadmap step 7.9, the Queen's Honey pre-check).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

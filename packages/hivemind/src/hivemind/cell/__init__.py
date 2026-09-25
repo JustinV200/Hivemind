@@ -69,9 +69,12 @@ Public API:
       SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError,
       ScratchQuotaExceededError, BackgroundStartError: this package's error tree
       (hivemind.cell.errors).
-    - hivemind.cell.local: the Hive Stand, the first Real Cell source (roadmap step 3.11): see
-      its own README for HiveStandConfig, HiveStandSource, LocalProcessSession and
-      HiveStandLeaseReleaser, not re-exported here (codingrules section 4: `hivemind.cell.local`
+    - HIVE_STAND_SOURCE, hive_stand_cell_id: the Hive Stand's own `source` name and the pure
+      function that derives its one Cell's id from a node id (hivemind.cell.local), re-exported
+      here because callers outside `hivemind.cell` name a Hive Stand Cell by these without
+      reaching into `hivemind.cell.local`'s other names (HiveStandConfig, HiveStandSource,
+      LocalProcessSession, HiveStandLeaseReleaser), which stay unexported here: see
+      `hivemind.cell.local`'s own README for those (codingrules section 4: `hivemind.cell.local`
       is one of the places under this package allowed to import `subprocess`, alongside
       `hivemind.cell.in_cell`).
 """
@@ -99,6 +102,7 @@ from hivemind.cell.lease import (
     RestoreRecord,
 )
 from hivemind.cell.lease_state import TRANSITIONS, LeaseState, assert_transition, can_transition
+from hivemind.cell.local import HIVE_STAND_SOURCE, hive_stand_cell_id
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.needs import Isolation, OsFamily, RequestOrigin, TaskNeeds
 from hivemind.cell.session import (
@@ -122,6 +126,7 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel, HoneyClearance
 
 __all__ = [
     "DEFAULT_EXEC_TIMEOUT_S",
+    "HIVE_STAND_SOURCE",
     "NOOP_SNAPSHOT_ID",
     "SCRATCH_DIR_MODE",
     "TRANSITIONS",
@@ -175,6 +180,7 @@ __all__ = [
     "TaskNeeds",
     "assert_transition",
     "can_transition",
+    "hive_stand_cell_id",
     "resolve_scratch_path",
     "run",
 ]

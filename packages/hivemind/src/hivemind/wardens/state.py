@@ -240,10 +240,10 @@ def clustering_update(
 
     Roadmap step 4.9: the pure-in-effect-shape half of `hivemind.wardens.warden.Warden`'s own
     bookkeeping for `warden._clustered_tasks`, split out for the same file-size reason
-    `settled_state`'s own docstring gives. The one call site (`_act`'s own `FORWARD_CONTROL`
-    branch) checks `item.principal == _QUEEN_LINK` itself before calling this at all: a sub-bee's
-    own link never sends an `Intervene(HANDOFF)`/`TaskResume` to its own Warden, so nothing here
-    re-checks the sender.
+    `settled_state`'s own docstring gives. The one call site (`hivemind.wardens.ticks.control.
+    forward_control`, the `FORWARD_CONTROL` handler) checks `item.principal == _QUEEN_LINK` itself
+    before calling this at all: a sub-bee's own link never sends an `Intervene(HANDOFF)`/
+    `TaskResume` to its own Warden, so nothing here re-checks the sender.
 
     Args:
         task_id: The InboxItem's own task id (`item.task_id`); a no-op when None.

@@ -159,3 +159,24 @@ ADRs that exist today, in numeric order:
 - `0033-transcription-provider-whisper-first.md`: one `TranscriptionProvider` protocol on
   `ModelSlot.TRANSCRIBER` with in-process faster-whisper, OpenAI-compatible and fake adapters, bound
   and metered like chat slots, no model size in code, and audio never kept by default.
+- `0034-a-lease-browser-reads-only-its-own-scratch.md`: a browser loads a file URL only from its
+  file roots, and a lease's only root is its scratch; one lexical rule (`hivemind.guard.file_urls`)
+  is asked by the Worker's browser tool, the Capping gate's allowlist rung and the browser itself,
+  whose Playwright route also resolves symlinks before any file is read.
+- `0035-honey-store-sqlite-fts5-sqlite-vec.md`: the Honey Store is a migration series in the
+  Hive's one SQLite file, Nectar and Honey tables with FTS5 and exact vector search through
+  sqlite-vec's distance function under the same filters as policy, labels floored from provenance
+  and raised only, scopes derived from provenance and read through `honey:read:<scope>`, Night Veil
+  deposits ephemeral, and ripening in the House Bee's own loop beside the Queen.
+- `0036-embedding-provider-and-reembedding-policy.md`: one `EmbeddingProvider` door on the
+  `EMBEDDER` slot with an OpenAI-compatible, an in-process `sentence-transformers` and a fake
+  adapter, metered by the Fanner; every vector names its model, and changing the embedder
+  re-embeds progressively while retrieval degrades to full text.
+- `0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md`: a deposit that
+  deduplicates by content from a new source keeps that source's provenance, index folders list
+  scopes with one query under the reader's filter, and an old embedder's vectors are dropped only
+  by `hive honey reembed --prune` once the bound model covers every row.
+- `0038-honey-label-lowering-is-a-judge-reviewed-proposal.md`: a Nectar held at `C2` only by the
+  Real Cell floor, whose text the Ripener reads as less sensitive, gets one lowering proposal; an
+  independent judge on `JUDGE` or the human decides it, and the lowering, its proposal and its
+  event commit in one transaction; `hive honey review` shows and decides what waits.

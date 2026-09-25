@@ -66,8 +66,12 @@ MAX_PRINCIPAL_ROLE_CHARS = 64
 # DEFAULT_ITEM_CAP_CHARS); defined here (not in packing.py) so TokenBudget.item_cap_chars below can
 # default to it without packing.py importing back from this module's own consumer.
 ITEM_CAP_CHARS = 4_000
+# The most of a packing target the cold tier (retrieved Honey hits) may ever take, after hot state
+# has packed first: a quarter keeps reference material from outweighing the episode's own state.
+DEFAULT_RETRIEVED_FRACTION = 0.25
 
 __all__ = [
+    "DEFAULT_RETRIEVED_FRACTION",
     "ITEM_CAP_CHARS",
     "MAX_SUMMARY_OPTIONS",
     "SUMMARY_OPTION_CAP_CHARS",
@@ -111,7 +115,16 @@ class TokenBudget(BaseModel):
         default=ITEM_CAP_CHARS,
         gt=0,
         description="Per-item character cap (manifest [memory] item_cap_chars); oversized items "
-        "become one-line references instead of being inlined.",
+        "become one-line references instead of being inlined, and a retrieved hit's excerpt is "
+        "cut here.",
+    )
+    retrieved_fraction: float = Field(
+        default=DEFAULT_RETRIEVED_FRACTION,
+        gt=0,
+        le=1,
+        description="The most of the packing target (max_input_tokens - output_reserve) the "
+        "RETRIEVED section may take; retrieved hits pack after hot state, into whatever is left "
+        "up to this share, and never take room from hot state.",
     )
 
 

@@ -42,7 +42,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import cast, get_args
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import ValidationError
@@ -81,10 +81,12 @@ DEFAULT_SCRATCH_ROOT = Path("/var/lib/hivemind/scratch")
 # until a future step threads one through CellReady/an explicit env var if that proves too coarse.
 DEFAULT_HEARTBEAT_INTERVAL_S = 15.0
 
-# Mirrors hivemind.llm.registry.ProviderKind's own members; a HIVEMIND_PROVIDERS row naming
-# anything else is malformed input from outside this process (the Queen's own backend), never a
-# bare KeyError/ValueError (this module's own "ConfigurationError naming the variable" rule).
-_VALID_PROVIDER_KINDS = frozenset(("anthropic", "openai_compat", "fake", "whisper_local"))
+# Derived from hivemind.llm.registry.ProviderKind rather than copied, so a new kind (roadmap 7.1's
+# sentence_transformers) can never make every Virtual Cell refuse its own provider table; a
+# HIVEMIND_PROVIDERS row naming anything else is malformed input from outside this process (the
+# Queen's own backend), never a bare KeyError/ValueError (this module's "ConfigurationError naming
+# the variable" rule).
+_VALID_PROVIDER_KINDS: frozenset[str] = frozenset(get_args(ProviderKind))
 
 __all__ = [
     "DEFAULT_HEARTBEAT_INTERVAL_S",

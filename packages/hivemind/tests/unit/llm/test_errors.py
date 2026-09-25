@@ -17,6 +17,7 @@ from hivemind.common.errors import HiveMindError
 from hivemind.llm.errors import (
     MAX_RAW_PREVIEW_CHARS,
     ContextTooLongError,
+    EmbeddingUnsupportedError,
     LLMError,
     MalformedOutputError,
     OfflineViolationError,
@@ -35,6 +36,7 @@ ALL_ERROR_CLASSES = (
     MalformedOutputError,
     UnknownProviderError,
     OfflineViolationError,
+    EmbeddingUnsupportedError,
 )
 
 
@@ -130,3 +132,11 @@ def test_offline_violation_error_names_the_provider_and_base_url() -> None:
     assert error.provider == "hosted"
     assert error.base_url == "https://api.example.com"
     assert "https://api.example.com" in str(error)
+
+
+def test_embedding_unsupported_error_names_the_provider_and_kind() -> None:
+    error = EmbeddingUnsupportedError("anthropic", "anthropic")
+
+    assert error.provider == "anthropic"
+    assert error.kind == "anthropic"
+    assert "anthropic" in str(error)

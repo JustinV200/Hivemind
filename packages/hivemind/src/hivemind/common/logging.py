@@ -14,6 +14,9 @@ Fits into the Hive:
 Key invariants:
     - Importing this module has no side effect: structlog is only configured inside
       configure_logging, never at import time.
+    - With `to_stderr`, every line goes to whatever `sys.stderr` is at the moment it is written,
+      never a stream captured at configuration time: a command whose stdout is data (`--json`)
+      keeps it clean, and a stream a test runner has since closed is never written to.
     - Log event names passed to a bound logger are lowercase and dotted, e.g. "cell.ready"
       (codingrules section 12), not prose sentences.
 
@@ -77,6 +80,8 @@ def configure_logging(*, json_output: bool, level: str, to_stderr: bool = False)
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
+        # stdout by default (a Cell's own process, whose stdout is its log); a CLI asks for
+        # stderr, resolved at each write (module docstring's Key invariants).
         logger_factory=_logger_factory(to_stderr),
         cache_logger_on_first_use=True,
     )

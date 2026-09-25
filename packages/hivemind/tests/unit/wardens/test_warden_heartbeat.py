@@ -21,6 +21,7 @@ from typing import cast
 from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment
 
+from hivemind.pheromone.trail import TrailQuery
 from hivemind.wardens.warden import Warden
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
@@ -109,6 +110,38 @@ async def test_heartbeat_carries_a_child_telemetry_row_per_sub_bee() -> None:
     assert len(heartbeat.children) == 1
     assert heartbeat.children[0].worker_id == warden.sub_bees[0].worker_id
     assert heartbeat.warden_state is not None
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+
+async def test_a_closed_queen_link_never_stops_the_wardens_own_tick_loop() -> None:
+    """Phase-7 handoff open item 8: a closed queen link must not end a Warden's own run().
+
+    `send_heartbeat`'s guarded send (hivemind.wardens.ticks.heartbeat) must swallow a closed
+    link rather than crash the tick, so this Warden keeps ticking and keeps recording
+    `warden.offline` on every heartbeat deadline afterwards, not just the first.
+    """
+    deps, queen_end, warden_id = make_warden_deps(heartbeat_interval_s=1.0)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    await _settle()  # Let the loop's own first tick register its heartbeat-deadline sleeper.
+    await queen_end.close()  # The Queen's own end closes; this Warden's next send finds it gone.
+
+    fake_clock = cast(FakeClock, deps.clock)
+    fake_clock.advance(deps.heartbeat_interval_s + 0.1)
+    await _settle()
+
+    assert not run_task.done()  # The guarded send never ended this Warden's own loop.
+    first_pass = await deps.trail.query(TrailQuery(kind="warden.offline"))
+    assert len(first_pass) == 1
+
+    # A second heartbeat deadline, well after the first: the loop is still ticking, not stuck.
+    fake_clock.advance(deps.heartbeat_interval_s + 0.1)
+    await _settle()
+    second_pass = await deps.trail.query(TrailQuery(kind="warden.offline"))
+    assert len(second_pass) == 2
 
     await warden.stop()
     await asyncio.wait_for(run_task, timeout=5.0)

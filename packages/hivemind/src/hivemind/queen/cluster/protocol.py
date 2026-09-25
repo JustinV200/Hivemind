@@ -336,13 +336,20 @@ async def _send_handoff_intervene(
     message = Intervene(
         action=action, subject=None, task_id=task_id, slot=slot, alarm_id=None, reason=reason
     )
-    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
+    # `_pause_affected` moves the task to PAUSED regardless of whether this order is delivered
+    # (it always did, even before this guard existed): an unreachable Warden's bee never sees the
+    # HANDOFF, `_wait_for_checkpoint` finds no Handoff and gives up, and `resume` already
+    # tolerates that (docs/adr/0024: "a bee whose Handoff cannot be read resumes from the task's
+    # last acceptance state instead").
+    await link.send(wrap(message, link.hop, clock=deps.clock))
 
 
 async def _send_task_pause(deps: QueenDeps, link: WardenLink, task_id: TaskId, reason: str) -> None:
     """Send `TaskPause(task_id)` to `link`'s own Warden, for it to relay to the sub-bee."""
     message = TaskPause(task_id=task_id, reason=reason)
-    await link.transport.send(wrap(message, link.hop, clock=deps.clock))
+    # Same rule as _send_handoff_intervene just above: the chamber's own PAUSED transition does
+    # not wait on this delivery either.
+    await link.send(wrap(message, link.hop, clock=deps.clock))
 
 
 def _link_for(wardens: Sequence[WardenLink], warden_id: WardenId) -> WardenLink | None:

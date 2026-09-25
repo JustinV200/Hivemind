@@ -38,6 +38,7 @@ from hivemind.memory.hot_state.packing import (
     AssembleRequest,
     assemble,
 )
+from hivemind.memory.hot_state.retrieved import RETRIEVED_PREAMBLE, retrieved_share
 from hivemind.memory.hot_state.summaries import (
     AlarmSummary,
     CellWaxSummary,
@@ -49,6 +50,9 @@ from hivemind.memory.notes import Note
 from hivemind.memory.pins import Pin
 from waggle.clock import FakeClock
 from waggle.ids import CellId, new_cell_id
+from waggle.messages.honey import HoneyHit, HoneyProvenance
+from waggle.messages.labels import CombShieldLevel
+from waggle.messages.labels import HoneyClearance as WireClearance
 
 
 @dataclass
@@ -363,3 +367,123 @@ async def test_assemble_hard_truncates_a_handoff_block_still_over_the_item_cap()
     hot_state = prompt.sections[SectionLabel.HOT_STATE]
     assert "...[handoff truncated, " in hot_state
     assert "more chars]" in hot_state
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap 7.7: the cold tier, retrieved Honey hits packed after hot state
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _hit(clock: FakeClock, index: int, **overrides: object) -> HoneyHit:
+    """Build a valid C1 hit whose reference and title name `index`."""
+    fields: dict[str, object] = {
+        "honey_ref": f"/hive/honey_{index:026d}",
+        "title": f"Retrieved finding {index}",
+        "excerpt": f"The widget factory fact number {index}.",
+        "score": 0.5,
+        "scope": "hive",
+        "clearance": WireClearance.C1,
+        "origin_tier": CombShieldLevel.MEADOW,
+        "provenance": HoneyProvenance(
+            task_id=None, cell_id=new_cell_id(clock), bee=None, observed_at=clock.now()
+        ),
+    }
+    fields.update(overrides)
+    return HoneyHit(**fields)
+
+
+async def test_assemble_packs_retrieved_hits_into_their_own_section_after_hot_state() -> None:
+    clock = FakeClock()
+    task = make_task_summary(clock=clock)
+    hit = _hit(clock, 1)
+    request = _request(clock, retrieved=(hit,))
+
+    prompt = await assemble(request, _FakeSources(tasks=(task,)), EstimateCounter())
+
+    retrieved = prompt.sections[SectionLabel.RETRIEVED]
+    assert retrieved.startswith(RETRIEVED_PREAMBLE)
+    assert f"[honey {hit.honey_ref}] {hit.title}" in retrieved
+    assert hit.excerpt in retrieved
+    assert hit.title not in prompt.sections[SectionLabel.HOT_STATE]
+    assert prompt.included == (task.id, f"honey:{hit.honey_ref}")
+
+
+async def test_assemble_drops_a_hit_above_the_principals_clearance_unseen() -> None:
+    clock = FakeClock()
+    royal = _hit(clock, 1, clearance=WireClearance.C2)
+    principal = make_principal(clearance=HoneyClearance.C1)
+
+    prompt = await assemble(
+        _request(clock, principal=principal, retrieved=(royal,)), _FakeSources(), EstimateCounter()
+    )
+
+    assert SectionLabel.RETRIEVED not in prompt.sections
+    assert f"honey:{royal.honey_ref}" not in (*prompt.included, *prompt.dropped)
+
+
+async def test_assemble_never_lets_retrieved_hits_take_room_from_hot_state() -> None:
+    clock = FakeClock()
+    notes = tuple(make_note(clock=clock, author=f"a{i}", text="n" * 40) for i in range(30))
+    hits = tuple(_hit(clock, i, excerpt="h" * 400) for i in range(30))
+    budget = make_token_budget(max_input_tokens=400, output_reserve=0, retrieved_fraction=1.0)
+    sources = _FakeSources(notes_=notes)
+
+    without = await assemble(_request(clock, budget=budget), sources, EstimateCounter())
+    with_hits = await assemble(
+        _request(clock, budget=budget, retrieved=hits), sources, EstimateCounter()
+    )
+
+    hot_ids = tuple(note.id for note in notes)
+    assert [i for i in with_hits.included if i in hot_ids] == list(without.included)
+    assert with_hits.sections[SectionLabel.HOT_STATE] == without.sections[SectionLabel.HOT_STATE]
+    assert with_hits.token_count <= 400 + await EstimateCounter().count(with_hits.event_text)
+
+
+async def test_assemble_keeps_the_retrieved_section_within_its_share_and_lists_drops() -> None:
+    clock = FakeClock()
+    hits = tuple(_hit(clock, i, score=1 / (i + 1), excerpt="h" * 400) for i in range(40))
+    budget = make_token_budget(max_input_tokens=8_000, output_reserve=1_000, retrieved_fraction=0.1)
+    collected: list[object] = []
+
+    prompt = await assemble(
+        _request(clock, budget=budget, retrieved=hits),
+        _FakeSources(),
+        EstimateCounter(),
+        on_drop=collected.append,
+    )
+
+    share = retrieved_share(budget)
+    assert await EstimateCounter().count(prompt.sections[SectionLabel.RETRIEVED]) <= share
+    assert prompt.included[0] == f"honey:{hits[0].honey_ref}"  # Best score packs first.
+    assert len(prompt.included) + len(prompt.dropped) == len(hits)
+    assert all(item.startswith("honey:") for item in prompt.dropped)
+    assert collected == []  # A dropped hit is never archived: it already lives in Honey.
+
+
+async def test_assemble_caps_an_oversized_hit_excerpt_at_the_item_cap() -> None:
+    clock = FakeClock()
+    hit = _hit(clock, 1, excerpt="x" * 1_000)
+    budget = make_token_budget(item_cap_chars=200)
+
+    prompt = await assemble(
+        _request(clock, budget=budget, retrieved=(hit,)), _FakeSources(), EstimateCounter()
+    )
+
+    retrieved = prompt.sections[SectionLabel.RETRIEVED]
+    assert "x" * 200 in retrieved
+    assert "x" * 201 not in retrieved
+    assert "...[excerpt truncated, 800 more chars" in retrieved
+
+
+async def test_assemble_counts_the_retrieved_section_in_the_prompts_tokens() -> None:
+    clock = FakeClock()
+    hit = _hit(clock, 1)
+    counter = EstimateCounter()
+
+    bare = await assemble(_request(clock), _FakeSources(), counter)
+    with_hit = await assemble(_request(clock, retrieved=(hit,)), _FakeSources(), counter)
+
+    assert with_hit.token_count > bare.token_count
+    assert with_hit.token_count - bare.token_count >= await counter.count(
+        with_hit.sections[SectionLabel.RETRIEVED]
+    )

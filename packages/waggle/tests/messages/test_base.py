@@ -32,9 +32,11 @@ from waggle.messages.base import (
     EventIdField,
     GrantIdField,
     HiveIdField,
+    HoneyIdField,
     LeaseIdField,
     MessageIdField,
     MessageShape,
+    NectarIdField,
     NodeIdField,
     TaskIdField,
     ToolIdField,
@@ -64,6 +66,8 @@ _ALIASES: list[tuple[object, IdKind]] = [
     (EventIdField, IdKind.EVENT),
     (DeviceIdField, IdKind.DEVICE),
     (MessageIdField, IdKind.MESSAGE),
+    (NectarIdField, IdKind.NECTAR),
+    (HoneyIdField, IdKind.HONEY),
 ]
 
 # The spec's shared numbers (sections 3, 5 and 8); the number is normative, so it is pinned.

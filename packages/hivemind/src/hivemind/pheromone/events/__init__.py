@@ -27,7 +27,8 @@ Public API:
     - PheromoneEvent: the base every event family subclasses.
     - LlmUsage: the provider-neutral token-and-cost shape an `llm.call` event carries.
     - CellEvent, TaskEvent, AlarmEvent, ForageEvent, MemoryEvent, QueenEvent, WardenEvent,
-      ToolEvent, SwarmEvent, CappingEvent, LlmEvent, WorkerEvent: the twelve event families.
+      ToolEvent, SwarmEvent, CappingEvent, LlmEvent, WorkerEvent, HoneyEvent: the thirteen event
+      families.
     - EVENT_FAMILIES: the family-prefix to class mapping the codec dispatches through.
     - event_class_for, parse_event, parse_event_json: look up a family class, or decode a stored
       event, by its `kind` string.
@@ -53,6 +54,7 @@ from hivemind.pheromone.events.families import (
     CappingEvent,
     CellEvent,
     ForageEvent,
+    HoneyEvent,
     LlmEvent,
     MemoryEvent,
     QueenEvent,
@@ -79,6 +81,7 @@ __all__ = [
     "CappingEvent",
     "CellEvent",
     "ForageEvent",
+    "HoneyEvent",
     "LlmEvent",
     "LlmUsage",
     "MemoryEvent",

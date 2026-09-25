@@ -135,6 +135,20 @@ async def test_sync_is_a_no_op_when_the_segment_has_not_grown() -> None:
     await _assert_nothing_sent(scenario.receiver)
 
 
+async def test_sync_reports_false_without_raising_when_the_link_has_already_closed() -> None:
+    """Phase-7 handoff open item 8: a closed peer must never raise out of `sync()`."""
+    clock = FakeClock()
+    scenario = _build(clock)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+    # The peer's own clean close is final for this end's own send (waggle.transport.memory's
+    # own contract), the same way a Warden's real Queen link can close out from under it.
+    await scenario.receiver.close()
+
+    sent = await scenario.sync.sync()  # Must not raise.
+
+    assert sent is False
+
+
 async def test_sync_ships_a_second_export_once_more_events_are_recorded() -> None:
     clock = FakeClock()
     scenario = _build(clock)

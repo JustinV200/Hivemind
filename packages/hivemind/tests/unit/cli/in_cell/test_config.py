@@ -236,6 +236,18 @@ def test_build_runtime_config_rejects_a_providers_row_with_an_unknown_kind() -> 
         build_runtime_config(read_in_cell_env(environ), FakeClock())
 
 
+@pytest.mark.parametrize("kind", get_args(ProviderKind))
+def test_build_runtime_config_accepts_every_provider_kind_the_hive_stand_knows(kind: str) -> None:
+    # The Hive Stand ships its whole provider table to every Virtual Cell; a kind the Cell did not
+    # know (roadmap 7.1's sentence_transformers) would make the Cell refuse to start at all.
+    row = json.dumps([{"name": "any", "kind": kind, "base_url": ""}])
+    environ = _full_environ(HIVEMIND_PROVIDERS=row)
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.providers["any"].kind == kind
+
+
 def test_build_runtime_config_rejects_a_providers_array_that_is_not_json() -> None:
     environ = _full_environ(HIVEMIND_PROVIDERS='{"not": "an array"}')
 

@@ -32,6 +32,15 @@ Key invariants:
       `<<<scout_findings>>> ... <<<end scout_findings>>>` block, the same style
       `hivemind.llm.prompts.loader` uses for a durable-state section, never as an instruction
       (codingrules section 15).
+    - The assignment's Honey hits (`TaskAssign.honey`, the Queen's pre-check, roadmap step 7.9)
+      reach the model only inside assemble's RETRIEVED section, which render() delimits and every
+      role's system prompt names as reference data, never instructions (codingrules section 15);
+      they never displace hot state, and a hit left out for the budget is not deposited anywhere
+      (it already lives in the Honey Store).
+    - A reply's reserve is the role's own `output_reserve_tokens`, capped at `MAX_OUTPUT_SHARE` of
+      the bound model's window (`output_reserve`): a fixed 4,096 on an 8,192-token window left the
+      assembled sections 819 tokens, too few to carry even one pre-check hit. The same figure is
+      the budget's reserve and the request's `max_output_tokens`, so the two never overcommit.
 
 See Also:
     - .claude/codingrules.md section 8.8 for "awake episodes are stateless."
@@ -76,13 +85,18 @@ from waggle.messages import PlannedLeaving, Postcondition, PostconditionKind
 from waggle.messages.task import ScoutReport, TaskAssign
 
 TASK_ASSIGN_EVENT_KIND = "task.assign"  # TriggerEvent.kind for a fresh (non-resumed) attempt.
+# A reply never reserves more than this share of the window: on a small local model (8,192 tokens)
+# the full reserve would take half of it and starve the assembled sections, Honey included.
+MAX_OUTPUT_SHARE = 0.25
 
 __all__ = [
+    "MAX_OUTPUT_SHARE",
     "TASK_ASSIGN_EVENT_KIND",
     "assemble_role_prompt",
     "brief_for",
     "build_request",
     "initial_budget",
+    "output_reserve",
     "select_counter",
 ]
 
@@ -98,13 +112,29 @@ def initial_budget(
         output_reserve_tokens: The role's own `RoleProfile.output_reserve_tokens`.
 
     Returns:
-        A `TokenBudget` at `budget_fraction` of `ctx.bound.context_window`, minus
-        `output_reserve_tokens`.
+        A `TokenBudget` at `budget_fraction` of `ctx.bound.context_window`, minus the reply's
+        reserve for that window (`output_reserve`).
     """
+    window = ctx.bound.context_window
     return TokenBudget(
-        max_input_tokens=int(ctx.bound.context_window * budget_fraction),
-        output_reserve=output_reserve_tokens,
+        max_input_tokens=int(window * budget_fraction),
+        output_reserve=output_reserve(window, output_reserve_tokens),
     )
+
+
+def output_reserve(context_window: int, output_reserve_tokens: int) -> int:
+    """Return the tokens a reply may take: the role's full reserve, or a quarter of a small window.
+
+    Args:
+        context_window: The bound model's own context window.
+        output_reserve_tokens: The role's own `RoleProfile.output_reserve_tokens`.
+
+    Returns:
+        `output_reserve_tokens`, capped at `MAX_OUTPUT_SHARE` of the window; used both as the
+        budget's output reserve and as the request's `max_output_tokens`, so the reply and the
+        packed sections never overcommit the window between them.
+    """
+    return min(output_reserve_tokens, int(context_window * MAX_OUTPUT_SHARE))
 
 
 async def assemble_role_prompt(
@@ -120,7 +150,8 @@ async def assemble_role_prompt(
         ctx: This attempt's WorkerContext; supplies `worker_id`, `bound` (for the slot) and the
             counter selection.
         assignment: The task this attempt is working; becomes the Principal's clearance and the
-            TriggerEvent's summary.
+            TriggerEvent's summary, and its `honey` (the Queen's pre-check hits) becomes the
+            RETRIEVED section, within the budget's retrieved share.
         sources: Where every hot-state candidate comes from (`hivemind.workers.roles.bounded_loop.
             sources.RoleSources` in production).
         budget: How much room the assembled sections have; `initial_budget(...)` on the first
@@ -137,7 +168,11 @@ async def assemble_role_prompt(
     event = TriggerEvent(
         kind=TASK_ASSIGN_EVENT_KIND, summary=assignment.objective, clearance=clearance
     )
-    request = AssembleRequest(principal=principal, event=event, budget=budget)
+    # The Queen's pre-check hits (roadmap 7.9) ride on the assignment; assemble packs them into
+    # the RETRIEVED section after hot state, labelled as reference data, never instructions.
+    request = AssembleRequest(
+        principal=principal, event=event, budget=budget, retrieved=assignment.honey
+    )
     dropped: list[Scorable] = []
     prompt = await assemble(request, sources, select_counter(ctx), on_drop=dropped.append)
     if dropped:
@@ -163,7 +198,8 @@ def build_request(
             the Cell's facts (`brief_for`) make up the one user turn.
         tools: The tools this attempt's registry offers.
         profile: This role's own knobs; `prompt_name` names the system prompt and
-            `output_reserve_tokens` becomes `max_output_tokens`.
+            `output_reserve_tokens`, capped for a small window (`output_reserve`), becomes
+            `max_output_tokens`.
 
     Returns:
         A validated LLMRequest: the named system prompt rendered with `prompt`'s own sections
@@ -177,7 +213,7 @@ def build_request(
         system=system,
         messages=(Message.text(Role.USER, brief_for(assignment, ctx.cell)),),
         tools=tools,
-        max_output_tokens=profile.output_reserve_tokens,
+        max_output_tokens=output_reserve(ctx.bound.context_window, profile.output_reserve_tokens),
     )
 
 

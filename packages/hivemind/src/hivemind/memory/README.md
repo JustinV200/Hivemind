@@ -13,7 +13,16 @@ nothing accumulates as a conversation.
   the episode is resuming from, or None, rendered by `assemble` into its own delimited, bounded
   block of `HOT_STATE` regardless of budget), and `assemble`, the packing algorithm that turns all
   of that plus pins and notes into a token-budgeted `Prompt`, ordered by `relevance.score` (roadmap
-  step 4.1), gated by `AssembleRequest.cells_in_play` for wax (roadmap step 4.2a).
+  step 4.1), gated by `AssembleRequest.cells_in_play` for wax (roadmap step 4.2a). The cold tier
+  (roadmap step 7.7) packs last: `AssembleRequest.retrieved` carries the Honey hits a caller
+  retrieved (a Drone passes its `TaskAssign.honey`), and `hot_state/retrieved.py` drops any hit
+  above the principal's clearance, renders the rest best score first (`render_hit`: a
+  `[honey <ref>] <title>` header, scope, clearance, provenance and score, then the excerpt capped
+  at `item_cap_chars`, with delimiter-shaped runs spaced out) under `RETRIEVED_PREAMBLE`, and packs
+  them into whatever hot state left, never past `TokenBudget.retrieved_fraction` of the packing
+  target. They become the `RETRIEVED` section and are listed in `Prompt.included`/`dropped` as
+  `honey:<honey_ref>`; `on_drop` never sees a hit (it already lives in the Honey Store). Memory
+  never imports `hivemind.honey_store`: hits arrive as `waggle.messages.honey.HoneyHit` values.
 - `relevance.py` -- `RelevanceScore`, `Scorable` and `score`: pure recency-decay/task-linkage/
   Alarm-or-Cell-Wax-severity/pin-floor scoring (roadmap steps 4.1, 4.2a), plus `item_id`/
   `item_timestamp`, the shared per-type dispatch `hot_state.packing` and `demote` both read
@@ -75,4 +84,10 @@ uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_contr
 test_memory_store_contract.py` runs the `MemoryStore` contract over both `InMemoryMemoryStore` and
 `SqliteMemoryStore` (a temp SQLite file per test, with the Pheromone Trail's own migrations applied
 first, matching `hivemind.cli.stores`). `tests/builders/memory.py` has a builder for every model in
-this package.
+this package. `tests/e2e/test_flood.py` floods `assemble` with ten thousand Alarms, and with ten
+thousand retrieved hits on top of them, and proves neither flood ever breaks the budget nor the
+retrieved section's own share:
+
+```
+uv run --frozen pytest packages/hivemind/tests/e2e/test_flood.py
+```

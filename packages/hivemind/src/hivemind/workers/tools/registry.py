@@ -17,9 +17,10 @@ alone would not reveal; `execute` always returns a `ToolOutput`, so its caller r
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Built and read by
     `hivemind.workers.roles.drone.Drone`; the `ToolSpec`s it registers live in
-    `hivemind.workers.tools.session`, `.http`, `.ask`, `.keep` (roadmap step 5.0e) and the
-    `.exoskeleton` package (roadmap step 6.5). Calls into `hivemind.guard`, `hivemind.llm`,
-    `hivemind.workers.context`, `hivemind.workers.tools.errors` and waggle only.
+    `hivemind.workers.tools.session`, `.http`, `.ask`, `.keep` (roadmap step 5.0e), `.honey`
+    (roadmap step 7.8) and the `.exoskeleton` package (roadmap step 6.5). Calls into
+    `hivemind.guard`, `hivemind.llm`, `hivemind.workers.context`, `hivemind.workers.tools.errors`
+    and waggle only.
 
 Key invariants:
     - `ToolRegistry.execute` never raises for an unknown tool or an invalid argument: both become
@@ -30,7 +31,9 @@ Key invariants:
     - `build_registry` offers `http_request` only when `ctx.capabilities` holds at least one `net`
       capability, and each Exoskeleton tool only when its peripheral is attached and the bound
       model can take what it returns; offering a tool with nothing it could ever be allowed to do
-      would only invite a model to try it and be refused every time.
+      would only invite a model to try it and be refused every time. The same holds for
+      `recall`/`remember` (roadmap step 7.8): offered only when `ctx.honey` is set and
+      `ctx.capabilities` allows `tool:recall`/`tool:remember`.
     - A `ToolOutput`'s media never reaches its text, a record or a log: screenshots and recordings
       travel to the model as `hivemind.llm.ToolResultPart.media` and nowhere else.
 
@@ -48,7 +51,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from hivemind.guard import CapabilityFamily
+from hivemind.guard import Capability, CapabilityFamily
 from hivemind.llm import (
     AudioPart,
     ImagePart,
@@ -221,13 +224,16 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
         plus `http_request` only when `ctx.capabilities` holds at least one `net` capability --
         there is nothing else a network tool could ever be allowed to do for this Worker -- and
         (roadmap step 6.5) every Exoskeleton tool whose peripheral is attached and whose result
-        the bound model can take (`hivemind.workers.tools.exoskeleton.exoskeleton_specs`).
+        the bound model can take (`hivemind.workers.tools.exoskeleton.exoskeleton_specs`), and
+        `recall`/`remember` only when `ctx.honey` is set and `ctx.capabilities` allows each one
+        by name (`tool:recall`, `tool:remember`).
     """
-    # Imported here, not at module level: session/http/ask/keep and the exoskeleton tools each
-    # import ToolInvocation/ToolSpec from this module, so importing them back at module scope
+    # Imported here, not at module level: session/http/ask/keep/honey and the exoskeleton tools
+    # each import ToolInvocation/ToolSpec from this module, so importing them back at module scope
     # would cycle.
     from hivemind.workers.tools.ask import ASK_SPEC
     from hivemind.workers.tools.exoskeleton import exoskeleton_specs
+    from hivemind.workers.tools.honey import RECALL_SPEC, REMEMBER_SPEC
     from hivemind.workers.tools.http import HTTP_SPEC
     from hivemind.workers.tools.keep import KEEP_SPEC
     from hivemind.workers.tools.session import READ_FILE_SPEC, RUN_COMMAND_SPEC, WRITE_FILE_SPEC
@@ -243,4 +249,15 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
         specs.append(HTTP_SPEC)
     # Empty for a terminal-only task: no Exoskeleton, no GUI tools (roadmap step 6.5).
     specs.extend(exoskeleton_specs(ctx))
+    # Roadmap step 7.8: the Honey tools need a channel to the Queen and a grant naming each one.
+    if ctx.honey is not None:
+        specs.extend(
+            spec for spec in (RECALL_SPEC, REMEMBER_SPEC) if _tool_allowed(ctx, spec.definition)
+        )
     return ToolRegistry(specs)
+
+
+def _tool_allowed(ctx: WorkerContext, definition: ToolDefinition) -> bool:
+    """Return whether `ctx.capabilities` allows the `tool:<name>` capability for `definition`."""
+    needed = Capability(family=CapabilityFamily.TOOL, scope=definition.name)
+    return ctx.capabilities.allows(needed)

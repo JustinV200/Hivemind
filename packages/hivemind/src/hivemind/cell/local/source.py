@@ -1,13 +1,17 @@
 """Define HiveStandSource: the machine the Queen runs on, as a RealCellSource with one Cell.
 
 `HiveStandSource` is `hivemind.cell.local`'s implementation of `hivemind.cell.source.
-RealCellSource`: it hands out exactly one Cell, named `"hive-stand"`, whose id is minted once at
-construction and never changes. `cells()` reports that Cell's capabilities and capacity from
-`hivemind.cell.local.probe` (static facts probed once, live figures refreshed on every call).
-`lease()` refuses when the Hive Stand is disabled, when it is already leased (v0 allows one lease
-at a time), when the requested access exceeds what `HiveStandConfig.access_level` allows, or when
-the host's free disk is under `HiveStandConfig.disk_reserve_mb`; otherwise it creates a fresh
-subdirectory of `scratch_root` for the new lease and opens a `RealCellLease` backed by
+RealCellSource`: it hands out exactly one Cell, named `"hive-stand"`, whose id is derived, not
+minted, from this node's own identity (`hive_stand_cell_id`, this module's other public name) so
+it stays the same across every process this node runs, not only across calls within one of them
+(phase 7 handoff section 8 item 4: a freshly minted id on every `hive run` used to strand
+`cell:<id>` Honey, Cell Wax history and Leavings from the process that wrote them). `cells()`
+reports that Cell's capabilities and capacity from `hivemind.cell.local.probe` (static facts
+probed once, live figures refreshed on every call). `lease()` refuses when the Hive Stand is
+disabled, when it is already leased (v0 allows one lease at a time), when the requested access
+exceeds what `HiveStandConfig.access_level` allows, or when the host's free disk is under
+`HiveStandConfig.disk_reserve_mb`; otherwise it creates a fresh subdirectory of `scratch_root` for
+the new lease and opens a `RealCellLease` backed by
 `hivemind.cell.local.releaser.HiveStandLeaseReleaser`. `open_session()` hands back a
 `hivemind.cell.local.session.LocalProcessSession` sized from `HiveStandConfig.scratch_quota_mb`.
 
@@ -20,8 +24,9 @@ Fits into the Hive:
     `hivemind.pheromone` and the standard library (`shutil.disk_usage`) only.
 
 Key invariants:
-    - `cells()` always returns exactly one Cell, whose id never changes across calls (minted once
-      in `__init__`).
+    - `cells()` always returns exactly one Cell, whose id never changes across calls (derived once
+      in `__init__`) or across processes on this node (`hive_stand_cell_id` is pure and
+      deterministic in the node id).
     - `lease()` either returns an OPEN `RealCellLease` or raises `LeaseRefusedError`; it never
       leaves a half-created scratch directory or a half-opened lease behind.
     - At most one lease is OPEN on the Hive Stand at a time (v0); a released lease frees the Cell
@@ -29,6 +34,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md step 3.11 for the refusal conditions and per-lease scratch directories.
+    - .claude/phase-7-handoff.md section 8 item 4 for why the Cell id is derived, not minted.
     - docs/adr/0010-cells-are-real-or-virtual-terminal-first.md for "HiveStandSource hands out
       exactly one Cell... refuses a lease while disabled or already leased."
     - hivemind.cell.source for RealCellSource, the Protocol this class implements.
@@ -53,13 +59,42 @@ from hivemind.cell.session import SCRATCH_DIR_MODE, CellSession
 from hivemind.cell.source import CellIdentity
 from hivemind.pheromone import PheromoneTrail
 from waggle.clock import Clock
-from waggle.ids import CellId, new_cell_id, new_lease_id
+from waggle.ids import CellId, IdKind, NodeId, new_lease_id, parse_id
 
-_SOURCE_NAME = "hive_stand"  # The `source` field every Cell this source hands out carries.
+HIVE_STAND_SOURCE = "hive_stand"  # The `source` field every Cell this source hands out carries.
 _CELL_NAME = "hive-stand"  # The human-readable label; codingrules 6.1's own example.
 _BYTES_PER_MB = 1024 * 1024  # Manifest quota/reserve figures are MB; this package works in bytes.
 
-__all__ = ["HiveStandSource"]
+__all__ = ["HIVE_STAND_SOURCE", "HiveStandSource", "hive_stand_cell_id"]
+
+
+def hive_stand_cell_id(node_id: NodeId) -> CellId:
+    """Derive the Hive Stand's Cell id from this node's own identity, instead of minting one.
+
+    The Hive Stand is the machine itself, not a row that Supersedure (codingrules 8.16) could
+    carry to a different machine along with the stores, so its Cell id cannot live in SQLite the
+    way a minted, persisted id would: it is computed, every time, from the node id every process
+    on this node already carries (`hivemind.manifest`'s `[hive] node_id`), so every process on the
+    same node derives the identical Cell id and rows keyed by it (Leavings, Cell Wax, `cell:<id>`
+    Honey, the Forage ledger) compound across a `hive run` instead of stranding on the process
+    that wrote them (phase 7 handoff section 8 item 4).
+
+    Args:
+        node_id: This process's own node id, `"node_<26-char ULID>"`.
+
+    Returns:
+        A well-formed CellId sharing `node_id`'s own 26-character ULID, re-stamped with the
+        `cell_` prefix.
+
+    Raises:
+        InvalidIdError: `node_id` is not a well-formed NodeId, so the id built from it is not a
+            well-formed CellId either.
+    """
+    # A NodeId and a CellId share the same 26-character ULID; only the kind prefix differs, so
+    # swapping it is enough -- but the swap is validated below, never trusted blindly, in case a
+    # caller ever hands in something that only claims to be a NodeId.
+    ulid_part = node_id.removeprefix(f"{IdKind.NODE.value}_")
+    return CellId(parse_id(f"{IdKind.CELL.value}_{ulid_part}", IdKind.CELL))
 
 
 class HiveStandSource:
@@ -73,13 +108,14 @@ class HiveStandSource:
         clock: Clock,
         leavings: LeavingsStore,
     ) -> None:
-        """Build a HiveStandSource over this machine, minting its one Cell's id.
+        """Build a HiveStandSource over this machine, deriving its one Cell's id from the node id.
 
         Args:
             config: The Hive Stand's own settings.
-            identity: The Hive, node and actor this source stamps on every trail event.
+            identity: The Hive, node and actor this source stamps on every trail event;
+                `identity.node_id` is also what `hive_stand_cell_id` derives the Cell id from.
             trail: Where cell.leased/cell.released events land.
-            clock: Source of every minted id, timestamp and grace-period wait.
+            clock: Source of every minted lease id, timestamp and grace-period wait.
             leavings: Where a `persist=True` restore record's Leaving row lands on release
                 (roadmap step 5.0a); handed straight to every `HiveStandLeaseReleaser` this
                 source builds.
@@ -89,14 +125,15 @@ class HiveStandSource:
         self._trail = trail
         self._clock = clock
         self._leavings = leavings
-        self._cell_id: CellId = new_cell_id(clock)
+        # Derived, not minted (module docstring): stable across every process on this node.
+        self._cell_id: CellId = hive_stand_cell_id(identity.node_id)
         self._static: ProbeResult = probe_host(config)
         self._active_lease: RealCellLease | None = None
 
     @property
     def name(self) -> str:
         """This source's name, `"hive_stand"`, the value its one Cell carries as `source`."""
-        return _SOURCE_NAME
+        return HIVE_STAND_SOURCE
 
     async def cells(self) -> tuple[Cell, ...]:
         """Return the Hive Stand's one Cell, with live capacity figures refreshed.
@@ -109,7 +146,7 @@ class HiveStandSource:
             id=self._cell_id,
             kind=CellKind.REAL,
             name=_CELL_NAME,
-            source=_SOURCE_NAME,
+            source=HIVE_STAND_SOURCE,
             capabilities=self._static.capabilities,
             capacity=capacity,
             access_level=self._config.access_level,

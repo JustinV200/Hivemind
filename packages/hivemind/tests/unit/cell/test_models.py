@@ -55,3 +55,15 @@ def test_cell_capabilities_real_display_allowed_survives_the_wire_and_defaults_o
     assert report.real_display_allowed is True
     assert allowed.from_wire(platform, report).real_display_allowed is True
     assert make_capabilities().real_display_allowed is False
+
+
+def test_cell_is_borrowed_true_for_real() -> None:
+    cell = make_cell(kind=CellKind.REAL, comb_shield=CombShieldLevel.MEADOW)
+
+    assert cell.is_borrowed is True
+
+
+def test_cell_is_borrowed_false_for_virtual() -> None:
+    cell = make_cell(kind=CellKind.VIRTUAL, access_level=AccessLevel.FULL)
+
+    assert cell.is_borrowed is False

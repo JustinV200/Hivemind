@@ -20,7 +20,12 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   `QuestionChannel` (ask a blocking Question, get its Answer). Since roadmap step 3.16,
   `WorkerContext` also carries `capping` (the Capping gate a tool's side effect proposes through),
   `lease` (a `LeaseView` onto the Warden's Real Cell lease) and `call_gate` (the seam every model
-  call passes through -- a `FannerLane` or a bare `DirectCallGate`).
+  call passes through -- a `FannerLane` or a bare `DirectCallGate`). Roadmap step 7.8 adds
+  `HoneyChannel` and `WorkerContext.honey`: query the Honey Store and deposit Nectar through the
+  Warden (the runtime's `MailboxHoneyChannel` implements it; None only in a hand-built context).
+- `nectar.py` -- `split_deposit(content, DepositMeta)`: one Nectar deposit cut into Waggle
+  `NectarDeposit` chunks (offsets, total, final flag, the whole content's sha256), the shape the
+  Queen's intake reassembles.
 - `telemetry.py` -- `TelemetryTracker`: the mutable per-Worker `ContextTelemetry` a role writes
   between turns and the runtime reads for every `Heartbeat`; also the `cancel_requested`/
   `handoff_requested` flags and the `wait_if_paused()` a role's own turn loop cooperates with.

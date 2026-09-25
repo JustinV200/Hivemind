@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from builders.honey_wire import FakeHoneyChannel
 from builders.llm import make_tool_call
 from builders.workers import make_assignment, make_context
 
@@ -60,6 +61,27 @@ def test_build_registry_adds_http_request_when_a_net_capability_is_held() -> Non
 
     names = {definition.name for definition in registry.definitions()}
     assert "http_request" in names
+
+
+def test_build_registry_offers_recall_and_remember_only_with_a_honey_channel() -> None:
+    """Roadmap step 7.8: `tool:*` allows both, but neither is offered until a channel exists."""
+    without = build_registry(make_context())
+    with_channel = build_registry(make_context(honey=FakeHoneyChannel()))
+
+    assert not {"recall", "remember"} & {tool.name for tool in without.definitions()}
+    assert {"recall", "remember"} <= {tool.name for tool in with_channel.definitions()}
+
+
+def test_build_registry_offers_each_honey_tool_only_when_its_capability_is_held() -> None:
+    ctx = make_context(
+        honey=FakeHoneyChannel(),
+        capabilities=CapabilitySet.parse("fs:read:**", "exec:*", "tool:recall"),
+    )
+
+    names = {tool.name for tool in build_registry(ctx).definitions()}
+
+    assert "recall" in names
+    assert "remember" not in names
 
 
 async def test_execute_refuses_a_call_to_an_unknown_tool_with_a_readable_string() -> None:

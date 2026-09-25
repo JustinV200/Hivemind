@@ -12,8 +12,8 @@ Fits into the Hive:
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
     hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
-    hivemind.cli.recordings now; later phases add entrance and friends through their own public
-    APIs.
+    hivemind.cli.recordings and hivemind.cli.honey now; later phases add entrance and friends
+    through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -46,7 +46,7 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli import capping, forage, llm, memory, recordings, tasks, trail
+from hivemind.cli import capping, forage, honey, llm, memory, recordings, tasks, trail
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.run import run_command
 from hivemind.cli.version import collect_version_info, format_version
@@ -103,6 +103,8 @@ app.command("wake")(wake_command)
 # show a pixel-free summary, export the self-contained playback page); like `llm`, it needs no
 # running Queen.
 app.add_typer(recordings.app, name="recordings")
+# Roadmap steps 7.10 and 7.11: query, count, ripen, re-embed, browse and relabel the Honey Store.
+app.add_typer(honey.app, name="honey")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,

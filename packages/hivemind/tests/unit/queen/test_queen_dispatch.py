@@ -454,6 +454,49 @@ async def _assert_forage_denied_with_figures(
     assert isinstance(reason, str) and reason
 
 
+async def test_a_closed_link_fails_the_task_instead_of_leaving_it_running_forever() -> None:
+    """Phase-7 handoff open item 8: `_send_grant_and_assign`'s own new "warden link closed" fold.
+
+    By the time this choke point ever sends, the task is already RUNNING with no legal chamber
+    edge back to PENDING (module docstring); this dispatch's own fix mirrors the sibling
+    zero-grant case just above and fails the task at once instead of leaving it stuck. A second,
+    already-provisioned Warden is needed to reach the guarded sends at all: the very first
+    dispatch to any Warden always sends CeilingsSet/PlanWritten first
+    (`_ensure_warden_provisioned`), and those two would swallow the closed link the same way,
+    proving nothing about the grant/assignment sends this test targets.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    queen.attach_warden(link)
+    await queen.submit_goal("First, ordinary goal.", clearance=HoneyClearance.C1)
+    await (
+        warden_end.wait_for_assignment()
+    )  # Provisions this Warden: ceilings + plan + grant + assign.
+    await warden_end.close()  # The link is gone before the second goal is ever dispatched.
+
+    goal_id = await queen.submit_goal(
+        "Second goal, onto the now-closed link.", clearance=HoneyClearance.C1
+    )
+
+    task = await deps.chamber.get(goal_id)
+    assert task.status is TaskStatus.FAILED
+    assert task.warden_id is None and task.cell_id is None
+    assert task.outcome is not None
+    assert "link closed" in task.outcome.summary
+    # The second goal's grant was already live in the ledger when its send failed, so it is
+    # revoked at once as HOLDER_OFFLINE, not denied and not left for the expiry sweep.
+    revoked = [
+        event
+        for event in await deps.trail.query(TrailQuery(kind="forage.revoked"))
+        if event.payload.get("holder") == link.warden_id
+    ]
+    assert [event.payload["cause"] for event in revoked] == ["HOLDER_OFFLINE"]
+    # Only the first goal's own envelopes ever reached this Warden (module docstring): nothing
+    # more to pump for the second, closed-link goal.
+    assert len(warden_end.assignments) == 1
+
+
 async def test_resuming_a_paused_task_with_a_zero_grant_fails_it_the_same_way() -> None:
     """`resume_paused` (a `resume_from` resume) hits the same choke point and fails the same way.
 

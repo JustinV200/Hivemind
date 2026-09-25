@@ -80,6 +80,7 @@ from hivemind.pheromone import WorkerEvent
 from hivemind.supervision.capping import GateDeps, GuiSurface
 from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.links import send_guarded
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.equip import equip, gui_surface, unequip
 from hivemind.wardens.spawn.sub_bee import SubBee
@@ -214,7 +215,8 @@ async def spawn_sub_bee(
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
     await _record_spawned(deps, worker_id, assignment)
     assign_hop = Hop(sender=ctx.warden_id, recipient=worker_id, node_id=deps.identity.node_id)
-    await warden_link.send(wrap(assignment, assign_hop, clock=deps.clock))
+    # A fresh pair from _start_runtime just above; guarded rather than assumed infallible.
+    await send_guarded(warden_link, wrap(assignment, assign_hop, clock=deps.clock))
 
     started = _Started(warden_link, runtime, runtime_task, exoskeleton)
     return _sub_bee_row(worker_id, assignment, binding_key, started)

@@ -204,6 +204,11 @@ class AnthropicClient:
             raise map_error(exc, self._provider, context_window=self._context_window) from exc
         return result.input_tokens
 
+    async def aclose(self) -> None:
+        """Close the SDK client and its pooled connections; see `AnthropicProvider.aclose`."""
+        # Local, milliseconds: closes idle pooled sockets; no request is in flight at shutdown.
+        await self._sdk.close()
+
     async def probe_health(self, clock: Clock) -> ProviderHealth:
         """Probe the API with `models.list(limit=1)`; see `LLMProvider.health`.
 

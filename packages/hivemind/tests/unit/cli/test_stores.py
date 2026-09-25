@@ -27,6 +27,7 @@ from hivemind.cli.stores import (
     build_registry,
     open_chamber,
     open_cluster_orders,
+    open_honey_store,
     open_ledger,
     open_trail,
     provider_configs,
@@ -36,6 +37,7 @@ from hivemind.cli.stores import (
 from hivemind.common.migrations import applied_versions, apply_migrations, load_migrations
 from hivemind.common.sqlite import connect
 from hivemind.forage import ModelSlot
+from hivemind.honey_store import SqliteHoneyStore
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
 from hivemind.queen.cluster import SqliteOrderStore
@@ -105,6 +107,25 @@ def test_open_chamber_works_on_a_file_open_trail_already_migrated(tmp_path: Path
     chamber = open_chamber(db, _identity())
 
     assert asyncio.run(chamber.list(TaskFilter())) == ()
+
+
+def test_open_honey_store_returns_a_ready_store_on_a_fresh_file(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+
+    store = open_honey_store(db)
+
+    assert isinstance(store, SqliteHoneyStore)
+    stats = asyncio.run(store.stats())
+    assert stats.nectar_by_state == {}  # Tables exist and are empty.
+
+
+def test_open_honey_store_works_on_a_file_other_stores_already_opened(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+    open_chamber(db, _identity())
+
+    store = open_honey_store(db)
+
+    assert asyncio.run(store.stats()).honey_by_part == {}
 
 
 def test_open_ledger_returns_a_ready_sqlite_ledger_store_on_a_fresh_file(tmp_path: Path) -> None:
@@ -187,8 +208,8 @@ def test_provider_configs_derives_default_model_for_openai_compat_from_its_first
 def test_provider_configs_derives_default_model_even_for_a_non_openai_compat_provider() -> None:
     # provider_configs derives default_model from each provider's first [llm.slots] row
     # unconditionally (it does not know, or need to know, which kind will read it); only the
-    # openai_compat factory (hivemind.llm.registry._build_openai_compat) actually uses the field,
-    # so an anthropic provider carries a populated-but-unread default_model.
+    # openai_compat factory (hivemind.llm.registry.chat._build_openai_compat) actually uses the
+    # field, so an anthropic provider carries a populated-but-unread default_model.
     manifest = load_manifest(_MANIFESTS_DIR / "minimal.toml")
 
     configs = provider_configs(manifest)

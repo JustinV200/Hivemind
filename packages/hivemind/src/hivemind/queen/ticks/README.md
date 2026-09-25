@@ -3,7 +3,7 @@
 The ticks package holds `Queen`'s own tick handlers, split out only so `queen.py` and its `Queen`
 class stay within codingrules 5.1's size limits.
 
-## Public API (roadmap steps 3.20, 4.7, 4.2a)
+## Public API (roadmap steps 3.20, 4.7, 4.2a, 7.8)
 
 - `alarms.handle_alarm`: `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an escalated
   Alarm; `REBIND` is sent as a real `hivemind.supervision.intervention.Rebind`, converted through
@@ -31,6 +31,13 @@ class stay within codingrules 5.1's size limits.
   Scout, directly or not, with the Scout's reason ("Held back by Scout <id>. ..."), so the goal
   ends instead of waiting on tasks that can never become ready (a `hive run` would otherwise sit
   out its whole timeout). Any other failed task's dependents stay PENDING, as before.
+- `honey.handle_honey_item` (roadmap step 7.8): the third entry point `handle_infrastructure_item`
+  reaches ahead of `decide`. A `NectarDeposit` chunk goes to the Honey Store's intake with the
+  sending Warden's own Cell record as its source (a refusal answers `control.error` with the
+  refusal's stable code); a `HoneyQuery` is answered with a `HoneyResponse` on the same link,
+  searched as the asking bee (a Worker's task, goal, Cell and itself; a Warden's Cell and itself)
+  under its task's clearance and its Cell's Comb Shield tier. With no Honey Store wired
+  (`QueenDeps.honey is None`) a query is answered empty with that reason and a deposit is refused.
 - `wax.handle_wax_item`, `.handle_wax_proposed` (roadmap step 4.2a): the other entry point
   `handle_infrastructure_item` reaches ahead of `decide`, for a `CellWaxProposed`. Records the
   proposal (`hivemind.memory.cell_wax.propose_wax`), judges it with

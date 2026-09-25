@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.wardens.links import send_guarded
 from waggle.envelope import Hop, wrap
 from waggle.ids import MessageId, WorkerId
 from waggle.messages.supervision import Answer, Question
@@ -53,7 +54,12 @@ async def forward_question(warden: Warden, envelope_id: MessageId, question: Que
     # carry a Warden's own question one level up, which this Warden's own inbox never receives.
     warden._questions[question.question_id] = WorkerId(question.asked_by)
     warden._question_envelope_ids[question.question_id] = envelope_id
-    await warden._deps.queen_link.send(wrap(question, warden._deps.hop, clock=warden._deps.clock))
+    # A Queen this Warden cannot reach never sees the question at all; codingrules 8.8's own
+    # outbox for a disconnected Warden is not wired for this yet (this dispatch's own report), so
+    # the asking sub-bee simply waits out its own timeout rather than this tick ever crashing.
+    await send_guarded(
+        warden._deps.queen_link, wrap(question, warden._deps.hop, clock=warden._deps.clock)
+    )
 
 
 async def forward_answer(warden: Warden, answer: Answer) -> None:
@@ -72,4 +78,6 @@ async def forward_answer(warden: Warden, answer: Answer) -> None:
         return
     hop = Hop(sender=warden._warden_id, recipient=worker_id, node_id=warden._deps.identity.node_id)
     envelope = wrap(answer, hop, clock=warden._deps.clock, correlation_id=correlation_id)
-    await sub_bee.link.send(envelope)
+    # The sub-bee's own link is gone: it is ending (or already ended) and nobody is left to read
+    # the answer, the same benign race hivemind.queen.ticks.honey._reply already documents.
+    await send_guarded(sub_bee.link, envelope)

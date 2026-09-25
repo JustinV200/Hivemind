@@ -10,7 +10,9 @@ package may import hivemind.llm.
 - `SubBeeView`, `decide` (`table.py`): `decide(item, sub_bee, policy)` maps one already-ordered
   `InboxItem` to exactly one `WardenAction`; an `AlarmRaised` goes through `hivemind.supervision.
   policy.decide`, keyed on the Warden's own per-task attempt count (`SubBeeView.attempt`), not
-  the wire `attempts` field (see `table.py`'s own docstring for why).
+  the wire `attempts` field (see `table.py`'s own docstring for why). Roadmap step 7.8: a
+  `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.error` whose `failed_kind` is
+  `honey.nectar_deposit`, map to `FORWARD_HONEY` -- relayed or logged, never a model call.
 
 ## How to test this
 

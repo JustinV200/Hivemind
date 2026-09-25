@@ -3,10 +3,13 @@
 Context is treated like a cache hierarchy (README "Core concept 7: Memory"): what any bee's model
 sees is assembled fresh for each awake episode from durable state, never accumulated as a
 conversation (codingrules section 8.8: "Awake episodes are stateless"). This package covers the
-working, hot and warm tiers of that hierarchy. `hot_state` packs active tasks, open Alarms, pending
-questions, recent decisions, pins and notes into a token-budgeted `Prompt`, ordered by
-`relevance.score` (roadmap step 4.1: recency decay, task linkage, Alarm severity, a pin's own
-non-decaying floor). `handoff` is the resumable snapshot a bee writes before its context resets
+working, hot and warm tiers of that hierarchy, and packs the cold tier's retrieved rows into the
+same prompt. `hot_state` packs active tasks, open Alarms, pending questions, recent decisions, pins
+and notes into a token-budgeted `Prompt`, ordered by `relevance.score` (roadmap step 4.1: recency
+decay, task linkage, Alarm severity, a pin's own non-decaying floor), then the Honey hits (rows of
+the Hive's ripened knowledge) a caller retrieved for the episode, into their own `RETRIEVED` share
+of the budget (roadmap step 7.7), as data this package never fetches itself. `handoff` is the
+resumable snapshot a bee writes before its context resets
 (`Handoff`); `checkpoint` writes and reads one (`write_checkpoint`/`read_handoff`), and deposits it
 (and, when given one, its transcript) into `bee_bread` (roadmap step 4.2: the warm tier, an index
 over Brood Chamber/the trail by id, time and task, plus stored Handoffs and deposited transcripts,
@@ -76,7 +79,8 @@ Public API:
     - write_checkpoint, read_handoff: the write and read paths for a Handoff (checkpoint).
     - Principal, TokenBudget, TriggerEvent, TaskSummary, AlarmSummary, QuestionSummary,
       DecisionSummary, CellWaxSummary, HotStateSources, AssembleRequest, Prompt, assemble,
-      ITEM_CAP_CHARS: hot state packing (hot_state).
+      ITEM_CAP_CHARS, DEFAULT_RETRIEVED_FRACTION, RETRIEVED_PREAMBLE, render_hit: hot state and
+      retrieved-Honey packing (hot_state).
     - RelevanceScore, Scorable, score, item_id, item_timestamp, RECENCY_HALF_LIFE_S,
       TASK_LINKAGE_BONUS, PIN_FLOOR: relevance scoring (relevance).
     - DemotionReason, should_demote, demote: what leaves hot state, and the write path (demote).
@@ -161,7 +165,9 @@ from hivemind.memory.errors import (
 )
 from hivemind.memory.handoff import Decision, Handoff
 from hivemind.memory.hot_state import (
+    DEFAULT_RETRIEVED_FRACTION,
     ITEM_CAP_CHARS,
+    RETRIEVED_PREAMBLE,
     AlarmSummary,
     AssembleRequest,
     CellWaxSummary,
@@ -174,6 +180,7 @@ from hivemind.memory.hot_state import (
     TokenBudget,
     TriggerEvent,
     assemble,
+    render_hit,
 )
 from hivemind.memory.notes import MAX_NOTE_CHARS, MAX_NOTES_PER_AUTHOR, Note, add_note
 from hivemind.memory.overflow import (
@@ -213,6 +220,7 @@ from hivemind.memory.thresholds import (
 
 __all__ = [
     "DEFAULT_QUEUE_SIZE",
+    "DEFAULT_RETRIEVED_FRACTION",
     "ITEM_CAP_CHARS",
     "MAX_COMPACT_VIEW_CHARS",
     "MAX_KEY_FACTS",
@@ -229,6 +237,7 @@ __all__ = [
     "MIN_BUDGET_TOKENS",
     "PIN_FLOOR",
     "RECENCY_HALF_LIFE_S",
+    "RETRIEVED_PREAMBLE",
     "RIPENER_OUTPUT_TOKENS",
     "SHRINK_FACTOR",
     "SUBSYSTEM",
@@ -310,6 +319,7 @@ __all__ = [
     "read_handoff",
     "record_episode",
     "reject_wax",
+    "render_hit",
     "retire_wax_for_cell",
     "run_with_overflow_retry",
     "score",

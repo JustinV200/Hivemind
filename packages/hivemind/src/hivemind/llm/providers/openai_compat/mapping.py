@@ -192,7 +192,7 @@ def _message_to_wire(
     """
     content_parts: list[JsonValue] = [{"type": "text", "text": text_prefix}] if text_prefix else []
     content_parts.extend(
-        _content_to_wire(part, capabilities, provider)
+        _part_to_wire(part, capabilities, provider)
         for part in message.parts
         if isinstance(part, TextPart | ImagePart | AudioPart)
     )
@@ -202,7 +202,7 @@ def _message_to_wire(
     if content_parts or tool_calls:
         turn: dict[str, JsonValue] = {"role": message.role.value}
         if content_parts:
-            turn["content"] = content_parts
+            turn["content"] = _content_to_wire(content_parts)
         if tool_calls:
             turn["tool_calls"] = tool_calls
         wire.append(turn)
@@ -213,7 +213,24 @@ def _message_to_wire(
     return wire
 
 
-def _content_to_wire(
+def _content_to_wire(content_parts: list[JsonValue]) -> JsonValue:
+    """Send text-only content as one string, and the part array only when media needs it.
+
+    Both shapes are valid OpenAI chat-completions input, but many local servers accept only the
+    string: llama.cpp's server renders the model's own chat template, which concatenates `content`
+    as text and fails with a 500 on an array (found 2026-09-24, phase 7's first run on a real local
+    chat model). The array is kept for an image or audio part, which has no string form.
+    """
+    texts = [part["text"] for part in content_parts if isinstance(part, dict) and "text" in part]
+    # Any part without text is an image or audio: the array form is the only one that can carry it.
+    if len(texts) != len(content_parts):
+        return content_parts
+    # Blank-line separated, the way the parts read when a model sees them as consecutive blocks
+    # (the system text prepended to the first user turn, then that turn's own text).
+    return "\n\n".join(str(text) for text in texts)
+
+
+def _part_to_wire(
     part: TextPart | ImagePart | AudioPart, capabilities: ProviderCapabilities, provider: str
 ) -> JsonValue:
     """Map one text, image or audio part to its content part; media goes through `media.py`."""

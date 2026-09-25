@@ -9,11 +9,13 @@ and `ask`, which satisfies `hivemind.workers.context.QuestionChannel` structural
 `Question` and blocking only its own caller (a role's coroutine) on a private `asyncio.Future`
 until `resolve_answer` delivers the matching `Answer` -- so a role blocked in `ask` never stops
 the runtime's own tick loop from handling heartbeats, `TaskCancel` or anything else meanwhile.
-Every frame this class receives passes through the transport's own codec, so an
-`InvalidPayloadError` (a malformed frame with a readable id) leaves the pair open and this class
-simply asks for the next one, while any other decode failure or a lost link ends the transport for
-good -- both are reported to the caller as `None`, this module's one signal for "nothing more will
-ever arrive here".
+`envelope_for`/`send_envelope` split `send` in two for a caller that must know an envelope's own
+id before it leaves (roadmap step 7.8: `hivemind.workers.runtime.honey.MailboxHoneyChannel`
+matches the Queen's `HoneyResponse` to its query by that id). Every frame this class receives
+passes through the transport's own codec, so an `InvalidPayloadError` (a malformed frame with a
+readable id) leaves the pair open and this class simply asks for the next one, while any other
+decode failure or a lost link ends the transport for good -- both are reported to the caller as
+`None`, this module's one signal for "nothing more will ever arrive here".
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Built and owned by `hivemind.workers.runtime.loop.
@@ -165,7 +167,31 @@ class Mailbox:
                 `waggle.envelope.MessageShape`'s rule for `payload`'s own kind; None for a
                 request or an event with no antecedent.
         """
-        envelope = wrap(payload, self._hop, clock=self._clock, correlation_id=correlation_id)
+        await self.send_envelope(self.envelope_for(payload, correlation_id=correlation_id))
+
+    def envelope_for(
+        self, payload: WaggleMessage, *, correlation_id: MessageId | None = None
+    ) -> Envelope:
+        """Wrap `payload` for this Worker's link without sending it, so its id is known first.
+
+        A request whose reply is matched by its envelope id (a `HoneyQuery`, roadmap step 7.8)
+        registers its waiter under that id before the envelope can leave.
+
+        Args:
+            payload: The message to wrap.
+            correlation_id: As for `send`.
+
+        Returns:
+            A fresh Envelope stamped with this mailbox's own hop and clock.
+        """
+        return wrap(payload, self._hop, clock=self._clock, correlation_id=correlation_id)
+
+    async def send_envelope(self, envelope: Envelope) -> None:
+        """Hand an envelope `envelope_for` already built to the transport.
+
+        Args:
+            envelope: The envelope to send, unchanged.
+        """
         await self._transport.send(envelope)
 
     async def ask(self, question: Question) -> Answer:

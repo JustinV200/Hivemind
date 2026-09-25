@@ -24,6 +24,8 @@ Key invariants:
       `InboxKind.WAGGLE_MESSAGE` with no severity and no task linkage, so
       `hivemind.queen.autopilot.table.decide`'s own `NEEDS_JUDGEMENT` fallback is what handles an
       unknown kind, not a crash here.
+    - Every InboxItem carries its envelope's own `correlation_id` unchanged (roadmap step 7.8),
+      so a handler can answer or match by it without re-reading the envelope.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the Attendant shape this module builds for the Queen.
@@ -82,6 +84,8 @@ def to_inbox_item(envelope: Envelope, principal: str) -> InboxItem:
         latency_budget_s=None,
         payload_kind=envelope.kind,
         payload=payload,
+        # Kept whole (roadmap step 7.8): a reply is matched to its request by this field alone.
+        correlation_id=envelope.correlation_id,
     )
 
 

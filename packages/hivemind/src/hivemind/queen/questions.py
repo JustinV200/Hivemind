@@ -243,7 +243,10 @@ async def answer_question(
         envelope = wrap(
             wire, link.hop, clock=deps.clock, correlation_id=answer_input.correlation_id
         )
-        await link.transport.send(envelope)
+        # chamber.answer above already resumed the task; a Warden this cannot reach never got
+        # the word its sub-bee was waiting for, but there is nothing more to retry here (no
+        # outbox exists on the Queen's side of this link) -- liveness is the only backstop.
+        await link.send(envelope)
     return task
 
 
@@ -358,7 +361,9 @@ async def _forward_from_note(
     )
     wire = _to_wire_answer(wire_question_id, task.id, answer)
     envelope = wrap(wire, link.hop, clock=queen._deps.clock, correlation_id=correlation_id)
-    await link.transport.send(envelope)
+    # Same rule as answer_question's own send: the chamber's state is unaffected either way
+    # (this path never even calls chamber.ask), and there is nothing more to retry here.
+    await link.send(envelope)
     # Roadmap step 5.0d: this is the one place a HUMAN answer to a real hive-inbox-answer leaves
     # the process, so it is the one place "keep for this whole goal" can be remembered from it.
     if note.chosen_option == leave_memory.KEEP_FOR_GOAL_INDEX:

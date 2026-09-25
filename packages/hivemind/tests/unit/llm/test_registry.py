@@ -1,5 +1,8 @@
 """Tests for hivemind.llm.registry: ProviderRegistry, RegistryDeps, ProviderConfig.
 
+The EMBEDDER slot's own resolution (`ProviderRegistry.embedder`) is tested by feature in
+`test_registry_embedder.py` (codingrules 14.2/5.1).
+
 Fits into the Hive:
     Mirrors src/hivemind/llm/registry.py (codingrules section 3: tests/unit mirrors src/
     one-to-one).
@@ -30,11 +33,15 @@ from pydantic import SecretStr
 from hivemind.forage.slots import ModelSlot
 from hivemind.hive.backends.provider_table import CellProviderKind
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities
-from hivemind.llm.errors import OfflineViolationError, UnknownProviderError
+from hivemind.llm.errors import (
+    OfflineViolationError,
+    UnknownProviderError,
+)
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.providers.anthropic import AnthropicProvider
 from hivemind.llm.registry import (
+    EMBEDDING_ONLY_KINDS,
     IN_PROCESS_KINDS,
     PENDING_KINDS,
     MissingDefaultModelError,
@@ -42,6 +49,7 @@ from hivemind.llm.registry import (
     ProviderKind,
     ProviderRegistry,
     apply_overrides,
+    default_embedding_factories,
     default_factories,
     default_transcription_factories,
 )
@@ -82,12 +90,28 @@ def test_in_process_kinds_mirror_the_manifests_own_set() -> None:
     assert set(IN_PROCESS_KINDS) == set(MANIFEST_IN_PROCESS_KINDS)
 
 
-def test_every_kind_has_a_chat_or_a_transcription_factory_except_pending() -> None:
-    chat, transcription = default_factories(), default_transcription_factories()
+def test_every_kind_has_a_factory_on_some_door_except_pending() -> None:
+    doors = (default_factories(), default_transcription_factories(), default_embedding_factories())
 
     for kind in get_args(ProviderKind):
-        covered = kind in chat or kind in transcription
+        covered = any(kind in door for door in doors)
         assert covered is (kind not in PENDING_KINDS)
+
+
+def test_default_factories_covers_every_kind_that_can_chat() -> None:
+    factories = default_factories()
+    # whisper_local only transcribes and EMBEDDING_ONLY_KINDS only embed: neither has a chat door.
+    chatless = {*EMBEDDING_ONLY_KINDS, "whisper_local"}
+
+    for kind in get_args(ProviderKind):
+        assert (kind in factories) is (kind not in PENDING_KINDS and kind not in chatless)
+
+
+def test_default_embedding_factories_covers_fake_openai_compat_and_sentence_transformers() -> None:
+    factories = default_embedding_factories()
+
+    assert set(factories) == {"fake", "openai_compat", "sentence_transformers"}
+    assert "anthropic" not in factories  # No embedding endpoint (ADR-0036).
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -141,6 +165,43 @@ def test_provider_constructs_once_and_caches_the_instance() -> None:
 
     assert first is second
     assert calls == ["hosted"]
+
+
+async def test_aclose_closes_every_built_provider_that_owns_a_pool_then_forgets_it() -> None:
+    """ProviderRegistry.aclose closes only what it built, structurally, and builds afresh after."""
+    closed: list[str] = []
+
+    class _PooledFake(FakeLLMProvider):
+        """A fake that owns a pool, the way an HTTP adapter does."""
+
+        async def aclose(self) -> None:
+            closed.append(self.name)
+
+    def _pooled_factory(
+        name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
+    ) -> LLMProvider:
+        return _PooledFake(name=name)
+
+    deps = make_registry_deps(factories={"fake": _pooled_factory})
+    providers = {"used": make_provider_config(kind="fake"), "never": make_provider_config()}
+    registry = ProviderRegistry(providers, [], offline=False, deps=deps)
+    first = registry.provider("used")
+
+    await registry.aclose()
+
+    assert closed == ["used"]  # "never" was never built, so there was nothing to close.
+    assert registry.provider("used") is not first
+
+
+async def test_aclose_forgets_a_provider_with_nothing_to_close() -> None:
+    registry = ProviderRegistry(
+        {"plain": make_provider_config()}, [], offline=False, deps=make_registry_deps()
+    )
+    first = registry.provider("plain")
+
+    await registry.aclose()
+
+    assert registry.provider("plain") is not first
 
 
 def test_provider_raises_unknown_provider_error_for_an_unconfigured_name() -> None:

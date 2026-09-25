@@ -59,6 +59,7 @@ from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
 from hivemind.supervision import Intervention, to_wire
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.errors import UnknownSubBeeError
+from hivemind.wardens.links import send_guarded
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.spawn import stop_sub_bee
 from hivemind.wardens.state import clustering_update
@@ -139,7 +140,9 @@ async def forward_control(
     hop = Hop(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
     )
-    await sub_bee.link.send(wrap(payload, hop, clock=warden._deps.clock))
+    # A sub-bee whose own link has already gone is one this control message no longer concerns:
+    # it is ending or already ended, so there is nothing left to relay this to.
+    await send_guarded(sub_bee.link, wrap(payload, hop, clock=warden._deps.clock))
 
 
 async def _handle_queen_rebind(warden: Warden, sub_bee: SubBee, intervene: Intervene) -> None:
@@ -196,7 +199,9 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
     hop = Hop(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.hop.node_id
     )
-    await sub_bee.link.send(wrap(message, hop, clock=warden._deps.clock))
+    # Same rule as forward_control's own relay: a sub-bee whose link is already gone has nothing
+    # left to receive this order.
+    await send_guarded(sub_bee.link, wrap(message, hop, clock=warden._deps.clock))
 
 
 def handle_plan_written(warden: Warden, payload: PlanWritten) -> None:
@@ -225,11 +230,11 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
     Roadmap step 5.13's own missing lever (`hivemind.queen.cluster.tick.run_release_tick`):
     unlike `handle_stop` (ADR-0027's Shutdown/CellTeardownRequest, which ends this whole Warden),
     this Warden's own Cell is not being destroyed here -- only its lease. `settle_after_tick`
-    (called right after every `_act`, `hivemind.wardens.ticks.assign`'s own module docstring)
-    settles this Warden back to WATCH on its own once `_sub_bees` is empty, so this handler never
-    touches `warden._state` itself. Idempotent: `RealCellLease.release()` is idempotent, and a
-    Warden already lease-less (WATCH since `start()` was refused) simply has nothing to release
-    or report.
+    (called right after every `hivemind.wardens.ticks.dispatch.act`, `hivemind.wardens.ticks.
+    assign`'s own module docstring) settles this Warden back to WATCH on its own once
+    `_sub_bees` is empty, so this handler never touches `warden._state` itself. Idempotent:
+    `RealCellLease.release()` is idempotent, and a Warden already lease-less (WATCH since
+    `start()` was refused) simply has nothing to release or report.
 
     Args:
         warden: The owning Warden (read and written directly; see the module docstring).
@@ -269,7 +274,11 @@ async def _send_lease_released(
         residual_paths=tuple(str(path) for path in report.residual_paths),
         reason=reason,
     )
-    await warden._deps.queen_link.send(wrap(message, warden._deps.hop, clock=warden._deps.clock))
+    # The lease is already released (module docstring); an unreachable Queen only misses this
+    # report, matching hivemind.queen.cluster.tick._handle_release_order's own "this tick can do
+    # no more" rule for the same message in the other direction.
+    envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock)
+    await send_guarded(warden._deps.queen_link, envelope)
 
 
 def handle_snapshot_reply(warden: Warden, payload: CellSnapshotReply | CellRollbackReply) -> None:

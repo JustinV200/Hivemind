@@ -19,14 +19,23 @@ from pathlib import Path
 
 import pytest
 from builders.cells import make_cell
+from builders.house_bee import make_retrieved_hit
 from builders.llm import make_bound
 from builders.queen import plan_responder
 
 from hivemind.cell import HoneyClearance
 from hivemind.llm import DirectCallGate, FakeLLMProvider
 from hivemind.llm.errors import MalformedOutputError
+from hivemind.memory import RETRIEVED_PREAMBLE
 from hivemind.queen.planner import PlanBrief, PlannerError, describe_fleet, plan_goal
+from waggle.clock import FakeClock
+from waggle.messages import HoneyClearance as WireHoneyClearance
 from waggle.messages.task import WorkerRole
+
+# The rendered section's own delimiters (hivemind.llm.prompts.LabelledSection), each on its own
+# line; decompose_goal.md's body names the section too, but only inside backticks.
+_RETRIEVED_OPEN = "\n<<<retrieved>>>\n"
+_RETRIEVED_CLOSE = "\n<<<end retrieved>>>"
 
 
 def _valid_plan(goal: str) -> dict[str, object]:
@@ -366,6 +375,46 @@ async def test_plan_goal_retries_a_scout_with_the_wrong_acceptance_inside_the_la
             PlanBrief("Look around a site.", HoneyClearance.C1), bound, gate=DirectCallGate()
         )
     assert len(provider.calls) > 1
+
+
+async def test_plan_goal_renders_honey_hits_into_the_retrieved_section() -> None:
+    """Roadmap step 7.9: the goal's Honey reaches the planner as labelled reference data."""
+    provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
+    bound = make_bound(provider=provider)
+    hit = make_retrieved_hit(FakeClock())
+    brief = PlanBrief("Write the widget port to a file.", HoneyClearance.C1, honey=(hit,))
+
+    await plan_goal(brief, bound, gate=DirectCallGate())
+
+    system = provider.calls[0].system or ""
+    retrieved = system[system.index(_RETRIEVED_OPEN) : system.index(_RETRIEVED_CLOSE)]
+    assert RETRIEVED_PREAMBLE in retrieved
+    assert f"[honey {hit.honey_ref}] {hit.title}" in retrieved
+    assert hit.excerpt in retrieved
+    # Stable prefix first: retrieved content sits before the goal itself.
+    assert system.index(_RETRIEVED_OPEN) < system.index("\n<<<user>>>\n")
+
+
+async def test_plan_goal_omits_the_retrieved_section_without_hits() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
+    bound = make_bound(provider=provider)
+
+    await plan_goal(PlanBrief("A goal.", HoneyClearance.C1), bound, gate=DirectCallGate())
+
+    assert _RETRIEVED_OPEN not in (provider.calls[0].system or "")
+
+
+async def test_plan_goal_never_shows_a_hit_above_the_goals_clearance() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
+    bound = make_bound(provider=provider)
+    royal = make_retrieved_hit(FakeClock(), clearance=WireHoneyClearance.C2, excerpt="Royal.")
+    brief = PlanBrief("A goal.", HoneyClearance.C1, honey=(royal,))
+
+    await plan_goal(brief, bound, gate=DirectCallGate())
+
+    system = provider.calls[0].system or ""
+    assert _RETRIEVED_OPEN not in system
+    assert "Royal." not in system
 
 
 def test_describe_fleet_names_each_cell_and_the_os_placement_matches_on() -> None:

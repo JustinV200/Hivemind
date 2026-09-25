@@ -11,11 +11,15 @@ the lowest-scored candidates (codingrules section 8.9: "on overflow the lowest-s
 dropped first"). Any item whose rendered text is longer than `request.budget.item_cap_chars` is
 replaced by a short reference before it is even token-counted, so one huge tool result never crowds
 out everything else in hot state ("a large tool result is stored as Nectar with a reference in hot
-state, never inlined" -- until the Honey Store exists in phase 7, that reference is a
-`hivemind.memory.bee_bread.deposit.deposit_tool_result` entry id, deposited by a caller, never by
-this module itself, which stays pure). The result's `sections` are keyed only `PINS` and
-`HOT_STATE` (never `RETRIEVED`, which stays empty in memory v0), ready to hand straight to
-`hivemind.llm.prompts.render`. A resumed `hivemind.memory.Handoff` (`HotStateSources.handoff`) is
+state, never inlined": the reference names the item's own id, which a caller has already
+deposited, e.g. through `hivemind.memory.bee_bread.deposit.deposit_tool_result` -- never this
+module itself, which stays pure). Once hot state is packed, the cold tier follows: the Honey hits
+the caller retrieved for this episode (`AssembleRequest.retrieved`; Honey is the Hive's ripened,
+labelled knowledge) are packed by `hivemind.memory.hot_state.retrieved.pack_retrieved` into
+whatever room hot state left, capped at the budget's own retrieved share, and become the
+`RETRIEVED` section. The result's `sections` are keyed `PINS`, `HOT_STATE` and `RETRIEVED` (each
+only when it has content), ready to hand straight to `hivemind.llm.prompts.render`, which delimits
+and labels each one. A resumed `hivemind.memory.Handoff` (`HotStateSources.handoff`) is
 rendered unconditionally into its own delimited block inside `HOT_STATE` (`_render_handoff`) --
 never scored or dropped for budget the way the candidates above are, only bounded by
 `item_cap_chars` -- because what a prior attempt already did and must not repeat is safety-critical
@@ -28,13 +32,19 @@ Fits into the Hive:
     to build the prompt for an awake episode. Calls into hivemind.llm (for SectionLabel, to key its
     result the way render() expects), hivemind.memory.counter (TokenCounter), hivemind.memory.
     handoff (Handoff, for the resumed-Handoff block), hivemind.memory.hot_state.summaries,
-    hivemind.memory.notes, hivemind.memory.pins and hivemind.memory.relevance (RelevanceScore,
-    Scorable, item_id, score) only.
+    hivemind.memory.hot_state.retrieved (the cold tier's packing), hivemind.memory.notes,
+    hivemind.memory.pins, hivemind.memory.relevance (RelevanceScore, Scorable, item_id, score) and
+    waggle (HoneyHit) only; never hivemind.honey_store, whose hits arrive as data.
 
 Key invariants:
     - Every candidate is filtered by `item.clearance.rank <= principal.clearance.rank` before
       ranking or packing begins; a C2 item is never scored, rendered or counted for a C1 (or
-      lower) principal (codingrules section 8.9).
+      lower) principal (codingrules section 8.9). Retrieved hits get the same filter, as defence
+      in depth, even though the Queen already filtered them by the reader's ceiling.
+    - Hot state packs first, exactly as if nothing were retrieved: no hit ever takes room from hot
+      state. Hits get only what hot state (and a resumed Handoff) left, capped at
+      `TokenBudget.retrieved_fraction` of the packing target, so the RETRIEVED section never
+      exceeds its own share and the packed sections never exceed the target because of it.
     - Packing is a single pass in relevance order (highest first): once an item does not fit the
       remaining budget, every item after it in that same pass is dropped too, never
       skipped-and-retried against a smaller later item. A pin's non-decaying score floor
@@ -44,7 +54,8 @@ Key invariants:
     - `assemble` is pure apart from its four injected effects, `sources`, `counter`, `on_drop` and
       (when `request.now` is unset) the wall clock: given the same request, sources and counter
       answers, it always packs the same Prompt. `on_drop` (roadmap step 4.4) is a synchronous
-      callback invoked once per dropped candidate; unset, it changes nothing.
+      callback invoked once per dropped hot-state candidate, never for a retrieved hit (nothing
+      to archive: it already lives in the Honey Store); unset, it changes nothing.
     - A resumed Handoff's own `do_not_redo` and `next_steps` render as explicit instruction lists
       ("Already done, do not repeat: ...", "Next: ...") and `pinned_facts` renders verbatim,
       never re-summarised (codingrules section 8.9: "compaction... copies pins verbatim").
@@ -59,6 +70,7 @@ See Also:
     - hivemind.memory.handoff for Handoff, the resumed-Handoff shape `_render_handoff` renders.
     - hivemind.memory.hot_state.summaries for the summary models, HotStateSources and TokenBudget
       this module reads.
+    - hivemind.memory.hot_state.retrieved for pack_retrieved, the cold tier's packing step.
     - hivemind.llm.prompts for render, the function a caller passes `Prompt.sections` to.
 """
 
@@ -74,6 +86,7 @@ from hivemind.cell import HoneyClearance
 from hivemind.llm import SectionLabel
 from hivemind.memory.counter import TokenCounter
 from hivemind.memory.handoff import Handoff
+from hivemind.memory.hot_state.retrieved import pack_retrieved, retrieved_share
 from hivemind.memory.hot_state.summaries import (
     ITEM_CAP_CHARS,
     AlarmSummary,
@@ -91,6 +104,7 @@ from hivemind.memory.pins import Pin
 from hivemind.memory.relevance import RelevanceScore, Scorable, item_id, score
 from waggle.ids import CellId, TaskId
 from waggle.messages.base import UtcDatetime
+from waggle.messages.honey import HoneyHit
 
 RECENT_DECISIONS_LIMIT = 20  # Generous default; packing still drops whichever ones do not fit.
 # A resumed Handoff's own list fields (do_not_redo, next_steps, ...) can hold up to Handoff's own
@@ -146,6 +160,13 @@ class AssembleRequest(BaseModel):
         "candidate (hivemind.memory.hot_state.summaries.HotStateSources.wax); empty means no "
         "Cell's wax appears in this prompt at all.",
     )
+    retrieved: tuple[HoneyHit, ...] = Field(
+        default=(),
+        description="Honey hits the caller retrieved for this episode (the cold tier), e.g. a "
+        "Drone's TaskAssign.honey. Untrusted reference data: packed after hot state into the "
+        "RETRIEVED section, best score first, within budget.retrieved_fraction; a hit labelled "
+        "above the principal's clearance is dropped unseen.",
+    )
 
 
 class Prompt(BaseModel):
@@ -158,12 +179,22 @@ class Prompt(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     sections: dict[SectionLabel, str] = Field(
-        default_factory=dict, description="PINS and/or HOT_STATE text, keyed for render()."
+        default_factory=dict,
+        description="PINS, HOT_STATE and/or RETRIEVED text, keyed for render(); a section with "
+        "nothing packed into it is absent.",
     )
     event_text: str = Field(description="The triggering event's text, becoming the EVENT section.")
     token_count: int = Field(ge=0, description="Tokens spent on sections plus event_text.")
-    included: tuple[str, ...] = Field(default=(), description="Ids of every item packed in.")
-    dropped: tuple[str, ...] = Field(default=(), description="Ids of every candidate left out.")
+    included: tuple[str, ...] = Field(
+        default=(),
+        description="Ids of every item packed in: hot-state ids, then `honey:<honey_ref>` per "
+        "retrieved hit.",
+    )
+    dropped: tuple[str, ...] = Field(
+        default=(),
+        description="Ids of every candidate left out for the budget, in the same two forms; a "
+        "candidate filtered out by clearance is in neither list.",
+    )
 
 
 @dataclass
@@ -181,43 +212,62 @@ async def assemble(
     counter: TokenCounter,
     on_drop: Callable[[Scorable], None] | None = None,
 ) -> Prompt:
-    """Pack hot state into a token-budgeted Prompt for one episode.
+    """Pack hot state, then the retrieved Honey hits, into a token-budgeted Prompt for one episode.
 
     Args:
-        request: The principal, trigger, budget and (optionally) reference time this prompt is for.
-        sources: Where every candidate item comes from.
-        counter: How each candidate's rendered text is token-counted.
-        on_drop: Called once, synchronously, for every candidate left out of the budget (roadmap
-            step 4.4: "the packer must report drops"). `Prompt.dropped` already carries each one's
-            id; this is for a caller that needs the item itself, e.g. to archive it into Bee Bread
-            (`hivemind.memory.bee_bread.deposit.deposit_dropped_items`). Unset (the default) costs
-            nothing extra: `assemble` stays pure apart from its three other injected effects.
+        request: The principal, trigger, budget, retrieved hits and (optionally) reference time
+            this prompt is for.
+        sources: Where every hot-state candidate comes from.
+        counter: How each candidate's and hit's rendered text is token-counted.
+        on_drop: Called once, synchronously, for every hot-state candidate left out of the budget
+            (roadmap step 4.4: "the packer must report drops"), never for a retrieved hit.
+            `Prompt.dropped` carries every id either way; this is for a caller that needs the
+            item itself, e.g. to archive it into Bee Bread (`hivemind.memory.bee_bread.deposit.
+            deposit_dropped_items`). Unset (the default) costs nothing extra.
 
     Returns:
-        A Prompt whose `sections` carries at most PINS and HOT_STATE, packed to
+        A Prompt whose `sections` carries at most PINS, HOT_STATE and RETRIEVED, packed to
         `request.budget.max_input_tokens - request.budget.output_reserve`.
     """
-    allowance = request.principal.clearance
     target_tokens = request.budget.max_input_tokens - request.budget.output_reserve
-    now = request.now if request.now is not None else datetime.now(UTC)
-
-    candidates = await _gather_candidates(sources, allowance, request.cells_in_play)
-    active_tasks = frozenset(item.id for item in candidates if isinstance(item, TaskSummary))
-    pin_ids = frozenset(item_id(item) for item in candidates if isinstance(item, Pin))
-
-    ranked = _rank(candidates, now, active_tasks, pin_ids)
-    packed = await _pack(ranked, target_tokens, request.budget.item_cap_chars, counter, on_drop)
+    packed = await _pack_hot_state(request, sources, counter, on_drop, target_tokens)
     handoff_text, handoff_tokens = await _handoff_section(sources, request.budget, counter)
+
+    # The cold tier packs last, into what hot state left, never past its own share of the target.
+    room = min(
+        target_tokens - packed.total_tokens - handoff_tokens, retrieved_share(request.budget)
+    )
+    retrieved = await pack_retrieved(
+        request.retrieved, request.principal.clearance, room, request.budget.item_cap_chars, counter
+    )
 
     event_text = _event_text(request)
     event_tokens = await counter.count(event_text)
     return Prompt(
-        sections=_render_sections(packed.included, handoff_text),
+        sections=_render_sections(packed.included, handoff_text, retrieved.text),
         event_text=event_text,
-        token_count=packed.total_tokens + handoff_tokens + event_tokens,
-        included=tuple(item_id(item) for item, _text in packed.included),
-        dropped=tuple(packed.dropped),
+        token_count=packed.total_tokens + handoff_tokens + retrieved.tokens + event_tokens,
+        included=(*(item_id(item) for item, _text in packed.included), *retrieved.included),
+        dropped=(*packed.dropped, *retrieved.dropped),
     )
+
+
+async def _pack_hot_state(
+    request: AssembleRequest,
+    sources: HotStateSources,
+    counter: TokenCounter,
+    on_drop: Callable[[Scorable], None] | None,
+    target_tokens: int,
+) -> _PackResult:
+    """Gather, clearance-filter, rank and pack every hot-state candidate into `target_tokens`."""
+    now = request.now if request.now is not None else datetime.now(UTC)
+    candidates = await _gather_candidates(
+        sources, request.principal.clearance, request.cells_in_play
+    )
+    active_tasks = frozenset(item.id for item in candidates if isinstance(item, TaskSummary))
+    pin_ids = frozenset(item_id(item) for item in candidates if isinstance(item, Pin))
+    ranked = _rank(candidates, now, active_tasks, pin_ids)
+    return await _pack(ranked, target_tokens, request.budget.item_cap_chars, counter, on_drop)
 
 
 async def _handoff_section(
@@ -315,15 +365,17 @@ def _reference(iid: str, raw_text: str) -> str:
 
 
 def _render_sections(
-    included: Sequence[tuple[Scorable, str]], handoff_text: str
+    included: Sequence[tuple[Scorable, str]], handoff_text: str, retrieved_text: str
 ) -> dict[SectionLabel, str]:
-    """Split packed (item, text) pairs back into PINS and HOT_STATE, preserving pack order.
+    """Split packed (item, text) pairs into PINS and HOT_STATE in pack order; add RETRIEVED.
 
     Args:
         included: Every scored candidate `_pack` kept, with its own rendered text.
         handoff_text: The resumed Handoff's own rendered block (`_render_handoff`), or "" when
             this episode is not resuming one; appended after the scored hot-state lines so it
             reads after pins and hot state, before the event (codingrules 8.9's "stable prefix").
+        retrieved_text: The packed cold tier (`pack_retrieved`'s text), or "" when no hit was
+            packed; it becomes the RETRIEVED section, which render() places after hot state.
     """
     pin_lines = [text for item, text in included if isinstance(item, Pin)]
     hot_lines = [text for item, text in included if not isinstance(item, Pin)]
@@ -334,6 +386,8 @@ def _render_sections(
         sections[SectionLabel.PINS] = "\n".join(pin_lines)
     if hot_lines:
         sections[SectionLabel.HOT_STATE] = "\n".join(hot_lines)
+    if retrieved_text:
+        sections[SectionLabel.RETRIEVED] = retrieved_text
     return sections
 
 

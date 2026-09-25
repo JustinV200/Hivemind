@@ -1,21 +1,26 @@
-"""Provide `hive llm`: inspect configured providers and slots, and send one test call.
+"""Define `hive llm`'s commands: inspect configured providers and slots, and send a test call.
 
 Three commands, each a thin typer layer over `hivemind.llm.registry.ProviderRegistry`
 (`hivemind.cli.stores.build_registry`): `providers` lists every `[llm.providers.<name>]` row with
 its declared shape and a live health probe; `slots` lists every `hivemind.forage.slots.ModelSlot`
 resolved to its current binding, price and fallback chain; `test` resolves one slot and sends a
 single small completion through it, the way `hivemind.llm.ladders.gate.DirectCallGate` would, to
-prove a binding actually answers before a real goal depends on it. No rule about what a provider or
-a slot binding *is* lives here; every one of those lives in `hivemind.llm` and `hivemind.forage`
+prove a binding actually answers before a real goal depends on it -- except for `EMBEDDER`
+(roadmap step 7.1), which has no completion to send: `test` embeds one short text through
+`ProviderRegistry.embedder()` instead, the way `hivemind.llm.embedding.gate.DirectEmbedGate`
+would, and prints the model, its vector dimension and the latency in place of usage and a reply.
+No rule about what a provider or a slot binding *is* lives here; every one of those lives in
+`hivemind.llm` and `hivemind.forage`
 (codingrules section 2's CLI row: "commands call into subsystem APIs, never contain logic"). This
 module is the CLI's own composition root for one loaded `HiveManifest`'s worth of `os.environ`
 reads (codingrules section 13: environment variables are read in exactly one place, `manifest.env`,
 but the raw mapping is still supplied at the very edge by whichever composition root needs it).
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
-    console script (`hivemind.cli.app`). Calls into `hivemind.llm`, `hivemind.forage`,
-    `hivemind.manifest` and `hivemind.cli.stores` only.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.llm`. Called by an operator's
+    shell through the `hive` console script (`hivemind.cli.app`). Calls into `hivemind.llm`,
+    `hivemind.forage`, `hivemind.manifest`, `hivemind.cli.stores` and `hivemind.cli.llm.rows`
+    (the provider and slot rows) only.
 
 Key invariants:
     - `providers`/`slots`/`test` never raise a raw `pydantic.ValidationError` or `ManifestError`:
@@ -47,31 +52,28 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import typer
-from pydantic import BaseModel, ConfigDict, Field
 
+from hivemind.cli.llm.rows import ProviderRow, SlotRow, provider_rows, slot_row_for
 from hivemind.cli.stores import (
     DEFAULT_MANIFEST,
     JsonOption,
     ManifestOption,
     build_registry,
+    closing_registry,
     load_manifest_or_exit,
 )
 from hivemind.forage import ModelSlot
 from hivemind.llm import (
-    BoundModel,
-    BoundTranscriber,
     DirectCallGate,
+    DirectEmbedGate,
+    EmbeddingRequest,
     LLMError,
     LLMRequest,
     Message,
-    OfflineViolationError,
     ProviderRegistry,
     Role,
-    TranscriptionUnsupportedError,
-    UnknownProviderError,
     Usage,
 )
-from hivemind.manifest import HiveManifest, provider_api_key
 from waggle.clock import SystemClock
 
 app = typer.Typer(name="llm", help="Inspect the Hive's model providers and slots, or test one.")
@@ -103,37 +105,6 @@ def _validate_slot(value: str) -> str:
     return value
 
 
-class _ProviderRow(BaseModel):
-    """One `hive llm providers` row: a provider's shape, key presence and live health."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    name: str = Field(description="The [llm.providers.<name>] key.")
-    kind: str = Field(description="Which adapter speaks to this provider.")
-    base_url: str = Field(description="The provider's base URL, or '(vendor default)' when hosted.")
-    seats: int = Field(description="Concurrent requests this provider allows.")
-    has_api_key: bool = Field(description="Whether an API key is set in the environment.")
-    health: str = Field(description="The live health probe result, or 'refused: offline'.")
-
-
-class _SlotRow(BaseModel):
-    """One `hive llm slots` row: a resolved ModelSlot binding and its fallback chain."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    slot: str = Field(description="The ModelSlot's manifest key.")
-    binding: str = Field(description="The [llm.slots] key this binding actually resolved.")
-    provider: str = Field(description="The provider name serving this binding.")
-    model: str = Field(description="The provider's own model id.")
-    effort: str = Field(description="How hard this binding asks the model to think; '-' for ears.")
-    context_window: int | None = Field(
-        description="This binding's context window, in tokens; None for the transcriber, whose "
-        "input is audio, not tokens."
-    )
-    price: str = Field(description="Per-million-token price, or '-' when the Forage map has none.")
-    fallback_chain: str = Field(description="Every binding key in the chain, as 'a -> b -> c'.")
-
-
 @dataclass(frozen=True, slots=True)
 class _TestResult:
     """What `hive llm test` prints: elapsed time, normalised usage, and the reply's first line."""
@@ -143,6 +114,15 @@ class _TestResult:
     first_line: str
 
 
+@dataclass(frozen=True, slots=True)
+class _EmbedTestResult:
+    """What `hive llm test embedder` prints: elapsed time, the model and its dimension."""
+
+    latency_s: float
+    model: str
+    dimensions: int
+
+
 @app.command("providers")
 def providers_command(
     manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False
@@ -150,7 +130,7 @@ def providers_command(
     """List every configured provider: kind, base URL, seats, API key presence and health."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
-    rows = asyncio.run(_provider_rows(loaded, registry))
+    rows = asyncio.run(closing_registry(registry, provider_rows(loaded, registry)))
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return
@@ -162,14 +142,7 @@ def slots_command(manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOpti
     """List every ModelSlot resolved to its current binding, price and fallback chain."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
-    # The transcriber resolves through its own chain: its providers may be transcription-only
-    # (whisper_local), which the chat registry cannot construct at all (ADR-0033).
-    rows = tuple(
-        _transcriber_row(registry)
-        if slot is ModelSlot.TRANSCRIBER
-        else _slot_row(registry.bound(slot))
-        for slot in ModelSlot
-    )
+    rows = tuple(slot_row_for(registry, slot) for slot in ModelSlot)
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return
@@ -187,17 +160,29 @@ def test_command(
         str, typer.Option("--prompt", help="Override the default one-word test prompt.")
     ] = DEFAULT_TEST_PROMPT,
 ) -> None:
-    """Resolve SLOT and send one small completion through it; print latency, usage and the reply."""
+    """Resolve SLOT and send one small completion (or embed) through it; print the result."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
     model_slot = ModelSlot.from_manifest_key(slot)
     try:
-        result = asyncio.run(_run_test_call(registry, model_slot, prompt))
+        if model_slot is ModelSlot.EMBEDDER:
+            # EMBEDDER has no completion to run; embed one short text instead (roadmap 7.1).
+            _print_embed_test_result(
+                asyncio.run(closing_registry(registry, _run_embed_test_call(registry, prompt)))
+            )
+            return
+        _print_test_result(
+            asyncio.run(closing_registry(registry, _run_test_call(registry, model_slot, prompt)))
+        )
     except LLMError as exc:
         # Every call failure the provider boundary can raise is a typed LLMError (codingrules
         # section 8.6); its own message already names the provider and the reason.
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+
+
+def _print_test_result(result: _TestResult) -> None:
+    """Print a completion test's latency, usage and reply, in `hive llm test`'s fixed format."""
     typer.echo(f"latency: {result.latency_s:.2f}s")
     typer.echo(
         f"usage: input={result.usage.input_tokens} output={result.usage.output_tokens} "
@@ -206,62 +191,14 @@ def test_command(
     typer.echo(f"reply: {result.first_line}")
 
 
-async def _provider_rows(
-    manifest: HiveManifest, registry: ProviderRegistry
-) -> tuple[_ProviderRow, ...]:
-    """Build one row per configured provider, probing each one's live health in turn."""
-    rows = []
-    for name in registry.names():
-        rows.append(await _one_provider_row(manifest, registry, name))
-    return tuple(rows)
+def _print_embed_test_result(result: _EmbedTestResult) -> None:
+    """Print an embed test's model, dimension and latency, in `hive llm test embedder`'s format."""
+    typer.echo(f"model: {result.model}")
+    typer.echo(f"dimension: {result.dimensions}")
+    typer.echo(f"latency: {result.latency_s:.2f}s")
 
 
-async def _one_provider_row(
-    manifest: HiveManifest, registry: ProviderRegistry, name: str
-) -> _ProviderRow:
-    """Build one provider's row: its manifest shape, key presence and live health."""
-    spec = manifest.llm.providers[name]
-    has_key = provider_api_key(name, spec, os.environ) is not None
-    return _ProviderRow(
-        name=name,
-        kind=spec.kind,
-        base_url=spec.base_url or "(vendor default)",
-        seats=spec.seats,
-        has_api_key=has_key,
-        health=await _probe_health(registry, name),
-    )
-
-
-async def _probe_health(registry: ProviderRegistry, name: str) -> str:
-    """Construct and probe one provider, or report why offline mode refused it."""
-    try:
-        provider = registry.provider(name)
-    except OfflineViolationError:
-        # [llm] offline=true refuses a non-loopback provider at construction (codingrules 8.6);
-        # show that refusal instead of letting it fail the whole command.
-        return "refused: offline"
-    except UnknownProviderError:
-        # A configured name the chat registry cannot build is a transcription-only kind
-        # (whisper_local): probe it through the transcriber chain instead.
-        return await _probe_transcriber_health(registry, name)
-    reading = await provider.health()
-    return f"{reading.state.value.lower()}: {reading.detail}"
-
-
-async def _probe_transcriber_health(registry: ProviderRegistry, name: str) -> str:
-    """Probe the transcribers the transcriber slot's chain builds on `name`."""
-    try:
-        registry.bound_transcriber()  # Builds every link, so each can be probed below.
-    except TranscriptionUnsupportedError as exc:
-        return f"not probed: {exc}"
-    readings = await registry.transcription_health()
-    mine = [reading for (provider, _model), reading in readings.items() if provider == name]
-    if not mine:
-        return "not probed: no slot binds it"
-    return "; ".join(f"{reading.state.value.lower()}: {reading.detail}" for reading in mine)
-
-
-def _print_provider_table(rows: tuple[_ProviderRow, ...]) -> None:
+def _print_provider_table(rows: tuple[ProviderRow, ...]) -> None:
     """Print one fixed-width table row per configured provider."""
     typer.echo(f"{'NAME':<16}  {'KIND':<14}  {'BASE URL':<34}  {'SEATS':>5}  {'KEY':<3}  HEALTH")
     for row in rows:
@@ -272,89 +209,23 @@ def _print_provider_table(rows: tuple[_ProviderRow, ...]) -> None:
         )
 
 
-def _slot_row(bound: BoundModel) -> _SlotRow:
-    """Build one `hive llm slots` row from a resolved BoundModel."""
-    return _SlotRow(
-        slot=bound.slot.manifest_key,
-        binding=bound.binding,
-        provider=bound.provider.name,
-        model=bound.model,
-        effort=bound.effort.value,
-        context_window=bound.context_window,
-        price=_format_price(bound),
-        fallback_chain=_fallback_chain(bound),
-    )
-
-
-def _transcriber_row(registry: ProviderRegistry) -> _SlotRow:
-    """Build the transcriber's row from its own chain: no effort, token window or token price."""
-    slot = ModelSlot.TRANSCRIBER.manifest_key
-    try:
-        bound = registry.bound_transcriber()
-    except TranscriptionUnsupportedError as exc:
-        # A manifest may bind the slot to a chat-only kind until something needs to hear
-        # (minimal.toml does); list that plainly rather than failing every other row.
-        return _SlotRow(
-            slot=slot,
-            binding=slot,
-            provider=exc.provider,
-            model="-",
-            effort="-",
-            context_window=None,
-            price="-",
-            fallback_chain=f"cannot transcribe ({exc.kind})",
-        )
-    return _SlotRow(
-        slot=slot,
-        binding=bound.binding,
-        provider=bound.provider.name,
-        model=bound.model,
-        effort="-",
-        context_window=None,
-        price="-",
-        fallback_chain=_transcriber_chain(bound),
-    )
-
-
-def _transcriber_chain(bound: BoundTranscriber) -> str:
-    """Walk a transcriber chain's `.fallback` links and join their binding keys."""
-    keys = []
-    current: BoundTranscriber | None = bound
-    while current is not None:
-        keys.append(current.binding)
-        current = current.fallback
-    return " -> ".join(keys)
-
-
-def _format_price(bound: BoundModel) -> str:
-    """Format a binding's per-million-token price, or '-' when the Forage map has none."""
-    if bound.cost_per_million_input_usd is None or bound.cost_per_million_output_usd is None:
-        return "-"
-    return f"${bound.cost_per_million_input_usd:.2f}/${bound.cost_per_million_output_usd:.2f} per M"
-
-
-def _fallback_chain(bound: BoundModel) -> str:
-    """Walk `bound.fallback` and join every link's binding key as 'a -> b -> c'."""
-    keys = []
-    current: BoundModel | None = bound
-    while current is not None:
-        keys.append(current.binding)
-        current = current.fallback
-    return " -> ".join(keys)
-
-
-def _print_slot_table(rows: tuple[_SlotRow, ...]) -> None:
+def _print_slot_table(rows: tuple[SlotRow, ...]) -> None:
     """Print one fixed-width table row per resolved ModelSlot."""
     typer.echo(
         f"{'SLOT':<12}  {'BINDING':<14}  {'PROVIDER':<12}  {'MODEL':<20}  {'EFFORT':<7}  "
         f"{'WINDOW':>8}  {'PRICE':<20}  FALLBACK"
     )
     for row in rows:
-        window = "-" if row.context_window is None else str(row.context_window)
         typer.echo(
             f"{row.slot:<12}  {row.binding:<14}  {row.provider:<12}  {row.model:<20}  "
-            f"{row.effort:<7}  {window:>8}  {row.price:<20}  {row.fallback_chain}"
+            f"{row.effort:<7}  {_window(row.context_window):>8}  {row.price:<20}  "
+            f"{row.fallback_chain}"
         )
+
+
+def _window(context_window: int | None) -> str:
+    """Format a slot row's context window, '-' for an embedding binding that has none."""
+    return "-" if context_window is None else str(context_window)
 
 
 async def _run_test_call(registry: ProviderRegistry, slot: ModelSlot, prompt: str) -> _TestResult:
@@ -376,3 +247,19 @@ async def _run_test_call(registry: ProviderRegistry, slot: ModelSlot, prompt: st
     latency_s = clock.monotonic() - start
     first_line = response.text.splitlines()[0] if response.text else ""
     return _TestResult(latency_s=latency_s, usage=response.usage, first_line=first_line)
+
+
+async def _run_embed_test_call(registry: ProviderRegistry, text: str) -> _EmbedTestResult:
+    """Resolve the EMBEDDER slot and embed one short text through it, timed on a fresh Clock."""
+    bound = registry.embedder()
+    request = EmbeddingRequest(texts=(text,))
+    clock = SystemClock()
+    start = clock.monotonic()
+    # This await talks to whatever the resolved binding's provider is (a hosted server, an
+    # in-process model, or FakeEmbedding in this package's own tests); DirectEmbedGate walks a
+    # same-model fallback on an outage, so a manual test matches what a real caller would see.
+    response = await DirectEmbedGate().embed(bound, request)
+    latency_s = clock.monotonic() - start
+    return _EmbedTestResult(
+        latency_s=latency_s, model=response.model, dimensions=response.dimensions
+    )

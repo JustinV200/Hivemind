@@ -37,10 +37,12 @@ See Also:
       for `forage` and liveness's own grant renewal and expiry sweep; step 4.2a for `wax`.
     - hivemind.queen.queen for Queen, the one caller of every module here.
 
-Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3):
-    - alarms, liveness, results, forage, wax, housekeeping: the tick-handler modules.
+Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3, 7.8):
+    - alarms, liveness, results, forage, wax, housekeeping, honey: the tick-handler modules.
+      `honey` (roadmap step 7.8) answers a bee's HoneyQuery and takes a NectarDeposit chunk into
+      the Honey Store, reached ahead of `decide` through `handle_infrastructure_item` like `wax`.
 """
 
-from hivemind.queen.ticks import alarms, forage, housekeeping, liveness, results, wax
+from hivemind.queen.ticks import alarms, forage, honey, housekeeping, liveness, results, wax
 
-__all__ = ["alarms", "forage", "housekeeping", "liveness", "results", "wax"]
+__all__ = ["alarms", "forage", "honey", "housekeeping", "liveness", "results", "wax"]

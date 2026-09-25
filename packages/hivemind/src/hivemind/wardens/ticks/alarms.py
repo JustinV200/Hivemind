@@ -53,6 +53,7 @@ from hivemind.common import reap
 from hivemind.forage.slots import ModelSlot
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.wardens.autopilot import WardenAction
+from hivemind.wardens.links import send_guarded
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee, stop_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
@@ -289,8 +290,15 @@ async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
 
 
 async def _send_to_queen(warden: Warden, alarm: AlarmRaised) -> None:
-    """Wrap and send `alarm` to the Queen over this Warden's own queen link."""
-    await warden._deps.queen_link.send(wrap(alarm, warden._deps.hop, clock=warden._deps.clock))
+    """Wrap and send `alarm` to the Queen over this Warden's own queen link.
+
+    Codingrules 8.8 says Alarms queue while a Warden is disconnected; no outbox is wired for
+    that yet (this dispatch's own report), so an unreachable Queen simply never learns of this
+    Alarm from this hop -- `alarm.raised`/`alarm.handled` above are already durable on this
+    Warden's own trail segment regardless.
+    """
+    envelope = wrap(alarm, warden._deps.hop, clock=warden._deps.clock)
+    await send_guarded(warden._deps.queen_link, envelope)
 
 
 async def _send_result(
@@ -312,4 +320,7 @@ async def _send_result(
     # The Queen tears this Cell down the moment a FAILED result lands: ship the task's own trail
     # rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
     await ship_trail_before_result(warden)
-    await warden._deps.queen_link.send(wrap(result, warden._deps.hop, clock=warden._deps.clock))
+    # Codingrules 8.8 says results queue while disconnected; no outbox is wired for that yet
+    # (same gap as _send_to_queen above) -- this sub-bee is already retired either way.
+    envelope = wrap(result, warden._deps.hop, clock=warden._deps.clock)
+    await send_guarded(warden._deps.queen_link, envelope)

@@ -173,3 +173,23 @@ def test_never_raises_capability_widening_error_for_any_ordinary_needs() -> None
         )
     except CapabilityWideningError:
         pytest.fail("worker_capabilities raised CapabilityWideningError on a normal input")
+
+
+def test_every_worker_is_granted_both_honey_tools_by_name_when_the_warden_allows_tools() -> None:
+    """Roadmap step 7.8: `tool:recall`/`tool:remember` are named in the baseline itself."""
+    warden_caps = CapabilitySet.parse("fs:write:/scratch/**", "fs:read:**", "exec:*", "tool:*")
+
+    names = {str(cap) for cap in worker_capabilities(warden_caps, _needs(), Path("/scratch"))}
+
+    assert {"tool:recall", "tool:remember"} <= names
+
+
+def test_a_warden_granting_no_tools_grants_no_honey_tool_either() -> None:
+    names = {
+        str(cap)
+        for cap in worker_capabilities(
+            CapabilitySet.parse("fs:read:**"), _needs(), Path("/scratch")
+        )
+    }
+
+    assert not {"tool:recall", "tool:remember"} & names

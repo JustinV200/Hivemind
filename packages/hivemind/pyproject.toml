@@ -10,6 +10,7 @@ dependencies = [
     "typer",            # The `hive` CLI's command layer.
     "httpx",            # The OpenAI-compatible adapter's client and, later, the Entrance and the http tool (codingrules 8.6).
     "anthropic",        # The Anthropic adapter's SDK; imported only under llm/providers/anthropic/ (codingrules 8.6).
+    "sqlite-vec>=0.1.6,<0.2",  # The Honey Store's vector distance functions, loaded into SQLite (ADR-0035); 0.1.6 added the metadata filtering 0.1.x relies on.
 ]
 
 [project.optional-dependencies]
@@ -32,6 +33,13 @@ browser = [
 # loads; imported only inside hivemind.llm.providers.whisper (codingrules 8.6).
 whisper = [
     "faster-whisper>=1.1,<2",  # 1.1 is the first release with the batched pipeline and VAD defaults we rely on.
+]
+# roadmap step 7.1 (ADR-0036): the in-process EMBEDDER adapter, imported only inside
+# hivemind.llm.providers.sentence_transformers (and lazily, only when a provider of that kind is
+# built), so a Hive that embeds on its model server never downloads a deep learning framework.
+# `uv sync --extra embeddings` (or `hivemind[embeddings]`) pulls it in.
+embeddings = [
+    "sentence-transformers>=3,<6",  # 3.x introduced the encode() keyword set the adapter uses; 5.x is current.
 ]
 
 [tool.uv.sources]

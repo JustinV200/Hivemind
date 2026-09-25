@@ -164,7 +164,10 @@ async def _send_teardown_request(link: WardenLink, clock: Clock) -> None:
         cause=ReleaseCause.COMPLETED,  # The only path this is ever called from: a finished task.
         reason="Queen is releasing this Cell; flush the trail before teardown.",
     )
-    await link.transport.send(wrap(message, link.hop, clock=clock))
+    # A send that never reaches this Warden is exactly the timeout case _wait_until_detached
+    # already tolerates (module docstring: "a timeout is not an error... backend destroy is
+    # always the backstop"), so nothing more than the guard's own log is needed here.
+    await link.send(wrap(message, link.hop, clock=clock))
 
 
 async def _wait_until_detached(

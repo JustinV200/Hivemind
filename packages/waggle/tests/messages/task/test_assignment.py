@@ -25,8 +25,10 @@ from pydantic import ValidationError
 from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 from waggle.messages.base import MAX_PATH_CHARS, MAX_REASON_CHARS, MAX_SLOT_CHARS, WaggleMessage
+from waggle.messages.honey import HoneyHit, HoneyProvenance
 from waggle.messages.labels import (
     AccuracyBar,
+    CombShieldLevel,
     HandoffRef,
     HoneyClearance,
     PlannedLeaving,
@@ -38,6 +40,7 @@ from waggle.messages.task import ExoskeletonNeed, ScoutReport
 from waggle.messages.task.assignment import (
     MAX_ACCEPTANCE_CHARS,
     MAX_ACCEPTANCE_ITEMS,
+    MAX_ASSIGN_HONEY_ITEMS,
     MAX_LEAVES_ITEMS,
     MAX_OBJECTIVE_CHARS,
     TaskAssign,
@@ -78,6 +81,17 @@ TESTS_PASS = Postcondition(
 )
 ARTIFACT = ArtifactRef(path="scratch/summary.md", size_bytes=1_024, sha256="ab" * 32)
 LEAVING = PlannedLeaving(pattern="/opt/project", reason="Set up a project in /opt/project.")
+# roadmap step 7.9: one pre-check hit at the example's own clearance, so the round trip covers it.
+HIT = HoneyHit(
+    honey_ref="/hive/" + new_id(IdKind.HONEY, CLOCK),
+    title="Where the release notes live",
+    excerpt="The notes are one markdown file per version under docs/release/.",
+    score=0.8,
+    scope="hive",
+    clearance=HoneyClearance.C1,
+    origin_tier=CombShieldLevel.MEADOW,
+    provenance=HoneyProvenance(task_id=TASK_ID, cell_id=CELL_ID, bee=None, observed_at=NOW),
+)
 TASK_CLASSES: tuple[type[WaggleMessage], ...] = (
     TaskAssign,
     TaskProgress,
@@ -99,6 +113,7 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         objective="Summarise the release notes into one page.",
         acceptance=(RUBRIC, TESTS_PASS),
         leaves=(LEAVING,),
+        honey=(HIT,),
         tempo=Tempo(latency_budget_s=None, accuracy=AccuracyBar.NORMAL),
         clearance=HoneyClearance.C1,
         grant_id=GRANT_ID,
@@ -290,7 +305,8 @@ def test_task_assign_accepts_a_handoff_at_or_below_its_clearance_and_none() -> N
 
     assert _rebuild(example, clearance="C1").model_dump()["clearance"] is HoneyClearance.C1
     assert _rebuild(example, clearance="C2").model_dump()["clearance"] is HoneyClearance.C2
-    assert _rebuild(example, clearance="C0", resume_from=None).model_dump()["resume_from"] is None
+    rebuilt = _rebuild(example, clearance="C0", resume_from=None, honey=())
+    assert rebuilt.model_dump()["resume_from"] is None
 
 
 def test_task_assign_leaves_defaults_to_empty_so_an_older_peers_message_still_validates() -> None:
@@ -353,6 +369,28 @@ def test_task_result_carries_a_scout_report_and_defaults_to_none() -> None:
 
     assert TaskResult.model_validate(payload).scout_report is None
     assert _rebuild(example, scout_report=report).model_dump()["scout_report"]["feasible"] is False
+
+
+def test_task_assign_honey_defaults_to_empty_so_an_older_peers_message_still_validates() -> None:
+    # roadmap step 7.9: honey is additive (PROTOCOL_MINOR 7), like leaves before it.
+    payload = _example(TaskAssign).model_dump(mode="json")
+    del payload["honey"]
+
+    rebuilt = TaskAssign.model_validate(payload)
+
+    assert rebuilt.honey == ()
+
+
+def test_task_assign_rejects_a_honey_hit_above_its_clearance() -> None:
+    # The Queen filters before she attaches; a hit above the task's clearance at the wire is a
+    # Queen-side bug that must fail loudly, never reach a lower-cleared bee's first prompt.
+    with pytest.raises(ValidationError, match="honey hit"):
+        _rebuild(_example(TaskAssign), clearance="C0", resume_from=None)
+
+
+def test_task_assign_honey_is_bounded() -> None:
+    with pytest.raises(ValidationError, match=f"at most {MAX_ASSIGN_HONEY_ITEMS}"):
+        _rebuild(_example(TaskAssign), honey=(HIT,) * (MAX_ASSIGN_HONEY_ITEMS + 1))
 
 
 def test_task_assign_leaves_is_bounded() -> None:

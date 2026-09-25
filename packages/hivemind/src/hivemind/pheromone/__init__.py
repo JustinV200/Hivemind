@@ -28,9 +28,10 @@ See Also:
       modules and packages behind this package's public API.
 
 Public API:
-    - PheromoneEvent, LlmUsage and the twelve event families (CellEvent, TaskEvent, AlarmEvent,
+    - PheromoneEvent, LlmUsage and the thirteen event families (CellEvent, TaskEvent, AlarmEvent,
       ForageEvent, MemoryEvent, QueenEvent, WardenEvent, ToolEvent, SwarmEvent, CappingEvent,
-      LlmEvent, WorkerEvent), plus EVENT_FAMILIES, event_class_for, parse_event, parse_event_json
+      LlmEvent, WorkerEvent, HoneyEvent), plus EVENT_FAMILIES, event_class_for, parse_event,
+      parse_event_json
       and the vocabulary/validation bounds: KIND_PATTERN, ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS,
       MAX_ACTOR_CHARS, MAX_PAYLOAD_STRING_CHARS, MAX_PAYLOAD_BYTES, MAX_PROVIDER_CHARS.
     - PheromoneTrail: the protocol every trail store implements. TrailQuery, TrailSegment,
@@ -64,6 +65,7 @@ from hivemind.pheromone.events import (
     CappingEvent,
     CellEvent,
     ForageEvent,
+    HoneyEvent,
     LlmEvent,
     LlmUsage,
     MemoryEvent,
@@ -124,6 +126,7 @@ __all__ = [
     "CellEvent",
     "DuplicateEventError",
     "ForageEvent",
+    "HoneyEvent",
     "LlmEvent",
     "LlmUsage",
     "MemoryEvent",

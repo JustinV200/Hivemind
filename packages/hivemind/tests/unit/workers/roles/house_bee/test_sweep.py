@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from pathlib import Path
 
+from builders.cells import make_cell
+from builders.house_bee import RecordedCells, open_honey_access
 from builders.llm import make_bound, text_response
 from builders.memory import (
     make_bee_bread_entry,
@@ -40,9 +43,10 @@ from hivemind.memory import (
     TaskSummary,
 )
 from hivemind.memory.bee_bread.entry import BeeBreadEntryKind
-from hivemind.memory.cell_wax import WaxState, propose_wax, write_wax
+from hivemind.memory.cell_wax import WaxState, clear_wax, propose_wax, write_wax
 from hivemind.memory.store.memory import InMemoryMemoryStore
 from hivemind.pheromone import MemoryEvent, MemoryPheromoneTrail, PheromoneTrail
+from hivemind.workers.roles.house_bee import HouseBeeHoney
 from hivemind.workers.roles.house_bee.sweep import SweepDeps, SweepOutcome, SweepWindow, run_sweep
 from waggle.clock import FakeClock
 from waggle.ids import CellId, new_event_id, new_hive_id, new_node_id, new_task_id
@@ -311,3 +315,46 @@ async def test_run_sweep_demotes_from_injected_sources_when_given() -> None:
     outcome = await run_sweep(deps, window)
 
     assert outcome.demoted == 1
+
+
+async def test_run_sweep_deposits_aged_bee_bread_and_retired_wax_into_honey(
+    tmp_path: Path,
+) -> None:
+    """Roadmap steps 7.6 and 7.9a: the fourth phase deposits both, and `ripened` counts them."""
+    # One aged transcript and one cleared wax note; the sweep runs two days later, so the
+    # transcript is past the manifest's default bee_bread_after_s (a day).
+    clock = FakeClock()
+    ctx, _trail = _ctx_and_trail(clock)
+    stand = make_cell(clock=clock)
+    harness = await open_honey_access(tmp_path, clock)
+    entry = make_bee_bread_entry(
+        clock=clock, kind=BeeBreadEntryKind.TRANSCRIPT, task_id=None, text=None, payload="done"
+    )
+    await ctx.store.add_bee_bread_entry(entry, _bee_bread_event(clock, entry.id))
+    proposed = await propose_wax(make_wax_proposal_input(clock=clock, cell_id=stand.id), 4_000, ctx)
+    written = await write_wax(proposed, WaxDecision.AUTOPILOT, "Within the cap.", ctx)
+    await clear_wax(written, "Fixed.", ctx)
+    honey = HouseBeeHoney(access=harness.access, cells=RecordedCells.of(stand, home=stand))
+    deps = _unscripted_deps(ctx, honey=honey)
+    clock.advance(timedelta(days=2).total_seconds())
+    window = SweepWindow(now=clock.now(), hot_window=_HOT_WINDOW, allowance=HoneyClearance.C2)
+
+    outcome = await run_sweep(deps, window)
+
+    assert outcome.ripened == 2
+    assert len(await harness.access.store.pending_nectar(10)) == 2
+
+
+async def test_run_sweep_deposits_nothing_with_no_honey_store() -> None:
+    clock = FakeClock()
+    ctx, _trail = _ctx_and_trail(clock)
+    entry = make_bee_bread_entry(
+        clock=clock, kind=BeeBreadEntryKind.TRANSCRIPT, task_id=None, text=None, payload="done"
+    )
+    await ctx.store.add_bee_bread_entry(entry, _bee_bread_event(clock, entry.id))
+    clock.advance(timedelta(days=2).total_seconds())
+    window = SweepWindow(now=clock.now(), hot_window=_HOT_WINDOW, allowance=HoneyClearance.C2)
+
+    outcome = await run_sweep(_unscripted_deps(ctx), window)
+
+    assert outcome.ripened == 0

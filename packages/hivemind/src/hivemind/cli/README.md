@@ -108,10 +108,12 @@ typer layer that calls into a subsystem's public API and never contains logic of
       Typer app as `hive cells leavings` (roadmap step 5.0a).
     - `leavings.py` -- `hive cells leavings list [CELL] --manifest hive.toml [--include-removed]
       [--json]`: every `hivemind.cell.leavings.Leaving` recorded for CELL (active rows only,
-      unless `--include-removed`), never `Leaving.prior`; CELL is optional (every `hive run`
-      mints a fresh Cell id for the Hive Stand, so an operator cannot always name one) -- omitting
-      it lists every active Leaving across every Cell instead (`LeavingsStore.list_all_leavings`),
-      with a CELL column in the table and in `--json`. `hive cells leavings remove [CELL]
+      unless `--include-removed`), never `Leaving.prior`; CELL is optional (the Hive Stand's own
+      Cell id is now stable across every `hive run`, `hivemind.cell.hive_stand_cell_id`, phase 7
+      handoff item 4 -- but a Swarm device's leases, a later phase, still add Cells an operator
+      may not have to hand) -- omitting it lists every active Leaving across every Cell instead
+      (`LeavingsStore.list_all_leavings`), with a CELL column in the table and in `--json`. `hive
+      cells leavings remove [CELL]
       [--path PATH] --manifest hive.toml`: with CELL and no `--path`, replays every active row's
       `prior` bytes back (or unlinks, when `prior` is `None`) onto the Hive Stand's real
       filesystem, then marks each row removed and records one `cell.leaving_removed` event per
@@ -341,8 +343,8 @@ dispatch's file to grow a knob on) and a real SQLite file; `hivemind.cli.readbac
 build_virtual_cells`/`build_hive_stand_source` are monkeypatched to hand back one pre-seeded
 `VirtualCellsParts`/`FakeCellSource` per test (mirroring `test_llm.py`'s own `build_registry`
 monkeypatch), since a `FakeCellBackend` provisioned through its own real `provision()` call has no
-way to be reached back from outside the CLI process otherwise, and `HiveStandSource` mints a fresh
-random Cell id on every construction. `queen/cluster/test_orders.py` and `test_tick.py` gained
+way to be reached back from outside the CLI process otherwise. `queen/cluster/test_orders.py` and
+`test_tick.py` gained
 RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.py` gained
 `NullWaxRetirer` and `destroy_virtual`'s own returned event id.
 
@@ -359,3 +361,60 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
       playback page, frames inline) and `<id>.json` (the same summary `show --json` prints) into
       DIR. Every recorded string on the page is escaped and a Content Security Policy forbids
       scripts and network requests, since pages recorded from the web are untrusted.
+
+## Command groups (phase 7 steps 7.10 and 7.11)
+
+- `honey/` (a package: `query.py`, `browse.py`, `maintain.py`, plus a shared `context.py`, the
+  browser's memory-backed `sources.py` and `render.py` for output, codingrules section 5.1's
+  300-line limit) -- `hive honey`, the operator's door into the Honey Store (the cold tier).
+  `--manifest`, `--db` and `--clearance C0|C1|C2` (default C2: the most sensitive label the
+  operator reads) belong to the group, so they come right after `honey` and before the
+  subcommand (`hive honey --manifest hive.toml --clearance C1 ls /hive`). The operator reads as
+  `hivemind.honey_store.browse.operator_reader`: every scope (`honey:read:*`, ADR-0035's default
+  for the operator's CLI), up to `--clearance`, the requester being the manifest's own Hive id.
+    - `query TEXT [--scope S ...] [--max-hits N] [--json]` searches with the Hive's own retriever
+      (hybrid full text and vectors; full text only, with the reason printed, when no embedder
+      is usable) within `[honey.retrieval] max_budget_tokens`, recording one `honey.queried`
+      event like any reader's. A `--scope` that is not `hive`, `cell:<id>`, `bee:<id>` or
+      `task:<id>` exits 2.
+    - `stats [--json]` prints `HoneyStore.stats()`: Nectar by state, live Honey by part, label and
+      scope kind, tainted and retired counts, vectors per embedding model (ADR-0036's coverage per
+      model) and the vector backend.
+    - `ripen --now` runs the House Bee's whole pass (`HouseBeeRipening.run_pass()`: drain every
+      queued operator note into HUMAN Nectar, then `Ripener.run_pass()`) against the Hive's own
+      file, built exactly as the running Hive builds it (`open_honey_store`, then
+      `build_honey_access` over a registry and Fanner from `hivemind.cli.compose`), attributed to
+      the Hive Stand's own stable Cell id (`hivemind.cell.hive_stand_cell_id`, derived from the
+      manifest's `[hive] node_id`, since this invocation leases no Hive Stand of its own), and
+      prints how many notes it drained, what the pass did, and each model slot's binding, or why
+      it has none (the pass still runs: heuristic summaries, no vectors). Without `--now` it says
+      how much Nectar and how many notes are waiting, and how often a running House Bee acts.
+    - `reembed` repeats `Ripener.embed_pending()` until a pass embeds nothing (nothing pending, or
+      no progress; at most `MAX_REEMBED_PASSES`), then prints how many rows it embedded for the
+      current model and the vector count per model; with no usable embedder, or rows still
+      pending after a pass that embedded nothing, it exits 1 with the reason.
+    - `ls [PATH] [--limit N] [--offset N] [--json]` and `cat PATH [--json]` walk the folder tree of
+      `hivemind.honey_store.browse` (`/hive`, `/cells/<cell>` and its `wax` folder, `/bees/<bee>`,
+      `/tasks/<task>`, `/bee-bread`); every listed item shows its clearance and provenance, and a
+      document the reader may not see is "not found" (exit 1), exactly like a missing one. These
+      need no model binding: the browser is built over the store and the memory store alone.
+    - `propose PATH TITLE TEXT` proposes a note from a folder: from a Cell's folder a PROPOSED Cell
+      Wax note (C2, `WaxOrigin.HUMAN`) filed through `hivemind.memory.propose_wax` for a running
+      Queen's next tick to judge; anywhere else a note queued with `honey.note_proposed` for the
+      House Bee to take in as HUMAN-origin Nectar (C2 by construction).
+    - `relabel PATH C0|C1|C2 --reason TEXT` raises (`honey.label_raised`) or, after
+      `clearance.check_lowering` with approver HUMAN, lowers (`honey.label_lowered`) one Honey
+      row's label through `HoneyRelabeller`; asking for the label a row already has writes
+      nothing. The events carry both labels, the approver and the reason, with the human as actor.
+  A path or an input the browser refuses exits 2; any other typed refusal exits 1 with its code
+  on stderr, never a traceback.
+
+`tests/unit/cli/honey/` drives every command through `CliRunner` against a `fake_manifest` Hive
+and its real SQLite file (`harness.py`): Nectar seeded through the real `NectarIntake`, ripened by
+`ripen --now` itself (the `FakeEmbedding` behind the fake EMBEDDER gives real vectors), then
+`query`, `stats`, `ls`, `cat`, `propose` both ways, `relabel` both ways with its trail events, and
+`reembed` after a real manifest edit rebinds the embedder to another model; the degraded paths
+rebind it to a hosted kind with no embeddings. `harness.invoke` wraps each run in
+`structlog.testing.capture_logs()`: the CLI configures no logging, and structlog's default prints
+every log line (the store's own `honey_store.vector_backend`, for one) to stdout, in front of
+the JSON a test parses.

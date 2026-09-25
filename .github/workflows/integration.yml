@@ -36,11 +36,12 @@ jobs:
         with:
           enable-cache: true
           python-version-file: ".python-version"
-      # Every member's extras: `--all-extras` alone covers only the workspace root's (it has
-      # none), so until phase 6 the docker SDK never reached this job and the Docker tests skipped
-      # themselves ("no Docker daemon reachable") on every run. docker: the Docker backend's SDK;
-      # browser: Playwright, the Exoskeleton's fast path; whisper: in-process transcription.
-      - run: uv sync --frozen --all-groups --all-packages --all-extras
+      # Every extra the integration tests need, named one by one through the root's forwarding
+      # extras (pyproject.toml): docker, the Docker backend's SDK (without it the Docker tests skip
+      # themselves, "no Docker daemon reachable"); browser, Playwright, the Exoskeleton's fast path;
+      # whisper, in-process transcription. Never --all-extras, which would also pull the embeddings
+      # extra (roadmap 7.1) and a deep learning framework with it.
+      - run: uv sync --frozen --all-groups --extra docker --extra browser --extra whisper
       # roadmap phase 6: the Exoskeleton's X11 backends run on the Hive Stand itself (a Linux
       # Real Cell with a lease-started display), so the runner needs the same toolchain
       # images/desktop-ubuntu carries, plus Playwright's Chromium for the browser fast path. No

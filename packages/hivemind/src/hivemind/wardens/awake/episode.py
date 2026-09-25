@@ -31,9 +31,11 @@ Fits into the Hive:
 Key invariants:
     - `decide_awake` reads `sources` and `event` only for what goes into the prompt; it holds no
       state of its own across calls, matching codingrules 8.8's "stateless" requirement.
-    - The system prompt carries only PINS and HOT_STATE (`Prompt.sections`, never RETRIEVED in
-      memory v0); the triggering event's own text is the final user turn, never folded into the
-      system prompt, so provider prompt caching still sees a stable prefix call after call.
+    - The system prompt carries only PINS and HOT_STATE (`Prompt.sections`; never RETRIEVED,
+      because a Warden's awake episode passes `assemble` no Honey hits: the Queen consults Honey
+      for its Workers' assignments, not for a Warden's own judgement calls); the triggering
+      event's own text is the final user turn, never folded into the system prompt, so provider
+      prompt caching still sees a stable prefix call after call.
     - `record_episode` is called with the model's own decision and reason, never a raw transcript
       (codingrules section 12: "Thoughts are memory, not audit"; the trail's own `memory.episode`
       event, written by `record_episode` itself, carries only counts).

@@ -55,7 +55,14 @@ beyond the standard library.
   configured disk reserve, otherwise creating `<scratch_root>/<lease_id>/` and opening a
   `RealCellLease`; `open_session()` hands back a `LocalProcessSession` sized from
   `scratch_quota_mb`. Takes a `LeavingsStore` at construction (roadmap step 5.0a) and hands it
-  straight to every `HiveStandLeaseReleaser` it builds.
+  straight to every `HiveStandLeaseReleaser` it builds. `HIVE_STAND_SOURCE` (`"hive_stand"`, the
+  `source` field every Cell this source hands out carries) and `hive_stand_cell_id(node_id) ->
+  CellId` (a pure function: the `cell_` prefix plus `node_id`'s own 26-char ULID, validated with
+  `waggle.ids.parse_id`) live beside it -- `HiveStandSource.__init__` calls the latter instead of
+  minting a fresh id, so the Hive Stand's one Cell keeps the same id across every `hive run` on
+  this node (phase 7 handoff item 4: a fresh id every run used to strand `cell:<id>` Honey, Cell
+  Wax history and Leavings from the process that wrote them). Both names are also re-exported
+  from `hivemind.cell.local` and `hivemind.cell` itself.
 
 ## How to test this
 

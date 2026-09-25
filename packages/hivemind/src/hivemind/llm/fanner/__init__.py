@@ -16,7 +16,11 @@ throttle is recorded on the Pheromone Trail through an injected `LlmEventRecorde
 (`hivemind.llm.fanner.recorder`), never written by hand. Roadmap step 6.5a meters the slot that
 hears the same way: `hivemind.llm.fanner.transcription.FannerTranscriptionGate` takes a seat from
 the same per-provider meter for every transcription and records one `llm.call` carrying the
-clip's audio seconds (ADR-0033).
+clip's audio seconds (ADR-0033). Roadmap step 7.1 (ADR-0036) adds `FannerLane.embed`, the same
+seat/rate-limit metering for an `hivemind.llm.embedding.provider.EmbeddingProvider` call, with no
+spill-over of its own (`hivemind.llm.fanner.embed`'s own module docstring): a fallback embedder
+only ever exists for the same model id, so that decision belongs to
+`hivemind.llm.embedding.gate.EmbedGate`, not this package.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.llm`. `FannerLane`

@@ -30,7 +30,7 @@ Fits into the Hive:
     `hivemind.cli.in_cell.deps.build_in_cell_warden_deps` and set on `WardenDeps.snapshotter`, and
     called by `hivemind.wardens.spawn.spawn._build_capping_gate` through `GateDeps.snapshotter`.
     Calls into `hivemind.cell` (Cell, SnapshotId, SnapshotUnsupportedError, Snapshotter),
-    `hivemind.common.logging` and waggle only.
+    `hivemind.common.logging`, `hivemind.wardens.deps` (send_guarded) and waggle only.
 
 Key invariants:
     - `snapshot`/`rollback` never call `queen_link.receive()`: only the Warden's own tick loop
@@ -61,9 +61,9 @@ from typing import TypeVar
 
 from hivemind.cell import Cell, SnapshotId, SnapshotUnsupportedError
 from hivemind.common.logging import get_logger
+from hivemind.wardens.links import send_guarded
 from waggle.clock import Clock
 from waggle.envelope import Hop, wrap
-from waggle.errors import ConnectionLostError, TransportClosedError
 from waggle.ids import CellId
 from waggle.messages.cell.snapshot import (
     CellRollbackReply,
@@ -174,10 +174,15 @@ class RelaySnapshotter:
         future: asyncio.Future[_R] = asyncio.get_running_loop().create_future()
         queue.append(future)
         try:
-            await self._queen_link.send(wrap(request, self._hop, clock=self._clock))
+            envelope = wrap(request, self._hop, clock=self._clock)
+            if not await send_guarded(self._queen_link, envelope):
+                # Phase-7 handoff item 8: a closed or dropped queen link is exactly what this
+                # class already turns a timed-out or refused reply into, so a request that never
+                # leaves at all takes the same SnapshotUnsupportedError fallback.
+                raise SnapshotUnsupportedError(self._cell_id)
             async with asyncio.timeout(self._timeout_s):
                 return await future
-        except (TimeoutError, ConnectionLostError, TransportClosedError) as exc:
+        except TimeoutError as exc:
             raise SnapshotUnsupportedError(self._cell_id) from exc
         finally:
             if not future.done() and future in queue:

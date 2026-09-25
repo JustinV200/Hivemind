@@ -89,11 +89,19 @@ Public API (roadmap step 6.5a, ADR-0033: the transcription boundary, `hivemind.l
     - The fake: FakeTranscription, FakeTranscriptionCall.
     - The slot and the seam: BoundTranscriber, TranscriberLookup, resolve_transcriber,
       TranscriptionGate, DirectTranscriptionGate, Ears, and the Fanner's FannerTranscriptionGate.
-    - The registry's transcription half (`hivemind.llm.registry`): TranscriptionBuild,
-      TranscriptionFactory, TranscriptionUnsupportedError, IN_PROCESS_KINDS,
-      default_transcription_factories; `ProviderRegistry.transcriber`/`bound_transcriber`.
+    - The registry's transcription half: TranscriptionUnsupportedError, IN_PROCESS_KINDS and
+      `ProviderRegistry.transcriber`/`bound_transcriber`; its factory table (TranscriptionBuild,
+      TranscriptionFactory, default_transcription_factories) from `hivemind.llm.registry` itself.
     - `ProviderCapabilities.audio`: whether a chat provider takes audio directly; when False,
       audio goes through `ModelSlot.TRANSCRIBER` instead.
+Public API (roadmap step 7.1, ADR-0036):
+    - The embedding boundary (`hivemind.llm.embedding`): EmbeddingRequest, EmbeddingResponse,
+      MAX_EMBED_TEXTS, EmbeddingCapabilities, EmbeddingProvider, FakeEmbedding,
+      FAKE_EMBED_MODEL_ID, BoundEmbedder, EmbedGate, DirectEmbedGate.
+    - The new error (`hivemind.llm.errors`): EmbeddingUnsupportedError.
+    - Registry additions: EMBEDDING_ONLY_KINDS, IN_PROCESS_KINDS and `ProviderRegistry.embedder()`;
+      the factory table (EmbeddingFactory, default_embedding_factories) from
+      `hivemind.llm.registry` itself; `ProviderKind` now includes `"sentence_transformers"`.
 """
 
 from hivemind.llm.capabilities import (
@@ -103,9 +111,22 @@ from hivemind.llm.capabilities import (
     ProviderCapabilities,
     ProviderHealth,
 )
+from hivemind.llm.embedding import (
+    FAKE_EMBED_MODEL_ID,
+    MAX_EMBED_TEXTS,
+    BoundEmbedder,
+    DirectEmbedGate,
+    EmbeddingCapabilities,
+    EmbeddingProvider,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    EmbedGate,
+    FakeEmbedding,
+)
 from hivemind.llm.errors import (
     MAX_RAW_PREVIEW_CHARS,
     ContextTooLongError,
+    EmbeddingUnsupportedError,
     LLMError,
     MalformedOutputError,
     OfflineViolationError,
@@ -188,6 +209,7 @@ from hivemind.llm.models import (
 from hivemind.llm.prompts import PromptName, SectionLabel, load_prompt, render
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.registry import (
+    EMBEDDING_ONLY_KINDS,
     IN_PROCESS_KINDS,
     PENDING_KINDS,
     MissingDefaultModelError,
@@ -196,12 +218,9 @@ from hivemind.llm.registry import (
     ProviderKind,
     ProviderRegistry,
     RegistryDeps,
-    TranscriptionBuild,
-    TranscriptionFactory,
     TranscriptionUnsupportedError,
     apply_overrides,
     default_factories,
-    default_transcription_factories,
 )
 from hivemind.llm.slots import (
     BoundModel,
@@ -244,6 +263,8 @@ __all__ = [
     "DEFAULT_MAX_CLIP_S",
     "DEFAULT_SEATS",
     "DEFAULT_THROTTLE_S",
+    "EMBEDDING_ONLY_KINDS",
+    "FAKE_EMBED_MODEL_ID",
     "FAKE_MODEL_ID",
     "FULL_CONTEXT_WINDOW_DEFAULT",
     "IN_PROCESS_KINDS",
@@ -253,6 +274,7 @@ __all__ = [
     "LLM_SPILL_KIND",
     "LLM_THROTTLED_KIND",
     "MAX_CLIP_BYTES",
+    "MAX_EMBED_TEXTS",
     "MAX_PCM_BYTES",
     "MAX_RAW_PREVIEW_CHARS",
     "MAX_TOOL_ROUNDS_DEFAULT",
@@ -268,6 +290,7 @@ __all__ = [
     "AudioClip",
     "AudioMediaType",
     "AudioPart",
+    "BoundEmbedder",
     "BoundModel",
     "BoundTranscriber",
     "CallGate",
@@ -275,8 +298,16 @@ __all__ = [
     "ContentPart",
     "ContextTooLongError",
     "DirectCallGate",
+    "DirectEmbedGate",
     "DirectTranscriptionGate",
     "Ears",
+    "EmbedGate",
+    "EmbeddingCapabilities",
+    "EmbeddingProvider",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
+    "EmbeddingUnsupportedError",
+    "FakeEmbedding",
     "FakeLLMProvider",
     "FakeTranscription",
     "FakeTranscriptionCall",
@@ -339,9 +370,7 @@ __all__ = [
     "TranscriberLookup",
     "Transcript",
     "TranscriptSegment",
-    "TranscriptionBuild",
     "TranscriptionCapabilities",
-    "TranscriptionFactory",
     "TranscriptionGate",
     "TranscriptionProvider",
     "TranscriptionUnsupportedError",
@@ -354,7 +383,6 @@ __all__ = [
     "collect_clip",
     "complete_structured",
     "default_factories",
-    "default_transcription_factories",
     "encode_wav",
     "load_prompt",
     "read_wav_header",

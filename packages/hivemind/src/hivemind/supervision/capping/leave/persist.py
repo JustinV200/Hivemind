@@ -28,8 +28,8 @@ Fits into the Hive:
     leave_decided` from each returned `LeaveDecisionRecord`. `Asker` is read by `hivemind.
     supervision.capping.checks.human.HumanCheck` (roadmap step 5.0d), imported from here rather
     than the reverse, so this package never depends on `.checks`. Calls into `hivemind.cell`
-    (OsFamily), `hivemind.cell.leavings` (ApprovedBy), this package's own sibling modules and
-    waggle only.
+    (HIVE_STAND_SOURCE, OsFamily), `hivemind.cell.leavings` (ApprovedBy), this package's own
+    sibling modules and waggle only.
 
 Key invariants:
     - `decide_persist(None, ...)` always returns `LeavePersistDecision(False, None, None, None)`:
@@ -64,7 +64,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from hivemind.cell import Cell, OsFamily
+from hivemind.cell import HIVE_STAND_SOURCE, Cell, OsFamily
 from hivemind.cell.leavings import ApprovedBy
 from hivemind.supervision.capping.leave.classify import classify_path
 from hivemind.supervision.capping.leave.executable import looks_executable
@@ -82,11 +82,6 @@ from waggle.clock import Clock, FakeClock
 from waggle.messages import PlannedLeaving
 from waggle.messages.supervision import Answer, Question
 
-# hivemind.cell.local.source's own Cell.source value for the Hive Stand (that module's own
-# _SOURCE_NAME is private): build_leave_context's "is this the Hive Stand or a borrowed device"
-# input (roadmap step 5.0c) is read from Cell.source, never Cell.kind (a Swarm device is also
-# CellKind.REAL, so kind alone cannot tell the two apart).
-HIVE_STAND_SOURCE = "hive_stand"
 # HumanCheck.ask's own default (roadmap step 5.0d): generous but bounded, so "the task blocks
 # until it is answered" never means "forever" -- past this, unanswered means discard, never a
 # failed task (roadmap step 5.0d's own words).
@@ -249,6 +244,9 @@ def build_leave_context(
     Returns:
         A LeaveApplyContext ready for `decide_persist`.
     """
+    # "Is this the Hive Stand or a borrowed device" (roadmap step 5.0c) is read from Cell.source,
+    # against hivemind.cell's own HIVE_STAND_SOURCE, never Cell.kind (a Swarm device is also
+    # CellKind.REAL, so kind alone cannot tell the two apart).
     facts = LeaveCellFacts(
         access_level=cell.access_level,
         comb_shield=cell.comb_shield,
