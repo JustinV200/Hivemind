@@ -31,6 +31,8 @@ Key invariants:
       state: every resource name is recomputed from `cell_id` alone
       (`hivemind.hive.backends.docker.network.network_name`, this module's own `container_name`/
       `_volume_name`), never looked up in a table this instance might not still hold.
+    - A Night Veil Cell's container runs with the `none` log driver: nothing it prints reaches a
+      daemon log (`docker logs`, a json-file on the host) that would outlive it (codingrules 12).
     - `spec.disk_bytes` is not enforced: Docker's per-container disk quota
       (`storage_opt={"size": ...}`) needs a storage driver most default installs -- Docker Desktop
       over WSL2 included, the dev host ADR-0026 names -- do not provide, so setting it would break
@@ -55,7 +57,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from hivemind.cell import AccessLevel, Cell, CellKind
+from hivemind.cell import AccessLevel, Cell, CellKind, CombShieldLevel
 from hivemind.hive.backends.base import BackendCapabilities, VirtualCellRecord
 from hivemind.hive.backends.bootstrap import (
     CellBootstrap,
@@ -105,6 +107,8 @@ _LABEL_COMB_SHIELD = "hivemind.comb_shield"
 # Roadmap step 5.7a: the only image whose own nftables kill-switch actually enforces VPN_TOR
 # (images/night-veil-ubuntu, roadmap step 5.3a); provision() refuses VPN_TOR on any other image.
 _NIGHT_VEIL_IMAGE = "night-veil-ubuntu"
+# Codingrules 12: a Night Veil Cell's stdout and stderr reach no daemon log that outlives it.
+_NIGHT_VEIL_LOG_DRIVER = "none"
 
 __all__ = ["DockerBackendConfig", "DockerCellBackend", "build_docker_backend", "container_name"]
 
@@ -402,6 +406,9 @@ def _build_container_spec(
         # way so a read-only Cell still has the /tmp a Python process expects.
         read_only_rootfs=spec.read_only_rootfs,
         tmpfs={_TMP_MOUNT_PATH: ""},
+        log_driver=_NIGHT_VEIL_LOG_DRIVER
+        if spec.comb_shield is CombShieldLevel.NIGHT_VEIL
+        else None,
     )
 
 

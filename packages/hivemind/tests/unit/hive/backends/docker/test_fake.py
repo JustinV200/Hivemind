@@ -238,6 +238,21 @@ async def test_commit_container_failure_is_one_shot() -> None:
     )
 
 
+async def test_list_images_finds_committed_images_by_every_given_label() -> None:
+    client = FakeDockerClient()
+    await client.create_container(_CONTAINER_SPEC)
+    for tag, cell in (("a", "cell_one"), ("b", "cell_two")):
+        await client.commit_container(
+            _CONTAINER_SPEC.name, repository="snap", tag=tag, labels={"of": cell, "kind": "x"}
+        )
+
+    assert await client.list_images({"of": "cell_one"}) == ("snap:a",)
+    assert await client.list_images({"of": "cell_two", "kind": "x"}) == ("snap:b",)
+    assert await client.list_images({"of": "cell_one", "kind": "y"}) == ()
+    await client.remove_image("snap:a")
+    assert await client.list_images({"of": "cell_one"}) == ()
+
+
 async def test_remove_image_of_an_unknown_ref_is_a_silent_no_op() -> None:
     client = FakeDockerClient()
 

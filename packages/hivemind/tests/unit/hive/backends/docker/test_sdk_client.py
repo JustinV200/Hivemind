@@ -5,7 +5,8 @@ Fits into the Hive:
     src/hivemind/hive/backends/docker/sdk_client.py (codingrules section 3). SdkDockerClient's own
     docker-py calls need a real daemon and are exercised by
     packages/hivemind/tests/integration/test_docker_backend.py instead; this module covers what
-    can be proven with no daemon: the lazy-import guard and the "Created" timestamp parser.
+    can be proven with no daemon: the lazy-import guard, the "Created" timestamp parser, the log
+    driver a Night Veil container is created with and the label filter an image listing sends.
 
 Key invariants:
     - None: this module holds tests only.
@@ -28,8 +29,11 @@ from hivemind.hive.backends.docker.sdk_client import (
     SdkDockerClient,
     _attached_networks,
     _check_matches,
+    _DockerHandle,
+    _log_config,
     _parse_created_at,
     _recreate_spec,
+    _sync_list_images,
 )
 
 
@@ -178,3 +182,42 @@ def test_recreate_spec_keeps_the_first_network_its_hosts_entries_and_added_capab
     assert spec["network"] == "control"
     assert spec["extra_hosts"] == ["host.docker.internal:host-gateway"]
     assert spec["cap_add"] == ["NET_ADMIN"]
+
+
+def test_a_log_driver_becomes_docker_pys_own_log_config_and_none_keeps_the_default() -> None:
+    assert _log_config("none") == {"type": "none"}
+    assert _log_config(None) is None
+
+
+class _Image:
+    """What docker-py's image list hands back: only its id is read."""
+
+    def __init__(self, image_id: str) -> None:
+        self.id = image_id
+
+
+class _Images:
+    """docker-py's `client.images`, recording the filters each listing sent."""
+
+    def __init__(self) -> None:
+        self.filters: list[dict[str, list[str]]] = []
+
+    def list(self, *, filters: dict[str, list[str]]) -> list[_Image]:
+        self.filters.append(filters)
+        return [_Image("sha256:one"), _Image("sha256:two")]
+
+
+class _Client:
+    """docker-py's client, with only its images collection."""
+
+    def __init__(self) -> None:
+        self.images = _Images()
+
+
+def test_listing_images_filters_by_every_label_and_returns_their_ids() -> None:
+    client = _Client()
+
+    found = _sync_list_images(_DockerHandle(client, None), {"b": "2", "a": "1"})
+
+    assert found == ("sha256:one", "sha256:two")
+    assert client.images.filters == [{"label": ["a=1", "b=2"]}]

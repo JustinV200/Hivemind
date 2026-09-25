@@ -14,9 +14,13 @@ backend relies on Docker for: nothing here does image builds, `docker exec` or l
 Roadmap step 5.10 adds `commit_container`/`remove_image`/`recreate_from_image`: the narrow slice
 `hivemind.hive.snapshot.docker.DockerSnapshotter` needs for Capping's whole-Cell rollback
 (`hivemind.cell.snapshot.Snapshotter`), reusing this same Protocol and its two implementations
-rather than opening a second door to Docker.
+rather than opening a second door to Docker. `list_images` finds a Cell's snapshot images by the
+label every commit stamps on them, so a Night Veil Cell's can be removed at its teardown
+(codingrules section 12, `hivemind.hive.snapshot.docker.DockerSnapshotImages`); and
+`ContainerSpec.log_driver` lets a Night Veil Cell run with no daemon log to outlive it. These image
+calls form `_ImagesPort`, one of the two bases `DockerClientPort` extends.
 
-Roadmap step 10.6a adds the network slice isolation needs, as `DockerNetworkPort`, the base
+Roadmap step 10.6a adds the network slice isolation needs, as `DockerNetworkPort`, the other base
 `DockerClientPort` extends (it holds the two network calls that were already here, beside the
 three new ones, so each Protocol stays within the class limit): `ensure_network` (the per-Hive
 control network every Cell's Waggle link rides, created once and then reused), and
@@ -119,6 +123,9 @@ class ContainerSpec:
         read_only_rootfs: Whether the container's root filesystem is read-only (the scratch volume
             and any tmpfs mounts stay writable regardless).
         tmpfs: Extra in-memory, writable mount points for a read-only root (`/tmp`, typically).
+        log_driver: The container's log driver, or None for the daemon's own default: `"none"`
+            for a Night Veil Cell, whose output must reach no daemon log that outlives it
+            (codingrules section 12).
     """
 
     name: str
@@ -137,6 +144,7 @@ class ContainerSpec:
     read_only_rootfs: bool
     tmpfs: Mapping[str, str] = field(default_factory=dict)
     cap_add: tuple[str, ...] = ()
+    log_driver: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,7 +302,89 @@ class DockerNetworkPort(Protocol):
         ...
 
 
-class DockerClientPort(DockerNetworkPort, Protocol):
+class _ImagesPort(Protocol):
+    """The image half of DockerClientPort (snapshots), split out for codingrules 5.1's class size.
+
+    Roadmap step 5.10's commit and rollback, and the Night Veil teardown's image removal; every
+    DockerClientPort implementation implements both halves, and callers only ever name the whole.
+    """
+
+    async def commit_container(
+        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
+    ) -> CommitResult:
+        """Commit `name`'s current root filesystem and image config to a new image.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
+        snapshot`. A commit captures the container's root filesystem layer and its image
+        metadata (env, cmd, entrypoint, the `labels` given here) exactly as they stand right now;
+        it does NOT capture a mounted volume (the scratch volume is unaffected) or any in-flight
+        process state (no process checkpoint -- a container recreated from the result starts
+        fresh at the image's own entrypoint, the same way starting any other container does).
+
+        Args:
+            name: The running (or stopped) container to commit.
+            repository: The committed image's own repository name.
+            tag: The committed image's own tag; unique per commit so `remove_image` can target
+                exactly this one later.
+            labels: Labels to stamp on the committed image's own config, for audit.
+
+        Returns:
+            The committed image's ref and its reported size.
+
+        Raises:
+            DockerClientError: `name` does not exist, or the daemon refused or failed to commit.
+        """
+        ...
+
+    async def remove_image(self, image: str) -> None:
+        """Remove an image. Idempotent: an image named `image` that does not exist returns normally.
+
+        Args:
+            image: The image ref (`CommitResult.image`) to remove.
+
+        Raises:
+            DockerClientError: The daemon acknowledged the image exists but refused to remove it
+                (e.g. a container still references it).
+        """
+        ...
+
+    async def list_images(self, labels: Mapping[str, str]) -> Sequence[str]:
+        """Return every image carrying every one of `labels`, as refs `remove_image` accepts.
+
+        Args:
+            labels: Labels an image must carry, each with this exact value.
+
+        Returns:
+            The matching images' refs, in no particular order; empty when none match.
+
+        Raises:
+            DockerClientError: The daemon refused or failed to list images.
+        """
+        ...
+
+    async def recreate_from_image(self, name: str, image: str) -> None:
+        """Stop and remove the container named `name`, then recreate it, booted from `image`.
+
+        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
+        rollback`. The new container keeps the old one's own name, network attachment, volume
+        mounts and resource limits (read back from the container being replaced, not from any
+        `ContainerSpec` this Protocol's caller may or may not still hold) but boots from `image`
+        instead of whatever it was running before -- undoing anything a proposal changed on the
+        root filesystem or in the image's own config, while leaving the mounted scratch volume
+        (never part of an image) exactly as it stood.
+
+        Args:
+            name: The container to replace; must currently exist.
+            image: The image (typically a prior `commit_container` result) to recreate it from.
+
+        Raises:
+            DockerClientError: `name` does not exist, or the daemon refused or failed to recreate
+                it from `image`.
+        """
+        ...
+
+
+class DockerClientPort(DockerNetworkPort, _ImagesPort, Protocol):
     """The slice of the Docker API DockerCellBackend needs, with no SDK type in sight.
 
     Implementations must be safe to call concurrently: `DockerCellBackend.provision` may run
@@ -400,65 +490,5 @@ class DockerClientPort(DockerNetworkPort, Protocol):
 
         Raises:
             DockerClientError: The daemon acknowledged the volume exists but refused to remove it.
-        """
-        ...
-
-    async def commit_container(
-        self, name: str, *, repository: str, tag: str, labels: Mapping[str, str]
-    ) -> CommitResult:
-        """Commit `name`'s current root filesystem and image config to a new image.
-
-        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
-        snapshot`. A commit captures the container's root filesystem layer and its image
-        metadata (env, cmd, entrypoint, the `labels` given here) exactly as they stand right now;
-        it does NOT capture a mounted volume (the scratch volume is unaffected) or any in-flight
-        process state (no process checkpoint -- a container recreated from the result starts
-        fresh at the image's own entrypoint, the same way starting any other container does).
-
-        Args:
-            name: The running (or stopped) container to commit.
-            repository: The committed image's own repository name.
-            tag: The committed image's own tag; unique per commit so `remove_image` can target
-                exactly this one later.
-            labels: Labels to stamp on the committed image's own config, for audit.
-
-        Returns:
-            The committed image's ref and its reported size.
-
-        Raises:
-            DockerClientError: `name` does not exist, or the daemon refused or failed to commit.
-        """
-        ...
-
-    async def remove_image(self, image: str) -> None:
-        """Remove an image. Idempotent: an image named `image` that does not exist returns normally.
-
-        Args:
-            image: The image ref (`CommitResult.image`) to remove.
-
-        Raises:
-            DockerClientError: The daemon acknowledged the image exists but refused to remove it
-                (e.g. a container still references it).
-        """
-        ...
-
-    async def recreate_from_image(self, name: str, image: str) -> None:
-        """Stop and remove the container named `name`, then recreate it, booted from `image`.
-
-        Roadmap step 5.10: the operation behind `hivemind.hive.snapshot.docker.DockerSnapshotter.
-        rollback`. The new container keeps the old one's own name, network attachment, volume
-        mounts and resource limits (read back from the container being replaced, not from any
-        `ContainerSpec` this Protocol's caller may or may not still hold) but boots from `image`
-        instead of whatever it was running before -- undoing anything a proposal changed on the
-        root filesystem or in the image's own config, while leaving the mounted scratch volume
-        (never part of an image) exactly as it stood.
-
-        Args:
-            name: The container to replace; must currently exist.
-            image: The image (typically a prior `commit_container` result) to recreate it from.
-
-        Raises:
-            DockerClientError: `name` does not exist, or the daemon refused or failed to recreate
-                it from `image`.
         """
         ...

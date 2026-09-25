@@ -84,8 +84,9 @@ class _DockerHandle:
     """Bundles `SdkDockerClient._client`/`._docker`, so a module function takes this one argument.
 
     Codingrules section 5.1's five-parameter limit: the module-level blocking halves below (the
-    network and volume calls, and roadmap step 5.10's commit, image removal and recreate) take
-    this instead of the two separately, and live outside the class for its 200-line limit.
+    network and volume calls, roadmap step 5.10's commit, image removal and recreate, and the
+    Night Veil teardown's image listing) take this instead of the two separately, and live
+    outside the class for its 200-line limit.
     """
 
     client: Any
@@ -186,6 +187,10 @@ class SdkDockerClient:
         """See `DockerClientPort.remove_image` (idempotent; roadmap step 5.10)."""
         await asyncio.to_thread(_sync_remove_image, self._handle(), image)
 
+    async def list_images(self, labels: Mapping[str, str]) -> Sequence[str]:
+        """See `DockerClientPort.list_images` (a Night Veil Cell's snapshot images)."""
+        return await asyncio.to_thread(_sync_list_images, self._handle(), labels)
+
     async def recreate_from_image(self, name: str, image: str) -> None:
         """See `DockerClientPort.recreate_from_image` (roadmap step 5.10)."""
         await asyncio.to_thread(_sync_recreate_from_image, self._handle(), name, image)
@@ -214,6 +219,7 @@ class SdkDockerClient:
                 cap_add=list(spec.cap_add),
                 security_opt=list(spec.security_opt),
                 read_only=spec.read_only_rootfs,
+                log_config=_log_config(spec.log_driver),
                 # No `ports`/`publish_all_ports`: a Virtual Cell publishes no inbound port under
                 # any network policy (codingrules section 15); the image's own USER (images/
                 # base-ubuntu's Dockerfile) supplies the non-root user, so `user` stays unset here
@@ -388,6 +394,16 @@ def _attached_networks(attrs: dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(networks))
 
 
+def _sync_list_images(handle: _DockerHandle, labels: Mapping[str, str]) -> Sequence[str]:
+    """Blocking half of list_images: the daemon filters by every label, ANDed together."""
+    wanted = [f"{key}={value}" for key, value in sorted(labels.items())]
+    try:
+        images = handle.client.images.list(filters={"label": wanted})
+    except handle.docker_module.errors.APIError as exc:
+        raise DockerClientError(f"could not list images labelled {wanted!r}: {exc}") from exc
+    return tuple(str(image.id) for image in images)
+
+
 def _sync_commit_container(
     handle: _DockerHandle, name: str, repository: str, tag: str, labels: Mapping[str, str]
 ) -> CommitResult:
@@ -438,6 +454,14 @@ def _sync_recreate_from_image(handle: _DockerHandle, name: str, image: str) -> N
         raise DockerClientError(
             f"could not recreate container {name!r} from {image!r}: {exc}"
         ) from exc
+
+
+def _log_config(driver: str | None) -> dict[str, str] | None:
+    """Return docker-py's `log_config` for `driver`, or None to keep the daemon's own default.
+
+    docker-py turns the plain mapping into its own `LogConfig`, so no SDK type is built here.
+    """
+    return None if driver is None else {"type": driver}
 
 
 def _recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:

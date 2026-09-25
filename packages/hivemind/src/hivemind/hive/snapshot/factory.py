@@ -22,7 +22,9 @@ Fits into the Hive:
     into `hivemind.cell` (NoopSnapshotter, Snapshotter), `hivemind.hive.backends.base`
     (CellBackend), `hivemind.hive.backends.docker.backend` (DockerCellBackend),
     `hivemind.hive.backends.qemu.backend` (QemuCellBackend), `hivemind.hive.snapshot.docker`,
-    `hivemind.hive.snapshot.ledger`, `hivemind.hive.snapshot.qemu` and waggle only.
+    `hivemind.hive.snapshot.ledger`, `hivemind.hive.snapshot.qemu`, `hivemind.pheromone`
+    (SideChannelPurger) and waggle only. `snapshot_images_for` is the same type-keyed choice for
+    the Night Veil teardown's snapshot-image side channel (`hivemind.cli.compose.night_veil`).
 
 Key invariants:
     - `backend.capabilities.can_snapshot is False` always returns `NoopSnapshotter()`, regardless
@@ -47,12 +49,17 @@ from hivemind.cell import NoopSnapshotter, Snapshotter
 from hivemind.hive.backends.base import CellBackend
 from hivemind.hive.backends.docker.backend import DockerCellBackend
 from hivemind.hive.backends.qemu.backend import QemuCellBackend
-from hivemind.hive.snapshot.docker import DEFAULT_RETENTION_S, DockerSnapshotter
+from hivemind.hive.snapshot.docker import (
+    DEFAULT_RETENTION_S,
+    DockerSnapshotImages,
+    DockerSnapshotter,
+)
 from hivemind.hive.snapshot.ledger import SnapshotLedgerPort
 from hivemind.hive.snapshot.qemu import QemuSnapshotter
+from hivemind.pheromone import SideChannelPurger
 from waggle.clock import Clock
 
-__all__ = ["snapshotter_for"]
+__all__ = ["snapshot_images_for", "snapshotter_for"]
 
 # A builder takes (backend, ledger, clock, retention_s, disk_budget_bytes) and returns a
 # Snapshotter over that backend's own client/runner port; see the module docstring for why this
@@ -94,6 +101,26 @@ def snapshotter_for(
         # the documented no-op rather than raise (module docstring's own key invariant).
         return NoopSnapshotter()
     return builder(backend, ledger, clock, retention_s, disk_budget_bytes)
+
+
+def snapshot_images_for(backend: CellBackend) -> SideChannelPurger | None:
+    """Return what removes a Cell's snapshot images on `backend`, or None where none outlive it.
+
+    Codingrules section 12: a Night Veil teardown removes every snapshot of the Cell that outlives
+    its backend resources. Only a Docker image does: a QEMU snapshot lives inside the Cell's own
+    overlay (`savevm`), deleted with its VM directory, and a backend that cannot snapshot has
+    none. Keyed by type like `snapshotter_for`, and only for a backend that can snapshot at all.
+
+    Args:
+        backend: A registered `CellBackend`.
+
+    Returns:
+        A `DockerSnapshotImages` over a Docker backend's own client; None for any other.
+    """
+    if not backend.capabilities.can_snapshot or type(backend) is not DockerCellBackend:
+        return None
+    assert isinstance(backend, DockerCellBackend)  # noqa: S101 - the type test just above.
+    return DockerSnapshotImages(backend.client)
 
 
 def _build_docker_snapshotter(

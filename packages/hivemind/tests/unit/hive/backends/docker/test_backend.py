@@ -203,6 +203,16 @@ async def test_provision_accepts_vpn_tor_on_the_night_veil_ubuntu_image() -> Non
     assert client.create_container_calls[0].cap_add == ("NET_ADMIN",)
 
 
+async def test_a_night_veil_container_keeps_no_daemon_log_and_any_other_the_default() -> None:
+    backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    await backend.provision(_night_veil_spec())
+    await backend.provision(_make_spec())
+
+    # Codingrules 12: nothing a Night Veil Cell prints reaches a daemon log that outlives it.
+    assert [spec.log_driver for spec in client.create_container_calls] == ["none", None]
+
+
 async def test_a_night_veil_container_dials_the_hidden_service_through_tor() -> None:
     # Roadmap step 10.3a: a Night Veil Cell is never handed the Queen's clearnet address.
     backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)

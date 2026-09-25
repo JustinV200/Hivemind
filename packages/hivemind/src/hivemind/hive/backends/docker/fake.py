@@ -151,9 +151,9 @@ class FakeDockerClient(_FakeNetworks):
         super().__init__()
         self._containers = {}
         self._volumes: dict[str, VolumeSpec] = {}
-        # Roadmap step 5.10: image ref -> the container it was committed from, purely for a test
-        # to assert against; recreate_from_image reads _containers, never this table.
-        self._images: dict[str, str] = {}
+        # Roadmap step 5.10: image ref -> the labels it was committed with, which `list_images`
+        # filters on; recreate_from_image reads _containers, never this table.
+        self._images: dict[str, Mapping[str, str]] = {}
         self._commit_size_bytes = _DEFAULT_COMMIT_SIZE_BYTES
         # One-shot failure reasons: set_*_failure arms the next matching call, which then clears
         # it (see the module docstring's key invariant).
@@ -281,13 +281,25 @@ class FakeDockerClient(_FakeNetworks):
         if name not in self._containers:
             raise DockerClientError(f"container {name!r}: not found")
         image = f"{repository}:{tag}"
-        self._images[image] = name
+        self._images[image] = dict(labels)
         return CommitResult(image=image, size_bytes=self._commit_size_bytes)
 
     async def remove_image(self, image: str) -> None:
         """Drop `image` from this fake's table; see `DockerClientPort.remove_image` (idempotent)."""
         self.remove_image_calls.append(image)
         self._images.pop(image, None)
+
+    async def list_images(self, labels: Mapping[str, str]) -> Sequence[str]:
+        """Return every held image carrying every one of `labels`; see `DockerClientPort`."""
+        return tuple(
+            image
+            for image, held in self._images.items()
+            if all(held.get(key) == value for key, value in labels.items())
+        )
+
+    def images(self) -> tuple[str, ...]:
+        """Every image ref this fake holds right now, for a test to assert against."""
+        return tuple(self._images)
 
     async def recreate_from_image(self, name: str, image: str) -> None:
         """Replace `name`'s own tracked spec's image with `image`; see `DockerClientPort`.

@@ -22,7 +22,7 @@ from hivemind.cell import Cell, CellKind, SnapshotId
 from hivemind.hive.backends.docker.backend import container_name
 from hivemind.hive.backends.docker.client import ContainerSpec
 from hivemind.hive.backends.docker.fake import FakeDockerClient
-from hivemind.hive.snapshot.docker import DockerSnapshotter
+from hivemind.hive.snapshot.docker import DockerSnapshotImages, DockerSnapshotter
 from hivemind.hive.snapshot.ledger import SnapshotLedger, SnapshotNotFoundError
 from waggle.clock import FakeClock
 
@@ -125,3 +125,22 @@ def _container_spec(cell: Cell) -> ContainerSpec:
         security_opt=("no-new-privileges:true",),
         read_only_rootfs=True,
     )
+
+
+async def test_the_image_purge_removes_every_snapshot_of_the_cell_and_no_other() -> None:
+    clock = FakeClock()
+    client = FakeDockerClient()
+    cell, other = _virtual_cell(clock), _virtual_cell(clock)
+    for each in (cell, other):
+        await client.create_container(_container_spec(each))
+    snapshotter = DockerSnapshotter(client, SnapshotLedger(), clock)
+    for each in (cell, cell, other):
+        await snapshotter.snapshot(each)
+    kept = await client.list_images({"hivemind.snapshot_of": str(other.id)})
+
+    # A fresh instance, as a teardown in another process has: the images are found by label.
+    removed = await DockerSnapshotImages(client).purge(cell.id, frozenset())
+
+    assert removed == 2
+    assert client.images() == tuple(kept)
+    assert await DockerSnapshotImages(client).purge(cell.id, frozenset()) == 0
