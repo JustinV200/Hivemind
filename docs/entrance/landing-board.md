@@ -648,7 +648,8 @@ How a program gets its certificate depends on what it can reach:
 ```sh
 umask 077
 test -f device.pem || openssl genpkey -algorithm ed25519 -out device.pem
-openssl req -new -key device.pem -subj '/CN=garden-bot' -out device.csr
+# MSYS_NO_PATHCONV: Git Bash on Windows would rewrite /CN=... as a path; elsewhere it is ignored.
+MSYS_NO_PATHCONV=1 openssl req -new -key device.pem -subj '/CN=garden-bot' -out device.csr
 "$HIVE_SIGN" public-key device.pem > public_key_hex
 cat public_key_hex                          # give this and device.csr to the operator
 ```

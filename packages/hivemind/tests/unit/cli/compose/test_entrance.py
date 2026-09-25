@@ -138,11 +138,13 @@ def test_a_loopback_listener_that_cannot_bind_refuses_to_start(tmp_path: Path) -
 @_needs_address
 def test_vpn_serves_tls_on_its_dns_name_and_asks_no_client_certificate(tmp_path: Path) -> None:
     place, tls = _place(), self_signed_tls(tmp_path / "tls")
-    # The fake table puts this machine's own address on Tailscale's interface.
+    # The fake table puts this machine's own address on Tailscale's interface, named here: the
+    # platform default differs (tailscale0 on Linux, Tailscale on Windows).
     values = {
         "expose": '"vpn"',
         "remote_bind": f'"{place.address}:0"',
         "vpn_cidrs": f'["{place.address}/32"]',
+        "vpn_interface": '"tailscale0"',
     }
     served = served_exposed(
         tmp_path / "hive", _section(tls, values), {"tailscale0": [place.address]}
