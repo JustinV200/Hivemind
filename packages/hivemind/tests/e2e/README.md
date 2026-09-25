@@ -104,10 +104,17 @@ Drone's grant without a free core.
   and none of it on the durable trail; after each end, every durable event about the Cell, its
   task, its grant or its Warden is a skeleton kind with its skeleton payload (or the purge's own
   `cell.purged`), no task words appear anywhere, no row from the Cell's node exists, the
-  ephemeral store is empty, and the in-Cell trail was a `MemoryPheromoneTrail`. The Absconding
-  and restart scenarios hold the Worker's model call open (and ship the Cell's trail, as its next
-  heartbeat would) so the Cell is still working when its Queen stops. A MEADOW Cell's whole local
-  trail still merges into the durable trail exactly as recorded, title and all, with no purge.
+  ephemeral store is empty, and the in-Cell trail was a `MemoryPheromoneTrail`. Every other store
+  is read back too, and none names the work: no memory row (a Queen episode about it is seeded
+  first), no word of its task in the Brood Chamber (a task still running when its Cell ends is
+  cancelled), no Forage ledger or checkpoint row, and no snapshot image (one is left on a Docker
+  daemon beside the Hive's backend: `FakeDockerClient` behind a `DockerCellBackend` with no room).
+  The Absconding and restart scenarios hold the Worker after its first round of Capped writes
+  (shipping the Cell's trail, as its next heartbeat would) so the Cell is still working when its
+  Queen stops, and each purge still summarises that Capping: the restarted Queen's from the counts
+  the first one checkpointed. A MEADOW Cell's whole local trail still merges into the durable trail
+  exactly as recorded, title and all, with no purge. The Hive, its reads and its store checks live
+  in `night_veil_hive/` (`rig`, `reads`, `stores`).
 - `test_phase10_remote_laptop.py` (`@pytest.mark.e2e`) -- roadmap phase 10's second exit
   criterion over `hive serve`'s own composition (a real Queen, her Hive Stand Warden and a Drone
   over a scripted `FakeLLMProvider`, the Hive's SQLite file, the Entrance on a real loopback
