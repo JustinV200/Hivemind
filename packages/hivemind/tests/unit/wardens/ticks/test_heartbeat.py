@@ -128,6 +128,41 @@ async def test_check_sub_bee_context_skips_a_sub_bee_with_no_telemetry_yet() -> 
     task.cancel()
 
 
+async def test_check_sub_bee_context_marks_its_own_handoff_order_for_a_successor() -> None:
+    deps, _queen_end, warden_id = make_warden_deps(handoff_threshold=0.66)
+    warden = Warden(warden_id, deps)
+    _insert_sub_bee(warden, _telemetry(0.9))
+    [sub_bee] = warden._sub_bees.values()
+
+    await check_sub_bee_context(warden)
+
+    assert sub_bee.handoff_ordered
+
+
+@pytest.mark.parametrize("why", ["paused_by_the_queen", "already_stopping", "cancelled"])
+async def test_check_sub_bee_context_orders_no_bee_it_may_not_follow_up(why: str) -> None:
+    # A bee the Queen paused still mirrors RUNNING until its next Heartbeat: an order then would
+    # mark it for a successor the Warden must not start, the paused task being hers to resume.
+    deps, _queen_end, warden_id = make_warden_deps(handoff_threshold=0.66)
+    warden = Warden(warden_id, deps)
+    sub_bee_end = _insert_sub_bee(warden, _telemetry(0.9))
+    [sub_bee] = warden._sub_bees.values()
+    if why == "paused_by_the_queen":
+        warden._clustered_tasks.add(sub_bee.task_id)
+    elif why == "already_stopping":
+        sub_bee.state = WorkerState.HANDING_OFF
+    else:
+        sub_bee.cancelled = True
+
+    await check_sub_bee_context(warden)
+
+    assert not sub_bee.handoff_ordered
+    task = asyncio.ensure_future(anext(sub_bee_end.receive()))
+    await asyncio.sleep(0)
+    assert not task.done()  # Nothing was sent to it either.
+    task.cancel()
+
+
 def test_compact_view_stays_under_the_size_cap_for_a_full_telemetry() -> None:
     telemetry = _telemetry(
         0.5,

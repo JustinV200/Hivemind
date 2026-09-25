@@ -25,8 +25,9 @@ Warden's own tick loop or escape `stop()` itself. Roadmap step 4.6 adds `check_s
 run on this same heartbeat cadence: it compares every sub-bee's own last reported
 `ContextTelemetry` (mirrored here by `record_heartbeat`) against `hivemind.memory.thresholds.
 intervention_kind_for` -- the pure rule shared with `hivemind.queen.ticks.context.intervention_for`
--- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any sub-bee past its own
-threshold, mirroring the Queen's own watch over this Warden ("Wardens do the same to sub-bees").
+-- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any running sub-bee past its
+own threshold, mirroring the Queen's own watch over this Warden ("Wardens do the same to
+sub-bees"); never to one already stopping, cancelled, or on a task the Queen has paused.
 `compact_view` (roadmap step 4.6) now builds a size-capped `CompactView` through `hivemind.memory.
 thresholds.capped_compact_view` rather than the raw telemetry fields. `announce_freeze` sends this
 same Heartbeat early, declaring a longer interval, right before a relayed snapshot freezes the
@@ -228,17 +229,32 @@ async def check_sub_bee_context(warden: Warden) -> None:
     """Order compact or handoff on any sub-bee whose last reported context crossed a threshold.
 
     Roadmap step 4.6: "Wardens do the same to sub-bees [as the Queen does to Wardens]." A sub-bee
-    with no telemetry yet (`last_telemetry is None`) is skipped: there is nothing to compare.
+    with no telemetry yet (`last_telemetry is None`) is skipped: there is nothing to compare; so is
+    one this Warden may not order (`_takes_context_orders`).
     """
     thresholds = Thresholds(
         compact_at=_COMPACT_AT, handoff_threshold=warden._deps.handoff_threshold
     )
     for sub_bee in tuple(warden._sub_bees.values()):
-        if sub_bee.last_telemetry is None:
+        if sub_bee.last_telemetry is None or not _takes_context_orders(warden, sub_bee):
             continue
         kind = intervention_kind_for(sub_bee.last_telemetry, thresholds)
         if kind is not None:
             await _send_context_intervene(warden, sub_bee, kind)
+
+
+def _takes_context_orders(warden: Warden, sub_bee: SubBee) -> bool:
+    """Whether `sub_bee` runs work this Warden may order compacted or handed off, and follow up.
+
+    Not a bee already stopping or cancelled, nor one on a task the Queen has paused: its mirrored
+    state still reads RUNNING until its next Heartbeat, and an order then would mark it for a
+    successor this Warden must not start (`SubBee.awaits_successor`), the task being hers.
+    """
+    return (
+        sub_bee.state is WorkerState.RUNNING
+        and not sub_bee.cancelled
+        and sub_bee.task_id not in warden._clustered_tasks
+    )
 
 
 async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: InterventionKind) -> None:
