@@ -285,7 +285,9 @@ def _write_atomically(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` owner-only, so a reader sees the old file or the new, whole."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+    # newline="": written exactly as given, so a certificate reads back byte for byte on
+    # Windows too, where text mode would turn every \n into \r\n.
+    with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
         stream.write(text)
     os.chmod(temporary, FILE_MODE)
     os.replace(temporary, path)

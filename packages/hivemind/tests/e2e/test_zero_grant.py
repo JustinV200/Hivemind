@@ -157,7 +157,7 @@ def test_a_goal_waits_out_a_busy_hive_stand_and_finishes_once_the_load_drops(
 ) -> None:
     """The defect: at a load near its cores the Hive Stand used to fail every goal at once."""
     host = _HostLoad(_BUSY_LOAD)
-    monkeypatch.setattr(os, "getloadavg", host.read)
+    monkeypatch.setattr(os, "getloadavg", host.read, raising=False)  # Absent on Windows.
     clock = FakeClock()
     hive = _busy_hive(tmp_path, clock)
 
@@ -199,7 +199,8 @@ def test_a_hive_stand_that_stays_busy_fails_the_goal_with_the_figures_after_its_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Nothing waits for ever unseen: past the patience, the wait ends in a denial with figures."""
-    monkeypatch.setattr(os, "getloadavg", _HostLoad(_BUSY_LOAD).read)
+    # raising=False: Windows has no os.getloadavg; the probe reads it with getattr.
+    monkeypatch.setattr(os, "getloadavg", _HostLoad(_BUSY_LOAD).read, raising=False)
     clock = FakeClock()
     hive = _busy_hive(tmp_path, clock, patience_s=_SHORT_PATIENCE_S)
 

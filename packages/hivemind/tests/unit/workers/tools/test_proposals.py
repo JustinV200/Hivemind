@@ -50,6 +50,9 @@ from waggle.messages.supervision import AlarmKind
 
 _SIZE = ScreenSize(100, 100)
 _OUTSIDE = Path("/outside")  # A root the lease reaches beyond scratch, like a declared keep_root.
+# The rung resolves a path on the host, as the capability scopes spell it: /outside on POSIX,
+# the current drive's D:/outside on Windows.
+_OUTSIDE_SCOPE = _OUTSIDE.resolve(strict=False).as_posix()
 
 
 def _desk(
@@ -267,7 +270,7 @@ async def _denials(ctx: WorkerContext) -> list[dict[str, object]]:
 
 async def test_an_outside_scratch_write_without_cell_outside_scratch_is_a_guard_denial() -> None:
     ctx = make_context(
-        capabilities=CapabilitySet.parse("fs:write:/outside/**", "tool:*"),
+        capabilities=CapabilitySet.parse(f"fs:write:{_OUTSIDE_SCOPE}/**", "tool:*"),
         lease=FakeLeaseView(Path("scratch"), allowed_paths=(_OUTSIDE,)),
     )
 
@@ -276,7 +279,7 @@ async def test_an_outside_scratch_write_without_cell_outside_scratch_is_a_guard_
     assert state is ProposalState.REJECTED
     [denial] = await _denials(ctx)
     assert denial["point"] == "session_outside_scratch"
-    assert denial["capability"] == "cell:outside_scratch:/outside/note.txt"
+    assert denial["capability"] == f"cell:outside_scratch:{_OUTSIDE_SCOPE}/note.txt"
     assert denial["principal_id"] == ctx.worker_id
 
 

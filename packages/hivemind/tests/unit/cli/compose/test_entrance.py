@@ -190,7 +190,9 @@ def _section(tls: ServerTls, values: Mapping[str, str]) -> str:
     """A remote mode's ``[entrance]`` body: its values, public_url, and the TLS table last."""
     lines = ['bind = "127.0.0.1:0"', f'public_url = "https://{PUBLIC_NAME}"']
     lines += [f"{key} = {value}" for key, value in values.items()]
-    lines += ["", "[entrance.tls]", f'cert = "{tls.cert_path}"', f'key = "{tls.key_path}"']
+    # Forward slashes: a Windows path's backslashes would be escapes in a TOML basic string.
+    tls_paths = (tls.cert_path.as_posix(), tls.key_path.as_posix())
+    lines += ["", "[entrance.tls]", f'cert = "{tls_paths[0]}"', f'key = "{tls_paths[1]}"']
     return "\n".join(lines) + "\n"
 
 

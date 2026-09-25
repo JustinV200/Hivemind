@@ -245,7 +245,8 @@ def test_build_hive_builds_the_wardens_guard_policy_from_the_manifest(tmp_path: 
     clock = FakeClock()
     path = fake_manifest(tmp_path, clock=clock)
     shipped = (files("hivemind.guard.defaults") / "policy.toml").read_text(encoding="utf-8")
-    (tmp_path / "guard.toml").write_text(shipped.replace("deny = []", 'deny = ["geo:*"]', 1))
+    policy = shipped.replace("deny = []", 'deny = ["geo:*"]', 1)
+    (tmp_path / "guard.toml").write_text(policy, encoding="utf-8")
     with path.open("a", encoding="utf-8") as manifest_file:
         manifest_file.write('\n[guard]\npolicy_file = "guard.toml"\ndeny = ["wifi:scan"]\n')
     manifest = load_manifest(path, {})

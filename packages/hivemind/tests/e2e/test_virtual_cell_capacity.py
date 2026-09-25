@@ -56,7 +56,7 @@ def test_a_virtual_cell_on_a_busy_host_reports_its_reservation_and_gets_its_bee(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The whole process reads a busy host; the Virtual Cell's goal still succeeds."""
-    monkeypatch.setattr(os, "getloadavg", lambda: _BUSY)
+    monkeypatch.setattr(os, "getloadavg", lambda: _BUSY, raising=False)  # Absent on Windows.
     monkeypatch.setattr(
         "hivemind.cli.compose.virtual_cell_backends.FakeCellBackend",
         ContainerSpawningFakeCellBackend,

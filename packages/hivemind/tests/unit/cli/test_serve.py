@@ -10,6 +10,7 @@ Key invariants:
 
 from __future__ import annotations
 
+import re
 import socket
 from pathlib import Path
 from typing import cast
@@ -57,7 +58,8 @@ def test_hive_serve_exits_1_when_the_loopback_listener_cannot_bind(tmp_path: Pat
         result = runner.invoke(app, ["serve", "--manifest", str(path)])
 
     assert result.exit_code == 1
-    assert "hive serve failed: OSError" in result.output
+    # An OSError everywhere; Windows raises its PermissionError subclass (WinError 10013).
+    assert re.search(r"hive serve failed: (OSError|PermissionError)", result.output)
 
 
 def test_hive_serve_is_a_registered_command() -> None:

@@ -75,7 +75,7 @@ def test_a_virtual_cells_capacity_is_its_spec_whatever_the_hosts_load(
     load: tuple[float, float, float], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The host's own load average, as a container reads it: the kernel is shared.
-    monkeypatch.setattr(os, "getloadavg", lambda: load)
+    monkeypatch.setattr(os, "getloadavg", lambda: load, raising=False)  # Absent on Windows.
     spec = _spec()
 
     capacity = _reported(_environ(spec, tmp_path))
@@ -95,7 +95,7 @@ def test_a_bootstrap_naming_no_reservation_reports_what_the_cell_probes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A Cell minted before its bootstrap shipped a reservation: the probe is all it has.
-    monkeypatch.setattr(os, "getloadavg", lambda: _BUSY)
+    monkeypatch.setattr(os, "getloadavg", lambda: _BUSY, raising=False)  # Absent on Windows.
     environ = _environ(_spec(), tmp_path)
     del environ["HIVEMIND_RESERVATION"]
 

@@ -30,7 +30,9 @@ _CA_FILE = CarriedOption("hivemind.cli.test_ca_file", ("--ca-file",), "A CA file
 
 def _command_app() -> typer.Typer:
     """One command with three carried options and one of its own."""
-    app = typer.Typer()
+    # Plain help, as `hive`'s own app renders it (hivemind.cli.app): with Rich markup, a
+    # forced terminal (GitHub Actions sets one) splits an option name with colour codes.
+    app = typer.Typer(rich_markup_mode=None)
 
     @app.command(cls=carried_command(PASSWORD_STDIN, _PROFILE, _CA_FILE))
     def show(ctx: typer.Context, name: str) -> None:
@@ -48,7 +50,7 @@ def _command_app() -> typer.Typer:
 
 def _group_app() -> typer.Typer:
     """A group carrying a switch its subcommand reads."""
-    app = typer.Typer(cls=carried_group(PASSWORD_STDIN))
+    app = typer.Typer(cls=carried_group(PASSWORD_STDIN), rich_markup_mode=None)
 
     @app.callback()
     def group() -> None:

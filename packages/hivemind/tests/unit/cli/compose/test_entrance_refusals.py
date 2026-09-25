@@ -174,7 +174,9 @@ def _section(case: _Case, directory: Path) -> str:
     files = case.tls(directory)
     # The sub-table comes last: every key after it would belong to [entrance.tls].
     if files is not None:
-        lines += ["", "[entrance.tls]", f'cert = "{files[0]}"', f'key = "{files[1]}"']
+        # Forward slashes: a Windows path's backslashes would be TOML string escapes.
+        cert, key = files[0].as_posix(), files[1].as_posix()
+        lines += ["", "[entrance.tls]", f'cert = "{cert}"', f'key = "{key}"']
     return "\n".join(lines) + "\n"
 
 
@@ -188,10 +190,11 @@ async def _start(served: ServedHive) -> None:
 def test_serve_refuses_with_the_rule_the_host_breaks(
     case: _Case, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The platform is the operating system's own answer; on this host only a stand-in for the
-    # adapter's reading of it (our name, codingrules 14.4) reaches a rule of another platform.
-    if case.platform is not None:
-        monkeypatch.setattr(gather_module, "host_platform", lambda: case.platform)
+    # _HOST's interfaces are a Linux host's (tailscale0, eth0, lo), so it is read as Linux
+    # whatever runs the test (on Windows the default overlay name is "Tailscale"); a case
+    # that names another platform gets that one, through the adapter's stand-in (14.4).
+    platform = case.platform if case.platform is not None else HostPlatform.LINUX
+    monkeypatch.setattr(gather_module, "host_platform", lambda: platform)
 
     # Composed outside the loop, as `hive serve` composes it (build_hive refuses a running loop).
     served = served_exposed(tmp_path / "hive", _section(case, tmp_path / "tls"), _HOST)

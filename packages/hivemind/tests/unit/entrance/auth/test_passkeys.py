@@ -176,7 +176,9 @@ def test_a_registration_names_the_challenge_it_answers() -> None:
         "not json",
         "[]",
         json.dumps({"id": "x", "rawId": "x", "response": {}}),
-        "[" * 100_000,  # Nested deep enough to exhaust the JSON parser's recursion.
+        # Nested deep enough to exhaust the JSON parser's recursion. A short id: pytest puts the
+        # test id in PYTEST_CURRENT_TEST, and Windows caps an environment variable at 32767.
+        pytest.param("[" * 100_000, id="nested-past-the-parsers-recursion-limit"),
     ],
 )
 def test_a_registration_naming_no_readable_challenge_is_refused(response: str) -> None:

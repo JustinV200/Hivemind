@@ -13,6 +13,8 @@ Key invariants:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from builders.entrance.serving import ProgramGrant, ServingRig, serving
 from builders.memory import make_episode
 
@@ -22,9 +24,12 @@ from hivemind.memory import EpisodeRecord, MemoryContext, record_episode
 _THOUGHTS = ProgramGrant(capabilities=("observe", "observe:thoughts", "honey:clearance:c2"))
 
 
-async def _think(rig: ServingRig, principal: str) -> EpisodeRecord:
+async def _think(rig: ServingRig, principal: str, step: int) -> EpisodeRecord:
     """Record one C2 episode for ``principal`` exactly as a bee does, and return it."""
-    record = make_episode(rig.clock, principal=principal, clearance=HoneyClearance.C2)
+    # `step` ms past now: the rig's clock is real, and a coarse one (Windows') can read one
+    # instant twice, while newest-first needs strictly newer records to have one right answer.
+    at = rig.clock.now() + timedelta(milliseconds=step)
+    record = make_episode(rig.clock, principal=principal, clearance=HoneyClearance.C2, at=at)
     await record_episode(record, MemoryContext(rig.deps.memory, rig.deps.identity, rig.clock))
     return record
 
@@ -32,9 +37,9 @@ async def _think(rig: ServingRig, principal: str) -> EpisodeRecord:
 async def test_records_are_read_newest_first_by_principal_and_limit() -> None:
     async with serving() as rig:
         client, session = await rig.program(_THOUGHTS)
-        first = await _think(rig, "queen")
-        garden = await _think(rig, "warden_garden")
-        last = await _think(rig, "queen")
+        first = await _think(rig, "queen", 0)
+        garden = await _think(rig, "warden_garden", 1)
+        last = await _think(rig, "queen", 2)
 
         every = await client.call(session, "GET", "/v1/episodes")
         queens = await client.call(session, "GET", "/v1/episodes?principal=queen")

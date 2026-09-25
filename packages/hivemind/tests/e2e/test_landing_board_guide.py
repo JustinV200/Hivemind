@@ -266,7 +266,8 @@ async def _run(phase: str, env: Mapping[str, str], workdir: Path) -> str:
         await process.wait()
         raise
     assert process.returncode == 0, f"{phase} failed: {err.decode(errors='replace')}"
-    return out.decode()
+    # Universal newlines, as a text read gives: tools under Git for Windows' sh write CRLF.
+    return out.decode().replace("\r\n", "\n")
 
 
 @asynccontextmanager

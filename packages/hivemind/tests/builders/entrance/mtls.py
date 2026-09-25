@@ -171,7 +171,8 @@ def tunnel_manifest(root: Path) -> tuple[Path, ServerTls]:
     table = (
         f'expose = "tunnel"\nremote_bind = "127.0.0.1:0"\npublic_url = "https://{PUBLIC_NAME}"\n'
         f"tunnel_command = {argv}\n"
-        f'\n[entrance.tls]\ncert = "{tls.cert_path}"\nkey = "{tls.key_path}"\n'
+        f'\n[entrance.tls]\ncert = "{tls.cert_path.as_posix()}"\n'
+        f'key = "{tls.key_path.as_posix()}"\n'
     )
     return stand_manifest(root, table), tls
 
@@ -257,7 +258,9 @@ def mtls_manifest(
     if expose == "vpn":
         lines += [f'vpn_interface = "{place.interface}"', f'vpn_cidrs = ["{place.address}/32"]']
     table = "\n".join(lines) + "\n" + extra
-    table += f'\n[entrance.tls]\ncert = "{tls.cert_path}"\nkey = "{tls.key_path}"\n'
+    # Forward slashes: a Windows path's backslashes would be escapes in a TOML basic string.
+    table += f'\n[entrance.tls]\ncert = "{tls.cert_path.as_posix()}"\n'
+    table += f'key = "{tls.key_path.as_posix()}"\n'
     return stand_manifest(root, table), tls
 
 
