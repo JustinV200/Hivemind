@@ -3,7 +3,8 @@
 An event about no Night Veil Cell reaches the durable trail untouched; one about a living Night
 Veil Cell reaches it only as its skeleton copy while the whole event waits in the Cell's segment;
 one about a Cell already taken, or a task no Cell holds yet, reaches it only as its skeleton copy
-and survives nowhere else. Reads and merges pass straight through.
+and survives nowhere else. Reads and merges pass straight through; `query_cell` reads one Cell's
+held segment beside the durable trail, as one answer in the trail's own order, cut to the limit.
 
 Fits into the Hive:
     Mirrors src/hivemind/pheromone/retention/trail.py (codingrules section 3).
@@ -21,7 +22,7 @@ import pytest
 from pydantic import JsonValue
 
 from hivemind.pheromone import DuplicateEventError, PheromoneEvent, event_class_for
-from hivemind.pheromone.retention import EphemeralSegments, VeiledTrail
+from hivemind.pheromone.retention import EphemeralSegments, VeiledTrail, query_cell
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery, TrailSegment
 from waggle.clock import FakeClock
@@ -146,3 +147,35 @@ async def test_reads_exports_and_merges_pass_straight_to_the_durable_trail() -> 
     assert await setup.trail.query(TrailQuery()) == (shipped,)
     assert (await setup.trail.export_segment(other_node)).events == (shipped,)
     assert setup.trail.durable is setup.durable
+
+
+async def test_query_cell_reads_a_held_cells_segment_beside_the_durable_trail() -> None:
+    setup = _Setup()
+    setup.segments.open(setup.cell)
+    first = setup.event("cell.isolated", setup.cell)  # Veiled: only in the Cell's segment.
+    await setup.trail.record(first)
+    setup.clock.advance(1.0)
+    outside = setup.event("worker.paused", "worker_01HZZZZZZZZZZZZZZZZZZZZZZZ")
+    await setup.trail.record(outside)  # About no Night Veil Cell: durable.
+    setup.clock.advance(1.0)
+    last = setup.event("cell.isolation_lifted", setup.cell)
+    await setup.trail.record(last)
+
+    newest = await query_cell(setup.trail, setup.cell, TrailQuery(newest_first=True, limit=2))
+    everything = await query_cell(setup.trail, setup.cell, TrailQuery())
+
+    assert await setup.trail.query(TrailQuery()) == (outside,)  # The plain read sees none of it.
+    assert newest == (last, outside)
+    assert everything == (first, outside, last)
+
+
+async def test_query_cell_reads_the_trail_alone_for_any_cell_not_held() -> None:
+    setup = _Setup()
+    setup.segments.open(setup.cell)
+    await setup.trail.record(setup.event("cell.isolated", setup.cell))
+    other = new_cell_id(setup.clock)
+    isolated = setup.event("cell.isolated", other)
+    await setup.trail.record(isolated)
+
+    assert await query_cell(setup.trail, other, TrailQuery()) == (isolated,)
+    assert await query_cell(setup.durable, setup.cell, TrailQuery()) == (isolated,)

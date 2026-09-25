@@ -15,15 +15,17 @@ merges pass straight through: nothing veiled is ever on the durable trail to be 
 The trail a Queen records through is also how her own code reaches the boundary: `segments_of`
 returns the segments behind a `VeiledTrail` (None behind any other trail, a Hive with no Virtual
 side), which is where the Queen files a Night Veil Cell's Warden as she attaches it and expects a
-Night Veil goal's tasks as she plans it, with no second handle on her deps.
+Night Veil goal's tasks as she plans it, with no second handle on her deps. Since reads reach only
+the durable trail, a reader of one Cell's own records (the Queen isolating a Cell, and waiting for
+its bees to answer) reads through `query_cell`, which adds the Cell's held segment to the answer.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.pheromone.retention`.
     Built by `hivemind.cli.compose.night_veil` over the Hive's durable trail and handed to every
     Queen-side writer in its place; `segments_of` is read by `hivemind.queen.attach` and
-    `hivemind.queen.goal_submission`. Implements `hivemind.pheromone.trail.PheromoneTrail`. Calls
-    into `hivemind.pheromone.retention.segments`, `...retention.skeleton`, `hivemind.pheromone.
-    events` and `hivemind.pheromone.trail` only.
+    `hivemind.queen.goal_submission`, `query_cell` by `hivemind.queen.isolation`. Implements
+    `hivemind.pheromone.trail.PheromoneTrail`. Calls into `hivemind.pheromone.retention.segments`,
+    `...retention.skeleton`, `hivemind.pheromone.events` and `hivemind.pheromone.trail` only.
 
 Key invariants:
     - An event about no Night Veil Cell or task reaches the durable trail unchanged: a MEADOW or
@@ -32,6 +34,8 @@ Key invariants:
       its kind has none; its whole form lives in memory only, in the Cell's segment.
     - The skeleton copy is recorded before the whole event is kept, so a durable-trail failure
       (a duplicate id) leaves nothing half-routed in the segment.
+    - `query_cell` returns what it reads in the trail's own order (`TRAIL_ORDER_KEY`), at most
+      the query's limit, exactly as one trail's `query` would.
 
 See Also:
     - .claude/codingrules.md section 12 for the boundary this decorator applies.
@@ -42,14 +46,22 @@ See Also:
 from __future__ import annotations
 
 from datetime import datetime
+from operator import attrgetter
 
 from hivemind.pheromone.events import PheromoneEvent
 from hivemind.pheromone.retention.segments import EphemeralSegments
 from hivemind.pheromone.retention.skeleton import skeleton_event
-from hivemind.pheromone.trail.protocol import PheromoneTrail, TrailQuery, TrailSegment
-from waggle.ids import NodeId
+from hivemind.pheromone.trail.protocol import (
+    TRAIL_ORDER_KEY,
+    PheromoneTrail,
+    TrailQuery,
+    TrailSegment,
+)
+from waggle.ids import CellId, NodeId
 
-__all__ = ["VeiledTrail", "segments_of"]
+__all__ = ["VeiledTrail", "query_cell", "segments_of"]
+
+_TRAIL_ORDER = attrgetter(*TRAIL_ORDER_KEY)  # How one trail orders its answers: (at, node_id).
 
 
 class VeiledTrail:
@@ -115,3 +127,31 @@ def segments_of(trail: PheromoneTrail) -> EphemeralSegments | None:
         a Hive with no Virtual side (and so no Night Veil Cell) is ever handed.
     """
     return trail.segments if isinstance(trail, VeiledTrail) else None
+
+
+async def query_cell(
+    trail: PheromoneTrail, cell_id: CellId, query: TrailQuery
+) -> tuple[PheromoneEvent, ...]:
+    """Run `query` over `trail` and, while `cell_id` is a held Night Veil Cell, its segment too.
+
+    A Night Veil Cell's own records (its isolation, its bees' answers, its tasks' placements)
+    live only in its segment while it lives, where a read of `trail` never reaches; this adds
+    them. Any other Cell, or a trail with no boundary behind it, reads `trail` alone.
+
+    Args:
+        trail: The trail the caller records through (a `VeiledTrail`, or any other).
+        cell_id: The Cell whose held segment, if any, is read as well.
+        query: The trail query, applied to both with the same semantics.
+
+    Returns:
+        Both answers as one, in the trail's own order and at most `query.limit` long; within one
+        instant, each store's own recorded order is kept.
+    """
+    events = await trail.query(query)
+    segments = segments_of(trail)
+    if segments is None or not segments.holds(cell_id):
+        return events
+    held = await segments.query(cell_id, query)
+    # A stable sort keeps each store's own order among events of one instant (TRAIL_ORDER_KEY).
+    merged = sorted((*events, *held), key=_TRAIL_ORDER, reverse=query.newest_first)
+    return tuple(merged[: query.limit])

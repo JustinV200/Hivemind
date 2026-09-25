@@ -34,8 +34,8 @@ Public API:
     - NightVeilCheckpoints, CellCheckpoint, TierTally, Checkpointer, MemoryCheckpoints,
       LazySqliteCheckpoints: a living Night Veil Cell's counts and ids, kept for a restarted
       Queen (checkpoint).
-    - VeiledTrail, segments_of: the trail decorator every Queen-side writer records through, and
-      the segments behind it (trail).
+    - VeiledTrail, segments_of, query_cell: the trail decorator every Queen-side writer records
+      through, the segments behind it, and one Cell's records read with its held segment (trail).
     - NightVeilTeardownPurge, PurgeReport, TrailRecorder, SegmentPurge, SqliteSegmentPurge,
       LazySqliteSegmentPurge, MemorySegmentPurge, SideChannelPurger, MemberSource, SideChannels,
       SIDE_CHANNEL_TIMEOUT_S: the purge.
@@ -72,7 +72,7 @@ from hivemind.pheromone.retention.skeleton import (
     skeleton_event,
     tier_counts,
 )
-from hivemind.pheromone.retention.trail import VeiledTrail, segments_of
+from hivemind.pheromone.retention.trail import VeiledTrail, query_cell, segments_of
 
 __all__ = [
     "ATTESTED_KIND",
@@ -101,6 +101,7 @@ __all__ = [
     "VeiledTrail",
     "Veiling",
     "merge_counts",
+    "query_cell",
     "segments_of",
     "skeleton_event",
     "tier_counts",

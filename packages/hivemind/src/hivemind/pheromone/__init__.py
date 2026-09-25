@@ -43,9 +43,10 @@ Public API:
       MIGRATIONS_PACKAGE.
     - SegmentPurge, SqliteSegmentPurge, LazySqliteSegmentPurge, MemorySegmentPurge,
       SideChannelPurger, MemberSource, SideChannels, PurgeReport, TrailRecorder,
-      NightVeilTeardownPurge, EphemeralSegments, VeiledTrail, segments_of, SKELETON_KINDS,
-      skeleton_event, NightVeilCheckpoints, MemoryCheckpoints, LazySqliteCheckpoints: the Night
-      Veil boundary (its whole public API lives on `hivemind.pheromone.retention`).
+      NightVeilTeardownPurge, EphemeralSegments, VeiledTrail, segments_of, query_cell,
+      SKELETON_KINDS, skeleton_event, NightVeilCheckpoints, MemoryCheckpoints,
+      LazySqliteCheckpoints: the Night Veil boundary (its whole public API lives on
+      `hivemind.pheromone.retention`).
     - follow, DEFAULT_POLL_INTERVAL_S: live-tail the trail.
     - PheromoneError, DuplicateEventError, UnknownEventFamilyError: the error tree, so a
       caller in another subsystem can catch a duplicate id by name.
@@ -101,6 +102,7 @@ from hivemind.pheromone.retention import (
     SqliteSegmentPurge,
     TrailRecorder,
     VeiledTrail,
+    query_cell,
     segments_of,
     skeleton_event,
 )
@@ -181,6 +183,7 @@ __all__ = [
     "insert_event",
     "parse_event",
     "parse_event_json",
+    "query_cell",
     "segments_of",
     "skeleton_event",
 ]
