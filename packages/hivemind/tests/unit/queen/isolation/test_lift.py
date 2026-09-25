@@ -5,7 +5,9 @@ wax); the human's lift clears that wax, gives a Virtual Cell its egress back, re
 `cell.isolation_lifted` naming the isolation it ended, and placement lands there again. What the
 isolation tainted stays tainted and what it paused stays paused. A lift also releases the
 Queen's placement holds on a Cell (the Hive Stand's fallback), so a held goal is placed there
-again; a lift with nothing to lift changes nothing and raises.
+again; a lift with nothing to lift changes nothing and raises. A Night Veil Cell's isolation is
+read from its segment, so the human lifts it there; no other task is placed on the Cell before
+or after, since it holds only its own task (codingrules 12: it is held with no wax at all).
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/isolation/lift.py, and the Guard holds in src/hivemind/queen/
@@ -27,9 +29,11 @@ from builders.isolation import (
     make_decision,
     make_guard_request,
     make_hold,
+    night_veil_cell,
     place_running,
     queen_order,
     tracked_virtual_cell,
+    veil_cell,
 )
 from builders.memory import make_handoff
 from builders.queen import make_queen_deps
@@ -92,6 +96,29 @@ async def test_a_lift_with_nothing_to_lift_raises_and_records_nothing() -> None:
     with pytest.raises(CellNotIsolatedError):
         await lift_isolation(isolation_site(deps, link), link.cell.id, None)
     assert await deps.trail.query(TrailQuery(kind=LIFTED_KIND)) == ()
+    await warden_end.close()
+
+
+async def test_the_human_lifts_a_night_veil_cells_isolation_read_from_its_segment() -> None:
+    clock = FakeClock()
+    guard = GuardDeps(pause_timeout_s=0.0)
+    deps, link, warden_end = make_queen_deps(clock, cell=night_veil_cell(clock), guard=guard)
+    deps, segments = veil_cell(deps, link.cell.id)
+    [other] = await deps.chamber.submit(make_graph_draft({"root": ()}))
+    site = isolation_site(deps, link)
+    isolated = await isolate_cell(site, queen_order(link.cell.id))
+    with pytest.raises(PlacementError):  # Held with no wax: no other task is placed there.
+        await _placement(deps, link, other)
+
+    lifted = await lift_isolation(site, link.cell.id, new_device_id(clock))
+
+    assert lifted.isolated_event_id == isolated.event_id and lifted.wax_cleared is None
+    assert (await read_isolation(deps, link.cell.id)).state is IsolationState.OPEN
+    [event] = await segments.query(link.cell.id, TrailQuery(kind=LIFTED_KIND))
+    assert event.payload["isolated_event_id"] == isolated.event_id
+    assert await deps.trail.query(TrailQuery(kind=LIFTED_KIND)) == ()  # Its segment alone.
+    with pytest.raises(PlacementError):  # Still its own task's alone, lifted or not.
+        await _placement(deps, link, other)
     await warden_end.close()
 
 

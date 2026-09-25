@@ -4,6 +4,9 @@ The dispatcher lifecycle fix's placement figures are pinned here too: an attache
 its live capacity less the grants in force on it, and a backend's room is less every fresh Cell
 still being provisioned on it (both used to read figures that never moved).
 
+An attached Night Veil Cell is never a placement candidate: it holds only the task it was
+provisioned for, isolated or not (codingrules 8.7 and 12).
+
 Fits into the Hive:
     Mirrors src/hivemind/queen/dispatcher/snapshot.py (codingrules section 3).
 
@@ -26,7 +29,7 @@ from builders.queen import make_queen_deps
 from builders.tasks import make_task, make_task_spec
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin
+from hivemind.cell import CellKind, CombShieldLevel, HoneyClearance, RequestOrigin
 from hivemind.forage import (
     ForageCapacity,
     ForageGrant,
@@ -169,6 +172,19 @@ def _backend_with_room(deps: QueenDeps, *, headroom: int) -> VirtualBackendCandi
     """The `fake` backend, with `headroom` Cells' room left."""
     capabilities = BackendCapabilities(can_snapshot=False, can_pause=True, headroom=headroom)
     return VirtualBackendCandidate(name="fake", capabilities=capabilities, specs=(_spec(deps),))
+
+
+async def test_an_attached_night_veil_cell_is_never_a_placement_candidate() -> None:
+    clock = FakeClock()
+    veiled = make_cell(CellKind.VIRTUAL, clock, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    deps, night_veil, warden_end = make_queen_deps(clock, cell=veiled)
+    _, meadow, meadow_end = make_queen_deps(clock, cell=make_cell(CellKind.VIRTUAL, clock))
+
+    inventory = await build_inventory(deps, (night_veil, meadow))
+
+    assert [candidate.cell_id for candidate in inventory.real] == [meadow.cell.id]
+    await warden_end.close()
+    await meadow_end.close()
 
 
 async def test_build_inventory_reads_blocked_and_cautioned_wax() -> None:

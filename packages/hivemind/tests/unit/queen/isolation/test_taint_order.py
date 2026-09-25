@@ -5,7 +5,9 @@ Queen's label on the Hive's tables cannot reach, so isolating a Cell sends its W
 `CellTaintOrder` naming the very scope and cause she labelled with: the Cell's bees and tasks,
 from the first cited event (or the isolation's start), caused by `cell.isolated`, which keeps that
 instant. An order lost to a closed link is sent again when the Warden reattaches while the
-isolation stands, and never once it is lifted.
+isolation stands, and never once it is lifted. A Night Veil Cell's tasks and bees are named from
+its segment, where alone they are recorded, and the Hive's tables get no label of it (codingrules
+12: a label's `memory.tainted` record would outlive the Cell).
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/isolation/taint.py and its call from src/hivemind/queen/attach.py
@@ -26,9 +28,11 @@ from datetime import datetime
 from builders.isolation import (
     isolation_site,
     make_guard_report,
+    night_veil_cell,
     place_running,
     queen_order,
     tracked_virtual_cell,
+    veil_cell,
 )
 from builders.queen import WardenEnd, make_queen_deps, make_warden_link
 
@@ -93,6 +97,25 @@ async def test_isolating_orders_the_warden_to_taint_with_the_same_scope_and_caus
     # Kept on the state change, so a lost order can be sent again with the same instant.
     [isolated] = await deps.trail.query(TrailQuery(kind=ISOLATED_KIND))
     assert datetime.fromisoformat(str(isolated.payload["suspect_at"])) == order.suspect_at
+    await warden_end.close()
+
+
+async def test_a_night_veil_cells_order_names_what_its_segment_holds_and_labels_no_table() -> None:
+    clock = FakeClock()
+    guard = GuardDeps(pause_timeout_s=0.0)
+    deps, link, warden_end = make_queen_deps(clock, cell=night_veil_cell(clock), guard=guard)
+    deps, segments = veil_cell(deps, link.cell.id)
+    task = await place_running(deps, link)
+    bee = await _record_spawn(deps, link, task.id)  # Names the task: veiled with the Cell.
+
+    outcome = await isolate_cell(isolation_site(deps, link), queen_order(link.cell.id))
+    await warden_end.pump_until(lambda: bool(warden_end.taint_orders))
+
+    [order] = warden_end.taint_orders
+    assert (order.authors, order.task_ids) == ((link.warden_id, bee), (task.id,))
+    assert outcome.tainted_count == 0
+    assert await deps.trail.query(TrailQuery(kind="memory.tainted")) == ()
+    assert await segments.query(link.cell.id, TrailQuery(kind=SPAWNED_KIND)) != ()
     await warden_end.close()
 
 

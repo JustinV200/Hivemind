@@ -9,7 +9,9 @@ build the Queen's table rows around one. For isolation itself: `tracked_virtual_
 one Virtual Cell on the fake backend through a real `CellLifecycle` (its `LifecycleEgress` is the
 seam the path cuts), `hive_stand_cell` is the Hive Stand's own Cell, `place_running` puts a task
 RUNNING on a link's Cell exactly as the dispatcher leaves it (with its `queen.assigned` row), and
-`isolation_site` / `queen_order` build what the one path takes.
+`isolation_site` / `queen_order` build what the one path takes. `night_veil_cell` and `veil_cell`
+put a Queen behind the Night Veil boundary with one living Night Veil Cell's segment held, where
+everything about that Cell is recorded (codingrules 12).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the tests under
@@ -26,13 +28,14 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from builders.cells import make_cell, make_identity
 from builders.forage import make_capacity
 from builders.tasks import make_graph_draft
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import Cell, CellKind
+from hivemind.cell import Cell, CellKind, CombShieldLevel
 from hivemind.guard import GuardAction, GuardConfidence, GuardReport, new_guard_report_id
 from hivemind.hive import (
     BackendRegistry,
@@ -41,6 +44,7 @@ from hivemind.hive import (
     LifecycleEgress,
     VirtualCellSpec,
 )
+from hivemind.pheromone import EphemeralSegments, VeiledTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.autopilot import QueenAction
 from hivemind.queen.deps import QueenDeps, WardenLink
@@ -66,9 +70,11 @@ __all__ = [
     "make_guard_report",
     "make_guard_request",
     "make_hold",
+    "night_veil_cell",
     "place_running",
     "queen_order",
     "tracked_virtual_cell",
+    "veil_cell",
 ]
 
 
@@ -207,6 +213,34 @@ def hive_stand_cell(clock: Clock | None = None) -> Cell:
         The Cell.
     """
     return make_cell(kind=CellKind.REAL, clock=clock, source=HIVE_STAND_SOURCE)
+
+
+def night_veil_cell(clock: Clock | None = None) -> Cell:
+    """Build a living Night Veil Cell, as its Warden's link carries it once attached.
+
+    Args:
+        clock: Source of the Cell's id; a fresh FakeClock when omitted.
+
+    Returns:
+        A Virtual Cell at NIGHT_VEIL.
+    """
+    return make_cell(kind=CellKind.VIRTUAL, clock=clock, comb_shield=CombShieldLevel.NIGHT_VEIL)
+
+
+def veil_cell(deps: QueenDeps, cell_id: CellId) -> tuple[QueenDeps, EphemeralSegments]:
+    """Put `deps` behind the Night Veil boundary with `cell_id`'s segment held.
+
+    Args:
+        deps: The Queen's collaborators over a plain (durable) trail.
+        cell_id: The living Night Veil Cell.
+
+    Returns:
+        The same collaborators recording through a `VeiledTrail` over their trail, and the
+        segments behind it, where every record about the Cell now waits.
+    """
+    segments = EphemeralSegments(deps.clock)
+    segments.open(cell_id)
+    return replace(deps, trail=VeiledTrail(deps.trail, segments)), segments
 
 
 async def place_running(deps: QueenDeps, link: WardenLink) -> Task:

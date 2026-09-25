@@ -8,7 +8,8 @@ escalation policy and the human's lever at the Hive Entrance all end here, in th
    already stands is answered as such, changing nothing.
 2. The `isolation` enforcement point (`authority`): the Queen may never isolate the Hive Stand's
    own lease, only the human may; a refusal is `guard.denied` and changes nothing else.
-3. A BLOCK Cell Wax note, first, so placement sends nothing more there while the rest runs.
+3. A BLOCK Cell Wax note, first, so placement sends nothing more there while the rest runs (none
+   for a Night Veil Cell, which placement never offers to another task: codingrules 12).
 4. The Warden's grants are revoked, so it spawns nothing more.
 5. Every bee on the Cell is checkpointed and paused, with a bounded wait for its answer.
 6. A Virtual Cell's egress is cut to its Waggle link alone (`hivemind.hive.CellEgress`); a
@@ -20,7 +21,9 @@ escalation policy and the human's lever at the Hive Entrance all end here, in th
 9. The human is told by a CRITICAL SECURITY Alarm, pushed to every device.
 
 The lease and its scratch are kept intact for forensics: nothing here releases, tears down or
-overwinters the Cell. Only the human lifts an isolation (`hivemind.queen.isolation.lift`).
+overwinters the Cell. Only the human lifts an isolation (`hivemind.queen.isolation.lift`). For a
+Night Veil Cell every record of all this lives in the Cell's own segment, which the isolation's
+reads reach (`hivemind.pheromone.query_cell`), and goes with it at teardown.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's

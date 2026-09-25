@@ -10,8 +10,10 @@ on the Cell, the placement rule that excludes a Cell outright (rule 3a), so noth
 there while it stays isolated; `unblock_cell` clears it again for the human's lift. The wax is
 written by the isolation rule whoever decided the isolation (her rule, her awake episode, or the
 human's order), which is why it is AUTOPILOT: the note records the isolation, it does not judge.
-A Night Veil Cell gets no note (codingrules 12): Cell Wax outlives the Cell it is about, and a
-Night Veil Cell is never placed on again anyway.
+A Night Veil Cell gets no note (codingrules 12): Cell Wax outlives the Cell it is about, and
+placement never offers a Night Veil Cell to any task but the one it was provisioned for
+(`hivemind.queen.dispatcher.snapshot.build_inventory`), which is all the hold its isolation needs;
+its isolation itself lives in its own segment and goes with it.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -96,8 +98,8 @@ async def revoke_cell_grants(deps: QueenDeps, link: WardenLink, reason: str) -> 
 async def block_cell(deps: QueenDeps, order: IsolationOrder) -> str | None:
     """Write a BLOCK Cell Wax note on `order`'s Cell, so placement excludes it outright.
 
-    Not for a Night Veil Cell (codingrules 12): a note would outlive the Cell, which is never
-    placed on again anyway (a Night Veil task gets a fresh Cell, torn down once it ends).
+    Not for a Night Veil Cell (codingrules 12): a note would outlive the Cell, and placement never
+    offers one to another task anyway (module docstring).
 
     Args:
         deps: The Queen's collaborators.

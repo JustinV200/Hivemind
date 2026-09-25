@@ -12,7 +12,10 @@ Consequences names: `hivemind.queen.dispatcher.acquire` passes a narrowed copy r
 task. Roadmap step 10.6a: `goal_id` names the goal being placed, and every active Guard
 `PlacementHold` on that goal (the Hive Stand's fallback, where the Queen may not isolate) joins the
 blocked Cells for this one decision, exactly as a BLOCK Cell Wax note would: placement data, never
-a special case inside `decide`.
+a special case inside `decide`. An attached Night Veil Cell is never a candidate at all: it was
+provisioned for one task and is torn down when that task ends (codingrules 8.7, "teardown-only"),
+so no other task is ever placed there, isolated or not, and no other task's placement reasons
+name it; that is also the hold its isolation needs, since it gets no BLOCK note (codingrules 12).
 
 The dispatcher lifecycle fix makes every figure placement reads live. An attached Cell's room is
 measured on its capacity as it stands (`WardenLink.live_capacity`, the Hive Stand's load and free
@@ -45,6 +48,7 @@ Key invariants:
       (`hivemind.queen.dispatcher.ready._send_grant_and_assign`).
     - A backend's headroom is never above what its declared cap leaves once every tracked Cell and
       every fresh Cell still being provisioned on it are counted, each once.
+    - No attached Night Veil Cell is ever in an `Inventory`'s Real candidates.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for "the caller precomputes... before
@@ -61,7 +65,7 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.forage import ForageCapacity, ForageGrant, RoleFootprint
 from hivemind.hive import VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
@@ -126,7 +130,14 @@ async def build_inventory(
         blocked = {**await _held_for(deps, goal_id), **blocked}
     # One bee per task holding a grant in force on a Cell (module docstring), counted once.
     in_use = _bees_in_use(deps.ledger.live_grants())
-    real = tuple([await _real_candidate(link, footprint, in_use[link.cell.id]) for link in wardens])
+    # A Night Veil Cell holds only the task it was provisioned for (module docstring).
+    real = tuple(
+        [
+            await _real_candidate(link, footprint, in_use[link.cell.id])
+            for link in wardens
+            if link.cell.comb_shield is not CombShieldLevel.NIGHT_VEIL
+        ]
+    )
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
     else:

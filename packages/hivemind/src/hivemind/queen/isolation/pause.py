@@ -6,18 +6,21 @@ for Clustering (codingrules 8.9, "one mechanism, many names"): `Intervene(HANDOF
 writes its Handoff, then `TaskPause`, both relayed by the Cell's own Warden. A bee answers by
 recording `worker.paused` (or stopping outright: `worker.done`, `.killed`, `.failed`) on its
 Cell's trail segment, which reaches the Queen's trail through the Warden's trail shipping (the
-Hive Stand's bees write to her trail directly). The wait is bounded by `[guard]`'s pause timeout
-on the injected clock, never a real timer, and never an error: a bee that does not answer is
-named in `cell.isolated` as unacknowledged, and the isolation goes on, because the grant is
-already revoked and the Cell is about to lose its egress. Last, each task moves to PAUSED in the
-Brood Chamber (a task BLOCKED on a Question has the Question withdrawn first, as a quarantine's
-hold does), so its way back is `hivemind.queen.resume_paused` once the human lifts the isolation.
+Hive Stand's bees write to her trail directly), or, for a Night Veil Cell, only the Cell's own
+ephemeral segment on her side, which the wait reads too (`query_cell`). The wait is bounded by
+`[guard]`'s pause timeout on the injected clock, never a real timer, and never an error: a bee
+that does not answer is named in `cell.isolated` as unacknowledged, and the isolation goes on,
+because the grant is already revoked and the Cell is about to lose its egress. Last, each task
+moves to PAUSED in the Brood Chamber (a task BLOCKED on a Question has the Question withdrawn
+first, as a quarantine's hold does), so its way back is `hivemind.queen.resume_paused` once the
+human lifts the isolation.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
     isolation sub-package. Called by `hivemind.queen.isolation.path`. Calls into
-    `hivemind.brood_chamber`, `hivemind.pheromone` (TrailQuery), `hivemind.supervision` (Handoff,
-    to_intervene) and waggle only; `QueenDeps` only for its type.
+    `hivemind.brood_chamber`, `hivemind.pheromone` (TrailQuery, query_cell),
+    `hivemind.supervision` (Handoff, to_intervene) and waggle only; `QueenDeps` only for its
+    type.
 
 Key invariants:
     - The wait never outlasts `pause_timeout_s` on `deps.clock`; a zero timeout checks once.
@@ -37,7 +40,7 @@ from typing import TYPE_CHECKING
 
 from hivemind.brood_chamber import Task, TaskFilter, TaskNotFoundError, TaskStatus
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
-from hivemind.pheromone import MAX_QUERY_LIMIT, TrailQuery
+from hivemind.pheromone import MAX_QUERY_LIMIT, TrailQuery, query_cell
 from hivemind.supervision import Handoff, to_intervene
 from waggle.envelope import wrap
 from waggle.errors import ConnectionLostError, TransportClosedError
@@ -91,7 +94,7 @@ async def pause_cell_bees(
     for task in tasks:
         await _send_levers(deps, link, task.id, reason)
     asked = frozenset(task.id for task in tasks)
-    answered = await _await_answers(deps, asked, since, timeout_s)
+    answered = await _await_answers(deps, link.cell.id, asked, since, timeout_s)
     paused = [task.id for task in tasks if await _hold(deps, task.id, reason)]
     unanswered = tuple(task.id for task in tasks if task.id not in answered)
     return PauseOutcome(paused=tuple(paused), unacknowledged=unanswered)
@@ -121,12 +124,12 @@ async def _send_levers(deps: QueenDeps, link: WardenLink, task_id: TaskId, reaso
 
 
 async def _await_answers(
-    deps: QueenDeps, asked: frozenset[TaskId], since: datetime, timeout_s: float
+    deps: QueenDeps, cell_id: CellId, asked: frozenset[TaskId], since: datetime, timeout_s: float
 ) -> frozenset[TaskId]:
     """Poll the trail until every asked task's bee answered, or `timeout_s` passes."""
     deadline = deps.clock.monotonic() + timeout_s
     while True:
-        answered = await _answered(deps, since) & asked
+        answered = await _answered(deps, cell_id, since) & asked
         remaining = deadline - deps.clock.monotonic()
         if answered == asked or remaining <= 0:
             return answered
@@ -135,17 +138,18 @@ async def _await_answers(
         await deps.clock.sleep(min(POLL_INTERVAL_S, remaining))
 
 
-async def _answered(deps: QueenDeps, since: datetime) -> frozenset[TaskId]:
-    """Return every task whose bee recorded an answer at or after `since`."""
+async def _answered(deps: QueenDeps, cell_id: CellId, since: datetime) -> frozenset[TaskId]:
+    """Return every task whose bee recorded an answer at or after `since`, on `cell_id` or not."""
     bees: set[str] = set()
     for kind in ACK_KINDS:
-        events = await deps.trail.query(TrailQuery(kind=kind, since=since, limit=MAX_QUERY_LIMIT))
-        bees.update(event.subject_id for event in events)
+        # A Night Veil Cell's bees answer into its segment alone: `query_cell` reads it too.
+        query = TrailQuery(kind=kind, since=since, limit=MAX_QUERY_LIMIT)
+        bees.update(event.subject_id for event in await query_cell(deps.trail, cell_id, query))
     tasks: set[TaskId] = set()
     # A bee's answer names only the bee; its Warden's spawn record names the task it runs.
     for bee in bees:
         query = TrailQuery(kind=SPAWNED_KIND, subject_id=bee, newest_first=True, limit=1)
-        spawned = await deps.trail.query(query)
+        spawned = await query_cell(deps.trail, cell_id, query)
         if spawned and spawned[0].payload.get("task_id"):
             tasks.add(TaskId(str(spawned[0].payload["task_id"])))
     return frozenset(tasks)

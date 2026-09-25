@@ -11,13 +11,15 @@ no table of her own to reconcile, and the event is the state change, trivially i
 (Appendix C rule 3). "Newer" is the trail's own order (`TRAIL_ORDER_KEY`, then the order recorded),
 never the event id. What placement reads is the `BLOCK` wax the isolation wrote, not this state.
 A lift recorded while no isolation stands (the human releasing the Queen's placement holds on the
-Hive Stand, which she may not isolate) names no isolated event and leaves the state OPEN.
+Hive Stand, which she may not isolate) names no isolated event and leaves the state OPEN. A Night
+Veil Cell's two events live only in its segment while it lives (codingrules 12), so every read
+here goes through `query_cell`, which reads that segment beside the durable trail.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
     isolation sub-package. Called by the isolation path and the lift. Calls into
-    `hivemind.pheromone` (CellEvent, TrailQuery), the sub-package's own order and waggle only;
-    `QueenDeps` only for its type.
+    `hivemind.pheromone` (CellEvent, TrailQuery, query_cell), the sub-package's own order and
+    waggle only; `QueenDeps` only for its type.
 
 Key invariants:
     - TRANSITIONS has exactly one entry per IsolationState, each with the one edge out of it.
@@ -39,7 +41,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import JsonValue
 
-from hivemind.pheromone import MAX_QUERY_LIMIT, CellEvent, PheromoneEvent, TrailQuery
+from hivemind.pheromone import MAX_QUERY_LIMIT, CellEvent, PheromoneEvent, TrailQuery, query_cell
 from hivemind.queen.isolation.order import IsolationOrder, IsolationOutcome
 from waggle.ids import CellId, EventId, new_event_id
 
@@ -111,7 +113,7 @@ async def read_isolation(deps: QueenDeps, cell_id: CellId) -> IsolationRecord:
     """Return `cell_id`'s isolation state: whichever of its two events is newer.
 
     Args:
-        deps: The Queen's collaborators; `trail` is read.
+        deps: The Queen's collaborators; `trail` is read, with a Night Veil Cell's segment.
         cell_id: The Cell.
 
     Returns:
@@ -172,7 +174,7 @@ async def record_lifted(deps: QueenDeps, cell_id: CellId, payload: dict[str, Jso
 async def _newest(deps: QueenDeps, kind: str, cell_id: CellId) -> PheromoneEvent | None:
     """Return the newest `kind` event about `cell_id`, or None."""
     query = TrailQuery(kind=kind, subject_id=cell_id, newest_first=True, limit=1)
-    events = await deps.trail.query(query)
+    events = await query_cell(deps.trail, cell_id, query)
     return events[0] if events else None
 
 
@@ -193,7 +195,7 @@ async def _lifted_last(deps: QueenDeps, isolated: PheromoneEvent, lifted: Pherom
         newest_first=True,
         limit=MAX_QUERY_LIMIT,
     )
-    for event in await deps.trail.query(same_instant):
+    for event in await query_cell(deps.trail, CellId(isolated.subject_id), same_instant):
         if event.kind in (ISOLATED_KIND, LIFTED_KIND):
             return event.kind == LIFTED_KIND  # The newer of the two, in recorded order.
     return False
