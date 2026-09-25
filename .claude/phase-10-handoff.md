@@ -1,377 +1,509 @@
-# Phase 10 handoff: Guard Bees, Hive Entrance, auth and permissions
+# Phase 10 handoff: every step ticked, two defect-fix rounds in flight
 
-> Branch `claude/pensive-knuth-i11ia3`, cut from `main`. Each push was first verified green in an
-> isolated worktree. The last code commit is `9c3623a`: 8020 passed,
-> 2 skipped, and ruff, mypy, import-linter and the five hygiene scripts all clean. One piece is in
-> flight: the Queen's half of 10.5. A subagent stopped at the session's usage limit with most of
-> it written, and that work is saved as `.claude/phase-10-handoff/queen-human-path.patch`
-> because it does not pass the gates yet. Start there. This file gives the state of every
-> phase 10 step, what is left and in what order, the bugs still open, the decisions already
-> taken, and how the work was run.
+> Branch `claude/pensive-knuth-i11ia3`, pushed at `6e05b34`. Every push was verified first in an
+> isolated worktree at the exact commit: the last full run passed 10,354 tests (3 skipped). ruff,
+> mypy, import-linter (10 contracts) and the five check scripts were all clean, and the Landing
+> Board document matched. Every roadmap box from 10.1 to 10.8 is ticked. The user then said:
+> "stop everything, create a handoff doc for a fresh agent". Two subagents were stopped
+> mid-round. Their work is saved as four patches in `.claude/phase-10-handoff/`, and none of it
+> is merged yet. Start with those patches. This file covers:
+>
+> - the state of the phase;
+> - what is in flight and how to resume it;
+> - every defect still open;
+> - the decisions taken;
+> - how the work was run;
+> - what this sandbox needs;
+> - the final report the user is still owed.
 
 ## Start here
 
-1. Read `CLAUDE.md`, then `.claude/codingrules.md`, `.claude/roadmap.md` phase 10 (lines
-   1439-1711), `.claude/subagents.md` and ADR-0031 to ADR-0035 in `docs/adr/`. CLAUDE.md's rules
-   are non-negotiable, and the ADRs are the normative design for everything below.
-2. Run `uv sync --frozen --all-groups`, then the gates (see "How the work was run") to confirm the
-   head is green on your machine.
-3. Apply the patch: `git apply --index .claude/phase-10-handoff/queen-human-path.patch`. It applies
-   cleanly on `9c3623a` and on this handoff commit. Finish it as described under "The Queen human
-   path", verify it, commit it, and push. Delete the patch file in the same commit.
-4. Then work through "What comes next", in order.
+1. **Read, in this order:**
+   - `CLAUDE.md`
+   - `.claude/codingrules.md`
+   - `.claude/roadmap.md` phase 10, lines 1439-1755 (its exit criteria start at 1720)
+   - `.claude/subagents.md`
+   - ADR-0031 to ADR-0035 in `docs/adr/`
+
+   These are normative, and the ADRs were amended this session. See "Decisions taken".
+2. **Confirm the head is green.** Run `uv sync --frozen --all-groups`, then the gates (see "How
+   the work was run").
+3. **Resume the two in-flight rounds** from the patches (see "In flight"):
+   - finish each item;
+   - gate the result and commit it;
+   - push.
+
+   In the same commit, delete the patches and the two stale briefs in `.claude/phase-10-handoff/`
+   (`brief-floors.md`, `brief-queen-human-path.md`; both describe finished work).
+4. Work through "Still open", then run the whole-system real run (see "Real runs"), then write the
+   final report (last section).
 
 ## The ask and the ground rules
 
-- The user's whole instruction was: "start a new branch and begin phase 10, test thoroughly and
-  resolve all bugs/issues found". Phase 10 runs to its exit criteria, with real end-to-end runs
-  wherever possible (CLAUDE.md), and every defect found gets fixed, not noted.
-- Develop and push only on `claude/pensive-knuth-i11ia3`: `git push -u origin
-  claude/pensive-knuth-i11ia3`, retrying network failures with backoff. Do not open a pull request
-  unless the user asks for one.
-- End commits with the attribution lines your own harness gives you. Put no model identifier in
-  any file, code comment or commit body.
-- CI (`.github/workflows/ci.yml`) runs only on pushes to `main` and on pull requests, so nothing
-  checks this branch automatically. The isolated verification below is the gate.
-- Tick a roadmap box only in the commit that lands the step's last piece, including its named
-  tests. Several steps are half done: see the status table.
+- **The user's instructions, in order:**
+  1. The earlier handoff: "start a new branch and begin phase 10, test thoroughly and resolve
+     all bugs/issues found".
+  2. This session's opening instruction: "reference phase 10 handoff and complete phase 10".
+  3. "continue".
+  4. Last: "stop everything, create a handoff doc for a fresh agent".
 
-## What landed (`git log --oneline main..HEAD`)
+  Every defect found is to be fixed, not just noted. CLAUDE.md prefers real end-to-end runs
+  wherever a phase's exit criteria can be exercised by one.
+- **Branch and pushing.** Develop and push only on `claude/pensive-knuth-i11ia3`, with
+  `git push -u origin claude/pensive-knuth-i11ia3`. Retry network failures with backoff: 2 s,
+  4 s, 8 s, 16 s. Do not open a pull request unless the user asks. CI runs only on `main` and on
+  pull requests, so the isolated gate below is the only check.
+- **Commits.** End them with the attribution lines your own harness gives you. Put no model
+  identifier in any file, code comment or commit message.
+- **Ticking.** Tick a roadmap box only in the commit that lands the step's last piece.
+- **Hard constraints:**
+  - There is no Hive provider API key. Never borrow the coding agent's own credentials for the
+    Hive.
+  - A denied action. Appending a scratch test CA to the Hive venv's certifi bundle and adding
+    `/etc/hosts` entries (`push.hive.test`, `hooks.hive.test`) was denied as a TLS/auth weakening.
+    - Do not pursue that outcome any other way: no trust-store changes, no hosts remapping, no
+      `SSL_CERT_FILE` tricks for the Hive's push client, and no declaring the docker bridge a VPN
+      CIDR to allow plaintext webhooks.
+    - The real web-push and webhook delivery legs of exit criteria 3 and 4 need the user's
+      decision.
+    - Allowed: a client pinning the Hive's own CA (the CLI's `--ca-file`, or `verify=` in a
+      script), and a `--add-host` local to a throwaway client container.
+  - Permission laundering. Never perform, for a subagent, an action that was denied to it.
+    - Example: a `git rebase` of an agent's branch was refused as destructive.
+    - Integrating an agent's commits into this branch by cherry-pick rewrites nothing, and is the
+      normal method.
 
-- `b9ca8cb` The waggle IPv6 URI test skips on a host that cannot bind `::1` (this container
-  cannot).
-- `9083aec` Dependencies: FastAPI, uvicorn, webauthn and segno, each with a justification comment.
-- `eeaed34`, `06a5973` The `[entrance]` manifest section (`manifest/schema/entrance.py`):
-  - `bind` is loopback-validated.
-  - `expose` is loopback, vpn, lan or tunnel; there is no public value.
-  - `remote_bind` is never a wildcard.
-  - Also: `public_url`, `tls`, `mutual_tls`, the session, step-up, lockout and rate-limit
-    settings, `vpn_cidrs`, `vpn_interface`, `rp_id`, `tunnel_command`, `push` and `voice`.
-  - Documented in `docs/manifests/full.toml`.
-- `d7c6c7f`, `01bc8e6`, `f2f319d` ADR-0031 to ADR-0035, accepted after an adversarial review.
-  Codingrules and the roadmap were aligned with them: section 4's subprocess allowlist names
-  `hivemind.entrance.expose.tunnel`; section 8.15 covers exposure; Appendix C has rows for devices
-  and the Entrance mode.
-- `1a4f670` The guard core (10.1, 10.2, and the data half of 10.7):
-  - The capability grammar: seven scope kinds; `net` is a HOST kind; two roots, operator and queen.
-  - `evaluate`, a pure function with rule ids, whose floor hook is still empty.
-  - `Enforcer`, which records `guard.denied`.
-  - The EnforcementPoint catalogue, which classifies every trail kind.
-  - `guard/access.py` and `guard/defaults/policy.toml`.
-- `8902115` `common/secrets/` (a file store and a memory store) and one persisted Hive Ed25519
-  signing key.
-- `5a9203a`, `726552c`, `a0e70e3` Enrolment (10.4 and most of 10.5d):
-  - The operator's password (Argon2id) and the console key wrapped under it.
-  - Device keys (Ed25519 or passkey), the enrolled-device state machine and the Entrance tables.
-  - Invites, redemption, approve and deny, lock, unlock, revoke and the expiry sweep.
-  - Every status change writes its `guard.entrance_*` event in the same transaction.
-- `ce2f724` Push (10.5b):
-  - Webhooks are signed, destination-bound and SSRF-guarded, with the IP pinned and SNI kept.
-  - RFC 8291 Web Push with VAPID; the payload is content-free, padded, with an HMAC `Topic`.
-  - Also: the `LivePush` WebSocket hub, `PushDispatcher`, and its own migration series,
-    `entrance_push`.
-- `a7f5863` Enforcement points (10.3):
-  - The goal set lives on `TaskSpec.capabilities`, and Waggle 1.6 carries
-    `TaskAssign.capabilities` and `network_scopes`.
-  - Checks: placement's goal ceiling, `forage:request`, tool authorisation, Warden spawn, rebind
-    within a grant, question routing, Comb Shield egress, `cell:outside_scratch`.
-  - `tests/e2e/test_phase10_exit_criteria.py` proves exit criterion 1 (tests 1a, 1b and 1c).
-- `4381313` Fix: a goal whose set admits no Cell is cancelled once, instead of being re-refused
-  on every tick.
-- `4f77ba5` Remote exposure (10.5a), in `hivemind/entrance/expose/`:
-  - `plan_exposure`, a pure check over gathered host facts.
-  - The Hive's own certificate authority, with device certificates from a CSR or as PKCS#12.
-  - A revocation list, and a TLS 1.3-only, ticketless mutual-TLS context rebuilt through
-    `ContextSwitch`.
-  - `TunnelSupervisor`, and the loopback Host check.
-  - psutil is a new dependency.
-- `9c3623a` Login, sessions, step-up and the Reducer (10.5e), under `hivemind/entrance/auth/`
-  (`session/`, `login/`, `step_up/`, `confirm/`, `limits/`, `travel/`) plus `entrance/reducer.py`
-  and migration 0002. Appendix C gained the pending-confirmation row.
+## State at handoff
 
-## Roadmap status
+### Roadmap: every phase 10 box is ticked
 
-| Step | State | What is left |
-|---|---|---|
-| 10.1, 10.2, 10.3, 10.4 | Done and ticked. | `ENTRANCE_ROUTE` stays in `PENDING_POINTS` (`guard/policy/catalogue.py`) until the app lands; `HONEY_ACCESS` stays there until phase 7. |
-| 10.3a-10.3d, plus the Hive-state floor | Not started. | Everything; see `phase-10-handoff/brief-floors.md`. It reads the goal request id, so it goes after the Queen human path. |
-| 10.5 (Queen half) | In the patch; failing gates. | See "The Queen human path". |
-| 10.5 (Entrance app) | Not started. | See "What comes next", item 3. |
-| 10.5a | Package landed. | Wiring into the app, CORS for `public_url` only, per-device rate limiting at the routes, and "a test starts the Entrance in every mode and asserts every refusal" on real listeners. The pure plan already asserts every refusal. |
-| 10.5b | Channels landed. | The Queen's `HumanChannel` implemented over the dispatcher; re-validating subscriptions on start; the roadmap test "asks from the CLI, answers by webhook, asserts the web-push copy is withdrawn". The Android channel belongs to 12.12. |
-| 10.5c | Not started. | `docs/entrance/landing-board.md`, the committed `docs/entrance/openapi.json` with a drift test, and a conformance client driven only by that document. |
-| 10.5d | Flows landed. | Routes, the `hive entrance invite/approve/deny/devices/revoke/steward` CLI (10.8), and the "a device is asking to join" push. |
-| 10.5e | Landed. | Two route-level tests (an approve on the remote listener is a 404; the Reducer closes a live WebSocket within a second) and the app wiring listed below. |
-| 10.5f | Not started. | Voice at `POST /v1/chat/audio`, plus the minimal 6.5a subset it needs (the TRANSCRIBER slot). |
-| 10.6, 10.6a-10.6d | Not started. | The Guard Bee (requests only), Queen-only isolation, the scanner, quarantine and taint. Waggle 1.7 is planned for `AlarmKind.SECURITY` and `InterventionAction.QUARANTINE`. |
-| 10.7 | Data half landed with 10.1. | The rest of the step. |
-| 10.8 | Not started. | The whole `hive entrance ...` CLI. |
-| Exit criteria | Criterion 1 is proved. | The other five, end to end (see "Real end-to-end runs"). |
+- **10.1 to 10.4, and the Night Veil floors 10.3a to 10.3d:** from before this session.
+- **10.5 Hive Entrance.** Two listeners; routes; streams; the human inbox and chat; OpenAPI.
+  - The loopback-only route set is now asserted exactly.
+  - `operator add` is a loopback-only route that answers 409 `hivemind.entrance.single_operator`.
+  - The Observation Hive build is served on both listeners.
+- **10.5a Remote exposure.**
+  - Device certificates are issued at approval.
+  - `mutual_tls` follows the mode: on for `lan` and `tunnel`, off for `vpn` unless set.
+  - Every mode starts through `serve_hive` over TLS, and all 25 refusal rules are exercised
+    there.
+- **10.5b Push channel.**
+  - The Alarm push and its withdrawal are tested.
+  - The named test is `tests/e2e/test_push_withdrawal.py`.
+- **10.5c:** from before this session.
+- **10.5d Enrolment.**
+  - The steward route is tested with its switch on.
+  - `hive remote enrol` works from the invite link alone.
+  - The note: the approve and revoke screens belong to 12.8a.
+- **10.5e Login, sessions, step-up and the Reducer.**
+  - The Guard Bee's door rules reduce a real Entrance.
+  - The note: break-glass actions are 13.2a, 13.4 and 13.4a; no key-change route exists yet.
+- **10.5f Voice.** In at the Landing Board.
+  - A `keep_audio` clip is kept only in memory until the Nectar intake of 7.4 exists.
+- **10.6 Guard Bee.**
+  - Composed into every `hive run` and `hive serve`.
+  - Integrity rules, attribution, and reading of Night Veil segments.
+  - Note: C2 deposits are a seam until phase 7.
+- **10.6a Isolation.**
+  - Docker cuts egress on a per-Hive control network.
+  - The in-Cell taint travels by Waggle 1.8's `cell.taint_order`.
+  - QEMU declares why it cannot cut egress.
+- **10.6b to 10.6d:** from before this session.
+- **10.7 Access levels.** The note names the phase 11 and 12 seams.
+- **10.8 CLI.**
 
-## The Queen human path (roadmap 10.5, Queen half)
+### Exit criteria (roadmap line 1720)
 
-The spec is `phase-10-handoff/brief-queen-human-path.md`, and the patch holds the work.
+**1. Drone without `net:*`; `prefer = "real"`; Warden without `forage:request`.**
+- Automated proof: `tests/e2e/test_phase10_exit_criteria.py` (1a, 1b, 1c).
+- Real run: 1b on a real Docker Cell (a goal lacking `cell:hive_stand` lands Virtual).
+- Not provable here: nothing.
 
-**Already written in the patch:**
+**2. Laptop `hive run --remote` and `hive inbox --remote`; refusals.**
+- Automated proof: `test_phase10_remote_laptop.py` and `test_mutual_tls.py` (lan with
+  certificates).
+- Real run: a laptop container over the vpn listener. It enrolled, ran a goal, answered from its
+  inbox, and was refused unauthenticated, pending, locked and revoked.
+- Not provable here: nothing.
 
-- `queen/intake/`: `GoalRequest`, its states and transition table, a SQLite store (series
-  `queen_intake`), a memory store, writes and budget.
-- `queen/chat/`: the chat log (series `queen_chat`), posting, `HumanChannel` with a
-  `NullHumanChannel` default on `QueenDeps.human_channel`, and the `ChatDoor` mixin. The mixin gives
-  the Queen `request_goal`, `confirm_goal_request`, `decline_goal_request`, `post_human_message`
-  and `acknowledge_alarm`.
-- New ticks:
-  - `queen/ticks/intake.py`: drains goal requests and recovers `PLANNING` rows through
-    `TaskFilter(goal_request_id=...)`.
-  - `queen/ticks/chat.py`: turns human messages into `HUMAN_MESSAGE` inbox items, carries out a
-    REPLY, and marks messages handled.
-  - `queen/ticks/awake.py`: fences the human's text as untrusted, and leaves the
-    `scan_human_text` hook and a `TODO(10.6b)` for the scanner.
-- REPLY:
-  - `QueenAction.REPLY`.
-  - `QueenDecision.message`, which is required on a REPLY and refused on any other action.
-  - The autopilot and awake tables map REPLY.
-  - The Queen system prompt and its snapshot are updated.
-- `TaskSpec.goal_request_id` and `brood_chamber/task/goal_request.py`, persisted by the chamber's
-  stores.
-- `pheromone/events/families.py` was split into the package `families/` (codec, resources,
-  supervisors, work), with the new `queen.goal_request_*`, `queen.human_message_received` and
-  `queen.replied` kinds classified in `guard/policy/catalogue.py`.
-- `queen.py` is 280 lines of code (the `Queen` class is 198, just under the 200-line class
-  limit). Keep growth in delegate modules.
+**3. Phone by QR, pending, passkey and password, question by web push, 404 on approve.**
+- Automated proof: `test_phase10_phone.py`. It checks that the QR shown equals
+  `segno.make_qr(link)`, and the Web Push is decrypted with the phone's key.
+- Real run: a phone container on the vpn listener, with a software passkey, over TLS pinned to
+  the Hive's CA. It enrolled, was pending (401), was approved at the Stand, logged in, spoke and
+  confirmed a goal, got the question on the live push socket, answered by push-to-talk, and got
+  a 404 on approve. Evidence is below.
+- Not provable here:
+  - delivery through a real push service (blocked by the denied TLS change);
+  - a camera decoding the QR;
+  - phone hardware;
+  - the phone's screens, which are 12.8a.
 
-**Gate state with the patch applied (recorded on `9c3623a`).** lint-imports and the five hygiene
-scripts pass. The rest:
+**4. Program from the document, signed webhook, capability refusal, over-cap step-up.**
+- Automated proof: `test_phase10_program_webhook.py` and `test_landing_board_conformance.py`.
+- Real run: none.
+- Not provable here: a webhook to a real receiver over TLS (the denied TLS change).
 
-- ruff, 4 findings:
-  - ANN401 (`**overrides: Any`) in `tests/builders/human.py:59` and
-    `tests/unit/queen/chat/test_model.py:33`.
-  - E501 in `tests/contracts/test_goal_request_store_contract.py:71` and
-    `tests/unit/queen/intake/test_writes.py:41`.
-  - `ruff format` would reformat those two E501 files.
-- mypy, 2 errors:
-  - `tests/unit/queen/ticks/test_intake.py:70`: a `dict[str, str]` is passed where
-    `dict[str, object]` is expected. Build it typed as `dict[str, object]`.
-  - `tests/unit/queen/chat/test_channel.py:58`: `func-returns-value`, because the test uses the
-    result of a method that returns None.
-- pytest, 2 failures (8165 passed):
-  - `tests/contracts/test_goal_request_store_contract.py::test_update_replaces_the_row_and_records_its_event`,
-    both `[memory]` and `[sqlite]`.
-  - `update` does record its event: `intake/memory.py` calls `trail.record` before the swap.
-  - The test assumes the last element of `trail.query(TrailQuery())` is the newest. Check the
-    query's documented order, and whether the two events tie on the FakeClock. Then fix the test
-    by advancing the clock and reading in the documented order; do not reorder the store.
+**5. Five bad passwords lock until a loopback unlock; reduce closes remote sessions; lan without
+mTLS refuses.**
+- Automated proof: e2e and unit tests, `tests/unit/cli/compose/test_entrance_refusals.py`, and
+  `test_mutual_tls.py`.
+- Real run: lockout and loopback unlock; reduce closed the live remote session (4411), then open;
+  `lan` without mTLS refused to start.
+- Not provable here: nothing.
 
-**Still to do** (the agent's last note was "add `prompt_text` to the human builders and write
-the Queen-level test file"):
+**6. Spoken goal on local Whisper, echoed, confirmed, run; one TRANSCRIBER `llm.call`; no audio
+bytes.**
+- Automated proof: `test_voice_on_hive_serve.py`.
+- Real run: in the phone run above, with a scripted OpenAI-compatible transcriber. There were two
+  TRANSCRIBER calls, one per clip. The marker bytes were found in none of 29 files, and the
+  words were in neither the trail nor the logs.
+- Not provable here: local Whisper itself (huggingface.co is blocked).
 
-1. Fix the failures above.
-2. Write the Queen-level tests from the brief's deliverable 10:
-   - A request survives a simulated crash in each state and is planned exactly once.
-   - Confirmation works.
-   - A human message wakes the Queen with no Warden traffic, and reaches an awake episode whose
-     assembled prompt contains it. Use `FakeLLMProvider` returning a REPLY decision, and check
-     that a reply entry is produced.
-   - Questions and Alarms appear in the chat.
-   - The in-process `answer_question` path saves the keep-for-goal choice.
-   - `HumanChannel` receives every call.
-3. Add the goal-request state machine as a row in codingrules Appendix C.
-4. Check that `hive run` and `hive tasks submit` still call `submit_goal` directly and behave
-   exactly as before.
-5. Run the full gates, verify in isolation, then commit and push. Delete the patch in that
-   commit.
+**Phone run evidence** (script and evidence were scratch files, now gone), in order:
+1. The invite link's fragment carried `code` only.
+2. A passkey enrolled on the remote origin.
+3. Login while pending was refused with 401.
+4. The operator approved at the Stand with `hive entrance approve <id> --spend-cap 50 --interactive`.
+5. Passkey plus password opened a session on the remote listener.
+6. The push socket was opened with its `Origin`.
+7. The spoken goal went to `AWAITING_CONFIRMATION` and was confirmed.
+8. `question_waiting` arrived about the question id (a `msg_` id).
+9. The push-to-talk answer came back `ANSWERED`, and the task went `RUNNING` with no
+   confirmation step.
+10. `withdrawn` arrived, then `goal_completed`, with the task SUCCEEDED.
+11. A remote approve got 404.
 
-## What comes next, in order
+## In flight (saved as patches; nothing here is merged)
 
-1. **Finish the Queen human path** (above).
-2. **The floors: 10.3a-10.3d and the Hive-state floor.**
-   - `phase-10-handoff/brief-floors.md` is ready to hand to one subagent.
-   - It also covers a phase 5 gap: the production composition root never builds
-     `PlacementPolicy.night_veil`, so every Night Veil task fails placement today.
-   - It also adds `hive run --comb-shield night_veil`.
-   - It hardens `workers/tools/http.py` against loopback and the Hive Stand's own addresses by
-     resolving, then pinning, with the name kept for SNI.
-3. **The Entrance app** (the rest of 10.5):
-   - `entrance/app.py`: two listeners from one route table, each a uvicorn server in the Hive's
-     own loop.
-   - The loopback listener carries approval routes; the remote listener never does.
-   - `entrance/routes/` under `/v1/`, a `StreamHub` for the WebSocket streams, and the follower
-     that obeys `guard.reduce_ordered`.
-   - `landing_board.py`, the committed `docs/entrance/openapi.json` with a drift test, and the
-     Queen's `HumanChannel` implemented over `PushDispatcher`.
-   - `hive serve`.
-   - Move `ENTRANCE_ROUTE` out of `PENDING_POINTS`.
-   - Wire everything in the next section, and add the route-level tests 10.5a, 10.5b and 10.5e
-     still owe.
-4. **10.5c**: the Landing Board guide and the conformance client.
-5. **10.8**: the CLI (`hive entrance invite|pending|approve|deny|devices|revoke|steward|reduce|
-   open`, among others).
-6. **10.5f**: voice, with the minimal 6.5a subset.
-7. **The Guard Bee track**: 10.6, 10.6a, 10.6b (fill `scan_human_text`), then 10.6c and 10.6d
-   together (Waggle 1.7).
-8. **10.7**: the rest of access levels.
-9. **The exit criteria, end to end**: fix everything the runs find, then tick the boxes.
+### Night Veil round 3
 
-## Wiring the Entrance app owes (collected from the landed steps)
+Files: `nv3-committed.patch` (1 commit) and `nv3-wip.patch` (uncommitted work).
 
-- **Exposure:**
-  - Call `gather_facts(section, SystemInterfaces(), clock, resolve_path=manifest.resolve_path)`,
-    then `plan_exposure`, and start only what the plan names.
-  - Build `server_context` inside a `ContextSwitch`; with uvicorn this works as `config.load();
-    config.ssl = switch.listener_context`, as tested over real sockets.
-  - Call `switch.rebuild` with a new `build_crl` on every revocation and on every start.
-  - Build the tunnel's environment as `tunnel_environment(os.environ,
-    overrides.entrance_tunnel_environ, withheld=<every provider's api_key_env>)`.
-  - Stop `TunnelSupervisor` from `RemoteListenerControl.stop`.
-- **Loopback listener:** middleware calling `loopback_request_allowed(host, header_names,
-  bound_port)` on every request, answering a bare 403 on failure.
-- **Sessions:**
-  - The 5 s first-frame deadline (`SOCKET_HELLO_DEADLINE_S`).
-  - Close a session's sockets when the session ends.
-  - Offboarding runs `SessionBook.offboard` together with `PushDispatcher.forget_device`.
-- **Rate limits:** per route, with the limiters from `auth/limits/`.
-- **Relying parties:** one per listener. Loopback uses `localhost`; remote uses the plan's
-  `rp_id`. Enrolment and login pick theirs by the arrival listener.
-- **VAPID:** the subject defaults to `public_url` when `HIVEMIND_ENTRANCE_VAPID_SUBJECT` is unset.
-- **Reducer:**
-  - `hive entrance reduce|open`.
-  - A Guard Bee rule that orders a reduction (`ReduceReason.GUARD_ORDER`).
-  - The `RemoteListenerControl` and `StreamCloser` seams.
+Both apply cleanly to `6e05b34`, in order:
 
-## Known issues and follow-ups (the user asked for every one resolved)
+```bash
+git am .claude/phase-10-handoff/nv3-committed.patch
+git apply .claude/phase-10-handoff/nv3-wip.patch
+```
 
-1. **Trail events.** No trail kind exists yet for a successful login, a session ending, or a
-   pending confirmation being held, confirmed, cancelled or expired; today these are only logged.
-   Add them to `families/` once the patch lands (the split made room), and classify them in the
-   catalogue.
-2. **Security notices.** The `SecurityNotifier` does not tell other devices about a reduction or a
-   pending hold, because `SecurityNotice` is addressed to one device. It needs a broadcast form.
-3. **Stuck dependents.** A task that depends on a failed or cancelled task stays `PENDING`, so
-   `hive run` waits out its whole timeout. Reproduce it in an e2e run and fix it.
-4. **Unescaped scratch paths.** `guard/access.py::fill_scratch` substitutes the scratch root into
-   capability globs without escaping glob metacharacters, so a root containing `*`, `?` or `[`
-   widens the grant. Escape them, and add a test.
-5. **Flaky reports to confirm or clear:**
-   - `tests/unit/queen/autopilot/test_effort.py`: seen once, while other agents were editing.
-   - `tests/unit/entrance/expose/test_tunnel.py`: passed 12 concurrent runs at three times CPU
-     oversubscription, so it is probably the same cause.
-   - Codingrules: a failing test is never "just a flake".
-6. **Exposure limits that are documented, not fixed:**
-   - A public suffix used as `rp_id` (`ts.net`) is not detected; the browser refuses it at the
-     first ceremony.
-   - A bare TCP forwarder in front of the loopback listener is invisible at the HTTP level, so the
-     client guide (10.5c) must forbid it.
-   - On Windows, stopping the tunnel ends only the child, not processes it started.
-7. **Stale docs.** `entrance/routes/` is still a skeleton. Update `entrance/README.md` when the app
-   lands.
+The brief, item by item:
 
-## Decisions already taken (do not relitigate without a new reason)
+1. **Not started.** The SECURITY Alarm about a Night Veil Cell: its `alarm.escalated` row names
+   the Cell and outlives it on the durable trail.
+   - Carry the Cell id as its own payload field so the veil routes the row.
+   - `was_shown` should read through `hivemind.pheromone.query_cell`.
+   - The human must still see the CRITICAL Alarm while the Cell lives.
+2. **Not started.** `chat_entries` rows that name the Cell need a purge side channel at teardown.
+3. **Not started.** `guard_requests` rows (report, evidence, decision) need a purge side channel
+   too.
+   - Then drop the `alarm.escalated` exclusion in `tests/e2e/test_guard_bee_on_night_veil.py`.
+   - Then assert all three stores after teardown.
+4. **Done in the committed patch** (SECURITY). The snapshot relay answers only about the Cell its
+   link proved.
+5. **Work in progress** (SECURITY). A `TaskResult`, or any Cell message naming a task, about a
+   task not placed on the sending Cell is refused and recorded.
+   - The work in progress adds `queen/inbox/claims.py`, `test_claims.py` and
+     `test_queen_claims.py`.
+   - The agent was writing "a Cell cannot finish, fail, block, alarm or answer for another
+     Cell's task" when stopped. Finish it and run it.
 
-- **Exposure:**
-  - Mutual-TLS contexts are TLS 1.3 only, with no session tickets, because TLS 1.2 session-id
-    resumption and 1.3 tickets both let a revoked device back in. Without mutual TLS, the floor
-    is 1.2.
-  - `vpn` and `lan` never bind a globally routable address: the rules `VPN_BIND_GLOBAL` and
-    `LAN_BIND_NOT_PRIVATE`. `lan` needs RFC 1918, link-local or an IPv6 ULA address, and a global
-    IPv6 address or carrier-grade NAT space is refused.
-  - `rp_id` must be `public_url`'s host or a parent domain of it.
-  - The PKCS#12 bundle leaves out the CA certificate, since phones would install it as a
-    trusted root.
-  - The tunnel child's environment drops every `HIVEMIND_*` variable and any withheld provider-key
-    names.
-  - The loopback check refuses `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via` and
-    `Tailscale-*`.
-  - The CA lives in `expose/tls/`, not the ADR's `entrance/tls/`.
-- **Authentication:**
-  - The key proof comes before the password. An invalid proof is charged to the address; only a
-    valid proof with a wrong password counts toward the device's lockout.
-  - The travel lock is strict: a device's first remote login counts as a new network, and a peer
-    the source cannot place is never trusted.
-  - The console's sessions are kept in memory only.
-  - `hold` refuses interactive devices and break-glass actions.
-  - A pending confirmation lives 1 h by default.
-- **Placement:** a goal whose set admits no Cell is cancelled once (`4381313`).
-- **Push:** push keeps its own migration series (`entrance_push`).
-- **ADRs:** ADRs are drafted as Proposed and accepted only after an adversarial review.
+### Supervision round 4
+
+Files: `sup4-committed.patch` (5 commits) and `sup4-wip.patch`.
+
+The agent cut these on `fac57e7`. Its first four commits apply to `6e05b34`. The fifth
+(`fc0239f`) and the work in progress conflict with the Night Veil changes in
+`queen/cell_gate/listener.py`, `tests/unit/queen/cell_gate/test_listener.py` and
+`queen/attach.py`.
+
+Apply them on their own base, then cherry-pick onto the head, keeping both sides' intent:
+
+```bash
+git worktree add -b sup4 <scratch>/sup4 fac57e7
+cd <scratch>/sup4
+git am <repo>/.claude/phase-10-handoff/sup4-committed.patch
+git apply <repo>/.claude/phase-10-handoff/sup4-wip.patch
+```
+
+The brief, item by item:
+
+- **Items 2 to 6, committed:**
+  - A Drone reports its context every model round, so the Warden's context check can fire
+    mid-attempt.
+  - Rebind and Takeover through `Warden.intervene` start the bee they promise.
+  - A cancelled or failed task leaves the Warden's clustered set.
+  - Attempt numbers never go backwards on the trail.
+  - The Queen holds a Warden's liveness while she freezes its Cell (a snapshot freeze).
+- **Item 1, work in progress:** Docker Overwinter reuse past about 45 s.
+  - The websocket keepalive drops a paused Cell's link about 47 s into the pause, and the
+    in-Cell Warden never redials.
+  - The fix under way:
+    - `cli/in_cell/redial.py` (new);
+    - `cli/in_cell/link.py` and `main.py`;
+    - `queen/cell_gate/{gate,listener,provider}.py` accept the re-attach;
+    - `queen/attach.py`.
+  - Tests: `tests/unit/cli/in_cell/test_redial.py`, `tests/e2e/test_overwinter_redial.py`, and
+    a hook in `tests/builders/virtual_cells.py`.
+  - The agent was adding "a hook in the builder so a subclass can point its container at a
+    relay" when stopped.
+  - Finish it, and prove it on real Docker if you can: a Cell paused 60 s or more is reused for
+    a second goal.
+
+## Still open after the patches (resolve; do not merely note)
+
+Grouped by owner area. The first group belongs to phase 10 as found defects. The later groups
+are named by the roadmap step that owns them.
+
+**Phase 10, found this session, not yet fixed:**
+- `queen/README.md` and the module docstrings touched by the patches: keep them true as you merge.
+- A Cell release still runs inside the Queen's tick: up to 5 s for the graceful stop plus the
+  teardown. Provisioning moved beside the tick; release did not.
+- The Warden's own RETRY and REBIND do not go through the isolation resume gate
+  (`wardens/isolation/gate.py::admit_resume`). This is covered in practice, because grants are
+  revoked on isolation and a Worker refuses a tainted Handoff itself. Make it explicit.
+- An isolated Docker Cell can still reach host services bound to `0.0.0.0` on the control
+  gateway. The doc tells operators to bind model servers to docker0. A real fix needs a host
+  firewall rule, meaning root outside Docker's API, so this is the user's decision.
+- The Guard Bee:
+  - An in-Cell Warden has no model-backed judge, so its audit samples are recorded as
+    inconclusive.
+  - A handshake signature failure before attach is not recorded.
+  - `control.error` is never sent in reply to a refused segment.
+- Mutual TLS:
+  - There is no certificate renewal or re-issue route. Certificates last 90 days, and a device
+    approved while the Hive ran loopback only has none, so both mean enrolling again.
+  - Expiry-driven revocation-list rebuild has no unit test.
+
+**Later phases, recorded in the roadmap's notes:**
+- QEMU egress cut and QEMU Night Veil (design only, and fail-closed).
+- The Nectar intake (7.4) for kept audio and C2 deposits.
+- The Swarm's node storage and Pollen access (11.x).
+- The web screens (12.x).
+- The Android push channel (12.12).
+
+## Decisions taken this session (do not relitigate without a new reason)
+
+- **View read models** live in `observation/views/` (codingrules 8.11). The Entrance imports them
+  only through the `hivemind.observation` face. import-linter ranks `entrance` over
+  `observation`, and a forbidden contract keeps the edge to the face. ADR-0032 lists it.
+- **A steward's approval** may grant no more spend per day and no later expiry than the
+  steward's own (`enrol.grants.steward_terms`). ADR-0033 was amended to say so.
+- **`operator add`** is a loopback-only route that always answers 409 while the Hive keeps one
+  operator.
+- **CLI help** renders as plain text (`rich_markup_mode=None`). A test fails if a `[section]`
+  that a help text names is lost.
+- **Test seams on `ServedHive`:** `push_transport` and `plan`. None means production. No manifest
+  can set either.
+- **Mutual TLS.** A client certificate is issued from a CSR in every remote mode. A passkey device
+  gets a PKCS#12 bundle only under mTLS, and only from the loopback approve; it is never stored.
+- **Docker egress cut.** Opt-in via `[virtual_cells] control_subnet`. Each Cell is dual-homed on
+  the control network plus its own egress network, and the cut is `network disconnect`.
+- **Night Veil Cells** are never offered to placement for any task. QEMU refuses NIGHT_VEIL.
+- **Waggle 1.8** adds `GrantIssued.audit_raises` and `cell.taint_order` (both additive).
+- **Guard Bee attribution.** Ownership is learned only from Hive Stand records. A fact about
+  another Cell's subject becomes `guard_bee.subject_forged` against the Cell that recorded it
+  (rule `subject_forgery`).
+- **Dispatch:**
+  - At most 4 provisions run in parallel, beside the tick.
+  - A failing backend is rested from 1 s, doubling to a 300 s cap.
+  - Placement failures and waits are recorded once per cause.
+- **The Night Veil purge** deletes memory rows (episodes, Handoffs, Bee Bread, notes, wax). This
+  is the one documented exception to append-only.
 
 ## How the work was run
 
-**Gates.** Always run them with `set -o pipefail`: a `| tail` once hid a failing run.
+**The loop.** The orchestrator dispatched a few large briefs to subagents, each in its own
+worktree under `.claude/worktrees/<name>` on its own branch.
+- Integration is by cherry-pick of each agent's range onto this branch.
+- Conflicts were resolved by keeping both sides' intent.
+- `docs/entrance/openapi.json` is regenerated with `scripts/write_landing_board.py`, never merged
+  by hand.
+- The Waggle spec's change-log entries are merged into one entry per version.
+- Before every push, the full gate ran in a separate verify worktree at the exact commit, and the
+  push happened only after `RC=0`.
+- Keep the orchestrator's gate script in a directory of its own. An agent once overwrote a shared
+  `scratchpad/gates.sh`, and that run proved nothing.
+
+**The gate** (run it from the verify worktree):
 
 ```bash
+#!/bin/bash
 set -o pipefail
-uv run --frozen ruff format <only your own paths> && uv run --frozen ruff check .
-uv run --frozen mypy
-uv run --frozen lint-imports
+cd "$1" || exit 2
+rc=0
+uv sync --frozen --all-groups >/dev/null 2>&1 || { echo SYNC_FAIL; rc=1; }
+uv run --frozen ruff format --check . 2>&1 | tail -3 || rc=1
+uv run --frozen ruff check . 2>&1 | tail -15 || rc=1
+uv run --frozen mypy 2>&1 | tail -15 || rc=1
+uv run --frozen lint-imports 2>&1 | grep -E "Contracts:|BROKEN" || rc=1
 for s in check_sizes check_fanout check_no_model_ids check_no_kind_branches check_no_transcripts; do
-  uv run --frozen python scripts/$s.py; done
-uv run --frozen pytest -q -p no:cacheprovider -m "not integration and not live_llm and not local_llm" packages scripts/tests
+  uv run --frozen python scripts/$s.py 2>&1 | tail -8 || rc=1; done
+uv run --frozen python scripts/write_landing_board.py --check 2>&1 | tail -5 || rc=1
+uv run --frozen pytest -q -p no:cacheprovider -m "not integration and not live_llm and not local_llm" \
+  packages scripts/tests > pytest-full.log 2>&1 || rc=1; tail -25 pytest-full.log
+echo "== RC=$rc"; exit $rc
 ```
 
-Limits worth checking before you commit:
+- The full suite takes 8 to 10 minutes. The end-to-end stretch, around 28 to 32 percent, is the
+  slow part.
+- Run from the main checkout, `scripts/check_sizes.py` also scans `.claude/worktrees/`, so read
+  its findings with that in mind.
 
-- Source files stay under 300 lines of code and test files under 400 (`check_sizes`).
-- Functions stay under 50 lines, with at most 5 parameters; classes under 200 lines.
-- Split a test module by feature as `test_<module>_<feature>.py`, as `test_plan_refusals.py`
-  does.
+**Pitfalls seen this session:**
 
-**Isolated verification before every push.** Keep a detached worktree, check out the exact
-commit, and run every gate there, so uncommitted files cannot make a commit look green:
+- **Cherry-picking a range:** one agent's range carried a package rename whose `__init__.py`
+  landed later, so a few intermediate commits do not import. Pick whole ranges, and gate the
+  head.
+- **Real runs:** start the venv binaries (`.venv/bin/hive`), not `uv run`. The `uv` wrapper does
+  not pass SIGINT on, and a stale `hive serve` then holds the ports.
+- **A browser session's WebSocket** must send the listener's `Origin`, or it is refused with 4401
+  (correct behaviour). The Python `websockets` client sends none unless given `origin=`.
+- **The first `question_waiting`** a phone hears can be about its own held spoken goal (a
+  `goalreq_` ref), not the Drone's question (a `msg_` ref).
+- **Integration tests** need the Docker SDK extra:
+  `uv sync --frozen --all-groups --all-packages --extra docker`.
+  - Run them with `-m integration`.
+  - `tests/integration/test_docker_egress.py` also needs `HIVEMIND_TEST_CELL_IMAGE=<tag>` of an
+    image built from the same code as the Hive.
+  - A Cell runs the Hive's own code, so an image built from another commit can disagree on
+    Waggle 1.8.
+- **CLI argument order:** group options come before subcommands, for example
+  `hive inbox --remote --password-stdin answer ID TEXT`. `hive entrance revoke` has no `--yes`.
 
-```bash
-git worktree add --detach <scratch>/verify <sha>   # once; later: git -C <scratch>/verify checkout -q --detach <sha>
-cd <scratch>/verify && uv sync --frozen --all-groups && <the gates above, with ruff format --check>
-```
+## Environment (this sandbox; a fresh container starts without most of it)
 
-**Subagents.**
+- **Blocked by the network policy:** `ollama.com`, `registry.ollama.ai` and `huggingface.co`, so
+  no local model and no Whisper can be pulled. Also `astral.sh`, `ghcr.io` and GitHub releases.
+  Docker Hub answers 429 (rate-limited). The user can change this in the cloud environment's
+  Network access settings.
+- **Docker.**
+  - Start the daemon with a short exec-root, because the default socket path exceeds 104
+    characters:
 
-- Dispatch few, large, self-contained briefs, each owning disjoint paths. Tell each one:
-  - which paths the others own;
-  - to format only its own paths;
-  - not to commit.
-- The orchestrator (you):
-  - reviews every security-relevant diff;
-  - makes the small edits itself;
-  - stages only that agent's paths (`git apply --cached` for a shared file's hunk);
-  - commits and verifies in isolation;
-  - then pushes.
-- Subagent tokens count against the session's limit. This session hit it, and a subagent died
-  mid-task, which is why the patch exists. Budget for that.
+    ```bash
+    dockerd --data-root <scratch>/docker/data --exec-root /run/hd --pidfile /run/hd/dockerd.pid &
+    ```
 
-**Pitfalls seen:**
+    The CLI and the SDK then use `unix:///var/run/docker.sock`. Stop it at the end with
+    `kill $(cat /run/hd/dockerd.pid)`, and leave no containers.
+  - **Cell images.** This session built them on a local `base-ubuntu` image (Ubuntu 24.04 plus
+    python3, from before Docker Hub started refusing):
+    - a builder stage copies a local `uv` binary and the sandbox proxy CA;
+    - it sets `SSL_CERT_FILE` in the builder stage only;
+    - it runs `uv sync --frozen --no-dev --no-editable --package hivemind` into
+      `/opt/hivemind/venv`;
+    - the runtime stage copies only that venv, and runs as user `hive`;
+    - built with `DOCKER_BUILDKIT=0 docker build -f Dockerfile.rebase -t <tag> .` from a
+      `git archive` of the commit.
 
-- `uv add` rewrites `pyproject.toml` comments, so restore the justification comments afterwards.
-- A Monitor regex that matches "All checks passed!" fires on ruff, not on the end of the run.
-- Tests run with `filterwarnings = error`. uvicorn needs `ws="websockets-sansio"` to avoid a
-  deprecation warning.
+    In a fresh container, first try the repository's own `images/` Dockerfiles. Fall back to
+    this recipe only if Docker Hub still refuses.
+- **A private IPv4 address.** `test_mutual_tls.py` and the vpn and lan compose starts skip
+  without one. docker0 (`172.17.0.1`) serves once dockerd runs. The real runs used `192.0.2.2`,
+  added to eth0 with an `SIOCSIFADDR` ioctl because iproute2 is not installed. Client containers
+  reached it through the bridge, with `--add-host hivestand.vpn.test:192.0.2.2`.
+- **A scripted model server for real runs.** Serve
+  `tests/e2e/scripted_openai.py::build_app(Scenario(...))` with uvicorn on a free port.
+  - Bind the providers' `base_url` to it, and pin `[hive_stand.capacity] cores` so a busy host
+    cannot zero the Drone's grant.
+  - `Scenario.heard` markers are bytes. A JSON scenario needs a small runner that encodes them.
 
-## Real end-to-end runs (CLAUDE.md: prefer a real task)
+## Real runs done (CLAUDE.md: prefer a real task)
 
-**Constraints in this container:**
+- **A real Docker Virtual Cell goal.** It found and fixed:
+  - a false CELL_UNREACHABLE storm;
+  - a Cell missing its `llm.call` rows;
+  - zero grants under load;
+  - Virtual Cells probing the host's load.
+- **EC2:** a laptop container over the vpn listener.
+- **EC5:** lan refusal, lockout and loopback unlock, reduce closing a live remote session, then
+  reopen.
+- **EC3 and EC6:** the phone container over the vpn listener, with passkey and voice.
+- **Isolation on real Docker at `d1dfcd2`:**
+  - Before the cut: DNS, the model server and the internet were reachable.
+  - After the cut: all three failed with `OSError(101)`, while the Queen's link stayed open.
+  - After the lift: all three were back.
+  - The in-Cell taint was applied, and the resume was refused as `guard.scope.tainted_handoff`.
+- **Dispatch on real Docker:**
+  - A goal withdrawn mid-provision released its Cell (`task_gone`).
+  - The tick handled Heartbeats during a 5.3 s provision.
+  - A missing image produced 6+6 trail rows in 45 s, down from 90+90. The Cell was made once
+    the image returned.
+- **Supervision on real Docker:** an Overwintered Cell drew no false Alarm.
+- **Night Veil teardown on real Docker:** snapshot images were removed, and containers ran with
+  the `none` log driver.
 
-- There is no Hive provider API key. Never borrow the coding agent's own credentials for the Hive.
-- The network policy blocks `ollama.com`, `registry.ollama.ai` and `huggingface.co`, so no local
-  model can be downloaded.
+**Still to do:** one whole-system run once the patches land.
+- `hive serve` with a Docker Virtual side on a `control_subnet`, and a vpn remote listener.
+- A laptop container's `hive run --remote` goal lacking `cell:hive_stand` lands on a Docker Cell,
+  and its question is answered from the laptop.
+- Then `hive cells isolate <id> --reason ...` and `hive cells lift <id>` from the Stand's
+  console.
+- Check the trail, and leave no containers.
 
-**The plan:** a small scripted OpenAI-compatible server on loopback, configured as a provider with
-a loopback base URL, returning scripted plans and decisions. It drives real runs of `hive serve`,
-`hive run --remote`, enrolment, login, webhooks and Web Push against real sockets and real Cells.
+## Defects found and fixed this session (for the final report)
 
-**Already proved by smoke runs (not committed):**
+**Entrance and CLI:**
+- `hive serve` called a starting remote listener "reduced".
+- ANSI colour codes went into log files, and log lines on stdout corrupted `--json`.
+- Rich markup swallowed `[hive]`, `[entrance]` and `[llm.providers]` in 21 help texts.
+- A steward could grant a higher daily cap, or a longer life, than its own.
+- The loopback-only route test checked only a subset, and `operator add` existed only as a CLI
+  refusal.
+- `mutual_tls` defaulted on for vpn.
+- The invite link could not enrol without `--hive`.
+- The push socket crashed.
+- Argon2id derivation deadlocked.
+- A push-to-talk hold that went quiet closed the whole chat socket.
+- The phone test's copied composition had drifted from `hive serve` (it lacked voice and the CA).
 
-- Two uvicorn servers run in one event loop.
-- Mutual TLS through `ContextSwitch` refuses a revoked device on its next connection.
-- Tunnel mode works end to end with a supervised forwarder.
+**Cell gate and Guard Bee:**
+- The Cell listener never enforced the receiver rule, so a Virtual Cell could merge forged
+  events under any node id, the Hive Stand's included.
+- A Cell could frame another Cell's bee and get that Cell isolated.
+- The Guard Bee could not see Night Veil Cells.
+- A segment's `cell_id` was trusted without proof.
+- The snapshot relay trusted `cell_id` (fixed in the in-flight patch).
 
-The voice criterion needs a local Whisper model, which the network policy currently blocks.
+**Night Veil:**
+- Execution records outlived the Cell on the trail, in memory, in the Brood Chamber, in the
+  ledger, in Docker snapshot images, and through the isolation's Cell Wax.
+- A MEADOW task could land on a live Night Veil Cell.
+- `hive cells destroy` recorded outside the veil.
 
-## Final report to the user
+**Queen and dispatch:**
+- Provisioning blocked the tick, and `cell.provisioning` was stamped late.
+- Cells were left behind by a cancelled or denied task.
+- Placement read stale capacity.
+- A finished task's grant was never released.
+- Busy seats failed a task instead of making it wait.
+- Placement-failure rows were written on every pass, and a failing backend was retried every pass.
+- A provision failing its retry ended the Queen's run loop.
 
-When phase 10 is done, the report must cover:
+**Supervision:**
+- A retry spawned beside the FAILED row.
+- A context-size Handoff orphaned its task.
+- A Cell paused on purpose drew a false Alarm.
+- Clustering or isolation could crash a Warden's tick loop.
 
+**Isolation:**
+- A snapshot-rollback recreate dropped a dual-homed Cell's networks.
+
+**Earlier in the session:**
+- The handoff's known issues 1 to 7.
+- The codingrules 8.11 placement of view models.
+
+## Final report owed to the user
+
+When the work is done, report:
 - what landed, step by step;
-- every defect found and how it was fixed;
-- what was proved end to end and what could not be;
-- an explicit note that the environment's network policy blocked `ollama.com`,
-  `registry.ollama.ai` and `huggingface.co`, so no local model or Whisper could be pulled. The
-  user can change this in the cloud environment's settings (Network access).
+- every defect found and how it was fixed (the list above, plus whatever the patches and "Still
+  open" add);
+- what was proved end to end, and what could not be;
+- explicitly: the network policy blocked `ollama.com`, `registry.ollama.ai` and `huggingface.co`,
+  so no local model or Whisper could be pulled (also `astral.sh`, `ghcr.io` and GitHub releases,
+  and Docker Hub answered 429). The user can change this in the cloud environment's Network
+  access settings;
+- the denied TLS trust change, and the real web-push and webhook legs of exit criteria 3 and 4
+  that wait on the user's decision.

@@ -1,0 +1,2969 @@
+From 856afefd12ce439e12c16dbf9076285858724c1d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 01:18:30 +0000
+Subject: [PATCH 1/5] fix(wardens): a clustered task the Queen cancels or fails
+ leaves the clustered set
+
+A task Clustering or isolation paused stayed in the Warden's clustered set until a TaskResume
+that production never sends, so a Warden whose paused task the Queen then withdrew or failed
+(FAIL_TASK sends a TaskCancel) reported CLUSTERED for good. A Queen-sent TaskCancel or
+Intervene(CANCEL) now ends the pause too. Appendix C gives CLUSTERED one way out, to ACTIVE,
+so a clustered Warden left with nothing settles CLUSTERED -> ACTIVE -> WATCH, each move its own
+event, rather than asking for an edge the machine does not have.
+
+Claude-Session: https://claude.ai/code/session_01EKZW22X7GB1ADCG4ApBsA8
+---
+ .../hivemind/src/hivemind/wardens/README.md   |  3 +-
+ .../hivemind/src/hivemind/wardens/state.py    | 29 ++++++++++-
+ .../src/hivemind/wardens/ticks/assign.py      | 26 ++++++----
+ .../hivemind/tests/unit/wardens/test_state.py | 36 +++++++++++++
+ .../unit/wardens/test_warden_successors.py    | 51 ++++++++++++++++---
+ 5 files changed, 125 insertions(+), 20 deletions(-)
+
+diff --git a/packages/hivemind/src/hivemind/wardens/README.md b/packages/hivemind/src/hivemind/wardens/README.md
+index a6c3d99..767ab9c 100644
+--- a/packages/hivemind/src/hivemind/wardens/README.md
++++ b/packages/hivemind/src/hivemind/wardens/README.md
+@@ -30,7 +30,8 @@ Warden never provisions Cells itself.
+   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
+   `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`, and it stays
+   there once those paused bees have stopped and been retired; any one no longer in that set (a
+-  `TaskResume`, or the Queen's fresh `TaskAssign` resuming the task) moves it back, recording
++  `TaskResume`, the Queen's fresh `TaskAssign` resuming the task, or her cancel of it) moves it
++  back -- by way of ACTIVE to WATCH when nothing is left, CLUSTERED's only way out -- recording
+   `warden.clustered`/`warden.active`
+   (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's own wiring step: `_record_routine`
+   also handles a Queen-sent `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/
+diff --git a/packages/hivemind/src/hivemind/wardens/state.py b/packages/hivemind/src/hivemind/wardens/state.py
+index 110a03b..d77404c 100644
+--- a/packages/hivemind/src/hivemind/wardens/state.py
++++ b/packages/hivemind/src/hivemind/wardens/state.py
+@@ -44,7 +44,7 @@ from hivemind.wardens.errors import InvalidWardenTransitionError
+ from waggle.ids import TaskId
+ from waggle.messages.supervision import Intervene, InterventionAction
+ from waggle.messages.supervision import WardenState as WireWardenState
+-from waggle.messages.task import TaskResume
++from waggle.messages.task import TaskCancel, TaskResume
+ 
+ __all__ = [
+     "SETTLED_EVENT_KINDS",
+@@ -54,6 +54,7 @@ __all__ = [
+     "can_transition",
+     "clustering_update",
+     "is_terminal",
++    "settle_path",
+     "settled_state",
+ ]
+ 
+@@ -261,5 +262,29 @@ def clustering_update(
+         return
+     if isinstance(payload, Intervene) and payload.action is InterventionAction.HANDOFF:
+         clustered_tasks.add(task_id)
+-    elif isinstance(payload, TaskResume):
++    elif isinstance(payload, TaskResume | TaskCancel) or (
++        isinstance(payload, Intervene) and payload.action is InterventionAction.CANCEL
++    ):
++        # Resumed, or ended for good (a withdrawal, or the TaskCancel her FAIL_TASK sends): either
++        # way the task is no longer paused here, so it no longer holds this Warden CLUSTERED.
+         clustered_tasks.discard(task_id)
++
++
++def settle_path(current: WardenState, target: WardenState) -> tuple[WardenState, ...]:
++    """Return the moves that take a Warden from `current` to `target` along TRANSITIONS' edges.
++
++    One move, the target itself, everywhere but one case: CLUSTERED has no edge to WATCH
++    (Appendix C: "any -> CLUSTERED -> ACTIVE"), so a clustered Warden left with nothing to run
++    (its paused tasks cancelled or failed while it held no bee) comes back from Clustering first
++    and then, finding nothing, watches: CLUSTERED -> ACTIVE -> WATCH, each move its own event.
++
++    Args:
++        current: The Warden's state now.
++        target: The state `settled_state` decided it belongs in.
++
++    Returns:
++        The states to move through, in order, the last being `target`.
++    """
++    if current is WardenState.CLUSTERED and target is WardenState.WATCH:
++        return (WardenState.ACTIVE, WardenState.WATCH)
++    return (target,)
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/assign.py b/packages/hivemind/src/hivemind/wardens/ticks/assign.py
+index c5ac73f..1f2a9b3 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/assign.py
++++ b/packages/hivemind/src/hivemind/wardens/ticks/assign.py
+@@ -50,7 +50,12 @@ from typing import TYPE_CHECKING
+ from hivemind.pheromone import WardenEvent
+ from hivemind.wardens.errors import BindingRefusedError
+ from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
+-from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
++from hivemind.wardens.state import (
++    SETTLED_EVENT_KINDS,
++    assert_transition,
++    settle_path,
++    settled_state,
++)
+ from hivemind.wardens.ticks.alarms import report_refused, retire_sub_bee, send_alarm_to_queen
+ from waggle.ids import TaskId, new_event_id
+ from waggle.messages.forage import GrantIssued, GrantRevoked
+@@ -214,16 +219,19 @@ async def settle_after_tick(warden: Warden) -> None:
+     the sub-bee table (and, roadmap step 4.9, `warden._clustered_tasks`) that spawn may just have
+     grown, through `assert_transition`, so a move the machine has no edge for raises loudly
+     rather than being written silently (a clustered Warden whose paused bees have all been retired
+-    stays CLUSTERED rather than asking for WATCH, `settled_state`'s own docstring). Every settled
+-    state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`), beside
+-    the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel file stays
+-    inside its size cap (codingrules 5.1); it is the second half of this module's spawn duty.
++    stays CLUSTERED rather than asking for WATCH, `settled_state`'s own docstring; one whose paused
++    tasks the Queen then ends passes through ACTIVE on its way to WATCH, `settle_path`). Every
++    settled state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`),
++    beside the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel
++    file stays inside its size cap (codingrules 5.1); it is the second half of its spawn duty.
+     """
+     await spawn_parked(warden)
+     target = settled_state((s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks)
+-    if target is not warden._state:  # Something changed since the last check.
+-        assert_transition(warden._state, target, warden_id=warden._warden_id)
+-        warden._state = target
++    if target is warden._state:
++        return  # Nothing changed since the last check.
++    for step in settle_path(warden._state, target):
++        assert_transition(warden._state, step, warden_id=warden._warden_id)
++        warden._state = step
+         # Same shape as warden.py's own _record_event: subject is this Warden, no payload.
+         event = WardenEvent(
+             id=new_event_id(warden._deps.clock),
+@@ -231,7 +239,7 @@ async def settle_after_tick(warden: Warden) -> None:
+             node_id=warden._deps.identity.node_id,
+             at=warden._deps.clock.now(),
+             actor=warden._deps.identity.actor,
+-            kind=SETTLED_EVENT_KINDS[target],
++            kind=SETTLED_EVENT_KINDS[step],
+             subject_id=warden._warden_id,
+             payload={},
+         )
+diff --git a/packages/hivemind/tests/unit/wardens/test_state.py b/packages/hivemind/tests/unit/wardens/test_state.py
+index 5afe775..3e7ec36 100644
+--- a/packages/hivemind/tests/unit/wardens/test_state.py
++++ b/packages/hivemind/tests/unit/wardens/test_state.py
+@@ -24,6 +24,7 @@ from hivemind.wardens.state import (
+     can_transition,
+     clustering_update,
+     is_terminal,
++    settle_path,
+     settled_state,
+ )
+ from waggle.ids import TaskId
+@@ -185,6 +186,41 @@ def test_clustering_update_drops_a_task_on_task_resume() -> None:
+     assert clustered == set()
+ 
+ 
++@pytest.mark.parametrize("ended_by", ["task_cancel", "cancel_lever"])
++def test_clustering_update_drops_a_task_the_queen_ends(ended_by: str) -> None:
++    # A withdrawal, or the TaskCancel her FAIL_TASK sends: the task is no longer paused here.
++    task_id = make_assignment().task_id
++    clustered: set[TaskId] = {task_id}
++    payload: TaskCancel | Intervene = TaskCancel(task_id=task_id, grace_s=0.0, reason="x")
++    if ended_by == "cancel_lever":
++        payload = Intervene(
++            action=InterventionAction.CANCEL,
++            subject=None,
++            task_id=task_id,
++            slot=None,
++            alarm_id=None,
++            reason="x",
++        )
++
++    clustering_update(task_id, payload, clustered)
++
++    assert clustered == set()
++
++
++def test_settle_path_leaves_clustered_for_watch_by_way_of_active() -> None:
++    # Appendix C gives CLUSTERED one way out, ACTIVE; a Warden with nothing left then watches.
++    path = settle_path(WardenState.CLUSTERED, WardenState.WATCH)
++
++    assert path == (WardenState.ACTIVE, WardenState.WATCH)
++    assert can_transition(WardenState.CLUSTERED, path[0])
++    assert can_transition(path[0], path[1])
++
++
++def test_settle_path_is_the_target_alone_everywhere_else() -> None:
++    assert settle_path(WardenState.ACTIVE, WardenState.WATCH) == (WardenState.WATCH,)
++    assert settle_path(WardenState.CLUSTERED, WardenState.ACTIVE) == (WardenState.ACTIVE,)
++
++
+ def test_clustering_update_ignores_a_none_task_id() -> None:
+     payload = Intervene(
+         action=InterventionAction.HANDOFF,
+diff --git a/packages/hivemind/tests/unit/wardens/test_warden_successors.py b/packages/hivemind/tests/unit/wardens/test_warden_successors.py
+index 022a1fa..27cf746 100644
+--- a/packages/hivemind/tests/unit/wardens/test_warden_successors.py
++++ b/packages/hivemind/tests/unit/wardens/test_warden_successors.py
+@@ -39,6 +39,7 @@ from builders.wardens import QueenEnd, make_warden_deps
+ from builders.workers import RunScript, ScriptedWorker, make_assignment, make_outcome
+ 
+ from hivemind.memory import Handoff
++from hivemind.pheromone import TrailQuery
+ from hivemind.supervision import Handoff as HandoffLever
+ from hivemind.wardens.spawn.sub_bee import SubBee
+ from hivemind.wardens.state import WardenState
+@@ -49,7 +50,7 @@ from hivemind.workers.state import WorkerState
+ from waggle.clock import FakeClock
+ from waggle.ids import TaskId, new_grant_id
+ from waggle.messages.supervision import Intervene, InterventionAction
+-from waggle.messages.task import TaskAssign, TaskPause
++from waggle.messages.task import TaskAssign, TaskCancel, TaskPause
+ 
+ _WORKER_BEAT_S = 1.0  # Each sub-bee's own cadence.
+ _WARDEN_BEAT_S = 10.0  # The Warden's own: its context check rides this one.
+@@ -173,6 +174,17 @@ async def test_a_handoff_its_warden_orders_is_resumed_by_a_fresh_bee(
+     await _stop(scene)
+ 
+ 
++async def _paused_by_the_queen(scene: _Scene, first: TaskAssign) -> SubBee:
++    """Have the Queen pause `first` as Clustering does, and wait until its bee's row is gone."""
++    bee = await _running_bee(scene, first.task_id)
++    await scene.queen.send(_queen_handoff(first.task_id))
++    await scene.queen.send(TaskPause(task_id=first.task_id, reason="Clustering."))
++    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
++    scene.clock.advance(_WORKER_BEAT_S)
++    await settle(lambda: _rows(scene.warden, first.task_id) == [])
++    return bee
++
++
+ async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
+     # Clustering and isolation pause a task with Intervene(HANDOFF) then TaskPause and resume it
+     # themselves with a fresh TaskAssign: the Warden starts no bee of its own meanwhile, and stays
+@@ -180,12 +192,7 @@ async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
+     resumed: list[Handoff] = []
+     first = make_assignment()
+     scene = await _start(_handoff_then_resume(resumed), first)
+-    bee = await _running_bee(scene, first.task_id)
+-    await scene.queen.send(_queen_handoff(first.task_id))
+-    await scene.queen.send(TaskPause(task_id=first.task_id, reason="Clustering."))
+-    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
+-    scene.clock.advance(_WORKER_BEAT_S)
+-    await settle(lambda: _rows(scene.warden, first.task_id) == [])
++    bee = await _paused_by_the_queen(scene, first)
+     assert (resumed, scene.warden.state) == ([], WardenState.CLUSTERED)
+     assert scene.warden._sub_bee_slots.in_use == 0
+     resume = first.model_copy(
+@@ -204,10 +211,38 @@ async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
+     await _stop(scene)
+ 
+ 
++@pytest.mark.parametrize("order", ["task_cancel", "cancel_lever"])
++async def test_a_clustered_task_the_queen_then_ends_leaves_the_warden_watching(order: str) -> None:
++    # She cancels a task her Clustering paused (a withdrawal), or fails it (FAIL_TASK sends the
++    # same TaskCancel): the task is no longer paused here, and a Warden left with nothing settles
++    # WATCH by way of ACTIVE, CLUSTERED's only way out. It used to stay CLUSTERED for good.
++    first = make_assignment()
++    scene = await _start(_handoff_then_resume([]), first)
++    await _paused_by_the_queen(scene, first)
++    cancel: TaskCancel | Intervene = TaskCancel(
++        task_id=first.task_id, grace_s=0.0, reason="Withdrawn."
++    )
++    if order == "cancel_lever":
++        cancel = _queen_intervene(InterventionAction.CANCEL, first.task_id)
++
++    await scene.queen.send(cancel)
++    await settle(lambda: scene.warden.state is WardenState.WATCH)
++
++    assert scene.warden._clustered_tasks == set()
++    kinds = [e.kind for e in await scene.warden._deps.trail.query(TrailQuery(family="warden"))]
++    assert kinds[-3:] == ["warden.clustered", "warden.active", "warden.watch"], kinds
++    await _stop(scene)
++
++
+ def _queen_handoff(task_id: TaskId) -> Intervene:
+     """The Queen's Intervene(HANDOFF) for `task_id`, as Clustering and isolation send it."""
++    return _queen_intervene(InterventionAction.HANDOFF, task_id)
++
++
++def _queen_intervene(action: InterventionAction, task_id: TaskId) -> Intervene:
++    """One Queen-sent Intervene for `task_id`, naming no slot or binding."""
+     return Intervene(
+-        action=InterventionAction.HANDOFF,
++        action=action,
+         subject=None,
+         task_id=task_id,
+         slot=None,
+-- 
+2.43.0
+
+
+From 7459f3085461f16a82a7cca8af923b7191bf5682 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 01:24:25 +0000
+Subject: [PATCH 2/5] fix(wardens): Rebind and Takeover through
+ Warden.intervene start the bee they promise
+
+Warden.intervene relayed a Rebind or a Takeover to the bee, which wrote its Handoff and
+stopped, and nothing followed it: the task sat RUNNING with no bee, as the Handoff lever did
+before round 3. The successor mark is now a SuccessorOrder naming the fresh bee's binding and
+whether it is a new attempt: a Handoff carries the same attempt on the same binding, a Rebind
+binds the lever's slot and a Takeover the supervisor's own (the Warden's; ADR-0021: a Warden
+takes over through a fresh sub-bee), both at attempt+1, with llm.rebound recorded when the
+binding changes. The Guard's slot_binding point decides the binding when the fresh bee spawns;
+a Drone's set holds llm:worker only, so a Takeover is refused there and reported FAILED with
+the Guard's reason and the Handoff, never orphaned. The context check no longer overwrites an
+order a lever already gave.
+
+Claude-Session: https://claude.ai/code/session_01EKZW22X7GB1ADCG4ApBsA8
+---
+ .../hivemind/src/hivemind/wardens/README.md   |  8 ++-
+ .../src/hivemind/wardens/spawn/README.md      |  3 +-
+ .../src/hivemind/wardens/spawn/sub_bee.py     | 36 +++++++---
+ .../src/hivemind/wardens/ticks/README.md      |  6 +-
+ .../src/hivemind/wardens/ticks/alarms.py      | 31 +++++---
+ .../src/hivemind/wardens/ticks/control.py     | 32 ++++++---
+ .../src/hivemind/wardens/ticks/heartbeat.py   | 11 +--
+ .../unit/wardens/test_warden_successors.py    | 72 ++++++++++++++++++-
+ .../unit/wardens/ticks/test_heartbeat.py      | 14 ++--
+ 9 files changed, 169 insertions(+), 44 deletions(-)
+
+diff --git a/packages/hivemind/src/hivemind/wardens/README.md b/packages/hivemind/src/hivemind/wardens/README.md
+index 767ab9c..3040249 100644
+--- a/packages/hivemind/src/hivemind/wardens/README.md
++++ b/packages/hivemind/src/hivemind/wardens/README.md
+@@ -17,9 +17,11 @@ Warden never provisions Cells itself.
+   Queen's next attempt of the same task superseding it, and a Heartbeat saying the bee has ended
+   with nothing more to send (`SubBee.has_ended`: KILLED by a cancel or kill, DONE after a
+   stop-handoff, or FAILED once a cancel has reached it). A bee that stopped at a Handoff its own
+-  Warden ordered (its context past the handoff threshold, or the Warden's Handoff lever) is the one
+-  ending that is not the task's: a fresh bee resumes the same attempt from that Handoff in its slot
+-  (`SubBee.awaits_successor`, `wardens.ticks.alarms.resume_from_handoff`). One tick drains the queen link
++  Warden ordered (its context past the handoff threshold, or the Warden's Handoff, Rebind or
++  Takeover lever) is the one ending that is not the task's: a fresh bee resumes from that Handoff in
++  its slot, on the binding and attempt the order names (`SubBee.successor`,
++  `wardens.ticks.alarms.resume_from_handoff`); the Guard decides a Rebind's or Takeover's binding,
++  and a refusal reports the task FAILED. One tick drains the queen link
+   and every sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
+   through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
+   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the
+diff --git a/packages/hivemind/src/hivemind/wardens/spawn/README.md b/packages/hivemind/src/hivemind/wardens/spawn/README.md
+index 2229d7b..438467f 100644
+--- a/packages/hivemind/src/hivemind/wardens/spawn/README.md
++++ b/packages/hivemind/src/hivemind/wardens/spawn/README.md
+@@ -8,7 +8,8 @@ it needs.
+ - `SubBee` (`sub_bee.py`): the Warden's own bookkeeping row for one spawned Worker -- its
+   mirrored `WorkerState`, its current binding, its last Handoff and its owned runtime task/link;
+   `has_ended` says the row can go, and `awaits_successor` that it stopped at a Handoff its own
+-  Warden ordered, so a fresh bee resumes the task from it.
++  Warden ordered, so a fresh bee resumes the task from it; `SuccessorOrder` is what that bee binds
++  and whether it is a new attempt.
+ - `WardenCellContext`, `spawn_sub_bee` (`spawn.py`): attenuate capabilities, carve a grant slice,
+   resolve the assignment's slot to a live model, build the sub-bee's own `CappingGate` and
+   `WorkerContext`, start its `WorkerRuntime`, and send it its first `TaskAssign`.
+diff --git a/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py b/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py
+index c508f5f..92623b7 100644
+--- a/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py
++++ b/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py
+@@ -14,10 +14,11 @@ into a synthesised `AlarmKind.WORKER_STALLED`. `has_ended` is how the Warden kno
+ with: a bee that reports KILLED, or DONE without a claim, has nothing more to send (no TaskResult,
+ no Alarm), and neither has a FAILED one once a cancel has reached it (`cancelled`); its Warden
+ retires it the moment it hears so, freeing its slot for the next assignment. `awaits_successor`
+-is the one ending that is not the task's end: a bee its own Warden ordered to hand off
+-(`handoff_ordered`, for its context size) writes its Handoff and stops DONE, and the Handoff lever
+-means "a fresh bee resumes the task from it", so its Warden starts that bee in the same slot
+-rather than leaving the task RUNNING with no bee at all.
++is the one ending that is not the task's end: a bee its own Warden ordered to stop at a Handoff
++(its context size, or the Warden's own Handoff, Rebind or Takeover lever) writes its Handoff and
++stops DONE, and each of those levers promises a fresh bee resuming the task from it, so its Warden
++starts that bee in the same slot (`successor`, a `SuccessorOrder` naming the binding and whether
++it is a new attempt) rather than leaving the task RUNNING with no bee at all.
+ 
+ Fits into the Hive:
+     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
+@@ -62,7 +63,7 @@ from waggle.messages.supervision import ContextTelemetry
+ from waggle.messages.task import TaskAssign
+ from waggle.transport.memory import MemoryTransport
+ 
+-__all__ = ["SubBee"]
++__all__ = ["SubBee", "SuccessorOrder"]
+ 
+ # Ends a bee with nothing left to send: KILLED (a TaskCancel, a Cancel lever, a lost link) carries
+ # no TaskResult or Alarm, and neither does DONE after a stop-handoff (a claimed DONE's TaskResult
+@@ -70,6 +71,21 @@ __all__ = ["SubBee"]
+ _ENDED_QUIETLY = frozenset({WorkerState.KILLED, WorkerState.DONE})
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class SuccessorOrder:
++    """The fresh bee a Warden promised when it ordered a sub-bee to stop at a Handoff.
++
++    Attributes:
++        binding: The `[llm.slots]` key the fresh bee binds: a Rebind's slot, a Takeover's own
++            (the Warden's); None keeps the stopped bee's binding, as a Handoff does.
++        new_attempt: True for a Rebind or a Takeover, which recover the task at attempt+1; False
++            for a Handoff, whose fresh bee carries the same attempt on.
++    """
++
++    binding: str | None = None
++    new_attempt: bool = False
++
++
+ @dataclass(slots=True)
+ class SubBee:
+     """One sub-bee's bookkeeping row, owned and mutated in place by its Warden.
+@@ -105,9 +121,9 @@ class SubBee:
+             built outside `spawn_sub_bee`.
+         cancelled: True once a cancel has been sent to this bee (`hivemind.wardens.ticks.
+             control.forward_control`): whatever terminal state it reports next ends it.
+-        handoff_ordered: True once this Warden itself ordered the bee to hand off and stop (its
+-            context check, or its own Handoff lever); cleared when the Queen pauses the task.
+-            Read by `awaits_successor`.
++        successor: What starts once the bee stops, when this Warden itself ordered it to stop at a
++            Handoff (its context check, or its own Handoff, Rebind or Takeover lever); cleared
++            when the Queen pauses the task. None otherwise. Read by `awaits_successor`.
+     """
+ 
+     worker_id: WorkerId
+@@ -125,7 +141,7 @@ class SubBee:
+     capabilities: CapabilitySet = field(default_factory=CapabilitySet.empty)
+     spawned_event_id: EventId | None = field(default=None)
+     cancelled: bool = field(default=False)
+-    handoff_ordered: bool = field(default=False)
++    successor: SuccessorOrder | None = field(default=None)
+ 
+     @property
+     def has_ended(self) -> bool:
+@@ -137,4 +153,4 @@ class SubBee:
+     def awaits_successor(self) -> bool:
+         """Whether this bee stopped after a handoff its own Warden ordered (module docstring)."""
+         # DONE only: a KILLED bee was stopped for good, and a FAILED one is its Alarm's to handle.
+-        return self.handoff_ordered and self.state is WorkerState.DONE and not self.cancelled
++        return self.successor is not None and self.state is WorkerState.DONE and not self.cancelled
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/README.md b/packages/hivemind/src/hivemind/wardens/ticks/README.md
+index 12cd6e1..333fe75 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/README.md
++++ b/packages/hivemind/src/hivemind/wardens/ticks/README.md
+@@ -27,8 +27,10 @@ dispatch calls into these; none of them is a general-purpose module on its own).
+ - `control`: forward `TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` from the Queen unchanged;
+   a cancel marks the bee's row so any terminal state it reports next ends it, a cancel for a bee
+   that has already ended retires it at once, and `RELEASE_LEASE` retires every sub-bee. A Queen
+-  pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any Handoff the
+-  Warden had ordered itself; the Warden's own Handoff lever marks the bee for a successor.
++  pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any successor the
++  Warden had promised itself; the Warden's own Handoff, Rebind and Takeover levers each promise one
++  (the same binding and attempt, the lever's slot, the Warden's own slot; the last two as a new
++  attempt).
+ - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
+   Heartbeat says it has ended with nothing more to send, or starting its successor when the
+   Warden's own context check had ordered it to hand off), watch for a stall,
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/alarms.py b/packages/hivemind/src/hivemind/wardens/ticks/alarms.py
+index 626feb0..93bd3e2 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/alarms.py
++++ b/packages/hivemind/src/hivemind/wardens/ticks/alarms.py
+@@ -18,8 +18,9 @@ rebind that lands records `llm.rebound`, the declared-but-never-recorded kind. A
+ predecessor's slot straight to the fresh bee (`retire_sub_bee(keep_slot=True)`): giving it back to
+ the pool first let a parked assignment start beside the respawned bee, one over the cap.
+ `resume_from_handoff` is the same hand-over for a bee that stopped at a Handoff its own Warden
+-ordered for its context size: the fresh bee resumes the same attempt from that Handoff, where
+-before nothing started it and the task stayed RUNNING with no bee.
++ordered (its context size, or its own Handoff, Rebind or Takeover lever): the fresh bee resumes
++from that Handoff on the binding and attempt the order names (`SubBee.successor`), where before
++nothing started it and the task stayed RUNNING with no bee.
+ 
+ Fits into the Hive:
+     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
+@@ -79,6 +80,7 @@ from hivemind.wardens.spawn import (
+     spawn_sub_bee,
+     stop_sub_bee,
+ )
++from hivemind.wardens.spawn.sub_bee import SuccessorOrder
+ from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
+ from waggle.envelope import wrap
+ from waggle.ids import TaskId, new_alarm_id, new_event_id
+@@ -254,27 +256,34 @@ def _cell_context(warden: Warden) -> WardenCellContext | None:
+ async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
+     """Retire a bee stopped at its own Warden's Handoff, and start the fresh bee resuming it.
+ 
+-    The Handoff lever's own meaning (`hivemind.supervision.intervention.Handoff`: "a fresh bee
+-    resumes the task from it"): the same attempt carries on, on the same binding and in the slot
+-    the stopped bee kept, from the Handoff its last checkpoint reported. A grant or lease the
+-    Queen has taken back (an isolation revokes the grant before it pauses anything) leaves the
+-    task to her, so the bee is retired and nothing starts; a binding the Guard now refuses reports
+-    the task FAILED.
++    Each lever's own meaning (`hivemind.supervision.intervention`): a Handoff's fresh bee carries
++    the same attempt on the same binding; a Rebind's binds the lever's slot and a Takeover's the
++    Warden's own, each as attempt+1 -- all in the slot the stopped bee kept, from the Handoff its
++    last checkpoint reported (`SubBee.successor` names which). A grant or lease the Queen has
++    taken back (an isolation revokes the grant before it pauses anything) leaves the task to her,
++    so the bee is retired and nothing starts; a binding the Guard refuses reports the task FAILED.
+ 
+     Args:
+         warden: The owning Warden (read and written directly; see the module docstring).
+         sub_bee: The stopped bee (`SubBee.awaits_successor`).
+     """
++    order = sub_bee.successor or SuccessorOrder()
+     grant = warden._grants.get(sub_bee.assignment.grant_id)
+     ctx = _cell_context(warden)
+     if grant is None or ctx is None:
+         # The Queen took the grant or the lease back: what happens to the task next is hers.
+         await retire_sub_bee(warden, sub_bee)
+         return
+-    # The same attempt, not a retry: a context handoff is the work carrying on, not failing.
+-    successor = sub_bee.assignment.model_copy(update={"resume_from": sub_bee.last_handoff})
++    # A Handoff is the work carrying on (the same attempt); a Rebind or Takeover recovers it.
++    attempt = sub_bee.attempt + 1 if order.new_attempt else sub_bee.attempt
++    successor = sub_bee.assignment.model_copy(
++        update={"attempt": attempt, "resume_from": sub_bee.last_handoff}
++    )
+     await retire_sub_bee(warden, sub_bee, keep_slot=True)
+-    await _spawn_into_slot(warden, ctx, successor, sub_bee.binding, None)
++    fresh = await _spawn_into_slot(warden, ctx, successor, order.binding or sub_bee.binding, None)
++    if fresh is not None and fresh.binding != sub_bee.binding:
++        # A rebind that landed, the one fact `llm.rebound` exists to record.
++        await _record_rebound(warden, sub_bee, fresh, warden_principal(warden._warden_id))
+ 
+ 
+ async def _retire_and_spawn(
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/control.py b/packages/hivemind/src/hivemind/wardens/ticks/control.py
+index de717ab..e3bee19 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/control.py
++++ b/packages/hivemind/src/hivemind/wardens/ticks/control.py
+@@ -22,9 +22,12 @@ already ended (a FAILED bee an escalation left waiting on the Queen) is retired
+ sub-bee is when the Queen takes the lease back: through `hivemind.wardens.ticks.alarms.
+ retire_sub_bee`, the one path that frees a bee's slot for the next assignment. A Queen-sent pause
+ (`TaskPause`, or the `Intervene(HANDOFF)` Clustering and isolation pull with it) makes the bee's
+-next stop hers to resume, so it withdraws any Handoff this Warden had ordered itself
+-(`SubBee.handoff_ordered`); the Warden's own Handoff lever (`send_intervention`) sets that mark,
+-the same one its context check sets, so a fresh bee resumes the task once the bee stops.
++next stop hers to resume, so it withdraws any successor this Warden had promised itself
++(`SubBee.successor`). The Warden's own levers (`send_intervention`) each promise one, as its
++context check does: a Handoff's fresh bee carries the same attempt on the same binding; a Rebind's
++binds the lever's slot, and a Takeover's the Warden's own slot (ADR-0021: a Warden takes over
++through a fresh sub-bee), both as a new attempt; the Guard's `slot_binding` point decides either
++binding when the fresh bee spawns, and a refused one reports the task FAILED with the reason.
+ 
+ Fits into the Hive:
+     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
+@@ -65,11 +68,12 @@ from __future__ import annotations
+ from typing import TYPE_CHECKING
+ 
+ from hivemind.common.logging import get_logger
+-from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
+-from hivemind.supervision import Cancel, Handoff, Intervention, to_wire
++from hivemind.forage import Ceilings, HostingPlan, ModelSlot, SlotPlan, SourceChain
++from hivemind.supervision import Cancel, Handoff, Intervention, Rebind, Takeover, to_wire
+ from hivemind.supervision.attendant import InboxItem
+ from hivemind.wardens.errors import UnknownSubBeeError
+ from hivemind.wardens.snapshot_relay import RelaySnapshotter
++from hivemind.wardens.spawn.sub_bee import SuccessorOrder
+ from hivemind.wardens.state import clustering_update
+ from hivemind.wardens.ticks.alarms import rebind_sub_bee, retire_sub_bee
+ from waggle.envelope import Hop, wrap
+@@ -144,7 +148,7 @@ async def forward_control(
+         return
+     if item.principal == _QUEEN_LINK and _is_pause(payload):
+         # The Queen resumes what she paused, with a fresh TaskAssign: this Warden starts nothing.
+-        sub_bee.handoff_ordered = False
++        sub_bee.successor = None
+     if isinstance(payload, Intervene) and payload.action is InterventionAction.REBIND:
+         await _handle_queen_rebind(warden, sub_bee, payload)
+         return
+@@ -220,8 +224,8 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
+         raise UnknownSubBeeError(child)
+     if isinstance(intervention, Cancel):
+         sub_bee.cancelled = True  # It ends for good: any terminal state it reports ends its row.
+-    elif isinstance(intervention, Handoff):
+-        sub_bee.handoff_ordered = True  # It stops at its Handoff; a fresh bee resumes from it.
++    elif (order := _successor_for(intervention)) is not None:
++        sub_bee.successor = order  # It stops at its Handoff; the promised fresh bee resumes it.
+     action, slot = to_wire(intervention)
+     message = Intervene(
+         action=action,
+@@ -237,6 +241,18 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
+     await sub_bee.link.send(wrap(message, hop, clock=warden._deps.clock))
+ 
+ 
++def _successor_for(lever: Intervention) -> SuccessorOrder | None:
++    """The fresh bee `lever` promises once the bee stops at its Handoff, or None for no stop."""
++    if isinstance(lever, Handoff):
++        return SuccessorOrder()
++    if isinstance(lever, Rebind):
++        return SuccessorOrder(binding=lever.slot.manifest_key, new_attempt=True)
++    if isinstance(lever, Takeover):
++        # The supervisor's own slot (the lever's meaning); for a Warden that is WARDEN.
++        return SuccessorOrder(binding=ModelSlot.WARDEN.manifest_key, new_attempt=True)
++    return None  # Compact and Checkpoint carry on in place; Cancel and Quarantine end it.
++
++
+ def handle_plan_written(warden: Warden, payload: PlanWritten) -> None:
+     """Store the Queen's own HostingPlan for this Warden's Cell.
+ 
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py b/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py
+index 4f36214..13d69ac 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py
++++ b/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py
+@@ -100,6 +100,7 @@ from hivemind.pheromone import WardenEvent
+ from hivemind.supervision import Alarm, record_alarm_event
+ from hivemind.supervision.attendant import InboxItem, InboxKind
+ from hivemind.wardens.snapshot_relay import RelaySnapshotter
++from hivemind.wardens.spawn.sub_bee import SuccessorOrder
+ from hivemind.wardens.ticks.alarms import resume_from_handoff, retire_sub_bee
+ from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
+ from hivemind.workers.state import WorkerState
+@@ -246,13 +247,15 @@ async def check_sub_bee_context(warden: Warden) -> None:
+ def _takes_context_orders(warden: Warden, sub_bee: SubBee) -> bool:
+     """Whether `sub_bee` runs work this Warden may order compacted or handed off, and follow up.
+ 
+-    Not a bee already stopping or cancelled, nor one on a task the Queen has paused: its mirrored
+-    state still reads RUNNING until its next Heartbeat, and an order then would mark it for a
+-    successor this Warden must not start (`SubBee.awaits_successor`), the task being hers.
++    Not a bee already stopping or cancelled, nor one already told to stop at a Handoff (its
++    successor is promised), nor one on a task the Queen has paused: its mirrored state still reads
++    RUNNING until its next Heartbeat, and an order then would mark it for a successor this Warden
++    must not start (`SubBee.awaits_successor`), the task being hers.
+     """
+     return (
+         sub_bee.state is WorkerState.RUNNING
+         and not sub_bee.cancelled
++        and sub_bee.successor is None
+         and sub_bee.task_id not in warden._clustered_tasks
+     )
+ 
+@@ -276,7 +279,7 @@ async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: Interve
+     )
+     if action is InterventionAction.HANDOFF:
+         # The bee stops once its Handoff is written; this Warden starts the bee that resumes it.
+-        sub_bee.handoff_ordered = True
++        sub_bee.successor = SuccessorOrder()
+     hop = Hop(
+         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
+     )
+diff --git a/packages/hivemind/tests/unit/wardens/test_warden_successors.py b/packages/hivemind/tests/unit/wardens/test_warden_successors.py
+index 27cf746..23a7e83 100644
+--- a/packages/hivemind/tests/unit/wardens/test_warden_successors.py
++++ b/packages/hivemind/tests/unit/wardens/test_warden_successors.py
+@@ -38,9 +38,11 @@ from builders.quarantine import make_grant_issued, settle
+ from builders.wardens import QueenEnd, make_warden_deps
+ from builders.workers import RunScript, ScriptedWorker, make_assignment, make_outcome
+ 
++from hivemind.forage import ModelSlot
+ from hivemind.memory import Handoff
+ from hivemind.pheromone import TrailQuery
+ from hivemind.supervision import Handoff as HandoffLever
++from hivemind.supervision import Rebind, Takeover
+ from hivemind.wardens.spawn.sub_bee import SubBee
+ from hivemind.wardens.state import WardenState
+ from hivemind.wardens.warden import Warden
+@@ -50,12 +52,13 @@ from hivemind.workers.state import WorkerState
+ from waggle.clock import FakeClock
+ from waggle.ids import TaskId, new_grant_id
+ from waggle.messages.supervision import Intervene, InterventionAction
+-from waggle.messages.task import TaskAssign, TaskCancel, TaskPause
++from waggle.messages.task import TaskAssign, TaskCancel, TaskOutcome, TaskPause
+ 
+ _WORKER_BEAT_S = 1.0  # Each sub-bee's own cadence.
+ _WARDEN_BEAT_S = 10.0  # The Warden's own: its context check rides this one.
+ _HUNG_S = 1_000_000.0  # A role that never finishes on its own within any test here.
+ _WINDOW = 1_000  # The context window every scripted bee reports against.
++_FALLBACK = "worker_fallback"  # The test deps' second [llm.slots] row, serving the WORKER slot.
+ _FULL = 950  # Tokens used: past the 0.66 handoff threshold the test deps carry.
+ 
+ 
+@@ -185,6 +188,60 @@ async def _paused_by_the_queen(scene: _Scene, first: TaskAssign) -> SubBee:
+     return bee
+ 
+ 
++async def test_a_rebind_its_warden_orders_resumes_on_the_levers_slot_as_a_new_attempt() -> None:
++    # The Queen's fallback moved the bee to `worker_fallback`; the Warden's own Rebind(WORKER)
++    # lever moves the task back to the slot's own binding: the bee writes its Handoff and stops,
++    # and a fresh bee resumes from it on `worker`, one attempt on, the move on the trail.
++    resumed: list[Handoff] = []
++    first = make_assignment()
++    scene = await _start(_handoff_then_resume(resumed), first)
++    await _running_bee(scene, first.task_id)
++    await scene.queen.send(_queen_rebind(first.task_id, "worker_fallback"))
++    await settle(lambda: [r.binding for r in _rows(scene.warden, first.task_id)] == [_FALLBACK])
++    bee = await _running_bee(scene, first.task_id)
++    lever = Rebind(reason="Back to the slot's own binding.", slot=ModelSlot.WORKER)
++
++    await scene.warden.intervene(str(bee.worker_id), lever)
++    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
++    checkpoint = bee.last_handoff
++    scene.clock.advance(_WORKER_BEAT_S)
++    await settle(lambda: bool(resumed))
++
++    [successor] = _rows(scene.warden, first.task_id)
++    assert (successor.binding, successor.attempt) == ("worker", bee.attempt + 1)
++    assert successor.assignment.resume_from == checkpoint
++    rebound = await scene.warden._deps.trail.query(TrailQuery(kind="llm.rebound"))
++    last = rebound[-1].payload
++    assert (last["from_binding"], last["to_binding"], last["ordered_by"]) == (
++        _FALLBACK,
++        "worker",
++        "warden",
++    )
++    await _stop(scene)
++
++
++async def test_a_takeover_the_guard_refuses_is_reported_failed_never_orphaned() -> None:
++    # A Takeover's fresh bee binds the supervisor's own slot, the Warden's, which a Drone's set
++    # never holds (ADR-0031): the Guard refuses it at spawn, so the task goes back to the Queen
++    # FAILED, with the reason and the Handoff, rather than sitting RUNNING with no bee.
++    resumed: list[Handoff] = []
++    first = make_assignment()
++    scene = await _start(_handoff_then_resume(resumed), first)
++    bee = await _running_bee(scene, first.task_id)
++
++    await scene.warden.intervene(str(bee.worker_id), Takeover(reason="Stuck; taking it over."))
++    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
++    scene.clock.advance(_WORKER_BEAT_S)
++    result = await asyncio.wait_for(scene.queen.wait_for_result(), timeout=5.0)
++
++    assert (result.outcome, result.attempt) == (TaskOutcome.FAILED, first.attempt + 1)
++    assert result.handoff == bee.last_handoff
++    assert (_rows(scene.warden, first.task_id), resumed) == ([], [])
++    assert scene.warden._sub_bee_slots.in_use == 0
++    assert await scene.warden._deps.trail.query(TrailQuery(kind="guard.denied"))
++    await _stop(scene)
++
++
+ async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
+     # Clustering and isolation pause a task with Intervene(HANDOFF) then TaskPause and resume it
+     # themselves with a fresh TaskAssign: the Warden starts no bee of its own meanwhile, and stays
+@@ -234,6 +291,19 @@ async def test_a_clustered_task_the_queen_then_ends_leaves_the_warden_watching(o
+     await _stop(scene)
+ 
+ 
++def _queen_rebind(task_id: TaskId, binding: str) -> Intervene:
++    """The Queen's Intervene(REBIND) naming `binding`, as her fallback chain resolves it."""
++    return Intervene(
++        action=InterventionAction.REBIND,
++        subject=None,
++        task_id=task_id,
++        slot="WORKER",
++        binding=binding,
++        alarm_id=None,
++        reason="The bound provider is unavailable.",
++    )
++
++
+ def _queen_handoff(task_id: TaskId) -> Intervene:
+     """The Queen's Intervene(HANDOFF) for `task_id`, as Clustering and isolation send it."""
+     return _queen_intervene(InterventionAction.HANDOFF, task_id)
+diff --git a/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py b/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py
+index 242eb56..d59c43b 100644
+--- a/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py
++++ b/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py
+@@ -21,7 +21,7 @@ from builders.wardens import make_warden_deps
+ from builders.workers import ScriptedWorker, make_assignment, make_context, make_outcome, yield_then
+ 
+ from hivemind.memory.thresholds import MAX_COMPACT_VIEW_CHARS
+-from hivemind.wardens.spawn.sub_bee import SubBee
++from hivemind.wardens.spawn.sub_bee import SubBee, SuccessorOrder
+ from hivemind.wardens.ticks.heartbeat import check_sub_bee_context, compact_view, record_heartbeat
+ from hivemind.wardens.warden import Warden
+ from hivemind.workers.runtime import RuntimeDeps, WorkerRuntime
+@@ -136,10 +136,12 @@ async def test_check_sub_bee_context_marks_its_own_handoff_order_for_a_successor
+ 
+     await check_sub_bee_context(warden)
+ 
+-    assert sub_bee.handoff_ordered
++    assert sub_bee.successor == SuccessorOrder()  # The same binding, the same attempt.
+ 
+ 
+-@pytest.mark.parametrize("why", ["paused_by_the_queen", "already_stopping", "cancelled"])
++@pytest.mark.parametrize(
++    "why", ["paused_by_the_queen", "already_stopping", "cancelled", "already_ordered"]
++)
+ async def test_check_sub_bee_context_orders_no_bee_it_may_not_follow_up(why: str) -> None:
+     # A bee the Queen paused still mirrors RUNNING until its next Heartbeat: an order then would
+     # mark it for a successor the Warden must not start, the paused task being hers to resume.
+@@ -151,12 +153,16 @@ async def test_check_sub_bee_context_orders_no_bee_it_may_not_follow_up(why: str
+         warden._clustered_tasks.add(sub_bee.task_id)
+     elif why == "already_stopping":
+         sub_bee.state = WorkerState.HANDING_OFF
++    elif why == "already_ordered":
++        # A lever already promised a successor (a Rebind's, say): the check must not replace it.
++        sub_bee.successor = SuccessorOrder(binding="worker_fallback", new_attempt=True)
+     else:
+         sub_bee.cancelled = True
++    before = sub_bee.successor
+ 
+     await check_sub_bee_context(warden)
+ 
+-    assert not sub_bee.handoff_ordered
++    assert sub_bee.successor == before
+     task = asyncio.ensure_future(anext(sub_bee_end.receive()))
+     await asyncio.sleep(0)
+     assert not task.done()  # Nothing was sent to it either.
+-- 
+2.43.0
+
+
+From 36a1bdce50f74b55abcc3770641962836491ff0f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 01:38:56 +0000
+Subject: [PATCH 3/5] fix(queen,wardens): attempt numbers never go backwards on
+ the trail
+
+A Warden's own respawn, rebind or Rebind/Takeover recovery numbers its
+fresh bee past the Queen's last dispatch, but never told her, so her
+next retry numbered from her own count and reused an attempt number the
+trail had already seen. The Warden now reports each new attempt on a
+TaskProgress(STARTED), as TaskAssign.attempt's own rule asks, and
+worker.spawned names the attempt.
+
+The Queen keeps an AttemptBook: her own dispatches of each task (her
+ceiling and her policy's rungs count these, so a Warden's respawns never
+skip one of her rungs) and the highest attempt number any report or
+placement carried, which every retry numbers past. The autopilot table
+reads both as an AttemptTally; a FAILED result numbered below the latest
+attempt is stale however few dispatches the Queen made.
+
+Claude-Session: https://claude.ai/code/session_01EKZW22X7GB1ADCG4ApBsA8
+---
+ .../hivemind/src/hivemind/queen/README.md     |   9 +-
+ .../src/hivemind/queen/autopilot/README.md    |   4 +-
+ .../src/hivemind/queen/autopilot/__init__.py  |   6 +-
+ .../src/hivemind/queen/autopilot/table.py     |  47 +++++---
+ packages/hivemind/src/hivemind/queen/queen.py |  39 ++++---
+ .../src/hivemind/queen/ticks/alarms.py        |  18 ++-
+ .../src/hivemind/queen/ticks/results.py       |  50 +++++++--
+ .../src/hivemind/wardens/spawn/spawn.py       |   7 +-
+ .../src/hivemind/wardens/ticks/README.md      |   4 +-
+ .../src/hivemind/wardens/ticks/alarms.py      |  38 ++++++-
+ .../tests/unit/queen/autopilot/test_table.py  | 103 ++++++++++++++----
+ .../tests/unit/queen/test_queen_alarms.py     |  76 ++++++++++++-
+ .../tests/unit/queen/test_queen_quarantine.py |   4 +-
+ .../unit/supervision/test_policy_tables.py    |  14 ++-
+ .../unit/wardens/test_warden_successors.py    |  18 ++-
+ 15 files changed, 346 insertions(+), 91 deletions(-)
+
+diff --git a/packages/hivemind/src/hivemind/queen/README.md b/packages/hivemind/src/hivemind/queen/README.md
+index 628a44a..31dc1ee 100644
+--- a/packages/hivemind/src/hivemind/queen/README.md
++++ b/packages/hivemind/src/hivemind/queen/README.md
+@@ -147,9 +147,12 @@ every assignment goes to a Warden, over Waggle.
+   `alarm.handled`/`alarm.escalated` (`hivemind.supervision.record_alarm_event`) and, for a REBIND,
+   fills `Intervene.binding` with the fallback key it resolved, since a Warden has no other way to
+   learn it; `Queen`'s own COMPLETE_TASK handling records `alarm.resolved` once a rebound or
+-  retried attempt actually succeeds. `liveness.handle_infrastructure_item` (roadmap steps 4.7,
+-  4.2a) is where a Heartbeat, a ForageRequest and a CellWaxProposed all land, ahead of
+-  `queen.autopilot.table.decide`: a Heartbeat renews the sending Warden's own live grants
++  retried attempt actually succeeds. `results.AttemptBook` is the Queen's per-task count of her
++  own dispatches and the highest attempt number any report carried; a retry numbers past it, so
++  a Warden's own respawns never make an attempt number repeat.
++  `liveness.handle_infrastructure_item` (roadmap steps 4.7, 4.2a) is where a Heartbeat, a
++  ForageRequest and a CellWaxProposed all land, ahead of `queen.autopilot.table.decide`: a
++  Heartbeat renews the sending Warden's own live grants
+   (`liveness.renew_grants_on_heartbeat`) the same tick it resets liveness, `check_liveness`'s own
+   sweep now also returns any grant whose lease lapsed (`hivemind.queen.forage.grants.
+   sweep_expired`) to the pool unconditionally every tick, and `wax.handle_wax_proposed` records the
+diff --git a/packages/hivemind/src/hivemind/queen/autopilot/README.md b/packages/hivemind/src/hivemind/queen/autopilot/README.md
+index 19f84df..2322682 100644
+--- a/packages/hivemind/src/hivemind/queen/autopilot/README.md
++++ b/packages/hivemind/src/hivemind/queen/autopilot/README.md
+@@ -11,7 +11,9 @@ awaits a model. Nothing under this package may import hivemind.llm.
+   `CLEAR_WAX`, `QUARANTINE_BEE`, `PAUSE_TASK`, `NEEDS_JUDGEMENT`.
+ - `decide` (`table.py`): the pure dispatch table itself, keyed by the wrapped payload's own type
+   (and the task's own status, where it matters); an escalated Alarm is mapped through
+-  `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling. Roadmap step
++  `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling. It reads a
++  task's `AttemptTally`: the ceiling and the policy's rungs count the Queen's own dispatches, and a
++  FAILED result numbered below the latest attempt number any level started is stale. Roadmap step
+   10.6c: a policy row naming `QUARANTINE` maps to `QUARANTINE_BEE` (carried out by
+   `hivemind.queen.quarantine.order_quarantine`), and a Warden's `TaskProgress` at stage PAUSED
+   about a task not yet terminal maps to `PAUSE_TASK` (`hivemind.queen.quarantine.hold_task`); every
+diff --git a/packages/hivemind/src/hivemind/queen/autopilot/__init__.py b/packages/hivemind/src/hivemind/queen/autopilot/__init__.py
+index 0e8e35d..d419322 100644
+--- a/packages/hivemind/src/hivemind/queen/autopilot/__init__.py
++++ b/packages/hivemind/src/hivemind/queen/autopilot/__init__.py
+@@ -39,7 +39,8 @@ See Also:
+ 
+ Public API (roadmap steps 3.20, 4.7, 4.2a):
+     - QueenAction: the closed set of moves the dispatch table can pick (actions).
+-    - decide: the dispatch table itself (table).
++    - decide, AttemptTally: the dispatch table itself, and how far a task has got as it reads it
++      (table).
+     - effort_for: the Effort an awake episode gets, by event class (effort).
+     - ForageAutopilotOutcome, ForageRequestSignal, decide_forage_request: the ForageRequest rule
+       (forage).
+@@ -57,11 +58,12 @@ from hivemind.queen.autopilot.forage import (
+     decide_forage_request,
+ )
+ from hivemind.queen.autopilot.guard import AWAKE_ACTIONS, decide_guard_request, fallback_action
+-from hivemind.queen.autopilot.table import decide
++from hivemind.queen.autopilot.table import AttemptTally, decide
+ from hivemind.queen.autopilot.wax import WaxAutopilotOutcome, WaxProposalSignal, decide_wax_proposal
+ 
+ __all__ = [
+     "AWAKE_ACTIONS",
++    "AttemptTally",
+     "ForageAutopilotOutcome",
+     "ForageRequestSignal",
+     "QueenAction",
+diff --git a/packages/hivemind/src/hivemind/queen/autopilot/table.py b/packages/hivemind/src/hivemind/queen/autopilot/table.py
+index bdc1a52..670b349 100644
+--- a/packages/hivemind/src/hivemind/queen/autopilot/table.py
++++ b/packages/hivemind/src/hivemind/queen/autopilot/table.py
+@@ -3,8 +3,9 @@
+ Codingrules section 8.8: "Autopilot returns an action or NEEDS_JUDGEMENT; only the latter runs an
+ awake episode." `decide` is that table for the Queen: given one `hivemind.supervision.attendant.
+ InboxItem` (already scored and ordered by the Attendant), the `hivemind.brood_chamber.Task` it
+-concerns (when one exists), how many attempts have already been made against it, the Queen's own
+-`EscalationPolicy` and her attempt ceiling, it returns exactly one
++concerns (when one exists), how far it has got (`AttemptTally`: the Queen's own dispatches of it,
++and the highest attempt number any level started), the Queen's own `EscalationPolicy` and her
++attempt ceiling, it returns exactly one
+ `hivemind.queen.autopilot.actions.QueenAction`. The table is keyed by the wrapped payload's own
+ type: a `Heartbeat` is `RECORD`; a `TaskResult` resolves to `COMPLETE_TASK`, `RETRY_TASK` or
+ `FAIL_TASK`; an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`, exactly the
+@@ -18,7 +19,10 @@ explicit rule, since free text has no deterministic answer (ADR-0032); anything
+ never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
+ (`hivemind.brood_chamber.TERMINAL_STATUSES`) makes a `TaskResult`/`AlarmRaised` about it a no-op
+ `RECORD`: a stale or duplicate report about work the Queen already closed out is not a fresh
+-decision to make.
++decision to make. So is a `TaskResult(FAILED)` numbered below the task's latest attempt: a later
++attempt already replaced the one it reports on. The ceiling and the policy's rungs count only the
++Queen's own dispatches, never that number, since a Warden's local respawns climb it too
++(`TaskAssign.attempt`'s own rule) and must not skip a rung of hers.
+ 
+ Fits into the Hive:
+     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
+@@ -32,7 +36,7 @@ Key invariants:
+       `lint-imports` enforces it for every module under an `autopilot/` directory).
+     - `decide` is pure: given the same `(item, task, attempts, policy, limit)`, it always returns
+       the same `QueenAction`; it reads nothing beyond its own arguments.
+-    - `attempts >= limit` always forces `ESCALATE_TO_HUMAN` for an Alarm, regardless of what
++    - `attempts.made >= limit` always forces `ESCALATE_TO_HUMAN` for an Alarm, regardless of what
+       `policy` alone would decide: the Queen's own ceiling is a hard backstop, not a suggestion.
+ 
+ See Also:
+@@ -49,6 +53,7 @@ See Also:
+ from __future__ import annotations
+ 
+ from collections.abc import Mapping
++from dataclasses import dataclass
+ 
+ from hivemind.brood_chamber import TERMINAL_STATUSES, Task
+ from hivemind.queen.autopilot.actions import QueenAction
+@@ -59,7 +64,7 @@ from waggle.messages.control import HumanMessage
+ from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
+ from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
+ 
+-__all__ = ["decide"]
++__all__ = ["AttemptTally", "decide"]
+ 
+ # Every PolicyAction the Queen's own EscalationPolicy can name, mapped onto what the Queen actually
+ # does about it. RESPAWN collapses onto RETRY_TASK for the same reason it does for a Warden: a
+@@ -81,8 +86,23 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
+ }
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class AttemptTally:
++    """How far one task has got, as `decide` reads it (codingrules 5.1: one argument group).
++
++    Attributes:
++        made: The Queen's own dispatches of the task, 1 for its first; her ceiling and her
++            policy's rungs count these alone, so a Warden's local respawns never skip a rung.
++        latest: The highest attempt number dispatched or reported for the task; a FAILED report
++            numbered below it is about an attempt a later one already replaced.
++    """
++
++    made: int
++    latest: int
++
++
+ def decide(
+-    item: InboxItem, task: Task | None, attempts: int, policy: EscalationPolicy, limit: int
++    item: InboxItem, task: Task | None, attempts: AttemptTally, policy: EscalationPolicy, limit: int
+ ) -> QueenAction:
+     """Return the one QueenAction the Queen's autopilot takes for `item`.
+ 
+@@ -91,9 +111,8 @@ def decide(
+             waggle message.
+         task: The task `item` concerns, when one exists (looked up by the caller); None when
+             `item` names no task (a Heartbeat) or names one that could not be found.
+-        attempts: How many resolution attempts have already been made against this task or Alarm
+-            (the caller's own count, typically `task.attempt`); read only for a TaskResult(FAILED)
+-            or an AlarmRaised.
++        attempts: How far the task has got (the caller's own tally; all zero with no task); read
++            only for a TaskResult(FAILED) or an AlarmRaised.
+         policy: The Queen's own EscalationPolicy, consulted only for an AlarmRaised.
+         limit: The most attempts an Alarm or a failing task gets before this table forces
+             ESCALATE_TO_HUMAN or FAIL_TASK, whatever `policy` alone would say.
+@@ -112,7 +131,7 @@ def decide(
+             # retries or fails the task, so the Alarm is recorded, never acted on. Acting on both
+             # dispatched two attempts, two grants and two Drones for one failure.
+             return QueenAction.RECORD
+-        return _decide_alarm(payload, attempts, policy, limit)
++        return _decide_alarm(payload, attempts.made, policy, limit)
+     if isinstance(payload, TaskProgress):
+         # Roadmap step 10.6c: a Warden reports its task held (its bee quarantined), and the
+         # chamber follows; any other stage is its Warden's own business, noted and no more.
+@@ -131,18 +150,18 @@ def decide(
+     return QueenAction.NEEDS_JUDGEMENT
+ 
+ 
+-def _decide_task_result(payload: TaskResult, attempts: int, limit: int) -> QueenAction:
++def _decide_task_result(payload: TaskResult, attempts: AttemptTally, limit: int) -> QueenAction:
+     """Map a TaskResult's own outcome to COMPLETE_TASK, RETRY_TASK or FAIL_TASK."""
+     if payload.outcome is TaskOutcome.SUCCEEDED:
+         return QueenAction.COMPLETE_TASK
+     if payload.outcome is TaskOutcome.FAILED:
+-        if payload.attempt < attempts:
+-            # A FAILED report about an attempt older than the one the Queen already dispatched
++        if payload.attempt < attempts.latest:
++            # A FAILED report about an attempt older than the latest one any level started
+             # (attempt 1's result landing after attempt 2 went out) is history, not a decision:
+             # retrying on it would run two attempts for one failure.
+             return QueenAction.RECORD
+         # roadmap 3.22's own exit criteria: retries with attempt+1 up to the limit, then FAIL_TASK.
+-        return QueenAction.RETRY_TASK if attempts < limit else QueenAction.FAIL_TASK
++        return QueenAction.RETRY_TASK if attempts.made < limit else QueenAction.FAIL_TASK
+     # CLAIMED never reaches the Queen (the Warden intercepts it); CANCELLED is the echo of a
+     # cancellation the Queen herself already decided elsewhere. Either way, nothing more to decide.
+     return QueenAction.RECORD
+diff --git a/packages/hivemind/src/hivemind/queen/queen.py b/packages/hivemind/src/hivemind/queen/queen.py
+index d717315..2909eda 100644
+--- a/packages/hivemind/src/hivemind/queen/queen.py
++++ b/packages/hivemind/src/hivemind/queen/queen.py
+@@ -82,7 +82,7 @@ from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, T
+ from hivemind.cell import CellIdentity, HoneyClearance
+ from hivemind.memory.thresholds import capped_compact_view
+ from hivemind.queen import attach, goal_submission, leave_memory, quarantine, questions, ticks
+-from hivemind.queen.autopilot import QueenAction, decide
++from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
+ from hivemind.queen.chat import ChatDoor
+ from hivemind.queen.deps import QueenDeps, WardenLink
+ from hivemind.queen.dispatcher import dispatch_ready, stop_provisions
+@@ -94,6 +94,7 @@ from hivemind.queen.inbox import LinkReaders, queen_attendant
+ from hivemind.queen.isolation import IsolationDoor
+ from hivemind.queen.ticks.alarms import AlarmHandling
+ from hivemind.queen.ticks.liveness import WardenLiveness
++from hivemind.queen.ticks.results import AttemptBook
+ from hivemind.queen.trail import record_event
+ from hivemind.supervision import (
+     Alarm,
+@@ -166,10 +167,10 @@ class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
+         # cell_id), so a leave Question for the same goal and Cell answers herself, once, instead
+         # of asking the human again for every later file (hivemind.queen.leave_memory).
+         self._leave_memory: dict[tuple[TaskId, CellId], leave_memory.LeaveMemoryEntry] = {}
+-        # A task's own retry count, since hivemind.brood_chamber.task.state.TRANSITIONS has no
+-        # edge back from RUNNING that would let `Task.attempt` itself track this (module docstring
+-        # of hivemind.queen.dispatcher.redispatch); absent means "on its first attempt" (1).
+-        self._attempts: dict[TaskId, int] = {}
++        # Each task's own dispatches and highest attempt number, since the chamber's TRANSITIONS
++        # has no edge back from RUNNING that would let `Task.attempt` track either (module
++        # docstring of hivemind.queen.ticks.results); a task it never saw is on its first attempt.
++        self._attempts = AttemptBook()
+         # The Alarm behind a still-outstanding REBIND/RETRY_TASK, so a later COMPLETE_TASK for the
+         # same task can record alarm.resolved (this dispatch's own fix 3d); populated by
+         # hivemind.queen.ticks.alarms.handle_alarm, popped here once the task actually succeeds.
+@@ -434,9 +435,9 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
+     if handled:
+         return
+     task = await _task_for_item(queen._deps, item)
+-    # Read from the Queen's own counter, never Task.attempt: see hivemind.queen.dispatcher.
+-    # redispatch's own docstring for why a RUNNING task's attempt count cannot live in the chamber.
+-    attempts = queen._attempts.get(task.id, 1) if task is not None else 0
++    # Read from the Queen's own book, never Task.attempt alone: see hivemind.queen.ticks.results
++    # for why a RUNNING task's attempts cannot live in the chamber.
++    attempts = _note_attempt(queen, task, item.payload) if task is not None else AttemptTally(0, 0)
+     action = decide(item, task, attempts, queen._deps.policy, queen._deps.alarm_attempt_limit)
+     message: str | None = None
+     came_from_awake = action is QueenAction.NEEDS_JUDGEMENT
+@@ -450,6 +451,19 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
+     await _act(queen, action, item, task, message)
+ 
+ 
++def _note_attempt(queen: Queen, task: Task, payload: object) -> AttemptTally:
++    """Note the attempt number `task` has reached, from its placement and `payload`; tally it.
++
++    A Warden's own respawn, rebind or recovery numbers past the Queen's last dispatch and reports
++    it on its next TaskProgress (`TaskAssign.attempt`'s own rule); the book keeps the highest, so
++    her next retry numbers past it. `Task.attempt` is where a re-placed task's own number starts.
++    """
++    queen._attempts.note(task.id, task.attempt)
++    if isinstance(payload, TaskProgress | TaskResult):
++        queen._attempts.note(task.id, payload.attempt)
++    return queen._attempts.tally(task.id)
++
++
+ async def _task_for_item(deps: QueenDeps, item: InboxItem) -> Task | None:
+     """Look up the task `item` concerns, or None when it names none or one that cannot be found."""
+     if item.task_id is None:
+@@ -502,18 +516,11 @@ async def _act_on_task_result(
+         await ticks.results.complete_task(queen._deps, queen.wardens, payload, warden_id)
+         await _resolve_pending_alarm(queen, payload.task_id)
+     elif action is QueenAction.RETRY_TASK:
+-        attempt = _next_attempt(queen, payload.task_id)
+-        await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, attempt)
++        await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, queen._attempts)
+     elif action is QueenAction.FAIL_TASK:
+         await ticks.results.fail_task(queen._deps, payload.task_id, payload.reason)
+ 
+ 
+-def _next_attempt(queen: Queen, task_id: TaskId) -> int:
+-    """Advance and return `task_id`'s own retry counter, starting from 1 (its first attempt)."""
+-    queen._attempts[task_id] = queen._attempts.get(task_id, 1) + 1
+-    return queen._attempts[task_id]
+-
+-
+ async def _resolve_pending_alarm(queen: Queen, task_id: TaskId) -> None:
+     """Record alarm.resolved when `task_id` succeeds with a REBIND/RETRY_TASK still outstanding.
+ 
+diff --git a/packages/hivemind/src/hivemind/queen/ticks/alarms.py b/packages/hivemind/src/hivemind/queen/ticks/alarms.py
+index 457f003..f8817bf 100644
+--- a/packages/hivemind/src/hivemind/queen/ticks/alarms.py
++++ b/packages/hivemind/src/hivemind/queen/ticks/alarms.py
+@@ -83,7 +83,7 @@ from hivemind.queen.errors import UnknownCellError
+ from hivemind.queen.human_inbox import HumanInbox
+ from hivemind.queen.isolation import IsolationOrder, IsolationSite, Isolator, isolate_cell
+ from hivemind.queen.quarantine import lever_from_alarm, order_quarantine
+-from hivemind.queen.ticks.results import fail_task, retry_task
++from hivemind.queen.ticks.results import AttemptBook, fail_task, retry_task
+ from hivemind.queen.trail import record_event
+ from hivemind.supervision import Alarm, record_alarm_event
+ from hivemind.supervision.intervention import Rebind, to_wire
+@@ -110,9 +110,9 @@ class AlarmHandling:
+         warden_id: The Warden that forwarded `payload` (the envelope's own sender).
+         payload: The escalated AlarmRaised.
+         action: The already-decided QueenAction; one of the four `handle_alarm` dispatches.
+-        attempts: The Queen's own shared attempt counter (module docstring: the chamber's
++        attempts: The Queen's own shared AttemptBook (module docstring: the chamber's
+             `Task.attempt` cannot track a RUNNING task's own retries, so the Queen tracks it
+-            instead).
++            instead); a retry counts in it and takes its next number from it.
+         pending_alarms: The Queen's own task_id -> Alarm table for a REBIND or RETRY_TASK still
+             awaiting its own outcome; `hivemind.queen.queen`'s own COMPLETE_TASK handling pops
+             from it to record `alarm.resolved` once the retried or rebound attempt succeeds
+@@ -123,7 +123,7 @@ class AlarmHandling:
+     warden_id: WardenId
+     payload: AlarmRaised
+     action: QueenAction
+-    attempts: MutableMapping[TaskId, int]
++    attempts: AttemptBook
+     pending_alarms: MutableMapping[TaskId, Alarm]
+ 
+ 
+@@ -136,7 +136,7 @@ async def handle_alarm(
+         deps: The Queen's collaborators.
+         wardens: Every Warden currently attached.
+         handling: The human inbox, the forwarding Warden, the Alarm, the decided action and the
+-            Queen's own shared attempt counter (module docstring: the chamber's `Task.attempt`
++            Queen's own shared AttemptBook (module docstring: the chamber's `Task.attempt`
+             cannot track a RUNNING task's own retries, so the Queen tracks it instead).
+     """
+     payload, action = handling.payload, handling.action
+@@ -152,9 +152,7 @@ async def handle_alarm(
+         return
+     if action is QueenAction.RETRY_TASK and task_id is not None:
+         await _record_handled(deps, handling, task_id, "RETRY_TASK")
+-        next_attempt = handling.attempts.get(task_id, 1) + 1
+-        handling.attempts[task_id] = next_attempt
+-        await retry_task(deps, wardens, task_id, next_attempt)
++        await retry_task(deps, wardens, task_id, handling.attempts)
+     elif action is QueenAction.FAIL_TASK and task_id is not None:
+         await _fail(deps, wardens, handling, task_id)
+     elif action is QueenAction.REBIND:
+@@ -303,9 +301,7 @@ async def _cluster_or_retry(
+         await _record_handled(deps, handling, task_id, "CLUSTER")
+         return
+     await _record_handled(deps, handling, task_id, "RETRY_TASK")
+-    next_attempt = handling.attempts.get(task_id, 1) + 1
+-    handling.attempts[task_id] = next_attempt
+-    await retry_task(deps, wardens, task_id, next_attempt)
++    await retry_task(deps, wardens, task_id, handling.attempts)
+ 
+ 
+ async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRaised) -> None:
+diff --git a/packages/hivemind/src/hivemind/queen/ticks/results.py b/packages/hivemind/src/hivemind/queen/ticks/results.py
+index 0b8ccae..30c5ed7 100644
+--- a/packages/hivemind/src/hivemind/queen/ticks/results.py
++++ b/packages/hivemind/src/hivemind/queen/ticks/results.py
+@@ -1,4 +1,4 @@
+-"""Define complete_task, retry_task and fail_task: what COMPLETE_TASK/RETRY_TASK/FAIL_TASK do.
++"""Define complete_task, retry_task, fail_task and AttemptBook: COMPLETE_TASK/RETRY_TASK/FAIL_TASK.
+ 
+ Roadmap step 3.20's own dispatch map: "TaskResult(SUCCEEDED, checked_by=warden) -> COMPLETE_TASK:
+ chamber.complete with TaskOutcome(verified_by=checked_by) -> task.succeeded is the chamber's event;
+@@ -12,8 +12,13 @@ report triggered the decision. `retry_task` calls `hivemind.queen.dispatcher.red
+ failure directly, without ever telling the chamber anything happened), and `hivemind.brood_chamber.
+ task.state.TRANSITIONS` has no edge from RUNNING back to PENDING or ASSIGNED, so "re-dispatch,
+ attempt+1" is a wire-level re-send to the same placement, not a fresh placement decision -- the
+-caller (`hivemind.queen.queen`) is what tracks the next attempt number, since the chamber's own
+-`Task.attempt` field only ever advances through `unassign`.
++caller's own `AttemptBook` (`hivemind.queen.queen`'s) tracks the next attempt number, since the
++chamber's own `Task.attempt` field only ever advances through `unassign`. The book keeps two
++numbers per task, never one: the Queen's own dispatches (her ceiling and her policy's rungs count
++these) and the highest attempt number any level started, which a retry numbers past. A Warden's
++local respawn or rebind climbs that number on its own and reports it on its next `TaskProgress`
++(`TaskAssign.attempt`'s own rule), so a retry the Queen numbered from her own count alone went
++back to an attempt number the trail had already seen.
+ 
+ Fits into the Hive:
+     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
+@@ -32,6 +37,8 @@ Key invariants:
+     - `retry_task` never inspects an attempt ceiling itself, and never changes the task's own
+       chamber status: the ceiling decision already happened in
+       `hivemind.queen.autopilot.table.decide`; this function only carries out the resend.
++    - A retry's attempt number is always above every number `AttemptBook.note` was given for its
++      task: attempt numbers never go backwards on the trail.
+ 
+ See Also:
+     - .claude/roadmap.md step 3.20's own dispatch map for the exact chamber calls this module
+@@ -45,6 +52,7 @@ from __future__ import annotations
+ from collections.abc import Sequence
+ 
+ from hivemind.brood_chamber import TaskOutcome, TaskStatus
++from hivemind.queen.autopilot import AttemptTally
+ from hivemind.queen.deps import QueenDeps, WardenLink
+ from hivemind.queen.dispatcher import dispatch_ready, redispatch
+ from waggle.ids import TaskId, WardenId
+@@ -52,7 +60,33 @@ from waggle.messages.task import ArtifactRef, TaskResult
+ 
+ MAX_FAIL_SUMMARY_CHARS = 2_000  # Matches brood_chamber.task.model.MAX_SUMMARY_CHARS's own bound.
+ 
+-__all__ = ["MAX_FAIL_SUMMARY_CHARS", "complete_task", "fail_task", "retry_task"]
++__all__ = ["MAX_FAIL_SUMMARY_CHARS", "AttemptBook", "complete_task", "fail_task", "retry_task"]
++
++
++class AttemptBook:
++    """The Queen's own dispatches of each task, and the highest attempt number it has reached.
++
++    A task the book has never seen is on its first attempt: one dispatch, attempt number 1.
++    """
++
++    def __init__(self) -> None:
++        """Start with no task seen."""
++        self._made: dict[TaskId, int] = {}
++        self._latest: dict[TaskId, int] = {}
++
++    def note(self, task_id: TaskId, attempt: int) -> None:
++        """Remember that `task_id` reached `attempt`: a report's own number, or its placement's."""
++        self._latest[task_id] = max(self._latest.get(task_id, 1), attempt)
++
++    def tally(self, task_id: TaskId) -> AttemptTally:
++        """Return how far `task_id` has got, as the autopilot table reads it."""
++        return AttemptTally(made=self._made.get(task_id, 1), latest=self._latest.get(task_id, 1))
++
++    def next_attempt(self, task_id: TaskId) -> int:
++        """Count one more dispatch of `task_id` and number it past every attempt it reached."""
++        self._made[task_id] = self._made.get(task_id, 1) + 1
++        self._latest[task_id] = self._latest.get(task_id, 1) + 1
++        return self._latest[task_id]
+ 
+ 
+ async def complete_task(
+@@ -98,17 +132,17 @@ async def _notify_cell_finished(
+ 
+ 
+ async def retry_task(
+-    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempt: int
++    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempts: AttemptBook
+ ) -> None:
+-    """Resend a fresh grant and assignment to the same placement, at `attempt`.
++    """Resend a fresh grant and assignment to the same placement, as the task's next attempt.
+ 
+     Args:
+         deps: The Queen's collaborators.
+         wardens: Every Warden currently attached; `task_id`'s own Warden must be among these.
+         task_id: The task to retry; still RUNNING in the Brood Chamber (module docstring).
+-        attempt: The next attempt number, tracked by the caller.
++        attempts: The Queen's own AttemptBook; the retry counts in it and takes its next number.
+     """
+-    await redispatch(deps, wardens, task_id, attempt)
++    await redispatch(deps, wardens, task_id, attempts.next_attempt(task_id))
+ 
+ 
+ async def fail_task(deps: QueenDeps, task_id: TaskId, reason: str) -> None:
+diff --git a/packages/hivemind/src/hivemind/wardens/spawn/spawn.py b/packages/hivemind/src/hivemind/wardens/spawn/spawn.py
+index d15be05..584e37c 100644
+--- a/packages/hivemind/src/hivemind/wardens/spawn/spawn.py
++++ b/packages/hivemind/src/hivemind/wardens/spawn/spawn.py
+@@ -505,7 +505,12 @@ async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: Tas
+         actor=deps.identity.actor,
+         kind="worker.spawned",
+         subject_id=worker_id,
+-        payload={"task_id": assignment.task_id, "role": assignment.role.value},
++        # The attempt too, so the trail itself shows every attempt number a task's bees ran under.
++        payload={
++            "task_id": assignment.task_id,
++            "role": assignment.role.value,
++            "attempt": assignment.attempt,
++        },
+     )
+     await deps.trail.record(event)
+     return event.id
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/README.md b/packages/hivemind/src/hivemind/wardens/ticks/README.md
+index 333fe75..9b007c2 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/README.md
++++ b/packages/hivemind/src/hivemind/wardens/ticks/README.md
+@@ -19,7 +19,9 @@ dispatch calls into these; none of them is a general-purpose module on its own).
+   runtime stopped, its link closed, its slot freed), shared with `results`, `control`,
+   `heartbeat`, `Warden.stop` and the quarantine path; a respawn keeps the slot for the fresh bee
+   (`keep_slot`). `resume_from_handoff`: a bee stopped at a Handoff its own Warden ordered is
+-  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot.
++  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot. A fresh
++  bee on a new attempt number (a respawn, a rebind, a Rebind or Takeover's recovery) is reported
++  to the Queen on a `TaskProgress(STARTED)`, so her next retry numbers past it.
+ - `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
+   `lease_creation` point.
+ - `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back; since
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/alarms.py b/packages/hivemind/src/hivemind/wardens/ticks/alarms.py
+index 93bd3e2..c2a21fd 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/alarms.py
++++ b/packages/hivemind/src/hivemind/wardens/ticks/alarms.py
+@@ -20,7 +20,10 @@ the pool first let a parked assignment start beside the respawned bee, one over
+ `resume_from_handoff` is the same hand-over for a bee that stopped at a Handoff its own Warden
+ ordered (its context size, or its own Handoff, Rebind or Takeover lever): the fresh bee resumes
+ from that Handoff on the binding and attempt the order names (`SubBee.successor`), where before
+-nothing started it and the task stayed RUNNING with no bee.
++nothing started it and the task stayed RUNNING with no bee. Every fresh bee that starts here as
++a new attempt (a respawn, a rebind, a Rebind or Takeover's recovery) reports its number to the
++Queen on a `TaskProgress(STARTED)`: `TaskAssign.attempt`'s own rule, which her next retry numbers
++past, where before she numbered it from her own count and the trail saw an attempt number twice.
+ 
+ Fits into the Hive:
+     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
+@@ -46,6 +49,8 @@ Key invariants:
+       task FAILED.
+     - A respawn's fresh bee takes its predecessor's slot, never a second one: the slot is kept
+       across the retire and released only if the Guard refuses the fresh bee's binding.
++    - A fresh bee on a new attempt number is reported to the Queen once, as it starts; a Handoff's
++      successor carries its predecessor's attempt on, so it reports nothing.
+     - `rebind_sub_bee` is the one place a fresh sub-bee is spawned on an explicit target binding
+       without the grant's own `allowed`-bindings search: `hivemind.wardens.ticks.control`'s own
+       Queen-driven REBIND path calls it with the binding key the Queen already resolved
+@@ -87,7 +92,7 @@ from waggle.ids import TaskId, new_alarm_id, new_event_id
+ from waggle.messages import AlarmSeverity
+ from waggle.messages.base import MAX_REASON_CHARS as WIRE_REASON_CHARS
+ from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
+-from waggle.messages.task import TaskAssign, TaskOutcome, TaskResult
++from waggle.messages.task import TaskAssign, TaskOutcome, TaskProgress, TaskResult, TaskStage
+ 
+ if TYPE_CHECKING:
+     from hivemind.wardens.spawn.sub_bee import SubBee
+@@ -281,7 +286,11 @@ async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
+     )
+     await retire_sub_bee(warden, sub_bee, keep_slot=True)
+     fresh = await _spawn_into_slot(warden, ctx, successor, order.binding or sub_bee.binding, None)
+-    if fresh is not None and fresh.binding != sub_bee.binding:
++    if fresh is None:
++        return  # The Guard refused the binding: the task is already reported FAILED.
++    if order.new_attempt:
++        await _report_attempt(warden, fresh)
++    if fresh.binding != sub_bee.binding:
+         # A rebind that landed, the one fact `llm.rebound` exists to record.
+         await _record_rebound(warden, sub_bee, fresh, warden_principal(warden._warden_id))
+ 
+@@ -298,7 +307,28 @@ async def _retire_and_spawn(
+     new_assignment = sub_bee.assignment.model_copy(
+         update={"attempt": sub_bee.attempt + 1, "resume_from": sub_bee.last_handoff}
+     )
+-    return await _spawn_into_slot(warden, ctx, new_assignment, binding, orderer)
++    fresh = await _spawn_into_slot(warden, ctx, new_assignment, binding, orderer)
++    if fresh is not None:
++        await _report_attempt(warden, fresh)
++    return fresh
++
++
++async def _report_attempt(warden: Warden, fresh: SubBee) -> None:
++    """Tell the Queen `fresh` started its task's next attempt here (`TaskAssign.attempt`'s rule).
++
++    The Queen owns the number on her own hops only: this one climbed past her last dispatch, and
++    her next retry must number past it, never back to a number the trail has already seen.
++    """
++    progress = TaskProgress(
++        task_id=fresh.task_id,
++        attempt=fresh.attempt,
++        stage=TaskStage.STARTED,
++        summary=f"Attempt {fresh.attempt} started by this Warden, on binding {fresh.binding}.",
++        clearance=fresh.assignment.clearance,
++        fraction_done=None,
++        handoff=None,
++    )
++    await warden._deps.queen_link.send(wrap(progress, warden._deps.hop, clock=warden._deps.clock))
+ 
+ 
+ async def _spawn_into_slot(
+diff --git a/packages/hivemind/tests/unit/queen/autopilot/test_table.py b/packages/hivemind/tests/unit/queen/autopilot/test_table.py
+index f5805f5..d1721c6 100644
+--- a/packages/hivemind/tests/unit/queen/autopilot/test_table.py
++++ b/packages/hivemind/tests/unit/queen/autopilot/test_table.py
+@@ -16,7 +16,7 @@ from builders.supervision import make_inbox_item, make_telemetry
+ from builders.tasks import make_task
+ 
+ from hivemind.brood_chamber import TaskStatus
+-from hivemind.queen.autopilot import QueenAction, decide
++from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
+ from hivemind.supervision import AlarmKind as HiveAlarmKind
+ from hivemind.supervision import EscalationPolicy, PolicyAction, PolicyRule
+ from hivemind.supervision.attendant import InboxKind
+@@ -76,6 +76,11 @@ def _no_rules_policy() -> EscalationPolicy:
+     return EscalationPolicy(rules=(), default=PolicyAction.ESCALATE)
+ 
+ 
++def _tally(attempts: int) -> AttemptTally:
++    # The Queen's own dispatches and the attempt number agree until a Warden respawns on its own.
++    return AttemptTally(made=attempts, latest=attempts)
++
++
+ def test_heartbeat_is_recorded() -> None:
+     clock = FakeClock()
+     heartbeat = Heartbeat(
+@@ -90,7 +95,9 @@ def test_heartbeat_is_recorded() -> None:
+     )
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=heartbeat)
+ 
+-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, None, _tally(0), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.RECORD
+ 
+@@ -101,7 +108,9 @@ def test_task_result_succeeded_completes_the_task() -> None:
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+     task = make_task(status=TaskStatus.RUNNING, clock=clock)
+ 
+-    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, task, _tally(1), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.COMPLETE_TASK
+ 
+@@ -112,7 +121,9 @@ def test_task_result_failed_retries_below_the_limit() -> None:
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+     task = make_task(status=TaskStatus.RUNNING, clock=clock)
+ 
+-    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, task, _tally(1), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.RETRY_TASK
+ 
+@@ -123,7 +134,9 @@ def test_task_result_failed_fails_once_attempts_reach_the_limit() -> None:
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+     task = make_task(status=TaskStatus.RUNNING, clock=clock)
+ 
+-    action = decide(item, task, 3, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, task, _tally(3), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.FAIL_TASK
+ 
+@@ -135,11 +148,53 @@ def test_failed_result_for_an_attempt_older_than_the_current_one_is_a_stale_reco
+ 
+     # The Queen already dispatched attempt 2 (its counter reads 2); attempt 1's own FAILED result
+     # landing afterwards must not dispatch a third attempt for the same single failure.
+-    action = decide(item, None, 2, _no_rules_policy(), _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(2), _no_rules_policy(), _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.RECORD
+ 
+ 
++def test_a_failed_result_numbered_below_a_warden_reported_attempt_is_a_stale_record() -> None:
++    clock = FakeClock()
++    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=2)
++    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
++
++    # One dispatch of the Queen's, but its Warden already reported attempt 3 (its own respawn):
++    # attempt 2's FAILED result is history however few dispatches the Queen herself made.
++    action = decide(item, None, AttemptTally(made=1, latest=3), _no_rules_policy(), _DEFAULT_LIMIT)
++
++    assert action is QueenAction.RECORD
++
++
++def test_the_ceiling_counts_the_queens_own_dispatches_never_the_attempt_number() -> None:
++    clock = FakeClock()
++    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=5)
++    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
++
++    # Attempt 5, after its Warden's own four respawns, is still the Queen's first dispatch.
++    action = decide(item, None, AttemptTally(made=1, latest=5), _no_rules_policy(), 3)
++
++    assert action is QueenAction.RETRY_TASK
++
++
++def test_an_alarm_climbs_the_queens_rungs_by_her_own_dispatches() -> None:
++    clock = FakeClock()
++    alarm = _make_alarm(clock, kind=AlarmKind.WORKER_CRASHED)
++    item = make_inbox_item(InboxKind.ALARM, clock=clock, payload=alarm)
++    crashed = HiveAlarmKind.WORKER_CRASHED
++    policy = EscalationPolicy(
++        rules=(
++            PolicyRule(kind=crashed, min_attempts=1, action=PolicyAction.RETRY),
++            PolicyRule(kind=crashed, min_attempts=2, action=PolicyAction.REBIND),
++        ),
++        default=PolicyAction.ESCALATE,
++    )
++
++    # Its Warden's own respawns reached attempt 4; the Queen's first rung is still the one due.
++    action = decide(item, None, AttemptTally(made=1, latest=4), policy, _DEFAULT_LIMIT)
++
++    assert action is QueenAction.RETRY_TASK
++
++
+ def test_acceptance_failed_alarm_is_recorded_its_paired_failed_result_decides() -> None:
+     clock = FakeClock()
+     alarm = _make_alarm(clock, kind=AlarmKind.ACCEPTANCE_FAILED)
+@@ -155,7 +210,7 @@ def test_acceptance_failed_alarm_is_recorded_its_paired_failed_result_decides()
+ 
+     # Even with a policy row that would retry, the Alarm is only recorded: the Warden that raised
+     # it reports TaskResult(FAILED) for the same attempt, and that result carries the decision.
+-    action = decide(item, None, 1, retry_policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), retry_policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.RECORD
+ 
+@@ -166,7 +221,9 @@ def test_task_result_for_an_already_terminal_task_is_a_stale_record() -> None:
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+     task = make_task(status=TaskStatus.SUCCEEDED, clock=clock)
+ 
+-    action = decide(item, task, 5, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, task, _tally(5), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.RECORD
+ 
+@@ -182,7 +239,7 @@ def test_alarm_retry_action_maps_to_retry_task() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.RETRY_TASK
+ 
+@@ -200,7 +257,7 @@ def test_alarm_respawn_action_also_maps_to_retry_task() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.RETRY_TASK
+ 
+@@ -218,7 +275,7 @@ def test_alarm_rebind_action_maps_to_rebind() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.REBIND
+ 
+@@ -236,7 +293,7 @@ def test_alarm_escalate_action_maps_to_escalate_to_human() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.ESCALATE_TO_HUMAN
+ 
+@@ -254,7 +311,7 @@ def test_alarm_cancel_action_maps_to_fail_task() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.FAIL_TASK
+ 
+@@ -268,7 +325,7 @@ def test_alarm_takeover_action_maps_to_escalate_to_human() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.ESCALATE_TO_HUMAN
+ 
+@@ -287,7 +344,7 @@ def test_alarm_escalates_once_attempts_reach_the_limit_even_if_policy_would_retr
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, None, 2, policy, 2)
++    action = decide(item, None, _tally(2), policy, 2)
+ 
+     assert action is QueenAction.ESCALATE_TO_HUMAN
+ 
+@@ -304,7 +361,7 @@ def test_alarm_for_an_already_terminal_task_is_a_stale_record() -> None:
+         default=PolicyAction.ESCALATE,
+     )
+ 
+-    action = decide(item, task, 1, policy, _DEFAULT_LIMIT)
++    action = decide(item, task, _tally(1), policy, _DEFAULT_LIMIT)
+ 
+     assert action is QueenAction.RECORD
+ 
+@@ -322,7 +379,9 @@ def test_question_blocks_on_question() -> None:
+     )
+     item = make_inbox_item(InboxKind.QUESTION, clock=clock, payload=question)
+ 
+-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, None, _tally(0), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.BLOCK_ON_QUESTION
+ 
+@@ -339,7 +398,9 @@ def test_answer_routes_the_answer() -> None:
+     )
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=answer)
+ 
+-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, None, _tally(0), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.ROUTE_ANSWER
+ 
+@@ -348,7 +409,9 @@ def test_an_unrecognised_payload_needs_judgement() -> None:
+     clock = FakeClock()
+     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=object())
+ 
+-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
++    action = decide(
++        item, None, _tally(0), EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3
++    )
+ 
+     assert action is QueenAction.NEEDS_JUDGEMENT
+ 
+@@ -360,4 +423,4 @@ def test_a_human_message_always_needs_judgement() -> None:
+     item = make_inbox_item(InboxKind.HUMAN_MESSAGE, clock=clock, payload=message)
+     policy = EscalationPolicy(rules=(), default=PolicyAction.RETRY)
+ 
+-    assert decide(item, None, 0, policy, 3) is QueenAction.NEEDS_JUDGEMENT
++    assert decide(item, None, _tally(0), policy, 3) is QueenAction.NEEDS_JUDGEMENT
+diff --git a/packages/hivemind/tests/unit/queen/test_queen_alarms.py b/packages/hivemind/tests/unit/queen/test_queen_alarms.py
+index 58ff3c8..e8c5108 100644
+--- a/packages/hivemind/tests/unit/queen/test_queen_alarms.py
++++ b/packages/hivemind/tests/unit/queen/test_queen_alarms.py
+@@ -26,6 +26,7 @@ import asyncio
+ import dataclasses
+ from collections.abc import Awaitable, Callable
+ 
++import pytest
+ from builders.queen import make_queen_deps, plan_responder
+ 
+ from hivemind.brood_chamber import TaskStatus
+@@ -35,11 +36,11 @@ from hivemind.pheromone import TrailQuery
+ from hivemind.queen.deps import QueenDeps
+ from hivemind.queen.queen import Queen
+ from waggle.clock import Clock
+-from waggle.ids import TaskId, new_alarm_id, new_worker_id
++from waggle.ids import TaskId, WardenId, new_alarm_id, new_worker_id
+ from waggle.messages import AlarmSeverity
+ from waggle.messages.labels import HoneyClearance as WireHoneyClearance
+ from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised, InterventionAction
+-from waggle.messages.task import TaskOutcome, TaskResult
++from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
+ 
+ 
+ def _single_task_plan(goal: str) -> dict[str, object]:
+@@ -167,6 +168,77 @@ async def test_a_task_failed_on_an_alarm_is_cancelled_on_its_warden() -> None:
+     await warden_end.close()
+ 
+ 
++@pytest.mark.parametrize("trigger", ["escalated_alarm", "failed_result"])
++async def test_a_retry_numbers_its_attempt_past_every_attempt_the_warden_reported(
++    trigger: str,
++) -> None:
++    """The Queen's retry never reuses an attempt number the Warden has already run.
++
++    The Warden respawned the task twice on its own, as attempts 2 and 3, reporting each on
++    task.progress (TaskAssign.attempt's own rule), before it escalated or reported the task
++    FAILED; her retry used to go out as attempt 2 again. It now goes out past the highest attempt
++    reported, while her decision still reads her own count: a first retry, not the human.
++    """
++    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
++    deps, link, warden_end = make_queen_deps(fake_provider=provider)
++    queen = Queen(deps)
++    await queen.attach_warden(link)
++    await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
++    first = await warden_end.wait_for_assignment()
++    run_task = asyncio.ensure_future(queen.run())
++    for attempt in (2, 3):
++        await warden_end.send(_started(first.task_id, attempt))
++    await _wait_until(lambda: _noted(queen, first.task_id, 3))
++
++    if trigger == "escalated_alarm":
++        await warden_end.send(
++            _alarm(deps.clock, kind=AlarmKind.WORKER_CRASHED, task_id=first.task_id)
++        )
++    else:
++        await warden_end.send(_failed(first.task_id, attempt=3, checked_by=link.warden_id))
++    await asyncio.wait_for(warden_end.pump_until(lambda: len(warden_end.assignments) >= 2), 5.0)
++    await queen.stop()
++    await asyncio.wait_for(run_task, timeout=5.0)
++
++    assert warden_end.assignments[1].attempt == 4
++    assert not queen.human_inbox.alarms
++    await warden_end.close()
++
++
++def _started(task_id: TaskId, attempt: int) -> TaskProgress:
++    """A Warden's report that `attempt` of `task_id` started: a local respawn it made."""
++    return TaskProgress(
++        task_id=task_id,
++        attempt=attempt,
++        stage=TaskStage.STARTED,
++        summary=f"Respawned as attempt {attempt}.",
++        clearance=WireHoneyClearance.C1,
++        fraction_done=None,
++        handoff=None,
++    )
++
++
++def _failed(task_id: TaskId, *, attempt: int, checked_by: WardenId) -> TaskResult:
++    """A Warden's verified TaskResult(FAILED) for `attempt` of `task_id`."""
++    return TaskResult(
++        task_id=task_id,
++        attempt=attempt,
++        outcome=TaskOutcome.FAILED,
++        summary="The role crashed.",
++        clearance=WireHoneyClearance.C1,
++        artifacts=(),
++        checked_by=checked_by,
++        handoff=None,
++        spend=0.0,
++        reason="Cancelled after WORKER_CRASHED.",
++    )
++
++
++async def _noted(queen: Queen, task_id: TaskId, attempt: int) -> bool:
++    """True once the Queen has taken `attempt` of `task_id` as the highest reported so far."""
++    return queen._attempts.tally(task_id).latest == attempt
++
++
+ async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 200) -> None:
+     """Yield the event loop until `condition()` (an async callable) is True, or give up."""
+     for _ in range(limit):
+diff --git a/packages/hivemind/tests/unit/queen/test_queen_quarantine.py b/packages/hivemind/tests/unit/queen/test_queen_quarantine.py
+index 18c3dc3..8a90b63 100644
+--- a/packages/hivemind/tests/unit/queen/test_queen_quarantine.py
++++ b/packages/hivemind/tests/unit/queen/test_queen_quarantine.py
+@@ -33,7 +33,7 @@ from hivemind.brood_chamber import TaskStatus
+ from hivemind.cell import HoneyClearance
+ from hivemind.llm import FakeLLMProvider
+ from hivemind.pheromone import TrailQuery
+-from hivemind.queen.autopilot import QueenAction, decide
++from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
+ from hivemind.queen.deps import QueenDeps
+ from hivemind.queen.quarantine import hold_task
+ from hivemind.queen.queen import Queen
+@@ -230,7 +230,7 @@ def test_the_queens_table_pauses_on_a_held_report_and_records_every_other_stage(
+ 
+     def decided(progress: TaskProgress, task: object) -> QueenAction:
+         item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, payload=progress, task_id=progress.task_id)
+-        return decide(item, task, 1, policy, 3)  # type: ignore[arg-type]
++        return decide(item, task, AttemptTally(1, 1), policy, 3)  # type: ignore[arg-type]
+ 
+     assert decided(_held(running.id), running) is QueenAction.PAUSE_TASK
+     assert decided(_held(running.id, TaskStage.WORKING), running) is QueenAction.RECORD
+diff --git a/packages/hivemind/tests/unit/supervision/test_policy_tables.py b/packages/hivemind/tests/unit/supervision/test_policy_tables.py
+index 95d6df8..1177d84 100644
+--- a/packages/hivemind/tests/unit/supervision/test_policy_tables.py
++++ b/packages/hivemind/tests/unit/supervision/test_policy_tables.py
+@@ -26,7 +26,7 @@ from __future__ import annotations
+ import pytest
+ from builders.supervision import make_inbox_item
+ 
+-from hivemind.queen.autopilot import QueenAction
++from hivemind.queen.autopilot import AttemptTally, QueenAction
+ from hivemind.queen.autopilot import decide as queen_decide
+ from hivemind.supervision import (
+     Alarm,
+@@ -100,7 +100,7 @@ def test_the_wardens_table_has_a_row_for_every_policy_action(action: PolicyActio
+ def test_the_queens_table_has_a_row_for_every_policy_action(action: PolicyAction) -> None:
+     item = _item(_alarm(WireAlarmKind.OTHER))
+ 
+-    decided = queen_decide(item, None, 1, _one_row(action), _LIMIT)
++    decided = queen_decide(item, None, AttemptTally(1, 1), _one_row(action), _LIMIT)
+ 
+     assert isinstance(decided, QueenAction)
+     assert decided is not QueenAction.NEEDS_JUDGEMENT
+@@ -113,7 +113,9 @@ def test_quarantine_maps_to_each_levels_own_lever() -> None:
+     assert warden_decide(item, _SUB_BEE, policy) is WardenAction.QUARANTINE
+     # About no sub-bee this Warden supervises: nobody to quarantine, so the Queen decides.
+     assert warden_decide(item, None, policy) is WardenAction.ESCALATE
+-    assert queen_decide(item, None, 1, policy, _LIMIT) is QueenAction.QUARANTINE_BEE
++    assert (
++        queen_decide(item, None, AttemptTally(1, 1), policy, _LIMIT) is QueenAction.QUARANTINE_BEE
++    )
+ 
+ 
+ def test_isolate_is_the_queens_lever_and_a_warden_sends_it_up() -> None:
+@@ -121,7 +123,7 @@ def test_isolate_is_the_queens_lever_and_a_warden_sends_it_up() -> None:
+     item = _item(_alarm(WireAlarmKind.OTHER))
+ 
+     # Roadmap step 10.6a: only the Queen isolates; a Warden that met the row escalates.
+-    assert queen_decide(item, None, 1, policy, _LIMIT) is QueenAction.ISOLATE_CELL
++    assert queen_decide(item, None, AttemptTally(1, 1), policy, _LIMIT) is QueenAction.ISOLATE_CELL
+     assert warden_decide(item, _SUB_BEE, policy) is WardenAction.ESCALATE
+ 
+ 
+@@ -142,5 +144,7 @@ def test_a_security_alarm_always_goes_up_never_retried_or_rebound() -> None:
+         assert policy_decide(shipped, Alarm.from_wire(alarm)) is PolicyAction.ESCALATE
+         view = SubBeeView(state=WorkerState.RUNNING, attempt=max(attempts, 1))
+         assert warden_decide(_item(alarm), view, shipped) is WardenAction.ESCALATE
+-        decided = queen_decide(_item(alarm), None, attempts, shipped, _LIMIT)
++        decided = queen_decide(
++            _item(alarm), None, AttemptTally(attempts, attempts), shipped, _LIMIT
++        )
+         assert decided is QueenAction.ESCALATE_TO_HUMAN
+diff --git a/packages/hivemind/tests/unit/wardens/test_warden_successors.py b/packages/hivemind/tests/unit/wardens/test_warden_successors.py
+index 23a7e83..5d4fb0b 100644
+--- a/packages/hivemind/tests/unit/wardens/test_warden_successors.py
++++ b/packages/hivemind/tests/unit/wardens/test_warden_successors.py
+@@ -52,7 +52,7 @@ from hivemind.workers.state import WorkerState
+ from waggle.clock import FakeClock
+ from waggle.ids import TaskId, new_grant_id
+ from waggle.messages.supervision import Intervene, InterventionAction
+-from waggle.messages.task import TaskAssign, TaskCancel, TaskOutcome, TaskPause
++from waggle.messages.task import TaskAssign, TaskCancel, TaskOutcome, TaskPause, TaskStage
+ 
+ _WORKER_BEAT_S = 1.0  # Each sub-bee's own cadence.
+ _WARDEN_BEAT_S = 10.0  # The Warden's own: its context check rides this one.
+@@ -344,6 +344,22 @@ async def test_a_queen_retry_replaces_the_escalated_failed_row(cap: int) -> None
+     await _stop(scene)
+ 
+ 
++async def test_a_local_respawn_reports_its_attempt_to_the_queen_and_the_trail() -> None:
++    # TaskAssign.attempt's own rule: a Warden-local respawn keeps the number and reports it on the
++    # next task.progress, so the Queen's retry can number past it; worker.spawned names it too.
++    first = make_assignment()
++    scene = await _start(_crash_on(1), first)
++    await settle(lambda: [row.attempt for row in _rows(scene.warden, first.task_id)] == [2])
++
++    await asyncio.wait_for(scene.queen.pump_until(lambda: bool(scene.queen.progress)), 5.0)
++
++    [report] = scene.queen.progress
++    assert (report.task_id, report.attempt, report.stage) == (first.task_id, 2, TaskStage.STARTED)
++    spawned = await scene.warden._deps.trail.query(TrailQuery(kind="worker.spawned"))
++    assert [event.payload["attempt"] for event in spawned] == [1, 2]
++    await _stop(scene)
++
++
+ async def test_a_local_respawn_keeps_the_tasks_slot() -> None:
+     # The first attempt crashes; the Warden's own policy respawns it as attempt 2, in its slot.
+     first = make_assignment()
+-- 
+2.43.0
+
+
+From d553dc35367a95e426ddb3d4390c5df0e05b0581 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 01:52:00 +0000
+Subject: [PATCH 4/5] fix(workers,wardens): a Drone reports its context every
+ model round
+
+A Drone recorded its tokens once, after its tool loop had ended, so no
+crossing could ever end the attempt that made it: neither its own
+threshold check between tool calls nor its Warden's context check, which
+reads each Heartbeat, saw the context mid-loop. Every round now records
+its own usage through the call gate the loop already calls: the context
+is the latest round's (its input is the whole conversation so far), the
+spend the sum of every round's.
+
+The tracked context is cleared when an episode hands off and when a
+fresh one starts, so no Heartbeat reports a finished episode's window as
+a running bee's; and the Warden orders a compact once per crossing,
+since each Heartbeat of a long tool call would otherwise repeat it and
+one read late would reset the fresh episode too.
+
+An e2e runs a real Drone on the Hive Stand whose first round fills its
+window with no lever pulled: past the threshold it resets itself, short
+of it its Warden orders the compact; the resumed episode finishes.
+
+Claude-Session: https://claude.ai/code/session_01EKZW22X7GB1ADCG4ApBsA8
+---
+ .../src/hivemind/wardens/spawn/sub_bee.py     |   5 +
+ .../src/hivemind/wardens/ticks/README.md      |   3 +-
+ .../src/hivemind/wardens/ticks/heartbeat.py   |  13 +-
+ .../hivemind/src/hivemind/workers/README.md   |   6 +-
+ .../hivemind/workers/roles/drone/__init__.py  |   6 +-
+ .../workers/roles/drone/outcome/executor.py   |   3 +
+ .../src/hivemind/workers/roles/drone/role.py  |  57 +++++---
+ .../src/hivemind/workers/runtime/attempt.py   |   2 +
+ .../src/hivemind/workers/telemetry.py         |   4 +
+ .../hivemind/tests/e2e/test_context_reset.py  | 134 ++++++++++++++++++
+ .../tests/e2e/test_handoff_successor.py       |   9 +-
+ .../tests/e2e/test_kernel_on_hive_stand.py    |  11 +-
+ .../unit/wardens/ticks/test_heartbeat.py      |  20 +++
+ .../unit/workers/roles/drone/test_role.py     |  45 +++++-
+ .../unit/workers/runtime/test_attempt.py      |  41 +++++-
+ 15 files changed, 314 insertions(+), 45 deletions(-)
+ create mode 100644 packages/hivemind/tests/e2e/test_context_reset.py
+
+diff --git a/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py b/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py
+index 92623b7..6938d93 100644
+--- a/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py
++++ b/packages/hivemind/src/hivemind/wardens/spawn/sub_bee.py
+@@ -124,6 +124,10 @@ class SubBee:
+         successor: What starts once the bee stops, when this Warden itself ordered it to stop at a
+             Handoff (its context check, or its own Handoff, Rebind or Takeover lever); cleared
+             when the Queen pauses the task. None otherwise. Read by `awaits_successor`.
++        compact_ordered: True once this Warden's context check ordered the bee to compact, until
++            a Heartbeat reads its context back under the compact line: one order per crossing,
++            never one per Heartbeat, so an order read late never lands on the fresh episode that
++            already acted on it.
+     """
+ 
+     worker_id: WorkerId
+@@ -142,6 +146,7 @@ class SubBee:
+     spawned_event_id: EventId | None = field(default=None)
+     cancelled: bool = field(default=False)
+     successor: SuccessorOrder | None = field(default=None)
++    compact_ordered: bool = field(default=False)
+ 
+     @property
+     def has_ended(self) -> bool:
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/README.md b/packages/hivemind/src/hivemind/wardens/ticks/README.md
+index 9b007c2..e4f2478 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/README.md
++++ b/packages/hivemind/src/hivemind/wardens/ticks/README.md
+@@ -35,7 +35,8 @@ dispatch calls into these; none of them is a general-purpose module on its own).
+   attempt).
+ - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
+   Heartbeat says it has ended with nothing more to send, or starting its successor when the
+-  Warden's own context check had ordered it to hand off), watch for a stall,
++  Warden's own context check had ordered it to hand off; a compact is ordered once per crossing,
++  since a bee reports its context every model round), watch for a stall,
+   and build the `HotStateSources` an awake episode reads -- including `wax(cells)` (roadmap step
+   4.2a), WRITTEN Cell Wax for the given Cells, capped per Cell the same way
+   `hivemind.queen.awake.episode.QueenSources.wax` is.
+diff --git a/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py b/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py
+index 13d69ac..af96301 100644
+--- a/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py
++++ b/packages/hivemind/src/hivemind/wardens/ticks/heartbeat.py
+@@ -27,7 +27,9 @@ run on this same heartbeat cadence: it compares every sub-bee's own last reporte
+ intervention_kind_for` -- the pure rule shared with `hivemind.queen.ticks.context.intervention_for`
+ -- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any running sub-bee past its
+ own threshold, mirroring the Queen's own watch over this Warden ("Wardens do the same to
+-sub-bees"); never to one already stopping, cancelled, or on a task the Queen has paused.
++sub-bees"); never to one already stopping, cancelled, or on a task the Queen has paused, and a
++compact once per crossing: a bee reports its context every round now, so each Heartbeat of a long
++tool call would otherwise repeat the order, and one read late would reset the fresh episode too.
+ `compact_view` (roadmap step 4.6) now builds a size-capped `CompactView` through `hivemind.memory.
+ thresholds.capped_compact_view` rather than the raw telemetry fields. `announce_freeze` sends this
+ same Heartbeat early, declaring a longer interval, right before a relayed snapshot freezes the
+@@ -240,8 +242,11 @@ async def check_sub_bee_context(warden: Warden) -> None:
+         if sub_bee.last_telemetry is None or not _takes_context_orders(warden, sub_bee):
+             continue
+         kind = intervention_kind_for(sub_bee.last_telemetry, thresholds)
+-        if kind is not None:
+-            await _send_context_intervene(warden, sub_bee, kind)
++        if kind is None or (kind is InterventionKind.COMPACT and sub_bee.compact_ordered):
++            # Under both lines (a new crossing may be ordered again), or already told to compact.
++            sub_bee.compact_ordered = kind is not None
++            continue
++        await _send_context_intervene(warden, sub_bee, kind)
+ 
+ 
+ def _takes_context_orders(warden: Warden, sub_bee: SubBee) -> bool:
+@@ -280,6 +285,8 @@ async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: Interve
+     if action is InterventionAction.HANDOFF:
+         # The bee stops once its Handoff is written; this Warden starts the bee that resumes it.
+         sub_bee.successor = SuccessorOrder()
++    else:
++        sub_bee.compact_ordered = True  # Once per crossing (module docstring).
+     hop = Hop(
+         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
+     )
+diff --git a/packages/hivemind/src/hivemind/workers/README.md b/packages/hivemind/src/hivemind/workers/README.md
+index 691f4f8..ef202c4 100644
+--- a/packages/hivemind/src/hivemind/workers/README.md
++++ b/packages/hivemind/src/hivemind/workers/README.md
+@@ -20,8 +20,10 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
+   `lease` (a `LeaseView` onto the Warden's Real Cell lease) and `call_gate` (the seam every model
+   call passes through -- a `FannerLane` or a bare `DirectCallGate`).
+ - `telemetry.py` -- `TelemetryTracker`: the mutable per-Worker `ContextTelemetry` a role writes
+-  between turns and the runtime reads for every `Heartbeat`; also the `cancel_requested`/
+-  `handoff_requested` flags and the `wait_if_paused()` a role's own turn loop cooperates with.
++  as it works (a Drone every model round) and the runtime reads for every `Heartbeat`; its
++  context is cleared when an episode hands off and when a fresh one starts; also the
++  `cancel_requested`/`handoff_requested` flags and the `wait_if_paused()` a role's own turn loop
++  cooperates with.
+   `note_alarm`/`take_pending_alarms`/`PendingAlarm`: a small queue a tool's own call into Capping
+   (`hivemind.workers.tools.proposals.cap`, on a rollback) notes an Alarm onto, with no handle on
+   the runtime; the runtime drains it into a real `AlarmRaised` every tick, and also right before
+diff --git a/packages/hivemind/src/hivemind/workers/roles/drone/__init__.py b/packages/hivemind/src/hivemind/workers/roles/drone/__init__.py
+index bcc2242..aa80e6a 100644
+--- a/packages/hivemind/src/hivemind/workers/roles/drone/__init__.py
++++ b/packages/hivemind/src/hivemind/workers/roles/drone/__init__.py
+@@ -28,9 +28,9 @@ Key invariants:
+     - `Drone.run` never calls `ctx.capping`, `ctx.session` or `ctx.asker` directly: every tool call
+       goes through the registry `hivemind.workers.tools.build_registry` built, so a role's own code
+       never re-implements what a tool already owns.
+-    - `run_tool_loop` exposes no per-round telemetry hook; this attempt's tokens and spend are
+-      recorded on `ctx.telemetry` exactly once, from the loop's own summed `Usage`, after it
+-      returns (flagged as a deviation from the roadmap's per-round phrasing in this step's report).
++    - Every model round records its own tokens and spend on `ctx.telemetry` as it lands, through
++      the call gate `run_tool_loop` already calls (`role._MeteredGate`), so the threshold check
++      between tool calls and the Warden's own context check both see the context mid-loop.
+ 
+ See Also:
+     - .claude/codingrules.md section 8.7 for "a Worker never marks itself SUCCEEDED."
+diff --git a/packages/hivemind/src/hivemind/workers/roles/drone/outcome/executor.py b/packages/hivemind/src/hivemind/workers/roles/drone/outcome/executor.py
+index 14709dd..d6470ac 100644
+--- a/packages/hivemind/src/hivemind/workers/roles/drone/outcome/executor.py
++++ b/packages/hivemind/src/hivemind/workers/roles/drone/outcome/executor.py
+@@ -133,6 +133,9 @@ class _RecordingExecutor:
+             # Remember the call this attempt was about to make but never ran, so a Handoff's own
+             # open_threads can name what was in progress when it checkpointed.
+             self.pending_call = call
++            # Its context ends here: a Heartbeat sent while the Handoff is written must not read
++            # the old figure as a running bee's, or its Warden orders a handoff already under way.
++            self._telemetry.clear_context()
+             raise HandoffRequestedError()
+         content = await self._registry.execute(self._invocation, call)
+         is_error = classify_error(call.name, content)
+diff --git a/packages/hivemind/src/hivemind/workers/roles/drone/role.py b/packages/hivemind/src/hivemind/workers/roles/drone/role.py
+index b1e8f13..e0e5cb7 100644
+--- a/packages/hivemind/src/hivemind/workers/roles/drone/role.py
++++ b/packages/hivemind/src/hivemind/workers/roles/drone/role.py
+@@ -12,7 +12,12 @@ model" step runs through `hivemind.memory.run_with_overflow_retry`, so a provide
+ starting budget and retries, rather than crashing this attempt; past `MAX_OVERFLOWS` it raises
+ `hivemind.memory.overflow.ContextOverflowError`, which this class lets propagate uncaught, exactly
+ like any other role bug -- `hivemind.workers.runtime.attempt.AttemptManager`'s own existing
+-crash-to-Alarm path is "the Drone's existing path" roadmap step 4.4 asks it to use.
++crash-to-Alarm path is "the Drone's existing path" roadmap step 4.4 asks it to use. Every model
++round records its own usage on `ctx.telemetry` the moment it lands (`_MeteredGate`, the call gate
++the loop already calls through), so the threshold check between tool calls (codingrules 8.9: the
++bee "checkpoints and resets itself") and its Warden's own context check, reading each Heartbeat,
++both see the context as it stands mid-loop. It used to be recorded once, after the loop, where no
++crossing could ever end the very attempt that made it.
+ 
+ Fits into the Hive:
+     Layer 4 (roles that do the work). Instantiated by a Warden's `worker_factory` (roadmap
+@@ -27,6 +32,8 @@ Key invariants:
+     - A `ContextTooLongError` never crashes this attempt (roadmap step 4.4): it is caught and
+       retried, with a shrunk budget, inside `run_with_overflow_retry`; only `ContextOverflowError`
+       (after `MAX_OVERFLOWS` retries) ever escapes `run`.
++    - The tracked context is always the latest round's own (its input is the whole conversation so
++      far, its output joins it), never a sum across rounds; spend is the sum of every round's.
+ 
+ See Also:
+     - .claude/codingrules.md sections 5.4, 8.8, 8.9 and 8.12.
+@@ -36,7 +43,16 @@ See Also:
+ 
+ from __future__ import annotations
+ 
+-from hivemind.llm import ToolLoopOptions, ToolLoopResult, TrailLadderObserver, run_tool_loop
++from hivemind.llm import (
++    BoundModel,
++    CallGate,
++    LLMRequest,
++    LLMResponse,
++    ToolLoopOptions,
++    ToolLoopResult,
++    TrailLadderObserver,
++    run_tool_loop,
++)
+ from hivemind.memory import Handoff, TokenBudget, run_with_overflow_retry
+ from hivemind.workers.base import WorkerOutcome
+ from hivemind.workers.context import WorkerContext
+@@ -53,6 +69,7 @@ from hivemind.workers.roles.drone.prompt import (
+     initial_drone_budget,
+ )
+ from hivemind.workers.roles.drone.sources import DroneSources
++from hivemind.workers.telemetry import TelemetryTracker
+ from hivemind.workers.tools import ToolInvocation, build_registry
+ from waggle.messages.task import TaskAssign, WorkerRole
+ 
+@@ -106,9 +123,9 @@ class Drone:
+         observer = TrailLadderObserver(
+             ctx.trail, ctx.identity.hive_id, ctx.identity.node_id, ctx.identity.actor, ctx.clock
+         )
+-        options = ToolLoopOptions(
+-            max_rounds=self._max_rounds, gate=ctx.call_gate, observer=observer
+-        )
++        # Every round records its own context size as it lands (module docstring), never after.
++        gate = _MeteredGate(ctx.call_gate, ctx.telemetry)
++        options = ToolLoopOptions(max_rounds=self._max_rounds, gate=gate, observer=observer)
+ 
+         async def _attempt(budget: TokenBudget) -> ToolLoopResult:
+             """Assemble this attempt's prompt at `budget` and run the tool loop once."""
+@@ -129,19 +146,25 @@ class Drone:
+             # This attempt's own telemetry asked to checkpoint; hand back a Handoff instead of a
+             # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it.
+             return await build_handoff_outcome(ctx, assignment, executor)
+-        _record_usage(ctx, result)
+         artifacts = await collect_artifacts(ctx, executor.records)
+         return build_claimed_outcome(assignment, result, artifacts)
+ 
+ 
+-def _record_usage(ctx: WorkerContext, result: ToolLoopResult) -> None:
+-    """Record this attempt's aggregated tokens and spend on telemetry, once, after the loop ends.
+-
+-    `hivemind.llm.run_tool_loop` exposes no per-round hook a caller could record from between
+-    turns (this package's own module docstring), so this records the loop's one summed `Usage`
+-    instead of one entry per round.
+-    """
+-    used = result.usage.input_tokens + result.usage.output_tokens
+-    ctx.telemetry.record_tokens(used, ctx.bound.context_window)
+-    if result.usage.cost_usd is not None:
+-        ctx.telemetry.add_spend(result.usage.cost_usd)
++class _MeteredGate:
++    """The attempt's own call gate: every model call goes through `inner`, then onto telemetry."""
++
++    def __init__(self, inner: CallGate, telemetry: TelemetryTracker) -> None:
++        """Wrap `inner` (the Warden's seat meter, or a direct gate) for one attempt's tool loop."""
++        self._inner = inner
++        self._telemetry = telemetry
++
++    async def complete(self, bound: BoundModel, request: LLMRequest) -> LLMResponse:
++        """Make one call through the wrapped gate, then record the context it leaves behind."""
++        response = await self._inner.complete(bound, request)
++        # One round's input is the whole conversation so far and its output joins it: together
++        # the context this attempt now holds, against the window of whichever binding answered.
++        used = response.usage.input_tokens + response.usage.output_tokens
++        self._telemetry.record_tokens(used, bound.context_window)
++        if response.usage.cost_usd is not None:
++            self._telemetry.add_spend(response.usage.cost_usd)
++        return response
+diff --git a/packages/hivemind/src/hivemind/workers/runtime/attempt.py b/packages/hivemind/src/hivemind/workers/runtime/attempt.py
+index f94c8aa..e4866bd 100644
+--- a/packages/hivemind/src/hivemind/workers/runtime/attempt.py
++++ b/packages/hivemind/src/hivemind/workers/runtime/attempt.py
+@@ -141,6 +141,8 @@ class AttemptManager:
+         """
+         runtime = self._runtime
+         runtime._ctx.telemetry.handoff_requested = False
++        # A fresh episode assembles its own prompt: the last one's context is not its to report.
++        runtime._ctx.telemetry.clear_context()
+         assignment = runtime._reporter.require_assignment()
+         self._role_task = asyncio.ensure_future(
+             runtime._worker.run(runtime._ctx, assignment, resume_from)
+diff --git a/packages/hivemind/src/hivemind/workers/telemetry.py b/packages/hivemind/src/hivemind/workers/telemetry.py
+index 04e4fe6..6a01ca1 100644
+--- a/packages/hivemind/src/hivemind/workers/telemetry.py
++++ b/packages/hivemind/src/hivemind/workers/telemetry.py
+@@ -136,6 +136,10 @@ class TelemetryTracker:
+         self._tokens_used = used
+         self._context_window = window
+ 
++    def clear_context(self) -> None:
++        """Forget the tracked context: the episode that held it is ending, and the next has none."""
++        self._tokens_used = 0
++
+     def record_action(self, text: str) -> None:
+         """Append one short description of what the role just did.
+ 
+diff --git a/packages/hivemind/tests/e2e/test_context_reset.py b/packages/hivemind/tests/e2e/test_context_reset.py
+new file mode 100644
+index 0000000..8d93e76
+--- /dev/null
++++ b/packages/hivemind/tests/e2e/test_context_reset.py
+@@ -0,0 +1,134 @@
++"""End-to-end: a real Drone whose context crosses the line mid-loop is handed off and finishes.
++
++A Drone records each model round's usage the moment it lands, so the context it reports is the one
++it holds now, mid-loop. This module runs the whole Hive Stand -- the Queen, the Hive Stand's own
++Warden and a real Drone over one scripted `FakeLLMProvider`, real SQLite, a real child process --
++where the Drone's first round alone fills its context, and nobody pulls a lever:
++
++- past the handoff threshold, the Drone checkpoints and resets itself before it runs the call that
++  round asked for (codingrules 8.9: a bee "checkpoints and resets itself");
++- between the compact line and the threshold, the bee's own check stays quiet; its Warden reads the
++  figure off a Heartbeat while a one-second command runs and orders a compact, which the bee
++  carries out at its next tool call ("its supervisor may order it earlier").
++
++Either way the episode that resumes from the Handoff writes the three haiku and the goal succeeds.
++Usage used to be recorded once the tool loop had ended: neither check ever saw the crossing, and
++the first episode ran on to its end holding a full window.
++
++Fits into the Hive:
++    Test infrastructure (codingrules section 14.2), not shipped.
++
++Key invariants:
++    - None: this module holds tests only.
++
++See Also:
++    - hivemind.workers.roles.drone.role for `_MeteredGate`, the per-round record this proves.
++    - hivemind.wardens.ticks.heartbeat for check_sub_bee_context, the Warden's own context check.
++    - tests.e2e.test_handoff_successor for the Warden's Handoff lever pulled by hand.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import sys
++from pathlib import Path
++
++import pytest
++from builders.cli import fake_manifest
++from e2e.kernel_helpers import (
++    HaikuScript,
++    WorkerTurn,
++    default_worker_turn,
++    text_response,
++    tool_response,
++    tool_round_count,
++    write_call,
++)
++
++from hivemind.cell import HoneyClearance
++from hivemind.cli.compose import Hive, build_hive, run_goal, run_hive
++from hivemind.llm import LLMRequest, LLMResponse, ProviderCapabilities, TextPart, Usage
++from hivemind.manifest import load_manifest
++from hivemind.pheromone import TrailQuery
++from waggle.clock import SystemClock
++
++pytestmark = pytest.mark.e2e
++
++_GOAL = "write three haiku about bees to separate files"
++_TIMEOUT_S = 20.0  # Generous: one busy second, a checkpoint and a resumed episode.
++_BUSY = [sys.executable, "-c", "import time; time.sleep(1)"]  # Long enough for a Warden's order.
++_FILES = ("haiku_1.txt", "haiku_2.txt", "haiku_3.txt")
++# hivemind.memory.hot_state.packing's own closing delimiter: the system prompt names the opening
++# one in its instructions, so only a Handoff actually rendered into the prompt carries this.
++_HANDOFF_BLOCK = "<<<end handoff>>>"
++_OWN_THRESHOLD = 0.9  # Past the manifest's handoff threshold (two thirds): the bee's own reset.
++_WARDENS_COMPACT = 0.55  # Past the Warden's compact line (half), short of the bee's own threshold.
++
++
++@pytest.mark.parametrize("capabilities", ("full", "none"))
++@pytest.mark.parametrize(
++    "fraction", (_OWN_THRESHOLD, _WARDENS_COMPACT), ids=("own_threshold", "wardens_compact")
++)
++def test_a_drone_whose_context_crosses_the_line_mid_loop_is_handed_off_and_finishes(
++    tmp_path: Path, capabilities: str, fraction: float
++) -> None:
++    resumed: list[bool] = []
++    script = HaikuScript(_filling_round(_window(capabilities), fraction, resumed))
++    hive = build_hive(
++        load_manifest(fake_manifest(tmp_path, capabilities=capabilities), {}),
++        environ={},
++        clock=SystemClock(),
++        responders={"fake": script.responder},
++    )
++
++    asyncio.run(_run(hive, resumed, reset_in_place=fraction == _WARDENS_COMPACT))
++
++
++def _window(capabilities: str) -> int:
++    """The fake binding's context window at `capabilities` (builders.cli's own two shapes)."""
++    full = capabilities == "full"
++    shape = ProviderCapabilities.full() if full else ProviderCapabilities.none()
++    return shape.context_window
++
++
++def _filling_round(window: int, fraction: float, resumed: list[bool]) -> WorkerTurn:
++    """The first episode's first round fills `fraction` of the window; a resumed one finishes."""
++
++    def worker_turn(request: LLMRequest) -> LLMResponse:
++        if _resumes(request):
++            resumed.append(True)
++            return default_worker_turn(request)
++        rounds = tool_round_count(request)
++        if rounds == 0:
++            busy = tool_response(request, (("busy", "run_command", {"argv": _BUSY}),))
++            usage = Usage(input_tokens=int(window * fraction), output_tokens=0)
++            return busy.model_copy(update={"usage": usage})
++        if rounds == 1:
++            # Reached only if nothing handed the episode off: it would finish the goal unreset.
++            return tool_response(request, tuple(write_call(name) for name in _FILES))
++        return text_response("Three haiku written.")
++
++    return worker_turn
++
++
++def _resumes(request: LLMRequest) -> bool:
++    """Whether `request` belongs to an episode resuming from a Handoff (its prompt carries one)."""
++    texts = [request.system or ""]
++    texts += [part.text for m in request.messages for part in m.parts if isinstance(part, TextPart)]
++    return any(_HANDOFF_BLOCK in text for text in texts)
++
++
++async def _run(hive: Hive, resumed: list[bool], *, reset_in_place: bool) -> None:
++    """Run the goal; check the crossing alone checkpointed it and a resumed episode finished."""
++    async with run_hive(hive):
++        report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
++    kinds = [event.kind for event in await hive.stores.trail.query(TrailQuery())]
++    assert report.succeeded, report
++    assert "worker.handing_off" in kinds, kinds
++    assert "memory.checkpoint" in kinds, kinds
++    assert resumed, "No episode ever resumed from the first one's Handoff."
++    assert "alarm.raised" not in kinds, kinds
++    if reset_in_place:
++        # A compact carries on in the same bee: its Warden's order, once, and no successor bee.
++        assert "worker.resumed" in kinds, kinds
++        assert kinds.count("worker.spawned") == 1, kinds
+diff --git a/packages/hivemind/tests/e2e/test_handoff_successor.py b/packages/hivemind/tests/e2e/test_handoff_successor.py
+index 40318f7..4a908c6 100644
+--- a/packages/hivemind/tests/e2e/test_handoff_successor.py
++++ b/packages/hivemind/tests/e2e/test_handoff_successor.py
+@@ -5,11 +5,10 @@ Warden pulls it on its own when a sub-bee's context passes the handoff threshold
+ stop and nothing followed it: the task sat RUNNING with no bee until the goal timed out. This
+ module runs the whole Hive Stand -- the Queen, the Hive Stand's own Warden and a real Drone over
+ one scripted `FakeLLMProvider`, real SQLite, a real child process -- and pulls the Warden's own
+-Handoff lever on the Drone while it is busy with a one-second command. The lever stands in for
+-the context check (the Drone records its tokens only once its tool loop has ended, so a real
+-crossing cannot be scripted inside the attempt it would end; scenario (e) of
+-`test_kernel_on_hive_stand` says the same). The first bee writes its Handoff and stops; its
+-successor resumes from it, writes the three haiku and the goal succeeds.
++Handoff lever on the Drone while it is busy with a one-second command: the one order that stops
++the bee and has its Warden start a fresh one (a context crossing resets the bee in place instead,
++`test_context_reset`). The first bee writes its Handoff and stops; its successor resumes from it,
++writes the three haiku and the goal succeeds.
+ 
+ Fits into the Hive:
+     Test infrastructure (codingrules section 14.2), not shipped.
+diff --git a/packages/hivemind/tests/e2e/test_kernel_on_hive_stand.py b/packages/hivemind/tests/e2e/test_kernel_on_hive_stand.py
+index efd4e52..f0a24a5 100644
+--- a/packages/hivemind/tests/e2e/test_kernel_on_hive_stand.py
++++ b/packages/hivemind/tests/e2e/test_kernel_on_hive_stand.py
+@@ -556,13 +556,10 @@ def test_a_drone_that_checkpoints_resumes_and_finishes_from_its_handoff(
+     triggering event at a quarter of the ordinary room.
+ 
+     An `Intervene(Checkpoint)`, scheduled the moment the very first WORKER-slot call is answered,
+-    is this suite's own closest true trigger: `hivemind.workers.telemetry.TelemetryTracker.
+-    should_hand_off` runs before every tool call, but the one call that ever records tokens
+-    (`hivemind.workers.roles.drone.role._record_usage`) only runs once an attempt's own tool loop
+-    has *already* finished, so a token-threshold crossing can never fire from *within* the very
+-    attempt whose own usage would cross it. `hive.warden.intervene` is the same lever a Queen- or
+-    Warden-driven REBIND/TAKEOVER pulls; see this dispatch's own report. Exactly which round the
+-    checkpoint actually lands on (before or after the first write commits) is not
++    is the lever pulled by hand; a real token-threshold crossing resetting the bee mid-loop is
++    `tests.e2e.test_context_reset`'s own scenario. `hive.warden.intervene` is the same lever a
++    Queen- or Warden-driven REBIND/TAKEOVER pulls; see this dispatch's own report. Exactly which
++    round the checkpoint actually lands on (before or after the first write commits) is not
+     deterministic -- there is no synchronous signal this suite can await between "the model asked
+     to write" and "the write landed" without reaching into the runtime's own internals -- so the
+     script itself is idempotent to either outcome: a fresh attempt's own round 0 always writes
+diff --git a/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py b/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py
+index d59c43b..2874d65 100644
+--- a/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py
++++ b/packages/hivemind/tests/unit/wardens/ticks/test_heartbeat.py
+@@ -114,6 +114,26 @@ async def test_check_sub_bee_context_sends_handoff_past_handoff_threshold() -> N
+     assert payload.action is InterventionAction.HANDOFF
+ 
+ 
++async def test_check_sub_bee_context_orders_a_compact_once_per_crossing() -> None:
++    deps, _queen_end, warden_id = make_warden_deps()
++    warden = Warden(warden_id, deps)
++    sub_bee_end = _insert_sub_bee(warden, None)
++    [sub_bee] = warden._sub_bees.values()
++
++    # Three Heartbeats of one long tool call past the line, the reset episode's, then a new one.
++    for fraction in (0.6, 0.6, 0.6, 0.1, 0.6):
++        sub_bee.last_telemetry = _telemetry(fraction)
++        await check_sub_bee_context(warden)
++
++    receive = sub_bee_end.receive()
++    orders = [cast(Intervene, (await anext(receive)).payload).action for _ in range(2)]
++    more = asyncio.ensure_future(anext(receive))
++    await asyncio.sleep(0)
++    assert orders == [InterventionAction.COMPACT, InterventionAction.COMPACT]
++    assert not more.done()
++    more.cancel()
++
++
+ async def test_check_sub_bee_context_skips_a_sub_bee_with_no_telemetry_yet() -> None:
+     deps, _queen_end, warden_id = make_warden_deps()
+     warden = Warden(warden_id, deps)
+diff --git a/packages/hivemind/tests/unit/workers/roles/drone/test_role.py b/packages/hivemind/tests/unit/workers/roles/drone/test_role.py
+index cb04d52..5b71e5f 100644
+--- a/packages/hivemind/tests/unit/workers/roles/drone/test_role.py
++++ b/packages/hivemind/tests/unit/workers/roles/drone/test_role.py
+@@ -14,7 +14,14 @@ import pytest
+ from builders.llm import make_bound, make_tool_call
+ from builders.workers import make_assignment, make_context
+ 
+-from hivemind.llm import FakeLLMProvider, ProviderCapabilities, text_response, tool_call_response
++from hivemind.llm import (
++    FakeLLMProvider,
++    LLMResponse,
++    ProviderCapabilities,
++    Usage,
++    text_response,
++    tool_call_response,
++)
+ from hivemind.llm.errors import ContextTooLongError
+ from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
+ from hivemind.pheromone import TrailQuery
+@@ -95,14 +102,14 @@ async def test_drone_completes_via_the_prompted_rung_at_zero_capabilities() -> N
+     assert [artifact.path for artifact in outcome.artifacts] == ["haiku.txt"]
+ 
+ 
+-async def test_drone_hands_off_when_telemetry_crosses_the_threshold() -> None:
++async def test_drone_hands_off_once_a_rounds_own_usage_crosses_the_threshold() -> None:
+     provider = FakeLLMProvider()
+     ctx = make_context(bound=make_bound(provider=provider), handoff_threshold=0.5)
+-    # Force the tracker past the threshold before the loop ever calls a tool.
+-    ctx.telemetry.record_tokens(ctx.bound.context_window, ctx.bound.context_window)
+     assignment = make_assignment()
+     call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
+-    provider.script(tool_call_response(call))
++    # The first round alone fills 60% of the window: the loop must not run the call it asked for.
++    window = ctx.bound.context_window
++    provider.script(_costing(tool_call_response(call), window * 6 // 10, 0.25))
+ 
+     outcome = await Drone().run(ctx, assignment, resume_from=None)
+ 
+@@ -113,6 +120,34 @@ async def test_drone_hands_off_when_telemetry_crosses_the_threshold() -> None:
+     assert handoff.progress
+     assert handoff.written_by == str(ctx.worker_id)
+     assert handoff.task_id == assignment.task_id
++    assert handoff.open_threads and "write_file" in handoff.open_threads[0]
++    assert not (ctx.session.scratch_dir / "haiku1.txt").exists()
++    # The round's spend is the attempt's; its context ended with the handoff it asked for.
++    assert outcome.spend_usd == 0.25
++    assert ctx.telemetry.snapshot().tokens_used == 0
++
++
++async def test_each_round_records_the_context_it_leaves_never_a_sum_of_rounds() -> None:
++    provider = FakeLLMProvider()
++    ctx = make_context(bound=make_bound(provider=provider))
++    call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
++    provider.script(
++        _costing(tool_call_response(call), 1_000, 0.01),
++        _costing(text_response("Done."), 1_400, 0.02),
++    )
++
++    await Drone().run(ctx, make_assignment(), resume_from=None)
++
++    # Each round's input is the whole conversation so far: the context is the last round's own.
++    snapshot = ctx.telemetry.snapshot()
++    assert snapshot.tokens_used == 1_400
++    assert snapshot.spend == pytest.approx(0.03)
++
++
++def _costing(response: LLMResponse, tokens: int, cost_usd: float) -> LLMResponse:
++    """`response`, as a round whose input and output together hold `tokens` and cost `cost_usd`."""
++    usage = Usage(input_tokens=tokens - 100, output_tokens=100, cost_usd=cost_usd)
++    return response.model_copy(update={"usage": usage})
+ 
+ 
+ async def test_pause_is_awaited_between_tool_calls() -> None:
+diff --git a/packages/hivemind/tests/unit/workers/runtime/test_attempt.py b/packages/hivemind/tests/unit/workers/runtime/test_attempt.py
+index d79afde..a512da7 100644
+--- a/packages/hivemind/tests/unit/workers/runtime/test_attempt.py
++++ b/packages/hivemind/tests/unit/workers/runtime/test_attempt.py
+@@ -1,4 +1,4 @@
+-"""Tests for hivemind.workers.runtime.attempt: crash-to-Alarm classification.
++"""Tests for hivemind.workers.runtime.attempt: crash-to-Alarm classification, fresh episodes.
+ 
+ Roadmap step 4.10's own wiring-pass deliverable: "A Drone whose overflow retries are exhausted
+ raises an Alarm of kind CONTEXT_OVERFLOW" -- landed in a prior dispatch
+@@ -8,6 +8,9 @@ over an in-process transport pair" shape `test_loop.py`'s own
+ `test_a_raising_role_produces_an_alarm_moves_to_failed_and_the_loop_keeps_running` uses for a
+ plain `RuntimeError` (`AlarmKind.WORKER_CRASHED`). Split into its own module, rather than added to
+ `test_loop.py`, because that file is already at its own 400-line test-file cap (codingrules 5.1).
++A role restarted from its own checkpoint starts with none of the last episode's context: every
++Heartbeat until its first model round lands would otherwise report a window already full, and its
++Warden would order a handoff of an episode that has barely begun.
+ 
+ Fits into the Hive:
+     Mirrors src/hivemind/workers/runtime/attempt.py (codingrules section 3).
+@@ -25,7 +28,15 @@ from __future__ import annotations
+ 
+ import asyncio
+ 
+-from builders.workers import RunScript, ScriptedWorker, WardenEnd, make_assignment, make_context
++from builders.memory import make_handoff
++from builders.workers import (
++    RunScript,
++    ScriptedWorker,
++    WardenEnd,
++    make_assignment,
++    make_context,
++    make_outcome,
++)
+ 
+ from hivemind.memory import Handoff
+ from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
+@@ -88,3 +99,29 @@ async def test_exhausted_overflow_retries_raise_an_alarm_of_kind_context_overflo
+ 
+     runtime.stop()
+     await asyncio.wait_for(task, timeout=1)
++
++
++async def test_a_role_restarted_from_its_own_checkpoint_holds_none_of_the_last_context() -> None:
++    clock = FakeClock()
++    restarted_with: list[int] = []
++
++    async def script(
++        ctx: WorkerContext, assignment: TaskAssign, resume_from: Handoff | None
++    ) -> WorkerOutcome:
++        if resume_from is None:
++            # The first episode filled its window and checkpointed itself (codingrules 8.9).
++            ctx.telemetry.record_tokens(ctx.bound.context_window, ctx.bound.context_window)
++            return make_outcome(claimed=False, handoff=make_handoff(goal="carry on"))
++        restarted_with.append(ctx.telemetry.snapshot().tokens_used)
++        return make_outcome(summary="finished after the reset")
++
++    runtime, warden_end = _build(clock, script)
++    task = asyncio.create_task(runtime.run())
++
++    await warden_end.send(make_assignment(clock=clock))
++    await warden_end.wait_for_result()
++
++    assert restarted_with == [0]
++
++    runtime.stop()
++    await asyncio.wait_for(task, timeout=1)
+-- 
+2.43.0
+
+
+From fc0239fedd0d3c355792dc19bdd5b7c465e6ab02 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 02:04:44 +0000
+Subject: [PATCH 5/5] fix(queen): the Queen holds a Warden's liveness while she
+ freezes its Cell
+
+A relayed snapshot or rollback freezes the whole Cell, its Warden too,
+for as long as the backend works: 27 s a GiB on the development host,
+bounded by nothing the Warden can declare beforehand. It announced its
+relay's own wait as its interval, so a longer freeze drew a false
+CELL_UNREACHABLE about a silence the Hive itself had caused.
+
+The Queen is the one freezing it, so the Cell listener now wraps its
+call into the backend in a liveness hold for that Warden (attach's
+frozen_cell, over ticks.liveness.frozen_by_the_hive): never judged while
+it lasts, a whole window afresh from the thaw. The Warden's announcement
+stays for the moments before the listener reads the request.
+
+Named cell_gate change: listener._dispatch answers both relay kinds
+through one branch inside the hold.
+
+Claude-Session: https://claude.ai/code/session_01EKZW22X7GB1ADCG4ApBsA8
+---
+ .../hivemind/src/hivemind/queen/attach.py     | 25 ++++++-
+ .../src/hivemind/queen/cell_gate/listener.py  | 34 ++++++---
+ .../src/hivemind/queen/ticks/README.md        |  6 +-
+ .../src/hivemind/queen/ticks/liveness.py      | 75 +++++++++++++++++--
+ .../src/hivemind/wardens/snapshot_relay.py    |  5 +-
+ .../unit/queen/cell_gate/test_listener.py     | 36 ++++++++-
+ .../unit/queen/test_queen_liveness_holds.py   | 39 +++++++++-
+ 7 files changed, 188 insertions(+), 32 deletions(-)
+
+diff --git a/packages/hivemind/src/hivemind/queen/attach.py b/packages/hivemind/src/hivemind/queen/attach.py
+index 99c00cd..82f3c9e 100644
+--- a/packages/hivemind/src/hivemind/queen/attach.py
++++ b/packages/hivemind/src/hivemind/queen/attach.py
+@@ -1,4 +1,4 @@
+-"""Define attach_warden and detach_warden: admit one Warden to a Queen, and remove it again.
++"""Define attach_warden, detach_warden and frozen_cell: admit a Warden, remove it, hold it.
+ 
+ `attach_warden` is `hivemind.queen.queen.Queen.attach_warden`'s own body (roadmap step 10.3): the
+ `warden_spawn` enforcement point (ADR-0031). The Queen never creates Wardens or Cells herself
+@@ -18,7 +18,10 @@ free functions taking `queen: Queen` rather than method bodies on `Queen` itself
+ over; `queen.py`'s own `_stop_queen`/`_send_intervene` already live as module-level delegates for
+ the same class-size reason, these are one file further out for the same file-size reason.
+ `CellListener` (and any test) calls `hivemind.queen.attach.detach_warden(queen, warden_id)`
+-directly; `Queen.attach_warden` is a one-line delegator to `attach_warden`.
++directly; `Queen.attach_warden` is a one-line delegator to `attach_warden`. `frozen_cell` is the
++listener's other way in: it holds one attached Warden's liveness while the Queen's own backend
++freezes its Cell for a relayed snapshot or rollback (`hivemind.queen.ticks.liveness.
++frozen_by_the_hive`), so a freeze the Hive started is never judged as the Warden going silent.
+ 
+ Attaching is also the first moment the Queen hears a Night Veil Cell's own word about its tier
+ (the `CellReady` it announced, carried on the link's Cell), often before the lifecycle has seen the
+@@ -54,6 +57,7 @@ See Also:
+ 
+ from __future__ import annotations
+ 
++from contextlib import AbstractContextManager
+ from typing import TYPE_CHECKING
+ 
+ from pydantic import JsonValue
+@@ -64,7 +68,7 @@ from hivemind.pheromone import WardenEvent, segments_of
+ from hivemind.queen.authority import queen_held, request_for
+ from hivemind.queen.errors import WardenSpawnRefusedError
+ from hivemind.queen.isolation import resend_taint_order
+-from hivemind.queen.ticks.liveness import WardenLiveness
++from hivemind.queen.ticks.liveness import WardenLiveness, frozen_by_the_hive
+ from waggle.ids import WardenId, new_event_id
+ 
+ if TYPE_CHECKING:
+@@ -74,7 +78,7 @@ if TYPE_CHECKING:
+ # The one capability admitting a Warden to the Queen's tree needs (ADR-0031's warden:spawn flag).
+ _WARDEN_SPAWN = Capability(family=CapabilityFamily.WARDEN_SPAWN)
+ 
+-__all__ = ["attach_warden", "detach_warden"]
++__all__ = ["attach_warden", "detach_warden", "frozen_cell"]
+ 
+ 
+ async def attach_warden(queen: Queen, link: WardenLink) -> None:
+@@ -132,6 +136,19 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
+     await queen._links.remove(warden_id)
+ 
+ 
++def frozen_cell(queen: Queen, warden_id: WardenId) -> AbstractContextManager[None]:
++    """Hold `warden_id`'s liveness for as long as the Queen's own backend freezes its Cell.
++
++    Args:
++        queen: The Queen whose judgement of `warden_id` is held.
++        warden_id: The attached Warden whose Cell a relayed snapshot or rollback freezes.
++
++    Returns:
++        A context manager: held on entry; on exit, its misses count afresh from that moment.
++    """
++    return frozen_by_the_hive(queen._liveness, warden_id, queen._deps.clock)
++
++
+ async def _record_spawned(queen: Queen, link: WardenLink) -> None:
+     """Record the declared `warden.spawned` event for a Warden just admitted to the Queen's tree.
+ 
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/listener.py b/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
+index 74a6ed7..71031eb 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
+@@ -58,7 +58,9 @@ Key invariants:
+     - `_handle_connection` always calls `hivemind.queen.attach.detach_warden` on its own way out
+       once attached, whether the connection ended cleanly or the listener is stopping.
+     - A `CellSnapshotRequest`/`CellRollbackRequest` is answered on the same connection it arrived
+-      on, correlated to its own envelope id; a `TrailSegmentSync` is handed to `trail_receiver`
++      on, correlated to its own envelope id, and its Warden's liveness is held for as long as the
++      backend works (`hivemind.queen.attach.frozen_cell`: the backend freezes the whole Cell, so
++      no silence the Hive caused is ever judged); a `TrailSegmentSync` is handed to `trail_receiver`
+       and never answered (the wire kind is an event, not a request). Both are no-ops when
+       `CellListenerDeps` names no handler/receiver (roadmap step 5.10/ADR-0027's own follow-up).
+     - Node integrity (roadmap step 10.6, `.refusals`): a segment chunk reaches `trail_receiver`
+@@ -90,7 +92,7 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel
+ from hivemind.forage.models.capacity import ForageCapacity, HostCapacity
+ from hivemind.hive.backends.bootstrap import CellReadyInfo
+ from hivemind.pheromone import TrailRecorder
+-from hivemind.queen.attach import detach_warden
++from hivemind.queen.attach import detach_warden, frozen_cell
+ from hivemind.queen.cell_gate.gate import QueenReadinessGate
+ from hivemind.queen.cell_gate.refusals import LinkRefusals
+ from hivemind.queen.deps import WardenLink
+@@ -373,20 +375,28 @@ class CellListener:
+         merged through the link's `refusals`, which hold the receiver rule and record a refusal.
+         """
+         payload = envelope.payload
+-        if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
+-            snapshot_reply = await self._snapshot_handler.snapshot(payload)
+-            await transport.send(
+-                wrap(snapshot_reply, hop, clock=self._clock, correlation_id=envelope.id)
+-            )
+-        elif isinstance(payload, CellRollbackRequest) and self._snapshot_handler is not None:
+-            rollback_reply = await self._snapshot_handler.rollback(payload)
+-            await transport.send(
+-                wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
+-            )
++        relayed = isinstance(payload, CellSnapshotRequest | CellRollbackRequest)
++        if relayed and self._snapshot_handler is not None and self._queen is not None:
++            # The backend freezes the whole Cell, its Warden too, for as long as it works: the
++            # Queen, who is freezing it, holds her judgement of its silence until it is done.
++            with frozen_cell(self._queen, WardenId(hop.recipient)):
++                reply = await _answer(self._snapshot_handler, envelope)
++            await transport.send(wrap(reply, hop, clock=self._clock, correlation_id=envelope.id))
+         elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
+             await refusals.merge(self._trail_receiver, envelope, payload)
+ 
+ 
++async def _answer(
++    handler: SnapshotRequestHandler, envelope: Envelope
++) -> CellSnapshotReply | CellRollbackReply:
++    """Carry out the relayed snapshot or rollback `envelope` carries, through `handler`."""
++    payload = envelope.payload
++    if isinstance(payload, CellSnapshotRequest):
++        return await handler.snapshot(payload)
++    assert isinstance(payload, CellRollbackRequest)  # noqa: S101 - the one caller checked both.
++    return await handler.rollback(payload)
++
++
+ # Marks "the pump will never put another envelope" on _FanoutTransport's own internal queue; a
+ # private sentinel object (never an Envelope, so `is` identity alone tells the two apart).
+ _FANOUT_DONE = object()
+diff --git a/packages/hivemind/src/hivemind/queen/ticks/README.md b/packages/hivemind/src/hivemind/queen/ticks/README.md
+index bc9473a..bab071c 100644
+--- a/packages/hivemind/src/hivemind/queen/ticks/README.md
++++ b/packages/hivemind/src/hivemind/queen/ticks/README.md
+@@ -18,8 +18,10 @@ class stay within codingrules 5.1's size limits.
+   `QueenDeps.on_heartbeat` when one is set (the Hive Entrance's telemetry board). A Warden whose
+   Cell the Hive itself holds paused -- Overwintered, read from the lifecycle's own dormant list
+   (`QueenDeps.dormant_cell_source`, or the static `dormant_cells`) -- is never judged while the
+-  hold lasts, and gets a whole window from the moment it resumes; a snapshot's shorter freeze is
+-  announced by the Warden itself, as a longer declared interval. `.renew_grants_on_heartbeat` extends every live grant a
++  hold lasts, and gets a whole window from the moment it resumes. A relayed snapshot or rollback
++  freezes its Cell for as long as the backend works, however long that is: `.frozen_by_the_hive`
++  holds that Warden for exactly as long (the Cell listener wraps its call into the backend in it),
++  and its window starts again at the thaw. `.renew_grants_on_heartbeat` extends every live grant a
+   Heartbeat's own Warden holds; `.check_liveness`'s own sweep also calls
+   `hivemind.queen.forage.grants.sweep_expired` every tick, unconditionally, so a grant whose lease
+   lapses returns to the pool the same tick it expires. `.handle_infrastructure_item` is the one
+diff --git a/packages/hivemind/src/hivemind/queen/ticks/liveness.py b/packages/hivemind/src/hivemind/queen/ticks/liveness.py
+index 1f2bf9a..5812e47 100644
+--- a/packages/hivemind/src/hivemind/queen/ticks/liveness.py
++++ b/packages/hivemind/src/hivemind/queen/ticks/liveness.py
+@@ -44,10 +44,14 @@ that heartbeated just before its pause drawing `CELL_UNREACHABLE` about 40 s int
+ link's own keepalive dropped the paused Cell at about 47 s. `check_liveness` reads the
+ held Cells from the lifecycle's own dormant list (`QueenDeps.dormant_cell_source`, or the static
+ `dormant_cells`), marks each such Warden `held` and skips it, and when the hold ends (the Cell
+-resumed) counts its misses from that moment, never from its last pre-pause beat. A snapshot's
+-freeze is announced by the Warden itself instead, as a longer declared interval
+-(`hivemind.wardens.ticks.heartbeat.announce_freeze`); a Cell that falls silent for any other
+-reason is judged exactly as before.
++resumed) counts its misses from that moment, never from its last pre-pause beat. A relayed
++snapshot or rollback freezes its Cell the same way, for as long as the backend works: 27 s a GiB
++on the development host, bounded by nothing the Warden can declare beforehand (its announced
++interval, `hivemind.wardens.ticks.heartbeat.announce_freeze`, covers only its own relay's wait).
++So the Queen, who is the one freezing it, holds that Warden too while she works
++(`frozen_by_the_hive`, around the listener's own call into the backend), and counts its misses
++afresh from the moment the freeze ends; a Cell that falls silent for any other reason is judged
++exactly as before.
+ 
+ Fits into the Hive:
+     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
+@@ -77,8 +81,9 @@ Key invariants:
+       never start another; it only moves `last_heartbeat_at` forward.
+     - `last_heartbeat_at` never moves backwards: an older Heartbeat heard after a newer one adds
+       nothing.
+-    - A held Warden (its Cell Overwintered) is never marked offline and raises no Alarm while the
+-      hold lasts; once it ends, its misses count from the end of the hold, not from before it.
++    - A held Warden (its Cell Overwintered, or frozen for a snapshot the Queen is taking) is never
++      marked offline and raises no Alarm while the hold lasts; once it ends, its misses count from
++      the end of the hold, not from before it.
+     - `check_liveness`'s own expiry sweep runs every call, regardless of whether any Warden's own
+       liveness changed this tick: a grant's `expires_at` is a wall-clock deadline independent of
+       the Warden-by-Warden loop above it.
+@@ -94,7 +99,8 @@ See Also:
+ from __future__ import annotations
+ 
+ import dataclasses
+-from collections.abc import Mapping, MutableMapping, Sequence
++from collections.abc import Iterator, Mapping, MutableMapping, Sequence
++from contextlib import contextmanager
+ from dataclasses import dataclass
+ from datetime import datetime
+ from typing import cast
+@@ -111,6 +117,7 @@ from hivemind.queen.ticks import forage as forage_tick
+ from hivemind.queen.ticks import wax as wax_tick
+ from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
+ from hivemind.supervision.attendant import InboxItem
++from waggle.clock import Clock
+ from waggle.envelope import wrap
+ from waggle.ids import CellId, WardenId, new_alarm_id
+ from waggle.messages.forage import ForageRequest as WireForageRequest
+@@ -119,6 +126,7 @@ from waggle.messages.supervision import AlarmContext, Heartbeat, Intervene
+ __all__ = [
+     "WardenLiveness",
+     "check_liveness",
++    "frozen_by_the_hive",
+     "handle_heartbeat_item",
+     "handle_infrastructure_item",
+     "record_heartbeat",
+@@ -136,6 +144,7 @@ class WardenLiveness:
+     interval_s: float | None = None  # What its newest Heartbeat declared; None before the first.
+     held: bool = False  # Its Cell is paused by the Hive itself: its silence is never judged.
+     hold_ended_at: datetime | None = None  # When its latest hold ended; misses count from here.
++    frozen: bool = False  # Its Cell is frozen for a snapshot the Queen is taking right now.
+ 
+ 
+ # What a Warden with no liveness row yet looks like to `record_heartbeat` (attach adds one first).
+@@ -333,7 +342,8 @@ async def check_liveness(
+         pulse = heard.get(link.warden_id) if heard is not None else None
+         if pulse is not None:
+             record_heartbeat(deps, liveness, link.warden_id, pulse)
+-        if _hold(liveness, link.warden_id, link.cell.id in held, now):
++        held_now = link.cell.id in held or _is_frozen(liveness, link.warden_id)
++        if _hold(liveness, link.warden_id, held_now, now):
+             continue  # Paused by the Hive itself: its silence is her own doing, never an Alarm.
+         if _crossed_miss_limit(deps, liveness, link.warden_id, now):
+             # The transition only: one Alarm per Warden per outage, not one per later check;
+@@ -348,6 +358,55 @@ async def check_liveness(
+     await forage_grants.sweep_expired(deps.ledger, deps)
+ 
+ 
++@contextmanager
++def frozen_by_the_hive(
++    liveness: MutableMapping[WardenId, WardenLiveness], warden_id: WardenId, clock: Clock
++) -> Iterator[None]:
++    """Hold `warden_id` unjudged while the Queen herself freezes its Cell (module docstring).
++
++    Args:
++        liveness: The Queen's own warden_id -> WardenLiveness table; mutated in place.
++        warden_id: The Warden whose Cell a snapshot or rollback is about to freeze.
++        clock: Stamps the moment the freeze ends, from which its misses count afresh.
++
++    Yields:
++        None, for as long as the freeze lasts (the caller's own call into the backend).
++    """
++    _set_frozen(liveness, warden_id, frozen=True, ended_at=None)
++    try:
++        yield
++    finally:
++        # However the backend's call ended: a full window from here, never from before it.
++        _set_frozen(liveness, warden_id, frozen=False, ended_at=clock.now())
++
++
++def _set_frozen(
++    liveness: MutableMapping[WardenId, WardenLiveness],
++    warden_id: WardenId,
++    *,
++    frozen: bool,
++    ended_at: datetime | None,
++) -> None:
++    """Mark `warden_id` frozen or thawed; a thaw restarts its misses from `ended_at`."""
++    current = liveness.get(warden_id)
++    if current is None:
++        return  # Detached meanwhile (its link dropped): nothing left to hold or to judge.
++    if frozen:
++        liveness[warden_id] = dataclasses.replace(current, frozen=True)
++        return
++    # The hold a check took during the freeze ends with it (one still dormant is held again on
++    # the next check), so its window starts at the thaw, never at whichever check came next.
++    liveness[warden_id] = dataclasses.replace(
++        current, frozen=False, held=False, hold_ended_at=ended_at, missed_heartbeats=0
++    )
++
++
++def _is_frozen(liveness: Mapping[WardenId, WardenLiveness], warden_id: WardenId) -> bool:
++    """Whether `warden_id`'s Cell is frozen for a snapshot the Queen is taking right now."""
++    current = liveness.get(warden_id)
++    return current is not None and current.frozen
++
++
+ async def _held_cells(deps: QueenDeps) -> frozenset[CellId]:
+     """Return every Cell the Hive itself holds paused: its Overwintered ones (ADR-0029)."""
+     # The same live-feed-over-static rule the dispatcher's inventory follows for this list.
+diff --git a/packages/hivemind/src/hivemind/wardens/snapshot_relay.py b/packages/hivemind/src/hivemind/wardens/snapshot_relay.py
+index fdfd1c3..d529f17 100644
+--- a/packages/hivemind/src/hivemind/wardens/snapshot_relay.py
++++ b/packages/hivemind/src/hivemind/wardens/snapshot_relay.py
+@@ -29,7 +29,10 @@ so its Heartbeats stop for as long as that takes -- 27 s for a 1 GiB change on t
+ host, more than half a Virtual Cell's 45 s window. Before each request the relay therefore calls
+ the announcer its Warden bound (`announce_freezes`), which sends one Heartbeat declaring the
+ relay's own timeout as its interval, and the Queen judges the frozen Warden by that longer window
+-rather than raising a false `CELL_UNREACHABLE` for silence the Hive caused itself.
++rather than raising a false `CELL_UNREACHABLE` for silence the Hive caused itself. The backend may
++take longer than any interval declared beforehand (a large change, a slow disk), so the Queen, who
++runs it, also holds this Warden's liveness for exactly as long as it takes (`hivemind.queen.attach.
++frozen_cell`); the announcement covers the moments before her listener reads the request.
+ 
+ Fits into the Hive:
+     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built by
+diff --git a/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py b/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py
+index eeaf8ee..651059d 100644
+--- a/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py
++++ b/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py
+@@ -8,7 +8,9 @@ signed `CellReady` then `CellHeartbeat`, and this module checks the listener att
+ connection ends. Roadmap step 10.6: a frame that fails its signature on an attached link closes it
+ and is `guard.envelope_refused` on the Queen's trail, and a segment chunk shipped as another node
+ is refused (`guard.segment_refused`) while the link stays up; the Guard Bee reads that refusal and
+-files a request through the running Queen's own door, and she isolates the Cell by rule.
++files a request through the running Queen's own door, and she isolates the Cell by rule. While a
++relayed snapshot or rollback runs, the backend freezes the whole Cell, so the Queen holds that
++Warden's liveness for exactly as long, and counts its misses afresh once it is done.
+ 
+ Fits into the Hive:
+     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/listener.py
+@@ -253,6 +255,38 @@ async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelop
+     await scenario.listener.stop()
+ 
+ 
++class _FreezingSnapshotHandler(_FakeSnapshotHandler):
++    """Notes whether the Queen held the Warden's liveness while its Cell was being frozen."""
++
++    def __init__(self, queen: Queen, warden_id: WardenId) -> None:
++        self._queen = queen
++        self._warden_id = warden_id
++        self.held_while_frozen: list[bool] = []
++
++    async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
++        self.held_while_frozen.append(self._queen.liveness[self._warden_id].frozen)
++        return await super().rollback(request)
++
++
++async def test_the_queen_holds_a_wardens_liveness_while_its_cell_is_frozen_for_a_rollback() -> None:
++    scenario = await _build_scenario()
++    cell, transport = await _attach(scenario)
++    handler = _FreezingSnapshotHandler(scenario.queen, cell.warden_id)
++    scenario.listener.bind_snapshot_handler(handler)
++
++    request = CellRollbackRequest(cell_id=cell.cell_id, snapshot_id="snap_test")
++    await transport.send(wrap(request, cell._hop(scenario.hive_id), clock=FakeClock()))
++    await asyncio.wait_for(anext(transport.receive()), WAIT_S)
++
++    # Held for exactly the backend's own call; afterwards its misses count from the thaw.
++    assert handler.held_while_frozen == [True]
++    thawed = scenario.queen.liveness[cell.warden_id]
++    assert not thawed.frozen and thawed.hold_ended_at is not None
++
++    await transport.close()
++    await scenario.listener.stop()
++
++
+ async def test_listener_merges_a_trail_segment_sync_into_the_queens_trail() -> None:
+     scenario = await _build_scenario()
+     scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
+diff --git a/packages/hivemind/tests/unit/queen/test_queen_liveness_holds.py b/packages/hivemind/tests/unit/queen/test_queen_liveness_holds.py
+index d4fafb1..d615756 100644
+--- a/packages/hivemind/tests/unit/queen/test_queen_liveness_holds.py
++++ b/packages/hivemind/tests/unit/queen/test_queen_liveness_holds.py
+@@ -5,9 +5,10 @@ beat; a real Docker run showed a Cell that heartbeated just before its pause dra
+ `CELL_UNREACHABLE` about 40 s into it, for silence the Hive had caused itself. The Queen now
+ reads the Cells she holds paused from the lifecycle's own dormant list, never judges their
+ Wardens while the hold lasts, and gives a resumed one a whole window from the moment it
+-resumed. A Warden that falls silent for any other reason is judged exactly as before. Every test
+-runs on a FakeClock (builders' defaults: a 5 s manifest interval and a miss limit of 3, so a 15 s
+-window).
++resumed. A relayed snapshot freezes its Cell the same way, for however long the backend works:
++the Queen holds that Warden while she freezes it, whatever interval it announced beforehand. A
++Warden that falls silent for any other reason is judged exactly as before. Every test runs on a
++FakeClock (builders' defaults: a 5 s manifest interval and a miss limit of 3, so a 15 s window).
+ 
+ Fits into the Hive:
+     Mirrors src/hivemind/queen/ticks/liveness.py (codingrules section 3); split by feature (14.2)
+@@ -35,13 +36,19 @@ from hivemind.queen.deps import QueenDeps, WardenLink
+ from hivemind.queen.human_inbox import HumanInbox
+ from hivemind.queen.inbox import Pulse
+ from hivemind.queen.placement import DormantCandidate
+-from hivemind.queen.ticks.liveness import WardenLiveness, check_liveness, record_heartbeat
++from hivemind.queen.ticks.liveness import (
++    WardenLiveness,
++    check_liveness,
++    frozen_by_the_hive,
++    record_heartbeat,
++)
+ from hivemind.supervision import AlarmKind
+ from waggle.clock import FakeClock
+ from waggle.ids import CellId, WardenId, new_warden_id
+ 
+ _WINDOW_S = 15.0  # The builders' 5 s manifest interval times their miss limit of 3.
+ _PAUSE_S = 600.0  # Ten minutes Overwintered: forty windows of silence.
++_ANNOUNCED_S = 30.0  # What a Warden declares before a relayed snapshot: its relay's own wait.
+ 
+ 
+ def _dormant(cell_id: CellId) -> DormantCandidate:
+@@ -140,3 +147,27 @@ async def test_a_heartbeat_while_held_keeps_the_hold() -> None:
+ 
+     assert liveness[link.warden_id].held
+     assert _unreachable(inbox) == []
++
++
++async def test_a_cell_frozen_for_a_snapshot_is_never_judged_however_long_the_backend_takes() -> (
++    None
++):
++    clock = FakeClock()
++    deps, link, _end = make_queen_deps(clock)
++    liveness: dict[WardenId, WardenLiveness] = {}
++    inbox = HumanInbox()
++    # It announced the freeze as its relay's own wait, and the backend then took ten minutes.
++    record_heartbeat(deps, liveness, link.warden_id, Pulse(clock.now(), _ANNOUNCED_S))
++    with frozen_by_the_hive(liveness, link.warden_id, clock):
++        clock.advance(_PAUSE_S)
++        await check_liveness(deps, (link,), liveness, inbox)
++        await check_liveness(deps, (link,), liveness, inbox)
++        assert _unreachable(inbox) == []
++
++    # Thawed: a whole window of its declared interval from the thaw, then judged as ever.
++    clock.advance(3 * _ANNOUNCED_S - 1.0)
++    await check_liveness(deps, (link,), liveness, inbox)
++    assert _unreachable(inbox) == []
++    clock.advance(1.0)
++    await check_liveness(deps, (link,), liveness, inbox)
++    assert _unreachable(inbox) == [link.warden_id]
+-- 
+2.43.0
+

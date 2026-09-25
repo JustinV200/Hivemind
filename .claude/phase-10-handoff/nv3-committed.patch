@@ -1,0 +1,695 @@
+From 197ecf1b9a8661ebc83e69b038f9e9eb6d84ea6f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 25 Sep 2026 02:08:04 +0000
+Subject: [PATCH] fix(queen): answer a snapshot relay only about the Cell its
+ link proved
+
+The Cell gate handed every CellSnapshotRequest/CellRollbackRequest to the Queen's snapshotter by
+the cell_id the request named, so any attached Cell could snapshot or roll back another. The link's
+refusals now answer a relay request only about the Cell its handshake proved; any other is
+answered with an error, never reaches the snapshotter, and is recorded as guard.relay_refused
+(reason another_cell), once per link. The Guard Bee's new relay_forgery rule counts it, a shipped
+dire pattern. Also declares guard.task_refused and its judged task_claim rule, which the Queen's
+refusal of a Warden's report about another Cell's task (next commit) records.
+
+Claude-Session: https://claude.ai/code/session_01EKZW22X7GB1ADCG4ApBsA8
+---
+ docs/guard/guard-bee.md                       | 28 +++++++--
+ docs/guard/isolation.md                       | 10 ++--
+ docs/manifests/full.toml                      | 12 +++-
+ docs/waggle/spec.md                           |  6 +-
+ .../src/hivemind/guard/policy/catalogue.py    |  2 +
+ .../src/hivemind/manifest/schema/guard.py     | 11 ++--
+ .../pheromone/events/families/supervisors.py  |  2 +
+ .../src/hivemind/queen/cell_gate/__init__.py  |  8 ++-
+ .../src/hivemind/queen/cell_gate/listener.py  | 21 +++----
+ .../src/hivemind/queen/cell_gate/refusals.py  | 59 +++++++++++++++++--
+ .../workers/roles/guard_bee/rules.toml        | 25 ++++++++
+ .../tests/builders/guard_bee/shipped.py       | 10 ++++
+ .../tests/unit/manifest/schema/test_guard.py  |  8 ++-
+ .../events/families/test_supervisors.py       |  6 +-
+ .../unit/queen/cell_gate/test_listener.py     | 44 +++++++++++++-
+ .../unit/queen/cell_gate/test_refusals.py     | 58 +++++++++++++++++-
+ .../workers/roles/guard_bee/test_rules.py     |  4 +-
+ 17 files changed, 267 insertions(+), 47 deletions(-)
+
+diff --git a/docs/guard/guard-bee.md b/docs/guard/guard-bee.md
+index 365676b..ad01864 100644
+--- a/docs/guard/guard-bee.md
++++ b/docs/guard/guard-bee.md
+@@ -128,11 +128,14 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
+ | `subject_forgery` | `guard_bee.subject_forged`: a record a Cell's node made about what another Cell owns | cell (the recorder's) | 1 h | 1 | `isolate_cell`, critical | no |
+ | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
+ | `segment_forgery` | `guard.segment_refused` for `another_node` or `another_cell` | cell | 1 h | 1 | `isolate_cell`, critical | no |
++| `relay_forgery` | `guard.relay_refused` for `another_cell` | cell | 1 h | 1 | `isolate_cell`, critical | no |
++| `task_claim` | `guard.task_refused` for `another_cell` or `unplaced` | cell | 1 h | 1 | `isolate_cell`, high | yes |
+ | `segment_unmergeable` | `guard.segment_refused` for `format` or `corrupt` | cell | 1 h | 1 | `isolate_cell`, high | no |
+ | `request_forgery` | `guard.entrance_login_failed` for `request_signature` or `request_replay` | hive | 10 min | 2 | `reduce_entrance`, high | no |
+ 
+ The Cell gate (`hivemind.queen.cell_gate`, the Queen's listener every Virtual Cell's Warden dials)
+-records the next three, about the Cell whose own proved link carried the frame:
++records the next three, about the Cell whose own proved link carried the frame, and the Queen the
++fourth:
+ 
+ - **`guard.envelope_refused`**: a frame on an attached link failed its signature (reason
+   `invalid`, `missing` or `unknown_node`). The link is closed. A tampered link, or a Cell signing
+@@ -147,10 +150,23 @@ records the next three, about the Cell whose own proved link carried the frame:
+   segment format, or bytes that do not match the size, digest or event count the chunk declared.
+   The link stays up: an honest Cell's bad export is a fault to hear of, not a reason to cut its
+   Warden off mid-task.
+-
+-Each reason is recorded once per link, so no Cell can flood the trail. `subject_forgery`,
+-`envelope_forgery` and `segment_forgery` are shipped dire patterns: the Queen isolates the Cell by
+-rule. A frame that
++- **`guard.relay_refused`**: a snapshot relay request (`cell.snapshot_request`,
++  `cell.rollback_request`) named a Cell other than the one its link proved (reason
++  `another_cell`). It never reached the Queen's snapshotter and was answered with an error: no Cell
++  snapshots or rolls back another.
++- **`guard.task_refused`**: the Queen refused a Warden's message about a task that is not placed on
++  that Warden's Cell (a result, a progress report, an Alarm, a question or an answer; reason
++  `another_cell` when the task is placed on another Cell, `unplaced` when it is placed nowhere),
++  so it was never applied: no Cell finishes, fails, blocks or answers for another Cell's task. The
++  event names the sending Cell and Warden and the message's kind, never the task, so it never
++  drags another Cell's record into the sender's. A stale report about a task that already ended
++  stays a quiet no-op, as it always was.
++
++Each reason is recorded once per link (the Queen's refusals once per Warden and message kind), so
++no Cell can flood the trail. `subject_forgery`, `envelope_forgery`, `segment_forgery` and
++`relay_forgery` are shipped dire patterns: the Queen isolates the Cell by rule. `task_claim` is
++judged awake, since a Warden whose link dropped while its task was placed elsewhere can report it
++late, honestly. A frame that
+ fails its signature before its link is attached proves no Cell (whoever dialled may have named any
+ Cell's id), so the gate closes that connection and records nothing against anyone.
+ 
+@@ -264,7 +280,7 @@ decides how much is sampled there, and nothing is judged until an in-Cell judge
+ |---|---|---|
+ | `[guard] request_confidence` | `"high"` | The floor a request must reach to be filed. |
+ | `[guard] requests_per_hour` | `6` | The most requests filed in any hour. A `critical` request is always filed. |
+-| `[guard] dire_patterns` | `["injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery"]` | The rules whose requests the Queen decides by rule, with no model ([isolation](isolation.md)). |
++| `[guard] dire_patterns` | `["injection_then_denial", "envelope_forgery", "segment_forgery", "relay_forgery", "subject_forgery"]` | The rules whose requests the Queen decides by rule, with no model ([isolation](isolation.md)). |
+ | `[guard.bee] interval_s` | `5.0` | Seconds between two readings of the trail. |
+ | `[guard.bee] coalesce_window_s` | `900.0` | One request per rule and target in this window (0 files every one). |
+ | `[guard.bee] judge_timeout_s` | `60.0` | The longest one awake episode may take. |
+diff --git a/docs/guard/isolation.md b/docs/guard/isolation.md
+index d651bfc..ac234fe 100644
+--- a/docs/guard/isolation.md
++++ b/docs/guard/isolation.md
+@@ -15,11 +15,11 @@ Every Hive `hive run` or `hive serve` composes runs the Guard Bee on the Queen's
+ through her own door ([the Guard Bee](guard-bee.md)).
+ 
+ The Guard Bee's shipped dire patterns are `injection_then_denial` (a scanner flag, then a denial
+-by the same bee in the same episode), the two Cell gate forgeries, `envelope_forgery` (a frame
+-that failed its signature on a Cell's own link) and `segment_forgery` (a trail segment a Cell
+-shipped under another node's or Cell's identity), and `subject_forgery` (a Cell's node recording
+-what another Cell owns, which names the framer and never the framed Cell). The Queen decides
+-each of those by rule.
++by the same bee in the same episode), the three Cell gate forgeries, `envelope_forgery` (a frame
++that failed its signature on a Cell's own link), `segment_forgery` (a trail segment a Cell
++shipped under another node's or Cell's identity) and `relay_forgery` (a snapshot or rollback
++request naming another Cell), and `subject_forgery` (a Cell's node recording what another Cell
++owns, which names the framer and never the framed Cell). The Queen decides each of those by rule.
+ 
+ ## The request path
+ 
+diff --git a/docs/manifests/full.toml b/docs/manifests/full.toml
+index 86205f8..d8ff169 100644
+--- a/docs/manifests/full.toml
++++ b/docs/manifests/full.toml
+@@ -589,9 +589,15 @@ requests_per_hour = 6
+ # when her awake mode is unavailable she isolates, since isolation only removes access. A key naming
+ # no Guard Bee rule never fires. The shipped default, written out: a scanner flag followed by a
+ # denial in the same episode, a frame that failed its signature on a Cell's own link, a trail
+-# segment a Cell shipped under another node's identity, and a Cell's node recording what another
+-# Cell owns.
+-dire_patterns = ["injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery"]
++# segment a Cell shipped under another node's identity, a snapshot relay request naming another
++# Cell, and a Cell's node recording what another Cell owns.
++dire_patterns = [
++    "injection_then_denial",
++    "envelope_forgery",
++    "segment_forgery",
++    "relay_forgery",
++    "subject_forgery",
++]
+ 
+ [guard.roles.drone]
+ # Replaces the Drone role's whole default set (a Worker still keeps only what its Warden holds).
+diff --git a/docs/waggle/spec.md b/docs/waggle/spec.md
+index b9fb4ac..17263cf 100644
+--- a/docs/waggle/spec.md
++++ b/docs/waggle/spec.md
+@@ -1261,7 +1261,11 @@ relay: a snapshot or rollback request travels Warden -> Queen and its reply Quee
+ replies carry their own outcome rather than falling back to `control.error`, so a timed-out or
+ failed request always resolves to `hivemind.cell.SnapshotUnsupportedError` on the asking Warden's
+ own `RelaySnapshotter`, which makes the Capping gate fall back to REVERSE_DIFF (ADR-0018) exactly
+-as it would for a Real Cell's `NoopSnapshotter`.
++as it would for a Real Cell's `NoopSnapshotter`. The receiver rule holds here too: the Queen answers
++a request only about the Cell the sender's link proved at its handshake. One naming another Cell
++never reaches her snapshotter; it is answered with `error` set (`ok` false for a rollback) and
++recorded as `guard.relay_refused` about the sender's own Cell, which the Guard Bee's
++`relay_forgery` rule counts.
+ 
+ ##### CellSnapshotRequest
+ 
+diff --git a/packages/hivemind/src/hivemind/guard/policy/catalogue.py b/packages/hivemind/src/hivemind/guard/policy/catalogue.py
+index b829631..56b3263 100644
+--- a/packages/hivemind/src/hivemind/guard/policy/catalogue.py
++++ b/packages/hivemind/src/hivemind/guard/policy/catalogue.py
+@@ -212,6 +212,8 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
+     ("guard.entrance_hold_ended", _LIFECYCLE),
+     ("guard.envelope_refused", _REFUSAL),  # A forged frame is never handled; its link is closed.
+     ("guard.segment_refused", _REFUSAL),  # A segment that is not merged changes nothing.
++    ("guard.relay_refused", _REFUSAL),  # A relay request answered with an error changes nothing.
++    ("guard.task_refused", _REFUSAL),  # A Warden's report never applied changes nothing.
+     ("memory.tainted", _NARROWING),  # A tainted item only ever leaves prompts.
+ )
+ 
+diff --git a/packages/hivemind/src/hivemind/manifest/schema/guard.py b/packages/hivemind/src/hivemind/manifest/schema/guard.py
+index fd35883..018326a 100644
+--- a/packages/hivemind/src/hivemind/manifest/schema/guard.py
++++ b/packages/hivemind/src/hivemind/manifest/schema/guard.py
+@@ -83,15 +83,16 @@ MAX_GUARD_WINDOW_S = 604_800.0  # A week: the longest window any Guard Bee setti
+ 
+ # The rule keys the Queen acts on by rule (roadmap step 10.6a). Shipped: the correlation roadmap
+ # step 10.6 singles out, a scanner flag then a denial in the same episode (a bee that read an
+-# injection and then tried to act on it), and the two node-integrity forgeries at the Cell gate, a
+-# frame that failed its signature on a Cell's own link and a trail segment shipped under another
+-# node's identity (13.4a lists a signature failure among the dire patterns), and a Cell's node
+-# recording what another Cell owns, which names the framer alone; every other rule's request is
+-# judged awake.
++# injection and then tried to act on it), and the node-integrity forgeries at the Cell gate, a
++# frame that failed its signature on a Cell's own link, a trail segment shipped under another
++# node's identity (13.4a lists a signature failure among the dire patterns) and a snapshot relay
++# request naming another Cell, and a Cell's node recording what another Cell owns, which names
++# the framer alone; every other rule's request is judged awake.
+ DEFAULT_DIRE_PATTERNS = (
+     "injection_then_denial",
+     "envelope_forgery",
+     "segment_forgery",
++    "relay_forgery",
+     "subject_forgery",
+ )
+ MAX_DIRE_PATTERNS = 64  # Far more rules than the Guard Bee ships; a list is data, never unbounded.
+diff --git a/packages/hivemind/src/hivemind/pheromone/events/families/supervisors.py b/packages/hivemind/src/hivemind/pheromone/events/families/supervisors.py
+index ea362be..5caa4fd 100644
+--- a/packages/hivemind/src/hivemind/pheromone/events/families/supervisors.py
++++ b/packages/hivemind/src/hivemind/pheromone/events/families/supervisors.py
+@@ -217,5 +217,7 @@ class GuardEvent(PheromoneEvent):
+             "guard.entrance_hold_ended",
+             "guard.envelope_refused",  # Roadmap step 10.6: a node-integrity refusal at the gate.
+             "guard.segment_refused",
++            "guard.relay_refused",  # A snapshot relay request naming a Cell its link never proved.
++            "guard.task_refused",  # A Warden's message about a task not placed on its Cell.
+         }
+     )
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/__init__.py b/packages/hivemind/src/hivemind/queen/cell_gate/__init__.py
+index 4db43b3..fb95404 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/__init__.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/__init__.py
+@@ -50,9 +50,9 @@ Public API:
+       (hivemind.queen.cell_gate.shutdown).
+     - CellSnapshotHandler: answers a Warden's own CellSnapshotRequest/CellRollbackRequest, the
+       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
+-    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND: what one Cell's
+-      link refused, recorded for the Guard Bee (hivemind.queen.cell_gate.refusals, roadmap step
+-      10.6).
++    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
++      RELAY_REFUSED_KIND: what one Cell's link refused, recorded for the Guard Bee
++      (hivemind.queen.cell_gate.refusals, roadmap step 10.6).
+ """
+ 
+ from hivemind.queen.cell_gate.gate import QueenReadinessGate
+@@ -61,6 +61,7 @@ from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
+ from hivemind.queen.cell_gate.quiesce import make_quiesce
+ from hivemind.queen.cell_gate.refusals import (
+     ENVELOPE_REFUSED_KIND,
++    RELAY_REFUSED_KIND,
+     SEGMENT_REFUSED_KIND,
+     LinkRefusals,
+     SegmentRefusal,
+@@ -71,6 +72,7 @@ from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
+ 
+ __all__ = [
+     "ENVELOPE_REFUSED_KIND",
++    "RELAY_REFUSED_KIND",
+     "SEGMENT_REFUSED_KIND",
+     "CellListener",
+     "CellListenerDeps",
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/listener.py b/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
+index 74a6ed7..55d340f 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
+@@ -64,8 +64,9 @@ Key invariants:
+     - Node integrity (roadmap step 10.6, `.refusals`): a segment chunk reaches `trail_receiver`
+       only when it names its link's own node and Warden, and a refused one is
+       `guard.segment_refused` while the link stays up; an attached link that ends on a frame
+-      whose signature failed is `guard.envelope_refused`. Both about the link's Cell, and only
+-      with `CellListenerDeps.recorder` set.
++      whose signature failed is `guard.envelope_refused`; a relay request naming a Cell other
++      than the link's is answered with an error and is `guard.relay_refused`. All about the
++      link's Cell, and only with `CellListenerDeps.recorder` set.
+     - At most `FANOUT_QUEUE_SIZE` envelopes wait in one connection's fan-out for the Queen's
+       reader: past that its pump stops reading the socket, so a Queen that is not reading backs
+       the Cell's own sends up (backpressure), rather than the Queen's memory growing with them.
+@@ -373,16 +374,12 @@ class CellListener:
+         merged through the link's `refusals`, which hold the receiver rule and record a refusal.
+         """
+         payload = envelope.payload
+-        if isinstance(payload, CellSnapshotRequest) and self._snapshot_handler is not None:
+-            snapshot_reply = await self._snapshot_handler.snapshot(payload)
+-            await transport.send(
+-                wrap(snapshot_reply, hop, clock=self._clock, correlation_id=envelope.id)
+-            )
+-        elif isinstance(payload, CellRollbackRequest) and self._snapshot_handler is not None:
+-            rollback_reply = await self._snapshot_handler.rollback(payload)
+-            await transport.send(
+-                wrap(rollback_reply, hop, clock=self._clock, correlation_id=envelope.id)
+-            )
++        if isinstance(payload, CellSnapshotRequest | CellRollbackRequest):
++            if self._snapshot_handler is None:
++                return  # No relay wired: nothing answers (module docstring).
++            # Only the Cell the link proved is snapshotted or rolled back through it (.refusals).
++            reply = await refusals.relay(self._snapshot_handler, payload)
++            await transport.send(wrap(reply, hop, clock=self._clock, correlation_id=envelope.id))
+         elif isinstance(payload, TrailSegmentSync) and self._trail_receiver is not None:
+             await refusals.merge(self._trail_receiver, envelope, payload)
+ 
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/refusals.py b/packages/hivemind/src/hivemind/queen/cell_gate/refusals.py
+index 1fad958..41fd29d 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/refusals.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/refusals.py
+@@ -1,4 +1,4 @@
+-"""Record what a Virtual Cell's link refused: a frame that failed its signature, a segment unmerged.
++"""Record what a Virtual Cell's link refused: a forged frame, a segment, a relay request.
+ 
+ Roadmap step 10.6 has the Guard Bee (the Hive's security watcher, reading the Queen's trail) watch
+ for node integrity failures, and two of them happen at the Cell gate, the Queen's listener every
+@@ -13,7 +13,11 @@ Cell's segment onto the durable trail under a MEADOW Cell's id, or bury a MEADOW
+ Veil Cell's segment. One that does not, and an export the receiver refuses (an unknown format,
+ bytes that do not match what it declared, or another node's segment), is recorded as
+ `guard.segment_refused`, and the link stays up: an honest Cell's bad export is a fault the Queen
+-should hear of, not a reason to cut its Warden off mid-task.
++should hear of, not a reason to cut its Warden off mid-task. A snapshot relay request (the Warden
++asking the Queen to snapshot or roll back its Cell, which it cannot reach itself) is answered only
++about the Cell its link proved: one naming another Cell would snapshot or roll back a Cell that is
++not the asker's, so it is refused with an error reply, recorded as `guard.relay_refused` (reason
++`another_cell`), and never reaches the relay's handler.
+ 
+ Both events are the Queen's own records, about the Cell whose own link carried the frame, and name
+ a reason, never the frame. A frame that fails before its link is attached proves no Cell (whoever
+@@ -24,13 +28,16 @@ Fits into the Hive:
+     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.cell_gate`.
+     Built by `.listener` once per attached link. Calls into `hivemind.common.logging`,
+     `hivemind.pheromone` (GuardEvent, TrailRecorder), `hivemind.queen.trail` (the receiver and
+-    its errors) and waggle (envelope, errors, ids, messages) only.
++    its errors) and waggle (envelope, errors, ids, messages) only; the listener's relay handler
++    Protocol only for its type.
+ 
+ Key invariants:
+     - A link records each kind and reason at most once, so no Cell can flood the trail by
+       repeating a refused frame; the Guard Bee's rules fire on the first.
+     - A chunk that breaks the receiver rule, or names a Cell its link did not prove, never
+       reaches the receiver, so nothing it carries is merged or veiled.
++    - A relay request naming a Cell its link did not prove never reaches the relay's handler: no
++      Cell snapshots or rolls back another.
+     - Nothing is recorded without a recorder: a listener built without one refuses the same way.
+ 
+ See Also:
+@@ -42,6 +49,7 @@ See Also:
+ from __future__ import annotations
+ 
+ from enum import StrEnum
++from typing import TYPE_CHECKING
+ 
+ from hivemind.common.logging import get_logger
+ from hivemind.pheromone import GuardEvent, TrailRecorder
+@@ -54,14 +62,33 @@ from hivemind.queen.trail import (
+ from waggle.envelope import Envelope
+ from waggle.errors import SignatureError
+ from waggle.ids import CellId, NodeId, new_event_id
++from waggle.messages.cell.snapshot import (
++    CellRollbackReply,
++    CellRollbackRequest,
++    CellSnapshotReply,
++    CellSnapshotRequest,
++)
+ from waggle.messages.swarm import TrailSegmentSync
+ 
++if TYPE_CHECKING:
++    # Only for the type hint: the listener defines the handler Protocol and imports this module.
++    from hivemind.queen.cell_gate.listener import SnapshotRequestHandler
++
+ log = get_logger(__name__)
+ 
+ ENVELOPE_REFUSED_KIND = "guard.envelope_refused"
+ SEGMENT_REFUSED_KIND = "guard.segment_refused"
++RELAY_REFUSED_KIND = "guard.relay_refused"
++# The reply a refused relay request gets: the asker learns only that it was refused.
++_RELAY_REFUSED = "Refused: a Cell's link may only snapshot or roll back that Cell itself."
+ 
+-__all__ = ["ENVELOPE_REFUSED_KIND", "SEGMENT_REFUSED_KIND", "LinkRefusals", "SegmentRefusal"]
++__all__ = [
++    "ENVELOPE_REFUSED_KIND",
++    "RELAY_REFUSED_KIND",
++    "SEGMENT_REFUSED_KIND",
++    "LinkRefusals",
++    "SegmentRefusal",
++]
+ 
+ 
+ class SegmentRefusal(StrEnum):
+@@ -112,6 +139,30 @@ class LinkRefusals:
+         if refusal is not None:
+             await self._record(SEGMENT_REFUSED_KIND, refusal.value)
+ 
++    async def relay(
++        self, handler: SnapshotRequestHandler, request: CellSnapshotRequest | CellRollbackRequest
++    ) -> CellSnapshotReply | CellRollbackReply:
++        """Answer a relay request about this link's own Cell; refuse, and record, any other.
++
++        Args:
++            handler: Snapshots or rolls back a Cell the Queen's lifecycle tracks.
++            request: What the link's Warden asked, naming the Cell to snapshot or roll back.
++
++        Returns:
++            The handler's own reply, or an error reply naming no more than the request did.
++        """
++        # The Cell the handshake proved is the only one this link may act on (module docstring).
++        if request.cell_id == self._cell_id:
++            if isinstance(request, CellSnapshotRequest):
++                return await handler.snapshot(request)
++            return await handler.rollback(request)
++        await self._record(RELAY_REFUSED_KIND, SegmentRefusal.ANOTHER_CELL.value)
++        if isinstance(request, CellSnapshotRequest):
++            return CellSnapshotReply(
++                cell_id=request.cell_id, snapshot_id=None, error=_RELAY_REFUSED
++            )
++        return CellRollbackReply(cell_id=request.cell_id, ok=False, error=_RELAY_REFUSED)
++
+     async def _record(self, kind: str, reason: str) -> None:
+         """Record `kind` about this link's Cell, unless there is no recorder or it already was."""
+         if self._recorder is None or (kind, reason) in self._recorded:
+diff --git a/packages/hivemind/src/hivemind/workers/roles/guard_bee/rules.toml b/packages/hivemind/src/hivemind/workers/roles/guard_bee/rules.toml
+index b09c622..eb01779 100644
+--- a/packages/hivemind/src/hivemind/workers/roles/guard_bee/rules.toml
++++ b/packages/hivemind/src/hivemind/workers/roles/guard_bee/rules.toml
+@@ -251,6 +251,31 @@ threshold = 1
+ confidence = "critical"
+ action = "isolate_cell"
+ 
++# A snapshot relay request naming a Cell its link never proved (guard.relay_refused, reason
++# another_cell): a Cell asking the Queen to snapshot or roll back another Cell. An honest Warden
++# only ever names its own; nothing was snapshotted or rolled back. A shipped dire pattern.
++[rules.relay_forgery]
++title = "a snapshot relay request naming another Cell"
++counts = [{ kind = "guard.relay_refused", where = { reason = ["another_cell"] } }]
++group_by = "cell"
++window_s = 3600.0
++threshold = 1
++confidence = "critical"
++action = "isolate_cell"
++
++# A Warden's message about a task not placed on its Cell (guard.task_refused): a Cell trying to
++# finish, fail, block or report on another Cell's task, or on one placed nowhere. Nothing of it
++# was applied. Judged awake, not by rule: a Warden that lost a task's placement while its link was
++# down can still report it late, honestly.
++[rules.task_claim]
++title = "a Warden's message about a task not placed on its Cell"
++counts = [{ kind = "guard.task_refused", where = { reason = ["another_cell", "unplaced"] } }]
++group_by = "cell"
++window_s = 3600.0
++threshold = 1
++confidence = "high"
++action = "isolate_cell"
++
+ # A trail segment the Queen could not merge (guard.segment_refused, reason format or corrupt): a
+ # gap in the Cell's audit record, from a fault or a tampered export; the Queen judges which.
+ [rules.segment_unmergeable]
+diff --git a/packages/hivemind/tests/builders/guard_bee/shipped.py b/packages/hivemind/tests/builders/guard_bee/shipped.py
+index 1abf8b6..a01f2e5 100644
+--- a/packages/hivemind/tests/builders/guard_bee/shipped.py
++++ b/packages/hivemind/tests/builders/guard_bee/shipped.py
+@@ -143,6 +143,14 @@ async def _segment_forgery(rig: GuardBeeRig, fire: bool) -> None:
+     await _refused_once(rig, fire, "guard.segment_refused", "another_node")
+ 
+ 
++async def _relay_forgery(rig: GuardBeeRig, fire: bool) -> None:
++    await _refused_once(rig, fire, "guard.relay_refused", "another_cell")
++
++
++async def _task_claim(rig: GuardBeeRig, fire: bool) -> None:
++    await _refused_once(rig, fire, "guard.task_refused", "another_cell")
++
++
+ async def _segment_unmergeable(rig: GuardBeeRig, fire: bool) -> None:
+     await _refused_once(rig, fire, "guard.segment_refused", "corrupt")
+ 
+@@ -198,6 +206,8 @@ SHIPPED_RULE_SEEDERS: dict[str, Seeder] = {
+     "subject_forgery": _subject_forgery,
+     "envelope_forgery": _envelope_forgery,
+     "segment_forgery": _segment_forgery,
++    "relay_forgery": _relay_forgery,
++    "task_claim": _task_claim,
+     "segment_unmergeable": _segment_unmergeable,
+     "request_forgery": _request_forgery,
+     "login_failure_burst": _login_failure_burst,
+diff --git a/packages/hivemind/tests/unit/manifest/schema/test_guard.py b/packages/hivemind/tests/unit/manifest/schema/test_guard.py
+index 4c7e5ea..8b1a737 100644
+--- a/packages/hivemind/tests/unit/manifest/schema/test_guard.py
++++ b/packages/hivemind/tests/unit/manifest/schema/test_guard.py
+@@ -68,7 +68,13 @@ def test_an_unknown_field_is_refused() -> None:
+ 
+ def test_dire_patterns_default_to_the_shipped_correlation_and_forgery_rules() -> None:
+     # Roadmap steps 10.6 and 10.6a: the Queen acts by rule only on the keys listed here.
+-    shipped = ("injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery")
++    shipped = (
++        "injection_then_denial",
++        "envelope_forgery",
++        "segment_forgery",
++        "relay_forgery",
++        "subject_forgery",
++    )
+     assert GuardSection().dire_patterns == DEFAULT_DIRE_PATTERNS == shipped
+     assert GuardSection(dire_patterns=()).dire_patterns == ()
+ 
+diff --git a/packages/hivemind/tests/unit/pheromone/events/families/test_supervisors.py b/packages/hivemind/tests/unit/pheromone/events/families/test_supervisors.py
+index 1ba241d..dbee9b1 100644
+--- a/packages/hivemind/tests/unit/pheromone/events/families/test_supervisors.py
++++ b/packages/hivemind/tests/unit/pheromone/events/families/test_supervisors.py
+@@ -81,8 +81,8 @@ def test_warden_event_kinds_include_the_phase_3_19_additions() -> None:
+ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> None:
+     # Roadmap step 10.2 records guard.denied; the rest are declared now so later phase 10 steps
+     # never race on this file. The documents' guard.entrance.* is spelled guard.entrance_*
+-    # because a kind has exactly one dot (KIND_PATTERN). Step 10.6 adds the Cell gate's two
+-    # node-integrity refusals.
++    # because a kind has exactly one dot (KIND_PATTERN). Step 10.6 adds the Cell gate's
++    # node-integrity refusals, and the Queen's refusal of a Warden's report about a task not its own.
+     edges = {
+         "invited",
+         "pending",
+@@ -112,6 +112,8 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
+         "guard.reduce_ordered",
+         "guard.envelope_refused",
+         "guard.segment_refused",
++        "guard.relay_refused",
++        "guard.task_refused",
+     } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
+ 
+ 
+diff --git a/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py b/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py
+index eeaf8ee..49c4c0e 100644
+--- a/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py
++++ b/packages/hivemind/tests/unit/queen/cell_gate/test_listener.py
+@@ -8,7 +8,9 @@ signed `CellReady` then `CellHeartbeat`, and this module checks the listener att
+ connection ends. Roadmap step 10.6: a frame that fails its signature on an attached link closes it
+ and is `guard.envelope_refused` on the Queen's trail, and a segment chunk shipped as another node
+ is refused (`guard.segment_refused`) while the link stays up; the Guard Bee reads that refusal and
+-files a request through the running Queen's own door, and she isolates the Cell by rule.
++files a request through the running Queen's own door, and she isolates the Cell by rule. A snapshot
++relay request naming another attached Cell is answered with an error and never reaches the relay,
++either way round (`guard.relay_refused`).
+ 
+ Fits into the Hive:
+     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/listener.py
+@@ -222,16 +224,21 @@ async def test_listener_never_attaches_an_unexpected_cell() -> None:
+ 
+ 
+ class _FakeSnapshotHandler:
+-    """A CellSnapshotHandler stand-in.
++    """A CellSnapshotHandler stand-in, remembering each Cell it was asked about.
+ 
+     This module tests the listener's own dispatch, not a real backend
+     (hivemind.queen.cell_gate.snapshot's own module has that coverage).
+     """
+ 
++    def __init__(self) -> None:
++        self.asked: list[str] = []
++
+     async def snapshot(self, request: CellSnapshotRequest) -> CellSnapshotReply:
++        self.asked.append(request.cell_id)
+         return CellSnapshotReply(cell_id=request.cell_id, snapshot_id="snap_test", error=None)
+ 
+     async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
++        self.asked.append(request.cell_id)
+         return CellRollbackReply(cell_id=request.cell_id, ok=True, error=None)
+ 
+ 
+@@ -253,6 +260,39 @@ async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelop
+     await scenario.listener.stop()
+ 
+ 
++async def test_no_cell_snapshots_or_rolls_back_another_through_its_link() -> None:
++    scenario = await _build_scenario()
++    handler = _FakeSnapshotHandler()
++    scenario.listener.bind_snapshot_handler(handler)
++    one, one_link = await _attach(scenario)
++    other, other_link = await _attach(scenario)
++    clock = FakeClock()
++
++    await one_link.send(
++        wrap(
++            CellSnapshotRequest(cell_id=other.cell_id, purpose="t"),
++            one._hop(scenario.hive_id),
++            clock=clock,
++        )
++    )
++    snapshot = (await asyncio.wait_for(anext(one_link.receive()), WAIT_S)).payload
++    rollback_request = CellRollbackRequest(cell_id=one.cell_id, snapshot_id="snap_test")
++    await other_link.send(wrap(rollback_request, other._hop(scenario.hive_id), clock=clock))
++    rollback = (await asyncio.wait_for(anext(other_link.receive()), WAIT_S)).payload
++
++    assert handler.asked == []  # Neither request reached the Queen's relay.
++    assert isinstance(snapshot, CellSnapshotReply) and snapshot.snapshot_id is None
++    assert isinstance(rollback, CellRollbackReply) and rollback.ok is False
++    refused = await scenario.trail.query(TrailQuery(kind="guard.relay_refused"))
++    assert {(event.subject_id, event.payload["reason"]) for event in refused} == {
++        (one.cell_id, "another_cell"),
++        (other.cell_id, "another_cell"),
++    }
++    for transport in (one_link, other_link):
++        await transport.close()
++    await scenario.listener.stop()
++
++
+ async def test_listener_merges_a_trail_segment_sync_into_the_queens_trail() -> None:
+     scenario = await _build_scenario()
+     scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
+diff --git a/packages/hivemind/tests/unit/queen/cell_gate/test_refusals.py b/packages/hivemind/tests/unit/queen/cell_gate/test_refusals.py
+index e53d402..801219a 100644
+--- a/packages/hivemind/tests/unit/queen/cell_gate/test_refusals.py
++++ b/packages/hivemind/tests/unit/queen/cell_gate/test_refusals.py
+@@ -8,7 +8,8 @@ segment out of a Night Veil Cell's ephemeral segment and a Night Veil Cell's off
+ (the receiver routes by the chunk's Cell); an unknown format and a digest that does not match are
+ refused as `format` and `corrupt`; nothing of a refused chunk is merged. Each reason is recorded
+ once per link, a signature failure is recorded by its code's last word, and a proved chunk merges
+-and records nothing.
++and records nothing. A snapshot relay request about the link's own Cell reaches the relay; one
++naming another Cell, snapshot or rollback, either way round, never does and is `another_cell`.
+ 
+ Fits into the Hive:
+     Mirrors src/hivemind/queen/cell_gate/refusals.py (codingrules section 3).
+@@ -36,6 +37,7 @@ from hivemind.pheromone import (
+ from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+ from hivemind.queen.cell_gate import (
+     ENVELOPE_REFUSED_KIND,
++    RELAY_REFUSED_KIND,
+     SEGMENT_REFUSED_KIND,
+     LinkRefusals,
+     SegmentRefusal,
+@@ -57,6 +59,12 @@ from waggle.ids import (
+     new_node_id,
+     new_warden_id,
+ )
++from waggle.messages.cell.snapshot import (
++    CellRollbackReply,
++    CellRollbackRequest,
++    CellSnapshotReply,
++    CellSnapshotRequest,
++)
+ from waggle.messages.swarm import TrailSegmentSync
+ from waggle.transport.memory import MemoryTransport
+ 
+@@ -81,7 +89,7 @@ class _Link:
+ 
+     async def refused(self) -> list[PheromoneEvent]:
+         """Every refusal recorded on the Queen's trail, oldest first."""
+-        kinds = (ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND)
++        kinds = (ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND, RELAY_REFUSED_KIND)
+         return [e for e in await self.queen_trail.query(TrailQuery()) if e.kind in kinds]
+ 
+ 
+@@ -278,3 +286,49 @@ async def test_without_a_recorder_the_chunk_is_still_refused_and_nothing_recorde
+ 
+     assert await _merged(link) == 0
+     assert await link.refused() == []
++
++
++class _Relay:
++    """A snapshot relay that answers every request, and remembers each Cell it was asked about."""
++
++    def __init__(self) -> None:
++        """Start having been asked about nothing."""
++        self.asked: list[str] = []
++
++    async def snapshot(self, request: CellSnapshotRequest) -> CellSnapshotReply:
++        self.asked.append(request.cell_id)
++        return CellSnapshotReply(cell_id=request.cell_id, snapshot_id="snap_test", error=None)
++
++    async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
++        self.asked.append(request.cell_id)
++        return CellRollbackReply(cell_id=request.cell_id, ok=True, error=None)
++
++
++async def test_a_relay_request_about_the_links_own_cell_reaches_the_relay() -> None:
++    link, relay = _link(), _Relay()
++
++    reply = await link.refusals.relay(relay, CellSnapshotRequest(cell_id=link.cell_id, purpose="t"))
++
++    assert isinstance(reply, CellSnapshotReply) and reply.snapshot_id == "snap_test"
++    assert relay.asked == [link.cell_id]
++    assert await link.refused() == []
++
++
++async def test_no_link_snapshots_or_rolls_back_another_cell_either_way_round() -> None:
++    one, other, relay = _link(), _link(), _Relay()
++
++    snapshot = await one.refusals.relay(
++        relay, CellSnapshotRequest(cell_id=other.cell_id, purpose="t")
++    )
++    rollback = await other.refusals.relay(
++        relay, CellRollbackRequest(cell_id=one.cell_id, snapshot_id="snap_test")
++    )
++
++    assert relay.asked == []  # Neither request reached the Queen's relay.
++    assert isinstance(snapshot, CellSnapshotReply) and snapshot.error is not None
++    assert snapshot.snapshot_id is None
++    assert isinstance(rollback, CellRollbackReply) and (rollback.ok, rollback.error) != (True, None)
++    for link in (one, other):
++        [event] = await link.refused()
++        assert (event.kind, event.subject_id) == (RELAY_REFUSED_KIND, link.cell_id)
++        assert event.payload["reason"] == SegmentRefusal.ANOTHER_CELL.value
+diff --git a/packages/hivemind/tests/unit/workers/roles/guard_bee/test_rules.py b/packages/hivemind/tests/unit/workers/roles/guard_bee/test_rules.py
+index de07665..0e250b0 100644
+--- a/packages/hivemind/tests/unit/workers/roles/guard_bee/test_rules.py
++++ b/packages/hivemind/tests/unit/workers/roles/guard_bee/test_rules.py
+@@ -45,6 +45,8 @@ _FAMILIES = {
+     "signature or replay failures": "guard.entrance_login_failed",
+     "a Cell's forged frames": "guard.envelope_refused",
+     "refused segment merges": "guard.segment_refused",
++    "relay requests naming another Cell": "guard.relay_refused",
++    "a Warden's messages about another Cell's task": "guard.task_refused",
+     "records forged about another Cell": SUBJECT_FORGED_KIND,
+     "lockouts": "guard.entrance_locked",
+     "invite-route abuse": "guard.entrance_redeem_failed",
+@@ -68,7 +70,7 @@ def test_the_shipped_rules_load_and_count_every_family_the_roadmap_names() -> No
+ 
+     counted = {matcher.kind for rule in rules.enabled for matcher in rule.matchers}
+ 
+-    assert len(rules.rules) == 20
++    assert len(rules.rules) == 22
+     assert {family: kind in counted for family, kind in _FAMILIES.items()} == dict.fromkeys(
+         _FAMILIES, True
+     )
+-- 
+2.43.0
+

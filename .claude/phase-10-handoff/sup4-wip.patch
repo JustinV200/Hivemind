@@ -1,0 +1,1142 @@
+diff --git a/packages/hivemind/src/hivemind/cli/in_cell/link.py b/packages/hivemind/src/hivemind/cli/in_cell/link.py
+index ea5dead..e6e7784 100644
+--- a/packages/hivemind/src/hivemind/cli/in_cell/link.py
++++ b/packages/hivemind/src/hivemind/cli/in_cell/link.py
+@@ -31,8 +31,9 @@ Fits into the Hive:
+     transport, uris) only. Built and run by `hivemind.cli.in_cell.main.run_in_cell_warden`.
+ 
+ Key invariants:
+-    - `announce` connects the transport and sends the one `CellReady` this Cell ever sends; it
+-      must be called, and awaited, before anything else is sent on `deps.transport`.
++    - `announce` connects the transport and sends the `CellReady` that opens every connection
++      this Cell makes (its first, and each one `hivemind.cli.in_cell.redial.RedialLink` dials
++      afresh after a drop); it must be called, and awaited, before anything else is sent on it.
+     - `send_capacity_report` and `send_cell_heartbeat` may be called only after `announce`, and
+       `send_cell_heartbeat` only after `send_capacity_report` -- `CellListener`'s own gate accepts
+       `CellHeartbeat` at any point once `CellReady` has arrived, but sending the capacity report
+@@ -159,7 +160,7 @@ def control_link_attestation(
+ 
+ 
+ async def announce(deps: CellLinkDeps) -> None:
+-    """Connect `deps.transport` and send this Cell's one signed CellReady.
++    """Connect `deps.transport` and send this Cell's signed CellReady, first on the connection.
+ 
+     Args:
+         deps: This module's own collaborators.
+diff --git a/packages/hivemind/src/hivemind/cli/in_cell/main.py b/packages/hivemind/src/hivemind/cli/in_cell/main.py
+index 298d037..5379291 100644
+--- a/packages/hivemind/src/hivemind/cli/in_cell/main.py
++++ b/packages/hivemind/src/hivemind/cli/in_cell/main.py
+@@ -9,7 +9,10 @@ Waggle URL, send the three frames that must go out before a `hivemind.wardens.wa
+ exists at all (`hivemind.cli.in_cell.link`'s own `announce`/`send_capacity_report`/
+ `send_cell_heartbeat`, in that order -- `hivemind.queen.cell_gate.listener.CellListener`'s own
+ readiness gate waits for the first and last of those, unmodified by this dispatch), then build and
+-run a real, task-executing `Warden` over that same transport until it stops.
++run a real, task-executing `Warden` over that same transport until it stops. The Warden holds that
++transport through a `hivemind.cli.in_cell.redial.RedialLink`, which dials it afresh and sends the
++same three frames again whenever the link drops (an Overwintered Cell's link does not outlive a
++long pause), so the Queen re-attaches the same Warden instead of tearing the Cell down.
+ `run_in_cell_warden` is the async half, taking an already-read environment mapping and an injected
+ `Clock` so a test drives the whole sequence without touching the real environment or a real timer.
+ Roadmap step 10.3a: the transport dials through the SOCKS proxy the bootstrap names (a Night Veil
+@@ -20,7 +23,8 @@ built, so its floors know them (`hivemind.cli.in_cell.hive_stand`; an onion host
+ Fits into the Hive:
+     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
+     `hivemind.cell.source` (CellIdentity), `hivemind.cli.in_cell.config`/`.deps`/`.link`,
+-    `hivemind.cli.version`, `hivemind.common.logging`, `hivemind.manifest.env` (read_in_cell_env),
++    `hivemind.cli.in_cell.redial` (RedialLink), `hivemind.cli.version`,
++    `hivemind.common.logging`, `hivemind.manifest.env` (read_in_cell_env),
+     `hivemind.pheromone.trail.memory` (this Cell's own local trail segment),
+     `hivemind.wardens.deps` (WardenDeps, `on_deps_built`'s own parameter type),
+     `hivemind.wardens.spawn` (InCellSpawnSource), `hivemind.wardens.warden` (Warden) and
+@@ -63,6 +67,7 @@ import asyncio
+ import dataclasses
+ import os
+ from collections.abc import Callable, Mapping
++from functools import partial
+ 
+ from hivemind.cell.source import CellIdentity
+ from hivemind.cell.tiers import CombShieldLevel
+@@ -70,8 +75,10 @@ from hivemind.cli.in_cell import link as cell_link
+ from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
+ from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
+ from hivemind.cli.in_cell.hive_stand import hive_stand_addresses
++from hivemind.cli.in_cell.redial import RedialLink
+ from hivemind.cli.version import collect_version_info
+ from hivemind.common.logging import configure_logging, get_logger
++from hivemind.forage import ForageCapacity
+ from hivemind.manifest.env import read_in_cell_env
+ from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+ from hivemind.wardens.deps import WardenDeps
+@@ -132,7 +139,7 @@ async def run_in_cell_warden(
+ SHUTDOWN_GRACE_S = 3.0
+ 
+ 
+-async def _shut_down(warden: Warden, transport: WebSocketClientTransport) -> None:
++async def _shut_down(warden: Warden, transport: RedialLink) -> None:
+     """Stop `warden` (unless a Queen-sent Shutdown already did) and close the link, bounded.
+ 
+     Runs from `run_in_cell_warden`'s `finally`, so also on cancellation: everything here is
+@@ -153,12 +160,13 @@ async def _shut_down(warden: Warden, transport: WebSocketClientTransport) -> Non
+ 
+ async def _connect_and_announce(
+     config: InCellRuntimeConfig, clock: Clock
+-) -> tuple[WebSocketClientTransport, InCellSpawnSource, MemoryPheromoneTrail]:
++) -> tuple[RedialLink, InCellSpawnSource, MemoryPheromoneTrail]:
+     """Dial the Queen and send CellReady, CapacityReport, then one CellHeartbeat (module docstring).
+ 
+     Returns:
+-        This Cell's own connected transport, spawn source and local trail segment -- everything
+-        `build_in_cell_warden_deps` needs beyond `config` itself.
++        This Cell's own connected link (redialled and re-announced the same way whenever it
++        drops), spawn source and local trail segment -- everything `build_in_cell_warden_deps`
++        needs beyond `config` itself.
+     """
+     codec = Codec(signer=config.signer, verifier=config.verifier)
+     # The gateway carve-out matches build_runtime_config's own validation of this URL: from inside
+@@ -195,12 +203,19 @@ async def _connect_and_announce(
+         attestation=_attestation(cell.comb_shield, transport),
+     )
+     _LOG.info("cell.link.connecting", queen_waggle_url=config.queen_waggle_url, cell_id=cell.id)
++    handshake = partial(_handshake, link_deps, config.spawn_config.capacity)
++    await handshake()
++    # Every later connection opens the same way: the Queen's gate waits for exactly these frames.
++    return RedialLink(transport, handshake, clock), source, trail
++
++
++async def _handshake(link_deps: cell_link.CellLinkDeps, capacity: ForageCapacity) -> None:
++    """Connect, then send CellReady, CapacityReport and one CellHeartbeat, in that order."""
+     await cell_link.announce(link_deps)
+-    _LOG.info("cell.link.announced", cell_id=cell.id, warden_id=config.warden_id)
+-    await cell_link.send_capacity_report(link_deps, config.spawn_config.capacity)
++    _LOG.info("cell.link.announced", cell_id=link_deps.cell.id, warden_id=link_deps.warden_id)
++    await cell_link.send_capacity_report(link_deps, capacity)
+     await cell_link.send_cell_heartbeat(link_deps)
+-    _LOG.info("cell.link.ready", cell_id=cell.id)
+-    return transport, source, trail
++    _LOG.info("cell.link.ready", cell_id=link_deps.cell.id)
+ 
+ 
+ def _attestation(
+diff --git a/packages/hivemind/src/hivemind/cli/in_cell/redial.py b/packages/hivemind/src/hivemind/cli/in_cell/redial.py
+new file mode 100644
+index 0000000..a3855d9
+--- /dev/null
++++ b/packages/hivemind/src/hivemind/cli/in_cell/redial.py
+@@ -0,0 +1,153 @@
++"""Define RedialLink: the in-Cell Warden's link to the Queen, dialled afresh whenever it drops.
++
++A Virtual Cell's Warden holds one outbound connection to the Queen (ADR-0027), and nothing keeps
++that connection through a pause: Overwintering `docker pause`s the Cell (ADR-0029), the link's own
++keepalive (`waggle.transport.websocket`: a ping after 20 s of quiet, 20 s to answer it) fails it
++about 40-47 s in, and the Queen detaches the Warden. The resumed Warden never noticed: its link
++had simply ended, so the Queen could not reuse the Cell and tore it down for a fresh one. ADR-0004
++keeps reconnecting in the caller, and this is the caller. `receive` notices the drop (it is the
++one reader, always waiting on the link), dials afresh and re-announces the Cell with `handshake`
++-- the `CellReady`, `CapacityReport` and `CellHeartbeat` its first connection opened with, which
++the Queen's readiness gate waits for -- then reads on, so the Queen attaches the same Warden again
++and a Cell Overwintered for any length is reused. A clean close (the Queen ending the link on
++purpose) ends the stream and is never redialled.
++
++Fits into the Hive:
++    Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Built by
++    `hivemind.cli.in_cell.main` around the Cell's own `WebSocketClientTransport` and handed to the
++    Warden as `WardenDeps.queen_link`; the Warden, its trail sync and its snapshot relay all use
++    it as a plain `waggle.transport.base.Transport`. Calls into `hivemind.common.logging` and
++    waggle (clock, envelope, errors, transport) only.
++
++Key invariants:
++    - The handshake's frames are the first on every fresh connection: nothing is sent while a
++      redial is under way (one lock guards both), so the Queen's gate never drops a frame sent
++      between them.
++    - One redial per dropped connection, by the reader alone: a send that meets the drop waits,
++      at most `SEND_WAIT_S`, for the reader's fresh connection and goes out once more on it, or
++      raises `TransportClosedError` (the link is gone for now, as a heartbeat already handles).
++    - A Queen that cannot be reached is dialled again every `REDIAL_PAUSE_S` for as long as the
++      Warden reads: its link to her is the only one it has, and a cancelled read stops it.
++
++See Also:
++    - docs/adr/0004-waggle-transport-websocket-json.md for why reconnect stays in the caller.
++    - docs/adr/0029-overwintering-policy.md for the pause this link outlives.
++    - hivemind.cli.in_cell.link for the three frames the handshake sends.
++    - hivemind.queen.cell_gate.provider for the Queen's side: a resumed Cell whose link died is
++      waited for afresh.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from collections.abc import AsyncIterator, Awaitable, Callable
++
++from hivemind.common.logging import get_logger
++from waggle.clock import Clock
++from waggle.envelope import Envelope
++from waggle.errors import ConnectFailedError, ConnectionLostError, TransportClosedError
++from waggle.transport.base import Transport
++
++REDIAL_PAUSE_S = 30.0  # Between rounds of dial attempts once a whole round failed (a Queen away).
++SEND_WAIT_S = 10.0  # The longest a send that met a drop waits for the reader's fresh connection.
++
++# Connects the wrapped transport and sends the Cell's announcement frames on it, in order.
++Handshake = Callable[[], Awaitable[None]]
++
++__all__ = ["REDIAL_PAUSE_S", "SEND_WAIT_S", "Handshake", "RedialLink"]
++
++_LOG = get_logger(__name__)
++
++
++class RedialLink:
++    """A `Transport` over one client transport that is dialled afresh whenever its link drops.
++
++    Owns its own small mutable state in place (codingrules section 8.5, documented): the count of
++    connections made so far, which a redial advances, and the condition sends wait on for it.
++    """
++
++    def __init__(self, real: Transport, handshake: Handshake, clock: Clock) -> None:
++        """Wrap `real`, already connected and announced by one `handshake` call.
++
++        Args:
++            real: The Cell's own client transport; `connect` dials it afresh after a drop.
++            handshake: Connects `real` and sends the Cell's announcement frames through it
++                (never through this link, whose lock a redial already holds).
++            clock: Paces the pause between rounds of dial attempts.
++        """
++        self._real = real
++        self._handshake = handshake
++        self._clock = clock
++        self._connections = 1  # The one the caller's own handshake opened.
++        self._changed = asyncio.Condition()  # Guards every send and every redial alike.
++
++    @property
++    def is_connected(self) -> bool:
++        """See `Transport.is_connected`: the current connection's own state."""
++        return self._real.is_connected
++
++    async def connect(self) -> None:
++        """See `Transport.connect`: forwarded (the caller's handshake already connected it)."""
++        await self._real.connect()
++
++    async def send(self, envelope: Envelope) -> None:
++        """Send `envelope`; one that meets a drop goes out once more on the fresh connection.
++
++        Raises:
++            TransportClosedError: The link was closed, or no fresh connection came within
++                `SEND_WAIT_S` (the Queen is unreachable for now; the reader keeps dialling).
++            FrameTooLargeError: The frame would exceed the codec's limit; nothing was sent.
++        """
++        async with self._changed:
++            seen = self._connections
++            try:
++                await self._real.send(envelope)
++                return
++            except ConnectionLostError:
++                pass  # The reader notices the same drop and redials; wait for its connection.
++            try:
++                # Bounded: a Queen that stays away must not hold the Warden's own tick.
++                async with asyncio.timeout(SEND_WAIT_S):
++                    await self._changed.wait_for(lambda: self._connections != seen)
++            except TimeoutError as exc:
++                raise TransportClosedError(
++                    f"The link to the Queen dropped and was not redialled within {SEND_WAIT_S}s."
++                ) from exc
++            await self._real.send(envelope)
++
++    async def receive(self) -> AsyncIterator[Envelope]:
++        """Yield every envelope the Queen sends, across every connection, until a clean close.
++
++        Raises:
++            CodecError | SignatureError: A frame failed to decode (the wrapped transport's own).
++            TransportClosedError: This link was closed while being read.
++        """
++        while True:
++            seen = self._connections
++            try:
++                async for envelope in self._real.receive():
++                    yield envelope
++                return  # A clean close: the Queen ended the link on purpose; never redialled.
++            except ConnectionLostError as exc:
++                _LOG.info("cell.link.dropped", error=str(exc))
++                await self._repair(seen)
++
++    async def close(self) -> None:
++        """See `Transport.close`: forwarded; nothing redials a link closed on purpose."""
++        await self._real.close()
++
++    async def _repair(self, seen: int) -> None:
++        """Dial afresh and re-announce, until it holds, unless a redial already replaced `seen`."""
++        while True:
++            try:
++                async with self._changed:
++                    if self._connections == seen:
++                        await self._handshake()
++                        self._connections += 1
++                        self._changed.notify_all()
++                        _LOG.info("cell.link.redialled", connections=self._connections)
++                return
++            except (ConnectFailedError, ConnectionLostError) as exc:
++                # The Queen is unreachable for now (restarting, say): try again after a pause.
++                _LOG.warning("cell.link.redial_failed", error=str(exc), pause_s=REDIAL_PAUSE_S)
++            await self._clock.sleep(REDIAL_PAUSE_S)
+diff --git a/packages/hivemind/src/hivemind/queen/attach.py b/packages/hivemind/src/hivemind/queen/attach.py
+index 82f3c9e..319a77c 100644
+--- a/packages/hivemind/src/hivemind/queen/attach.py
++++ b/packages/hivemind/src/hivemind/queen/attach.py
+@@ -46,6 +46,8 @@ Key invariants:
+       for a Warden actually attached.
+     - Never raises for a `warden_id` that is not currently attached: a caller may detach
+       defensively (e.g. a connection that never finished the readiness handshake).
++    - A detach naming its link's transport detaches only that link: a Warden that dialled back in
++      (its old link dead, a new one already attached) is never detached by the old one's close.
+     - A reader task exists exactly while its Warden is attached: `attach_warden` starts it and
+       `detach_warden` always cancels and reaps it, never leaving it cancelled-but-unawaited
+       (codingrules section 11).
+@@ -70,6 +72,7 @@ from hivemind.queen.errors import WardenSpawnRefusedError
+ from hivemind.queen.isolation import resend_taint_order
+ from hivemind.queen.ticks.liveness import WardenLiveness, frozen_by_the_hive
+ from waggle.ids import WardenId, new_event_id
++from waggle.transport.base import Transport
+ 
+ if TYPE_CHECKING:
+     from hivemind.queen.deps import WardenLink
+@@ -120,7 +123,9 @@ async def attach_warden(queen: Queen, link: WardenLink) -> None:
+     await resend_taint_order(deps, link)
+ 
+ 
+-async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
++async def detach_warden(
++    queen: Queen, warden_id: WardenId, *, transport: Transport | None = None
++) -> None:
+     """Remove `warden_id`'s own bookkeeping from `queen` and reap its link's reader task.
+ 
+     Does not close the transport itself (the caller already did, or is about to) and does not
+@@ -129,7 +134,12 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
+     Args:
+         queen: The Queen to detach `warden_id` from.
+         warden_id: The Warden to detach.
++        transport: The ending link's own transport, when the caller has one: the Warden is then
++            detached only while that link is still the one attached (module docstring).
+     """
++    attached = queen._wardens.get(warden_id)
++    if transport is not None and attached is not None and attached.transport is not transport:
++        return  # It dialled back in on a new link already: this old one's end is not its end.
+     for table in (queen._wardens, queen._liveness, queen._last_heartbeat):
+         table.pop(warden_id, None)
+     # Whatever the link still had queued goes with it: nothing drains a detached Warden again.
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/gate.py b/packages/hivemind/src/hivemind/queen/cell_gate/gate.py
+index 2ebcb3e..f76c186 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/gate.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/gate.py
+@@ -7,7 +7,9 @@ precisely so a backend never has to know who is actually listening. `QueenReadin
+ real, Queen-side implementation roadmap step 5.4's own dispatch left as a documented gap: `expect`
+ registers a Cell's public key before its container/VM exists, `wait_ready` blocks until both a
+ signed `CellReady` and the Cell's first `CellHeartbeat` have arrived, and `forget` drops a
+-registration on any cleanup path.
++registration on any cleanup path. `rearm` makes a Cell wait afresh: an Overwintered Cell whose link
++died while it slept (a long pause outlasts the link's keepalive) dials back in once resumed, and
++only that new handshake may resolve the wait for it, never the one from before its pause.
+ 
+ The identity puzzle this class exists to solve: `expect(cell_id, verify_key_hex)` is called before
+ the Cell exists, so it can only ever be keyed by `cell_id`. But `waggle.signing.Ed25519Verifier`
+@@ -43,6 +45,8 @@ Key invariants:
+       `hivemind.hive.backends.fake.FakeReadinessGate`'s own documented contract.
+     - `forget` is idempotent: forgetting a `cell_id` never `expect`-ed, or already forgotten, is a
+       no-op (`ReadinessGate.forget`'s own contract).
++    - After `rearm`, `wait_ready` for that Cell waits for the next `resolve`, whatever resolved it
++      before; a Cell never `expect`-ed (or forgotten) is left as it is.
+ 
+ See Also:
+     - hivemind.hive.backends.bootstrap for ReadinessGate, CellReadyInfo and CellBootstrap, the
+@@ -113,6 +117,15 @@ class QueenReadinessGate:
+         self._ready_info.pop(cell_id, None)
+         self._node_id.pop(cell_id, None)
+ 
++    def rearm(self, cell_id: CellId) -> None:
++        """Make `cell_id` wait for its next handshake, whatever resolved it before (module doc).
++
++        Args:
++            cell_id: A Cell this gate still expects; any other is left untouched.
++        """
++        if cell_id in self._expected:
++            self._ready[cell_id] = asyncio.Event()
++
+     def expected_key(self, cell_id: CellId) -> str | None:
+         """Return the hex public key `expect()` registered for `cell_id`, or None if unregistered.
+ 
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/listener.py b/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
+index 71031eb..4f0f9d5 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/listener.py
+@@ -56,7 +56,8 @@ Key invariants:
+       is closed the same way and its Cell's gate is never resolved, so the provider's own ready
+       wait tears the Cell down.
+     - `_handle_connection` always calls `hivemind.queen.attach.detach_warden` on its own way out
+-      once attached, whether the connection ended cleanly or the listener is stopping.
++      once attached, whether the connection ended cleanly or the listener is stopping, naming its
++      own link, so a Warden that already dialled back in on a new link stays attached.
+     - A `CellSnapshotRequest`/`CellRollbackRequest` is answered on the same connection it arrived
+       on, correlated to its own envelope id, and its Warden's liveness is held for as long as the
+       backend works (`hivemind.queen.attach.frozen_cell`: the backend freezes the whole Cell, so
+@@ -326,7 +327,8 @@ class CellListener:
+             if not fanout.pump_task.done():
+                 fanout.pump_task.cancel()
+             await asyncio.gather(fanout.pump_task, return_exceptions=True)
+-            await detach_warden(self._queen, binding.warden_id)
++            # This link's own end only: the Warden may have dialled back in on a new one already.
++            await detach_warden(self._queen, binding.warden_id, transport=fanout)
+ 
+     async def _attach(
+         self, transport: WebSocketTransport, binding: _ReadyBinding, refusals: LinkRefusals
+diff --git a/packages/hivemind/src/hivemind/queen/cell_gate/provider.py b/packages/hivemind/src/hivemind/queen/cell_gate/provider.py
+index a387e38..dbe88d2 100644
+--- a/packages/hivemind/src/hivemind/queen/cell_gate/provider.py
++++ b/packages/hivemind/src/hivemind/queen/cell_gate/provider.py
+@@ -20,17 +20,14 @@ provider's own point of view rather than trusting `provision()`'s side effect al
+ the already-attached link in `queen.wardens` and calls `lifecycle.mark_ready(cell_id, warden_id)`.
+ 
+ For a `ReuseDormant` Placement: `lifecycle.resume(cell_id)` (pool bookkeeping plus
+-`backend.resume`), then the same `gate.wait_ready` plus `queen.wardens` lookup. Known
+-simplification (documented, not fixed here): a resumed Cell's own connection may or may not have
+-stayed open through the backend's pause (Docker's own freeze-in-place semantics keep the socket
+-established; a QEMU VM's `savevm`/`loadvm` does not, and would need the Cell to dial back out and
+-re-run its whole `CellReady`/`CellHeartbeat` handshake). `QueenReadinessGate` today has no way to
+-force a *fresh* wait per resume (its own `_ready` Event, once set by the first `resolve()`, never
+-resets short of `forget()`); this provider therefore trusts whichever link `queen.wardens` already
+-holds for `cell_id` if one is still attached, and only falls back to `gate.wait_ready` when it is
+-not. A real backend-specific fix (resetting the gate's own per-Cell event on `resume()`, or a
+-QEMU-side reconnect) is future work, not this dispatch's -- the real in-Cell Warden this whole
+-path ultimately talks to is also still stubbed (this dispatch's own report names both).
++`backend.resume`), then the Cell's link. A Cell whose link is still up after its pause (a short
++one) keeps it. One whose link died while it slept -- a real Docker run showed a paused Cell's link
++failing its keepalive about 47 s in, and a QEMU VM's `savevm`/`loadvm` never keeps one -- dials
++back in once resumed and re-runs its whole `CellReady`/`CellHeartbeat` handshake
++(`hivemind.cli.in_cell.redial.RedialLink`), so this provider re-arms the gate for it *before*
++resuming it (`QueenReadinessGate.rearm`: only that fresh handshake may resolve the wait, never the
++one from before the pause) and waits for it; the listener attaches the fresh link before resolving.
++Before, it trusted the gate's long-since-resolved event, found no link, and tore the Cell down.
+ 
+ On any failure past a successful `lifecycle.provision`/`.resume` (a wait-ready timeout, or no
+ matching link ever showing up in `queen.wardens`), this provider tears the Cell down and raises
+@@ -291,11 +288,14 @@ class LifecycleVirtualCellProvider:
+         """Resume `placement.cell_id`, wait for its Warden, and return its link."""
+         cell_id = placement.cell_id
+         try:
+-            await self._lifecycle.resume(cell_id)
+             link = self._attached_link(cell_id)
++            if link is None or not link.transport.is_connected:
++                # Its link died while it slept: once resumed it dials back in, and only that fresh
++                # handshake counts, so the gate waits afresh from before the Cell can run again.
++                link = None
++                self._gate.rearm(cell_id)
++            await self._lifecycle.resume(cell_id)
+             if link is None:
+-                # The pause's own backend closed the connection (module docstring's own known
+-                # simplification): fall back to waiting for a fresh handshake through the gate.
+                 await self._gate.wait_ready(cell_id, DEFAULT_READY_TIMEOUT_S)
+                 link = self._require_link(cell_id)
+         except Exception as exc:
+diff --git a/packages/hivemind/tests/builders/virtual_cells.py b/packages/hivemind/tests/builders/virtual_cells.py
+index 15159a9..ab18b3a 100644
+--- a/packages/hivemind/tests/builders/virtual_cells.py
++++ b/packages/hivemind/tests/builders/virtual_cells.py
+@@ -541,12 +541,20 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
+         # An in-process "container" has no /var/lib/hivemind (the image's own scratch root;
+         # Linux CI cannot create it), so each one gets its own temporary scratch root instead.
+         scratch_root = tempfile.mkdtemp(prefix=f"hivemind-{cell_id}-")
+-        environ = {**bootstrap.environment(), "HIVEMIND_SCRATCH_ROOT": scratch_root}
++        environ = self.container_environ(cell_id, bootstrap)
++        environ["HIVEMIND_SCRATCH_ROOT"] = scratch_root
+         try:
+             await run_in_cell_warden(environ, SystemClock(), on_deps_built=_on_deps_built)
+         finally:
+             shutil.rmtree(scratch_root, ignore_errors=True)
+ 
++    def container_environ(self, cell_id: CellId, bootstrap: CellBootstrap) -> dict[str, str]:
++        """The environment `cell_id`'s container boots with: its bootstrap's, as a real one's.
++
++        A subclass reroutes it (a scenario's own relay between the Cell and the Queen, say).
++        """
++        return dict(bootstrap.environment())
++
+     async def destroy(self, cell_id: CellId) -> None:
+         """Destroy as `FakeCellBackend` does, then stop this Cell's own container task."""
+         await super().destroy(cell_id)
+diff --git a/packages/hivemind/tests/e2e/test_overwinter_redial.py b/packages/hivemind/tests/e2e/test_overwinter_redial.py
+new file mode 100644
+index 0000000..f272303
+--- /dev/null
++++ b/packages/hivemind/tests/e2e/test_overwinter_redial.py
+@@ -0,0 +1,235 @@
++"""End-to-end: a Cell whose link died while it was Overwintered is reused for the next goal.
++
++Overwintering `docker pause`s an idle Virtual Cell (ADR-0029), and a real Docker run showed its
++link failing the WebSocket keepalive about 47 s into the pause: the Queen detached its Warden, the
++resumed Warden never noticed its link had ended, and the Queen, finding no link, tore the Cell down
++and provisioned a fresh one for the next goal. This module runs the real Queen, `CellListener`,
++`LifecycleVirtualCellProvider`, `CellLifecycle`/`OverwinterPool` and a real in-Cell Warden per Cell
++(`builders.virtual_cells.ContainerSpawningFakeCellBackend`), each Cell dialling the Queen through a
++loopback relay of its own that the backend's `pause`/`resume` freeze and free: pausing drops the
++relayed link both ways with no close frame (a keepalive failure, compressed) and refuses the Cell's
++dials until it resumes, since a frozen Cell cannot dial at all. The second goal must land on the
++same Cell, which dialled back in once resumed.
++
++Fits into the Hive:
++    Test infrastructure (codingrules section 14.2), not shipped.
++
++Key invariants:
++    - None: this module holds tests only.
++
++See Also:
++    - hivemind.cli.in_cell.redial for RedialLink, the Warden's side of the reuse.
++    - hivemind.queen.cell_gate.provider for the Queen's side: a resumed Cell waited for afresh.
++    - tests.e2e.test_virtual_cells scenario (d) for a reuse whose link survived the pause.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import socket
++from collections.abc import Mapping, Sequence
++from pathlib import Path
++from urllib.parse import urlsplit, urlunsplit
++
++import pytest
++from builders.virtual_cells import (
++    ContainerSpawningFakeCellBackend,
++    VirtualCellsTuning,
++    default_container_script,
++    single_haiku_plan,
++    virtual_cells_manifest,
++)
++from e2e.kernel_helpers import (
++    default_worker_turn,
++    judge_approve_response,
++    plan_response,
++    text_response,
++    wait_until,
++)
++
++from hivemind.cell import HoneyClearance
++from hivemind.cli.compose import Hive, build_hive, run_goal, run_hive
++from hivemind.forage.slots import ModelSlot
++from hivemind.hive.backends.bootstrap import CellBootstrap
++from hivemind.llm import LLMRequest, LLMResponse
++from hivemind.manifest import load_manifest
++from hivemind.pheromone import PheromoneEvent, TrailQuery
++from waggle.clock import SystemClock
++from waggle.ids import CellId
++
++pytestmark = pytest.mark.e2e
++
++_TIMEOUT_S = 30.0  # Generous: the resumed Cell's own dial backs off up to 4 s between attempts.
++_QUEEN_URL = "HIVEMIND_QUEEN_WAGGLE_URL"  # hivemind.hive.backends.bootstrap's own variable.
++
++
++class _Relay:
++    """A loopback TCP relay between one Cell and the Queen's listener, frozen with the Cell."""
++
++    def __init__(self, upstream: tuple[str, int]) -> None:
++        self._upstream = upstream
++        self._paused = False
++        self._streams: list[asyncio.StreamWriter] = []
++        self._sock = socket.create_server(("127.0.0.1", 0))  # Bound now: the Cell may dial at once.
++        self._server: asyncio.Server | None = None
++        self.port = int(self._sock.getsockname()[1])
++
++    async def serve(self) -> None:
++        """Accept the Cell's dials from here on (queued in the backlog until now)."""
++        self._server = await asyncio.start_server(self._accept, sock=self._sock)
++
++    def pause(self) -> None:
++        """Drop every relayed link both ways, with no close frame, and refuse dials until resumed."""
++        self._paused = True
++        for writer in self._streams:
++            writer.transport.abort()
++        self._streams.clear()
++
++    def resume(self) -> None:
++        """Let the Cell's dials through again."""
++        self._paused = False
++
++    async def aclose(self) -> None:
++        """Drop everything and stop accepting."""
++        self.pause()
++        if self._server is not None:
++            self._server.close()
++            await self._server.wait_closed()
++
++    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
++        if self._paused:
++            writer.transport.abort()  # A frozen Cell's dial never gets through.
++            return
++        # External await: the Queen's own listener, on loopback; answers in milliseconds.
++        async with asyncio.timeout(_TIMEOUT_S):
++            upstream_reader, upstream_writer = await asyncio.open_connection(*self._upstream)
++        self._streams += [writer, upstream_writer]
++        await asyncio.gather(
++            _pipe(reader, upstream_writer), _pipe(upstream_reader, writer), return_exceptions=True
++        )
++
++
++async def _pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
++    """Copy one direction until it ends, then close the other side's writer with it."""
++    try:
++        while data := await reader.read(65536):
++            writer.write(data)
++            await writer.drain()
++    finally:
++        writer.close()
++
++
++class _RelayedContainerBackend(ContainerSpawningFakeCellBackend):
++    """Each Cell dials the Queen through a relay of its own; pause and resume freeze and free it."""
++
++    relays: dict[CellId, _Relay]
++    _serving: list[asyncio.Task[None]]
++
++    def container_environ(self, cell_id: CellId, bootstrap: CellBootstrap) -> dict[str, str]:
++        environ = super().container_environ(cell_id, bootstrap)
++        queen = urlsplit(environ[_QUEEN_URL])
++        assert queen.hostname is not None and queen.port is not None
++        relay = _Relay((queen.hostname, queen.port))
++        self.relays = getattr(self, "relays", {})
++        self._serving = getattr(self, "_serving", [])
++        self.relays[cell_id] = relay
++        self._serving.append(asyncio.ensure_future(relay.serve()))
++        environ[_QUEEN_URL] = urlunsplit(queen._replace(netloc=f"127.0.0.1:{relay.port}"))
++        return environ
++
++    async def pause(self, cell_id: CellId) -> None:
++        await super().pause(cell_id)
++        self.relays[cell_id].pause()
++
++    async def resume(self, cell_id: CellId) -> None:
++        self.relays[cell_id].resume()
++        await super().resume(cell_id)
++
++    async def aclose(self) -> None:
++        await super().aclose()
++        await asyncio.gather(*getattr(self, "_serving", []), return_exceptions=True)
++        for relay in getattr(self, "relays", {}).values():
++            await relay.aclose()
++
++
++class _Plans:
++    """Answer each QUEEN-slot planning call with the next plan; a Drone's calls as usual."""
++
++    def __init__(self, plans: Sequence[Mapping[str, object]]) -> None:
++        self._plans = list(plans)
++
++    def responder(self, request: LLMRequest) -> LLMResponse:
++        if request.slot is ModelSlot.QUEEN:
++            return plan_response(request, self._plans.pop(0))
++        if request.slot is ModelSlot.WORKER:
++            return default_worker_turn(request)
++        if request.slot is ModelSlot.JUDGE:
++            return judge_approve_response(request)
++        return text_response("{}")
++
++
++def test_a_cell_whose_link_died_while_it_slept_is_reused_for_the_next_goal(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    monkeypatch.setattr(
++        "hivemind.cli.compose.virtual_cell_backends.FakeCellBackend", _RelayedContainerBackend
++    )
++    tuning = VirtualCellsTuning(prefer="virtual", overwinter_enabled=True)
++    plans = _Plans([single_haiku_plan("haiku_1.txt"), single_haiku_plan("haiku_2.txt")])
++    hive = build_hive(
++        load_manifest(virtual_cells_manifest(tmp_path, tuning=tuning), {}),
++        environ={},
++        clock=SystemClock(),
++        responders={"fake": plans.responder},
++    )
++
++    asyncio.run(_run(hive))
++
++
++async def _run(hive: Hive) -> None:
++    """Run two goals across one Overwinter whose link died, then check the Cell was reused."""
++    assert hive.virtual_cells is not None
++    backend = hive.virtual_cells.registry.get("fake")
++    assert isinstance(backend, _RelayedContainerBackend)
++    try:
++        async with run_hive(hive):
++            first = await run_goal(hive, "goal one", clearance=HoneyClearance.C1, timeout_s=30.0)
++            assert first.succeeded, first
++            cell_id = _cell_of(await hive.stores.trail.query(TrailQuery()), first.tasks[0].id)
++            # Overwintered, its link dead: the Queen lets go of its Warden, as a keepalive would.
++            await wait_until(lambda: _gone(hive, cell_id), timeout_s=_TIMEOUT_S)
++            backend.providers[cell_id].script(*default_container_script())
++
++            second = await run_goal(hive, "goal two", clearance=HoneyClearance.C1, timeout_s=30.0)
++            assert second.succeeded, second
++        _assert_reused(await hive.stores.trail.query(TrailQuery()), second.tasks[0].id, cell_id)
++    finally:
++        await backend.aclose()
++
++
++def _gone(hive: Hive, cell_id: CellId) -> bool:
++    """Whether the Cell is dormant and no Warden of it is attached any more."""
++    dormant = hive.virtual_cells is not None and any(
++        candidate.cell_id == cell_id for candidate in hive.queen_deps.dormant_cells
++    )
++    attached = any(link.cell.id == cell_id for link in hive.queen.wardens)
++    return not attached and (dormant or True)
++
++
++def _cell_of(events: Sequence[PheromoneEvent], task_id: str) -> CellId:
++    """The Cell `queen.assigned` named for `task_id`."""
++    assigned = next(e for e in events if e.kind == "queen.assigned" and e.subject_id == task_id)
++    return CellId(str(assigned.payload["cell_id"]))
++
++
++def _assert_reused(events: Sequence[PheromoneEvent], task_id: str, cell_id: CellId) -> None:
++    """The second task went back to the same Cell, resumed, never torn down or re-provisioned."""
++    placed = next(e for e in events if e.kind == "queen.placed" and e.subject_id == task_id)
++    assert placed.payload["outcome"] == "ReuseDormant", placed.payload
++    assert _cell_of(events, task_id) == cell_id
++    kinds = [e.kind for e in events if e.subject_id == cell_id]
++    assert kinds.count("cell.provisioning") == 1, kinds
++    assert "cell.resumed" in kinds and "cell.destroying" not in kinds[: kinds.index("cell.resumed")]
++    # Its one Warden joined the Queen twice: once at boot, once dialling back in after the pause.
++    spawned = [e for e in events if e.kind == "warden.spawned" and e.payload["cell_id"] == cell_id]
++    assert len(spawned) == 2 and spawned[0].subject_id == spawned[1].subject_id, spawned
+diff --git a/packages/hivemind/tests/unit/cli/in_cell/test_redial.py b/packages/hivemind/tests/unit/cli/in_cell/test_redial.py
+new file mode 100644
+index 0000000..1101412
+--- /dev/null
++++ b/packages/hivemind/tests/unit/cli/in_cell/test_redial.py
+@@ -0,0 +1,216 @@
++"""Tests for hivemind.cli.in_cell.redial: RedialLink, the Warden's link dialled afresh on a drop.
++
++An Overwintered Cell's link does not outlive a long pause: its keepalive fails while the Cell is
++frozen, and the resumed Warden finds it dead. These tests drive `RedialLink` over a scripted client
++transport whose connection a test drops or closes, and check that the reader redials and
++re-announces the Cell before anything else goes out, that a send meeting the drop goes out once
++more on the fresh connection, that a clean close is never redialled, and that a Queen that cannot
++be reached is dialled again after a pause.
++
++Fits into the Hive:
++    Mirrors src/hivemind/cli/in_cell/redial.py (codingrules section 3).
++
++Key invariants:
++    - None: this module holds tests only.
++
++See Also:
++    - hivemind.cli.in_cell.redial for RedialLink, the class under test.
++    - tests.e2e.test_overwinter_redial for the same Cell reused after a pause, end to end.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from collections.abc import AsyncIterator, Callable
++
++from hivemind.cli.in_cell.redial import REDIAL_PAUSE_S, Handshake, RedialLink
++from waggle.clock import FakeClock
++from waggle.envelope import Envelope, Hop, wrap
++from waggle.errors import ConnectFailedError, ConnectionLostError
++from waggle.ids import new_hive_id, new_node_id, new_task_id, new_warden_id
++from waggle.messages.task import TaskCancel
++
++WAIT_S = 5.0  # Bounds every await that could hang; everything here is in-process.
++_DROP = object()  # Queued on a connection: its link dropped.
++_CLEAN = object()  # Queued on a connection: the Queen closed it on purpose.
++
++
++class _ClientTransport:
++    """A client transport a test drops or closes; each `connect` opens a fresh connection."""
++
++    def __init__(self) -> None:
++        self.connections = 0
++        self.refusals = 0  # How many dials in a row to refuse, as an unreachable Queen would.
++        self.dials = 0
++        self.sent: list[tuple[int, str]] = []  # (connection, what), in the order it went out.
++        self._inbox: asyncio.Queue[object] = asyncio.Queue()
++        self._alive = False
++
++    @property
++    def is_connected(self) -> bool:
++        return self._alive
++
++    async def connect(self) -> None:
++        self.dials += 1
++        if self.refusals:
++            self.refusals -= 1
++            raise ConnectFailedError("The Queen could not be reached.")
++        self.connections += 1
++        self._inbox = asyncio.Queue()
++        self._alive = True
++
++    async def send(self, envelope: Envelope) -> None:
++        if not self._alive:
++            raise ConnectionLostError("The link dropped.")
++        self.sent.append((self.connections, _reason(envelope)))
++
++    async def receive(self) -> AsyncIterator[Envelope]:
++        inbox = self._inbox  # This connection's own: a fresh one never replays an old one's.
++        while True:
++            item = await inbox.get()
++            if item is _DROP:
++                raise ConnectionLostError("The link dropped.")
++            if item is _CLEAN:
++                return
++            assert isinstance(item, Envelope)
++            yield item
++
++    async def close(self) -> None:
++        self._alive = False
++
++    def deliver(self, envelope: Envelope) -> None:
++        self._inbox.put_nowait(envelope)
++
++    def drop(self, *, noticed: bool = True) -> None:
++        """Drop the link; `noticed=False` leaves its reader not yet aware of it."""
++        self._alive = False
++        if noticed:
++            self._inbox.put_nowait(_DROP)
++
++    def close_cleanly(self) -> None:
++        self._inbox.put_nowait(_CLEAN)
++
++
++def _frame(what: str) -> Envelope:
++    """One small envelope, told apart by its own `reason`."""
++    clock = FakeClock()
++    order = TaskCancel(task_id=new_task_id(clock), grace_s=0.0, reason=what)
++    hop = Hop(sender=new_warden_id(clock), recipient=new_hive_id(clock), node_id=new_node_id(clock))
++    return wrap(order, hop, clock=clock)
++
++
++def _reason(envelope: Envelope) -> str:
++    """The `reason` a test frame was told apart by."""
++    assert isinstance(envelope.payload, TaskCancel)
++    return envelope.payload.reason
++
++
++def _announcer(real: _ClientTransport, hold: asyncio.Event) -> Handshake:
++    """The Cell's handshake: connect, then its opening frames; a redial's waits on `hold`."""
++
++    async def handshake() -> None:
++        await real.connect()
++        await real.send(_frame("CellReady"))
++        if real.connections > 1:
++            await hold.wait()  # Keeps the redial under way while the test sends through it.
++        await real.send(_frame("CellHeartbeat"))
++
++    return handshake
++
++
++async def _until(condition: Callable[[], bool]) -> None:
++    """Yield the event loop until `condition()` holds; bounded by the caller's own wait_for.
++
++    A scheduling yield, not an `asyncio.Event`: the state waited on changes inside `RedialLink`'s
++    own reader, which this test does not instrument with an event of its own.
++    """
++    while not condition():  # noqa: ASYNC110 - polling shared state, see docstring.
++        await asyncio.sleep(0)
++
++
++async def _read(link: RedialLink, count: int) -> list[str]:
++    """Read `count` envelopes off `link`, returning each one's own reason."""
++    reasons: list[str] = []
++    async for envelope in link.receive():
++        reasons.append(_reason(envelope))
++        if len(reasons) == count:
++            break
++    return reasons
++
++
++async def test_a_dropped_link_is_redialled_and_announced_before_anything_else_goes_out() -> None:
++    real, hold = _ClientTransport(), asyncio.Event()
++    handshake = _announcer(real, hold)
++    await handshake()
++    link = RedialLink(real, handshake, FakeClock())
++    reader = asyncio.ensure_future(_read(link, 2))
++    real.deliver(_frame("before"))
++
++    real.drop()
++    await asyncio.wait_for(_until(lambda: real.connections == 2), WAIT_S)
++    sender = asyncio.ensure_future(link.send(_frame("heartbeat")))
++    await asyncio.sleep(0)
++    assert not sender.done()  # Never between the fresh connection's own opening frames.
++    hold.set()
++    await asyncio.wait_for(sender, WAIT_S)
++    real.deliver(_frame("after"))
++
++    assert await asyncio.wait_for(reader, WAIT_S) == ["before", "after"]
++    assert real.sent[2:] == [(2, "CellReady"), (2, "CellHeartbeat"), (2, "heartbeat")]
++
++
++async def test_a_send_that_meets_the_drop_goes_out_once_more_on_the_fresh_connection() -> None:
++    real, hold = _ClientTransport(), asyncio.Event()
++    hold.set()
++    handshake = _announcer(real, hold)
++    await handshake()
++    link = RedialLink(real, handshake, FakeClock())
++    reader = asyncio.ensure_future(_read(link, 1))
++
++    real.drop(noticed=False)  # The send meets the drop before the reader has heard of it.
++    sender = asyncio.ensure_future(link.send(_frame("result")))
++    await asyncio.sleep(0)
++    real.drop()  # Now the reader hears of it, and redials.
++    await asyncio.wait_for(sender, WAIT_S)
++
++    assert real.sent[-1] == (2, "result")
++    reader.cancel()  # It reads on forever otherwise: reaped, never left pending.
++    await asyncio.gather(reader, return_exceptions=True)
++
++
++async def test_a_clean_close_ends_the_stream_and_is_never_redialled() -> None:
++    real, hold = _ClientTransport(), asyncio.Event()
++    handshake = _announcer(real, hold)
++    await handshake()
++    link = RedialLink(real, handshake, FakeClock())
++    real.deliver(_frame("last"))
++    real.close_cleanly()
++
++    reasons = [_reason(envelope) async for envelope in link.receive()]
++
++    assert reasons == ["last"]
++    assert real.connections == 1
++
++
++async def test_an_unreachable_queen_is_dialled_again_after_a_pause() -> None:
++    real, hold = _ClientTransport(), asyncio.Event()
++    hold.set()
++    clock = FakeClock()
++    handshake = _announcer(real, hold)
++    await handshake()
++    link = RedialLink(real, handshake, clock)
++    reader = asyncio.ensure_future(_read(link, 1))
++
++    real.refusals = 1  # Its first redial finds the Queen away.
++    real.drop()
++    await asyncio.wait_for(_until(lambda: real.dials == 2), WAIT_S)
++    assert real.connections == 1  # Not yet: it waits out the pause before dialling again.
++
++    async def _dialled_again() -> None:
++        while real.connections < 2:  # Each turn moves the fake clock on past one pause.
++            clock.advance(REDIAL_PAUSE_S)
++            await asyncio.sleep(0)
++
++    await asyncio.wait_for(_dialled_again(), WAIT_S)
++    real.deliver(_frame("back"))
++    assert await asyncio.wait_for(reader, WAIT_S) == ["back"]
+diff --git a/packages/hivemind/tests/unit/queen/cell_gate/test_gate.py b/packages/hivemind/tests/unit/queen/cell_gate/test_gate.py
+index b66e949..d372f04 100644
+--- a/packages/hivemind/tests/unit/queen/cell_gate/test_gate.py
++++ b/packages/hivemind/tests/unit/queen/cell_gate/test_gate.py
+@@ -108,3 +108,31 @@ async def test_node_id_for_is_none_before_resolve() -> None:
+     gate = QueenReadinessGate()
+ 
+     assert gate.node_id_for(CellId("cell_test")) is None
++
++
++async def test_rearm_makes_a_resolved_cell_wait_for_its_next_handshake() -> None:
++    gate = QueenReadinessGate()
++    cell_id = CellId("cell_test")
++    await gate.expect(cell_id, public_key_hex(Ed25519Signer.generate().public_key_bytes))
++    gate.resolve(cell_id, new_node_id(FakeClock()), _info())
++
++    # Its link died while it slept: only the handshake it makes once resumed may count.
++    gate.rearm(cell_id)
++    wait_task = asyncio.ensure_future(gate.wait_ready(cell_id, timeout_s=WAIT_S))
++    await asyncio.sleep(0)  # Let wait_ready actually start waiting on the fresh event.
++    assert not wait_task.done()
++
++    fresh_node_id = new_node_id(FakeClock())
++    gate.resolve(cell_id, fresh_node_id, _info())
++    await asyncio.wait_for(wait_task, timeout=WAIT_S)
++    assert gate.node_id_for(cell_id) == fresh_node_id
++
++
++async def test_rearm_leaves_a_cell_it_does_not_expect_alone() -> None:
++    gate = QueenReadinessGate()
++    cell_id = CellId("cell_never_expected")
++
++    gate.rearm(cell_id)
++
++    with pytest.raises(TimeoutError):
++        await gate.wait_ready(cell_id, timeout_s=5.0)  # Fails at once, as before any rearm.
+diff --git a/packages/hivemind/tests/unit/queen/cell_gate/test_provider.py b/packages/hivemind/tests/unit/queen/cell_gate/test_provider.py
+index 74ee09f..c3e2c85 100644
+--- a/packages/hivemind/tests/unit/queen/cell_gate/test_provider.py
++++ b/packages/hivemind/tests/unit/queen/cell_gate/test_provider.py
+@@ -6,7 +6,9 @@ pair does (its own module docstring: it is a bare in-memory Cell registry, no re
+ readiness resolve *and* the listener's own "attach the WardenLink before resolving the gate" --
+ inside one `provision()` override. This tests `LifecycleVirtualCellProvider`'s own acquire logic
+ in isolation; the real concurrent handshake (`CellListener` racing a dialling Cell) is already
+-covered by `tests/unit/queen/cell_gate/test_listener.py`.
++covered by `tests/unit/queen/cell_gate/test_listener.py`. A dormant Cell whose link died while it
++slept dials back in once resumed: `_GatedFakeCellBackend.dial_back` plays that, a moment after
++`resume()`, as a real Cell's fresh handshake would arrive.
+ 
+ Fits into the Hive:
+     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/provider.py
+@@ -21,6 +23,9 @@ See Also:
+ 
+ from __future__ import annotations
+ 
++import asyncio
++import dataclasses
++
+ import pytest
+ from builders.cells import make_identity
+ from builders.forage import make_capacity
+@@ -48,7 +53,7 @@ from hivemind.queen.placement import ProvisionVirtual, ReuseDormant
+ from waggle.clock import FakeClock
+ from waggle.codec import Codec
+ from waggle.envelope import Hop
+-from waggle.ids import new_grant_id, new_hive_id, new_node_id, new_warden_id
++from waggle.ids import CellId, new_grant_id, new_hive_id, new_node_id, new_warden_id
+ from waggle.transport.memory import MemoryTransport
+ 
+ 
+@@ -79,6 +84,9 @@ class _GatedFakeCellBackend(FakeCellBackend):
+         self._queen_gate = gate
+         self._wardens = wardens
+         self._announce = announce  # The tier each Cell's link claims; its own tier when None.
++        self.dial_back = False  # Whether a resumed Cell dials back in (its old link died).
++        self.dial_backs: list[asyncio.Task[None]] = []
++        self._first_links: dict[CellId, WardenLink] = {}  # Each Cell's own first link.
+ 
+     async def provision(self, spec: VirtualCellSpec) -> Cell:
+         cell = await super().provision(spec)
+@@ -95,6 +103,7 @@ class _GatedFakeCellBackend(FakeCellBackend):
+             hop=Hop(sender="hive_x", recipient="warden_x", node_id=new_node_id(self._clock)),
+         )
+         self._wardens.append(link)
++        self._first_links[cell.id] = link
+         self._queen_gate.resolve(
+             cell.id,
+             new_node_id(self._clock),
+@@ -102,6 +111,26 @@ class _GatedFakeCellBackend(FakeCellBackend):
+         )
+         return cell
+ 
++    async def resume(self, cell_id: CellId) -> None:
++        await super().resume(cell_id)
++        if self.dial_back:
++            # A moment after it runs again, never inside resume() itself: a real Cell's fresh
++            # handshake reaches the Queen only once its Warden noticed the dead link and redialled.
++            self.dial_backs.append(asyncio.ensure_future(self._redial(cell_id)))
++
++    async def _redial(self, cell_id: CellId) -> None:
++        """Attach the Cell's Warden on a fresh link (replacing a dead one), then resolve."""
++        old = self._first_links[cell_id]
++        fresh = dataclasses.replace(old, transport=MemoryTransport.pair(Codec(), Codec())[0])
++        # The listener attaches the same Warden id again: it replaces whatever link it had.
++        self._wardens[:] = [link for link in self._wardens if link.cell.id != cell_id]
++        self._wardens.append(fresh)
++        self._queen_gate.resolve(
++            cell_id,
++            new_node_id(self._clock),
++            CellReadyInfo(capabilities=old.cell.capabilities, capacity=old.cell.capacity),
++        )
++
+ 
+ class _StubQueen:
+     """A minimal stand-in for hivemind.queen.queen.Queen: only `.wardens` is read."""
+@@ -260,9 +289,49 @@ async def test_acquire_reuse_dormant_finds_the_still_attached_link() -> None:
+     assert lifecycle.status_of(cell_id) is VirtualCellStatus.READY
+ 
+ 
+-async def test_acquire_reuse_dormant_tears_down_when_no_link_is_found() -> None:
+-    """A resumed Cell whose connection did NOT survive the pause: no fallback link, so it fails."""
++@pytest.mark.parametrize("how", ["detached", "closed_but_attached"])
++async def test_acquire_reuse_dormant_waits_for_the_fresh_handshake_of_a_cell_whose_link_died(
++    how: str,
++) -> None:
+     provider, lifecycle, wardens, _gate, _trail = _build(with_pool=True)
++    provisioned = await _dormant_after_one_task(provider, lifecycle)
++    cell_id = provisioned.cell.id
++    await provisioned.transport.close()  # Its link died while it slept.
++    if how == "detached":
++        wardens.remove(provisioned)  # ...and the Queen already noticed, and detached it.
++    target = lifecycle.snapshot_target(cell_id)
++    assert target is not None and isinstance(target[0], _GatedFakeCellBackend)
++    target[0].dial_back = True
++
++    dormant = ReuseDormant(cell_id=cell_id, warden_id=provisioned.warden_id, reason="test")
++    link = await asyncio.wait_for(provider.acquire(dormant, _fake_task()), 5.0)
++
++    # Its fresh link, from the handshake it made once resumed: never the one that died.
++    assert link.transport is not provisioned.transport and link.transport.is_connected
++    assert lifecycle.status_of(cell_id) is VirtualCellStatus.READY
++
++
++async def test_acquire_reuse_dormant_tears_down_when_no_link_is_found(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """A resumed Cell whose link died and that never dials back in: torn down after the wait."""
++    monkeypatch.setattr("hivemind.queen.cell_gate.provider.DEFAULT_READY_TIMEOUT_S", 0.05)
++    provider, lifecycle, wardens, _gate, _trail = _build(with_pool=True)
++    provisioned = await _dormant_after_one_task(provider, lifecycle)
++    cell_id = provisioned.cell.id
++    wardens.remove(provisioned)  # Simulate the pause closing the connection.
++
++    dormant = ReuseDormant(cell_id=cell_id, warden_id=None, reason="test")
++    with pytest.raises(CellProvisionError):
++        await provider.acquire(dormant, _fake_task())
++
++    assert lifecycle.status_of(cell_id) is None  # Torn down after the failed resume.
++
++
++async def _dormant_after_one_task(
++    provider: LifecycleVirtualCellProvider, lifecycle: CellLifecycle
++) -> WardenLink:
++    """Provision a Cell, run it once, and Overwinter it; return the link it was provisioned with."""
+     placement = ProvisionVirtual(spec=_spec(), backend="fake", reason="test")
+     provisioned = await provider.acquire(placement, _fake_task())
+     cell_id = provisioned.cell.id
+@@ -277,13 +346,8 @@ async def test_acquire_reuse_dormant_tears_down_when_no_link_is_found() -> None:
+         ),
+     )
+     await lifecycle.overwinter(cell_id, scrub=_no_op_scrub)
+-    wardens.remove(provisioned)  # Simulate the pause closing the connection.
+-
+-    dormant = ReuseDormant(cell_id=cell_id, warden_id=None, reason="test")
+-    with pytest.raises(CellProvisionError):
+-        await provider.acquire(dormant, _fake_task())
+-
+-    assert lifecycle.status_of(cell_id) is None  # Torn down after the failed resume.
++    assert lifecycle.status_of(cell_id) is VirtualCellStatus.DORMANT
++    return provisioned
+ 
+ 
+ # ──────────────────────────────────────────────────────────────────────────────
+diff --git a/packages/hivemind/tests/unit/queen/test_attach.py b/packages/hivemind/tests/unit/queen/test_attach.py
+index 7575dd0..683802e 100644
+--- a/packages/hivemind/tests/unit/queen/test_attach.py
++++ b/packages/hivemind/tests/unit/queen/test_attach.py
+@@ -29,7 +29,9 @@ from hivemind.queen import WardenSpawnRefusedError
+ from hivemind.queen.attach import detach_warden
+ from hivemind.queen.queen import Queen
+ from waggle.clock import FakeClock
++from waggle.codec import Codec
+ from waggle.ids import WardenId, new_node_id
++from waggle.transport.memory import MemoryTransport
+ 
+ 
+ async def test_attach_warden_records_warden_spawned_for_the_admitted_warden() -> None:
+@@ -101,3 +103,19 @@ async def test_detach_warden_is_a_no_op_for_an_unattached_id() -> None:
+     queen = Queen(deps)
+ 
+     await detach_warden(queen, WardenId("warden_never_attached"))  # Must not raise.
++
++
++async def test_an_old_links_end_never_detaches_the_warden_that_dialled_back_in() -> None:
++    # A resumed Cell's Warden redials before the Queen has seen its dead link close: the old
++    # link's own end must leave the fresh one attached.
++    deps, link, _end = make_queen_deps()
++    queen = Queen(deps)
++    await queen.attach_warden(link)
++    fresh = dataclasses.replace(link, transport=MemoryTransport.pair(Codec(), Codec())[0])
++    await queen.attach_warden(fresh)
++
++    await detach_warden(queen, link.warden_id, transport=link.transport)
++    assert [w.transport for w in queen.wardens] == [fresh.transport]
++
++    await detach_warden(queen, link.warden_id, transport=fresh.transport)
++    assert queen.wardens == ()
