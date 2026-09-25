@@ -27,8 +27,8 @@ Key invariants:
       finding or a transcript, and anything larger belongs in the Basket (roadmap 9.2a).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for what each number governs.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the embedding pass fields.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for what each number governs.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the embedding pass fields.
     - hivemind.manifest.schema.security for HoneySection, the ``[honey]`` table these nest in.
     - docs/manifests/full.toml for every field shown with its default.
 """
@@ -156,7 +156,7 @@ class HoneyRipeningSection(BaseModel):
     max_embed_per_pass: int = Field(
         default=DEFAULT_MAX_EMBED_PER_PASS,
         gt=0,
-        description="Honey rows embedded per pass, fresh and re-embedded alike (ADR-0032).",
+        description="Honey rows embedded per pass, fresh and re-embedded alike (ADR-0036).",
     )
     near_duplicate_similarity: float = Field(
         default=DEFAULT_NEAR_DUPLICATE_SIMILARITY,

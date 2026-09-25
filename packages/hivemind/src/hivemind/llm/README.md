@@ -162,7 +162,7 @@ fan their wings to regulate the hive's airflow.
   4.7a's own **`DEFAULT_THROTTLE_S`** (`60.0`): how long `FannerLane` throttles a source for when
   a `RateLimitedError` carries no `retry_after_s` hint.
 
-## Public API (roadmap step 7.1, ADR-0032)
+## Public API (roadmap step 7.1, ADR-0036)
 
 The embedding boundary (`hivemind.llm.embedding`): turns text into vectors, the same "one door"
 shape as the chat boundary above, but its own package because it needed several files.
@@ -185,7 +185,7 @@ shape as the chat boundary above, but its own package because it needed several 
   `embed()` call, so a test can assert batching.
 - **The resolved binding** (`hivemind.llm.embedding.bound`): `BoundEmbedder`, mirroring
   `BoundModel` except a `.fallback` link is only ever built when it serves the *same* model id
-  (ADR-0032: two embedding models' vectors are not comparable).
+  (ADR-0036: two embedding models' vectors are not comparable).
 - **The call seam** (`hivemind.llm.embedding.gate`): `EmbedGate` and `DirectEmbedGate`, mirroring
   `CallGate`/`DirectCallGate`; `DirectEmbedGate` walks `bound.fallback` on
   `ProviderUnavailableError` only (safe here, unlike a chat spill, because the fallback is

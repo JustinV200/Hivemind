@@ -78,7 +78,7 @@ Public API (roadmap step 3.12a, extended by step 4.7a):
       provider's own reported `RateLimitSnapshot` figures over, once it has them.
     - Trail recording: LlmEventRecorder, NullLlmEventRecorder, TrailLlmEventRecorder.
 
-Public API (roadmap step 7.1, ADR-0032):
+Public API (roadmap step 7.1, ADR-0036):
     - The embedding boundary (`hivemind.llm.embedding`): EmbeddingRequest, EmbeddingResponse,
       MAX_EMBED_TEXTS, EmbeddingCapabilities, EmbeddingProvider, FakeEmbedding,
       FAKE_EMBED_MODEL_ID, BoundEmbedder, EmbedGate, DirectEmbedGate.

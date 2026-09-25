@@ -27,7 +27,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md step 7.10 for the tree this walks.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for "Browsing never writes."
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for "Browsing never writes."
     - hivemind.honey_store.browse.relabel for the human's own label change, kept apart from it.
 """
 
@@ -175,7 +175,7 @@ class HoneyBrowser:
 def operator_reader(hive_id: HiveId, ceiling: HoneyClearance) -> HoneyReader:
     """Build the reader the operator browses and queries as: every scope, up to `ceiling`.
 
-    ADR-0031's defaults until phase 10 issues real capability sets: the Queen, the House Bee and
+    ADR-0035's defaults until phase 10 issues real capability sets: the Queen, the House Bee and
     the operator's CLI read every scope. The operator reads from the Hive Stand, never from a
     Night Veil Cell, so its queries are trailed like any other.
 

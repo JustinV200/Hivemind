@@ -19,11 +19,11 @@ Fits into the Hive:
 Key invariants:
     - Whatever is not re-exported here is private to this package (codingrules 5.4).
     - Every write reaches the store through intake, the Ripener or an explicit relabel, and every
-      one of them records its `honey.*` event in the same transaction (ADR-0031).
+      one of them records its `honey.*` event in the same transaction (ADR-0035).
 
 See Also:
     - .claude/codingrules.md section 4 for the layer 2 row this package occupies.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md and docs/adr/0032-embedding-provider-
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md and docs/adr/0036-embedding-provider-
       and-reembedding-policy.md for the decisions this package implements.
     - .claude/roadmap.md phase 7 for the work that populates this package end to end.
 
@@ -53,7 +53,7 @@ Public API:
     - NectarIntake, NectarSubmission, DepositSource, IntakeResult, handoff_source_key (nectar):
       the one door every deposit comes in through.
     - Ripener, RipenerDeps, PassOutcome, RipenOutcome, PruneOutcome, prune_vectors (ripening):
-      Nectar into Honey, and a superseded model's vectors dropped on request (ADR-0033).
+      Nectar into Honey, and a superseded model's vectors dropped on request (ADR-0037).
     - HoneyRetriever, RetrieverDeps, HoneyReader, HoneySearch, SearchOutcome (honey): hybrid
       retrieval under a reader's scope, clearance and budget.
 """

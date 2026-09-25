@@ -1,7 +1,7 @@
 """Define the shapes a Honey Store search passes between the store and its ranker.
 
 `ReadFilter` is the one filter every `HoneyStore` read applies, always before ranking or limiting
-(ADR-0031): a reader's scope globs, an optional set of exact scopes to narrow to, and a clearance
+(ADR-0035): a reader's scope globs, an optional set of exact scopes to narrow to, and a clearance
 ceiling. `TextCandidate`/`VectorCandidate` are one raw hit each from the full-text and vector sides
 of a hybrid search, before `hivemind.honey_store.honey` (retrieval, a later dispatch) fuses their
 scores; kept as plain dataclasses rather than pydantic models because nothing here crosses a
@@ -18,12 +18,12 @@ Fits into the Hive:
 Key invariants:
     - `ReadFilter.readable`/`.requested` never mix scope kinds with clearance: every filtering
       axis this module names is independent, and `hivemind.honey_store.store` applies all of them
-      before ranking, per ADR-0031 ("Filtering is policy, not ranking").
+      before ranking, per ADR-0035 ("Filtering is policy, not ranking").
     - `HoneyStats` carries only counts and labels, never a hit's content, id or query text
       (codingrules section 12: the same rule the honey.* trail events themselves follow).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the filter-before-rank rule.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the filter-before-rank rule.
     - hivemind.honey_store.scope for `readable_globs`, which builds `ReadFilter.readable`.
     - hivemind.honey_store.store.protocol for the HoneyStore methods these shapes cross.
 """
@@ -46,7 +46,7 @@ __all__ = ["HoneyStats", "ReadFilter", "TextCandidate", "VectorCandidate"]
 
 @dataclass(frozen=True, slots=True)
 class ReadFilter:
-    """The filter every `HoneyStore` read applies before ranking or limiting (ADR-0031).
+    """The filter every `HoneyStore` read applies before ranking or limiting (ADR-0035).
 
     Attributes:
         readable: `honey:read` scope globs the caller holds (`hivemind.honey_store.scope.
@@ -55,7 +55,7 @@ class ReadFilter:
             `hivemind.honey_store.clearance.reader_ceiling` computes.
         requested: Exact scopes to narrow the search to; empty means every scope `readable`
             already allows. Ordering constraint (dataclasses put defaulted fields last): this is
-            why `requested` follows `max_clearance` even though ADR-0031's prose lists it first.
+            why `requested` follows `max_clearance` even though ADR-0035's prose lists it first.
     """
 
     readable: tuple[str, ...]
@@ -106,5 +106,5 @@ class HoneyStats(BaseModel):
     )
     vector_backend: str = Field(
         description="Which vector search backend answered the last query: 'sqlite_vec' or "
-        "'python' (ADR-0031)."
+        "'python' (ADR-0035)."
     )

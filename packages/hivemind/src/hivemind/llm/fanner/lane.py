@@ -43,7 +43,7 @@ Key invariants:
     - `Fanner` never refuses a call: with no fallback left, `FannerLane.complete` makes the call on
       the current binding regardless of any spill reason it found.
 
-Roadmap step 7.1 (ADR-0032) adds `FannerLane.embed`, metering an
+Roadmap step 7.1 (ADR-0036) adds `FannerLane.embed`, metering an
 `hivemind.llm.embedding.provider.EmbeddingProvider` call the same way for seats and rate limits,
 but never spilling: an embedding fallback only ever exists for the same model id, so there is
 nothing this lane should decide about it that `hivemind.llm.embedding.gate.EmbedGate` does not
@@ -57,7 +57,7 @@ See Also:
       this lane implements.
     - docs/adr/0015-forage-map-seats-footprints-and-the-fanner.md for the map/Fanner split this
       module's `ForageMap.observe`/`set_abundance` calls close.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for why `embed` never spills.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for why `embed` never spills.
     - hivemind.llm.fanner.seats, .limiter, .spill, .recorder, .embed for this module's own siblings.
 """
 

@@ -3,7 +3,7 @@
 The Honey Store (the Hive's cold tier of knowledge, roadmap phase 7) needs two model bindings: the
 `EMBEDDER` slot for vectors and the `RIPENER` slot for summaries. Either can be unusable on a given
 Hive -- Anthropic serves no embeddings, a local server may be down at startup, `[llm] offline`
-refuses a hosted provider -- and ADR-0032 says the store then degrades rather than fails: no
+refuses a hosted provider -- and ADR-0036 says the store then degrades rather than fails: no
 embedder means full-text search only, no ripener means heuristic summaries. `build_honey_access`
 resolves both once, logs why either is missing, and builds intake, the retriever and the Ripener
 over one store and one `system` identity, every model call on a Fanner lane so it is metered like
@@ -19,12 +19,12 @@ Fits into the Hive:
 
 Key invariants:
     - Never raises for a missing or broken binding: an unusable `EMBEDDER` or `RIPENER` becomes
-      None, logged once with its reason, and the store works without it (ADR-0032).
+      None, logged once with its reason, and the store works without it (ADR-0036).
     - Ripening calls run on a LOW-accuracy lane so a background summary never queues ahead of a
       bee's own call for a seat; a query's own embedding runs on an ordinary lane.
 
 See Also:
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for "degrade, never fail closed".
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for "degrade, never fail closed".
     - hivemind.honey_store.access for HoneyAccess, what this builds.
     - hivemind.cli.stores.open_honey_store for the store this is handed.
 """
@@ -124,7 +124,7 @@ def resolve_embedder(registry: ProviderRegistry) -> BoundEmbedder | None:
     try:
         return registry.embedder(ModelSlot.EMBEDDER)
     except (HiveMindError, ValueError) as exc:
-        # ADR-0032: degrade, never fail closed. ValueError covers a provider config the adapter
+        # ADR-0036: degrade, never fail closed. ValueError covers a provider config the adapter
         # itself refuses at construction (pydantic's ValidationError is one).
         log.warning("honey.embedder_unavailable", reason=_reason(exc))
         return None

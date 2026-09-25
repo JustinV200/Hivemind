@@ -307,7 +307,7 @@ def _slot_row_for(registry: ProviderRegistry, slot: ModelSlot) -> _SlotRow:
     An embedding-only provider (roadmap 7.1's `sentence_transformers`) has no chat door at all, so
     `bound()` cannot resolve the EMBEDDER slot when one serves it; an EMBEDDER bound to a chat-only
     kind is still listed through `bound()`, since the binding exists and the Honey Store merely
-    degrades to full-text search on that Hive (ADR-0032).
+    degrades to full-text search on that Hive (ADR-0036).
     """
     if slot is not ModelSlot.EMBEDDER:
         return _slot_row(registry.bound(slot))

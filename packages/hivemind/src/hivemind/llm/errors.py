@@ -242,9 +242,9 @@ class ProviderRequestError(LLMError):
 
 
 class EmbeddingUnsupportedError(LLMError):
-    """Raise when a slot resolves to a provider kind with no embedding factory (ADR-0032).
+    """Raise when a slot resolves to a provider kind with no embedding factory (ADR-0036).
 
-    The composition root turns this into "no embedder" for that Hive (ADR-0032: "degrade, never
+    The composition root turns this into "no embedder" for that Hive (ADR-0036: "degrade, never
     fail closed"), logged once, rather than letting it crash whatever asked for the EMBEDDER slot.
     """
 

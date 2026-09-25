@@ -1,7 +1,7 @@
 """Change one Honey row's label by its browser path: the human's own recorded raise or lowering.
 
 A label is a Honey row's `HoneyClearance` (data sensitivity: C0 public, C1 internal, C2 personal
-or sensitive). ADR-0031 lets a model raise a label and never lower one; lowering is a separate,
+or sensitive). ADR-0035 lets a model raise a label and never lower one; lowering is a separate,
 recorded act that only a judge verdict or a human may approve (codingrules 8.9). The provenance
 floor makes everything a Drone does on the Hive Stand C2, so the operator reviewing labels is an
 expected, ordinary job (`hive honey relabel`). `HoneyRelabeller` is that job, addressed the way
@@ -23,7 +23,7 @@ Key invariants:
     - Only a row the reader may see can be relabelled; any other path is "not found".
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the labelling rule.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the labelling rule.
     - hivemind.honey_store.clearance for raise_label and check_lowering.
 """
 
@@ -126,7 +126,7 @@ class HoneyRelabeller:
         # Asking for the label a row already carries is not a change: nothing to write or record.
         if wanted.rank == before.rank:
             return RelabelOutcome(honey=honey, before=before, direction=RelabelDirection.UNCHANGED)
-        # Up: a raise needs no approver (ADR-0031: any writer may make a label stricter).
+        # Up: a raise needs no approver (ADR-0035: any writer may make a label stricter).
         if wanted.rank > before.rank:
             raised = raise_label(before, wanted)
             event = self._event(LABEL_RAISED_KIND, honey, raised, reason)

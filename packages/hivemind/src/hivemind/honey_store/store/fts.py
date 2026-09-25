@@ -27,7 +27,7 @@ Key invariants:
       `tests/unit/honey_store/test_fts.py`, against an in-memory `honey_fts`-shaped table).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for "a query string never reaches MATCH
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for "a query string never reaches MATCH
       ... reduced to at most 32 word tokens, each quoted, joined with OR".
     - .claude/codingrules.md section 15 for "Nothing is executed from the Honey Store."
     - hivemind.honey_store.store.protocol for `search_text`/`count_withheld`, this function's
@@ -38,9 +38,9 @@ from __future__ import annotations
 
 import re
 
-MAX_MATCH_TOKENS = 32  # ADR-0031: "at most 32 word tokens" -- long enough for a real question.
+MAX_MATCH_TOKENS = 32  # ADR-0035: "at most 32 word tokens" -- long enough for a real question.
 # `\w` already covers [A-Za-z0-9_] plus every Unicode letter/digit in Python's `re` (str patterns
-# are Unicode by default), matching ADR-0031's "[A-Za-z0-9_]+ (unicode letters too)" exactly; no
+# are Unicode by default), matching ADR-0035's "[A-Za-z0-9_]+ (unicode letters too)" exactly; no
 # character in this class can ever contain a `"`, so quoting a token needs no escaping.
 _TOKEN_PATTERN = re.compile(r"\w+")
 # English function words: in nearly every row, so matching one says nothing about relevance, and

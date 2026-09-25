@@ -36,7 +36,7 @@ Key invariants:
       of summary"), and never a compaction batch larger than `hivemind.memory.bee_bread.entry.
       MAX_REF_IDS`.
     - Nothing here ripens inside the Queen's tick: the sweep only deposits Nectar; model calls
-      for ripening happen in `HouseBeeRipening`'s own loop (docs/adr/0031).
+      for ripening happen in `HouseBeeRipening`'s own loop (docs/adr/0035).
 
 See Also:
     - .claude/codingrules.md section 8.7 for "a Worker never marks itself SUCCEEDED."
@@ -46,7 +46,7 @@ See Also:
     - hivemind.workers.roles.drone for Drone, the sibling role this package's shape mirrors.
     - hivemind.memory.compact and hivemind.memory.demote for this package's two memory-side
       collaborators.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for where ripening runs and why.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for where ripening runs and why.
 
 Public API (roadmap 4.3):
     - HouseBee, HOUSE_BEE_HOT_WINDOW_S: the role itself, and its mirrored hot-window constant

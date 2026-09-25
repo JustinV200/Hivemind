@@ -22,10 +22,10 @@ Key invariants:
       `submission_from_deposit` takes them from `DepositSource`, never from the deposit.
     - A HANDOFF deposit carries `source_key = handoff:<event id>` (`handoff_source_key`), the same
       key the House Bee gives the same Handoff when it ripens Bee Bread, so the two arrivals dedupe
-      into one Nectar row (ADR-0031).
+      into one Nectar row (ADR-0035).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the intake rules these shapes feed.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the intake rules these shapes feed.
     - hivemind.honey_store.nectar.intake for NectarIntake, which consumes every shape here.
     - waggle.messages.honey.exchange for NectarDeposit, the wire chunk.
 """
@@ -51,7 +51,7 @@ from waggle.messages.honey.exchange import (
 )
 from waggle.messages.honey.hit import MAX_SCOPE_CHARS, SCOPE_PATTERN
 
-HANDOFF_SOURCE_KEY_PREFIX = "handoff:"  # ADR-0031's own spelling of a Handoff's dedupe key.
+HANDOFF_SOURCE_KEY_PREFIX = "handoff:"  # ADR-0035's own spelling of a Handoff's dedupe key.
 
 # The bee a submission came from: a Worker or a Warden, validated exactly as NectarDraft.bee is.
 _BeeIdField = Annotated[WorkerId | WardenId, id_validator(IdKind.WORKER, IdKind.WARDEN)]
@@ -141,7 +141,7 @@ class IntakeResult:
 
 
 def handoff_source_key(event_id: EventId) -> str:
-    """Build the dedupe key a Handoff carries, whichever way it reaches intake (ADR-0031).
+    """Build the dedupe key a Handoff carries, whichever way it reaches intake (ADR-0035).
 
     Args:
         event_id: The `memory.checkpoint` trail event the Handoff was recorded under.

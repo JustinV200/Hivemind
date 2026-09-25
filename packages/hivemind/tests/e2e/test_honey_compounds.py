@@ -8,7 +8,7 @@ the second run's `TaskAssign` carries it, `queen.honey_consulted` is on the trai
 Drone goes straight to the answer in fewer model calls. Phase 6's Forager does not exist yet, so a
 Drone stands in for it. (b) The same at C1 attaches nothing from the first run: everything
 gathered on the borrowed Hive Stand is labelled C2 at intake, and a C1 task may not read C2 (ADR-
-0031's "the rule working as written"). (c) A Handoff written through `memory.write_checkpoint`
+0035's "the rule working as written"). (c) A Handoff written through `memory.write_checkpoint`
 (phase 4's path) is, a day later, deposited by the House Bee's sweep on the Queen's own
 housekeeping tick, ripened, and returned by a query with its full provenance.
 
@@ -25,7 +25,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md phase 7's exit criteria.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the labels and scopes asserted here.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the labels and scopes asserted here.
     - tests.e2e.kernel_helpers for the scripting primitives reused here.
 """
 

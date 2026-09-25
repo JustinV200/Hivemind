@@ -3,7 +3,7 @@
 Nectar is raw information a bee brought back and the Honey Store (the Hive's knowledge base) took
 in; Honey is what it becomes here: one SUMMARY row and one CHUNK row per slice of its text, each
 labelled with a HoneyClearance (a data-sensitivity tier), filed under a scope, indexed for
-full-text search and, when an EMBEDDER is bound, given a vector (ADR-0031). The House Bee (the
+full-text search and, when an EMBEDDER is bound, given a vector (ADR-0035). The House Bee (the
 maintenance Worker) runs `Ripener.run_pass` on a timer beside the Queen, never inside her tick;
 `hive honey ripen --now` and `hive honey reembed` run the same passes on demand. A concept needing
 more than one file becomes a package (codingrules 5.2): one module per pipeline stage, composed
@@ -18,13 +18,13 @@ Fits into the Hive:
 
 Key invariants:
     - No model or embedding failure ever fails a deposit: summaries fall back to a heuristic and
-      rows without vectors stay pending, still found by full-text search (ADR-0032).
+      rows without vectors stay pending, still found by full-text search (ADR-0036).
     - A label is only ever raised during ripening, never lowered.
     - Every model and embedding call has its own timeout, so a pass never hangs.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the pipeline's decisions.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for vectors and re-embedding.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the pipeline's decisions.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for vectors and re-embedding.
     - hivemind.honey_store.nectar for intake, which fills the store this package ripens.
 
 Public API:
@@ -40,7 +40,7 @@ Public API:
     - NearDuplicateCheck, drop_exact_duplicates, drop_near_duplicates (dedupe): duplicate parts.
     - RipenedNectar, IndexResult, index_ripened (index): one Nectar's rows, vectors and events.
     - prune_vectors, PruneOutcome (prune): drop a superseded model's vectors on request
-      (ADR-0033), never automatically.
+      (ADR-0037), never automatically.
 """
 
 from hivemind.honey_store.ripening.chunk import TextChunk, chunk_text, decode_text, normalise_text

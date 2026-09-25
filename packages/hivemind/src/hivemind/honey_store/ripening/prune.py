@@ -1,6 +1,6 @@
-"""Drop a superseded embedding model's vectors, only on the operator's own word (ADR-0033).
+"""Drop a superseded embedding model's vectors, only on the operator's own word (ADR-0037).
 
-ADR-0032 keeps every embedding model's vectors beside the others' so switching back needs no
+ADR-0036 keeps every embedding model's vectors beside the others' so switching back needs no
 second re-embed, and nothing drops them automatically. `prune_vectors` is the one place that
 changes: `hive honey reembed --prune` (a later dispatch) calls it after draining the re-embedding
 backlog for the bound `EMBEDDER`, and it deletes every other model's vectors, but only when every
@@ -13,7 +13,7 @@ clearing it out).
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.ripening`.
     Called by `hive honey reembed --prune` (a later dispatch), never by the House Bee's own timer:
-    pruning is on request only, never automatic (ADR-0033). Calls into `hivemind.honey_store`
+    pruning is on request only, never automatic (ADR-0037). Calls into `hivemind.honey_store`
     (identity, store) and `hivemind.pheromone` (HoneyEvent) only.
 
 Key invariants:
@@ -24,7 +24,7 @@ Key invariants:
       rule that an outcome with nothing to record leaves no event at all.
 
 See Also:
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
       prune-on-request rule this module implements.
     - hivemind.honey_store.ripening.embed for embed_pending_rows, the opposite direction over the
       same table.

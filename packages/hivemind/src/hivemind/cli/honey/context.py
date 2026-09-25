@@ -250,7 +250,7 @@ def _probe(resolve: Callable[[], str]) -> SlotStatus:
     try:
         return SlotStatus(model=resolve(), reason=None)
     except (HiveMindError, ValueError) as exc:
-        # The same failures build_honey_access degrades on (ADR-0032: degrade, never fail
+        # The same failures build_honey_access degrades on (ADR-0036: degrade, never fail
         # closed): an unsupported kind, an offline refusal, a provider its adapter refuses.
         code = getattr(exc, "code", type(exc).__name__)
         return SlotStatus(model=None, reason=f"{code}: {exc}")

@@ -19,7 +19,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.6 for "capabilities are declared, not assumed".
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision this implements.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision this implements.
     - hivemind.llm.capabilities for ProviderCapabilities, the chat-side sibling this mirrors.
     - hivemind.llm.embedding.provider for EmbeddingProvider.capabilities, the member returning this.
 """

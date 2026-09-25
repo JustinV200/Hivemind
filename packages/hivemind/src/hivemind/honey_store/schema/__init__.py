@@ -3,9 +3,9 @@
 Kept separate from ripening and retrieval logic so the on-disk shape can be reviewed on its own.
 `migrations/0001_create_honey_store.sql` creates the five tables of record (`honey_nectar`,
 `honey`, `honey_vectors`, `honey_watermarks`, `honey_proposals`), the external-content FTS5 index
-over `honey(title, summary, body)` and its three sync triggers (ADR-0031);
+over `honey(title, summary, body)` and its three sync triggers (ADR-0035);
 `migrations/0002_nectar_sources.sql` adds `honey_nectar_sources`, a content duplicate's extra
-provenance (ADR-0033). `migrate.py` applies that series the same way every other subsystem
+provenance (ADR-0037). `migrate.py` applies that series the same way every other subsystem
 applies its own.
 
 Fits into the Hive:
@@ -20,7 +20,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under honey_store.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the schema this series creates.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the schema this series creates.
     - hivemind.honey_store.store.sqlite for the one caller of `apply_honey_store_migrations`.
 
 Public API:

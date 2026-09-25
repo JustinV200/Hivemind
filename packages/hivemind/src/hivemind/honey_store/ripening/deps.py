@@ -19,12 +19,12 @@ Key invariants:
       `embedder` means no vectors (rows stay pending for a later pass and full-text search still
       finds them). Neither is ever an error.
     - A None gate means the unmetered direct gate; production wiring passes the Fanner's lanes so
-      every ripening call is metered like any other model call (ADR-0032).
+      every ripening call is metered like any other model call (ADR-0036).
 
 See Also:
     - hivemind.honey_store.ripening.pipeline for Ripener, the one consumer that runs a whole pass.
     - hivemind.manifest.schema.honey for HoneyRipeningSection, the `[honey.ripening]` settings.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the embedder's degrade rule.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the embedder's degrade rule.
 """
 
 from __future__ import annotations

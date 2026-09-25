@@ -24,14 +24,14 @@ Key invariants:
     - `capabilities.dimensions` starts `None` and is fixed the moment the first batch's response is
       decoded; every later batch, in this call or a later one, whose vectors disagree with that
       fixed length is refused with `ProviderRequestError` rather than silently accepted
-      (ADR-0032: a stored vector's model and dimension must never drift under one adapter instance).
+      (ADR-0036: a stored vector's model and dimension must never drift under one adapter instance).
     - `capabilities.normalized` is always False: this adapter cannot verify whether the server it
       is pointed at returns unit-normalised vectors, and codingrules section 8.6 forbids assuming
       a capability it has not confirmed.
 
 See Also:
     - .claude/codingrules.md section 8.6 for the LLM provider independence rules this implements.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision behind this
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision behind this
       adapter and the same-model-id rule its dimension check protects.
     - hivemind.llm.providers.openai_compat.client for the HTTP layer this class calls.
     - hivemind.llm.providers.openai_compat.provider for OpenAICompatProvider, this package's
@@ -63,7 +63,7 @@ DEFAULT_BATCH_SIZE = 32  # A conservative default round trip size: large enough 
 # [llm.providers.<name>.embedding] batch_size.
 DEFAULT_MAX_INPUT_CHARS = 8_000  # roadmap 7.1's own constant; overridable by the same section.
 # A later response's vector length disagreeing with the first is a real request-shape conflict
-# (ADR-0032), synthesized since no real HTTP response is involved (mirrors provider.py's own
+# (ADR-0036), synthesized since no real HTTP response is involved (mirrors provider.py's own
 # UNLISTED_MODEL_STATUS_CODE convention for a locally-detected refusal).
 DIMENSION_CONFLICT_STATUS_CODE = 409
 EMPTY_RESPONSE_STATUS_CODE = 502  # Synthesized the same way: a server that answered 200 but
@@ -253,7 +253,7 @@ class OpenAICompatEmbedding:
 
         Raises:
             ProviderRequestError: A later batch's vector length disagrees with the one already
-                recorded (ADR-0032: a stored vector's model and dimension must never drift).
+                recorded (ADR-0036: a stored vector's model and dimension must never drift).
         """
         for vector in vectors:
             if self._dimensions is None:

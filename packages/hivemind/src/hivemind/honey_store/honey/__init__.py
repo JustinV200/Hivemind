@@ -22,8 +22,8 @@ Key invariants:
       at all for a Night Veil reader.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for hybrid ranking and filtering.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the vector side's rules.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for hybrid ranking and filtering.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the vector side's rules.
     - hivemind.honey_store.store for the HoneyStore protocol the retriever reads through.
 
 Public API:

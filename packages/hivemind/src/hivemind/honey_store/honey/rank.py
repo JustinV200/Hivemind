@@ -1,6 +1,6 @@
 """Rank Honey search candidates: normalise both sides' scores, fuse them, and choose the hits.
 
-Honey is the Hive's ripened, labelled knowledge; a query searches it two ways at once (ADR-0031's
+Honey is the Hive's ripened, labelled knowledge; a query searches it two ways at once (ADR-0035's
 "Hybrid ranking"): full-text search ranks rows by SQLite FTS5's `bm25` (negative, lower is a
 better match) and vector search ranks them by cosine distance between embeddings (0 is identical).
 The two raw numbers live on different scales, so each is first normalised into [0, 1]
@@ -8,7 +8,7 @@ The two raw numbers live on different scales, so each is first normalised into [
 `[honey.retrieval]` weights -- a row found by only one side scores zero on the other -- and
 `select` keeps the best of them: nothing under the score floor, at most `max_hits_per_nectar` hits
 from any one Nectar (the raw deposit a row was ripened from), at most `max_hits` in all, best
-first. A weighted mean rather than reciprocal rank fusion is ADR-0031's choice: it keeps how good a
+first. A weighted mean rather than reciprocal rank fusion is ADR-0035's choice: it keeps how good a
 match is, so the nearest of a set of irrelevant vectors still scores low enough for the floor to
 drop it. The text side has one more rule: FTS5's bm25 treats a word found in half the rows or
 more as worthless (its weight falls to a 1e-6 floor), which on a young store -- one ripened Nectar
@@ -35,7 +35,7 @@ Key invariants:
     - `select` is deterministic: score descending, then newer `created_at`, then id ascending.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the "Hybrid ranking" formulas.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the "Hybrid ranking" formulas.
     - hivemind.manifest.schema.honey for HoneyRetrievalSection, the weights and bounds used here.
     - hivemind.honey_store.honey.retrieve for the one caller.
 """
@@ -138,7 +138,7 @@ def fuse(
     fts_weight: float,
     vector_weight: float,
 ) -> dict[HoneyId, float]:
-    """Fuse both sides' normalised scores into one weighted mean per row (ADR-0031).
+    """Fuse both sides' normalised scores into one weighted mean per row (ADR-0035).
 
     Args:
         text_scores: `text_score` per row the full-text side found.
@@ -180,7 +180,7 @@ def select(
     max_hits: int,
     max_hits_per_nectar: int,
 ) -> Selection:
-    """Choose the hits for one result from the fused scores (ADR-0031).
+    """Choose the hits for one result from the fused scores (ADR-0035).
 
     Args:
         scored: The fused score per row (`fuse`'s result).

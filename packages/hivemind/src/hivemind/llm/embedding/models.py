@@ -1,7 +1,7 @@
 """Define EmbeddingRequest and EmbeddingResponse: the boundary every embed call crosses.
 
 An embedding is a fixed-length vector of floats that stands in for a piece of text's meaning, so
-that two texts with similar meaning land near each other in vector space (ADR-0032). This module
+that two texts with similar meaning land near each other in vector space (ADR-0036). This module
 is the "our types at the boundary" half of that decision (codingrules section 8.6, mirroring
 `hivemind.llm.models` for chat): `EmbeddingRequest` carries the texts to embed, and
 `EmbeddingResponse` carries one vector per text, in order, plus the model id that produced them,
@@ -24,7 +24,7 @@ Key invariants:
       component is a finite float (never `inf`/`nan`), checked by a validator on this class.
 
 See Also:
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision this boundary
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision this boundary
       implements.
     - hivemind.llm.embedding.provider for EmbeddingProvider, the protocol these models cross.
     - hivemind.llm.embedding.capabilities for EmbeddingCapabilities, the companion boundary value.
@@ -88,7 +88,7 @@ class EmbeddingResponse(BaseModel):
         """Reject a response whose vectors disagree with `dimensions`, or hold a non-finite value.
 
         A wrong length or a NaN/inf component would silently corrupt every distance computation
-        the Honey Store's vector search (ADR-0031) later runs over a stored copy of this vector,
+        the Honey Store's vector search (ADR-0035) later runs over a stored copy of this vector,
         so this is checked once, here, rather than trusted from every adapter individually.
         """
         for vector in self.vectors:

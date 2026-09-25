@@ -1,7 +1,7 @@
 """Tests for hivemind.llm.fanner.embed: embed_through_fanner (FannerLane.embed's own logic).
 
 Mirrors `test_lane.py`'s own `_build_fanner`/`_tempo` helpers and its "hosted headroom" tests,
-narrowed to the embed path's own rules (roadmap 7.1, ADR-0032): no spill on a rate limit, and a
+narrowed to the embed path's own rules (roadmap 7.1, ADR-0036): no spill on a rate limit, and a
 same-model fallback only when the primary is unreachable.
 
 Fits into the Hive:
@@ -165,7 +165,7 @@ async def test_embed_never_spills_even_when_a_same_model_fallback_exists() -> No
         await lane.embed(bound, make_embed_request())
 
     assert primary.calls == 1
-    assert fallback_provider.calls == 0  # Never tried: embeddings never spill (ADR-0032).
+    assert fallback_provider.calls == 0  # Never tried: embeddings never spill (ADR-0036).
 
 
 async def test_embed_walks_a_same_model_fallback_when_the_primary_is_unreachable() -> None:

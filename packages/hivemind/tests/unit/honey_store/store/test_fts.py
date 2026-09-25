@@ -72,7 +72,7 @@ def test_build_match_sends_a_repeated_word_once_whatever_its_case() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Property-based: never raises, never unquoted, always FTS5-safe (ADR-0031)
+# Property-based: never raises, never unquoted, always FTS5-safe (ADR-0035)
 # ──────────────────────────────────────────────────────────────────────────────
 
 

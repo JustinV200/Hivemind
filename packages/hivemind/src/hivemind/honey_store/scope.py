@@ -2,12 +2,12 @@
 
 A scope names where a Honey (ripened knowledge) or Nectar (raw finding) row is filed: `hive`
 (shared knowledge every reader may ask for), `cell:<id>` (one Cell's own history), `bee:<id>` (one
-bee's own material) or `task:<id>` (one task's working material). `scope_for_nectar` is ADR-0031's
+bee's own material) or `task:<id>` (one task's working material). `scope_for_nectar` is ADR-0035's
 scoping table made code; `folder_for_scope`/`scope_for_folder` are its inverse, the browser path
 (roadmap 7.10) every scope maps to one-to-one; `honey_ref`/`parse_honey_ref` build and read a
 Honey row's public reference, which is also `waggle.messages.honey.hit.HoneyHit.honey_ref`. The
 `queen_read_capabilities`/`warden_read_capabilities`/`worker_read_capabilities` builders are
-ADR-0031's stated defaults until phase 10's policy engine issues real capability sets;
+ADR-0035's stated defaults until phase 10's policy engine issues real capability sets;
 `readable_globs`/`is_readable` are the read side, built on `hivemind.guard`'s existing glob
 matching so this module adds no matching logic of its own.
 
@@ -31,7 +31,7 @@ Key invariants:
       matching can never drift apart.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the scoping table this implements.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the scoping table this implements.
     - docs/waggle/spec.md section 8.7 for SCOPE_PATTERN and the four scope kinds.
     - hivemind.guard.capabilities for CapabilityFamily.HONEY_READ, the glob family this reuses.
     - hivemind.honey_store.models.nectar for NectarOrigin.
@@ -201,7 +201,7 @@ class NectarProvenance:
     """The raw provenance `scope_for_nectar` (and only that function) derives a scope from.
 
     codingrules 5.1: a function's argument group past four values becomes a dataclass;
-    ADR-0031's scoping table reads five of these fields at once, so they travel together here
+    ADR-0035's scoping table reads five of these fields at once, so they travel together here
     rather than as five loose parameters.
     """
 
@@ -213,7 +213,7 @@ class NectarProvenance:
 
 
 def scope_for_nectar(provenance: NectarProvenance, proposed_scope: str | None) -> str:
-    """Derive a Nectar deposit's scope from its provenance (ADR-0031's scoping table).
+    """Derive a Nectar deposit's scope from its provenance (ADR-0035's scoping table).
 
     Args:
         provenance: What sort of finding this is and how it reached the store, plus the task,
@@ -242,7 +242,7 @@ def scope_for_nectar(provenance: NectarProvenance, proposed_scope: str | None) -
 
 
 def queen_read_capabilities() -> CapabilitySet:
-    """Build the Queen's default Honey read capabilities: everything (ADR-0031).
+    """Build the Queen's default Honey read capabilities: everything (ADR-0035).
 
     Returns:
         A CapabilitySet holding a single `honey:read:*` capability.
@@ -251,7 +251,7 @@ def queen_read_capabilities() -> CapabilitySet:
 
 
 def warden_read_capabilities(cell_id: CellId, warden_id: WardenId) -> CapabilitySet:
-    """Build a Warden's default Honey read capabilities: hive, its Cell, itself (ADR-0031).
+    """Build a Warden's default Honey read capabilities: hive, its Cell, itself (ADR-0035).
 
     Args:
         cell_id: The Cell this Warden supervises.
@@ -326,7 +326,7 @@ def _honey_read(scope: str) -> str:
 
 
 def _scope_for_bee_kind(provenance: NectarProvenance) -> str:
-    """Scope a BEE-origin deposit by its NectarKind (ADR-0031's second and third bullets)."""
+    """Scope a BEE-origin deposit by its NectarKind (ADR-0035's second and third bullets)."""
     kind = provenance.kind
     if kind in (NectarKind.FINDING, NectarKind.AUDIT_FINDING, NectarKind.RIPENED_HONEY):
         return HIVE_SCOPE  # Shared knowledge: a finding, an audit finding, or ripened Honey.

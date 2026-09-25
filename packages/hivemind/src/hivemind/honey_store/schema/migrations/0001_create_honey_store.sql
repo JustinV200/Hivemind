@@ -1,5 +1,5 @@
 -- Create the Honey Store's five tables of record, its external-content FTS5 index and its sync
--- triggers (ADR-0031). Every clearance column carries a companion `clearance_rank` integer
+-- triggers (ADR-0035). Every clearance column carries a companion `clearance_rank` integer
 -- (HoneyClearance.rank: C0=0, C1=1, C2=2) so every clearance filter is a plain numeric
 -- `clearance_rank <= ?` rather than a string comparison or a CASE expression. Timestamps are
 -- stored as datetime.isoformat()'s fixed-offset UTC strings (ADR-0006), matching every other
@@ -8,7 +8,7 @@
 -- honey_nectar: one row per deposit. Two dedupe keys, checked in this order by add_nectar:
 -- `source_key` (an internal origin's own key, e.g. "handoff:<event id>") when the caller has one,
 -- else `sha256` (the content's own digest). `ephemeral_cell_id` is set only for a Night Veil
--- Cell's own side-channel rows (ADR-0031): never ripened, purged by purge_ephemeral at teardown.
+-- Cell's own side-channel rows (ADR-0035): never ripened, purged by purge_ephemeral at teardown.
 CREATE TABLE IF NOT EXISTS honey_nectar (
     id TEXT PRIMARY KEY,
     sha256 TEXT NOT NULL,
@@ -91,7 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_honey_scope ON honey (scope);
 CREATE INDEX IF NOT EXISTS idx_honey_live ON honey (tainted, retired_at, clearance_rank);
 
 -- honey_vectors: one row per (Honey row, embedding model). Two models may coexist for the same
--- honey_seq while a re-embed is in flight (ADR-0032); ON DELETE CASCADE keeps a retired or
+-- honey_seq while a re-embed is in flight (ADR-0036); ON DELETE CASCADE keeps a retired or
 -- (future) purged Honey row from leaving orphaned vectors behind.
 CREATE TABLE IF NOT EXISTS honey_vectors (
     honey_seq INTEGER NOT NULL REFERENCES honey (honey_seq) ON DELETE CASCADE,
@@ -128,7 +128,7 @@ CREATE INDEX IF NOT EXISTS idx_honey_proposals_pending
     ON honey_proposals (created_at) WHERE drained_at IS NULL;
 
 -- honey_fts: an external-content FTS5 index over honey's own title/summary/body columns, so the
--- indexed text is never duplicated on disk (ADR-0031). `content_rowid='honey_seq'` ties every FTS
+-- indexed text is never duplicated on disk (ADR-0035). `content_rowid='honey_seq'` ties every FTS
 -- row to its honey row by the same integer key honey_vectors uses; 'porter unicode61
 -- remove_diacritics 2' stems English words and folds accents, so "running" and "run", or
 -- "café" and "cafe", match the same query terms.

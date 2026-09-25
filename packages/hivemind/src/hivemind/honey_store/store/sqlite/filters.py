@@ -2,7 +2,7 @@
 
 Every `HoneyStore` read that takes a `ReadFilter` (`list_honey`, `search_text`, `search_vectors`,
 `count_withheld`) applies the same five clauses, in the same order, before anything is ranked or
-limited (ADR-0031): a reader's scope globs, an optional exact-scope narrowing, the clearance
+limited (ADR-0035): a reader's scope globs, an optional exact-scope narrowing, the clearance
 ceiling, and live-only (not tainted, not retired). Building that `WHERE` fragment in one place
 keeps `hivemind.honey_store.store.sqlite.honey` and `.search` from drifting apart on what
 "readable" means; `passes_filter` is the same rule re-evaluated in Python, for `count_withheld`,
@@ -26,7 +26,7 @@ Key invariants:
       `honey:read` capability at all sees zero rows, never every row.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for "Filtering is policy, not ranking."
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for "Filtering is policy, not ranking."
     - hivemind.honey_store.models.search for ReadFilter itself.
     - hivemind.honey_store.store.sqlite.search for count_withheld, passes_filter's one caller.
 """
@@ -43,7 +43,7 @@ __all__ = ["passes_filter", "read_filter_clauses"]
 def read_filter_clauses(
     filter_: ReadFilter, *, table_alias: str = ""
 ) -> tuple[list[str], list[object]]:
-    """Translate `filter_` into `WHERE` fragments and their `?` parameters (ADR-0031).
+    """Translate `filter_` into `WHERE` fragments and their `?` parameters (ADR-0035).
 
     Always applies, in this order: an OR'd `scope GLOB ?` per readable glob, `scope IN (...)`
     when `requested` is non-empty, `clearance_rank <= ?`, `tainted = 0`, `retired_at IS NULL`.

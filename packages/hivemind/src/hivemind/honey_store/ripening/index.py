@@ -25,7 +25,7 @@ Key invariants:
     - A zero-norm vector is never handed to the store; its row stays pending for `embed_pending`.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the ripening and labelling rules.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the ripening and labelling rules.
     - hivemind.honey_store.store.protocol for ripen, set_vectors, get_nectar and record.
     - hivemind.honey_store.clearance for raise_label.
 """

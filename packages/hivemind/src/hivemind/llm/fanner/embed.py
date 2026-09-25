@@ -5,7 +5,7 @@ split out purely by codingrules 5.1's file-size limit (`lane.py` is already clos
 a difference in responsibility, the same reason `hivemind.llm.providers.openai_compat.client`/
 `.rate_limit` are split. This module never imports `hivemind.llm.fanner.lane` at runtime, only
 under `TYPE_CHECKING` for the `Fanner` type hint: `lane.py` imports *this* module to build
-`FannerLane.embed`'s delegate, so the reverse import would cycle. Roadmap 7.1 (ADR-0032) is why
+`FannerLane.embed`'s delegate, so the reverse import would cycle. Roadmap 7.1 (ADR-0036) is why
 this path is shorter than `FannerLane.complete`'s own: an embed call never spills to
 `bound.fallback` on a slow queue or a stale grade the way a chat call does, because a fallback
 embedder link only ever exists for the *same* model id, and there is nothing to gain (and vector
@@ -34,7 +34,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.10 for the Fanner's role and the two pools it meters.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for "no spill: another model's
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for "no spill: another model's
       vectors are not comparable" and the metering rule this module implements.
     - hivemind.llm.fanner.lane for FannerLane.embed, this module's one caller.
     - hivemind.llm.fanner.seats and .limiter for SeatMeter and ProviderRateLimiter, metered here.
@@ -105,7 +105,7 @@ async def embed_through_fanner(
             return await _embed_once(fanner, tempo, current, request)
         except ProviderUnavailableError:
             if current.fallback is None:
-                raise  # Every same-model link is down; the caller degrades (ADR-0032).
+                raise  # Every same-model link is down; the caller degrades (ADR-0036).
             current = current.fallback
 
 

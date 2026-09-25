@@ -9,7 +9,7 @@ found (a new row or a duplicate, a raised label, a Night Veil deposit that recor
 takes `NectarEvents`, a function the store calls inside the transaction with the outcome. Split
 into five private Protocols purely for codingrules 5.1's class-size limit -- `HoneyStore` itself
 is the whole contract every caller and implementation actually names.
-`NectarAdded`, `HoneyProposal` and `PruneResult` (ADR-0033's `prune_vectors`, the same
+`NectarAdded`, `HoneyProposal` and `PruneResult` (ADR-0037's `prune_vectors`, the same
 outcome-depends-on-what-was-found shape as `add_nectar`, via its own `PruneEvents`) are this
 protocol's own small return shapes, kept here rather than in `hivemind.honey_store.models`
 because nothing outside the store's own callers needs them (the same reason `hivemind.pheromone.
@@ -30,18 +30,18 @@ Key invariants:
     - Every mutation method's event commits together with the row(s) it describes, or neither
       commits at all (codingrules Appendix C rule 3, mirroring every other store in the Hive).
     - Every `ReadFilter` is applied as SQL, fully, before any ranking or `limit` is applied
-      (ADR-0031: "Filtering is policy, not ranking"), on every method that takes one.
+      (ADR-0035: "Filtering is policy, not ranking"), on every method that takes one.
     - `add_nectar` and `ripen` are idempotent by key (`sha256`/`source_key`, and
       `(nectar_id, part, chunk_index)`); calling either twice with the same key never duplicates a
       row.
 
 See Also:
     - .claude/codingrules.md section 12 for the same-transaction rule every implementation follows.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the decisions this protocol encodes.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the decisions this protocol encodes.
     - hivemind.honey_store.store.sqlite for SqliteHoneyStore, the shipped implementation.
     - hivemind.honey_store.models for Nectar, NectarDraft, NectarSource, Honey, HoneyDraft,
       ReadFilter, TextCandidate, VectorCandidate, HoneyStats, the shapes this protocol passes.
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for
       nectar_sources, scope_counts and prune_vectors.
 """
 
@@ -158,7 +158,7 @@ class _NectarRowsStore(Protocol):
         transaction, and `raised_from` reports the label before the raise. `events` is called
         once, inside the transaction, with that result, and every event it returns commits with
         the row: `honey.nectar_received` or `honey.nectar_deduplicated` (plus
-        `honey.label_raised`), or nothing at all for a Night Veil ephemeral deposit (ADR-0031).
+        `honey.label_raised`), or nothing at all for a Night Veil ephemeral deposit (ADR-0035).
 
         Args:
             draft: The deposit to store; its `clearance`/`scope` are already computed
@@ -215,7 +215,7 @@ class _NectarRowsStore(Protocol):
         """Return whether `source_key` was already taken in, as a row or as an extra source.
 
         Answers from both `honey_nectar.source_key` and `honey_nectar_sources.source_key`
-        (ADR-0033), so a caller waiting on a specific source's own key never hangs just because
+        (ADR-0037), so a caller waiting on a specific source's own key never hangs just because
         that source's content happened to deduplicate onto an earlier deposit.
 
         Args:
@@ -234,7 +234,7 @@ class _NectarRowsStore(Protocol):
 
         Returns:
             Its recorded extra sources, oldest first; empty when every duplicate of this row was
-            either the same source delivered again or shared its stored provenance (ADR-0033).
+            either the same source delivered again or shared its stored provenance (ADR-0037).
         """
         ...
 
@@ -257,7 +257,7 @@ class _NectarRowsStore(Protocol):
         ...
 
     async def purge_ephemeral(self, cell_id: CellId) -> int:
-        """Delete every EPHEMERAL Nectar row belonging to `cell_id` (Night Veil teardown, ADR-0031).
+        """Delete every EPHEMERAL Nectar row belonging to `cell_id` (Night Veil teardown, ADR-0035).
 
         Args:
             cell_id: The Night Veil Cell being torn down.
@@ -336,7 +336,7 @@ class _HoneyRowsStore(Protocol):
         ...
 
     async def scope_counts(self, scope_kind: str, filter: ReadFilter) -> dict[str, int]:
-        """Count live rows per scope of `scope_kind` within `filter` (ADR-0033).
+        """Count live rows per scope of `scope_kind` within `filter` (ADR-0037).
 
         The Honey browser's index folders (`/cells`, `/bees`, `/tasks`) are built from this, so
         they list every scope the reader may see at any store size, with no scan bound.
@@ -344,7 +344,7 @@ class _HoneyRowsStore(Protocol):
         Args:
             scope_kind: "cell", "bee" or "task".
             filter: The reader's scope, clearance and requested-scopes filter, applied before
-                counting (ADR-0031: "Filtering is policy, not ranking").
+                counting (ADR-0035: "Filtering is policy, not ranking").
 
         Returns:
             Each scope of `scope_kind` holding at least one visible row, mapped to its count;
@@ -444,7 +444,7 @@ class _VectorsStore(Protocol):
             limit: The most rows to return.
 
         Returns:
-            At most `limit` matching rows (ADR-0032: "changing the embedder slot ... re-embeds the
+            At most `limit` matching rows (ADR-0036: "changing the embedder slot ... re-embeds the
             store progressively").
         """
         ...
@@ -452,7 +452,7 @@ class _VectorsStore(Protocol):
     async def prune_vectors(self, kept_model: str, events: PruneEvents) -> PruneResult:
         """Delete every vector whose model is not `kept_model`, only when it is safe to.
 
-        Checks, deletes and records atomically (ADR-0033): a live Honey row (not tainted, not
+        Checks, deletes and records atomically (ADR-0037): a live Honey row (not tainted, not
         retired) missing a vector for `kept_model` refuses the whole call and deletes nothing, so
         switching back to a pruned model always costs a full re-embed on purpose, never by
         accident from a prune that ran too early.
@@ -479,7 +479,7 @@ class _SearchStore(Protocol):
         Args:
             match: An FTS5 MATCH string built by `hivemind.honey_store.store.fts.build_match`.
             filter: The reader's scope, clearance and requested-scopes filter, applied before
-                ranking (ADR-0031).
+                ranking (ADR-0035).
             limit: The most candidates to return.
 
         Returns:
@@ -494,7 +494,7 @@ class _SearchStore(Protocol):
 
         Args:
             vector: The query embedding.
-            model: Only rows whose vector was produced by this model are compared (ADR-0032: a
+            model: Only rows whose vector was produced by this model are compared (ADR-0036: a
                 query never compares vectors from different models).
             filter: The reader's scope, clearance and requested-scopes filter, applied before
                 ranking.

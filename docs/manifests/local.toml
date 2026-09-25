@@ -62,7 +62,7 @@ provider = "local"
 model = "llama3.1:8b"
 
 # Embeddings come from a dedicated embedding model on the same server (a chat model's own
-# embeddings rank poorly); changing it re-embeds the Honey Store progressively (ADR-0032).
+# embeddings rank poorly); changing it re-embeds the Honey Store progressively (ADR-0036).
 [llm.slots.embedder]
 provider = "local"
 model = "nomic-embed-text"

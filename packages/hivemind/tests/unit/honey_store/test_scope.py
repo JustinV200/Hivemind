@@ -117,7 +117,7 @@ def test_parse_honey_ref_rejects_an_unknown_folder() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# scope_for_nectar: every ADR-0031 branch, both ways
+# scope_for_nectar: every ADR-0035 branch, both ways
 # ──────────────────────────────────────────────────────────────────────────────
 
 

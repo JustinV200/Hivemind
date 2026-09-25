@@ -356,7 +356,7 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
   `--manifest`, `--db` and `--clearance C0|C1|C2` (default C2: the most sensitive label the
   operator reads) belong to the group, so they come right after `honey` and before the
   subcommand (`hive honey --manifest hive.toml --clearance C1 ls /hive`). The operator reads as
-  `hivemind.honey_store.browse.operator_reader`: every scope (`honey:read:*`, ADR-0031's default
+  `hivemind.honey_store.browse.operator_reader`: every scope (`honey:read:*`, ADR-0035's default
   for the operator's CLI), up to `--clearance`, the requester being the manifest's own Hive id.
     - `query TEXT [--scope S ...] [--max-hits N] [--json]` searches with the Hive's own retriever
       (hybrid full text and vectors; full text only, with the reason printed, when no embedder
@@ -364,7 +364,7 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
       event like any reader's. A `--scope` that is not `hive`, `cell:<id>`, `bee:<id>` or
       `task:<id>` exits 2.
     - `stats [--json]` prints `HoneyStore.stats()`: Nectar by state, live Honey by part, label and
-      scope kind, tainted and retired counts, vectors per embedding model (ADR-0032's coverage per
+      scope kind, tainted and retired counts, vectors per embedding model (ADR-0036's coverage per
       model) and the vector backend.
     - `ripen --now` runs the House Bee's whole pass (`HouseBeeRipening.run_pass()`: drain every
       queued operator note into HUMAN Nectar, then `Ripener.run_pass()`) against the Hive's own

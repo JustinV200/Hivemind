@@ -11,7 +11,7 @@ Key invariants:
 
 See Also:
     - hivemind.queen.ticks.honey for the module under test.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the readers and ceilings asserted.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the readers and ceilings asserted.
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ async def test_a_workers_query_for_a_task_on_another_cell_is_answered_empty(
 
 
 async def test_a_c1_task_never_sees_c2_honey_and_a_c2_task_does(tmp_path: Path) -> None:
-    # Gathered on a borrowed (Real) Cell, the finding is C2 whatever it declared (ADR-0031).
+    # Gathered on a borrowed (Real) Cell, the finding is C2 whatever it declared (ADR-0035).
     rig = await _rig(tmp_path, make_cell(kind=CellKind.REAL))
     c1_task = await _place_task(rig)
     c2_task = await _place_task(rig, clearance=HoneyClearance.C2)

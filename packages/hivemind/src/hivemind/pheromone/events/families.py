@@ -106,20 +106,20 @@ Vocabulary (family -> kind -> when it is recorded):
         open deposits, or a Night Veil deposit it may not accept); ripened (the House Bee turned one
         Nectar into Honey rows, roadmap step 7.5); ripen_failed (one Nectar could not be ripened
         this pass and stays pending); reembedded (one pass embedded pending Honey rows for the
-        current embedding model, ADR-0032); label_raised (intake, a dedupe merge or the ripener
+        current embedding model, ADR-0036); label_raised (intake, a dedupe merge or the ripener
         raised a label); label_lowered (a judge verdict or the human lowered one, with the
         approver); retired (a Honey row was superseded and no longer returned); queried (a Honey
         query was answered, with hit, withheld and token counts, never the query or hit text);
         note_proposed (the human proposed a note from a Honey folder, queued for the Queen,
         roadmap step 7.10); vectors_pruned (`hive honey reembed --prune` dropped every other
-        embedding model's vectors once every live row had one for the kept model, ADR-0033;
+        embedding model's vectors once every live row had one for the kept model, ADR-0037;
         payload the kept model plus how many other models were dropped and their combined row
         count -- the exact per-model breakdown lives only in the caller's own returned
         `PruneOutcome`, never on the trail, so this vocabulary's payloads stay flat like every
         other honey.* kind's). Every honey.* kind is recorded on the Queen's own node and survives
         a Night Veil teardown carrying ids and counts only; a Night Veil Cell's ephemeral Nectar
         and a Night Veil reader's query are never recorded at all, so nothing about either can
-        outlive the teardown (ADR-0031).
+        outlive the teardown (ADR-0035).
     worker: spawned (a Warden started a sub-bee, roadmap step 3.19); started (SPAWNED -> RUNNING,
         its first TaskAssign arrived); handing_off (RUNNING/PAUSED -> HANDING_OFF, writing a
         Handoff before a reset, rebind, takeover or stop); paused (RUNNING -> PAUSED, TaskPause);
@@ -469,7 +469,7 @@ class WorkerEvent(PheromoneEvent):
 class HoneyEvent(PheromoneEvent):
     """A Honey Store intake, ripening, labelling or query event; see the module's `honey` entry.
 
-    Roadmap phase 7 (ADR-0031): recorded by `hivemind.honey_store` for every write it makes to
+    Roadmap phase 7 (ADR-0035): recorded by `hivemind.honey_store` for every write it makes to
     Nectar or Honey and for every query it answers, always with ids and counts in the payload and
     never a deposit's content, a hit's text or a query's words (codingrules section 12).
     """
@@ -488,7 +488,7 @@ class HoneyEvent(PheromoneEvent):
             "honey.retired",
             "honey.queried",
             "honey.note_proposed",
-            # ADR-0033: the operator's own word, never automatic.
+            # ADR-0037: the operator's own word, never automatic.
             "honey.vectors_pruned",
         }
     )

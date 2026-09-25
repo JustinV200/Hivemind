@@ -1265,8 +1265,8 @@ returned with task, Worker, Cell and time. The `local_llm` bullet is
 through the production builder. It passed against a loopback OpenAI-compatible server with real
 WordLlama embeddings and a deterministic extractive chat stand-in (this sandbox reaches no model
 hub), so it has not yet run against a real local chat model. Where the steps above differ from
-what was built: there is no `vec0` table (ADR-0031 measured it no faster); re-embedding is
-progressive and automatic rather than triggered (ADR-0032), and `hive honey reembed` drains the
+what was built: there is no `vec0` table (ADR-0035 measured it no faster); re-embedding is
+progressive and automatic rather than triggered (ADR-0036), and `hive honey reembed` drains the
 backlog on demand; lowering a label is wired for the operator (`hive honey relabel`, a HUMAN
 approver) but not as a judge-reviewed Capping proposal; "propose a note" files a PROPOSED Cell Wax
 from a Cell's folder and otherwise queues a note that the House Bee drains into Nectar, never a
@@ -1274,8 +1274,8 @@ message in the Queen's inbox; `browse` and `house_bee` are packages, not single 
 
 ### ADRs to write
 
-- `honey-store-sqlite-fts5-sqlite-vec.md` (written: `docs/adr/0031-*`).
-- `embedding-provider-and-reembedding-policy.md` (written: `docs/adr/0032-*`).
+- `honey-store-sqlite-fts5-sqlite-vec.md` (written: `docs/adr/0035-*`).
+- `embedding-provider-and-reembedding-policy.md` (written: `docs/adr/0036-*`).
 
 ---
 

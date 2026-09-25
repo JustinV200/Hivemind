@@ -2,7 +2,7 @@
 
 `HoneyClearance` (`hivemind.cell.tiers`) is the data-sensitivity label every memory tier carries,
 not only Honey: `C0` (public), `C1` (internal) or `C2` (personal or sensitive). This module is the
-whole of ADR-0031's labelling rule, pure and with no I/O: `intake_floor`/`intake_label` decide what
+whole of ADR-0035's labelling rule, pure and with no I/O: `intake_floor`/`intake_label` decide what
 a fresh deposit is labelled; `raise_label` is the one direction ripening may move a label on its
 own; `reader_ceiling` decides the highest label a request may actually see; `check_lowering` is
 the one check standing between a lowering and `LabelLoweringError`, so the store (which trusts its
@@ -24,10 +24,10 @@ Key invariants:
     - `raise_label` never returns a clearance below either input; `intake_label` never returns a
       clearance below `intake_floor`'s own result.
     - `check_lowering` raises unless `target.rank < current.rank` AND an approver was given; the
-      store trusts the caller ran it and never re-derives the rule (ADR-0031).
+      store trusts the caller ran it and never re-derives the rule (ADR-0035).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the labelling rule this implements.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the labelling rule this implements.
     - .claude/codingrules.md section 8.9 for "a model may raise a label; only a judge verdict or a
       human may lower one."
     - hivemind.cell.tiers for HoneyClearance/CombShieldLevel and their own from_wire/to_wire.
@@ -72,7 +72,7 @@ class LabelApprover(Enum):
 
 
 def intake_floor(origin: NectarOrigin, from_borrowed_cell: bool) -> HoneyClearance:
-    """Compute the clearance floor a fresh deposit may never fall below (ADR-0031).
+    """Compute the clearance floor a fresh deposit may never fall below (ADR-0035).
 
     Args:
         origin: How the deposit reached the store.
@@ -83,7 +83,7 @@ def intake_floor(origin: NectarOrigin, from_borrowed_cell: bool) -> HoneyClearan
         route it took (a bee's deposit, a task's outcome, aged Bee Bread, cleared Cell Wax);
         `C0` otherwise.
     """
-    # ADR-0031: the floor follows where the material came from, not how it reached the store; a
+    # ADR-0035: the floor follows where the material came from, not how it reached the store; a
     # Real Cell's Bee Bread or Cell Wax is as much the operator's own machine as a bee's deposit.
     if from_borrowed_cell or origin in (NectarOrigin.HUMAN, NectarOrigin.WATCH):
         return HoneyClearance.C2
@@ -132,7 +132,7 @@ def reader_ceiling(
     tier: CombShieldLevel,
     matrix: Mapping[WireCombShieldLevel, ClearanceMatrix],
 ) -> HoneyClearance:
-    """Compute the highest clearance a request may actually see (ADR-0031).
+    """Compute the highest clearance a request may actually see (ADR-0035).
 
     Args:
         requested: The highest label the caller asked for (`HoneyQuery.max_clearance`).
@@ -143,7 +143,7 @@ def reader_ceiling(
 
     Returns:
         The lowest of `requested`, `principal` and the tier's own ceiling: the highest label in
-        `matrix[tier].read`, or the ADR-0031 default (`C1` for NIGHT_VEIL, `C2` otherwise) when
+        `matrix[tier].read`, or the ADR-0035 default (`C1` for NIGHT_VEIL, `C2` otherwise) when
         `matrix` carries no row for `tier`.
     """
     row = matrix.get(tier.to_wire())
@@ -174,9 +174,9 @@ def check_lowering(
 
 
 def _tier_ceiling(tier: CombShieldLevel, row: ClearanceMatrix | None) -> HoneyClearance:
-    """Return a tier's own read ceiling: the highest label in its row, or ADR-0031's default."""
+    """Return a tier's own read ceiling: the highest label in its row, or ADR-0035's default."""
     if row is None or not row.read:
-        # No manifest row for this tier, or an explicitly empty one: ADR-0031's stated default.
+        # No manifest row for this tier, or an explicitly empty one: ADR-0035's stated default.
         return _DEFAULT_CEILING_WITHOUT_ROW[tier]
     readable = (HoneyClearance.from_wire(wire) for wire in row.read)
     return max(readable, key=lambda clearance: clearance.rank)

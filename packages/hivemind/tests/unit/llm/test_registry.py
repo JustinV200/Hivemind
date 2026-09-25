@@ -90,7 +90,7 @@ def test_default_embedding_factories_covers_fake_openai_compat_and_sentence_tran
     factories = default_embedding_factories()
 
     assert set(factories) == {"fake", "openai_compat", "sentence_transformers"}
-    assert "anthropic" not in factories  # No embedding endpoint (ADR-0032).
+    assert "anthropic" not in factories  # No embedding endpoint (ADR-0036).
 
 
 # ──────────────────────────────────────────────────────────────────────────────

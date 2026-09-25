@@ -26,7 +26,7 @@ Key invariants:
 See Also:
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
     - hivemind.honey_store.models.search for HoneyStats, this module's own return shape.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the vector-backend reporting rule.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the vector-backend reporting rule.
 """
 
 from __future__ import annotations

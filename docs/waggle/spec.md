@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.6`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.7`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.6"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.7"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.6"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 6` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.7"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 7` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -563,7 +563,7 @@ resume from, to the Warden that owns the chosen Cell, which re-issues it to the 
   on this Cell once the lease is released, carried unchanged from the plan. Max 16 items;
   defaults to empty, so an envelope from before this field existed still validates. A Drone
   cannot widen this set, only raise a `Question`.
-- `honey` (`tuple[HoneyHit, ...]`, `PROTOCOL_MINOR` 6): what the Queen's pre-check found for this
+- `honey` (`tuple[HoneyHit, ...]`, `PROTOCOL_MINOR` 7): what the Queen's pre-check found for this
   task (roadmap step 7.9): Honey about its objective and its chosen Cell, plus that Cell's live
   Cell Wax, as hits (section 8.7). Max 16 items; defaults to empty, so an envelope from before this
   field existed still validates. No hit's `clearance` may exceed `clearance` (validator). Each hit

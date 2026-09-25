@@ -24,7 +24,7 @@ Key invariants:
     - `PackResult.is_truncated` is True exactly when a hit was shortened or left out.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for "the rest are packed by score into
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for "the rest are packed by score into
       the caller's token budget".
     - hivemind.memory.counter for the chars-per-token estimate this mirrors.
     - hivemind.honey_store.honey.retrieve for the one caller.

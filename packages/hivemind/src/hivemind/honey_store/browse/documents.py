@@ -8,7 +8,7 @@ tests retrieval applies -- a `honey:read` capability whose glob matches the item
 label at or below the reader's clearance ceiling -- plus liveness (a Honey row neither tainted nor
 retired, a wax note not past its expiry). An item that fails any test is reported exactly as a
 missing one, so a reader cannot probe for what it may not read. A Honey row's document is a
-`HoneyDocument`: `Honey` itself plus the row's Nectar's extra sources (ADR-0033: who else deposited
+`HoneyDocument`: `Honey` itself plus the row's Nectar's extra sources (ADR-0037: who else deposited
 the same content, never the content), so `hive honey cat` can show them; a `HoneyDocument` is a
 `Honey`, so every existing `isinstance(document, Honey)` check still recognises it.
 
@@ -23,7 +23,7 @@ Key invariants:
     - Every visibility test here is the retrieval filter restated per item: scope by
       `hivemind.honey_store.scope.is_readable` (guard's own glob matching), clearance by rank.
     - A Bee Bread entry's scope is what ripening would file it under (`task:<id>` for an entry
-      about a task, `hive` otherwise, ADR-0031's scoping table), so browsing it before it ripens
+      about a task, `hive` otherwise, ADR-0035's scoping table), so browsing it before it ripens
       is filtered exactly as querying it after.
     - Reading never writes anything, not even a trail event: fetching a row's extra sources for
       `cat` is one more store read, not a write.
@@ -33,7 +33,7 @@ Key invariants:
 See Also:
     - hivemind.honey_store.honey.retrieve for the retrieval filter these tests restate.
     - hivemind.honey_store.scope.scope_for_nectar for the BEE_BREAD row `bee_bread_scope` mirrors.
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for
       HoneyDocument.sources.
 """
 
@@ -79,7 +79,7 @@ class HoneyDocument(Honey):
 
     sources: tuple[NectarSource, ...] = Field(
         default=(),
-        description="This row's Nectar's other, distinctly-provenanced deposits (ADR-0033): "
+        description="This row's Nectar's other, distinctly-provenanced deposits (ADR-0037): "
         "task, Cell, bee and when, never content.",
     )
 
@@ -87,7 +87,7 @@ class HoneyDocument(Honey):
 # One document, whichever folder it lives in: a Honey row, a live wax note or a Bee Bread entry.
 # HoneyDocument (a Honey subclass) fits the Honey member of this union by ordinary subtyping, so
 # read_document's HONEY path can return the narrower HoneyDocument without widening this alias --
-# which stays exactly what it was before ADR-0033, so a caller (a test, a fake) that still builds
+# which stays exactly what it was before ADR-0037, so a caller (a test, a fake) that still builds
 # a plain Honey for this union keeps type-checking.
 type BrowseDocument = Honey | WaxNote | BeeBreadNote
 
@@ -159,7 +159,7 @@ def bee_bread_scope(note: BeeBreadNote) -> str:
 
     Returns:
         `task:<id>` for an entry about a task, else `hive`: the scope its ripened Honey would
-        carry (ADR-0031's scoping table, BEE_BREAD row), so it reads the same before and after.
+        carry (ADR-0035's scoping table, BEE_BREAD row), so it reads the same before and after.
     """
     return task_scope(note.task_id) if note.task_id is not None else HIVE_SCOPE
 

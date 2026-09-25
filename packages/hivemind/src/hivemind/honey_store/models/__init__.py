@@ -21,7 +21,7 @@ See Also:
 
 Public API:
     - Nectar, NectarDraft, NectarOrigin, NectarSource, NectarState (nectar): raw findings, before
-      ripening, and a content duplicate's extra provenance (ADR-0033).
+      ripening, and a content duplicate's extra provenance (ADR-0037).
     - Honey, HoneyDraft, HoneyPart (honey): ripened, retrievable knowledge.
     - ReadFilter, TextCandidate, VectorCandidate, HoneyStats (search): the shapes a search and
       `HoneyStore.stats` pass around.

@@ -25,7 +25,7 @@ Key invariants:
 
 See Also:
     - .claude/roadmap.md steps 7.10 and 7.11 for the browser and the CLI built on it.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for scopes, labels and "browsing never
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for scopes, labels and "browsing never
       writes".
     - hivemind.honey_store.honey for the retriever a folder's search runs.
 
@@ -38,7 +38,7 @@ Public API:
     - BrowsePath, PathKind, parse_path, ROOT_PATH, TOP_FOLDERS (paths): the path grammar.
     - BrowseEntry, BrowseListing, EntryKind (listing): what `ls` returns.
     - BrowseDocument, HoneyDocument, honey_visible (documents): what `cat` returns (a Honey row's
-      own document also carries its Nectar's extra sources, ADR-0033), and the row visibility rule.
+      own document also carries its Nectar's extra sources, ADR-0037), and the row visibility rule.
     - Page, FIRST_PAGE, DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS (folders): listing pages.
     - NoteProposal, CellWaxProposal, QueuedHoneyNote, NOTE_CLEARANCE (notes): a proposed note.
     - HoneyRelabeller, RelabelRequest, RelabelOutcome, RelabelDirection (relabel): the human's

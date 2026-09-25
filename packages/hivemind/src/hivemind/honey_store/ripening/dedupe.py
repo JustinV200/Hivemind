@@ -1,7 +1,7 @@
 """Drop duplicate CHUNK parts before they are stored: exact within one Nectar, near across a scope.
 
 Ripening turns one Nectar (a raw deposit in the Honey Store, the Hive's knowledge base) into a
-SUMMARY part and many CHUNK parts (ADR-0031). A transcript repeats itself, and the same finding
+SUMMARY part and many CHUNK parts (ADR-0035). A transcript repeats itself, and the same finding
 arrives from two tasks, so storing every chunk would fill search results with copies. Two passes
 remove them. `drop_exact_duplicates` (pure) drops a CHUNK whose whitespace- and case-normalised
 body repeats one already kept for the same Nectar -- the SUMMARY's own body included -- or is
@@ -20,12 +20,12 @@ Fits into the Hive:
 Key invariants:
     - Order is preserved; only CHUNK parts are ever dropped.
     - A near-duplicate is judged only against rows of the same scope and the same embedding model
-      (`HoneyStore.nearest_in_scope`), never across models (ADR-0032).
+      (`HoneyStore.nearest_in_scope`), never across models (ADR-0036).
     - A chunk is never dropped in favour of a row labelled above it: that would hide the content
       from a reader cleared for the chunk but not for the row.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY/CHUNK shape.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY/CHUNK shape.
     - hivemind.manifest.schema.honey for `near_duplicate_similarity`.
     - hivemind.honey_store.store.protocol for `nearest_in_scope`.
 """

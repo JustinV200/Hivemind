@@ -8,7 +8,7 @@ Key invariants:
 
 See Also:
     - hivemind.honey_store.honey.rank for the module under test.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the "Hybrid ranking" formulas.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the "Hybrid ranking" formulas.
 """
 
 from __future__ import annotations

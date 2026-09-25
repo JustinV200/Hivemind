@@ -62,7 +62,7 @@ def test_resolve_embedder_binds_a_kind_that_can_embed(tmp_path: Path) -> None:
 
 
 def test_resolve_embedder_degrades_to_none_for_a_kind_with_no_embeddings(tmp_path: Path) -> None:
-    # ADR-0032: an Anthropic-bound embedder is full-text search only, never a failed Hive.
+    # ADR-0036: an Anthropic-bound embedder is full-text search only, never a failed Hive.
     clock = FakeClock()
     manifest = _with_embedder_on(load_manifest(fake_manifest(tmp_path, clock=clock)), "anthropic")
 

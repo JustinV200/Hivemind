@@ -1,7 +1,7 @@
 """Build the HoneyDrafts one Nectar ripens into: a SUMMARY part and one CHUNK part per chunk (pure).
 
 Ripening turns Nectar (a raw deposit in the Honey Store, the Hive's knowledge base) into Honey
-rows (ADR-0031): one SUMMARY row whose title is the summary's and whose body is the summary text
+rows (ADR-0035): one SUMMARY row whose title is the summary's and whose body is the summary text
 itself, and one CHUNK row per chunk of the text whose title is that title plus `(part i of n)`,
 whose summary repeats the SUMMARY's text as context for the chunk, and whose body is the chunk.
 A deposit with no text -- binary, or text that is only whitespace -- ripens into a SUMMARY row
@@ -24,7 +24,7 @@ Key invariants:
       by pydantic's own validation.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY/CHUNK row shape.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY/CHUNK row shape.
     - hivemind.honey_store.models.honey for HoneyDraft and its bounds.
     - hivemind.honey_store.ripening.summarise for SummaryOutcome, the summary these drafts carry.
 """

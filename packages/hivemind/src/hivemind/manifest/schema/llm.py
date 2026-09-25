@@ -14,7 +14,7 @@ import both) a plain dict of only the fields actually set, to merge onto whateve
 layer already has in hand. ``LlmSection``'s own validators are what keep the slot table honest:
 every key lowercase, every ``ModelSlot`` bound to something, every binding's provider declared,
 every fallback reachable and acyclic, and ``offline = true`` refusing any provider that is not
-provably local (an ``IN_PROCESS_KINDS`` member excepted -- roadmap step 7.1, ADR-0032: it never
+provably local (an ``IN_PROCESS_KINDS`` member excepted -- roadmap step 7.1, ADR-0036: it never
 opens a ``base_url`` at all, so it is provably local by construction).
 
 Roadmap step 7.1 adds the embedder's own boundary: ``ProviderSpec.embedding`` is an

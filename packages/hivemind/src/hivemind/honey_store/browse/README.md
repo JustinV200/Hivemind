@@ -39,11 +39,11 @@ retrievable knowledge) the way one walks a filesystem, so the operator's CLI (`h
   `hive`, the scope its ripened Honey would carry), `visible_honey` and `live_wax_notes`. Anything
   hidden is reported exactly as a missing item (`BrowseNotFoundError`). A Honey row's own document
   is a `HoneyDocument` (a `Honey` plus `sources: tuple[NectarSource, ...]`, its Nectar's other
-  distinctly-provenanced deposits, ADR-0033), fetched only for `read_document`'s HONEY path, never
+  distinctly-provenanced deposits, ADR-0037), fetched only for `read_document`'s HONEY path, never
   for a plain listing entry.
 - `folders.py` -- `list_folder` (`ls`) for every folder kind, one `Page` at a time (default 50,
   at most 500), and `search_scopes`. `/cells`, `/bees` and `/tasks` are derived from
-  `HoneyStore.scope_counts`'s own `GROUP BY` under the reader's own filter (ADR-0033), so they are
+  `HoneyStore.scope_counts`'s own `GROUP BY` under the reader's own filter (ADR-0037), so they are
   complete at any store size; `/cells` also lists Cells whose only visible content is live wax.
 - `notes.py` -- `propose_note`: from a Cell's folder a `CellWaxProposal` the caller files through
   `hivemind.memory.propose_wax` (nothing written here); anywhere else a `QueuedHoneyNote`, queued
@@ -56,7 +56,7 @@ retrievable knowledge) the way one walks a filesystem, so the operator's CLI (`h
 - `browser.py` -- `HoneyBrowser(deps)`: `ls`, `cat`, `search` (the retriever over the folder's
   scopes: `/` every readable scope, a scope folder its own, an index folder the scopes it lists
   with Honey, nothing at all for an index with none), `propose_note`; and `operator_reader`
-  (`honey:read:*` up to a ceiling, the operator's defaults per ADR-0031).
+  (`honey:read:*` up to a ceiling, the operator's defaults per ADR-0035).
 - `errors.py` -- `BrowseError` (a `HoneyStoreError`), `BrowsePathError`, `BrowseNotFoundError`,
   `BrowseInputError`.
 

@@ -9,8 +9,8 @@
 > criterion.
 
 Read these first: `CLAUDE.md`, `.claude/codingrules.md`, `.claude/roadmap.md` phase 7 (its "Met"
-note lists every deviation from the step text), `docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md`,
-`docs/adr/0032-embedding-provider-and-reembedding-policy.md`, then
+note lists every deviation from the step text), `docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md`,
+`docs/adr/0036-embedding-provider-and-reembedding-policy.md`, then
 `packages/hivemind/src/hivemind/honey_store/README.md` and the READMEs of its sub-packages.
 
 ## 1. Where things stand
@@ -24,7 +24,7 @@ note lists every deviation from the step text), `docs/adr/0031-honey-store-sqlit
 - All gates were green at handover across the whole repo (section 4 has the commands): 6964
   passed, 3 skipped and 9 deselected (the `integration`, `live_llm` and `local_llm` markers). That
   run includes e2e and took about 65 s of test time in this container.
-- The Waggle protocol is now **1.6**. It adds `TaskAssign.honey` and the ids `NectarId`
+- The Waggle protocol is now **1.7**. It adds `TaskAssign.honey` and the ids `NectarId`
   (`nectar_…`) and `HoneyId` (`honey_…`). `HoneyQuery`, `HoneyResponse` and `NectarDeposit`
   already existed in the catalogue. `docs/waggle/spec.md` records the version bump.
 - Dependencies:
@@ -50,7 +50,7 @@ Paths are relative to `packages/hivemind/src/hivemind/` unless they say otherwis
 | Step | Modules | Notes |
 |---|---|---|
 | 7.1 | `llm/embedding/` (provider, models, bound, capabilities, gate, fake), `llm/providers/openai_compat/embedding.py`, `llm/providers/sentence_transformers/embedding.py`, `llm/fanner/embed.py`, `llm/registry.py` | `EmbeddingProvider` protocol and `FakeEmbedding`. `registry.embedder(ModelSlot.EMBEDDER)` returns a `BoundEmbedder`, which refuses any response whose `model` differs from the bound one. Anthropic has no embedding endpoint (`embedding_unsupported`). `FannerLane.embed` meters each call as `llm.call` with slot `EMBEDDER`, and on an outage it walks only same-model fallbacks. sentence-transformers is imported lazily and only by its adapter. Contract suite: `tests/contracts/test_embedding_provider_contract.py`, over all three adapters (no network, no real model library). |
-| 7.2 | `honey_store/schema/`, `honey_store/store/` (`protocol.py`, `fts.py`, `sqlite/` store, nectar, honey, search, vec, vectors, filters, stats) | Vectors sit in a plain table and are ranked with `vec_distance_cosine`. There is no `vec0` table: ADR-0031 measured it as no faster, because sqlite-vec 0.1 has no approximate index. Vectors are kept per model, and several models' vectors coexist (ADR-0032). Contract suite: `tests/contracts/test_honey_store_contract.py`, over a temp file with sqlite-vec, a temp file with the Python fallback, and `:memory:`. |
+| 7.2 | `honey_store/schema/`, `honey_store/store/` (`protocol.py`, `fts.py`, `sqlite/` store, nectar, honey, search, vec, vectors, filters, stats) | Vectors sit in a plain table and are ranked with `vec_distance_cosine`. There is no `vec0` table: ADR-0035 measured it as no faster, because sqlite-vec 0.1 has no approximate index. Vectors are kept per model, and several models' vectors coexist (ADR-0036). Contract suite: `tests/contracts/test_honey_store_contract.py`, over a temp file with sqlite-vec, a temp file with the Python fallback, and `:memory:`. |
 | 7.3 | `honey_store/models/` (nectar, honey, search), `clearance.py`, `scope.py`, `identity.py`, `errors.py` | Provenance and clearance are mandatory. Intake gives C2 to HUMAN and WATCH origins and to anything from a borrowed (Real) Cell. Labels only rise automatically; lowering one needs a JUDGE or HUMAN approver. Reader ceiling = min(requested, principal, tier matrix), and Night Veil is capped at C1. Scopes are `hive`, `cell:<id>`, `bee:<id>` and `task:<id>`. |
 | 7.4 | `honey_store/nectar/` (intake, submission, reassembly), `workers/nectar.py` | `NectarIntake.submit`, `receive_chunk` and `expire_groups`. The size cap is `[honey.store] max_nectar_bytes`. Dedupe goes by `source_key` first, then by sha256, partitioned across the Night Veil boundary. Events are built inside the same transaction as the rows (`NectarEvents`). A Worker's deposit is split into `NectarDeposit` chunks and reassembled by `ChunkGroups`. |
 | 7.5 | `honey_store/ripening/` (pipeline, chunk, summarise, embed, dedupe, index, drafts, deps), `llm/prompts/ripen_nectar.md` | `Ripener.run_pass()` returns a `PassOutcome` and runs two stages. Stage one, `ripen_pending`: chunk, summarise on RIPENER through `complete_structured` (`RipenedSummary`, whose label may only rise), dedupe, then index SUMMARY and CHUNK rows. Stage two, `embed_pending`: embed fresh rows, and re-embed rows that lack a vector for the current model, a bounded number per pass. The summary is heuristic when there is no RIPENER, or when the deposit is under `summarise_min_chars` (default 400). |
@@ -70,7 +70,7 @@ Paths are relative to `packages/hivemind/src/hivemind/` unless they say otherwis
 - **Composition.** `cli/compose/honey.build_honey_access` is the only place a `HoneyAccess` is
   built. `HoneyAccess` bundles the store, intake, retriever, Ripener, identity and the three config
   sections. `build_hive` and every `hive honey` command call this builder. It resolves EMBEDDER
-  and RIPENER once and degrades instead of failing (ADR-0032): an unusable slot becomes None and is
+  and RIPENER once and degrades instead of failing (ADR-0036): an unusable slot becomes None and is
   logged once, as `honey.embedder_unavailable` or `honey.ripener_unavailable`. Summary and embed
   calls run on a LOW-accuracy Fanner lane, while a query's own embedding runs on an ordinary lane.
   The result reaches the Queen as `QueenDeps.honey` and the operator as `Hive.honey`.
@@ -94,7 +94,7 @@ Paths are relative to `packages/hivemind/src/hivemind/` unless they say otherwis
   current model), it counts as unavailable and ranking is text-only at weight 1.0.
 - **Night Veil.** One deposit from a Night Veil Cell is recorded like ordinary Nectar: the
   RIPENED_HONEY export at C0 or C1. Every other one is EPHEMERAL (no events, purged at teardown),
-  and a Night Veil query records no event (ADR-0031).
+  and a Night Veil query records no event (ADR-0035).
 
 ## 4. Testing state and how to run the gates
 
@@ -255,7 +255,7 @@ The commit bodies have the details.
    `sentence_transformers` adapter has never loaded a real model either (the hub was blocked).
 3. **Hive Stand Honey is C2, but `hive run` defaults to `--clearance C1`.** A default run on the
    Hive Stand therefore cannot read what earlier runs learned there. This is the rule working as
-   written (ADR-0031), but operators will be surprised. Either document `--clearance C2` or let
+   written (ADR-0035), but operators will be surprised. Either document `--clearance C2` or let
    the operator declare an intake floor for the Hive Stand. The second option is a policy change
    and needs an ADR amendment.
 4. **The Hive Stand's Cell id changes on every `hive run`** (a phase 5 carry-over). As a result,

@@ -7,7 +7,7 @@ uncertainty is resolved, once, at store construction; every vector is stored the
 way (a little-endian float32 blob, exactly sqlite-vec's own layout), so
 `hivemind.honey_store.store.sqlite.search`'s two code paths (`vec_distance_cosine` in SQL, or
 `cosine_distance` in Python over the same filtered rows) return identical results, only at
-different speed (ADR-0031).
+different speed (ADR-0035).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
@@ -25,7 +25,7 @@ Key invariants:
       test_vec.py`).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for why exact search over a plain table
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for why exact search over a plain table
       beats a `vec0` virtual table at this scale, and the ImportError/AttributeError/
       OperationalError fallback rule this module implements.
     - hivemind.honey_store.store.sqlite.vectors for `set_vectors`/`pending_vectors`, which call
@@ -94,7 +94,7 @@ def decode_vector(blob: bytes) -> array.array[float]:
 def cosine_distance(query: Sequence[float], candidate: Sequence[float]) -> float:
     """Compute `1 - cosine_similarity`, matching sqlite-vec's own `vec_distance_cosine` metric.
 
-    The Python fallback's own ranking metric (ADR-0031): identical results to the SQL function,
+    The Python fallback's own ranking metric (ADR-0035): identical results to the SQL function,
     only evaluated in this process instead of the SQLite extension.
 
     Args:
@@ -119,7 +119,7 @@ def cosine_distance(query: Sequence[float], candidate: Sequence[float]) -> float
 def cosine_distances(query: Sequence[float], blobs: Iterable[bytes]) -> list[float]:
     """Compute `cosine_distance` from `query` to every stored blob, the query's norm taken once.
 
-    The Python fallback's whole ranking pass (ADR-0031): one call per search, one distance per
+    The Python fallback's whole ranking pass (ADR-0035): one call per search, one distance per
     readable row, so the query's own norm is not recomputed row after row.
 
     Args:
@@ -171,7 +171,7 @@ def load_vector_extension(connection: sqlite3.Connection) -> bool:
         # ImportError: sqlite_vec is not importable in this environment (should not happen: it is
         # a normal dependency, but a host's install can still be broken). AttributeError:
         # enable_load_extension does not exist on this Python's sqlite3 build. OperationalError:
-        # the extension file itself failed to load. All three degrade the same way (ADR-0031).
+        # the extension file itself failed to load. All three degrade the same way (ADR-0035).
         log.warning("honey_store.vector_backend", backend=VECTOR_BACKEND_PYTHON, reason=str(exc))
         return False
     log.info("honey_store.vector_backend", backend=VECTOR_BACKEND_SQLITE_VEC)

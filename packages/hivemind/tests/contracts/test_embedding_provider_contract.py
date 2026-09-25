@@ -3,7 +3,7 @@
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
     `hivemind.llm.embedding.provider.EmbeddingProvider` contract (codingrules 8.6: "same contract
-    for every provider", extended to embeddings by ADR-0032) and runs against every implementation
+    for every provider", extended to embeddings by ADR-0036) and runs against every implementation
     registered in `_HARNESSES`: `hivemind.llm.embedding.fake.FakeEmbedding`, `hivemind.llm.
     providers.openai_compat.OpenAICompatEmbedding` and `hivemind.llm.providers.
     sentence_transformers.SentenceTransformersEmbedding`, each built by `contracts.
@@ -16,7 +16,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.6 for "same contract for every provider".
     - .claude/codingrules.md section 14.3 for the contract-suite rule this module follows.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decisions this suite
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decisions this suite
       proves every embedding adapter honours.
     - contracts.embedding_provider_harness for EmbeddingProviderHarness and every concrete harness.
     - packages/hivemind/tests/contracts/test_llm_provider_contract.py for the chat-side sibling

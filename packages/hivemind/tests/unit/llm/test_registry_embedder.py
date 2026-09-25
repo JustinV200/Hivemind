@@ -2,7 +2,7 @@
 
 Split by feature (codingrules 14.2/5.1) from `test_registry.py`, which covers provider
 construction, caching, offline enforcement and the chat slots. Here: resolution per provider kind,
-EmbeddingUnsupportedError, the same-model fallback rule (ADR-0032), an in-process kind accepted
+EmbeddingUnsupportedError, the same-model fallback rule (ADR-0036), an in-process kind accepted
 offline, and the cache per (provider name, model).
 
 Fits into the Hive:
@@ -59,7 +59,7 @@ def test_embedder_resolves_the_fake_kind() -> None:
 
 
 async def test_embedder_fake_reports_the_bindings_own_model_id() -> None:
-    # The Honey Store tags and filters vectors by one model id (ADR-0032); a fake reporting its own
+    # The Honey Store tags and filters vectors by one model id (ADR-0036); a fake reporting its own
     # constant instead would make every stored vector look stale to a re-embed forever.
     bindings = [make_binding(key="embedder", provider="hosted", model="test-embed")]
     providers = {"hosted": make_provider_config(kind="fake")}
@@ -128,7 +128,7 @@ def test_embedder_cuts_a_different_model_fallback() -> None:
 
     bound = registry.embedder()
 
-    assert bound.fallback is None  # ADR-0032: a different model id is never comparable.
+    assert bound.fallback is None  # ADR-0036: a different model id is never comparable.
 
 
 def test_embedder_cuts_a_fallback_with_no_embedding_factory() -> None:

@@ -1,7 +1,7 @@
 """Summarise one Nectar deposit for its Honey: a title, a summary with key facts, and a label.
 
 Ripening files every Nectar (a raw deposit in the Honey Store, the Hive's knowledge base) under
-one SUMMARY row, whose text is also repeated on each of its CHUNK rows as context (ADR-0031). This
+one SUMMARY row, whose text is also repeated on each of its CHUNK rows as context (ADR-0035). This
 module writes that summary. With a RIPENER binding (the model slot for batch work), summaries on,
 and enough text to be worth it, it asks the model through `complete_structured` (the structured-
 output ladder, codingrules 8.6) with the `ripen_nectar.md` prompt, showing the deposit's metadata
@@ -28,7 +28,7 @@ Key invariants:
       labelled as data, never as an instruction (codingrules section 15).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY row and label rules.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY row and label rules.
     - hivemind.llm.prompts's `ripen_nectar.md` for the prompt this module renders.
     - hivemind.memory.compact.run for the Bee Bread summariser this mirrors on the same slot.
 """

@@ -8,7 +8,7 @@ a scope's own Honey rows (a Cell's folder also offers its `wax` sub-folder); a C
 Wax (the Queen's standing cautions about it); recent Bee Bread (the warm memory tier). Every read
 goes through the reader's own `ReadFilter` or the visibility rules in `.documents`, so a listing
 never shows what a query by the same reader could not return. The three index folders are derived
-from `HoneyStore.scope_counts`'s own `GROUP BY` (ADR-0033), so they are complete at any store
+from `HoneyStore.scope_counts`'s own `GROUP BY` (ADR-0037), so they are complete at any store
 size, with no scan to bound; `search_scopes` reuses the same read, so a search in `/cells` covers
 every listed folder that holds Honey.
 
@@ -19,7 +19,7 @@ Fits into the Hive:
     `listing`, `documents`, `sources` and `errors` only.
 
 Key invariants:
-    - Filtering is policy, not paging (ADR-0031): the store applies the reader's filter before it
+    - Filtering is policy, not paging (ADR-0035): the store applies the reader's filter before it
       limits a page, and the wax and Bee Bread listings filter before they page.
     - A folder whose scope the reader may not read lists as empty, never as an error, so an empty
       folder and a forbidden one look the same.
@@ -29,7 +29,7 @@ See Also:
     - hivemind.honey_store.store.protocol.HoneyStore.list_honey and .scope_counts for the paged
       and grouped reads used here.
     - hivemind.honey_store.browse.documents for the per-item visibility rules.
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
       scope_counts read that replaced the bounded scan.
 """
 
@@ -170,7 +170,7 @@ async def scan_scopes(store: HoneyStore, reader: HoneyReader, scope_kind: str) -
 
     Returns:
         Each such scope mapped to how many visible rows it holds; complete at any store size
-        (`HoneyStore.scope_counts`'s own `GROUP BY`, under the reader's own filter, ADR-0033).
+        (`HoneyStore.scope_counts`'s own `GROUP BY`, under the reader's own filter, ADR-0037).
     """
     return await store.scope_counts(scope_kind, reader_filter(reader))
 
@@ -231,7 +231,7 @@ async def _list_index(
         )
         for scope in sorted(counts.keys() | wax.keys())
     )
-    # scope_counts' own GROUP BY has no scan bound to stop at (ADR-0033), so this listing is
+    # scope_counts' own GROUP BY has no scan bound to stop at (ADR-0037), so this listing is
     # always complete: only the page cut below can ever leave more entries beyond it.
     return _paged(target.path, entries, page)
 

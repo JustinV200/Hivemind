@@ -141,7 +141,7 @@ def print_stats(stats: HoneyStats) -> None:
         f"clearance:  {_counts({label.value: n for label, n in stats.honey_by_clearance.items()})}"
     )
     typer.echo(f"scopes:     {_counts(stats.honey_by_scope_kind)}")
-    # ADR-0032: coverage per embedding model, so a re-embed's progress is visible.
+    # ADR-0036: coverage per embedding model, so a re-embed's progress is visible.
     typer.echo(f"vectors:    {_counts(stats.vectors_by_model)}")
     typer.echo(f"vector search: {stats.vector_backend}")
 

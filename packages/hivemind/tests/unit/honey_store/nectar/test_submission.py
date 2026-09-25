@@ -63,7 +63,7 @@ def test_nectar_submission_refuses_malformed_input(overrides: dict[str, object])
         make_nectar_submission(FakeClock(), **overrides)
 
 
-def test_handoff_source_key_matches_adr_0031s_spelling() -> None:
+def test_handoff_source_key_matches_adr_0035s_spelling() -> None:
     event_id = new_event_id(FakeClock())
 
     assert handoff_source_key(event_id) == f"handoff:{event_id}"

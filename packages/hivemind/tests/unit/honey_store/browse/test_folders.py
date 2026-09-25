@@ -123,7 +123,7 @@ async def test_ls_cells_lists_cells_with_honey_and_cells_with_only_live_wax(
 
 
 async def test_ls_index_lists_every_scope_with_no_scan_bound(hive: BrowseHive) -> None:
-    # ADR-0033: scope_counts' own GROUP BY replaced the old bounded scan, so an index folder
+    # ADR-0037: scope_counts' own GROUP BY replaced the old bounded scan, so an index folder
     # lists every scope the reader may see, however many there are, with no truncation note.
     for _ in range(3):
         await hive.ripen("Task row.", scope=task_scope(new_task_id(hive.clock)))

@@ -5,7 +5,7 @@ Fits into the Hive:
     hivemind.honey_store.store.protocol.HoneyStore's contract and runs against three harnesses of
     the one shipped implementation (`hivemind.honey_store.store.sqlite.SqliteHoneyStore`): a temp
     file with sqlite-vec, a temp file with the Python vector fallback forced on, and `:memory:`
-    with sqlite-vec -- so both storage modes and both vector backends are exercised (ADR-0031). A
+    with sqlite-vec -- so both storage modes and both vector backends are exercised (ADR-0035). A
     future in-memory fake joins the same fixture's params and must pass here before it is used
     anywhere else (codingrules 14.3). The `Harness` shape and the small builders every clause
     shares (`event`, `nectar_events`, `prune_events`, `sha`, `ripen`) live in `honey_store_
@@ -151,7 +151,7 @@ async def test_add_nectar_records_the_events_built_from_its_own_outcome(
 async def test_add_nectar_records_nothing_when_the_builder_returns_no_event(
     harness: Harness,
 ) -> None:
-    # ADR-0031: a Night Veil Cell's ephemeral deposit leaves no trail event at all.
+    # ADR-0035: a Night Veil Cell's ephemeral deposit leaves no trail event at all.
     night_veil_cell = new_cell_id(harness.clock)
     draft = make_nectar_draft(
         clock=harness.clock,
@@ -217,7 +217,7 @@ async def test_an_ephemeral_deposit_never_dedupes_onto_an_ordinary_row(harness: 
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Repeat sources: a content duplicate's extra provenance (ADR-0033)
+# Repeat sources: a content duplicate's extra provenance (ADR-0037)
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -375,7 +375,7 @@ async def test_search_vectors_skips_a_stored_vector_of_another_length(harness: H
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Filtering happens before limiting, on every axis (ADR-0031)
+# Filtering happens before limiting, on every axis (ADR-0035)
 # ──────────────────────────────────────────────────────────────────────────────
 
 

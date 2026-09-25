@@ -3,7 +3,7 @@
 Honey is Nectar (raw findings) once it has been chunked, summarised, embedded, deduped and
 indexed (roadmap 7.5, a later dispatch) -- the shape a Worker actually queries before acting.
 Every Nectar ripens into one `SUMMARY` row (title, summary, key facts) and one `CHUNK` row per
-chunk of its text (ADR-0031); `HoneyPart` names which. `HoneyDraft` is what the Ripener builds per
+chunk of its text (ADR-0035); `HoneyPart` names which. `HoneyDraft` is what the Ripener builds per
 part; `Honey` is the stored row, carrying every draft field plus the provenance, scope and
 lifecycle fields copied from the Nectar it came from. `Honey.path` is both its browser path
 (roadmap 7.10) and `waggle.messages.honey.hit.HoneyHit.honey_ref`; `Honey.to_hit` is the one place
@@ -22,12 +22,12 @@ Key invariants:
       is idempotent on that triple (`HoneyStore.ripen`'s own contract).
     - `embedding_model` names the most recently written vector's model as a convenience only; a
       row may hold vectors for more than one model at once while a re-embed is in flight
-      (ADR-0032), so whether a row is current for a given model is decided by
+      (ADR-0036), so whether a row is current for a given model is decided by
       `HoneyStore.pending_vectors`, never by reading this field alone.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the fields this module's shape backs.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for `embedding_model`'s caveat.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the fields this module's shape backs.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for `embedding_model`'s caveat.
     - hivemind.honey_store.scope for `honey_ref`/`folder_for_scope`, `Honey.path`'s own logic.
     - waggle.messages.honey.hit for HoneyHit and HoneyProvenance, `to_hit`'s return shape.
 """
@@ -77,7 +77,7 @@ __all__ = [
 
 
 class HoneyPart(Enum):
-    """Which part of a ripened Nectar one Honey row is (ADR-0031: one SUMMARY, many CHUNK)."""
+    """Which part of a ripened Nectar one Honey row is (ADR-0035: one SUMMARY, many CHUNK)."""
 
     SUMMARY = "SUMMARY"  # Title, summary and key facts for the whole Nectar.
     CHUNK = "CHUNK"  # One chunk of the Nectar's text, indexed by chunk_index.

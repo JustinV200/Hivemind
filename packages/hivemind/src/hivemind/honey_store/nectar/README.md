@@ -4,7 +4,7 @@ The intake side of the Honey Store (the Hive's knowledge base). Nectar is raw in
 (a Worker or a Warden) or the Hive itself brings back: a finding, a transcript, a tool result, a
 Handoff. Every deposit enters through `NectarIntake`, which caps it, labels it with a
 `HoneyClearance`, files it under a scope, applies the Night Veil rule and stores it, deduplicated,
-with its Pheromone Trail events, in one transaction (ADR-0031). The House Bee's ripening pipeline
+with its Pheromone Trail events, in one transaction (ADR-0035). The House Bee's ripening pipeline
 (`hivemind.honey_store.ripening`) turns what is stored here into Honey.
 
 ## Public API (roadmap 7.4)

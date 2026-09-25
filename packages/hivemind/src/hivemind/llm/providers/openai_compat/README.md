@@ -75,7 +75,7 @@ per `[llm.slots]` row -- `hivemind.llm.registry.ProviderRegistry.embedder` suppl
 model the resolved `[llm.slots.embedder]` binding names, never `OpenAICompatConfig.model`).
 `capabilities.dimensions` is unknown (`None`) until the first response is decoded, then fixed for
 the life of the instance; a later response of a different dimension is refused with a typed
-`ProviderRequestError` rather than silently accepted (ADR-0032). `capabilities.normalized` is
+`ProviderRequestError` rather than silently accepted (ADR-0036). `capabilities.normalized` is
 always `False`: this adapter cannot confirm what a given server or model actually returns.
 
 ## Running a live test later

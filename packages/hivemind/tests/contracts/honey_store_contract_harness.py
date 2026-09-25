@@ -3,14 +3,14 @@
 `test_honey_store_contract.py` writes each contract clause once against `hivemind.honey_store.
 store.protocol.HoneyStore` and runs it over three harnesses of the one shipped implementation
 (`hivemind.honey_store.store.sqlite.SqliteHoneyStore`): a temp file with sqlite-vec, a temp file
-with the Python vector fallback forced on, and `:memory:` with sqlite-vec (ADR-0031); its own
+with the Python vector fallback forced on, and `:memory:` with sqlite-vec (ADR-0035); its own
 `@pytest.fixture` builds one, parametrised over those three, mirroring `test_llm_provider_contract.
 py`'s own local fixture over harnesses this module's sibling `llm_provider_harness.py` supplies.
 This module holds only what has no fixture machinery of its own: the `Harness` shape every clause
 takes, and the builders (`event`, `nectar_events`, `prune_events`, `sha`, `ripen`) that turn the
 store's own API into one-line steps -- kept here, mirroring `llm_provider_harness.py`/
 `embedding_provider_harness.py`, so the contract file itself stays under codingrules 5.1's
-400-line test-file limit as the suite grows (ADR-0033 added the sources, scope and prune clauses).
+400-line test-file limit as the suite grows (ADR-0037 added the sources, scope and prune clauses).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.3), not shipped. Used only by

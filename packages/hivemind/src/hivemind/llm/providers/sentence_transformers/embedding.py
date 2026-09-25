@@ -3,7 +3,7 @@
 Unlike every other adapter in `hivemind.llm.providers`, this one talks to no network and no other
 process: it loads a `sentence-transformers` model (the `sentence-transformers` PyPI package, an
 optional extra, `hivemind[embeddings]`) into this Hive's own process and runs it directly. That
-makes it provably local under `[llm] offline = true` (ADR-0032) with no `base_url` at all, and the
+makes it provably local under `[llm] offline = true` (ADR-0036) with no `base_url` at all, and the
 one kind `EMBEDDING_ONLY_KINDS`/`IN_PROCESS_KINDS` (`hivemind.llm.registry`) name today. The model
 loads exactly once, lazily (on the first `embed()` or `health()` call, never at construction),
 under an `asyncio.Lock` so two concurrent first callers never load it twice, and every blocking
@@ -41,7 +41,7 @@ See Also:
     - .claude/codingrules.md section 8.6 for the vendor-library confinement pattern this module
       mirrors for an in-process model library instead of a vendor API SDK.
     - .claude/codingrules.md section 11 for the to_thread rule every blocking call here follows.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision behind this
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision behind this
       adapter, including why it is an optional extra rather than a base dependency.
     - hivemind.hive.backends.docker.sdk_client for the same lazy-import pattern over a different
       optional vendor dependency.

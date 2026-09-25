@@ -384,7 +384,7 @@ write = ["C0", "C1", "C2"]
 read = ["C0", "C1"]
 write = ["C0", "C1"]
 
-# The Honey Store (roadmap phase 7, ADR-0031): Nectar deposits ripen into searchable Honey.
+# The Honey Store (roadmap phase 7, ADR-0035): Nectar deposits ripen into searchable Honey.
 [honey.store]
 # The largest single Nectar deposit intake accepts, in bytes (16 MiB; at most 64 MiB).
 max_nectar_bytes = 16777216
@@ -403,7 +403,7 @@ chunk_overlap_chars = 200
 summarise = true
 summarise_min_chars = 400
 summarise_max_input_chars = 12000
-# Embedding batch size, and rows embedded per pass (fresh and re-embedded alike, ADR-0032).
+# Embedding batch size, and rows embedded per pass (fresh and re-embedded alike, ADR-0036).
 embed_batch = 32
 max_embed_per_pass = 256
 # Cosine similarity at which a new chunk duplicates a live one in the same scope.

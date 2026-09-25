@@ -180,7 +180,7 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         chamber=open_chamber(db, identity),
         memory=open_memory(db),
         leavings=open_leavings(db),
-        honey=open_honey_store(db),  # ADR-0031: the Honey Store lives in the Hive's one file.
+        honey=open_honey_store(db),  # ADR-0035: the Honey Store lives in the Hive's one file.
     )
 
 

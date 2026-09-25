@@ -31,10 +31,10 @@ Key invariants:
     - At most `[honey.retrieval] precheck_max_hits` hits (0 turns both consultations off), packed
       into `budget_fraction` of the reading slot's window, capped at `max_budget_tokens`.
     - A Night Veil Cell's pre-check records no trail event and no log line at all, exactly like
-      the Night Veil reader's own query and that Cell's own deposits (ADR-0031).
+      the Night Veil reader's own query and that Cell's own deposits (ADR-0035).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for scopes, ceilings and the budget.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for scopes, ceilings and the budget.
     - hivemind.honey_store.honey for HoneyRetriever, the one search both consultations run.
     - hivemind.queen.dispatcher.ready for the assignment this pre-check feeds.
 """

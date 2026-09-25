@@ -23,12 +23,12 @@ Key invariants:
     - `raise_clearance`/`lower_clearance` both persist whatever `to` the caller already decided:
       neither re-derives `hivemind.honey_store.clearance`'s own rule (the store trusts its caller).
     - `select_honey_list`'s `WHERE` always applies `read_filter_clauses` before `ORDER BY`/`LIMIT`
-      (ADR-0031: "Filtering is policy, not ranking").
+      (ADR-0035: "Filtering is policy, not ranking").
 
 See Also:
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
     - hivemind.honey_store.store.sqlite.nectar for the sibling table ripen() reads provenance from.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the ripening and filtering rules.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the ripening and filtering rules.
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def select_scope_counts(
 ) -> dict[str, int]:
     """Count live rows per scope of `scope_kind` within `filter_`.
 
-    ADR-0033: one `GROUP BY`, no scan bound, so `/cells`, `/bees` and `/tasks` are complete at
+    ADR-0037: one `GROUP BY`, no scan bound, so `/cells`, `/bees` and `/tasks` are complete at
     any store size.
     """
     clauses, params = read_filter_clauses(filter_)

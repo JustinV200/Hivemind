@@ -10,7 +10,7 @@ always the same, on every process and every run: lowercase the text, split it in
 would make the same text embed differently across two runs) to one vector index and a sign, add a
 word's own weight (1.0) or a trigram's smaller weight (0.5) at that index, then L2-normalise the
 whole vector. Two lexically similar texts land near each other because they share tokens and
-trigrams; this proves plumbing and ranking, never real semantic quality (ADR-0032's own
+trigrams; this proves plumbing and ranking, never real semantic quality (ADR-0036's own
 "Negative": "the fake's vectors are lexical, not semantic").
 
 Fits into the Hive:
@@ -32,7 +32,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 14.4 for the fakes-over-mocks rule this module follows.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision this supports.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision this supports.
     - hivemind.llm.fake for FakeLLMProvider, the chat-side sibling this mirrors.
     - hivemind.llm.embedding.provider for the EmbeddingProvider protocol this class implements.
 """
@@ -93,7 +93,7 @@ class FakeEmbedding:
                 when omitted.
             model: The model id every response reports. The registry passes the binding's own
                 model, so `response.model` always equals `BoundEmbedder.model`, the same as every
-                real adapter: the Honey Store tags and filters vectors by that one id (ADR-0032).
+                real adapter: the Honey Store tags and filters vectors by that one id (ADR-0036).
         """
         self._name = name
         self._model = model

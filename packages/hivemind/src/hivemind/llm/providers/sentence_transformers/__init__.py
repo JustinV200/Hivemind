@@ -4,7 +4,7 @@ Roadmap step 7.1's in-process `EmbeddingProvider`: `SentenceTransformersConfig` 
 `[llm.providers.<name>]` section, of `kind = "sentence_transformers"`, turned into a validated
 value) and `SentenceTransformersEmbedding` (the `hivemind.llm.embedding.provider.EmbeddingProvider`
 implementation built from it, over `embedding.py`'s `Loader`/`EncoderModel` seam). The
-`sentence-transformers` PyPI package is an optional extra (`hivemind[embeddings]`, ADR-0032) that
+`sentence-transformers` PyPI package is an optional extra (`hivemind[embeddings]`, ADR-0036) that
 this package's own `embedding.py` imports lazily, inside a function, never at module scope, so
 importing this package succeeds whether or not the extra is installed.
 
@@ -26,7 +26,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.6 for the vendor-library confinement pattern this package
       follows for an in-process model library.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision behind this
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision behind this
       adapter.
     - hivemind.llm.providers.sentence_transformers.embedding for the full implementation.
     - hivemind.llm.embedding.provider for the EmbeddingProvider Protocol this package implements.

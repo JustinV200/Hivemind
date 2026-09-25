@@ -1,4 +1,4 @@
-# ADR-0031: The Honey Store is SQLite with FTS5 and sqlite-vec, labelled and scoped at intake, ripened by the House Bee, searched hybrid under exact filters
+# ADR-0035: The Honey Store is SQLite with FTS5 and sqlite-vec, labelled and scoped at intake, ripened by the House Bee, searched hybrid under exact filters
 
 - Status: Accepted
 - Date: 2026-09-24
@@ -18,7 +18,7 @@ indexed knowledge), and the Queen and Workers query Honey before acting. The for
   `bee:<id>`, `task:<id>`), the Night Veil ceiling and taint (10.6d) must hold before anything is
   ranked, or a permitted hit can be crowded out by forbidden ones and a forbidden one can leak
   through a truncation boundary.
-- The embedder can change (ADR-0032), so vectors from two models must coexist while a re-embed
+- The embedder can change (ADR-0036), so vectors from two models must coexist while a re-embed
   runs, and a query must never compare vectors from different models.
 - Labels come from provenance at intake: anything from a Real Cell, a human message or watch mode
   is `C2`; a model may raise a label and never lower one; only a judge verdict or a human may lower

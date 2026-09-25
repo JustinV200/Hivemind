@@ -1,12 +1,12 @@
 """Embed Honey text on the EMBEDDER slot, in batches, degrading to "no vectors" on any failure.
 
 Honey (the Honey Store's ripened, searchable rows) is found two ways: full-text search, and
-nearest-neighbour search over one vector per row from the EMBEDDER model slot (ADR-0031). This
+nearest-neighbour search over one vector per row from the EMBEDDER model slot (ADR-0035). This
 module is the embedding half of ripening. `embed_texts` sends texts in batches no larger than the
 manifest's `embed_batch` or the provider's own `max_batch`, each call under a timeout, and returns
 one vector per text in order -- or None when any batch fails, times out, or comes back from a
 model other than the binding's own, because a partial or mixed set of vectors is worse than none
-(rows without a vector stay pending and full-text search still finds them, ADR-0032).
+(rows without a vector stay pending and full-text search still finds them, ADR-0036).
 `embedding_text` says what text stands for a row, and `embed_pending_rows` is the per-pass
 re-embed: live rows with no vector yet for the current model, oldest first, bounded per pass.
 
@@ -19,7 +19,7 @@ Fits into the Hive:
 
 Key invariants:
     - Every vector returned or stored came from `bound.model` (the response's own model is
-      checked), so the store never tags a vector with a model that did not make it (ADR-0032).
+      checked), so the store never tags a vector with a model that did not make it (ADR-0036).
     - Order is preserved: the i-th vector belongs to the i-th text.
     - A zero-norm vector is never handed to the store (`HoneyStore.set_vectors` refuses one); its
       row is skipped and counted, and stays pending.
@@ -27,7 +27,7 @@ Key invariants:
       ends in None (or zero rows re-embedded).
 
 See Also:
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for "every vector names its model"
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for "every vector names its model"
       and the progressive re-embed this module's `embed_pending_rows` performs.
     - hivemind.llm.embedding for EmbeddingRequest, EmbeddingResponse, BoundEmbedder and EmbedGate.
     - hivemind.honey_store.store.protocol for set_vectors and pending_vectors.
@@ -88,7 +88,7 @@ async def embed_texts(
                 "honey_store.embed_failed", binding=bound.binding, error=type(error).__name__
             )
             return None
-        # Vectors from another model are not comparable with the store's (ADR-0032), and a short
+        # Vectors from another model are not comparable with the store's (ADR-0036), and a short
         # reply cannot be matched back to its texts: both are treated as a failed batch.
         if response.model != bound.model or len(response.vectors) != len(piece):
             log.warning("honey_store.embed_mismatch", binding=bound.binding, texts=len(piece))

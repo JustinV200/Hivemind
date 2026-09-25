@@ -3,7 +3,7 @@
 A concept needing more than one file becomes a package with an `__init__` face (codingrules 5.2);
 this one holds the durable `HoneyStore` implementation, split into `store.py` (the class itself,
 `create`, thin delegating methods), `nectar.py`/`honey.py`/`vectors.py` (one table each),
-`sources.py` (`honey_nectar_sources`, a content duplicate's extra provenance, ADR-0033),
+`sources.py` (`honey_nectar_sources`, a content duplicate's extra provenance, ADR-0037),
 `search.py` (ranked reads over both `honey_fts` and `honey_vectors`), `stats.py` (aggregate
 counts, watermarks, proposals) and `vec.py` (the sqlite-vec extension loader and codec), so each
 stays under the codingrules 5.1 size limit and one file's responsibility is reviewable on its own.

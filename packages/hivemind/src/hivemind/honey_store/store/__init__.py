@@ -19,7 +19,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 3 for where this sub-package sits under honey_store.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the decisions this package encodes.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the decisions this package encodes.
 
 Public API:
     - HoneyStore, NectarAdded, HoneyProposal, PruneResult, PruneEvents (protocol): the

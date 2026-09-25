@@ -9,7 +9,7 @@ one class with a per-instance code, because `HiveMindError.code` is a `ClassVar[
 --strict refuses to narrow a `ClassVar` into an instance attribute in a subclass (every other
 `errors.py` in the repository fixes `code` per class for the same reason) -- `except
 NectarRejectedError:` still catches every reason at once, and each concrete subclass's `code` is
-still exactly the dotted string ADR-0031's intake rules name.
+still exactly the dotted string ADR-0035's intake rules name.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Raised by `hivemind.honey_store.store`
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 10 for the exceptions and errors rules this module follows.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the intake and labelling rules whose
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the intake and labelling rules whose
       refusals these classes carry.
     - hivemind.honey_store.clearance for `check_lowering`, `LabelLoweringError`'s one raiser.
     - hivemind.honey_store.scope for `InvalidScopeError`'s raisers.
@@ -101,7 +101,7 @@ class NectarNotRipenableError(HoneyStoreError):
     """Raise when a Nectar row must never ripen: a Night Veil Cell's own ephemeral side channel.
 
     Ripening one would copy it into Honey that outlives the Cell's teardown, and flip its state so
-    the teardown purge (which deletes only EPHEMERAL rows) would miss the row itself (ADR-0031).
+    the teardown purge (which deletes only EPHEMERAL rows) would miss the row itself (ADR-0035).
     """
 
     code: ClassVar[str] = "hivemind.honey_store.nectar_not_ripenable"
@@ -122,7 +122,7 @@ class NectarRejectedError(HoneyStoreError):
     """Root of intake's ten refusal reasons; catch this to handle any of them alike.
 
     Every concrete subclass below fixes `code` to one stable, dotted reason string
-    (docs/waggle/spec.md section 5's chunking rules and ADR-0031's Night Veil boundary); a caller
+    (docs/waggle/spec.md section 5's chunking rules and ADR-0035's Night Veil boundary); a caller
     that only needs to know a deposit was refused, not why, catches `NectarRejectedError` itself.
     """
 
@@ -240,7 +240,7 @@ class NightVeilRefusedError(NectarRejectedError):
         """
         super().__init__(
             f"Nectar of kind {kind} from Night Veil Cell {cell_id} may not be accepted; only "
-            "RIPENED_HONEY at C0/C1 crosses that boundary (ADR-0031)."
+            "RIPENED_HONEY at C0/C1 crosses that boundary (ADR-0035)."
         )
         self.cell_id = cell_id
         self.kind = kind

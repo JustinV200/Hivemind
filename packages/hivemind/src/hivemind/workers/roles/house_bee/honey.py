@@ -34,7 +34,7 @@ Key invariants:
       they are, so a failure is logged and retried on a later sweep.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for origins, source keys and labels.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for origins, source keys and labels.
     - .claude/codingrules.md section 8.9 for "demotion is a duty, not an emergency".
     - hivemind.workers.roles.house_bee.sweep for run_sweep, the one caller of both duties.
     - hivemind.honey_store.nectar for NectarIntake, the door every deposit goes through.
@@ -72,8 +72,8 @@ if TYPE_CHECKING:
     from hivemind.workers.roles.house_bee.sweep import SweepDeps, SweepWindow
 
 BEE_BREAD_WATERMARK = "bee_bread"  # The store's named cursor: the last Bee Bread entry settled.
-BEE_BREAD_SOURCE_KEY_PREFIX = "bee_bread:"  # ADR-0031's dedupe key for a non-Handoff entry.
-WAX_SOURCE_KEY_PREFIX = "wax:"  # ADR-0031's dedupe key for one retired Cell Wax note.
+BEE_BREAD_SOURCE_KEY_PREFIX = "bee_bread:"  # ADR-0035's dedupe key for a non-Handoff entry.
+WAX_SOURCE_KEY_PREFIX = "wax:"  # ADR-0035's dedupe key for one retired Cell Wax note.
 TEXT_MEDIA_TYPE = "text/plain"  # Transcripts, tool results, summaries, notes and wax history.
 JSON_MEDIA_TYPE = "application/json"  # A Handoff document, re-indented by ripening's decoder.
 _MARK_SEPARATOR = "|"  # Joins a watermark's timestamp and entry id; neither ever contains it.
@@ -213,7 +213,7 @@ class _Content:
     media_type: str  # How ripening decodes it.
     body: bytes  # The whole content, as deposited.
     declared: HoneyClearance  # The source's own label.
-    source_key: str  # ADR-0031's dedupe key.
+    source_key: str  # ADR-0035's dedupe key.
     task_id: TaskId | None  # The task it concerns, if any.
     event_id: EventId | None = None  # A Handoff's memory.checkpoint event id.
     bee: WorkerId | WardenId | None = None  # The bee that wrote it, when the entry names one.

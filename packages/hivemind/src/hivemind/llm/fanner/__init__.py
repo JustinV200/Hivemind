@@ -13,7 +13,7 @@ when the current one's grade is below the calling tempo's floor, the model is no
 seat-queueing has eaten too much of the latency budget, or the source is currently throttled after
 a `RateLimitedError` (`hivemind.llm.fanner.spill`). Every completed call, every spill and every
 throttle is recorded on the Pheromone Trail through an injected `LlmEventRecorder`
-(`hivemind.llm.fanner.recorder`), never written by hand. Roadmap step 7.1 (ADR-0032) adds
+(`hivemind.llm.fanner.recorder`), never written by hand. Roadmap step 7.1 (ADR-0036) adds
 `FannerLane.embed`, the same seat/rate-limit metering for an `hivemind.llm.embedding.provider.
 EmbeddingProvider` call, with no spill-over of its own (`hivemind.llm.fanner.embed`'s own module
 docstring): a fallback embedder only ever exists for the same model id, so that decision belongs

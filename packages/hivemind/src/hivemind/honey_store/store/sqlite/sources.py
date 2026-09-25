@@ -1,4 +1,4 @@
-"""SQL for `honey_nectar_sources`: extra provenance a content duplicate deposit records (ADR-0033).
+"""SQL for `honey_nectar_sources`: extra provenance a content duplicate deposit records (ADR-0037).
 
 `insert_source_if_new` is called only from inside `nectar.add_nectar_transaction`'s own open
 transaction, when a duplicate found by content sha256 (not by `source_key`) carries provenance
@@ -23,7 +23,7 @@ Key invariants:
 See Also:
     - hivemind.honey_store.store.sqlite.nectar for add_nectar_transaction, the one caller that
       decides when a source is worth recording.
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
       dedupe-and-record rule this module implements.
 """
 

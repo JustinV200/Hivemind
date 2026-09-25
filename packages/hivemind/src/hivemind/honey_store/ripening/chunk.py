@@ -2,7 +2,7 @@
 
 Ripening turns Nectar (raw deposits in the Honey Store, the Hive's knowledge base) into Honey:
 one SUMMARY row plus one CHUNK row per slice of the text, each indexed for full-text and vector
-search (ADR-0031). This module is the text half of that, with no I/O: `decode_text` reads the
+search (ADR-0035). This module is the text half of that, with no I/O: `decode_text` reads the
 bytes as UTF-8 for every textual media type (JSON pretty-printed so its structure survives as
 lines) and says None for anything binary; `chunk_text` normalises the text and slides a window of
 `chunk_chars` over it, ending each chunk at the last paragraph break, else the last sentence end,
@@ -30,7 +30,7 @@ Key invariants:
       decoded text it already is, and undecodable bytes become U+FFFD.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY/CHUNK row shape.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY/CHUNK row shape.
     - hivemind.manifest.schema.honey for `chunk_chars`/`chunk_overlap_chars` and their bounds.
     - hivemind.honey_store.ripening.drafts for how chunks become HoneyDrafts.
 """

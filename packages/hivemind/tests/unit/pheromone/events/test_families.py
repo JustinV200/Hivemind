@@ -229,7 +229,7 @@ def test_worker_event_kinds_cover_every_worker_state_transition() -> None:
 
 
 def test_honey_family_kinds_match_the_documented_vocabulary() -> None:
-    # roadmap phase 7 (ADR-0031): the Honey Store's own intake, ripening, labelling and query
+    # roadmap phase 7 (ADR-0035): the Honey Store's own intake, ripening, labelling and query
     # events; the module docstring's `honey` entry is the source of truth this pins.
     assert {
         "honey.nectar_received",

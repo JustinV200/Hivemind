@@ -2,7 +2,7 @@
 
 The House Bee's ripening pipeline: it turns Nectar (raw deposits in the Honey Store, the Hive's
 knowledge base) into Honey, one SUMMARY row and one CHUNK row per slice of text, each labelled,
-scoped, full-text indexed and, when an EMBEDDER is bound, given a vector (ADR-0031, ADR-0032).
+scoped, full-text indexed and, when an EMBEDDER is bound, given a vector (ADR-0035, ADR-0036).
 `Ripener.run_pass` runs on the House Bee's timer beside the Queen, never inside her tick; `hive
 honey ripen --now` and `hive honey reembed` run the same passes on demand.
 
@@ -24,7 +24,7 @@ honey ripen --now` and `hive honey reembed` run the same passes on demand.
   vectors but `kept_model`'s -- but only once every live Honey row already has one for it.
   Refuses (and changes nothing) otherwise; `PruneOutcome.missing`/`.refused` say why, and
   `.dropped` gives the per-model counts on success. One `honey.vectors_pruned` event on success,
-  none on a refusal (ADR-0033).
+  none on a refusal (ADR-0037).
 
 ## One Nectar, stage by stage
 

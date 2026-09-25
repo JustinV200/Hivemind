@@ -2,7 +2,7 @@
 
 Every test ripens real rows into a real `SqliteHoneyStore` (a temp file, the Pheromone Trail's
 migrations applied first) and embeds them with `FakeEmbedding`, whose vectors are lexical rather
-than semantic (ADR-0032): word tokens and character trigrams. So the "paraphrase" the hybrid test
+than semantic (ADR-0036): word tokens and character trigrams. So the "paraphrase" the hybrid test
 uses is a lexical one -- misspelled words the FTS5 porter stemmer cannot match but whose trigrams
 the fake embedder still places near the right row.
 
@@ -14,7 +14,7 @@ Key invariants:
 
 See Also:
     - hivemind.honey_store.honey.retrieve for the module under test.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the rules exercised here.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the rules exercised here.
 """
 
 from __future__ import annotations

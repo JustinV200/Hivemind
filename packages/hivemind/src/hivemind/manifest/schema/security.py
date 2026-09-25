@@ -178,7 +178,7 @@ class HoneySection(BaseModel):
     A dotted TOML section header (`[honey.clearance]`) parses into a genuinely nested table, not a
     flat key named ``"honey.clearance"``; this thin wrapper is what lets `HiveManifest.honey`
     carry that nesting the same way `LlmSection.providers` carries `[llm.providers.<name>]`'s.
-    Phase 3 gave `[honey]` its clearance sub-section; phase 7 (the Honey Store itself, ADR-0031)
+    Phase 3 gave `[honey]` its clearance sub-section; phase 7 (the Honey Store itself, ADR-0035)
     adds `store`, `ripening` and `retrieval` beside it (`hivemind.manifest.schema.honey`).
     """
 

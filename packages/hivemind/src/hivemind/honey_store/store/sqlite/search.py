@@ -5,7 +5,7 @@ hence `ORDER BY bm25(honey_fts)` ascending); `select_vector_candidates`/`select_
 each take a `use_sqlite_vec` flag chosen once at store construction
 (`hivemind.honey_store.store.sqlite.vec.load_vector_extension`): true runs `vec_distance_cosine`
 in SQL over an ordinary indexed scan, false pulls the filtered candidate rows into Python and ranks
-them with `hivemind.honey_store.store.sqlite.vec.cosine_distances` -- identical results, ADR-0031's
+them with `hivemind.honey_store.store.sqlite.vec.cosine_distances` -- identical results, ADR-0035's
 "slower, identical" fallback. `select_count_withheld` re-checks the *specific* top-`limit` live
 matches a first, filter-free query already picked, rather than compare two independently-limited
 queries whose top sets could differ once filtering changes the ranking pool.
@@ -20,15 +20,15 @@ Fits into the Hive:
 
 Key invariants:
     - Every filtered method applies `read_filter_clauses` (or, for `nearest_in_scope`, an exact
-      `scope = ?`) before `ORDER BY`/`LIMIT`, in SQL, never after (ADR-0031).
+      `scope = ?`) before `ORDER BY`/`LIMIT`, in SQL, never after (ADR-0035).
     - `select_vector_candidates`/`select_nearest_in_scope` only ever compare vectors written for
       the same `model` (`hv.model = ?`): a row embedded by a different model never surfaces
-      (ADR-0032).
+      (ADR-0036).
     - The two vector backends return the same ordering for the same inputs
       (`tests/contracts/test_honey_store_contract.py` parametrises over both).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the ranking and fallback rules.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the ranking and fallback rules.
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
     - hivemind.honey_store.store.fts for build_match, `match`'s own builder.
 """

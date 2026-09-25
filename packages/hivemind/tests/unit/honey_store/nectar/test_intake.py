@@ -8,7 +8,7 @@ Key invariants:
 
 See Also:
     - hivemind.honey_store.nectar.intake for the module under test.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the rules these tests state.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the rules these tests state.
 """
 
 from __future__ import annotations
@@ -214,7 +214,7 @@ async def test_submit_exports_night_veil_ripened_honey_at_c1_as_ordinary_nectar(
     assert result.nectar.state is NectarState.RECEIVED
     assert result.nectar.origin_tier is CombShieldLevel.NIGHT_VEIL
     assert result.nectar.clearance is HoneyClearance.C1
-    # ADR-0031: the one intentional export is ordinary Nectar, recorded like any other.
+    # ADR-0035: the one intentional export is ordinary Nectar, recorded like any other.
     assert [event.kind for event in await harness.honey_events()] == ["honey.nectar_received"]
 
 

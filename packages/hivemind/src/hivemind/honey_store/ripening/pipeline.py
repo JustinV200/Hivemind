@@ -10,11 +10,11 @@ slot, when one is bound), drops near duplicates and indexes what is left. A depo
 expected failure marks that one Nectar failed (`honey.ripen_failed`), DISCARDED once it has used
 `max_attempts`, and the pass moves on: one bad deposit never stops the others. `embed_pending`
 then embeds up to `max_embed_per_pass` live rows still lacking a vector for the current model,
-which is how a new embedder re-embeds the store progressively (ADR-0032). `run_pass` does both.
+which is how a new embedder re-embeds the store progressively (ADR-0036). `run_pass` does both.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.ripening`.
-    Driven by the House Bee's ripening loop beside the Queen, never inside her tick (ADR-0031),
+    Driven by the House Bee's ripening loop beside the Queen, never inside her tick (ADR-0035),
     and by `hive honey ripen --now`/`reembed`. Calls into this package's stage modules
     (`chunk`, `summarise`, `drafts`, `embed`, `dedupe`, `index`) and `hivemind.honey_store`'s
     store, identity and errors.
@@ -30,8 +30,8 @@ Key invariants:
       (`hivemind.honey_store.ripening.index`).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the pipeline and who runs it.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the re-embed rule.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the pipeline and who runs it.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the re-embed rule.
     - hivemind.honey_store.ripening.deps for RipenerDeps, what a pass runs on.
 """
 

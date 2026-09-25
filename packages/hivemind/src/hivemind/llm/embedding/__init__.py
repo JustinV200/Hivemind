@@ -24,11 +24,11 @@ Key invariants:
     - Every value here is either frozen pydantic (the boundary models and capabilities) or a
       frozen, slotted dataclass (`BoundEmbedder`), matching codingrules section 8.5.
     - A `BoundEmbedder.fallback` exists only when it serves the same model id as the binding
-      before it (ADR-0032); nothing here enforces that on its own, since only `hivemind.llm.
+      before it (ADR-0036); nothing here enforces that on its own, since only `hivemind.llm.
       registry.ProviderRegistry.embedder` ever builds one for real.
 
 See Also:
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision this package
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision this package
       implements.
     - .claude/codingrules.md section 8.6 for the "one door" rule this package extends to embeddings.
     - hivemind.llm for the chat-side boundary this package mirrors throughout.

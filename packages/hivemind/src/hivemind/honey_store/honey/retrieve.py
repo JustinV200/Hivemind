@@ -1,6 +1,6 @@
 """Answer a Honey query: hybrid full-text and vector search, filtered, ranked, packed and trailed.
 
-Honey is the Hive's ripened, labelled knowledge (ADR-0031), and a query is one bee's question of
+Honey is the Hive's ripened, labelled knowledge (ADR-0035), and a query is one bee's question of
 it. `HoneyRetriever.search` answers one: it reduces the words to a safe FTS5 MATCH (`build_match`),
 builds the reader's `ReadFilter` from its `honey:read` capabilities (which scopes it may read) and
 its clearance ceiling (the most sensitive label it may see), then asks the store for full-text
@@ -10,7 +10,7 @@ permitted one or slip through a cut-off. Both sides' scores are fused and the be
 (`hivemind.honey_store.honey.rank`), then packed into the asker's token budget
 (`hivemind.honey_store.honey.budget`). Every failure on the vector side -- no embedder, a
 provider error, a timeout, a zero query vector -- degrades to full-text search with the cause in
-the response's `reason`, never to an error (ADR-0032: "Degrade, never fail closed"). One
+the response's `reason`, never to an error (ADR-0036: "Degrade, never fail closed"). One
 `honey.queried` event records the counts, never the words, and nothing at all is recorded for a
 reader on a Night Veil Cell (the Hive's most isolated tier, whose records never outlive it).
 `search_outcome` runs the very same search and also says whether vectors took part, for a caller
@@ -27,19 +27,19 @@ Fits into the Hive:
     straight into a `TaskAssign`.
 
 Key invariants:
-    - The filter is applied by the store before ranking or limiting (ADR-0031); a reader with no
+    - The filter is applied by the store before ranking or limiting (ADR-0035); a reader with no
       `honey:read` capability at all gets an empty response (fail closed), never every row.
     - Vector candidates are searched only for the embedding response's own model, so a query
-      never compares vectors from two models (ADR-0032).
+      never compares vectors from two models (ADR-0036).
     - The query's words reach nothing but the embedding request: no event payload, reason or log
       line carries them (codingrules section 12).
-    - A Night Veil reader's query records no event at all (ADR-0031).
+    - A Night Veil reader's query records no event at all (ADR-0035).
     - The one await on a model runs under `[honey.retrieval] embed_timeout_s`.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for filtering, hybrid ranking and the
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for filtering, hybrid ranking and the
       Night Veil rule.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the per-model vectors and
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the per-model vectors and
       the degrade-to-text rule.
     - hivemind.honey_store.honey.rank and .budget for the pure steps this composes.
     - hivemind.honey_store.clearance.reader_ceiling for the ceiling a caller computes first.
@@ -213,7 +213,7 @@ class HoneyRetriever:
         """
         answer = await self._answer(search)
         if not search.reader.is_night_veil:
-            # ADR-0031: a Night Veil reader's query leaves no trail at all; everyone else's leaves
+            # ADR-0035: a Night Veil reader's query leaves no trail at all; everyone else's leaves
             # counts only. Local SQLite on the store's own thread, milliseconds; no model involved.
             event = _queried_event(self._deps, search.reader.requester, answer)
             await self._deps.store.record(event)

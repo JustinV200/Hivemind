@@ -1,11 +1,11 @@
-# ADR-0032: One EmbeddingProvider door on the EMBEDDER slot, metered by the Fanner; every vector names its model; re-embedding is progressive and automatic
+# ADR-0036: One EmbeddingProvider door on the EMBEDDER slot, metered by the Fanner; every vector names its model; re-embedding is progressive and automatic
 
 - Status: Accepted
 - Date: 2026-09-24
 
 ## Context
 
-The Honey Store's semantic half (ADR-0031) needs embeddings. Codingrules 8.6 already reserves the
+The Honey Store's semantic half (ADR-0035) needs embeddings. Codingrules 8.6 already reserves the
 seat: `EmbeddingProvider` in `hivemind/llm/`, bound through `ModelSlot.EMBEDDER`, with three
 implementations (an OpenAI-compatible server, `sentence-transformers` in process, a fake), and
 roadmap open decision 5 asks which embedding model and dimension, and whether

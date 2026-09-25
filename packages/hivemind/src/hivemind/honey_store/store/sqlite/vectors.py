@@ -2,10 +2,10 @@
 
 `set_vectors` upserts one float32 blob per `(honey row, model)` pair -- `honey_vectors`' own
 primary key -- so a row may hold vectors for more than one model at once while a re-embed is in
-flight (ADR-0032); `pending_vectors` is the anti-join that a ripening pass reads from, finding live
+flight (ADR-0036); `pending_vectors` is the anti-join that a ripening pass reads from, finding live
 rows with no vector yet for the current model, and `prune_vectors_transaction` is the same
 anti-join used the other way round: it deletes every other model's vectors, but only once that
-join finds nothing missing (ADR-0033). None of the three methods needs a `ReadFilter`: all three
+join finds nothing missing (ADR-0037). None of the three methods needs a `ReadFilter`: all three
 are maintenance bookkeeping over every live row, never a reader's own filtered query.
 
 Fits into the Hive:
@@ -28,8 +28,8 @@ Key invariants:
       transaction, so nothing can write a new gap in between.
 
 See Also:
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the coexisting-models rule.
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the coexisting-models rule.
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
       prune-on-request rule this module also implements.
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
     - hivemind.honey_store.store.sqlite.vec for encode_vector, the blob codec this module writes.
@@ -110,7 +110,7 @@ def prune_vectors_transaction(
 ) -> PruneResult:
     """Delete every other model's vectors, only once every live row has one for `kept_model`.
 
-    ADR-0033: the coverage check and the deletion run in the same transaction (`transaction`'s
+    ADR-0037: the coverage check and the deletion run in the same transaction (`transaction`'s
     own `BEGIN IMMEDIATE` already holds the write lock, so nothing else can add a fresh gap
     between the two), and `events` is called with the outcome either way, exactly like
     `nectar.add_nectar_transaction`'s own `NectarEvents`.

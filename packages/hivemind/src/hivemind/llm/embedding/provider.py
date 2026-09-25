@@ -29,7 +29,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.1 for the Protocol-at-every-seam rule this module follows.
     - .claude/codingrules.md section 8.6 for "one door", extended here from chat to embeddings.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the decision this implements.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the decision this implements.
     - hivemind.llm.provider for LLMProvider, the chat-side door this mirrors.
     - hivemind.llm.embedding.models for EmbeddingRequest and EmbeddingResponse, the types crossing
       this door.

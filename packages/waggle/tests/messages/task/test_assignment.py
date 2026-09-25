@@ -318,7 +318,7 @@ def test_task_assign_leaves_defaults_to_empty_so_an_older_peers_message_still_va
 
 
 def test_task_assign_honey_defaults_to_empty_so_an_older_peers_message_still_validates() -> None:
-    # roadmap step 7.9: honey is additive (PROTOCOL_MINOR 6), like leaves before it.
+    # roadmap step 7.9: honey is additive (PROTOCOL_MINOR 7), like leaves before it.
     payload = _example(TaskAssign).model_dump(mode="json")
     del payload["honey"]
 

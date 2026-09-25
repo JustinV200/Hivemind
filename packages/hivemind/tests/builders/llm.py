@@ -202,7 +202,7 @@ def make_bound_embedder(**overrides: object) -> BoundEmbedder:
         A validated BoundEmbedder bound to `ModelSlot.EMBEDDER` on a fresh FakeEmbedding.
     """
     # The default provider reports the binding's own model id, as every registry-built adapter
-    # does (ADR-0032); a caller overriding `model` alone gets a matching fake the same way.
+    # does (ADR-0036); a caller overriding `model` alone gets a matching fake the same way.
     model = str(overrides.get("model", _EMBED_MODEL_ID))
     base = BoundEmbedder(
         slot=ModelSlot.EMBEDDER,

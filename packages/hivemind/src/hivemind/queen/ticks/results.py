@@ -48,7 +48,7 @@ See Also:
       makes.
     - hivemind.queen.autopilot.table for decide, which chooses among these three.
     - hivemind.queen.dispatcher for dispatch_ready and redispatch, the two calls this module makes.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the TASK_OUTCOME origin and its key.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the TASK_OUTCOME origin and its key.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ MAX_FAIL_SUMMARY_CHARS = 2_000  # Matches brood_chamber.task.model.MAX_SUMMARY_C
 # One local SQLite read and one intake write (hash, label, insert): milliseconds normally, so this
 # only ever fires on a wedged store, and then completion carries on without the deposit.
 OUTCOME_DEPOSIT_TIMEOUT_S = 10.0
-OUTCOME_SOURCE_KEY_PREFIX = "task_outcome:"  # ADR-0031's dedupe key for a verified outcome.
+OUTCOME_SOURCE_KEY_PREFIX = "task_outcome:"  # ADR-0035's dedupe key for a verified outcome.
 OUTCOME_MEDIA_TYPE = "text/markdown"  # The outcome is rendered with a heading and a bullet list.
 # A failed deposit is logged and completion carries on: the outcome is durable in the chamber.
 _DEPOSIT_FAILURES = (HiveMindError, ValueError, TimeoutError, sqlite3.Error)

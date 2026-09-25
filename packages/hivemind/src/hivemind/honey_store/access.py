@@ -21,7 +21,7 @@ Key invariants:
     - Holds no state of its own; every field is a collaborator or an immutable manifest section.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for who writes and how readers are
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for who writes and how readers are
       filtered.
     - hivemind.cli.compose.honey for the one place a HoneyAccess is built.
 """

@@ -27,9 +27,9 @@ this package's own, decoupled mirror of one `[llm.providers.<name>]` row
 builds one per provider from a loaded `HiveManifest` before constructing a `ProviderRegistry`,
 the same way it builds `hivemind.forage.map.SlotBinding` rows for `resolve`/`resolve_key`.
 
-Roadmap step 7.1 (ADR-0032) adds the embedding half beside all of that: `embedder(slot=ModelSlot.
+Roadmap step 7.1 (ADR-0036) adds the embedding half beside all of that: `embedder(slot=ModelSlot.
 EMBEDDER) -> BoundEmbedder` is `bound`'s counterpart for the non-chat `EmbeddingProvider` door
-(`hivemind.llm.embedding`). It differs from `bound` in three ways ADR-0032 requires. First, an
+(`hivemind.llm.embedding`). It differs from `bound` in three ways ADR-0036 requires. First, an
 embedding provider is built per `(provider name, model)` pair, not per provider name alone
 (`EmbeddingRequest` carries no model id -- see that module's own docstring), so this module caches
 embedding providers in a second, separately-keyed cache. Second, a `[llm.slots]` kind with no
@@ -76,7 +76,7 @@ See Also:
     - .claude/codingrules.md section 13 for the environment-variable and SecretStr rules this
       module's `_resolve_api_key` follows.
     - docs/adr/0008-llm-provider-independence-and-model-slots.md for the decision this implements.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the embedder() rules above.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the embedder() rules above.
     - hivemind.llm.slots for resolve/resolve_key, the functions `bound`/`bound_for_key` call.
     - hivemind.llm.providers.openai_compat for two of the three embedding adapters this wires up.
     - hivemind.llm.embedding for BoundEmbedder, EmbeddingProvider and EmbeddingUnsupportedError.
@@ -351,7 +351,7 @@ class ProviderRegistry:
         return resolve_key(key, slot, self._bindings, self.provider, self._deps.map)
 
     def embedder(self, slot: ModelSlot = ModelSlot.EMBEDDER) -> BoundEmbedder:
-        """Resolve `slot`'s own `[llm.slots]` chain to a BoundEmbedder (ADR-0032).
+        """Resolve `slot`'s own `[llm.slots]` chain to a BoundEmbedder (ADR-0036).
 
         See the module docstring for how this differs from `bound`: a per-(name, model) cache, a
         hard failure only for the primary binding's kind, and a fallback kept only when it serves
@@ -432,7 +432,7 @@ class ProviderRegistry:
     def _next_embedder_link(
         self, slot: ModelSlot, chain: list[SlotBinding], index: int
     ) -> BoundEmbedder | None:
-        """Return `chain[index + 1]` bound, or None when the chain ends or ADR-0032 cuts it here.
+        """Return `chain[index + 1]` bound, or None when the chain ends or ADR-0036 cuts it here.
 
         Cutting is silent, never a raised error: a fallback is a nicety the primary binding does
         not depend on, so a badly configured or offline fallback should not break a slot whose
@@ -443,7 +443,7 @@ class ProviderRegistry:
             return None
         next_binding = chain[index + 1]
         if next_binding.model != chain[index].model:
-            return None  # ADR-0032: a fallback is followed only when it serves the same model id.
+            return None  # ADR-0036: a fallback is followed only when it serves the same model id.
         next_config = self._providers.get(next_binding.provider)
         if next_config is None or next_config.kind not in self._deps.embedding_factories:
             return None  # Unknown provider, or a kind that cannot embed: nothing to build here.
@@ -506,7 +506,7 @@ def default_embedding_factories() -> Mapping[ProviderKind, EmbeddingFactory]:
 
     Covers `fake`, `openai_compat` and `sentence_transformers`; `anthropic` has no embedding
     endpoint, so it is absent here the same way `EMBEDDING_ONLY_KINDS` kinds are absent from
-    `default_factories()` (ADR-0032).
+    `default_factories()` (ADR-0036).
     """
     return {
         "fake": _build_fake_embedding,
@@ -625,7 +625,7 @@ def _build_fake_embedding(
 
     The fake hashes text directly (no model-specific behaviour), but still reports `model` as its
     responses' model id, so a fake-backed Hive tags its vectors with the binding's model exactly
-    the way a real adapter does (ADR-0032).
+    the way a real adapter does (ADR-0036).
     """
     return FakeEmbedding(name=name, clock=clock, model=model)
 

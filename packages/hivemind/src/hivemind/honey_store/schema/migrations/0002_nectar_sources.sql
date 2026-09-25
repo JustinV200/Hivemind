@@ -1,5 +1,5 @@
 -- Add honey_nectar_sources: one row per additional source whose deposit deduplicated onto an
--- existing honey_nectar row by content, never by source_key (ADR-0033). A row records who else
+-- existing honey_nectar row by content, never by source_key (ADR-0037). A row records who else
 -- sent the same content: its own dedupe key, task, Cell, bee, observed and received times, origin,
 -- origin tier and the label it declared -- never the content itself. The same internal source
 -- delivered twice, or a duplicate whose provenance already matches a stored source, adds nothing
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS honey_nectar_sources (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_honey_nectar_sources_source_key
     ON honey_nectar_sources (source_key) WHERE source_key IS NOT NULL;
 
--- The uniqueness rule ADR-0033 asks for: the same provenance (nectar, source_key, task, Cell,
+-- The uniqueness rule ADR-0037 asks for: the same provenance (nectar, source_key, task, Cell,
 -- bee) is recorded once. COALESCE folds the three nullable columns to '' so SQLite's ordinary
 -- multi-column UNIQUE index -- which never treats two NULLs as equal -- still compares "no
 -- task"/"no bee"/"no source_key" consistently across rows, instead of letting every NULL

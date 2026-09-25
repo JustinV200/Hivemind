@@ -11,7 +11,7 @@ returns, carrying every draft field but the content bytes, which the store serve
 (`HoneyStore.nectar_content`) so a caller listing pending Nectar never pulls megabytes of content
 it does not need. `NectarSource` is one extra provenance record: when a later deposit deduplicates
 onto an existing `Nectar` row by content rather than by `source_key`, and its provenance differs
-from the stored row's own, the store keeps this record of who else sent it (ADR-0033), returned by
+from the stored row's own, the store keeps this record of who else sent it (ADR-0037), returned by
 `HoneyStore.nectar_sources`.
 
 Fits into the Hive:
@@ -30,7 +30,7 @@ Key invariants:
       `waggle.messages.honey.hit.HoneyProvenance.bee` is.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the fields this module's shape backs.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the fields this module's shape backs.
     - hivemind.honey_store.scope for `scope_for_nectar`, which computes `NectarDraft.scope`.
     - hivemind.honey_store.clearance for `intake_label`, which computes `NectarDraft.clearance`.
     - waggle.messages.honey for NectarKind, the wire enum this module reuses unchanged.
@@ -59,7 +59,7 @@ from waggle.messages.honey.exchange import (
 )
 from waggle.messages.honey.hit import MAX_SCOPE_CHARS, SCOPE_PATTERN
 
-MAX_SOURCE_KEY_CHARS = 200  # "handoff:<event id>" and friends (ADR-0031); short, always fits.
+MAX_SOURCE_KEY_CHARS = 200  # "handoff:<event id>" and friends (ADR-0035); short, always fits.
 MIN_NECTAR_BYTES = 1  # An empty deposit carries nothing to ripen.
 
 # codingrules 8.5: frozen, extra-forbidding config every model in this module shares.
@@ -89,7 +89,7 @@ class NectarOrigin(Enum):
     """How a Nectar deposit reached the store; distinct from `NectarKind`, what it contains.
 
     Drives both the intake clearance floor (`hivemind.honey_store.clearance.intake_floor`) and
-    the scope a deposit lands in (`hivemind.honey_store.scope.scope_for_nectar`), per ADR-0031.
+    the scope a deposit lands in (`hivemind.honey_store.scope.scope_for_nectar`), per ADR-0035.
     """
 
     BEE = "BEE"  # A Worker or Warden deposit over Waggle; scope follows its NectarKind.
@@ -162,7 +162,7 @@ class NectarDraft(BaseModel):
     ephemeral_cell_id: CellId | None = Field(
         default=None,
         description="Set to the Night Veil Cell's id when this row must land EPHEMERAL "
-        "(ADR-0031); None for an ordinary deposit.",
+        "(ADR-0035); None for an ordinary deposit.",
     )
 
 
@@ -212,7 +212,7 @@ class Nectar(BaseModel):
 
 
 class NectarSource(BaseModel):
-    """One extra source whose deposit deduplicated onto `nectar_id` by content (ADR-0033).
+    """One extra source whose deposit deduplicated onto `nectar_id` by content (ADR-0037).
 
     Recorded once per distinct provenance: a duplicate found by `source_key` (the same source
     delivered again) or whose (source_key, task, Cell, bee) already equals the stored Nectar row's

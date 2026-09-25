@@ -3,7 +3,7 @@
 Ripening turns Nectar (raw deposits waiting in the Honey Store, the Hive's knowledge base) into
 Honey (chunked, summarised, embedded rows a query can find), and it calls models: a summary on the
 `RIPENER` slot can take tens of seconds on a local model. The Queen's tick must never wait on
-that (ADR-0031), so ripening runs here, in the House Bee's (the maintenance role's) own loop beside
+that (ADR-0035), so ripening runs here, in the House Bee's (the maintenance role's) own loop beside
 her, in the same process: every `[honey.ripening] interval_s` it first drains the notes the
 operator proposed from the browser (queued rows in the store, taken in as HUMAN-origin Nectar
 attributed to the Hive Stand, the machine the Queen runs on), then runs one `Ripener.run_pass()`,
@@ -28,7 +28,7 @@ Key invariants:
       a busy database or a down ripener never ends the loop, and with it the Hive's TaskGroup.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for "ripening runs in the House Bee's
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for "ripening runs in the House Bee's
       own loop beside the Queen, never inside her tick".
     - hivemind.honey_store.ripening for Ripener, what one pass runs.
     - waggle.loop for TickLoop, the loop shape this follows.

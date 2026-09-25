@@ -34,7 +34,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 8.9 for the tiers and the budget rule, and section 15 for
       treating retrieved content as data, never instructions.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for how hits are ranked and filtered.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for how hits are ranked and filtered.
     - hivemind.memory.hot_state.packing for assemble, the one caller.
     - waggle.messages.honey.hit for HoneyHit, the shape rendered here.
 """

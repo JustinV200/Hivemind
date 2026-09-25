@@ -8,7 +8,7 @@ boundary, builds its events from the outcome, and on a duplicate only ever raise
 label, never lowers it (`hivemind.honey_store.clearance.raise_label`'s own rule, re-applied here
 directly since this module already holds both rows' clearances in hand). A duplicate found by
 content rather than by `source_key`, whose provenance differs from the stored row's own, also
-records an extra source (`hivemind.honey_store.store.sqlite.sources`, ADR-0033) in the same
+records an extra source (`hivemind.honey_store.store.sqlite.sources`, ADR-0037) in the same
 transaction, so the second sender's own provenance survives the merge.
 
 Fits into the Hive:
@@ -29,7 +29,7 @@ Key invariants:
       already below the new rank are touched (`_raise_honey_for_nectar`'s own `WHERE
       clearance_rank < ?`).
     - A fresh row's `state` is `EPHEMERAL` when `draft.ephemeral_cell_id` is set, `RECEIVED`
-      otherwise (ADR-0031: a Night Veil Cell's own side channel is never ripened).
+      otherwise (ADR-0035: a Night Veil Cell's own side channel is never ripened).
     - An extra source is recorded only for a duplicate matched by content, and only when its
       (source_key, task, Cell, bee) differs from the stored row's own; `sources.
       insert_source_if_new`'s own unique indexes make a retried or already-known one a no-op.
@@ -38,8 +38,8 @@ See Also:
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
     - hivemind.honey_store.store.sqlite.sources for insert_source_if_new, this module's own callee.
     - hivemind.honey_store.clearance for raise_label, the rule this module re-applies inline.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the dedupe-and-merge rule.
-    - docs/adr/0033-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the dedupe-and-merge rule.
+    - docs/adr/0037-honey-keeps-repeat-sources-lists-scopes-and-prunes-on-request.md for the
       extra-source rule this module adds to it.
 """
 
@@ -173,14 +173,14 @@ def purge_ephemeral_transaction(connection: sqlite3.Connection, cell_id: CellId)
 def _select_duplicate_row(
     connection: sqlite3.Connection, draft: NectarDraft, sha256: str
 ) -> tuple[sqlite3.Row | None, bool]:
-    """Find an existing row by `source_key` first, then by `sha256` (ADR-0031's dedupe order).
+    """Find an existing row by `source_key` first, then by `sha256` (ADR-0035's dedupe order).
 
     The sha256 match stays on `draft`'s own side of the Night Veil boundary: an ordinary deposit
     merged onto an ephemeral row would be deleted by that Cell's teardown purge, and an ephemeral
     deposit merged onto an ordinary row would let a Night Veil Cell change persistent state.
 
     Returns:
-        `(row, True)` when found by `source_key` (the same source delivered again, ADR-0033);
+        `(row, True)` when found by `source_key` (the same source delivered again, ADR-0037);
         `(row, False)` when found by `sha256` instead; `(None, False)` when neither matches.
     """
     if draft.source_key is not None:
@@ -207,7 +207,7 @@ def _merge_duplicate(
     """Raise the stored row's (and its Honey rows') label when `draft` outranks it; else no-op.
 
     A content match (not the same `source_key`) whose provenance differs from the stored row's
-    own also records an extra source (ADR-0033), whichever way the label moves.
+    own also records an extra source (ADR-0037), whichever way the label moves.
     """
     existing = _row_to_nectar(existing_row)
     if not matched_by_source_key and _provenance_differs(existing, draft):
@@ -229,7 +229,7 @@ def _merge_duplicate(
 def _provenance_differs(existing: Nectar, draft: NectarDraft) -> bool:
     """Return whether `draft`'s (source_key, task, Cell, bee) differs from the stored row's own.
 
-    ADR-0033: a duplicate whose whole provenance already equals the first depositor's own would
+    ADR-0037: a duplicate whose whole provenance already equals the first depositor's own would
     otherwise record a source that only repeats what `honey_nectar` already says.
     """
     stored = (existing.source_key, existing.task_id, existing.cell_id, existing.bee)
@@ -261,7 +261,7 @@ def _draft_to_nectar(
         source_key=draft.source_key,
         event_id=draft.event_id,
         ephemeral_cell_id=draft.ephemeral_cell_id,
-        # A Night Veil Cell's own side channel is never ripened (ADR-0031); every other fresh
+        # A Night Veil Cell's own side channel is never ripened (ADR-0035); every other fresh
         # deposit starts RECEIVED, the ripening pipeline's own starting state.
         state=NectarState.EPHEMERAL if is_ephemeral else NectarState.RECEIVED,
         ripen_attempts=0,

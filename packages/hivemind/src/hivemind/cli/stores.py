@@ -238,7 +238,7 @@ def open_honey_store(db: Path) -> SqliteHoneyStore:
 
     Returns:
         A SqliteHoneyStore whose tables exist and are current, on its own connection, with
-        sqlite-vec loaded when this host can load it (the Python fallback otherwise, ADR-0031).
+        sqlite-vec loaded when this host can load it (the Python fallback otherwise, ADR-0035).
     """
 
     async def _open() -> SqliteHoneyStore:

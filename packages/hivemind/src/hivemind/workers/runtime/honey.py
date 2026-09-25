@@ -11,7 +11,7 @@ Queen did not answer, so a tool call never hangs); `deposit` sends a deposit's c
 class, not more `Mailbox` methods, only because `Mailbox` is at codingrules 5.1's class limit.
 `deposit_handoff` sends the Handoff a checkpoint just wrote (the document a bee writes before its
 context is reset) as HANDOFF Nectar, keyed by its checkpoint event so the House Bee's later Bee
-Bread copy of the same Handoff dedupes onto it (ADR-0031); a failure is logged, never raised,
+Bread copy of the same Handoff dedupes onto it (ADR-0035); a failure is logged, never raised,
 because the Handoff is already durable in Bee Bread (the warm memory tier).
 
 Fits into the Hive:
@@ -31,7 +31,7 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.7 for HoneyQuery, HoneyResponse and NectarDeposit.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the Handoff dedupe key.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the Handoff dedupe key.
     - hivemind.wardens.ticks.honey for the relay on the other end of this Worker's link.
     - hivemind.workers.runtime.mailbox for Mailbox, the link this channel sends over.
 """
@@ -178,7 +178,7 @@ async def deposit_handoff(
     if ctx.honey is None:
         return  # No runtime wired a channel: the Handoff stays in Bee Bread alone.
     # The checkpoint's own event id rides on the deposit, so intake keys it `handoff:<event id>`
-    # and the House Bee's Bee Bread copy of the same Handoff dedupes onto this row (ADR-0031).
+    # and the House Bee's Bee Bread copy of the same Handoff dedupes onto this row (ADR-0035).
     meta = DepositMeta(
         kind=NectarKind.HANDOFF,
         media_type=HANDOFF_MEDIA_TYPE,

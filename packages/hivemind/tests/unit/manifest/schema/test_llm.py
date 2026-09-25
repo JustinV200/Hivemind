@@ -203,7 +203,7 @@ def test_llm_section_is_frozen_and_forbids_extras() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# EMBEDDING_ONLY_KINDS may serve only the embedder slot (roadmap 7.1, ADR-0032)
+# EMBEDDING_ONLY_KINDS may serve only the embedder slot (roadmap 7.1, ADR-0036)
 # ──────────────────────────────────────────────────────────────────────────────
 
 

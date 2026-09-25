@@ -2,7 +2,7 @@
 
 The retrieval side of the Honey Store (roadmap step 7.7): answering a query over Honey (ripened,
 labelled, retrievable knowledge) with hybrid full-text and vector search, filtered by the
-reader's scope and clearance before anything is ranked (ADR-0031), and packed into the asker's
+reader's scope and clearance before anything is ranked (ADR-0035), and packed into the asker's
 token budget.
 
 ## Modules

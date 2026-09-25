@@ -6,7 +6,7 @@ same hybrid full-text and vector search a bee's `HoneyQuery` gets -- as the oper
 every scope, up to the group's `--clearance` (C2 by default). The retriever is built by
 `build_honey_access`, so with no usable embedder the search runs on full text alone and says why.
 `stats [--json]` prints `HoneyStore.stats()`: Nectar by state, live Honey by part, label and
-scope kind, and vectors per embedding model (ADR-0032's coverage per model). Both are thin
+scope kind, and vectors per embedding model (ADR-0036's coverage per model). Both are thin
 layers: the retriever and the store do the work, `hivemind.cli.honey.render` the printing.
 
 Fits into the Hive:
@@ -20,7 +20,7 @@ Key invariants:
 
 See Also:
     - hivemind.honey_store.honey.retrieve for HoneyRetriever, the search this runs.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for coverage per model.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for coverage per model.
 """
 
 from __future__ import annotations

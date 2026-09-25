@@ -21,7 +21,7 @@ Key invariants:
 See Also:
     - hivemind.common.migrations for load_migrations/apply_migrations, which read this directory.
     - hivemind.honey_store.schema.migrate for apply_honey_store_migrations, the one caller.
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the schema this series creates.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the schema this series creates.
 
 Public API: none; this package holds data files (`.sql` migrations), not importable names.
 """

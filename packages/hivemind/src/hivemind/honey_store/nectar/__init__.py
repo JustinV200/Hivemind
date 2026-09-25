@@ -18,10 +18,10 @@ Fits into the Hive:
 Key invariants:
     - Every deposit reaches the store through `NectarIntake`; nothing else builds a NectarDraft
       for a real deposit.
-    - No trail event of any kind is recorded for a Night Veil source (ADR-0031).
+    - No trail event of any kind is recorded for a Night Veil source (ADR-0035).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the intake rules.
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the intake rules.
     - docs/waggle/spec.md sections 5 and 8.7 for the chunking rules and NectarDeposit.
     - hivemind.honey_store.ripening for the House Bee's pipeline that consumes stored Nectar.
 

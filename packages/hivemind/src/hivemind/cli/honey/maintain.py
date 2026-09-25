@@ -10,12 +10,12 @@ notes to). A missing RIPENER or EMBEDDER binding is printed with its reason and 
 runs (heuristic summaries, no vectors), never a traceback. Without `--now` it says how much
 Nectar and how many notes are waiting, since both normally drain in the House Bee's own loop
 beside the Queen. `reembed` repeats `Ripener.embed_pending` until nothing is pending for the
-current embedding model or a pass makes no progress, then prints vectors per model (ADR-0032: a
+current embedding model or a pass makes no progress, then prints vectors per model (ADR-0036: a
 changed embedder re-embeds progressively; this runs the backlog now). `relabel PATH LABEL
 --reason TEXT` raises or lowers one Honey row's label as the human, through `HoneyRelabeller` (a
 lowering passes `check_lowering` with a HUMAN approver first). Every write here is idempotent by
 key or recorded by the store's own transaction, so running any of them beside a live Queen is
-safe (ADR-0031).
+safe (ADR-0035).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Mounted by `hivemind.cli.honey` as `ripen`,
@@ -36,7 +36,7 @@ See Also:
     - hivemind.honey_store.ripening for Ripener.run_pass and embed_pending, the half of that pass
       this module also calls directly for `reembed`.
     - hivemind.honey_store.browse.relabel for HoneyRelabeller.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for re-embedding.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for re-embedding.
     - .claude/phase-7-handoff.md section 8 items 4 and 7 for why `ripen --now` needed a stable
       Cell id before it could drain notes at all.
 """
@@ -114,7 +114,7 @@ def reembed_command(ctx: typer.Context) -> None:
         closing_registry(opened.registry, _reembed(opened.access.ripener))
     )
     still_pending = run_or_exit(_has_pending(opened.access.store, model))
-    # Coverage per model (ADR-0032): the old model's vectors stay beside the new model's.
+    # Coverage per model (ADR-0036): the old model's vectors stay beside the new model's.
     stats = run_or_exit(opened.access.store.stats())
     typer.echo(f"re-embedded {embedded} rows for {model} (embedding passes: {passes})")
     for vector_model, count in sorted(stats.vectors_by_model.items()):

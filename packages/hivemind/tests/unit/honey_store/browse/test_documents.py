@@ -48,7 +48,7 @@ async def test_cat_returns_a_visible_honey_row_with_its_extra_sources(hive: Brow
 
     document = await hive.browser().cat(row.path, reader())
 
-    # A HoneyDocument is a Honey (ADR-0033) with the row's own fields unchanged, plus its Nectar's
+    # A HoneyDocument is a Honey (ADR-0037) with the row's own fields unchanged, plus its Nectar's
     # extra sources -- none here, since nothing deduplicated onto this fresh row.
     assert document == HoneyDocument(**row.model_dump(), sources=())
 

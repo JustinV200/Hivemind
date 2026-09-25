@@ -7,7 +7,7 @@ the shape `hivemind.llm.fanner.embed` metering wraps once the Fanner is wired in
 `DirectEmbedGate` does walk `bound.fallback` on its own, on exactly one error:
 `ProviderUnavailableError`. This is safe here in a way it is not for chat: `hivemind.llm.embedding.
 bound.BoundEmbedder.fallback` exists only when `hivemind.llm.registry.ProviderRegistry.embedder`
-already proved it serves the same model id (ADR-0032), so walking it can never silently mix vector
+already proved it serves the same model id (ADR-0036), so walking it can never silently mix vector
 spaces the way spilling a chat call to a different model could.
 
 Fits into the Hive:
@@ -26,8 +26,8 @@ Key invariants:
 
 See Also:
     - .claude/codingrules.md section 8.6 for "degrade by ladder, in one place", applied here to
-      the narrower same-model fallback rule ADR-0032 sets for embeddings.
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the same-model fallback rule.
+      the narrower same-model fallback rule ADR-0036 sets for embeddings.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the same-model fallback rule.
     - hivemind.llm.ladders.gate for CallGate, the chat-side seam this mirrors.
     - hivemind.llm.embedding.bound for BoundEmbedder, the value every EmbedGate call is made
       through.

@@ -35,13 +35,13 @@ Key invariants:
       relaying Warden's own Cell; a Warden's query only as that Warden itself.
     - Every query gets exactly one `HoneyResponse` and every refused chunk exactly one
       `control.error` (spec section 3), both correlated to the item's envelope; nothing about a
-      Night Veil Cell's traffic is logged, since its records never outlive the Cell (ADR-0031).
+      Night Veil Cell's traffic is logged, since its records never outlive the Cell (ADR-0035).
     - A Honey Store failure never escapes this handler: it becomes an empty response or a
       `control.error`, so it can never end the Queen's tick loop; nor does a reply to a Warden
       whose link closed since its message arrived (logged, dropped).
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for intake, readers and the Night Veil
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for intake, readers and the Night Veil
       rule this applies.
     - docs/waggle/spec.md section 8.7 for NectarDeposit, HoneyQuery and HoneyResponse.
     - hivemind.wardens.ticks.honey for the Warden-side relay this answers.
@@ -106,7 +106,7 @@ log = get_logger(__name__)
 class _Principal:
     """What a requester may read before the query's own ceiling applies: scopes and clearance."""
 
-    capabilities: CapabilitySet  # Its default `honey:read` capabilities (ADR-0031).
+    capabilities: CapabilitySet  # Its default `honey:read` capabilities (ADR-0035).
     clearance: HoneyClearance  # Its own ceiling: a Worker's task clearance, a Warden's default.
 
 
@@ -191,7 +191,7 @@ async def _search(
     if isinstance(principal, str):
         return _empty(principal)  # The requester may not read here; the reason says why.
     # The ceiling is the lowest of what was asked, what the principal may see, and what the
-    # Cell's tier may read (ADR-0031): a Night Veil reader never sees C2 whatever it asks.
+    # Cell's tier may read (ADR-0035): a Night Veil reader never sees C2 whatever it asks.
     tier = link.cell.comb_shield
     requested = HoneyClearance.from_wire(query.max_clearance)
     reader = HoneyReader(
@@ -214,7 +214,7 @@ async def _search(
         return await access.retriever.search(search)
     except HoneyStoreError as error:
         # A store failure is the asker's empty answer, never the end of the Queen's tick; a
-        # Night Veil reader's failure is not logged, as nothing of its traffic is (ADR-0031).
+        # Night Veil reader's failure is not logged, as nothing of its traffic is (ADR-0035).
         if not reader.is_night_veil:
             log.warning("queen.honey.search_failed", code=error.code, cell_id=link.cell.id)
         return _empty(STORE_FAILED_REASON.format(code=error.code))
@@ -278,7 +278,7 @@ async def _reply(link: WardenLink, envelope: Envelope) -> None:
         await link.transport.send(envelope)
     except (TransportClosedError, ConnectionLostError):
         # The Warden detached after its message arrived: a benign race that must never end the
-        # Queen's tick. Nothing about a Night Veil Cell's traffic is logged (ADR-0031).
+        # Queen's tick. Nothing about a Night Veil Cell's traffic is logged (ADR-0035).
         if link.cell.comb_shield is not CombShieldLevel.NIGHT_VEIL:
             log.warning("queen.honey.reply_undeliverable", warden_id=link.warden_id)
 

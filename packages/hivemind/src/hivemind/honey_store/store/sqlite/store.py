@@ -427,7 +427,7 @@ class SqliteHoneyStore(
                 file before calling this.
             clock: Injected clock, used for migration timestamps and by this instance.
             force_python_vectors: When True, always use the Python cosine fallback even if
-                sqlite-vec loads successfully (the contract suite's own seam, ADR-0031).
+                sqlite-vec loads successfully (the contract suite's own seam, ADR-0035).
 
         Returns:
             A SqliteHoneyStore whose tables exist and are current.

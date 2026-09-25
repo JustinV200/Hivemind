@@ -3,7 +3,7 @@
 The EMBEDDER slot (the model binding that turns text into vectors for the Honey Store's search) is
 resolved from the manifest's `[llm.slots]` rows like every other slot, one binding and then its
 `fallback`, but it is bound by `hivemind.llm.registry.ProviderRegistry.embedder` rather than by
-`hivemind.llm.slots.resolve` (ADR-0032: an embedding provider is built per provider and model, and
+`hivemind.llm.slots.resolve` (ADR-0036: an embedding provider is built per provider and model, and
 a fallback is followed only while it serves the same model). These two pure functions are the
 parts of that resolution that read only the bindings and the Forage map (the Hive's catalogue of
 every source that can serve a model, with its price): `walk_embedder_chain` lists the bindings in
@@ -21,7 +21,7 @@ Key invariants:
     - `walk_embedder_chain` never loops: a revisited key raises instead of walking forever.
 
 See Also:
-    - docs/adr/0032-embedding-provider-and-reembedding-policy.md for the same-model fallback rule.
+    - docs/adr/0036-embedding-provider-and-reembedding-policy.md for the same-model fallback rule.
     - hivemind.llm.slots for the chat slots' own chain walk and price lookup, which these mirror.
 """
 

@@ -7,7 +7,7 @@ a whole deposit in-process, `receive_chunk` takes Waggle chunks and reassembles 
 `ChunkGroups`. Either way intake refuses a deposit over `[honey.store] max_nectar_bytes`, labels
 it (`hivemind.honey_store.clearance.intake_label`: the declared label raised to the provenance
 floor), scopes it (`hivemind.honey_store.scope.scope_for_nectar`), applies the Night Veil rule
-(ADR-0031: a Night Veil Cell -- the tier whose execution records never outlive teardown -- may
+(ADR-0035: a Night Veil Cell -- the tier whose execution records never outlive teardown -- may
 export only `RIPENED_HONEY` at C0/C1; everything else it deposits is kept as an ephemeral side
 channel purged at teardown), and hands the draft to `HoneyStore.add_nectar`, which dedupes and
 records the trail events this module builds, in one transaction.
@@ -20,7 +20,7 @@ Fits into the Hive:
     the Pheromone Trail (the append-only audit log) are where everything it decides lands.
 
 Key invariants:
-    - A Night Veil source's ephemeral deposits and refusals are never recorded (ADR-0031,
+    - A Night Veil source's ephemeral deposits and refusals are never recorded (ADR-0035,
       codingrules section 12): the builder handed to `add_nectar` returns nothing, no
       `honey.nectar_rejected` is written, and no rejection is logged either. Its one export,
       `RIPENED_HONEY` at C0/C1, is ordinary Nectar that outlives the Cell by design and is
@@ -35,7 +35,7 @@ Key invariants:
       text beyond its kind.
 
 See Also:
-    - docs/adr/0031-honey-store-sqlite-fts5-sqlite-vec.md for the intake, labelling, scoping and
+    - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the intake, labelling, scoping and
       Night Veil rules implemented here.
     - hivemind.honey_store.nectar.reassembly for ChunkGroups, the chunk rules.
     - hivemind.honey_store.store.protocol for HoneyStore.add_nectar and NectarEvents.
@@ -178,7 +178,7 @@ class NectarIntake:
             )
         except NectarRejectedError as error:
             # Nothing about a Night Veil source's deposit outlives its teardown, a refusal
-            # included (ADR-0031, codingrules section 12): no trail event and no log line.
+            # included (ADR-0035, codingrules section 12): no trail event and no log line.
             if source.tier is not CombShieldLevel.NIGHT_VEIL:
                 log.warning("honey_store.nectar_rejected", code=error.code, cell_id=source.cell_id)
                 # Local SQLite on the store's own thread, bounded by the connection's busy timeout.
@@ -215,7 +215,7 @@ class NectarIntake:
         )
         ephemeral = _is_ephemeral(submission, label)
         draft = _draft_for(submission, label, ephemeral)
-        # An ephemeral deposit leaves no trail (ADR-0031); the Night Veil export (RIPENED_HONEY at
+        # An ephemeral deposit leaves no trail (ADR-0035); the Night Veil export (RIPENED_HONEY at
         # C0/C1) is ordinary Nectar that outlives the Cell by design, so it is recorded like any.
         events = _no_events if ephemeral else _nectar_events(self._identity, self._clock)
         # Local SQLite, one transaction for the row and its events; bounded by the busy timeout.
@@ -239,7 +239,7 @@ class NectarIntake:
 
 
 def _is_ephemeral(submission: NectarSubmission, label: HoneyClearance) -> bool:
-    """Apply the Night Veil rule (ADR-0031): True when the deposit must stay an ephemeral row.
+    """Apply the Night Veil rule (ADR-0035): True when the deposit must stay an ephemeral row.
 
     Raises:
         NightVeilRefusedError: A Night Veil Cell's `RIPENED_HONEY` labelled above C1, which
@@ -327,5 +327,5 @@ def _nectar_events(identity: HoneyIdentity, clock: Clock) -> NectarEvents:
 
 
 def _no_events(added: NectarAdded) -> tuple[HoneyEvent, ...]:
-    """Record nothing: a Night Veil Cell's ephemeral deposit never reaches the trail (ADR-0031)."""
+    """Record nothing: a Night Veil Cell's ephemeral deposit never reaches the trail (ADR-0035)."""
     return ()

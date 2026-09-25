@@ -1,4 +1,4 @@
-# ADR-0034: Lowering a Honey label is a proposal an independent judge or the human decides, filed only when the Real Cell floor alone holds the label up
+# ADR-0038: Lowering a Honey label is a proposal an independent judge or the human decides, filed only when the Real Cell floor alone holds the label up
 
 - Status: Accepted
 - Date: 2026-09-24
@@ -8,7 +8,7 @@
 Labels come from provenance at intake. Anything gathered on a Real Cell (a borrowed device, the
 Hive Stand included), anything the human wrote and anything watch mode observed is `C2`. A model
 may raise a label and never lower one. Lowering is a Capping proposal reviewed by the judge or a
-human (codingrules 8.9, roadmap 7.3, ADR-0031). Phase 7 first wired only the human half:
+human (codingrules 8.9, roadmap 7.3, ADR-0035). Phase 7 first wired only the human half:
 `hive honey relabel`, one Honey row at a time, approver `HUMAN`.
 
 That left a gap the phase's real runs made plain. Everything a Drone learns on the Hive Stand is
@@ -140,7 +140,7 @@ line keeps the whole deposit `C2`.
 - **Document `--clearance C2` only**: the same exposure as the first alternative, left to the
   operator to remember.
 - **Let the Ripener lower**: a model deciding data is less sensitive is exactly the failure the
-  label exists to prevent (ADR-0031).
+  label exists to prevent (ADR-0035).
 - **A `RELABEL` action through `CappingGate`**: see above.
 - **Judge each Honey row separately**: a Nectar's rows share one label, and a split verdict would
   expose part of a deposit whose other part the judge found personal.
