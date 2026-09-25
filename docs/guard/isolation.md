@@ -15,9 +15,11 @@ Every Hive `hive run` or `hive serve` composes runs the Guard Bee on the Queen's
 through her own door ([the Guard Bee](guard-bee.md)).
 
 The Guard Bee's shipped dire patterns are `injection_then_denial` (a scanner flag, then a denial
-by the same bee in the same episode) and the two Cell gate forgeries, `envelope_forgery` (a frame
+by the same bee in the same episode), the two Cell gate forgeries, `envelope_forgery` (a frame
 that failed its signature on a Cell's own link) and `segment_forgery` (a trail segment a Cell
-shipped under another node's identity). The Queen decides each of those by rule.
+shipped under another node's identity), and `subject_forgery` (a Cell's node recording what
+another Cell owns, which names the framer and never the framed Cell). The Queen decides each of
+those by rule.
 
 ## The request path
 

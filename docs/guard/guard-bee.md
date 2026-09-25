@@ -79,7 +79,8 @@ one attempt at one task: one episode), `task`, `cell`, `grant`, `device`, `addre
 is read from the event (its subject and the ids its payload carries) or joined through other
 events: a Capping proposal's task, Cell and tier from its `capping.proposed`, a task's bee from
 `worker.spawned`, its Cell from `queen.assigned`, its grant from `forage.granted`. Rules count ids
-and kinds, never content: the trail carries none.
+and kinds, never content: the trail carries none. Every rule counts only what the Guard Bee can
+attribute ([who may speak for what](#who-may-speak-for-what)).
 
 A rule fires once for what it has counted. Its next finding for the same key counts only events
 after the moment the last one counted up to.
@@ -124,13 +125,14 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 
 | Rule | Counts | Key | Window | Fires at | Recommends | Judged |
 |---|---|---|---|---|---|---|
+| `subject_forgery` | `guard_bee.subject_forged`: a record a Cell's node made about what another Cell owns | cell (the recorder's) | 1 h | 1 | `isolate_cell`, critical | no |
 | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_forgery` | `guard.segment_refused` for `another_node` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_unmergeable` | `guard.segment_refused` for `format` or `corrupt` | cell | 1 h | 1 | `isolate_cell`, high | no |
 | `request_forgery` | `guard.entrance_login_failed` for `request_signature` or `request_replay` | hive | 10 min | 2 | `reduce_entrance`, high | no |
 
 The Cell gate (`hivemind.queen.cell_gate`, the Queen's listener every Virtual Cell's Warden dials)
-records the first three, about the Cell whose own proved link carried the frame:
+records the next three, about the Cell whose own proved link carried the frame:
 
 - **`guard.envelope_refused`**: a frame on an attached link failed its signature (reason
   `invalid`, `missing` or `unknown_node`). The link is closed. A tampered link, or a Cell signing
@@ -142,8 +144,9 @@ records the first three, about the Cell whose own proved link carried the frame:
   The link stays up: an honest Cell's bad export is a fault to hear of, not a reason to cut its
   Warden off mid-task.
 
-Each reason is recorded once per link, so no Cell can flood the trail. `envelope_forgery` and
-`segment_forgery` are shipped dire patterns: the Queen isolates the Cell by rule. A frame that
+Each reason is recorded once per link, so no Cell can flood the trail. `subject_forgery`,
+`envelope_forgery` and `segment_forgery` are shipped dire patterns: the Queen isolates the Cell by
+rule. A frame that
 fails its signature before its link is attached proves no Cell (whoever dialled may have named any
 Cell's id), so the gate closes that connection and records nothing against anyone.
 
@@ -182,6 +185,44 @@ model fails or times out, or the Guard policy's `guard_bee` role does not hold `
 rule's own verdict stands. The alert records whether a report was judged and, if so, what the rule
 alone said.
 
+## Who may speak for what
+
+A Virtual Cell's Warden ships its own trail segment, so a compromised Cell can record anything on
+its own node, naming any bee, task or Cell: the injection correlation about another Cell's bee,
+say, which would have that Cell isolated by rule. So the Guard Bee attributes every event before
+a rule may count it.
+
+It learns who owns what from the Queen's own records, and only those her own node recorded:
+`warden.spawned` names each Warden's Cell and the node its link proved (the Cell gate's handshake,
+or the Hive Stand's own process), `queen.assigned` every Cell a task was placed on, and
+`forage.granted` a grant's task. A bee is owned through the `worker.spawned` its own Cell's node
+recorded, and a Capping proposal through its `capping.proposed`, each only when the task it names
+was placed on that Cell. Then an event counts when:
+
+- the Hive Stand's node recorded it; or
+- a Cell's node recorded it, and that Cell owns everything it names: the Cell itself, its Warden,
+  the bees it spawned, the tasks placed on it, their grants, its proposals.
+
+An event a Cell's node recorded about what another Cell owns is **forged**. It never counts as
+what it says; instead it is evidence about the recording node's Cell, the derived kind
+`guard_bee.subject_forged` that `subject_forgery` counts. The report names the framer and cites
+the forged events, and never names the bee or task they were about, so the Queen isolates the
+framer and never the Cell it framed. An event nothing can attribute yet (a node no Cell speaks
+for, a bee no Cell's claim holds) is not counted either way. A bee two Cells both claim counts for
+neither, since nothing on the trail says which claim is true. A Cell's event joins only through
+its own Cell's claims, so a report built from it names that Cell's own tasks and Cell. Ownership is
+kept for a week (a proposal for a day), and every node's Cell for as long as the Hive runs.
+
+## Night Veil Cells
+
+Everything about a living Night Veil Cell (its Warden's shipped segments, the Queen's own records
+about it) lives only in that Cell's ephemeral segment on the Queen's side, and the Queen's trail,
+read through the boundary, shows only the durable trail. So each round also reads every held
+segment, with a cursor of its own per Cell, and keeps what it reads in memory only. Its alert about
+such a Cell is recorded through the same boundary, so it stays in the segment and is purged with
+the Cell; its request goes through the Queen's door as for any Cell, and she isolates or shows it
+as usual. Once a segment is taken at teardown, every fact the Guard Bee read from it is forgotten.
+
 ## Restarts
 
 The Guard Bee keeps no store of its own. On its first round after a start it rebuilds its windows
@@ -219,7 +260,7 @@ decides how much is sampled there, and nothing is judged until an in-Cell judge 
 |---|---|---|
 | `[guard] request_confidence` | `"high"` | The floor a request must reach to be filed. |
 | `[guard] requests_per_hour` | `6` | The most requests filed in any hour. A `critical` request is always filed. |
-| `[guard] dire_patterns` | `["injection_then_denial", "envelope_forgery", "segment_forgery"]` | The rules whose requests the Queen decides by rule, with no model ([isolation](isolation.md)). |
+| `[guard] dire_patterns` | `["injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery"]` | The rules whose requests the Queen decides by rule, with no model ([isolation](isolation.md)). |
 | `[guard.bee] interval_s` | `5.0` | Seconds between two readings of the trail. |
 | `[guard.bee] coalesce_window_s` | `900.0` | One request per rule and target in this window (0 files every one). |
 | `[guard.bee] judge_timeout_s` | `60.0` | The longest one awake episode may take. |

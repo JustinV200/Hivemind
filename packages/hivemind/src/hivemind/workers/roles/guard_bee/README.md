@@ -18,8 +18,8 @@ reason it is not a `hivemind.workers.Worker`, which is handed a Cell and a sessi
 |---|---|
 | `rules.toml` | The shipped rules, read through `importlib.resources`. |
 | `rules.py` | `GuardRule`, `GuardRules`, `Matcher`, `load_guard_rules`: the rule data, checked against the trail's kinds, with `[guard.bee.rules]` overrides applied. |
-| `facts.py` | `TrailFact` (ids, kind, matched fields and a cost; never content) and `EpisodeIndex`, the joins between ids other events carry. |
-| `watch.py` | `TrailWatch`: the windows, rebuilt on start and followed per node. |
+| `facts.py` | `TrailFact` (ids, kind, matched fields and a cost; never content) and `EpisodeIndex`, the joins between ids other events carry, and who owns each id: `attribute` says whether a fact counts (`Attribution`). |
+| `watch.py` | `TrailWatch`: the windows, rebuilt on start and followed per node, every living Night Veil Cell's segment beside the durable trail, and only attributed facts counted (forged ones as `guard_bee.subject_forged`). |
 | `evaluate.py` | `evaluate`, the pure decision: count, ratio and sequence rules, per key, past what was already reported. |
 | `judge.py`, `lane.py` | The awake episode on the judge slot (`ModelGuardJudge`) and the lane it runs in beside the tick (`JudgeLane`). |
 | `requests.py` | `RequestLedger`: the confidence floor, coalescing and the hourly cap. |
@@ -68,6 +68,19 @@ per remote node and reads a node seen for the first time back over the whole hor
 what hears a node's first segment at all: landing after the Hive Stand has moved on, it may hold
 nothing newer than what was already read. A finding on a Virtual Cell therefore comes up to one
 heartbeat and one round after the events behind it.
+
+Attribution. A Virtual Cell's Warden ships its own trail segment, so a compromised Cell can
+record anything on its own node. The index learns who owns what from the Queen's records alone
+(`warden.spawned` names each Warden's Cell and the node its link proved; `queen.assigned` each Cell
+a task was placed on; `forage.granted` a grant's task) and a bee or proposal through the claim its
+own Cell's node made. `facts_of` returns only facts the Hive Stand recorded or whose node's Cell
+owns all they name; one naming what another Cell owns is returned instead under the derived kind
+`guard_bee.subject_forged`, about the recording node's Cell alone, which `subject_forgery` counts.
+
+Night Veil. The Queen's trail, read through the boundary, shows only the durable trail, so each
+round also follows every held Night Veil segment (`segments_of(trail)`, a cursor per Cell), keeps
+what it reads in memory only, and forgets it once the segment is taken at teardown. Alerts go
+through the same boundary, so an alert about a Night Veil Cell stays in its segment.
 
 The order of a report is fixed: act (file, raise or order), show it to the human if it is
 CRITICAL, deposit, then record the alert that marks the finding reported. A crash in between
@@ -144,7 +157,8 @@ clock, node, Guard policy, slot resolver and call gate (the Royal Reserve), the 
 - **C2 deposits** (`GuardReportSink`): phase 7's Nectar intake. In memory until then.
 - **Node integrity**: the Cell gate records a frame that failed its signature on a Cell's own link
   (`guard.envelope_refused`) and a trail segment it would not merge (`guard.segment_refused`),
-  in `hivemind.queen.cell_gate.refusals`; three rules count them. Waggle replay refusal (11.3b),
+  in `hivemind.queen.cell_gate.refusals`; three rules count them, and `subject_forgery` counts a
+  Cell's node recording what another Cell owns. Waggle replay refusal (11.3b),
   frame-ceiling closes (11.3a), a merged segment whose events fail the node's key (11.9) and
   capability reports without re-enrolment (13.4a) become rules once each has a trail kind (see the
   header of `rules.toml`).
@@ -159,6 +173,8 @@ uv run --frozen pytest packages/hivemind/tests/unit/workers/roles/guard_bee \
     packages/hivemind/tests/e2e/test_guard_bee_wiring.py \
     packages/hivemind/tests/e2e/test_guard_bee_on_hive_stand.py \
     packages/hivemind/tests/e2e/test_guard_bee_on_virtual_cell.py \
+    packages/hivemind/tests/e2e/test_guard_bee_framing.py \
+    packages/hivemind/tests/e2e/test_guard_bee_on_night_veil.py \
     packages/hivemind/tests/e2e/test_audit_raise_on_virtual_cell.py
 ```
 
@@ -167,6 +183,8 @@ seeds the events its rules count as their producers write them (`TrailSeeder`), 
 shipped rule's trail (`SHIPPED_RULE_SEEDERS`). `test_bee_entrance.py` reduces a real Entrance over
 uvicorn, once per Entrance door rule. `test_listener.py` sends a forged segment over a real socket
 and the running Queen isolates the Cell on the Guard Bee's request. The e2e tests compose the Hive
-as `hive run` does: a lured Drone on the Hive Stand (the fallback) and in a Virtual Cell
-(isolation by rule), the judge's calls on the Royal Reserve, and a raise sampling every proposal
-inside a Virtual Cell.
+as `hive run` does: a lured Drone on the Hive Stand (the fallback), in a Virtual Cell and in a
+Night Veil Cell (isolation by rule; the Night Veil alert purged with the Cell), one Virtual Cell
+framing another's bee (the framer isolated, the framed never), the judge's calls on the Royal
+Reserve, and a raise sampling every proposal inside a Virtual Cell. `test_attribution.py` covers
+attribution over one Guard Bee round, `test_watch_veiled.py` the Night Veil segments.
