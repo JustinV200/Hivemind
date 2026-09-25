@@ -228,8 +228,9 @@ async def test_a_wait_past_its_patience_fails_the_task_with_the_figures() -> Non
 
 
 _TWO_CORE_ROLE = {WorkerRole.DRONE: make_footprint(cpu_cores=2.0)}
+# A Cell whose own cap is zero is no longer among them: placement reads the Cell's live figures
+# now (hivemind.queen.dispatcher.snapshot), so no task is ever placed on it to be denied there.
 _LASTING = [
-    pytest.param(_Reading(make_capacity(max_sub_bees=0)), {}, None, "cell_cap", id="cell-cap"),
     pytest.param(
         _Reading(
             make_capacity(

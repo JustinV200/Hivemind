@@ -96,10 +96,11 @@ every assignment goes to a Warden, over Waggle.
   Virtual Cell's provision; `dispatcher.provisions` acquires it beside the tick (at most
   `ProvisionLane.limit` at once, collected by a later pass, awaited by `Queen.stop`), and a Cell
   acquired for a task that was cancelled or whose grant was denied is released through
-  `QueenDeps.on_task_finished`. Placement reads each backend's headroom less the Cells being
-  provisioned on it; every pass first returns an ended task's grants to the pool
-  (`queen.forage.grants.release_finished`, `forage.revoked` with cause RELEASED). The
-  dispatcher's lock, waits and lane live in one `QueenDeps.dispatch` (`DispatchBook`).
+  `QueenDeps.on_task_finished`. Placement reads each attached Cell's live capacity less the grants
+  in force on it, and each backend's headroom less the Cells being provisioned on it; every pass
+  first returns an ended task's grants to the pool (`queen.forage.grants.release_finished`,
+  `forage.revoked` with cause RELEASED). The dispatcher's lock, waits and lane live in one
+  `QueenDeps.dispatch` (`DispatchBook`).
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules

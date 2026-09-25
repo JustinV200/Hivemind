@@ -14,27 +14,34 @@ task. Roadmap step 10.6a: `goal_id` names the goal being placed, and every activ
 blocked Cells for this one decision, exactly as a BLOCK Cell Wax note would: placement data, never
 a special case inside `decide`.
 
-The dispatcher lifecycle fix: a backend's room is less every fresh Cell being provisioned on it
-right now (`hivemind.queen.dispatcher.provisions`): an acquisition in flight has reserved room
-the lifecycle does not count until its Cell exists, and a placement decided meanwhile must not
-count on it too.
+The dispatcher lifecycle fix makes every figure placement reads live. An attached Cell's room is
+measured on its capacity as it stands (`WardenLink.live_capacity`, the Hive Stand's load and free
+memory re-read now; a Virtual Cell's spec otherwise) less the grants in force on it: each task
+holding a live grant there runs one bee, whatever its grant's ceiling (the ledger releases a grant
+once its task ends, `hivemind.queen.forage.grants.release_finished`). Before, the Cell as probed
+when the Hive was built was read, so a Cell already full of running work still counted as free.
+And a backend's room is less every fresh Cell being provisioned on it right now
+(`hivemind.queen.dispatcher.provisions`): an acquisition in flight has reserved room the
+lifecycle does not count until its Cell exists, and a placement decided meanwhile must not count
+on it too.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
-    acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory` (WaxSeverity,
-    WaxState), `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps,
-    WardenLink), `hivemind.queen.placement` (Inventory, ForageView, ProvisionVirtual,
-    RealCandidate, VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's
-    placement holds), `QueenDeps.dispatch.provisions` (the Cells being provisioned) and waggle
-    only.
+    acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.forage` (ForageCapacity,
+    ForageGrant, RoleFootprint), `hivemind.memory` (WaxSeverity, WaxState),
+    `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps, WardenLink),
+    `hivemind.queen.placement` (Inventory, ForageView, ProvisionVirtual, RealCandidate,
+    VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's placement holds),
+    `QueenDeps.ledger` (the grants in force) and waggle only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
       for a placement decision: `hivemind.queen.placement.decide` itself never touches a store.
-    - `has_free_capacity` is a simple, cheap signal (room for one more sub-bee, and enough free
-      memory for the placed bee's own footprint), not a re-run of `hivemind.forage.allocate.grant`;
-      the real grant computation still happens once placement has already chosen a Cell
+    - `has_free_capacity` is a simple, cheap signal (room for one more sub-bee once the grants in
+      force are counted, and enough free memory for the placed bee's own footprint), read from the
+      Cell's live figures, not a re-run of `hivemind.forage.allocate.grant`; the real grant
+      computation still happens once placement has already chosen a Cell
       (`hivemind.queen.dispatcher.ready._send_grant_and_assign`).
     - A backend's headroom is never above what its declared cap leaves once every tracked Cell and
       every fresh Cell still being provisioned on it are counted, each once.
@@ -51,11 +58,11 @@ from __future__ import annotations
 
 import dataclasses
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from hivemind.brood_chamber import Task
-from hivemind.cell import Cell, HoneyClearance
-from hivemind.forage import RoleFootprint
+from hivemind.cell import HoneyClearance
+from hivemind.forage import ForageCapacity, ForageGrant, RoleFootprint
 from hivemind.hive import VirtualCellSpec
 from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBackend
 from hivemind.memory import WaxSeverity, WaxState
@@ -117,7 +124,9 @@ async def build_inventory(
     if goal_id is not None:
         # A Cell's own BLOCK note, when it has one, is the mention its placement reason names.
         blocked = {**await _held_for(deps, goal_id), **blocked}
-    real = tuple(_real_candidate(link, footprint) for link in wardens)
+    # One bee per task holding a grant in force on a Cell (module docstring), counted once.
+    in_use = _bees_in_use(deps.ledger.live_grants())
+    real = tuple([await _real_candidate(link, footprint, in_use[link.cell.id]) for link in wardens])
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
     else:
@@ -227,29 +236,46 @@ def dormant_candidate_from_lifecycle(cell: LifecycleDormantCell) -> DormantCandi
     )
 
 
-def _real_candidate(link: WardenLink, footprint: RoleFootprint) -> RealCandidate:
-    """Build one RealCandidate from an attached WardenLink's own Cell."""
+async def _real_candidate(
+    link: WardenLink, footprint: RoleFootprint, bees_in_use: int
+) -> RealCandidate:
+    """Build one RealCandidate from an attached WardenLink's Cell, as it stands right now."""
     cell = link.cell
+    # Read live where the link can (normally a handful of fast system reads on this host), so a
+    # Cell's load and free memory are today's, never the probe taken when the Hive was built.
+    capacity = await link.live_capacity() if link.live_capacity is not None else cell.capacity
     return RealCandidate(
         warden_id=link.warden_id,
         cell_id=cell.id,
         capabilities=cell.capabilities,
         comb_shield=cell.comb_shield,
         is_hive_stand=cell.source == "hive_stand",
-        has_free_capacity=_has_free_capacity(cell, footprint),
+        has_free_capacity=_has_free_capacity(capacity, footprint, bees_in_use),
         # Copied for placement, the one caller allowed to branch on it (codingrules 8.7).
         kind=cell.kind,
     )
 
 
-def _has_free_capacity(cell: Cell, footprint: RoleFootprint) -> bool:
-    """Return whether `cell` has room for one more bee at `footprint`'s own cost.
+def _has_free_capacity(capacity: ForageCapacity, footprint: RoleFootprint, in_use: int) -> bool:
+    """Return whether a Cell at `capacity`, `in_use` bees busy, has room for one bee more.
 
     A cheap signal, not a re-run of `hivemind.forage.allocate.grant` (module docstring): room in
-    the Cell's own sub-bee cap, and enough free host memory for the placed bee's own footprint.
+    the Cell's own sub-bee cap once its grants in force are counted, and enough free host memory
+    for the placed bee's own footprint.
     """
-    capacity = cell.capacity
-    return capacity.max_sub_bees >= 1 and capacity.host.memory_free_bytes >= footprint.memory_bytes
+    has_a_bee_left = capacity.max_sub_bees - in_use >= 1
+    return has_a_bee_left and capacity.host.memory_free_bytes >= footprint.memory_bytes
+
+
+def _bees_in_use(grants: Iterable[ForageGrant]) -> Counter[str]:
+    """Count, per Cell, the tasks its grants in force are for: each runs one bee there.
+
+    Counted by task, not by grant or by ceiling: a retried task holds a grant per attempt until
+    it ends, and a ceiling is only the most a Warden may spawn (`zero_grant.hold_for_room`'s own
+    rule for a goal's allowance).
+    """
+    holders = {(grant.cell_id, grant.task_id or grant.id) for grant in grants}
+    return Counter(cell_id for cell_id, _holder in holders)
 
 
 async def _wax_maps(
