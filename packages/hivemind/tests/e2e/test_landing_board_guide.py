@@ -104,6 +104,22 @@ def _missing_tools() -> list[str]:
     return missing
 
 
+def _curl_takes_pem_client_certificates() -> bool:
+    """Whether this host's curl can present section 12's PEM certificate and Ed25519 key.
+
+    Schannel, the TLS library of Windows' own curl, loads neither (the guide says so). A curl
+    built on several libraries names its default bare and the others in parentheses.
+    """
+    curl = shutil.which("curl")
+    if curl is None:
+        return False
+    # SAFETY: a fixed argv naming the host's own curl; nothing from outside reaches it.
+    version = subprocess.run(  # noqa: S603
+        [curl, "-V"], capture_output=True, text=True, timeout=10, check=False
+    ).stdout
+    return "Schannel" not in version.partition("\n")[0].split()
+
+
 def test_the_guides_curl_examples_run_against_a_live_entrance(tmp_path: Path) -> None:
     missing = _missing_tools()
     if missing:
@@ -134,6 +150,8 @@ def test_the_guides_mutual_tls_examples_run_against_a_listener_demanding_certifi
     tmp_path: Path,
 ) -> None:
     missing = _missing_tools()
+    if not _curl_takes_pem_client_certificates():
+        missing.append("a curl that presents a PEM client certificate (Schannel cannot)")
     if missing:
         pytest.skip(f"the guide's examples need {', '.join(missing)}, absent on this host")
     workdir = tmp_path / "client"

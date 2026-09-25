@@ -622,6 +622,10 @@ presents a certificate from the Hive's own certificate authority. In `vpn` mode 
 the operator turns `[entrance] mutual_tls` on. Login is still the gate behind the handshake: the
 certificate only shows that the operator approved this device.
 
+The examples below present a PEM certificate and an Ed25519 key, so they need a `curl` built on
+OpenSSL (or another library that reads both). Windows' own `curl` uses Schannel, which can load
+neither.
+
 **Where the certificate comes from.** It is issued when the device is approved.
 
 - **A program** sends a certificate signing request (CSR) for a key it holds. Its device key does:
