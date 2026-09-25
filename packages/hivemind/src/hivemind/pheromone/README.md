@@ -61,7 +61,9 @@ trail on reconnection.
   - `retention/trail.py` -- `VeiledTrail`, the `PheromoneTrail` decorator every Queen-side writer
     records through: an event about no Night Veil Cell reaches the durable trail unchanged; an
     event about one sends only its skeleton copy there and the whole event to the Cell's segment.
-    `segments_of(trail)` returns the segments behind it.
+    `segments_of(trail)` returns the segments behind it, and `query_cell(trail, cell_id, query)`
+    reads one Cell's records with its held segment (reads of the decorator reach only the durable
+    trail): the Queen's isolation of a Night Veil Cell reads its own records there.
   - `retention/purge.py` -- `NightVeilTeardownPurge` and its collaborators:
     `SqliteSegmentPurge`/`LazySqliteSegmentPurge`/`MemorySegmentPurge` remove one node's rows;
     `SideChannels` names every store beyond the trail a teardown must clear (`memory`,
@@ -108,7 +110,8 @@ task finished, a provision failed after the Cell existed, the Hive shut down), a
 4. Gathers the Cell's members once (its segment's index, then every `MemberSource`: the Brood
    Chamber's live tasks on it, the Forage ledger's reports and grants) and runs every registered
    side channel with them under `SIDE_CHANNEL_TIMEOUT_S`: the Queen's memory tables
-   (`MemoryStore.purge_night_veil`), the Brood Chamber (`scrub_night_veil`, a finished task's words
+   (`MemoryStore.purge_night_veil`), the Brood Chamber (`end_night_veil`: a task still placed on
+   the Cell is cancelled, since it can never finish now, then every finished task's words are
    reduced to its skeleton), the backends' snapshot images and the Forage ledger (`forget_cell`),
    attached by the composition root (`hivemind.cli.compose.night_veil.side_channels`). The VPN
    client, the Tor daemon and their logs run inside the Cell and die with it; the Hive Stand's own

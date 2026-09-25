@@ -166,6 +166,23 @@ it, the isolation point refuses her. Her decision then falls back to three thing
 
 The human can then isolate the Hive Stand themselves, citing the report, or lift the hold.
 
+## A Night Veil Cell
+
+Nothing of a Night Veil Cell outlives it but its skeleton (codingrules section 12), and that holds
+for its isolation too. Every record the isolation makes about the Cell (`cell.isolated`, the
+bees' pause answers, the lift's `cell.isolation_lifted`) lives only in the Cell's ephemeral
+segment on the Queen's side, and the Queen reads them there (`hivemind.pheromone.query_cell`): a
+second request finds the isolation standing, the pause wait sees the bees answer, the taint order
+names the Cell's tasks and bees, and the human's lift finds what to lift. Three steps differ:
+
+- No `BLOCK` Cell Wax is written: a note and its `memory.wax_*` records would outlive the Cell.
+  None is needed, since placement never offers an attached Night Veil Cell to any task but the one
+  it was provisioned for, isolated or not.
+- The Hive's own tables label none of the Cell's rows: each label's `memory.tainted` record would
+  reach the durable trail and outlive the Cell, and every such row goes at its teardown anyway. The
+  Cell's Warden still labels the store inside the Cell, whose records stay in its segment.
+- Everything the isolation recorded goes with the segment when the Cell is torn down.
+
 ## The human's levers
 
 Both levers need an interactive device inside its step-up window, holding `entrance:steward`, the
@@ -220,3 +237,6 @@ resume and nothing else.
 - An isolation the Queen orders on a Cell whose link is gone (the Cell gate closes a link that
   carried a forged frame) finds no attached Warden: her decision records `cell_not_attached`,
   and the human still gets the CRITICAL Alarm naming the report.
+- A Night Veil Cell's SECURITY Alarm still names the Cell in its `alarm.escalated` row on the
+  durable trail and in its chat line, both of which outlive the Cell: the Alarm's own records are
+  not yet behind the boundary.

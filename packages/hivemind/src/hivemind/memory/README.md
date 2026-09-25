@@ -71,7 +71,15 @@ nothing accumulates as a conversation.
   tables: pins, notes, handoffs, episodes, bee_bread, cell_wax; migration 0004 adds the taint
   columns to handoffs, episodes and bee_bread). Both stores satisfy `taint.TaintLedger`: a label
   and its trail event are written in one transaction, and every list and lookup a prompt is built
-  from leaves a TAINTED row out.
+  from leaves a TAINTED row out. `MemoryStore.purge_night_veil(ids)` is the tables' one exception
+  to append-only (codingrules section 12, `store/night_veil.py` and `store/sqlite/night_veil.py`):
+  the Night Veil teardown purge's memory side channel deletes, in one transaction and recording no
+  event, every episode, Handoff, Bee Bread entry, note and Cell Wax row whose key column (principal,
+  task, author, Cell) is one of a Night Veil Cell's ids or whose stored body names one, taint label
+  and all; a pin, the human's own, is kept. Cell Wax about a Night Veil Cell is never written in
+  the first place (the Queen refuses it, `hivemind.queen.ticks.wax`), and an isolation labels none
+  of its rows here (`hivemind.queen.isolation.taint`), since a label's `memory.tainted` record
+  would outlive the Cell on the durable trail.
 - `errors.py` -- `MemoryTierError` (root), `ClearanceError`, `HandoffNotFoundError`,
   `NoteTooLongError`, `BeeBreadEntryNotFoundError`, `SummaryOfSummaryError`,
   `EmptyCompactionError`, `TooManySourcesError`, `InvalidWaxTransitionError`,
@@ -89,6 +97,7 @@ each name's home module.
 uv run --frozen pytest packages/hivemind/tests/unit/memory
 uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_contract.py
 uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_taint_contract.py
+uv run --frozen pytest packages/hivemind/tests/contracts/test_memory_store_night_veil_contract.py
 ```
 
 `tests/unit/memory/` mirrors this package module for module. `tests/contracts/

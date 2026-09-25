@@ -83,6 +83,20 @@ bound to it before or by this move) is cut at the source to the transition and t
 commits it inside its own transaction, past the Queen's `VeiledTrail`, so nothing else would cut
 it.
 
+`chamber/night_veil.py` is what the Night Veil teardown purge asks of the chamber (codingrules
+section 12, `hivemind.cli.compose.night_veil.side_channels`). `bound_to(cell_id)` is its member
+source: the live tasks placed on the ending Cell and their Wardens, which a Queen that never held
+the Cell's segment (a restart's sweep, an offline Absconding) knows of nowhere else.
+`end_night_veil(cell_id, ids)` is its side channel: a task still placed on the ending Cell is
+cancelled first (its work was the Cell's, and a Night Veil Cell is teardown-only, so it can never
+finish now), then `scrub_night_veil` reduces every finished Night Veil task among `ids`, and every
+one that asked at that tier, to its skeleton through `TaskStore.scrub_night_veil`
+(`store/scrub.py`): ids, states, attempts and timestamps stay; its title, objective and
+acceptance words become `SCRUBBED_TEXT`, its planned leavings and progress summary are dropped,
+its outcome keeps its status, verifier and spend but not its summary (replaced) or artifacts
+(dropped), and its questions' text, context and answers are replaced too. A task still live on
+another Cell is never reduced: it may yet be retried.
+
 ## How to test this
 
 ```bash
@@ -101,3 +115,5 @@ them as `from builders.tasks import make_task`. `tests/contracts/test_task_store
 parametrises one behavioural suite over `MemoryTaskStore` (over `MemoryPheromoneTrail`) and
 `SqliteTaskStore` (over `SqlitePheromoneTrail`, both on the same `tmp_path` SQLite file); every
 test builds events with `TaskEvent(...)` and `waggle.ids.new_event_id`, never wall-clock time.
+`tests/contracts/test_task_store_night_veil_contract.py` holds what a reduced row keeps, over both
+stores.

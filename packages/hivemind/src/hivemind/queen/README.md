@@ -144,7 +144,16 @@ every assignment goes to a Warden, over Waggle.
   never merges into the durable one. It routes by the Cell a chunk names, so the Cell gate hands
   it only chunks naming the Cell their link proved (`cell_gate.refusals`, reason `another_cell`):
   a Night Veil Cell cannot ship its segment onto the durable trail under a MEADOW Cell's id, nor a
-  MEADOW Cell bury its own in a Night Veil Cell's segment.
+  MEADOW Cell bury its own in a Night Veil Cell's segment. Nothing the Queen keeps elsewhere may
+  outlive the Cell either: she refuses Cell Wax about a Night Veil Cell (`ticks/wax.py`, recorded
+  as `queen.decided` with the reason alone), placement never offers an attached Night Veil Cell to
+  any task (`dispatcher/snapshot.py`: it holds only the task it was provisioned for), and her
+  Forage ledger forgets every row keyed to the Cell or its Wardens at its teardown
+  (`ForageLedger.forget_cell`, the ledger's Night Veil side channel, with `rows_about` as its
+  member source). Isolating a Night Veil Cell writes no BLOCK wax and labels none of its rows in
+  the Hive's tables, and reads the Cell's own records (its standing isolation, its bees' pause
+  answers, its tasks and bees for the taint order) through `hivemind.pheromone.query_cell`, since
+  they live only in its segment; the human's lift reads them there too.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A
   `CellWaxProposed` classifies as a routine `WAGGLE_MESSAGE` (roadmap step 4.2a: "scores low"),
