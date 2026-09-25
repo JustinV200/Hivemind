@@ -28,6 +28,7 @@ from collections.abc import Awaitable, Callable
 
 from builders.queen import make_queen_deps, plan_responder
 
+from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
@@ -135,6 +136,34 @@ async def test_grant_exceeded_alarm_escalates_straight_to_the_human() -> None:
     assert len(escalated) == 1
     assert escalated[0].id == alarm.alarm_id
     assert escalated[0].kind.value == "GRANT_EXCEEDED"
+    await warden_end.close()
+
+
+async def test_a_task_failed_on_an_alarm_is_cancelled_on_its_warden() -> None:
+    """A task the Queen fails for good never keeps a bee: its Warden is told to cancel it.
+
+    QUOTA_EXCEEDED, min_attempts=1 -> CANCEL, which the Queen carries out as FAIL_TASK
+    (default-policy.toml). The Warden that raised it may still run the bee (an Alarm about a bee
+    that is over its quota rather than crashed) or hold its escalated FAILED row, and only a
+    cancel ends either; before this the chamber read FAILED while the bee worked on.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    first = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+
+    alarm = _alarm(deps.clock, kind=AlarmKind.QUOTA_EXCEEDED, task_id=first.task_id)
+    await warden_end.send(alarm)
+    cancel = await asyncio.wait_for(warden_end.wait_for_task_cancel(), timeout=5.0)
+
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert cancel.task_id == first.task_id
+    assert (await deps.chamber.get(first.task_id)).status is TaskStatus.FAILED
     await warden_end.close()
 
 

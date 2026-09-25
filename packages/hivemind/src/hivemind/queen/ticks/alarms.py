@@ -20,16 +20,20 @@ task `Intervene(QUARANTINE)` through `hivemind.queen.quarantine`; an Alarm that 
 reaches the human instead. `ISOLATE_CELL` (roadmap step 10.6a, a `PolicyAction.ISOLATE` row, the
 Queen's alone) records her decision and isolates the Alarm's Cell through the one isolation path
 (`hivemind.queen.isolation`); an Alarm naming no Cell she can reach, or the Hive Stand, reaches the
-human.
+human. `FAIL_TASK` also sends the Warden that raised the Alarm a `TaskCancel` for the task: that
+Warden may still run its bee (an Alarm about a bee over its quota rather than crashed) or hold its
+escalated FAILED row waiting on her, and only a cancel ends either, so without it the chamber read
+FAILED while a bee kept working on the task.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick dispatch, once per decided
     `REBIND`/`QUARANTINE_BEE`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an `AlarmRaised`.
     Calls into
-    `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.queen.autopilot`
-    (QueenAction), `hivemind.queen.chat` (post_alarm, roadmap step 10.5: an escalated Alarm is
-    appended to the chat), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
+    `hivemind.cell` (CellIdentity), `hivemind.common.logging`, `hivemind.forage.slots`
+    (ModelSlot), `hivemind.queen.autopilot` (QueenAction), `hivemind.queen.chat` (post_alarm,
+    roadmap step 10.5: an escalated Alarm is appended to the chat; CANCEL_SEND_TIMEOUT_S, the
+    bound on FAIL_TASK's cancel), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
     human_inbox` (HumanInbox), `hivemind.queen.isolation` (isolate_cell, roadmap step 10.6a),
     `hivemind.queen.quarantine` (lever_from_alarm, order_quarantine),
     `hivemind.queen.ticks.results` (fail_task, retry_task),
@@ -48,6 +52,8 @@ Key invariants:
       COMPLETE_TASK handling can record `alarm.resolved` once the rebound or retried attempt
       actually succeeds (fix 3d) -- the one Alarm outcome this module itself never reaches, since
       it always runs before the task's own next result is even in flight.
+    - A task FAILED here is always followed by a TaskCancel to its Warden, bounded by
+      `CANCEL_SEND_TIMEOUT_S`; a link that cannot take it is logged, never a reason to raise.
     - The `Intervene(REBIND)` this module sends always fills `binding` with the same fallback key
       it resolved for itself (fix 3c): the receiving Warden (`hivemind.wardens.ticks.control`) has
       no other way to learn which `[llm.slots]` key to respawn on.
@@ -62,13 +68,15 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import MutableMapping, Sequence
 from dataclasses import dataclass
 
 from hivemind.cell import CellIdentity
+from hivemind.common.logging import get_logger
 from hivemind.forage.slots import ModelSlot
 from hivemind.queen.autopilot import QueenAction
-from hivemind.queen.chat import post_alarm
+from hivemind.queen.chat import CANCEL_SEND_TIMEOUT_S, post_alarm
 from hivemind.queen.cluster.triggers import cluster_if_down
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.errors import UnknownCellError
@@ -80,10 +88,15 @@ from hivemind.queen.trail import record_event
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.intervention import Rebind, to_wire
 from waggle.envelope import wrap
+from waggle.errors import TransportError
 from waggle.ids import TaskId, WardenId
+from waggle.messages.base import MAX_REASON_CHARS as WIRE_REASON_CHARS
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Intervene
+from waggle.messages.task import TaskCancel
 
 MAX_ALARM_REASON_CHARS = 2_000  # Matches waggle.messages.supervision.alarms.MAX_DETAIL_CHARS.
+
+_LOG = get_logger(__name__)
 
 __all__ = ["MAX_ALARM_REASON_CHARS", "AlarmHandling", "handle_alarm"]
 
@@ -143,12 +156,7 @@ async def handle_alarm(
         handling.attempts[task_id] = next_attempt
         await retry_task(deps, wardens, task_id, next_attempt)
     elif action is QueenAction.FAIL_TASK and task_id is not None:
-        alarm = Alarm.from_wire(payload)
-        await record_alarm_event(
-            deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="FAIL_TASK"
-        )
-        handling.pending_alarms.pop(task_id, None)  # A failed task never resolves its own Alarm.
-        await fail_task(deps, task_id, _reason(payload))
+        await _fail(deps, wardens, handling, task_id)
     elif action is QueenAction.REBIND:
         await _rebind(deps, wardens, handling)
     elif action is QueenAction.QUARANTINE_BEE:
@@ -159,6 +167,35 @@ async def handle_alarm(
         # ESCALATE_TO_HUMAN, or RETRY_TASK/FAIL_TASK for an Alarm naming no task: escalate rather
         # than silently dropping an Alarm this table decided needs a human.
         await _escalate(deps, handling.human_inbox, payload)
+
+
+async def _fail(
+    deps: QueenDeps, wardens: Sequence[WardenLink], handling: AlarmHandling, task_id: TaskId
+) -> None:
+    """Fail the Alarm's task for good, then tell the Warden that raised it to cancel the task."""
+    payload = handling.payload
+    alarm = Alarm.from_wire(payload)
+    await record_alarm_event(
+        deps.trail, _identity(deps), deps.clock, alarm, "alarm.handled", action="FAIL_TASK"
+    )
+    handling.pending_alarms.pop(task_id, None)  # A failed task never resolves its own Alarm.
+    await fail_task(deps, task_id, _reason(payload))
+    # A FAILED task keeps no bee: whatever its Warden still runs or holds for it ends here.
+    link = next((w for w in wardens if w.warden_id == handling.warden_id), None)
+    if link is not None:
+        await _cancel_on(deps, link, task_id, _reason(payload))
+
+
+async def _cancel_on(deps: QueenDeps, link: WardenLink, task_id: TaskId, reason: str) -> None:
+    """Send `link`'s Warden a TaskCancel for `task_id`, bounded; a stuck link is only logged."""
+    order = TaskCancel(task_id=task_id, grace_s=0.0, reason=reason[:WIRE_REASON_CHARS])
+    try:
+        # External wait: one frame onto the Warden's link, milliseconds; bounded all the same.
+        async with asyncio.timeout(CANCEL_SEND_TIMEOUT_S):
+            await link.transport.send(wrap(order, link.hop, clock=deps.clock))
+    except (TimeoutError, TransportError) as error:
+        # The task is already FAILED; a Warden this cannot reach is judged by its own liveness.
+        _LOG.warning("queen.fail_task.cancel_unsent", task_id=task_id, error=str(error))
 
 
 async def _rebind(deps: QueenDeps, wardens: Sequence[WardenLink], handling: AlarmHandling) -> None:

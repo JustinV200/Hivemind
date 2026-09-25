@@ -7,7 +7,9 @@ dispatch calls into these; none of them is a general-purpose module on its own).
 ## Public API (roadmap step 3.19)
 
 - `assign`: spawn a sub-bee once its `TaskAssign` and `GrantIssued` have both arrived; park
-  otherwise; retry a refused lease once before escalating `CELL_UNREACHABLE`.
+  otherwise; retry a refused lease once before escalating `CELL_UNREACHABLE`. Every `TaskAssign`
+  is a new attempt, so it first supersedes whatever the Warden still holds for the task (the FAILED
+  row an escalated crash left, a bee the Queen retried or resumed): retired, its slot freed.
 - `results`: run acceptance on a sub-bee's claimed `TaskResult`, on the Warden's own session.
 - `trail_ship`: ship this Warden's own trail segment right before a `TaskResult` goes to the
   Queen, so a Cell paused or destroyed on that result never takes the task's rows with it;
@@ -15,7 +17,8 @@ dispatch calls into these; none of them is a general-purpose module on its own).
 - `alarms`: `RETRY`/`REBIND`/`ESCALATE`/`CANCEL_TASK` for an Alarm; `send_alarm_to_queen` for a
   Warden's own self-raised Alarm; `retire_sub_bee`, the one way a sub-bee leaves its Warden (its
   runtime stopped, its link closed, its slot freed), shared with `results`, `control`,
-  `heartbeat`, `Warden.stop` and the quarantine path.
+  `heartbeat`, `Warden.stop` and the quarantine path; a respawn keeps the slot for the fresh bee
+  (`keep_slot`).
 - `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
   `lease_creation` point.
 - `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back; since

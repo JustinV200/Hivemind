@@ -13,9 +13,10 @@ Warden never provisions Cells itself.
   falling back to a bounded cancel, its slot freed), reaps every receive task it owns and releases
   the lease -- never returning with a task it started still pending (codingrules section 11).
   Every way a sub-bee ends takes that same `retire_sub_bee` path, so its slot always comes back:
-  a claim accepted, an Alarm's RETRY/REBIND/CANCEL_TASK, a quarantine, the lease taken back, and a
-  Heartbeat saying the bee has ended with nothing more to send (`SubBee.has_ended`: KILLED by a
-  cancel or kill, DONE after a stop-handoff, or FAILED once a cancel has reached it). One tick drains the queen link
+  a claim accepted, an Alarm's RETRY/REBIND/CANCEL_TASK, a quarantine, the lease taken back, the
+  Queen's next attempt of the same task superseding it, and a Heartbeat saying the bee has ended
+  with nothing more to send (`SubBee.has_ended`: KILLED by a cancel or kill, DONE after a
+  stop-handoff, or FAILED once a cancel has reached it). One tick drains the queen link
   and every sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
   through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the
@@ -25,7 +26,9 @@ Warden never provisions Cells itself.
   (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
   `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`; any one no
-  longer in that set moves it back, recording `warden.clustered`/`warden.active`
+  longer in that set (a `TaskResume`, or the Queen's fresh `TaskAssign` resuming the task) moves
+  it back, recording
+  `warden.clustered`/`warden.active`
   (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's own wiring step: `_record_routine`
   also handles a Queen-sent `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/
   `_hosting_plan` (`wardens.ticks.control.handle_ceilings_set`/`.handle_plan_written`) with no

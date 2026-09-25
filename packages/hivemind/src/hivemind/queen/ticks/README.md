@@ -7,7 +7,8 @@ class stay within codingrules 5.1's size limits.
 
 - `alarms.handle_alarm`: `REBIND`/`ESCALATE_TO_HUMAN`/`RETRY_TASK`/`FAIL_TASK` for an escalated
   Alarm; `REBIND` is sent as a real `hivemind.supervision.intervention.Rebind`, converted through
-  the same `to_wire` machinery `Queen.intervene` uses.
+  the same `to_wire` machinery `Queen.intervene` uses. `FAIL_TASK` also sends the Alarm's Warden a
+  `TaskCancel` (bounded by `CANCEL_SEND_TIMEOUT_S`), so a task failed for good keeps no bee.
 - `liveness.WardenLiveness`, `.record_heartbeat`, `.check_liveness`: track each attached Warden's
   own pulse, and mark one offline (raising an Alarm at the human) after it misses
   `heartbeat_miss_limit` heartbeats of its own cadence -- the interval its newest Heartbeat

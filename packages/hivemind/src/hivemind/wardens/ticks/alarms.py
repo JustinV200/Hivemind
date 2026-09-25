@@ -14,7 +14,9 @@ at every hop... so no level handles it twice"). Roadmap step 10.3 (ADR-0031): ev
 the Guard's `slot_binding` point -- a Warden's own REBIND before the old sub-bee is retired (a
 refused target escalates exactly like "no allowed binding left"), a Queen-sent one inside
 `spawn_sub_bee` (a refusal reports the task FAILED with the reason, `report_refused`) -- and a
-rebind that lands records `llm.rebound`, the declared-but-never-recorded kind.
+rebind that lands records `llm.rebound`, the declared-but-never-recorded kind. A respawn hands its
+predecessor's slot straight to the fresh bee (`retire_sub_bee(keep_slot=True)`): giving it back to
+the pool first let a parked assignment start beside the respawned bee, one over the cap.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -38,6 +40,8 @@ Key invariants:
     - A rebind that lands records exactly one `llm.rebound`; a refused one records the Guard's
       `guard.denied` and never retires a sub-bee without either respawning it or reporting its
       task FAILED.
+    - A respawn's fresh bee takes its predecessor's slot, never a second one: the slot is kept
+      across the retire and released only if the Guard refuses the fresh bee's binding.
     - `rebind_sub_bee` is the one place a fresh sub-bee is spawned on an explicit target binding
       without the grant's own `allowed`-bindings search: `hivemind.wardens.ticks.control`'s own
       Queen-driven REBIND path calls it with the binding key the Queen already resolved
@@ -250,16 +254,29 @@ async def _retire_and_spawn(
     binding: str | None,
     orderer: PrincipalRef | None,
 ) -> SubBee | None:
-    """Retire `sub_bee`, spawn its successor at attempt+1, or report the task FAILED if refused."""
-    grant = warden._grants[sub_bee.assignment.grant_id]  # The caller checked it is there.
-    await retire_sub_bee(warden, sub_bee)
+    """Retire `sub_bee` and spawn its successor at attempt+1, from its Handoff, in its slot."""
+    await retire_sub_bee(warden, sub_bee, keep_slot=True)
     new_assignment = sub_bee.assignment.model_copy(
         update={"attempt": sub_bee.attempt + 1, "resume_from": sub_bee.last_handoff}
     )
+    return await _spawn_into_slot(warden, ctx, new_assignment, binding, orderer)
+
+
+async def _spawn_into_slot(
+    warden: Warden,
+    ctx: WardenCellContext,
+    assignment: TaskAssign,
+    binding: str | None,
+    orderer: PrincipalRef | None,
+) -> SubBee | None:
+    """Spawn `assignment` into the slot its retired predecessor kept, or report it refused."""
+    grant = warden._grants[assignment.grant_id]  # Every caller checked it is there.
     try:
-        fresh = await spawn_sub_bee(ctx, new_assignment, grant, binding, orderer)
+        fresh = await spawn_sub_bee(ctx, assignment, grant, binding, orderer)
     except BindingRefusedError as refused:
-        await report_refused(warden, new_assignment, refused.reason)
+        # Nothing took the kept slot: it goes back to the pool, and the task to the Queen.
+        warden._sub_bee_slots.release()
+        await report_refused(warden, assignment, refused.reason)
         return None
     warden._sub_bees[fresh.worker_id] = fresh
     warden._sub_bee_iters[fresh.worker_id] = fresh.link.receive()
@@ -367,7 +384,7 @@ async def send_alarm_to_queen(
     await _send_to_queen(warden, alarm)
 
 
-async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
+async def retire_sub_bee(warden: Warden, sub_bee: SubBee, *, keep_slot: bool = False) -> None:
     """Stop `sub_bee`, reap what waited on its link, close the link, drop it, free its slot.
 
     The one way a sub-bee leaves its Warden, whatever ended it: a claim accepted (`results`), an
@@ -384,6 +401,9 @@ async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
     Args:
         warden: The owning Warden, whose sub-bee tables this drops the entry from.
         sub_bee: The sub-bee to retire.
+        keep_slot: True when a fresh bee takes this one's slot straight away (a respawn, a
+            rebind, a handoff's successor): the slot passes to it instead of back to the pool,
+            where a parked assignment could otherwise take it first.
     """
     await stop_sub_bee(sub_bee, warden._deps.clock)
     warden._sub_bees.pop(sub_bee.worker_id, None)
@@ -391,7 +411,9 @@ async def retire_sub_bee(warden: Warden, sub_bee: SubBee) -> None:
     receive_task = warden._receive_tasks.pop(sub_bee.worker_id, None)
     if receive_task is not None:
         await reap(receive_task)
-    warden._sub_bee_slots.release()
+    if not keep_slot:
+        # Back to the pool for the next assignment, unless a successor is about to take it.
+        warden._sub_bee_slots.release()
     await sub_bee.link.close()
 
 
