@@ -14,14 +14,20 @@ task. Roadmap step 10.6a: `goal_id` names the goal being placed, and every activ
 blocked Cells for this one decision, exactly as a BLOCK Cell Wax note would: placement data, never
 a special case inside `decide`.
 
+The dispatcher lifecycle fix: a backend's room is less every fresh Cell being provisioned on it
+right now (`hivemind.queen.dispatcher.provisions`): an acquisition in flight has reserved room
+the lifecycle does not count until its Cell exists, and a placement decided meanwhile must not
+count on it too.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
     acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.memory` (WaxSeverity,
     WaxState), `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps,
-    WardenLink), `hivemind.queen.placement` (Inventory, ForageView, RealCandidate,
-    VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's placement holds)
-    and waggle only.
+    WardenLink), `hivemind.queen.placement` (Inventory, ForageView, ProvisionVirtual,
+    RealCandidate, VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's
+    placement holds), `QueenDeps.dispatch.provisions` (the Cells being provisioned) and waggle
+    only.
 
 Key invariants:
     - `build_inventory` is the only place in this whole dispatch that awaits `deps.memory.list_wax`
@@ -30,6 +36,8 @@ Key invariants:
       memory for the placed bee's own footprint), not a re-run of `hivemind.forage.allocate.grant`;
       the real grant computation still happens once placement has already chosen a Cell
       (`hivemind.queen.dispatcher.ready._send_grant_and_assign`).
+    - A backend's headroom is never above what its declared cap leaves once every tracked Cell and
+      every fresh Cell still being provisioned on it are counted, each once.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for "the caller precomputes... before
@@ -41,6 +49,8 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
+from collections import Counter
 from collections.abc import Sequence
 
 from hivemind.brood_chamber import Task
@@ -57,6 +67,7 @@ from hivemind.queen.placement import (
     ForageView,
     Inventory,
     NightVeilHostingView,
+    ProvisionVirtual,
     RealCandidate,
     VirtualBackendCandidate,
     WaxMention,
@@ -270,7 +281,7 @@ async def _held_for(deps: QueenDeps, goal_id: TaskId) -> dict[CellId, WaxMention
 
 
 async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandidate, ...]:
-    """Return the Virtual backends placement sees right now.
+    """Return the Virtual backends placement sees right now, less the room provisions will take.
 
     The live source when wired, else the static tuple. The retry-once path
     (`hivemind.queen.dispatcher.acquire`) zeroes one backend's headroom in a copy of THIS, never
@@ -279,5 +290,33 @@ async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandi
     Virtual side at all and fall back to the Hive Stand (the first real Docker run).
     """
     if deps.virtual_backend_source is not None:
-        return await deps.virtual_backend_source()
-    return deps.virtual_backends
+        backends = await deps.virtual_backend_source()
+    else:
+        backends = deps.virtual_backends
+    reserved = _provisioning_by_backend(deps)
+    return tuple(_less_room(backend, reserved[backend.name]) for backend in backends)
+
+
+def _provisioning_by_backend(deps: QueenDeps) -> Counter[str]:
+    """Count the fresh Cells being provisioned right now, per backend: room already reserved.
+
+    Only an acquisition still in flight counts: once it ends, its Cell is one the lifecycle
+    tracks (and counts) or none at all, so counting it here too would count it twice. Resuming a
+    dormant Cell takes no fresh room: the lifecycle already counts that Cell.
+    """
+    jobs = deps.dispatch.provisions.jobs.values()
+    return Counter(
+        job.placement.backend
+        for job in jobs
+        if isinstance(job.placement, ProvisionVirtual) and not job.job.done()
+    )
+
+
+def _less_room(backend: VirtualBackendCandidate, reserved: int) -> VirtualBackendCandidate:
+    """Return `backend` with `reserved` Cells' worth less headroom (none declared: unchanged)."""
+    headroom = backend.capabilities.headroom
+    if reserved == 0 or headroom is None:
+        return backend
+    left = max(0, headroom - reserved)
+    capabilities = backend.capabilities.model_copy(update={"headroom": left})
+    return dataclasses.replace(backend, capabilities=capabilities)

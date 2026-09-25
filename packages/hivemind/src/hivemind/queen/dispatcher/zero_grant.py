@@ -132,7 +132,7 @@ async def settle_wait(deps: QueenDeps, task: Task, sized: SizedGrant) -> SizedGr
     """Hold a fresh task whose grant a passing shortfall zeroed, or hand its grant back to send.
 
     Args:
-        deps: The Queen's collaborators; `grant_waits` is read and written.
+        deps: The Queen's collaborators; `dispatch.waits` is read and written.
         task: The PENDING task the grant was sized for.
         sized: Its freshly sized grant (`hivemind.queen.dispatcher.sizing.size_grant`).
 
@@ -145,14 +145,14 @@ async def settle_wait(deps: QueenDeps, task: Task, sized: SizedGrant) -> SizedGr
     bound = None if runs_a_bee else waits_on(sized.limits, is_live=sized.is_live)
     if bound is None:
         # A grant to send, or a zero no wait lifts: either way this task waits no longer.
-        deps.grant_waits.waits.pop(task.id, None)
+        deps.dispatch.waits.waits.pop(task.id, None)
         return sized
     wait = await _note_wait(deps, task, bound, _figures(sized))
     waited_s = (deps.clock.now() - wait.since).total_seconds()
-    if not _is_timed(bound) or waited_s < deps.grant_waits.patience_s:
+    if not _is_timed(bound) or waited_s < deps.dispatch.waits.patience_s:
         return None
     # Patience spent: the task fails with the figures (deny_zero_grant) rather than wait on.
-    deps.grant_waits.waits.pop(task.id, None)
+    deps.dispatch.waits.waits.pop(task.id, None)
     return dataclasses.replace(sized, waited_s=waited_s)
 
 
@@ -188,10 +188,10 @@ def forget_waits(deps: QueenDeps, ready: Collection[TaskId]) -> None:
     """Drop the wait of every task no longer ready to dispatch (its goal cancelled, say).
 
     Args:
-        deps: The Queen's collaborators; `grant_waits.waits` is pruned in place.
+        deps: The Queen's collaborators; `dispatch.waits.waits` is pruned in place.
         ready: The ids of every task ready to dispatch on this pass.
     """
-    waits = deps.grant_waits.waits
+    waits = deps.dispatch.waits.waits
     for task_id in [task_id for task_id in waits if task_id not in ready]:
         del waits[task_id]
 
@@ -210,7 +210,7 @@ async def _note_wait(
     deps: QueenDeps, task: Task, bound: GrantBound, figures: dict[str, JsonValue]
 ) -> GrantWait:
     """Start or continue `task`'s wait on `bound`, recording the one event a new wait gets."""
-    book = deps.grant_waits
+    book = deps.dispatch.waits
     previous = book.waits.get(task.id)
     # Still waiting on the same kind of shortfall: already said once, so say nothing more and keep
     # the clock. Which of the host's live figures is tightest may change from pass to pass (cores

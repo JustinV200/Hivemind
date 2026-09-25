@@ -10,10 +10,13 @@ a Virtual `Placement` into a `WardenLink` through `QueenDeps.virtual_provider`, 
 retry-once-with-zeroed-headroom path ADR-0028's own Consequences call for). The zero-grant fix adds
 `sizing` (`size_grant`: every grant sized from the Cell's capacity as it stands, when its link can
 read it live) and `zero_grant` (what a grant that runs no bee does: wait PENDING for a passing
-shortfall to pass, within `[forage] zero_grant_patience_s`, or be denied at once). This file is the
-package's face: every name below is exactly what `hivemind.queen.dispatcher.py` used to export, so
-every existing caller (`hivemind.queen.queen`, `hivemind.queen.ticks.results`, `hivemind.queen.
-cluster.protocol`) imports it unchanged.
+shortfall to pass, within `[forage] zero_grant_patience_s`, or be denied at once). The dispatcher
+lifecycle fix adds `provisions` (the lane a Virtual Cell is acquired in beside the Queen's tick,
+bounded, collected by a later pass, released when its task is gone; `stop_provisions` is what
+`Queen.stop` awaits). This file is the package's face: every name below but `stop_provisions` is
+exactly what `hivemind.queen.dispatcher.py` used to export, so every existing caller
+(`hivemind.queen.queen`, `hivemind.queen.ticks.results`, `hivemind.queen.cluster.protocol`)
+imports it unchanged.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen` package. Called
@@ -26,8 +29,9 @@ Fits into the Hive:
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same
       task, whether from a fresh dispatch or a retry (`ready._send_grant_and_assign`'s own order).
-    - A Virtual `Placement` is acquired through `acquire.resolve_link` before any chamber
-      transition or wire send: a failed acquire never leaves a task half-assigned.
+    - A Virtual `Placement` is acquired beside the tick (`provisions`), never awaited by a
+      dispatch pass, and before any chamber transition or wire send: a failed acquire never leaves
+      a task half-assigned, and a slow one never stalls the Queen.
     - A fresh task's grant is sized before its chamber transition, and nothing is sent to its
       Warden before that transition: a task left waiting for a grant stays PENDING, unsent.
 
@@ -39,8 +43,11 @@ See Also:
 
 Public API:
     - dispatch_ready, redispatch, resume_paused: place, grant and (re-)assign a task (ready).
+    - stop_provisions: await every Virtual Cell still being acquired as the Queen stops
+      (provisions).
 """
 
+from hivemind.queen.dispatcher.provisions import stop_provisions
 from hivemind.queen.dispatcher.ready import dispatch_ready, redispatch, resume_paused
 
-__all__ = ["dispatch_ready", "redispatch", "resume_paused"]
+__all__ = ["dispatch_ready", "redispatch", "resume_paused", "stop_provisions"]

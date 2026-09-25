@@ -90,7 +90,7 @@ typer layer that calls into a subsystem's public API and never contains logic of
   The zero-grant fix: `build_hive` gives the Hive Stand's Queen-side link a reader of the Stand's
   capacity as it stands (`WardenLink.live_capacity`, over `HiveStandSource.cells()`), so every
   grant sees the load and free memory of its moment, and the Queen `[forage]
-  zero_grant_patience_s` (`QueenDeps.grant_waits`). Roadmap step 10.3: `deps.build_enforcer` builds the one Guard `Enforcer` (over `[guard]`'s
+  zero_grant_patience_s` (`QueenDeps.dispatch.waits`). Roadmap step 10.3: `deps.build_enforcer` builds the one Guard `Enforcer` (over `[guard]`'s
   policy) the Queen and the Hive Stand's Warden share (`HiveParts.enforcer`), the Warden's lease
   needs `HIVE_STAND_LEASE` (`cell:hive_stand`), and `run_hive` attaches the Hive Stand's Warden to
   the Queen first (her awaited `warden_spawn` point), so a freshly built `Hive.queen` has no Warden

@@ -94,8 +94,8 @@ async def test_forget_waits_drops_every_task_no_longer_ready_and_keeps_the_rest(
     ready, gone = make_task(), make_task()
     for task in (ready, gone):
         wait = GrantWait(bound=GrantBound.FREE_CORES, since=deps.clock.now())
-        deps.grant_waits.waits[task.id] = wait
+        deps.dispatch.waits.waits[task.id] = wait
 
     forget_waits(deps, {ready.id})
 
-    assert set(deps.grant_waits.waits) == {ready.id}
+    assert set(deps.dispatch.waits.waits) == {ready.id}

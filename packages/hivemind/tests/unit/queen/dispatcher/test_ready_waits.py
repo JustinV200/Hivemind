@@ -190,7 +190,7 @@ async def test_a_deferred_task_runs_once_the_load_drops_and_sends_only_when_runn
     assert stand.recorder.kinds() == [*_ONLY_THE_BINDING_ORDERS, "GrantIssued", "TaskAssign"]
     # The ordering invariant: every message left while the chamber already read RUNNING.
     assert all(statuses[goal_id] is TaskStatus.RUNNING for _, statuses in stand.recorder.sent)
-    assert stand.deps.grant_waits.waits == {}
+    assert stand.deps.dispatch.waits.waits == {}
     assert len(await _denials(stand.deps)) == 1  # The wait's own event, and no other.
     assert "forage.granted" in await _kinds(stand.deps)
 
@@ -224,7 +224,7 @@ async def test_a_wait_past_its_patience_fails_the_task_with_the_figures() -> Non
     # Only the Warden's first orders ever left, and only once the chamber read RUNNING.
     assert stand.recorder.kinds() == list(_ONLY_THE_BINDING_ORDERS)
     assert all(statuses[goal_id] is TaskStatus.RUNNING for _, statuses in stand.recorder.sent)
-    assert stand.deps.grant_waits.waits == {}
+    assert stand.deps.dispatch.waits.waits == {}
 
 
 _TWO_CORE_ROLE = {WorkerRole.DRONE: make_footprint(cpu_cores=2.0)}
@@ -288,7 +288,7 @@ async def test_a_lasting_shortfall_fails_the_task_at_once_with_the_same_denial(
     assert denial.payload["limited_by"] == limited_by
     assert denial.payload["waited_s"] is None
     assert stand.recorder.kinds() == list(_ONLY_THE_BINDING_ORDERS)
-    assert stand.deps.grant_waits.waits == {}
+    assert stand.deps.dispatch.waits.waits == {}
 
 
 async def test_a_virtual_cells_zero_grant_fails_at_once_its_capacity_being_fixed() -> None:
@@ -352,18 +352,18 @@ async def test_a_waiting_task_never_holds_up_a_later_goals_task_in_the_same_pass
 
     # The earlier goal's second task is still waiting, earlier in the ready order than this one.
     assert (await stand.deps.chamber.get(later_goal)).status is TaskStatus.RUNNING
-    assert len(stand.deps.grant_waits.waits) == 1
+    assert len(stand.deps.dispatch.waits.waits) == 1
 
 
 async def test_a_waiting_task_that_is_cancelled_waits_no_longer() -> None:
     stand = await _stand(_Reading(_BUSY))
     goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
-    assert set(stand.deps.grant_waits.waits) == {goal_id}
+    assert set(stand.deps.dispatch.waits.waits) == {goal_id}
 
     await stand.deps.chamber.cancel(goal_id, "The human cancelled the goal.")
     await dispatch_ready(stand.deps, [stand.link])
 
-    assert stand.deps.grant_waits.waits == {}
+    assert stand.deps.dispatch.waits.waits == {}
 
 
 async def test_a_retry_is_sized_from_the_cell_as_probed_so_a_busy_moment_never_fails_it() -> None:
@@ -386,7 +386,7 @@ async def test_a_wait_whose_tightest_host_figure_changes_is_still_one_wait_on_on
     reading = _Reading(_BUSY)
     stand = await _stand(reading, _Setup(clock=clock))
     goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
-    started = stand.deps.grant_waits.waits[goal_id].since
+    started = stand.deps.dispatch.waits.waits[goal_id].since
 
     # The cores free up but the memory fills: the host still has no room for a bee.
     full = make_host_capacity(memory_free_bytes=600 * _MIB)
@@ -396,4 +396,4 @@ async def test_a_wait_whose_tightest_host_figure_changes_is_still_one_wait_on_on
 
     assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.PENDING
     assert len(await _denials(stand.deps)) == 1
-    assert stand.deps.grant_waits.waits[goal_id].since == started
+    assert stand.deps.dispatch.waits.waits[goal_id].since == started

@@ -86,14 +86,14 @@ class _WardenPair:
 
 @dataclass
 class _StallingProvider:
-    """A VirtualCellProvider whose acquire holds the tick until released: a slow provision."""
+    """A VirtualCellProvider whose acquire holds until released: a slow provision."""
 
     result: WardenLink
     entered: asyncio.Event = field(default_factory=asyncio.Event)
     release: asyncio.Event = field(default_factory=asyncio.Event)
 
     async def acquire(self, placement: Placement, task: Task) -> WardenLink:
-        """Hold the calling tick until the test releases it, then hand back `result`."""
+        """Hold until the test releases it, then hand back `result`."""
         self.entered.set()
         await self.release.wait()
         return self.result
@@ -199,8 +199,9 @@ async def _heartbeat_through_a_stall(
 
 
 async def test_a_tick_stalled_on_a_provision_past_the_miss_limit_raises_no_alarm() -> None:
-    # The exact real-run shape: the tick itself places a ready task on a Virtual Cell and the
-    # provision holds it for 40 s against a 15 s window, the Warden heartbeating all the while.
+    # The exact real-run shape: a ready task placed on a Virtual Cell whose provision takes 40 s
+    # against a 15 s window, the Warden heartbeating all the while. The provision no longer runs
+    # inside her tick (hivemind.queen.dispatcher.provisions), so this now also holds with no stall.
     clock = FakeClock()
     base, _link, _end = make_queen_deps(clock)
     stand = _pair(base)

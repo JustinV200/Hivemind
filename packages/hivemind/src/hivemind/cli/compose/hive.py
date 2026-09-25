@@ -21,7 +21,7 @@ Fits into the Hive:
     `hivemind.cli.compose.deps`, `.links`, `hivemind.cli.stores`, `hivemind.common.secrets` (the
     Hive's persisted signing key, for the Virtual side, and the untrusted-content scanner's key),
     `hivemind.forage` (ForageCapacity), `hivemind.guard.scanner`, `hivemind.pheromone`,
-    `hivemind.queen` (and `hivemind.queen.deps` for GrantWaits and LiveCapacity),
+    `hivemind.queen` (and `hivemind.queen.deps` for DispatchBook, GrantWaits and LiveCapacity),
     `hivemind.wardens` and waggle only.
 
 Key invariants:
@@ -97,7 +97,7 @@ from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
 from hivemind.queen import ForageLedger, Queen, QueenDeps, WardenLink, sync_answers_from_chamber
-from hivemind.queen.deps import GrantWaits, LiveCapacity
+from hivemind.queen.deps import DispatchBook, GrantWaits, LiveCapacity
 from hivemind.wardens import Warden
 from waggle.clock import Clock
 from waggle.ids import TaskId
@@ -368,7 +368,7 @@ def _assemble_hive(
         scanner=scanner,
         human_channel=relay,
         on_heartbeat=telemetry.record,
-        grant_waits=waits,
+        dispatch=DispatchBook(waits=waits),
     )
     # Roadmap steps 10.6a and 10.6: her Guard request side, and the Guard Bee filing through her.
     lifecycle = extras.virtual_cells.lifecycle if extras.virtual_cells is not None else None

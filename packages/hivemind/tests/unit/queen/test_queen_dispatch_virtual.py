@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 from builders.cells import make_cell
 from builders.forage import make_capacity
-from builders.queen import WardenEnd, make_queen_deps, plan_responder
+from builders.queen import WardenEnd, land_provisions, make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import Task, TaskStatus
 from hivemind.cell import CellKind, CombShieldLevel, HoneyClearance
@@ -129,6 +129,8 @@ async def test_prefer_virtual_dispatches_onto_a_freshly_acquired_virtual_cell() 
     await queen.attach_warden(real_link)
 
     goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    # submit_goal's pass only starts the acquisition; her next pass places the task on the Cell.
+    await land_provisions(deps, queen.wardens)
 
     assignment = await fresh_warden_end.wait_for_assignment()
     assert assignment.task_id == goal_id

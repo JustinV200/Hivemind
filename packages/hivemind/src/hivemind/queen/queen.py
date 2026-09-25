@@ -85,7 +85,7 @@ from hivemind.queen import attach, goal_submission, leave_memory, quarantine, qu
 from hivemind.queen.autopilot import QueenAction, decide
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready
+from hivemind.queen.dispatcher import dispatch_ready, stop_provisions
 from hivemind.queen.errors import UnknownWardenError
 from hivemind.queen.guard_requests import GuardDoor, guard_items
 from hivemind.queen.guard_requests.decision import decide_guard_item
@@ -334,6 +334,9 @@ async def _stop_queen(queen: Queen) -> None:
     still waiting sees it and returns before it drains anything, so nothing here races that tick.
     """
     TickLoop.stop(queen)  # Same as super().stop() would from inside Queen.stop's own body.
+    # Every Virtual Cell still being acquired is awaited, never cancelled, while her links are
+    # still open for its Warden to attach: the Cell it makes is one the shutdown then retires.
+    await stop_provisions(queen._deps)
     await queen._links.aclose()
     # Roadmap step 10.5: a plan still in flight is reaped too; its request stays PLANNING, which
     # the next start settles (hivemind.queen.ticks.intake), so nothing is lost or planned twice.

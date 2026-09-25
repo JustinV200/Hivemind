@@ -20,6 +20,10 @@ pair: it wraps the Warden's own end, mirroring `builders.wardens.QueenEnd` with 
 reversed -- it sends `Heartbeat`/`TaskResult`/`AlarmRaised`/`Question` (what a Warden reports) and
 sorts what it receives into `grants`/`assignments`/`answers`/`intervenes`/`forage_replies` (what a
 Warden is sent).
+`land_provisions` is for a test that places a task on a Virtual Cell: the Queen acquires one beside
+her tick (`hivemind.queen.dispatcher.provisions`), so a dispatch pass only starts the acquisition;
+this awaits every acquisition in flight, then runs the pass that collects each Cell and places its
+task, as her next tick would.
 `plan_responder` builds a `FakeLLMProvider` `Responder` for a test that only exercises
 `hivemind.queen.planner.plan_goal`/`Queen.submit_goal`: it pulls the goal text back out of the
 rendered `decompose_goal` system prompt's own `<<<user>>>` section and answers with
@@ -46,9 +50,10 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -69,6 +74,7 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.chat import InMemoryChatLog
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
+from hivemind.queen.dispatcher import dispatch_ready
 from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.supervision import load_policy
 from waggle.clock import Clock, FakeClock
@@ -121,6 +127,7 @@ __all__ = [
     "DEFAULT_PUMP_LIMIT",
     "FORAGE_SOURCE_SEATS",
     "WardenEnd",
+    "land_provisions",
     "make_queen_deps",
     "make_warden_link",
     "plan_responder",
@@ -190,6 +197,20 @@ def with_guard_policy(deps: QueenDeps, policy: GuardPolicy) -> QueenDeps:
     )
     enforcer = Enforcer(policy, deps.trail, deps.clock, identity)
     return dataclasses.replace(deps, enforcer=enforcer)
+
+
+async def land_provisions(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
+    """Await every Virtual Cell being acquired, then run the dispatch pass that collects them.
+
+    Args:
+        deps: The Queen's collaborators; `dispatch.provisions` holds the acquisitions.
+        wardens: Every attached Warden, handed to the collecting pass.
+    """
+    jobs = [held.job for held in deps.dispatch.provisions.jobs.values()]
+    if jobs:
+        # A fake provider's acquire settles in a few loop turns; a real wait here is the test's own.
+        await asyncio.wait(jobs)
+    await dispatch_ready(deps, wardens)
 
 
 def _build_enforcer(fields: dict[str, object], hive_id: HiveId, node_id: NodeId) -> Enforcer:

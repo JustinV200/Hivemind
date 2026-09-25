@@ -54,6 +54,12 @@ One dispatch pass tries every ready task at most once, in `(created_at, id)` ord
 left PENDING (a placement failure, or a wait) no longer ends the pass for the tasks behind it: a
 goal waiting on its own allowance must never hold up another goal's work.
 
+The dispatcher lifecycle fix: a pass no longer awaits a Virtual Cell's provision. It authorizes a
+Virtual placement (`acquire.authorize_virtual`), starts its acquisition beside the tick
+(`hivemind.queen.dispatcher.provisions`, bounded) and moves on, the task still PENDING; a later
+pass collects the Cell and places the task on it, and a Cell whose task was cancelled or failed
+meanwhile, or whose grant was denied, is released rather than left behind.
+
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
 `PlacementError` (a Night Veil rule broken for good) cancels the task with its reason at once,
@@ -80,9 +86,10 @@ Fits into the Hive:
     `hivemind.forage` (Ceilings, ForageGrant, ModelSlot), `hivemind.pheromone` (ForageEvent,
     MAX_PAYLOAD_STRING_CHARS), `hivemind.guard` (the placement point), `hivemind.queen.authority`,
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants` (activate,
-    roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual,
-    decide), `hivemind.queen.dispatcher.acquire`/`.grants`/`.night_veil`/`.sizing`/`.snapshot`/
-    `.zero_grant`, `hivemind.queen.trail` (record_event) and waggle only.
+    roadmap step 4.7), `hivemind.queen.placement` (Placement, PlacementError,
+    ProvisionVirtual, ReuseReal, decide), `hivemind.queen.dispatcher.acquire`/`.grants`/
+    `.night_veil`/`.provisions`/`.sizing`/`.snapshot`/`.zero_grant`, `hivemind.queen.trail`
+    (record_event) and waggle only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task,
@@ -105,6 +112,8 @@ Key invariants:
       follows it.
     - One dispatch pass tries each ready task at most once, and a task it leaves PENDING never
       stops it from trying the ready tasks behind it.
+    - No pass awaits a Virtual Cell's provision; a Cell acquired for a task is placed for it on a
+      later pass, or released once the task is gone or its grant denied.
     - `guard.denied` for placement is recorded only when the goal's capability set alone left no
       candidate; a capacity or fit failure records `queen.decided` and nothing more.
 
@@ -114,6 +123,7 @@ See Also:
     - .claude/codingrules.md section 8.8 for "never assigns to a Worker directly".
     - hivemind.queen.placement for decide, this module's one placement call.
     - hivemind.queen.dispatcher.acquire for resolve_link, this module's Placement-to-Warden call.
+    - hivemind.queen.dispatcher.provisions for the lane a Virtual Cell is acquired in.
     - hivemind.queen.dispatcher.sizing for size_grant, this module's one allocation call.
     - hivemind.queen.dispatcher.zero_grant for the wait-or-deny rule a zero grant follows.
 """
@@ -133,9 +143,19 @@ from hivemind.guard import CapabilitySet, EnforcementPoint
 from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS, ForageEvent
 from hivemind.queen.authority import goal_held, request_for, task_context
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher.acquire import resolve_link
+from hivemind.queen.dispatcher.acquire import authorize_virtual, resolve_link
 from hivemind.queen.dispatcher.grants import authorize_grant
 from hivemind.queen.dispatcher.night_veil import check_night_veil_placement
+from hivemind.queen.dispatcher.provisions import (
+    GRANT_DENIED,
+    acquired,
+    acquired_for_task,
+    forget_provision,
+    provisioning,
+    release_cell,
+    settle_provisions,
+    start_provision,
+)
 from hivemind.queen.dispatcher.sizing import SizedGrant, size_grant
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.dispatcher.zero_grant import (
@@ -147,7 +167,13 @@ from hivemind.queen.dispatcher.zero_grant import (
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage.ceilings import set_ceilings
 from hivemind.queen.forage.hosting import write_hosting_plan
-from hivemind.queen.placement import Placement, PlacementError, ProvisionVirtual, decide
+from hivemind.queen.placement import (
+    Placement,
+    PlacementError,
+    ProvisionVirtual,
+    ReuseReal,
+    decide,
+)
 from hivemind.queen.trail import record_event
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, TaskId, WardenId, new_event_id
@@ -168,17 +194,19 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
     Returns:
         None, once every ready task has been dispatched, found unplaceable, or left to wait.
     """
-    # One dispatch pass at a time per Queen: Queen.submit_goal and the tick loop both call this,
-    # and a Virtual placement awaits a real provision inside resolve_link, a window in which the
-    # other caller would otherwise see the same PENDING task and lose the chamber's own
-    # PENDING -> ASSIGNED transition (QueenDeps.dispatch_lock's own comment).
-    async with deps.dispatch_lock:
+    # One dispatch pass at a time per Queen: Queen.submit_goal, a finished task and the tick all
+    # call this, and two passes interleaving would both see the same PENDING task and one would
+    # lose the chamber's own PENDING -> ASSIGNED transition (DispatchBook.lock's own docstring).
+    async with deps.dispatch.lock:
         attempted: set[TaskId] = set()
         ready = await _ready_tasks(deps)
-        # A task that left PENDING some other way (its goal cancelled, say) waits no longer.
+        # A task that left PENDING some other way (its goal cancelled, say) waits no longer, and a
+        # Cell acquired for it is released rather than left behind.
         forget_waits(deps, {task.id for task in ready})
-        # Each ready task once, earliest first; one left PENDING (unplaceable, or waiting for a
-        # grant) is skipped rather than ending the pass, so it never holds up the tasks behind it.
+        await settle_provisions(deps, {task.id for task in ready})
+        # Each ready task once, earliest first; one left PENDING (unplaceable, waiting for a
+        # grant, or its Cell still being made) is skipped rather than ending the pass, so it never
+        # holds up the tasks behind it.
         while (task := _first_untried(ready, attempted)) is not None:
             attempted.add(task.id)
             try:
@@ -288,21 +316,40 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     (`Queen._act`'s `BLOCK_ON_QUESTION` handling) must never find the chamber still reading
     ASSIGNED while it tries to move a RUNNING task to BLOCKED.
     """
+    if provisioning(deps, task.id):
+        return  # Its Cell is still being made beside the tick: never awaited here.
     # Roadmap steps 10.3a/c: a Night Veil task meets the tier's floors before any Cell is chosen.
     await check_night_veil_placement(deps, task)
-    # A goal whose running tasks hold its whole allowance waits before any Cell is chosen: a Cell
-    # acquired now would sit idle, and a fresh Virtual one would be provisioned again next pass.
+    # A goal whose running tasks hold its whole allowance waits before any Cell is chosen: a
+    # Cell acquired now would only sit idle.
     if await hold_for_goal(deps, task):
         return
-    inventory = await build_inventory(deps, wardens, goal_id=task.goal_id)
-    placement = decide(
-        task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
-    )
-    link, placement = await resolve_link(deps, wardens, task, placement)
+    placed = await _place(deps, wardens, task)
+    if placed is None:
+        return  # A Cell is being acquired for it beside the tick (or will be): still PENDING.
+    link, placement = placed
     sized = await settle_wait(deps, task, await size_grant(deps, link, task))
     if sized is None:
-        return  # Waiting for its Cell's live figures to make room: still PENDING, nothing sent.
+        return  # Waiting for room: still PENDING, nothing sent; a Cell acquired for it stays.
     await _record_placed(deps, task, placement)
+    await _start_on(deps, task, link)
+    # The Cell is the running task's own from here on; until then a task that left PENDING under
+    # this pass (cancelled meanwhile) still leaves the Cell in the lane, released by the next one.
+    forget_provision(deps, task.id)
+    fresh_grant = await _send_grant_and_assign(
+        deps, link, task, _AssignmentTerms(attempt=task.attempt), sized
+    )
+    if fresh_grant is None:
+        # Denied, the task already failed: a Cell acquired for it alone would never be used.
+        if acquired_for_task(placement):
+            await release_cell(deps, await deps.chamber.get(task.id), link, GRANT_DENIED)
+        return
+    # "placed" and "assigned" (both just above) precede "granted" on the trail.
+    await _record_forage_granted(deps, task, fresh_grant, link.warden_id)
+
+
+async def _start_on(deps: QueenDeps, task: Task, link: WardenLink) -> None:
+    """Move `task` PENDING -> ASSIGNED -> RUNNING on `link`'s Cell, and record `queen.assigned`."""
     # Roadmap step 10.3b: the task is bound to its Cell's tier with the assignment, so every later
     # check for it (a rebind, a grant revision, an egress change) reads the tier it runs under.
     await deps.chamber.assign(
@@ -316,12 +363,34 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     await record_event(
         deps, "queen.assigned", task.id, cell_id=link.cell.id, warden_id=link.warden_id
     )
-    terms = _AssignmentTerms(attempt=task.attempt)
-    fresh_grant = await _send_grant_and_assign(deps, link, task, terms, sized)
-    if fresh_grant is None:
-        return  # Denied: _send_grant_and_assign already failed the task (module docstring).
-    # "placed" and "assigned" (both just above) precede "granted" on the trail.
-    await _record_forage_granted(deps, task, fresh_grant, link.warden_id)
+
+
+async def _place(
+    deps: QueenDeps, wardens: Sequence[WardenLink], task: Task
+) -> tuple[WardenLink, Placement] | None:
+    """Return the Cell `task` goes to and why, or None while a Cell is acquired for it.
+
+    A Cell already acquired for it is its Cell. Otherwise placement decides: an attached Cell is
+    returned at once; a Virtual one is authorized on this pass, so a refusal is recorded now,
+    then acquired beside the tick, where no pass ever awaits it (`provisions.start_provision`;
+    a full lane leaves the task for a later pass to start).
+
+    Raises:
+        PlacementError: No Cell fits, the Virtual Cell was refused, or its acquisition, collected
+            on this pass, failed.
+    """
+    placed = acquired(deps, task.id)
+    if placed is not None:
+        return placed
+    inventory = await build_inventory(deps, wardens, goal_id=task.goal_id)
+    placement = decide(
+        task.spec.needs, inventory, build_forage_view(deps, task), deps.placement_policy
+    )
+    if isinstance(placement, ReuseReal):
+        return await resolve_link(deps, wardens, task, placement)
+    await authorize_virtual(deps, task, placement)
+    start_provision(deps, wardens, task, placement)
+    return None
 
 
 async def _record_placement_failure(deps: QueenDeps, task: Task, error: PlacementError) -> None:

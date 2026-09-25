@@ -277,7 +277,7 @@ def test_build_hive_carries_the_manifests_footprints_reserve_and_grant_ttl(tmp_p
     assert isinstance(deps.ledger, ForageLedger)
     assert deps.ledger.reserve == deps.reserve
     # The zero-grant fix: [forage] zero_grant_patience_s, fake_manifest leaving the default.
-    assert deps.grant_waits.patience_s == 300.0
+    assert deps.dispatch.waits.patience_s == 300.0
 
 
 def test_build_hive_gives_the_hive_stands_link_a_reader_of_its_capacity_as_it_stands(

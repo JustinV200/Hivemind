@@ -11,6 +11,12 @@ reported unreachable: the Queen's stall is her own, not the Warden's. Second, th
 Cell calls the model through the Cell's own Fanner, so at least one `llm.call` recorded under the
 Cell's own node id reaches the Queen's trail once the Cell's segment is shipped.
 
+The dispatcher lifecycle fix adds a second scenario over the same Hive: a goal withdrawn while its
+Cell is still being provisioned. Her tick must keep handling the Hive Stand's Heartbeats all
+through the provision (it no longer awaits one), `cell.provisioning` must be on the trail while the
+backend is still at work, and once the Cell lands it must be destroyed rather than left behind for
+a task that will never run there.
+
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
 
@@ -27,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -46,7 +53,7 @@ from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.queen.chat import MAX_CHAT_PAGE, ChatKind, ChatQuery
 from hivemind.supervision import AlarmKind
 from waggle.clock import SystemClock
-from waggle.ids import TaskId
+from waggle.ids import TaskId, WardenId
 
 pytestmark = pytest.mark.e2e
 
@@ -57,6 +64,9 @@ _HEARTBEAT_INTERVAL_S = 0.1
 # Fifteen heartbeats against a window of three: every Heartbeat the Hive Stand's Warden sends
 # during the stall but the last few is stale by the time the Queen gets to it.
 _PROVISION_DELAY_S = 1.5
+# Five Heartbeat intervals: far more than one tick handled before a dispatch pass blocks, far less
+# than the provision takes, so only a tick that never waits on the provision gets this far in time.
+_HEARD_THROUGH_A_PROVISION = timedelta(seconds=0.5)
 
 
 def test_a_slow_provision_raises_no_false_alarm_and_ships_the_cells_llm_calls(
@@ -117,6 +127,76 @@ async def _run_slow_provision(hive: Hive) -> None:
         assert llm_calls, "no llm.call from the Cell's own node reached the Queen's trail"
     finally:
         await backend.aclose()
+
+
+def test_a_goal_withdrawn_while_its_cell_is_provisioned_leaves_no_cell_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Withdrawn mid-provision: her tick hears the Hive Stand throughout; the Cell is destroyed."""
+    monkeypatch.setattr(
+        "hivemind.cli.compose.virtual_cell_backends.FakeCellBackend",
+        ContainerSpawningFakeCellBackend,
+    )
+    tuning = VirtualCellsTuning(
+        prefer="virtual", overwinter_enabled=False, heartbeat_interval_s=_HEARTBEAT_INTERVAL_S
+    )
+    manifest_path = virtual_cells_manifest(tmp_path, tuning=tuning)
+    script = HaikuScript(default_worker_turn, plan=single_haiku_plan("haiku_1.txt"))
+    hive = build_hive(
+        load_manifest(manifest_path, {}),
+        environ={},
+        clock=SystemClock(),
+        responders={"fake": script.responder},
+    )
+    asyncio.run(_run_withdrawn_mid_provision(hive))
+
+
+async def _run_withdrawn_mid_provision(hive: Hive) -> None:
+    """Withdraw a goal while its Cell is provisioned, then read the chamber, trail and backend."""
+    assert hive.virtual_cells is not None
+    backend = hive.virtual_cells.registry.get("fake")
+    assert isinstance(backend, ContainerSpawningFakeCellBackend)
+    backend.set_provision_delay(_PROVISION_DELAY_S)
+    stand = hive.warden_link.warden_id
+    try:
+        async with run_hive(hive):
+            goal_id = await hive.queen.submit_goal(
+                "write one haiku about bees", clearance=HoneyClearance.C1
+            )
+            # Stamped as provisioning begins, while the backend is still at work.
+            await wait_until(
+                lambda: _recorded_kind(hive, "cell.provisioning"), timeout_s=_TIMEOUT_S
+            )
+            [began] = await hive.stores.trail.query(TrailQuery(kind="cell.provisioning"))
+            await wait_until(lambda: _heard_through(hive, stand, began.at), timeout_s=_TIMEOUT_S)
+            still_provisioning = not await _recorded_kind(hive, "cell.provisioned")
+            assert await hive.queen.cancel_goal(goal_id, "withdrawn")
+            await wait_until(
+                lambda: _recorded(hive, "cell.destroyed", began.subject_id), timeout_s=_TIMEOUT_S
+            )
+        assert still_provisioning
+        [task] = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
+        assert task.status is TaskStatus.CANCELLED
+        events = await hive.stores.trail.query(TrailQuery())
+        assert not [e for e in events if e.kind == "queen.assigned"]
+        released = [e for e in events if e.payload.get("reason") == "cell_released"]
+        assert [(e.payload["cause"], e.payload["cell_id"]) for e in released] == [
+            ("task_gone", began.subject_id)
+        ]
+        assert await backend.list_cells(hive.manifest.hive.id) == ()
+    finally:
+        await backend.aclose()
+
+
+def _heard_through(hive: Hive, warden_id: WardenId, since: datetime) -> bool:
+    """True once her tick has handled a Heartbeat from `warden_id` received well past `since`."""
+    heard = hive.queen.liveness[warden_id].last_heartbeat_at
+    return heard is not None and heard >= since + _HEARD_THROUGH_A_PROVISION
+
+
+async def _recorded_kind(hive: Hive, kind: str) -> bool:
+    """True once the Queen's trail holds any event of `kind`."""
+    return bool(await hive.stores.trail.query(TrailQuery(kind=kind)))
 
 
 async def _assert_no_false_alarm(hive: Hive) -> None:

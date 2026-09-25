@@ -31,11 +31,15 @@ a revocation from the Entrance and her own intake never move one request from a 
 Roadmap step 10.6 adds the Guard Bee (the Hive's security watcher) she runs on her own tick beside
 the House Bee's sweep (`guard_bee`): the composition root builds one for every Hive it composes
 (`hivemind.cli.compose.guard`), and a test that needs none leaves it None.
-The zero-grant fix adds her book of fresh tasks waiting for a grant (`grant_waits`,
-a `GrantWaits` holding `[forage] zero_grant_patience_s`), kept here beside `housekeeping` for the
-same reason, and to `WardenLink` the reader of its Cell's capacity as it stands right now
-(`live_capacity`, a `LiveCapacity`: the Hive Stand re-reads its load and free memory on every
-call; a Virtual Cell, whose resources its spec fixes, has none).
+The zero-grant fix adds her book of fresh tasks waiting for a grant (a `GrantWaits` holding
+`[forage] zero_grant_patience_s`), and to `WardenLink` the reader of its Cell's capacity as it
+stands right now (`live_capacity`, a `LiveCapacity`: the Hive Stand re-reads its load and free
+memory on every call; a Virtual Cell, whose resources its spec fixes, has none). The dispatcher
+lifecycle fix adds her Virtual Cells being acquired beside her tick (`ProvisionLane`, a bounded
+set of `ProvisionJob`s, so a slow provision never stalls her loop), and gathers the dispatcher's
+own runtime bookkeeping -- its lock, those waits and that lane -- into one `DispatchBook`
+(`dispatch`), kept here beside `housekeeping` for the same reason and so `QueenDeps` stays inside
+codingrules 5.1's class size.
 Roadmap step 10.6a adds `guard`: her durable Guard requests, the dire patterns she
 decides by rule, and what isolating a Cell needs (`hivemind.queen.guard_requests.GuardDeps`).
 
@@ -150,8 +154,13 @@ _DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
 # Matches the manifest's own [forage] zero_grant_patience_s default, so a QueenDeps built without
 # naming it (every test that never waits) bounds a wait exactly as a default manifest does.
 _DEFAULT_ZERO_GRANT_PATIENCE_S = 300.0
+# The most Virtual Cells acquired beside the tick at once: as many as a default manifest's
+# [virtual_cells] max_cells lets exist, so the bound never starves a default Hive, while a Hive
+# configured for many more Cells still starts no more than this many containers or VMs together.
+_DEFAULT_PROVISIONS_IN_FLIGHT = 4
 
 __all__ = [
+    "DispatchBook",
     "DormantCellSource",
     "GrantWait",
     "GrantWaits",
@@ -162,6 +171,8 @@ __all__ = [
     "OnHeartbeat",
     "OnTaskFinished",
     "PlanningLane",
+    "ProvisionJob",
+    "ProvisionLane",
     "QueenDeps",
     "VirtualBackendSource",
     "VirtualCellProvider",
@@ -354,11 +365,11 @@ class GrantWaits:
     later dispatch pass (`hivemind.queen.dispatcher.zero_grant`); this is where each such wait's
     start is kept, so the first pass records the one `forage.denied` that says so, later passes
     record nothing, and a wait on the Cell's live figures past `patience_s` fails the task with
-    the figures instead of waiting for ever. Held on `QueenDeps` like `Housekeeping`, for the same
-    reason. Owns its own mutable state in place (codingrules section 8.5): `waits` changes on
-    every dispatch pass that starts, changes or ends a wait. In memory only: a restarted Queen
-    starts each wait afresh (and says so on the trail) rather than trusting a clock it did not
-    keep.
+    the figures instead of waiting for ever.
+    Held in `DispatchBook`, for the same reason `Housekeeping` is held on `QueenDeps`. Owns its own
+    mutable state in place (codingrules section 8.5): `waits` changes on every dispatch pass that
+    starts, changes or ends a wait. In memory only: a restarted Queen starts each wait afresh (and
+    says so on the trail) rather than trusting a clock it did not keep.
 
     Attributes:
         patience_s: `[forage] zero_grant_patience_s`: the longest a task waits on its Cell's live
@@ -368,6 +379,63 @@ class GrantWaits:
 
     patience_s: float = _DEFAULT_ZERO_GRANT_PATIENCE_S
     waits: dict[TaskId, GrantWait] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ProvisionJob:
+    """One Virtual Cell being acquired for one ready task, beside the Queen's tick.
+
+    Attributes:
+        placement: The Virtual placement being acquired (`ProvisionVirtual` or `ReuseDormant`).
+        job: The asyncio task acquiring it (`hivemind.queen.dispatcher.acquire.resolve_link`);
+            its result is the Cell's link and the placement actually used, a failed provision
+            having been retried once (ADR-0028).
+    """
+
+    placement: Placement
+    job: asyncio.Task[tuple[WardenLink, Placement]]
+
+
+@dataclass(slots=True)
+class ProvisionLane:
+    """The Queen's Virtual Cells being acquired beside her tick, and how many may be at once.
+
+    Provisioning a Virtual Cell takes seconds to minutes (a container or VM boots, its Warden
+    dials back); awaited inside the tick it stalled her inbox, liveness and Entrance goals for
+    that long. `hivemind.queen.dispatcher.provisions` starts each acquisition here instead, at
+    most `limit` at once, and a later dispatch pass collects it: a Cell whose task is still
+    waiting is placed, one whose task is gone is released. `Queen.stop` awaits what is still in
+    flight, never cancels it (`hivemind.queen.dispatcher.provisions.stop_provisions`). Owns its
+    own mutable state in place (codingrules section 8.5), changed only under `DispatchBook.lock`.
+
+    Attributes:
+        limit: The most acquisitions in flight at once.
+        jobs: Every ready task with a Cell being acquired for it, or acquired and not yet
+            placed (its grant still waiting), by task id.
+        closed: Set as the Queen stops: she starts no acquisition she would not see finish.
+    """
+
+    limit: int = _DEFAULT_PROVISIONS_IN_FLIGHT
+    jobs: dict[TaskId, ProvisionJob] = field(default_factory=dict)
+    closed: bool = False
+
+
+@dataclass(slots=True)
+class DispatchBook:
+    """The dispatcher's own runtime bookkeeping, one per Queen: its lock, waits and provisions.
+
+    Attributes:
+        lock: Serialises every dispatch pass on this Queen, and so every change to `waits` and
+            `provisions`: `Queen.submit_goal`, a finished task and her tick each dispatch, and
+            two passes interleaving could both pick the same PENDING task and lose the chamber's
+            PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
+        waits: Fresh tasks waiting for a grant, and their patience (`GrantWaits`).
+        provisions: Virtual Cells being acquired beside her tick (`ProvisionLane`).
+    """
+
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    waits: GrantWaits = field(default_factory=GrantWaits)
+    provisions: ProvisionLane = field(default_factory=ProvisionLane)
 
 
 def _set_event() -> asyncio.Event:
@@ -474,7 +542,10 @@ class QueenDeps:
             release.make_on_task_finished` builds the real implementation, over a `CellLifecycle`,
             which itself keys off whether that lifecycle recognises the Cell at all -- this field
             is how a Virtual Cell's own release/overwinter/teardown gets triggered without the
-            Queen ever reading `cell.kind` outside placement (codingrules section 8.7).
+            Queen ever reading `cell.kind` outside placement (codingrules section 8.7). The
+            dispatcher tells it too about a Cell acquired for a task that was cancelled or denied
+            before it could run there (`hivemind.queen.dispatcher.provisions.release_cell`).
+        dispatch: The dispatcher's own lock, grant waits and provisions (`DispatchBook`).
         keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
             None (the default) until the operator sets one. Read only by `hivemind.queen.
             goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.
@@ -500,7 +571,6 @@ class QueenDeps:
             trail): the Hive Entrance's telemetry board in `hive serve`; None (nobody) by default.
         intake_lock: Serialises her goal-request edges (`hivemind.queen.intake.writes`): intake, a
             plan landing beside her tick and a revocation each move the row as it stands.
-        grant_waits: Fresh tasks waiting for a grant, and their patience (`GrantWaits`).
         guard: Her Guard requests, dire patterns, egress seam and pause bound (roadmap step
             10.6a, ADR-0035); an in-memory table and the shipped patterns by default.
     """
@@ -554,11 +624,9 @@ class QueenDeps:
     dormant_cell_source: DormantCellSource | None = None
     on_task_finished: OnTaskFinished | None = None
     on_cell_granted: OnCellGranted | None = None
-    # Serialises every dispatch_ready call on this Queen. Queen.submit_goal dispatches directly and
-    # the tick loop dispatches again on every inbox item; while a Virtual placement awaits a real
-    # provision inside resolve_link, the other call site could otherwise pick the same still-PENDING
-    # task and lose the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
-    dispatch_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # One per Queen, like `housekeeping`: every dispatch pass serialises on its lock, and its waits
+    # and provisions outlive any one pass (DispatchBook's own docstring).
+    dispatch: DispatchBook = field(default_factory=DispatchBook)
     keep_root: Path | None = None  # Roadmap step 5.0e: the planner's, never TaskAssign's.
     # Roadmap step 10.5 (ADR-0032): the human end. Defaulted so a composition root that wires no
     # Hive Entrance (hive run, every test) tells nobody, and so the Queen's own mutable wake and
@@ -574,5 +642,4 @@ class QueenDeps:
     on_heartbeat: OnHeartbeat | None = None
     intake_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
-    grant_waits: GrantWaits = field(default_factory=GrantWaits)  # The zero-grant fix.
     guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0035).

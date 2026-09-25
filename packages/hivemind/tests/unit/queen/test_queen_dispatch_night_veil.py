@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from builders.cells import make_cell
 from builders.forage import make_capacity
 from builders.human import make_goal_request
-from builders.queen import make_queen_deps
+from builders.queen import land_provisions, make_queen_deps
 from builders.tasks import make_graph_draft
 
 from hivemind.brood_chamber import Task, TaskDraft, TaskGraphDraft, TaskStatus
@@ -139,6 +139,7 @@ async def test_a_human_night_veil_request_is_placed_bound_and_cites_its_request(
     task = await _submit(deps, _NIGHT_VEIL_NEEDS, CombShieldLevel.NIGHT_VEIL)
 
     await dispatch_ready(deps, ())
+    await land_provisions(deps, ())  # The Cell lands beside the tick; the next pass places it.
 
     placed = await deps.chamber.get(task.id)
     assert placed.status is TaskStatus.RUNNING
@@ -209,6 +210,7 @@ async def test_a_night_veil_grant_keeps_no_binding_that_is_not_local() -> None:
     task = await _submit(deps, _NIGHT_VEIL_NEEDS, CombShieldLevel.NIGHT_VEIL)
 
     await dispatch_ready(deps, ())
+    await land_provisions(deps, ())  # The Cell lands beside the tick; the next pass places it.
 
     assert (await deps.chamber.get(task.id)).status is TaskStatus.FAILED
     rules = {event.payload["rule"] for event in await _events(deps, "guard.denied")}
@@ -226,6 +228,7 @@ async def test_a_task_moved_to_a_cell_of_another_tier_is_re_bound_before_it_runs
     await deps.chamber.unassign(task.id, "Its Warden was lost before the bee started.")
 
     await dispatch_ready(deps, ())
+    await land_provisions(deps, ())  # The Cell lands beside the tick; the next pass places it.
 
     moved = await deps.chamber.get(task.id)
     assert moved.status is TaskStatus.RUNNING
