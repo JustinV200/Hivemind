@@ -78,6 +78,7 @@ __all__ = [
     "SKELETON_KINDS",
     "SUMMARY_KIND",
     "TierCount",
+    "merge_counts",
     "skeleton_event",
     "tier_counts",
 ]
@@ -155,6 +156,27 @@ def tier_counts(events: Iterable[PheromoneEvent]) -> tuple[TierCount, ...]:
             tiers.setdefault(event.subject_id, tier)
         outcomes.setdefault(event.subject_id, set()).add(event.kind)
     return _count_by_tier(tiers, outcomes)
+
+
+def merge_counts(*groups: Iterable[TierCount]) -> tuple[TierCount, ...]:
+    """Sum per-tier counts from several spans of one Cell's life, one TierCount per tier.
+
+    Args:
+        *groups: The counts of each span (what a Queen before a restart counted, what one after
+            it counted); a tier missing from a span counts nothing there.
+
+    Returns:
+        One TierCount per tier any span named, in tier order.
+    """
+    totals: dict[str, tuple[int, int, int]] = {}
+    for count in (count for group in groups for count in group):
+        approved, rejected, rolled_back = totals.get(count.tier, (0, 0, 0))
+        totals[count.tier] = (
+            approved + count.approved,
+            rejected + count.rejected,
+            rolled_back + count.rolled_back,
+        )
+    return tuple(TierCount(tier, *totals[tier]) for tier in sorted(totals))
 
 
 def _count_by_tier(

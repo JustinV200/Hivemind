@@ -44,8 +44,8 @@ Public API:
     - SegmentPurge, SqliteSegmentPurge, LazySqliteSegmentPurge, MemorySegmentPurge,
       SideChannelPurger, MemberSource, SideChannels, PurgeReport, TrailRecorder,
       NightVeilTeardownPurge, EphemeralSegments, VeiledTrail, segments_of, SKELETON_KINDS,
-      skeleton_event: the Night Veil boundary (its whole public API lives on
-      `hivemind.pheromone.retention`).
+      skeleton_event, NightVeilCheckpoints, MemoryCheckpoints, LazySqliteCheckpoints: the Night
+      Veil boundary (its whole public API lives on `hivemind.pheromone.retention`).
     - follow, DEFAULT_POLL_INTERVAL_S: live-tail the trail.
     - PheromoneError, DuplicateEventError, UnknownEventFamilyError: the error tree, so a
       caller in another subsystem can catch a duplicate id by name.
@@ -87,9 +87,12 @@ from hivemind.pheromone.events import (
 from hivemind.pheromone.retention import (
     SKELETON_KINDS,
     EphemeralSegments,
+    LazySqliteCheckpoints,
     LazySqliteSegmentPurge,
     MemberSource,
+    MemoryCheckpoints,
     MemorySegmentPurge,
+    NightVeilCheckpoints,
     NightVeilTeardownPurge,
     PurgeReport,
     SegmentPurge,
@@ -141,13 +144,16 @@ __all__ = [
     "EphemeralSegments",
     "ForageEvent",
     "GuardEvent",
+    "LazySqliteCheckpoints",
     "LazySqliteSegmentPurge",
     "LlmEvent",
     "LlmUsage",
     "MemberSource",
+    "MemoryCheckpoints",
     "MemoryEvent",
     "MemoryPheromoneTrail",
     "MemorySegmentPurge",
+    "NightVeilCheckpoints",
     "NightVeilTeardownPurge",
     "PheromoneError",
     "PheromoneEvent",

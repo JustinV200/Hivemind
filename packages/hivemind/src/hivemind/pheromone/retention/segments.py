@@ -48,6 +48,8 @@ from pydantic import JsonValue
 
 from hivemind.common.logging import get_logger
 from hivemind.pheromone.events import PheromoneEvent
+from hivemind.pheromone.retention.checkpoint import Checkpointer, NightVeilCheckpoints
+from hivemind.pheromone.retention.skeleton import TierCount
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery, TrailSegment
 from waggle.clock import Clock
@@ -86,11 +88,14 @@ class TakenSegment:
         node_ids: The Cell's own nodes (its Warden, once per boot) whose segments shipped here.
         members: Every id filed under the Cell (its tasks, Wardens, nodes, grants, workers,
             alarms and leases), never the Cell's own id: what the purge's side channels clear.
+        counts: Its Capping outcomes per risk tier over its whole life, an earlier Queen's
+            included (`checkpoint`): what the purge's `capping.summary` records.
     """
 
     events: tuple[PheromoneEvent, ...]
     node_ids: frozenset[NodeId]
     members: frozenset[str]
+    counts: tuple[TierCount, ...] = ()
 
 
 class EphemeralSegments:
@@ -100,13 +105,16 @@ class EphemeralSegments:
     loop, and each segment's own `MemoryPheromoneTrail` serialises its writes under its own lock.
     """
 
-    def __init__(self, clock: Clock) -> None:
+    def __init__(self, clock: Clock, checkpoints: NightVeilCheckpoints | None = None) -> None:
         """Build a store holding nothing yet.
 
         Args:
             clock: Handed to every segment's `MemoryPheromoneTrail` (its export timestamps).
+            checkpoints: Where each held Cell's counts and ids are kept for a restarted Queen
+                (`checkpoint`); None keeps none, so a restart finds nothing to summarise.
         """
         self._clock = clock
+        self._tally = Checkpointer(checkpoints)
         self._segments: dict[CellId, MemoryPheromoneTrail] = {}
         self._writers: dict[CellId, set[NodeId]] = {}  # Every node with an event in the segment.
         self._cell_nodes: dict[CellId, set[NodeId]] = {}  # The Cell's own shipping nodes only.
@@ -122,6 +130,7 @@ class EphemeralSegments:
         self._writers[cell_id] = set()
         self._cell_nodes[cell_id] = set()
         self._owner[cell_id] = cell_id
+        self._tally.touch(cell_id)  # Checkpointed with the next record it keeps.
 
     def file(self, member_id: str, cell_id: CellId) -> None:
         """File `member_id` (a Warden, node, grant, ...) under `cell_id`, unless already filed.
@@ -131,6 +140,7 @@ class EphemeralSegments:
         if not self.owns(cell_id) or member_id in self._owner:
             return
         self._owner[member_id] = cell_id
+        self._tally.touch(cell_id)
 
     def bind(self, task_id: str, cell_id: CellId) -> None:
         """Bind a task to the Night Veil Cell it now runs on; a no-op unless that Cell is held.
@@ -140,6 +150,7 @@ class EphemeralSegments:
         """
         if cell_id in self._segments:
             self._owner[task_id] = cell_id
+            self._tally.touch(cell_id)
 
     def expect(self, task_id: str) -> None:
         """Veil `task_id` before any Cell holds it: a task the human asked for at Night Veil."""
@@ -190,6 +201,8 @@ class EphemeralSegments:
             return False
         await self._segments[cell_id].record(event)
         self._writers[cell_id].add(event.node_id)
+        self._tally.count(cell_id, (event,))
+        await self._tally.save(cell_id, self._members_of(cell_id))
         return True
 
     async def merge(self, cell_id: CellId, segment: TrailSegment) -> int | None:
@@ -210,7 +223,19 @@ class EphemeralSegments:
             return 0
         self._cell_nodes[cell_id].add(segment.node_id)
         self._writers[cell_id].add(segment.node_id)
-        return await held.merge_segment(segment)
+        merged = await held.merge_segment(segment)
+        self._tally.count(cell_id, segment.events)
+        await self._tally.save(cell_id, self._members_of(cell_id))
+        return merged
+
+    async def recall(self, cell_id: CellId) -> None:
+        """File again every id an earlier Queen checkpointed under `cell_id` (a restart's).
+
+        For a Cell held again after a restart, before it records anything: a late record naming
+        one of its ids is veiled as it was, and its tally continues from the earlier Queen's.
+        """
+        for member in await self._tally.recall(cell_id):
+            self.file(member, cell_id)
 
     async def query(self, cell_id: CellId, query: TrailQuery) -> tuple[PheromoneEvent, ...]:
         """Read `cell_id`'s held segment, with the trail's own query semantics; empty if none."""
@@ -228,15 +253,21 @@ class EphemeralSegments:
         nodes = frozenset(self._cell_nodes.pop(cell_id, set()))
         self._taken.add(cell_id)
         self._owner.setdefault(cell_id, cell_id)
-        # The index outlives the segment (module docstring), so what it filed is still read here.
-        members = frozenset(m for m, owner in self._owner.items() if owner == cell_id) - {cell_id}
+        # What an earlier Queen filed under it joins the index, which outlives the segment
+        # (module docstring); its tally is read, and its checkpoint forgotten, here.
+        await self.recall(cell_id)
+        members, counts = self._members_of(cell_id), await self._tally.taken(cell_id)
         if held is None:
-            return TakenSegment(events=(), node_ids=nodes, members=members)
+            return TakenSegment(events=(), node_ids=nodes, members=members, counts=counts)
         # Per-node exports carry no query limit, so a long-lived Cell's segment is taken whole.
         events = [
             event for node in sorted(writers) for event in (await held.export_segment(node)).events
         ]
-        return TakenSegment(events=tuple(events), node_ids=nodes, members=members)
+        return TakenSegment(tuple(events), nodes, members, counts)
+
+    def _members_of(self, cell_id: CellId) -> frozenset[str]:
+        """Return every id filed under `cell_id`, never the Cell's own."""
+        return frozenset(m for m, owner in self._owner.items() if owner == cell_id) - {cell_id}
 
 
 def _members(event: PheromoneEvent) -> tuple[str, ...]:

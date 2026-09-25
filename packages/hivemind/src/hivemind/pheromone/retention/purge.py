@@ -57,7 +57,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from hivemind.common.sqlite import ConnectionThread, connect, transaction
 from hivemind.pheromone.events import CappingEvent, CellEvent, PheromoneEvent
 from hivemind.pheromone.retention.segments import EphemeralSegments, TakenSegment
-from hivemind.pheromone.retention.skeleton import SUMMARY_KIND, tier_counts
+from hivemind.pheromone.retention.skeleton import SUMMARY_KIND
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import MAX_QUERY_LIMIT, PheromoneTrail, TrailQuery
 from waggle.clock import Clock
@@ -346,8 +346,9 @@ class NightVeilTeardownPurge:
         # Step 1: take the ephemeral segment whole, before anything can fail, so no failure below
         # leaves the Cell's detail held in memory.
         taken = await self._take(cell_id)
-        # Step 2: the one Capping record the skeleton keeps, folded from the detail just taken.
-        counts = tier_counts(taken.events)
+        # Step 2: the one Capping record the skeleton keeps, per tier, over the Cell's whole
+        # life: the segment's tally, with what an earlier Queen counted before a restart.
+        counts = taken.counts
         for count in counts:
             await self._record(SUMMARY_KIND, cell_id, actor, count.payload())
         # Step 3: any row a node of the Cell's own ever left on the durable trail, before any
@@ -384,7 +385,7 @@ class NightVeilTeardownPurge:
     async def _take(self, cell_id: CellId) -> TakenSegment:
         """Take `cell_id`'s ephemeral segment, or an empty one where no store was wired."""
         if self._ephemeral is None:
-            return TakenSegment(events=(), node_ids=frozenset(), members=frozenset())
+            return TakenSegment(events=(), node_ids=frozenset(), members=frozenset(), counts=())
         return await self._ephemeral.take(cell_id)
 
     async def _cell_nodes(

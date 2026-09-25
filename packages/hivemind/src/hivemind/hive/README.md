@@ -56,7 +56,8 @@ pool that keeps a dormant Cell around for fast reuse.
   acquire`, outside this dispatch's file list.
 - `NightVeilBoundary` / `TIER_LABEL` / `with_tier_label` / `tier_from_labels` /
   `provisioned_facts` / `failure_facts` / `end_night_veil` / `adopt_night_veil` /
-  `night_veil_cells` / `sweep_night_veil` (`night_veil/boundary.py`, codingrules section 12):
+  `night_veil_cells` / `is_night_veil_cell` / `sweep_night_veil` (`night_veil/boundary.py`,
+  codingrules section 12):
   where the Virtual Cell lifecycle meets the Night Veil retention boundary
   (`hivemind.pheromone.retention`). `CellLifecycle.attach_night_veil` hands the lifecycle the
   boundary the composition root built; from then on a Night Veil Cell's ephemeral segment opens
@@ -70,7 +71,12 @@ pool that keeps a dormant Cell around for fast reuse.
   `sweep_night_veil` holds again the segment of a Night Veil Cell that outlived a Queen restart
   and records `cell.destroyed` (when missing) and purges every one the skeleton names that is gone
   unpurged. Every provisioned Cell carries its tier in its backend labels (`TIER_LABEL`), and
-  `cell.provisioned` names it, so a restarted Queen reads it back from either.
+  `cell.provisioned` names it, so a restarted Queen reads it back from either. What else a
+  restarted Queen relearns of a Night Veil Cell: its Capping counts so far and the ids filed under
+  it (the segment's checkpoint, `hivemind.pheromone.retention.checkpoint`, numbers and ids only),
+  so its `capping.summary` and its side channels' purge lose nothing; its Warden when that
+  Warden's link re-attaches; and every record it makes from then on. Never the records an earlier
+  Queen held of it, which were in that Queen's memory alone, as the boundary intends.
 
 ## Night Veil: what a Cell itself keeps
 

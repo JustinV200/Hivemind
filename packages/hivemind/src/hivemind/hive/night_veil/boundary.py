@@ -13,6 +13,14 @@ calls it for each Night Veil Cell an Absconding destroys (`adopt_night_veil` say
 `sweep_night_veil` runs at every Queen start, holding again the segment of a Night Veil Cell that
 outlived a restart and purging every one the trail's skeleton names that is gone unpurged.
 
+What a restarted Queen relearns of a Night Veil Cell, and from where: that it is one (its backend
+label, or the skeleton's `cell.provisioned` and `cell.attested`); its Capping counts so far and
+the ids filed under it (its tasks, Wardens, nodes and grants: the segment's checkpoint,
+`hivemind.pheromone.retention.checkpoint`, numbers and ids only); its Warden again, when that
+Warden's link re-attaches; and every record it makes from then on, in the segment held again.
+Never the records an earlier Queen held of it: those were in that Queen's memory alone, as the
+boundary intends, and the purge's summary is built from the checkpointed counts instead.
+
 A Cell's tier outlives the Queen that provisioned it in two places this module reads back: the
 backend label every provisioned Cell now carries (`with_tier_label`; Docker also keeps its own
 `hivemind.comb_shield`), and the skeleton itself, whose `cell.provisioned` names the tier and
@@ -248,10 +256,12 @@ async def sweep_night_veil(
         return ()
     known = await night_veil_cells(boundary.recorder)
     # A Night Veil Cell that outlived the restart: its segment is held again, so what it ships
-    # from now on is veiled, and its own teardown purges it.
+    # from now on is veiled, and its own teardown purges it; what the earlier Queen checkpointed
+    # of it (its ids, its Capping counts) is recalled, so nothing it did is lost to the purge.
     for cell_id, tier in live.items():
         if tier is _NIGHT_VEIL or cell_id in known:
             boundary.segments.open(cell_id)
+            await boundary.segments.recall(cell_id)
     swept: list[CellId] = []
     for cell_id in sorted(known - set(live)):
         if await _has_record(boundary, cell_id, "cell.purged"):

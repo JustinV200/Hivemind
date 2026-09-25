@@ -47,19 +47,27 @@ trail on reconnection.
   - `retention/skeleton.py` -- what survives a Night Veil Cell: `SKELETON_KINDS`, and
     `skeleton_event`, which cuts an event's payload to the fields the skeleton keeps (or returns
     None for a kind that never survives); `tier_counts` folds a Cell's `capping.*` detail into
-    one `TierCount` per risk tier. Pure.
+    one `TierCount` per risk tier, and `merge_counts` sums the counts of several spans. Pure.
   - `retention/segments.py` -- `EphemeralSegments`: each living Night Veil Cell's segment, held
     in the Queen's memory, and the index of which ids (its Warden, nodes, grants, tasks) belong to
     which Cell. A segment is readable per Cell while the Cell lives (`query`) and is never merged
     into the durable trail.
+  - `retention/checkpoint.py` -- what a restarted Queen needs of a living Night Veil Cell and
+    nothing more: its per-tier Capping counts, the moment (and, at that moment, the ids) of the
+    newest counted Capping event, and the ids filed under it, saved by `EphemeralSegments` as
+    records arrive (`Checkpointer`), in memory or in the Hive's file (`night_veil_checkpoints`,
+    its own migration series beside the module), recalled when a restarted Queen holds or purges
+    the Cell, forgotten by the purge.
   - `retention/trail.py` -- `VeiledTrail`, the `PheromoneTrail` decorator every Queen-side writer
     records through: an event about no Night Veil Cell reaches the durable trail unchanged; an
     event about one sends only its skeleton copy there and the whole event to the Cell's segment.
     `segments_of(trail)` returns the segments behind it.
   - `retention/purge.py` -- `NightVeilTeardownPurge` and its collaborators:
     `SqliteSegmentPurge`/`LazySqliteSegmentPurge`/`MemorySegmentPurge` remove one node's rows;
-    `SideChannels` names every store beyond the trail a teardown must clear (`vpn_gateway`,
-    `tor_hidden_service`, `nectar`, `honey`), each a `SideChannelPurger` once its store exists.
+    `SideChannels` names every store beyond the trail a teardown must clear (`memory`,
+    `brood_chamber`, `snapshot_images`, `forage_ledger`, and the seams `vpn_gateway`,
+    `tor_hidden_service`, `nectar`, `honey`), each a `SideChannelPurger` once its store exists,
+    and the `MemberSource`s that tie ids to a Cell durably.
 
 ## The Night Veil boundary
 
@@ -92,20 +100,26 @@ Every path a Night Veil Cell ends runs `NightVeilTeardownPurge.purge`: a lifecyc
 task finished, a provision failed after the Cell existed, the Hive shut down), an Absconding
 (`hive cells abscond`), and a Queen restart whose reconcile finds the Cell gone. The purge:
 
-1. Takes the Cell's ephemeral segment whole, first, so no later failure leaves it in memory.
-2. Records one `capping.summary` per risk tier, folded from the segment's `capping.*` detail.
+1. Takes the Cell's ephemeral segment whole, first, so no later failure leaves it in memory, with
+   its tally and its member ids (an earlier Queen's checkpoint recalled into both, and forgotten).
+2. Records one `capping.summary` per risk tier, from the tally over the Cell's whole life.
 3. Removes any row a node of the Cell's own left on the durable trail (`SegmentPurge.purge_segment`,
-   the package's one `DELETE`): a segment merged by a Queen older than this boundary.
-4. Runs every registered side channel under `SIDE_CHANNEL_TIMEOUT_S`. None is registered today:
-   the VPN client, the Tor daemon and their logs run inside the Cell and die with it; the Hive
-   Stand's own hidden-service log (phase 11), Nectar and Honey (phase 7) are named seams on
-   `SideChannels`. What a Cell's backend keeps after destroy is the backend's to remove
-   (`hivemind.hive`'s README, "Night Veil: what a Cell itself keeps").
+   the package's one trail `DELETE`): a segment merged by a Queen older than this boundary.
+4. Gathers the Cell's members once (its segment's index, then every `MemberSource`: the Brood
+   Chamber's live tasks on it, the Forage ledger's reports and grants) and runs every registered
+   side channel with them under `SIDE_CHANNEL_TIMEOUT_S`: the Queen's memory tables
+   (`MemoryStore.purge_night_veil`), the Brood Chamber (`scrub_night_veil`, a finished task's words
+   reduced to its skeleton), the backends' snapshot images and the Forage ledger (`forget_cell`),
+   attached by the composition root (`hivemind.cli.compose.night_veil.side_channels`). The VPN
+   client, the Tor daemon and their logs run inside the Cell and die with it; the Hive Stand's own
+   hidden-service log (phase 11), Nectar and Honey (phase 7) are named seams on `SideChannels`.
+   What a Cell's backend keeps after destroy is the backend's to remove (`hivemind.hive`'s
+   README, "Night Veil: what a Cell itself keeps").
 5. Records one `cell.purged` event on the Queen's trail carrying only `events_purged` and
    `side_channel_records_purged`, never anything purged.
 
-This is the only place `hivemind.pheromone` deletes anything. Every other module in the package
-only ever inserts.
+This is the only place `hivemind.pheromone` deletes trail rows; the checkpoint table's one delete
+is the purge forgetting a Cell. Every other module in the package only ever inserts.
 
 ## How to test this
 
@@ -122,8 +136,8 @@ uv run --frozen pytest packages/hivemind/tests/unit/pheromone packages/hivemind/
 
 `tests/unit/pheromone/` mirrors this layout: `events/`, `trail/` (`test_protocol.py`,
 `test_memory.py`, `test_sqlite.py`, `test_tail.py`), `retention/` (`test_skeleton.py`, one test
-per payload cut, `test_segments.py`, `test_trail.py`, `test_purge.py`), and `test_errors.py` for
-the one module that stayed flat. `tests/e2e/test_night_veil_boundary.py` runs the whole boundary
+per payload cut, `test_segments.py`, `test_trail.py`, `test_purge.py`, `test_checkpoint.py`), and
+`test_errors.py` for the one module that stayed flat. `tests/e2e/test_night_veil_boundary.py` runs the whole boundary
 through a Hive, on every end path.
 
 `tests/contracts/test_pheromone_trail_contract.py` parametrises the same behavioural suite over

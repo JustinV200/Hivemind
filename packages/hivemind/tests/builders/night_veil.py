@@ -35,6 +35,7 @@ from hivemind.pheromone import (
     EphemeralSegments,
     MemoryPheromoneTrail,
     MemorySegmentPurge,
+    NightVeilCheckpoints,
     NightVeilTeardownPurge,
     SideChannels,
     TrailRecorder,
@@ -48,7 +49,10 @@ __all__ = ["make_night_veil", "night_veil_manifest", "tier_spec"]
 
 
 def make_night_veil(
-    durable: MemoryPheromoneTrail, clock: Clock, identity: CellIdentity
+    durable: MemoryPheromoneTrail,
+    clock: Clock,
+    identity: CellIdentity,
+    checkpoints: NightVeilCheckpoints | None = None,
 ) -> NightVeilBoundary:
     """Build a NightVeilBoundary over `durable`, the way the composition root builds the real one.
 
@@ -56,11 +60,13 @@ def make_night_veil(
         durable: The Hive's trail; the boundary's `veiled` trail wraps it.
         clock: Stamps every record the purge makes.
         identity: The Queen's own Hive and node the purge records as.
+        checkpoints: Where living Night Veil Cells' counts and ids are kept; hand the same store
+            to a restarted Queen's boundary, as the Hive's file is. None keeps none.
 
     Returns:
         A boundary whose `veiled` trail a lifecycle or Queen under test records through.
     """
-    segments = EphemeralSegments(clock)
+    segments = EphemeralSegments(clock, checkpoints)
     recorder = TrailRecorder(
         trail=durable, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
     )

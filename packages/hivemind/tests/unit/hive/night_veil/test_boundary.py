@@ -40,9 +40,17 @@ from hivemind.hive.night_veil import (
 )
 from hivemind.hive.overwinter.policy import ReleaseOutcome
 from hivemind.hive.registry import BackendRegistry
-from hivemind.pheromone import CellEvent, MemoryPheromoneTrail, PheromoneEvent, TrailQuery
+from hivemind.pheromone import (
+    CappingEvent,
+    CellEvent,
+    MemoryCheckpoints,
+    MemoryPheromoneTrail,
+    PheromoneEvent,
+    TrailQuery,
+    TrailSegment,
+)
 from waggle.clock import FakeClock
-from waggle.ids import CellId, HiveId, new_cell_id, new_event_id, new_grant_id
+from waggle.ids import CellId, HiveId, NodeId, new_cell_id, new_event_id, new_grant_id, new_node_id
 
 _RELEASED = ReleaseOutcome(
     rolled_back_whole_cell=False, has_block_wax=False, single_use=False, backend_can_pause=True
@@ -65,8 +73,12 @@ class _Hive:
             earlier.durable if earlier else MemoryPheromoneTrail(self.clock)
         )
         self.identity: CellIdentity = earlier.identity if earlier else make_identity(self.clock)
+        # The Hive's file outlives its Queen: the checkpoints a restarted one recalls live there.
+        self.checkpoints: MemoryCheckpoints = (
+            earlier.checkpoints if earlier else MemoryCheckpoints()
+        )
         self.night_veil: NightVeilBoundary = make_night_veil(
-            self.durable, self.clock, self.identity
+            self.durable, self.clock, self.identity, self.checkpoints
         )
         registry = BackendRegistry()
         registry.register("fake", lambda: self.backend)
@@ -212,6 +224,42 @@ async def test_a_restart_holds_a_living_night_veil_cell_and_purges_a_gone_one() 
     kinds = [e.kind for e in await restarted.durable_about(gone)]
     assert kinds == _SKELETON_OF_A_TORN_DOWN_CELL
     assert await restarted.durable.query(TrailQuery(kind="cell.purged", subject_id=alive)) == ()
+
+
+async def test_a_restarted_queen_still_summarises_what_a_gone_cell_capped() -> None:
+    first = _Hive()
+    gone = await _live_cycle(first, CombShieldLevel.NIGHT_VEIL)
+    node = new_node_id(first.clock)
+    capped = [_capping(first, node, kind) for kind in ("capping.proposed", "capping.capped")]
+    segment = TrailSegment(node_id=node, exported_at=first.clock.now(), events=tuple(capped))
+    await first.night_veil.segments.merge(gone, segment)  # Its Warden shipped a capped proposal.
+    await first.backend.destroy(gone)  # Then the Queen stopped, and the Cell was lost with her.
+
+    restarted = _Hive(first)
+    await restarted.lifecycle.reconcile(first.identity.hive_id)
+
+    [summary] = await restarted.durable.query(TrailQuery(kind="capping.summary", subject_id=gone))
+    assert summary.payload == {
+        "tier": "SCRATCH_WRITE",
+        "approved": 1,
+        "rejected": 0,
+        "rolled_back": 0,
+    }
+    assert first.checkpoints.rows() == {}  # Purged: nothing of it is kept for a later Queen.
+
+
+def _capping(hive: _Hive, node: NodeId, kind: str) -> CappingEvent:
+    """One Capping event of the Cell's one SCRATCH_WRITE proposal, as its Warden records it."""
+    return CappingEvent(
+        id=new_event_id(hive.clock),
+        hive_id=hive.identity.hive_id,
+        node_id=node,
+        at=hive.clock.now(),
+        actor="system",
+        kind=kind,
+        subject_id="msg_01HZZZZZZZZZZZZZZZZZZZZZZ1",
+        payload={"tier": "SCRATCH_WRITE"},
+    )
 
 
 async def test_the_restart_sweep_never_purges_a_cell_twice() -> None:

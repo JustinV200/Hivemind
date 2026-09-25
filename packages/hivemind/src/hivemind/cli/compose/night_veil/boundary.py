@@ -54,9 +54,12 @@ from hivemind.manifest import HiveManifest
 from hivemind.manifest.schema.security import TierProfile
 from hivemind.pheromone import (
     EphemeralSegments,
+    LazySqliteCheckpoints,
     LazySqliteSegmentPurge,
+    MemoryCheckpoints,
     MemoryPheromoneTrail,
     MemorySegmentPurge,
+    NightVeilCheckpoints,
     NightVeilTeardownPurge,
     PheromoneTrail,
     SegmentPurge,
@@ -180,7 +183,7 @@ def veil_trail(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) -> P
     """
     if manifest.virtual_cells.backend is None:
         return trail
-    return _veiled(trail, clock)
+    return _veiled(manifest, trail, clock)
 
 
 def build_night_veil(
@@ -197,7 +200,7 @@ def build_night_veil(
     Returns:
         The boundary the lifecycle, the provider, the segment receiver and the Queen share.
     """
-    veiled = trail if isinstance(trail, VeiledTrail) else _veiled(trail, clock)
+    veiled = trail if isinstance(trail, VeiledTrail) else _veiled(manifest, trail, clock)
     recorder = TrailRecorder(
         trail=veiled.durable, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
     )
@@ -212,9 +215,18 @@ def build_night_veil(
     )
 
 
-def _veiled(trail: PheromoneTrail, clock: Clock) -> VeiledTrail:
-    """Wrap `trail` in a `VeiledTrail` over fresh, empty ephemeral segments."""
-    return VeiledTrail(trail, EphemeralSegments(clock))
+def _veiled(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) -> VeiledTrail:
+    """Wrap `trail` in a `VeiledTrail` over fresh, empty ephemeral segments.
+
+    Their checkpoints (a living Night Veil Cell's counts and ids, for a restarted Queen) go where
+    the trail does: an in-memory trail's stay in memory, the Hive's own into its SQLite file.
+    """
+    checkpoints: NightVeilCheckpoints = (
+        MemoryCheckpoints()
+        if isinstance(trail, MemoryPheromoneTrail)
+        else LazySqliteCheckpoints(manifest.resolve_path(manifest.hive.db), clock)
+    )
+    return VeiledTrail(trail, EphemeralSegments(clock, checkpoints))
 
 
 def _segment_purge(manifest: HiveManifest, durable: PheromoneTrail) -> SegmentPurge:
