@@ -6,8 +6,10 @@ a `VirtualCellSpec`: everything a `hivemind.hive.backends.base.CellBackend` need
 its image, the resources to reserve, how long it may live, its outbound network policy, whether it
 needs an Exoskeleton (a display, input and audio attachment on top of a plain terminal session),
 the `hivemind.forage.ForageCapacity` the image promises once running, its security tier
-(`CombShieldLevel`), how long to wait for it to become reachable, which Hive it belongs to, and
-free-form labels. `NetworkPolicy` is the outbound network shape a backend must enforce: `NONE` (no
+(`CombShieldLevel`), how long to wait for it to become reachable, which Hive it belongs to,
+free-form labels, and -- once `hivemind.hive.lifecycle.CellLifecycle` has minted one as it starts
+provisioning, so the Cell's first record can name it -- the id the Cell will carry (`cell_id`).
+`NetworkPolicy` is the outbound network shape a backend must enforce: `NONE` (no
 network at all, the safest default), `EGRESS_ONLY` (outbound only, no inbound ports -- Virtual
 Cells never get any), `ALLOWLIST` (outbound restricted to `network_allowlist`), or `VPN_TOR`
 (Night Veil only: OpenVPN plus Tor with direct egress blocked, roadmap step 5.7a). A provisioned
@@ -39,6 +41,8 @@ Key invariants:
     - labels never carries more than MAX_LABELS entries, and every key and value stays within its
       own character bound, so a backend's own tagging mechanism (Docker labels, cloud tags) never
       silently truncates what the Undertaker's orphan sweep later reads back.
+    - A spec whose `cell_id` is set is provisioned as a Cell carrying exactly that id (every
+      backend's contract, `hivemind.hive.backends.base.CellBackend.provision`).
     - `CellReservation.capacity` is a pure function of the reservation and the Cell's platform:
       the Queen's placement and the Cell's own report compute it the same way, from the same
       figures, so the two can never disagree about a Cell's headroom.
@@ -62,7 +66,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.cell import CombShieldLevel
 from hivemind.forage import ForageCapacity, HostCapacity
-from waggle.ids import HiveId
+from waggle.ids import CellId, HiveId
 from waggle.messages.labels import OsFamily
 
 MAX_IMAGE_NAME_CHARS = 128  # Generous for an images/<name> directory name plus a tag suffix.
@@ -189,6 +193,11 @@ class VirtualCellSpec(BaseModel):
         default_factory=dict,
         description="Free-form tags a backend also stamps on what it creates, alongside hive_id; "
         "bounded so an unbounded label set can never make a sweep unpredictable.",
+    )
+    cell_id: CellId | None = Field(
+        default=None,
+        description="The id the Cell will carry, minted by its lifecycle as provisioning starts so "
+        "the Cell's first record names it; None lets the backend mint one itself.",
     )
 
     @model_validator(mode="after")

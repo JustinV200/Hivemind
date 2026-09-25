@@ -25,8 +25,9 @@ from datetime import timedelta
 import pytest
 from builders.cells import make_identity
 from builders.forage import make_capacity
+from builders.night_veil import make_night_veil
 
-from hivemind.cell import CombShieldLevel, SnapshotId
+from hivemind.cell import Cell, CombShieldLevel, SnapshotId
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.fake import FakeCellBackend
 from hivemind.hive.cell_state import VirtualCellStatus
@@ -154,6 +155,67 @@ async def test_provision_records_provisioning_then_provisioned_in_order() -> Non
     cell = await lifecycle.provision(_make_spec(), "fake")
 
     assert await _kinds_for(trail, cell.id) == ["cell.provisioning", "cell.provisioned"]
+
+
+class _PeekingBackend(FakeCellBackend):
+    """A FakeCellBackend noting what the lifecycle had already recorded as provision() began."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        super().__init__(clock)
+        self.trail: MemoryPheromoneTrail | None = None
+        self.seen: list[tuple[str, str]] = []
+        self.asked_for: list[CellId | None] = []
+
+    async def provision(self, spec: VirtualCellSpec) -> Cell:
+        assert self.trail is not None
+        events = await self.trail.query(TrailQuery(limit=100))
+        self.seen = [(event.kind, event.subject_id) for event in events]
+        self.asked_for.append(spec.cell_id)
+        return await super().provision(spec)
+
+
+async def test_provision_records_provisioning_before_the_backend_is_even_called() -> None:
+    backend = _PeekingBackend(FakeClock())
+    lifecycle, trail = _make_lifecycle(backend)
+    backend.trail = trail
+
+    cell = await lifecycle.provision(_make_spec(), "fake")
+
+    # Stamped as provisioning began, under the id the lifecycle minted and the backend then used.
+    assert backend.seen == [("cell.provisioning", cell.id)]
+    assert backend.asked_for == [cell.id]
+
+
+async def test_a_failed_provision_is_recorded_under_the_id_its_provisioning_named() -> None:
+    backend = FakeCellBackend(FakeClock())
+    backend.set_provision_failure("no capacity")
+    lifecycle, trail = _make_lifecycle(backend)
+
+    with pytest.raises(CellProvisionError):
+        await lifecycle.provision(_make_spec(), "fake")
+
+    [began] = await trail.query(TrailQuery(kind="cell.provisioning"))
+    kinds = await _kinds_for(trail, began.subject_id)
+    assert kinds == ["cell.provisioning", "cell.provision_failed"]
+
+
+async def test_a_night_veil_provision_its_backend_failed_leaves_nothing_held_or_on_view() -> None:
+    # Its segment opened before `cell.provisioning`; with no Cell ever made, it goes unread.
+    clock = FakeClock()
+    backend = FakeCellBackend(clock)
+    backend.set_provision_failure("never dialled back through tor")
+    durable = MemoryPheromoneTrail(clock)
+    night_veil = make_night_veil(durable, clock, make_identity(clock))
+    registry = BackendRegistry()
+    registry.register("fake", lambda: backend)
+    lifecycle = CellLifecycle(registry, night_veil.veiled, clock, make_identity(clock))
+    lifecycle.attach_night_veil(night_veil)
+
+    with pytest.raises(CellProvisionError):
+        await lifecycle.provision(_night_veil_spec(image="night-veil-ubuntu"), "fake")
+
+    assert night_veil.segments.held_cells() == ()
+    assert await durable.query(TrailQuery(limit=100)) == ()
 
 
 async def test_mark_ready_moves_provisioning_to_ready_and_records_it() -> None:

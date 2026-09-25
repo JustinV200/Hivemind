@@ -60,9 +60,10 @@ pool that keeps a dormant Cell around for fast reuse.
   where the Virtual Cell lifecycle meets the Night Veil retention boundary
   (`hivemind.pheromone.retention`). `CellLifecycle.attach_night_veil` hands the lifecycle the
   boundary the composition root built; from then on a Night Veil Cell's ephemeral segment opens
-  as it is provisioned, before the lifecycle records a word about it (a provision its backend
-  fails before the Queen knows the Cell's id records nothing at all: no segment could hold its
-  `cell.provision_failed`, and the skeleton has no such kind), and `NightVeilTeardownPurge` runs
+  as provisioning begins, before the lifecycle records a word about it (a provision its backend
+  fails before any Cell exists leaves nothing on view: its `cell.provision_failed` is withheld,
+  the skeleton having no such kind, and its segment is dropped unread), and
+  `NightVeilTeardownPurge` runs
   every time one ends: in
   `teardown` (a finished task, a provision that failed after the Cell existed, a Hive shutdown),
   in `hive cells abscond` (`adopt_night_veil` says which Cells), and in `reconcile`, whose
@@ -129,4 +130,7 @@ relay gap this uncovers for the in-Cell Warden case).
 `lifecycle.py` (5.6) is built: `CellLifecycle` is the only intended caller of
 `cell_state.assert_transition`/`assert_dormant_allowed`, and now also owns every `CellBackend` call
 and every `overwinter/` (5.9) edge (`OverwinterPool` is bookkeeping and selection only; see both
-modules' own docstrings for the split).
+modules' own docstrings for the split). It mints a Virtual Cell's id itself as provisioning begins
+(`VirtualCellSpec.cell_id`, which every backend gives the Cell) and records `cell.provisioning`
+under it before any backend is called; `cell.provisioned` (or `cell.provision_failed`) follows
+under the same id.

@@ -39,7 +39,9 @@ Key invariants:
       so the default dataclass repr (and any log line, per codingrules 13/15) never shows key
       material; only `environment()` calls `get_secret_value()`, and only to hand the key to the
       Cell that owns it.
-    - `mint_cell_bootstrap` mints a fresh `CellId` and a fresh Ed25519 keypair on every call: keys
+    - `mint_cell_bootstrap` mints a fresh Ed25519 keypair on every call, and a fresh `CellId`
+      unless `cell_endpoint` carried the one the Cell's lifecycle already minted for it (so the
+      Cell's first record, made before any backend is called, names the Cell that boots): keys
       are per Cell, never reused (ADR-0027: "each Cell gets its own signing key... it dies with
       the Cell").
     - `CellBootstrap.environment()` returns exactly the `HIVEMIND_*` keys
@@ -224,6 +226,9 @@ class QueenEndpoint:
         reservation: What the backend reserves for that Cell (`cell_endpoint` sets it from the
             Cell's spec, alongside its tier), rendered as `HIVEMIND_RESERVATION` so the Cell
             reports it as its capacity; None until then.
+        cell_id: The id that Cell's lifecycle minted for it as provisioning began
+            (`cell_endpoint` sets it from the Cell's spec), which `mint_cell_bootstrap` then
+            gives the Cell; None mints a fresh one there.
     """
 
     waggle_url: str
@@ -237,6 +242,7 @@ class QueenEndpoint:
     night_veil: NightVeilLink | None = None
     comb_shield: CombShieldLevel = CombShieldLevel.MEADOW
     reservation: CellReservation | None = None
+    cell_id: CellId | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,12 +372,13 @@ class ReadinessGate(Protocol):
 
 
 def mint_cell_bootstrap(hive_id: HiveId, endpoint: QueenEndpoint, clock: Clock) -> CellBootstrap:
-    """Mint a fresh CellId and Ed25519 keypair for one Cell about to be provisioned.
+    """Mint a fresh Ed25519 keypair, and the CellId, for one Cell about to be provisioned.
 
     Args:
         hive_id: The Hive the new Cell belongs to.
-        endpoint: Where and who the Queen is, as this Cell must reach her.
-        clock: Source of the freshly minted CellId's timestamp.
+        endpoint: Where and who the Queen is, as this Cell must reach her; its `cell_id`, when
+            `cell_endpoint` set one, is the id the Cell gets instead of a fresh one.
+        clock: Source of a freshly minted CellId's timestamp.
 
     Returns:
         A CellBootstrap ready for `ReadinessGate.expect` and, once a backend has created the
@@ -380,8 +387,11 @@ def mint_cell_bootstrap(hive_id: HiveId, endpoint: QueenEndpoint, clock: Clock) 
     # One signer per Cell, generated fresh and never persisted beyond this process (ADR-0027:
     # "each Cell gets its own signing key, minted at provision... it dies with the Cell").
     signer = Ed25519Signer.generate()
+    # The lifecycle's own id when it minted one as provisioning began (cell_endpoint carried it):
+    # its first record already names that id, so the Cell must boot as that very Cell.
+    cell_id = endpoint.cell_id if endpoint.cell_id is not None else new_cell_id(clock)
     return CellBootstrap(
-        cell_id=new_cell_id(clock),
+        cell_id=cell_id,
         hive_id=hive_id,
         endpoint=endpoint,
         private_key_hex=SecretStr(signer.private_key_bytes.hex()),
@@ -398,10 +408,10 @@ def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) 
         backend: The provisioning backend's name, for the refusal.
 
     Returns:
-        `endpoint` at the Cell's tier, carrying its reservation, for MEADOW and PROPOLIS; for
-        NIGHT_VEIL, likewise, a copy whose Waggle URL is the hidden service and whose SOCKS proxy
-        is the Tor proxy (and which carries no link of its own, so nothing downstream can choose
-        again).
+        `endpoint` at the Cell's tier, carrying its reservation and the id its spec was minted
+        (if any), for MEADOW and PROPOLIS; for NIGHT_VEIL, likewise, a copy whose Waggle URL is
+        the hidden service and whose SOCKS proxy is the Tor proxy (and which carries no link of
+        its own, so nothing downstream can choose again).
 
     Raises:
         CellProvisionError: The Cell is NIGHT_VEIL and `endpoint` carries no Night Veil link, or
@@ -409,11 +419,13 @@ def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) 
             loopback `socks5h`/`socks4a` one); nothing has been created.
     """
     tier = spec.comb_shield
-    # The Cell's own figures ride with its tier: both are its spec's, and both the Cell must be
-    # told rather than find out for itself.
-    reservation = CellReservation.of(spec)
+    # The Cell's own figures ride with its tier, and so does the id its lifecycle minted: all are
+    # its spec's, and all the Cell must be told rather than find out (or mint) for itself.
+    ours = dataclasses.replace(
+        endpoint, comb_shield=tier, reservation=CellReservation.of(spec), cell_id=spec.cell_id
+    )
     if tier is not CombShieldLevel.NIGHT_VEIL:
-        return dataclasses.replace(endpoint, comb_shield=tier, reservation=reservation)
+        return ours
     link = endpoint.night_veil
     if link is None:
         raise CellProvisionError(
@@ -426,12 +438,7 @@ def cell_endpoint(endpoint: QueenEndpoint, spec: VirtualCellSpec, backend: str) 
     if problem is not None:
         raise CellProvisionError(backend, spec.image, problem)
     return dataclasses.replace(
-        endpoint,
-        waggle_url=link.waggle_url,
-        socks_proxy_url=link.socks_proxy_url,
-        night_veil=None,
-        comb_shield=tier,
-        reservation=reservation,
+        ours, waggle_url=link.waggle_url, socks_proxy_url=link.socks_proxy_url, night_veil=None
     )
 
 

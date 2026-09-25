@@ -184,6 +184,8 @@ class CellBackend(Protocol):
         Args:
             spec: Image, resources, lifetime and network policy for the new Cell. Already
                 validated against the manifest; implementations may assume it is well-formed.
+                When `spec.cell_id` is set (its lifecycle minted it as provisioning began, and has
+                already recorded it), the Cell carries exactly that id.
 
         Returns:
             A Cell of kind VIRTUAL whose capabilities reflect the image (a desktop image reports

@@ -319,10 +319,12 @@ class FakeCellBackend(_FakeEgress):
         return cell
 
     async def _mint_cell_id(self, spec: VirtualCellSpec) -> CellId:
-        """Return a fresh CellId, minting and recording a real CellBootstrap when `endpoint` is set.
+        """Return the Cell's id, minting and recording a real CellBootstrap when `endpoint` is set.
 
-        With no `endpoint` (the default), this is just `new_cell_id` -- pre-existing behaviour,
-        unchanged. With one, the bootstrap's own `mint_cell_bootstrap`-minted `cell_id` is used
+        The id is the spec's own when its lifecycle minted one (`VirtualCellSpec.cell_id`, the
+        contract every backend keeps), else a fresh one. With no `endpoint` (the default), this is
+        just that id -- pre-existing behaviour otherwise unchanged. With one, the bootstrap's own
+        `mint_cell_bootstrap`-chosen `cell_id` (the spec's, carried by `cell_endpoint`) is used
         instead of a second, independent one, so `self.bootstraps[cell.id]` always agrees with the
         Cell this call actually builds (module docstring's own e2e slice addition), and, when a
         `gate` was also given, that gate learns this Cell's own public key before this method
@@ -332,7 +334,7 @@ class FakeCellBackend(_FakeEgress):
         """
         endpoint = self._endpoint() if callable(self._endpoint) else self._endpoint
         if endpoint is None:
-            return new_cell_id(self._clock)
+            return spec.cell_id if spec.cell_id is not None else new_cell_id(self._clock)
         # Roadmap step 10.3a: the same per-tier choice every real backend makes.
         bootstrap = mint_cell_bootstrap(
             spec.hive_id, cell_endpoint(endpoint, spec, self.name), self._clock

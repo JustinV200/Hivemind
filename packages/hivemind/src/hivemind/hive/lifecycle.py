@@ -33,6 +33,13 @@ from the caller's own `ReleaseOutcome`, the injected `OverwinterSettings.pool.vi
 `CellLifecycle` built with `overwinter=None` always tears down on release, the same behaviour the
 old `always_teardown` default hook gave; this is the only place that default still exists.
 
+`provision()` mints the Cell's id itself, before any backend is called, and records
+`cell.provisioning` under it at once: a backend can take minutes to bring a Cell up, and the
+record of provisioning having begun used to be written only once it had ended. The id rides on
+the spec (`VirtualCellSpec.cell_id`), and every backend gives the Cell exactly that id;
+`cell.provisioned` follows once the backend returns, and `cell.provision_failed` names the same
+id if it never does.
+
 `provision()` and `mark_ready()` are deliberately two calls, not one, even though a `CellBackend.
 provision()` call already blocks until its own `ReadinessGate` sees a signed `CellReady` and the
 first `CellHeartbeat` (`hivemind.hive.backends.base.CellBackend.provision`'s own contract,
@@ -50,7 +57,8 @@ short-circuits to teardown before ever calling `decide_release` for a NIGHT_VEIL
 The Night Veil boundary (codingrules section 12) hangs off the same edges, through the
 `NightVeilBoundary` `attach_night_veil` hands in (`hivemind.hive.night_veil.boundary`):
 `provision()` opens a NIGHT_VEIL Cell's ephemeral segment before it records a word about the Cell,
-and stamps every Cell's tier into its labels; `teardown()` purges a NIGHT_VEIL Cell once its
+stamps every Cell's tier into its labels, and drops the segment unread when the backend fails
+before any Cell existed; `teardown()` purges a NIGHT_VEIL Cell once its
 backend has destroyed it, whichever path asked (a finished task, a failed provision, a shutdown);
 `reconcile()` holds again the segment of a NIGHT_VEIL Cell that outlived a restart and purges each
 one the trail shows gone unpurged. Every record this class makes goes through the trail the
@@ -73,9 +81,12 @@ Key invariants:
     - Every state change goes through `hivemind.hive.cell_state.assert_transition` (or
       `assert_dormant_allowed` for DORMANT) before this module's own in-memory table is updated,
       and the matching `cell.*` event is recorded in the same call, before the method returns.
-    - `self._cells` is keyed by the backend's own minted `CellId`; a failed `provision()` never
-      adds an entry (the backend itself already cleaned up any partial resource, per `CellBackend.
-      provision`'s own contract), so there is never a lingering FAILED row to sweep.
+    - `self._cells` is keyed by the `CellId` `provision()` minted (the backend's own, for a
+      reconciled Cell); a failed `provision()` never adds an entry (the backend itself already
+      cleaned up any partial resource, per `CellBackend.provision`'s own contract), so there is
+      never a lingering FAILED row to sweep.
+    - `cell.provisioning` is recorded before the backend is called, under the id the Cell then
+      carries; `cell.provisioned` or `cell.provision_failed` follows it under the same id.
     - A record whose `hivemind.cell.CombShieldLevel` is NIGHT_VEIL never reaches DORMANT: `release`
       never returns `OverwinterDecision.OVERWINTER` for one, and `overwinter()` itself refuses one
       directly too, so neither path depends on the other to keep the rule.
@@ -129,7 +140,7 @@ from hivemind.hive.registry import BackendRegistry
 from hivemind.hive.snapshot.ledger import SnapshotLedgerPort
 from hivemind.pheromone import CellEvent, PheromoneTrail
 from waggle.clock import Clock
-from waggle.ids import CellId, GrantId, HiveId, WardenId, new_event_id
+from waggle.ids import CellId, GrantId, HiveId, WardenId, new_cell_id, new_event_id
 
 __all__ = [
     "CellLifecycle",
@@ -435,10 +446,12 @@ async def _reconcile(lifecycle: CellLifecycle, hive_id: HiveId) -> None:
 async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_name: str) -> Cell:
     """Provision a fresh Virtual Cell from `spec` on `backend_name`; the first lifecycle edge.
 
-    `backend.provision(spec)` itself already blocks until its own `ReadinessGate` has seen a
-    signed `CellReady` and the first `CellHeartbeat` (`CellBackend.provision`'s own contract,
-    ADR-0027), so by the time this returns the Cell is already reachable; `mark_ready()` is still
-    a separate call (module docstring) for the Queen-side confirmation a `WardenLink` exists.
+    `cell.provisioning` is recorded as provisioning starts, under the id minted here (module
+    docstring). `backend.provision(spec)` itself already blocks until its own `ReadinessGate` has
+    seen a signed `CellReady` and the first `CellHeartbeat` (`CellBackend.provision`'s own
+    contract, ADR-0027), so by the time this returns the Cell is already reachable; `mark_ready()`
+    is still a separate call (module docstring) for the Queen-side confirmation a `WardenLink`
+    exists.
 
     Raises:
         hivemind.hive.UnknownBackendError: `backend_name` names no registered backend.
@@ -447,20 +460,17 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
             before this re-raises (withheld for a Night Veil spec: `boundary.failure_facts`).
     """
     backend = lifecycle._registry.get(backend_name)
-    # The tier rides on the Cell's own labels, so a restarted Queen's reconcile can read it back.
-    spec = boundary.with_tier_label(spec)
+    cell_id = new_cell_id(lifecycle._clock)
+    # The tier rides on the Cell's own labels, so a restarted Queen's reconcile can read it back;
+    # the id rides on the spec, so the Cell the backend makes is the one recorded from here on.
+    spec = boundary.with_tier_label(spec).model_copy(update={"cell_id": cell_id})
+    # A Night Veil Cell's segment opens before its first record, so none of them escapes it.
+    facts = boundary.provisioned_facts(lifecycle._night_veil, cell_id, spec, backend_name)
+    await lifecycle._record(cell_id, "cell.provisioning", **facts)
     try:
         cell = await backend.provision(spec)
     except CellProvisionError as exc:
-        # No CellId exists yet on failure (the backend mints its own, internally, and never
-        # hands one back on this path): the edge is still validated in its pure form, and the
-        # failure event is scoped to the Hive rather than a Cell that was never created. The
-        # backend's own reason rides along: without it, a Cell whose Warden never dialled back
-        # (a real Docker run, 2026-09-23) was only diagnosable from the container's own logs.
-        assert_transition(VirtualCellStatus.PROVISIONING, VirtualCellStatus.FAILED)
-        failed = boundary.failure_facts(lifecycle._night_veil, spec, backend_name, exc.reason)
-        if failed is not None:  # None: a Night Veil spec's failure is withheld (codingrules 12).
-            await lifecycle._record(lifecycle._identity.hive_id, "cell.provision_failed", **failed)
+        await _provision_failed(lifecycle, cell_id, spec, backend_name, exc.reason)
         raise
     lifecycle._cells[cell.id] = LiveVirtualCell(
         cell_id=cell.id,
@@ -471,13 +481,25 @@ async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_na
         cell=cell,
         spec=spec,
     )
-    # A Night Veil Cell's segment opens before either record below, so neither escapes it.
-    facts = boundary.provisioned_facts(lifecycle._night_veil, cell.id, spec, backend_name)
-    # Two events for one arrival (module docstring): "provisioning began" and "the backend
-    # created it" are both true the instant this Cell's id is first known to this lifecycle.
-    await lifecycle._record(cell.id, "cell.provisioning", **facts)
     await lifecycle._record(cell.id, "cell.provisioned", **facts)
     return cell
+
+
+async def _provision_failed(
+    lifecycle: CellLifecycle, cell_id: CellId, spec: VirtualCellSpec, backend: str, reason: str
+) -> None:
+    """Record a provision its backend failed, under the id minted for the Cell that never was."""
+    # The edge is still validated in its pure form. The backend's own reason rides along: without
+    # it, a Cell whose Warden never dialled back (a real Docker run, 2026-09-23) was only
+    # diagnosable from the container's own logs.
+    assert_transition(VirtualCellStatus.PROVISIONING, VirtualCellStatus.FAILED)
+    failed = boundary.failure_facts(lifecycle._night_veil, spec, backend, reason)
+    if failed is not None:
+        await lifecycle._record(cell_id, "cell.provision_failed", **failed)
+    elif lifecycle._night_veil is not None:
+        # Withheld whole (codingrules 12): its segment, holding only `cell.provisioning`, goes
+        # with it unread, and nothing is purged into view, since no Cell ever existed.
+        await lifecycle._night_veil.segments.take(cell_id)
 
 
 async def _mark_ready(
