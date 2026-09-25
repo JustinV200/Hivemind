@@ -39,7 +39,9 @@ lifecycle fix adds her Virtual Cells being acquired beside her tick (`ProvisionL
 set of `ProvisionJob`s, so a slow provision never stalls her loop), and gathers the dispatcher's
 own runtime bookkeeping -- its lock, those waits and that lane -- into one `DispatchBook`
 (`dispatch`), kept here beside `housekeeping` for the same reason and so `QueenDeps` stays inside
-codingrules 5.1's class size.
+codingrules 5.1's class size. The backend backoff adds to that book the Virtual backends whose
+provisions keep failing, each held back for a while (`ProvisionBackoff`, one `BackendHold` per
+backend), its floor and cap her own defaults rather than manifest settings.
 Roadmap step 10.6a adds `guard`: her durable Guard requests, the dire patterns she
 decides by rule, and what isolating a Cell needs (`hivemind.queen.guard_requests.GuardDeps`).
 
@@ -83,7 +85,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -158,8 +160,15 @@ _DEFAULT_ZERO_GRANT_PATIENCE_S = 300.0
 # [virtual_cells] max_cells lets exist, so the bound never starves a default Hive, while a Hive
 # configured for many more Cells still starts no more than this many containers or VMs together.
 _DEFAULT_PROVISIONS_IN_FLIGHT = 4
+# How long placement rests a Virtual backend whose provisions keep failing: this long after one
+# failed round, twice as long after each further one in a row, never longer than the cap. The
+# Queen's own defaults, not manifest settings: a backend's outage is hers to wait out, and the
+# cap means a backend that recovers is used again within five minutes of it.
+_DEFAULT_BACKOFF_FLOOR_S = 1.0
+_DEFAULT_BACKOFF_CAP_S = 300.0  # Five minutes.
 
 __all__ = [
+    "BackendHold",
     "DispatchBook",
     "DormantCellSource",
     "GrantWait",
@@ -171,6 +180,7 @@ __all__ = [
     "OnHeartbeat",
     "OnTaskFinished",
     "PlanningLane",
+    "ProvisionBackoff",
     "ProvisionJob",
     "ProvisionLane",
     "QueenDeps",
@@ -420,6 +430,50 @@ class ProvisionLane:
     closed: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class BackendHold:
+    """One Virtual backend's run of failed provision rounds, and how long it is held back.
+
+    Attributes:
+        failures: The rounds in a row whose provision on it failed, the latest included.
+        failed_at: When the latest of them failed; an attempt that started before then was
+            already in flight, so it belongs to that round, not to a round of its own.
+        hold_s: How long placement skips it after the latest, in seconds.
+    """
+
+    failures: int
+    failed_at: datetime
+    hold_s: float
+
+    @property
+    def until(self) -> datetime:
+        """When placement may choose the backend again, for one provision at a time."""
+        return self.failed_at + timedelta(seconds=self.hold_s)
+
+
+@dataclass(slots=True)
+class ProvisionBackoff:
+    """The Virtual backends whose provisions keep failing, and how long each is held back.
+
+    A backend that failed every provision was chosen again on every pass that found its task
+    waiting, one `cell.provisioning` and `cell.provision_failed` after another.
+    `hivemind.queen.dispatcher.backoff` keeps its run of failed rounds here: placement skips it
+    for `floor_s` after one, twice as long after each further round in a row, at most `cap_s`,
+    and a provision on it that succeeds ends the run. Held in `DispatchBook`, for the same reason
+    `GrantWaits` is. Owns its own mutable state in place (codingrules section 8.5), in memory
+    only: a restarted Queen tries every backend afresh.
+
+    Attributes:
+        floor_s: The hold after one failed round, in seconds.
+        cap_s: The longest hold, however many rounds fail in a row, in seconds.
+        holds: Every backend whose run of failed rounds no success has ended yet, by name.
+    """
+
+    floor_s: float = _DEFAULT_BACKOFF_FLOOR_S
+    cap_s: float = _DEFAULT_BACKOFF_CAP_S
+    holds: dict[str, BackendHold] = field(default_factory=dict)
+
+
 @dataclass(slots=True)
 class DispatchBook:
     """The dispatcher's own runtime bookkeeping, one per Queen: its lock, waits and provisions.
@@ -436,12 +490,15 @@ class DispatchBook:
         unplaced: Every ready task no Cell could take, by task id, with the cause its one
             `queen.decided` named: said once per cause, never on every pass it keeps waiting.
         provisions: Virtual Cells being acquired beside her tick (`ProvisionLane`).
+        backoff: Virtual backends held back after failed provisions (`ProvisionBackoff`),
+            changed by the acquisitions themselves, beside her tick.
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     waits: GrantWaits = field(default_factory=GrantWaits)
     unplaced: dict[TaskId, str] = field(default_factory=dict)
     provisions: ProvisionLane = field(default_factory=ProvisionLane)
+    backoff: ProvisionBackoff = field(default_factory=ProvisionBackoff)
 
 
 def _set_event() -> asyncio.Event:

@@ -16,7 +16,10 @@ The dispatcher lifecycle fix splits the Virtual half in two, so the Queen's tick
 provision: `authorize_virtual` is what the dispatch pass itself checks before it starts one (a
 provider is configured, and the tier's egress point below passes), and `acquire_virtual` is the
 acquisition, retry included, that `hivemind.queen.dispatcher.provisions` runs beside the tick.
-`resolve_link` is still the two in order, for a caller that may wait.
+`resolve_link` is still the two in order, for a caller that may wait. The backend backoff notes
+how every attempt fared (`hivemind.queen.dispatcher.backoff`): a provision that fails holds its
+backend back before the retry decides, so the retry and every placement after it see the rest,
+and one that succeeds ends its backend's run of failed rounds.
 
 Roadmap step 10.3 (ADR-0031): provisioning or resuming a Virtual Cell activates its Comb Shield
 tier's egress policy for the task, so before any `acquire` call -- the first or the retry -- the
@@ -34,7 +37,8 @@ Fits into the Hive:
     authorize_virtual) and `hivemind.queen.dispatcher.provisions` (acquire_virtual). Calls into
     `hivemind.brood_chamber` (Task), `hivemind.guard` (EnforcementPoint), `hivemind.hive`
     (CellProvisionError), `hivemind.queen.authority`, `hivemind.queen.deps` (QueenDeps,
-    WardenLink), `hivemind.queen.dispatcher.snapshot` (build_forage_view, build_inventory),
+    VirtualCellProvider, WardenLink), `hivemind.queen.dispatcher.backoff` (note_failed,
+    note_served), `hivemind.queen.dispatcher.snapshot` (build_forage_view, build_inventory),
     `hivemind.queen.placement` (Placement, PlacementError, ProvisionVirtual, ReuseDormant,
     ReuseReal, VirtualBackendCandidate, decide, rules) and waggle only.
 
@@ -45,6 +49,8 @@ Key invariants:
       fresh `Inventory` through `build_inventory`'s own keyword arguments, so a failed provision
       for one task never leaks into the next task's own placement decision.
     - No `VirtualCellProvider.acquire` call happens before the `comb_shield_egress` check passes.
+    - Every `VirtualCellProvider.acquire` call's outcome is noted for its backend's backoff before
+      anything else sees it: the retry, the caller, or the next placement.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Consequences this module's
@@ -63,7 +69,8 @@ from hivemind.brood_chamber import Task
 from hivemind.guard import CapabilitySet, EnforcementPoint
 from hivemind.hive import CellProvisionError
 from hivemind.queen.authority import goal_held, request_for
-from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.deps import QueenDeps, VirtualCellProvider, WardenLink
+from hivemind.queen.dispatcher.backoff import note_failed, note_served
 from hivemind.queen.dispatcher.night_veil import tier_context
 from hivemind.queen.dispatcher.snapshot import (
     build_forage_view,
@@ -164,7 +171,7 @@ async def acquire_virtual(
         # Unreachable after authorize_virtual; kept so the provider is never assumed.
         raise PlacementError("internal: no VirtualCellProvider to acquire a Virtual Cell with.")
     try:
-        link = await deps.virtual_provider.acquire(placement, task)
+        link = await _acquire_noted(deps, deps.virtual_provider, placement, task)
     except CellProvisionError as exc:
         # ADR-0028 Consequences: re-enter placement once with the failed backend's own headroom
         # zeroed (or, for a dormant Cell, that Cell excluded), then let a second failure propagate.
@@ -213,8 +220,32 @@ async def _retry_once(
         # a provider (the only way `placement` could have been a Virtual Placement at all).
         raise PlacementError("internal: no VirtualCellProvider left to retry an acquire with.")
     await _authorize_egress(deps, task, retry)
-    link = await deps.virtual_provider.acquire(retry, task)  # A second failure propagates.
+    # A second failure propagates (its backend held back first, like the first's).
+    link = await _acquire_noted(deps, deps.virtual_provider, retry, task)
     return link, retry
+
+
+async def _acquire_noted(
+    deps: QueenDeps,
+    provider: VirtualCellProvider,
+    placement: ProvisionVirtual | ReuseDormant,
+    task: Task,
+) -> WardenLink:
+    """Acquire `placement`'s Cell through `provider`, noting how its backend fared (backoff).
+
+    Raises:
+        hivemind.hive.CellProvisionError: The acquire failed; its backend is held back first,
+            so the ADR-0028 retry, and every placement after it, already sees the rest.
+    """
+    started = deps.clock.now()
+    try:
+        link = await provider.acquire(placement, task)
+    except CellProvisionError as exc:
+        await note_failed(deps, placement, exc, started)
+        raise
+    # A Cell made: any run of failed rounds on its backend is over.
+    await note_served(deps, placement)
+    return link
 
 
 async def _authorize_egress(

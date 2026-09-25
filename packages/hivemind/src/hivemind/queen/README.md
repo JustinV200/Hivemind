@@ -106,7 +106,12 @@ every assignment goes to a Warden, over Waggle.
   zeroes) waits, or is cancelled with `forage.denied`, instead of having a Cell made only to deny
   its grant and release it. A task no Cell can take records `queen.decided` once per cause
   (`DispatchBook.unplaced`), again only when the cause changes or it waits afresh, never on every
-  pass.
+  pass. A Virtual backend whose provision fails is held back for a while (`dispatcher.backoff`,
+  `DispatchBook.backoff`): placement skips it for 1 s after one failed round, twice as long after
+  each further round in a row, at most 5 minutes, then tries it one provision at a time, and a
+  provision on it that succeeds ends the run. One `queen.decided` (reason `backend_held_back`)
+  says when a run begins and one (`backend_restored`) when it ends, so a backend that is down
+  costs a bounded few `cell.provisioning`/`cell.provision_failed` rows, not a pair on every pass.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules

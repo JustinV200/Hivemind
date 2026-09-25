@@ -18,7 +18,9 @@ carries `denied`: the capabilities the goal lacked, set only when those alone le
 capacity shortfall). `decide` performs no I/O of its own (ADR-0028): every candidate, every Cell
 Wax note and every headroom
 figure it reads already sits on `inventory`, precomputed by `hivemind.queen.dispatcher`'s snapshot
-helper before this is ever called.
+helper before this is ever called. So does a backend's rest: one whose provisions keep failing is
+held back by the dispatcher a while (`VirtualBackendCandidate.held_back`), and skipped here like a
+backend with no headroom left, under the reason the dispatcher gave.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
@@ -36,7 +38,8 @@ Key invariants:
       `hivemind/queen/placement/` is a path-fragment match, so every module here is covered).
     - A `BLOCK`ed or non-fitting candidate is never returned, on either side (a hypothesis property
       test in `tests/unit/queen/placement/test_decide_properties.py` checks this over random
-      inventories), and neither is one the goal's capability set does not allow.
+      inventories), and neither is one the goal's capability set does not allow, nor a Cell on a
+      backend held back.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the pipeline this module
@@ -220,8 +223,9 @@ def _pick_virtual(
     """Return (the best Virtual candidate, elimination reasons for every backend that is not)."""
     eliminated: list[str] = []
     for backend in _order_backends(inventory.virtual_backends, policy):
-        if not rules.virtual_has_headroom(backend.capabilities.headroom):
-            eliminated.append(f"Backend {backend.name}: no headroom")
+        unusable = _backend_unusable(backend)
+        if unusable is not None:
+            eliminated.append(f"Backend {backend.name}: {unusable}")
             continue
         spec = _best_spec(needs, forage, backend.specs, eliminated, backend.name)
         if spec is None:
@@ -235,6 +239,16 @@ def _pick_virtual(
     if not inventory.virtual_backends:
         eliminated.append("No Virtual backend is registered")
     return None, tuple(eliminated)
+
+
+def _backend_unusable(backend: VirtualBackendCandidate) -> str | None:
+    """Return why `backend` can make no Cell now (held back, or no headroom), or None."""
+    if backend.held_back is not None:
+        # Its provisions keep failing: the caller rests it a while, and says why.
+        return backend.held_back
+    if not rules.virtual_has_headroom(backend.capabilities.headroom):
+        return "no headroom"
+    return None
 
 
 def _best_spec(
@@ -361,12 +375,13 @@ def _night_veil_refusal(backend: VirtualBackendCandidate) -> str | None:
 
     Only a backend declaring `can_night_veil` ever holds one (a QEMU backend does not: its
     teardown cannot yet meet codingrules section 12, so it is refused fail-closed), and only
-    with headroom left.
+    one that could make any Cell now (not held back after failed provisions, and with headroom).
     """
     if not backend.capabilities.can_night_veil:
         return f"Backend {backend.name}: cannot hold a Night Veil Cell"
-    if not rules.virtual_has_headroom(backend.capabilities.headroom):
-        return f"Backend {backend.name}: no headroom"
+    unusable = _backend_unusable(backend)
+    if unusable is not None:
+        return f"Backend {backend.name}: {unusable}"
     return None
 
 

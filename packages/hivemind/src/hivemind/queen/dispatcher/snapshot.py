@@ -26,7 +26,8 @@ when the Hive was built was read, so a Cell already full of running work still c
 And a backend's room is less every fresh Cell being provisioned on it right now
 (`hivemind.queen.dispatcher.provisions`): an acquisition in flight has reserved room the
 lifecycle does not count until its Cell exists, and a placement decided meanwhile must not count
-on it too.
+on it too. A backend whose provisions keep failing is marked held back for a while
+(`hivemind.queen.dispatcher.backoff`), placement data like any other, so `decide` skips it.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -34,6 +35,7 @@ Fits into the Hive:
     acquire`. Calls into `hivemind.cell` (HoneyClearance), `hivemind.forage` (ForageCapacity,
     ForageGrant, RoleFootprint), `hivemind.memory` (WaxSeverity, WaxState),
     `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps, WardenLink),
+    `hivemind.queen.dispatcher.backoff` (mark_held),
     `hivemind.queen.placement` (Inventory, ForageView, ProvisionVirtual, RealCandidate,
     VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's placement holds),
     `QueenDeps.ledger` (the grants in force) and waggle only.
@@ -72,6 +74,7 @@ from hivemind.hive.lifecycle import LifecycleDormantCell, LifecycleVirtualBacken
 from hivemind.memory import WaxSeverity, WaxState
 from hivemind.queen.authority import goal_held
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.dispatcher.backoff import mark_held
 from hivemind.queen.forage.night_veil import night_veil_local_only
 from hivemind.queen.placement import (
     DormantCandidate,
@@ -327,7 +330,8 @@ async def _held_for(deps: QueenDeps, goal_id: TaskId) -> dict[CellId, WaxMention
 async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandidate, ...]:
     """Return the Virtual backends placement sees right now, less the room provisions will take.
 
-    The live source when wired, else the static tuple. The retry-once path
+    The live source when wired, else the static tuple, each marked held back while its
+    provisions keep failing (`hivemind.queen.dispatcher.backoff.mark_held`). The retry-once path
     (`hivemind.queen.dispatcher.acquire`) zeroes one backend's headroom in a copy of THIS, never
     of `deps.virtual_backends` alone: in a real Hive the static tuple is empty and only the live
     source names the configured backend, so zeroing the static tuple made the retry see no
@@ -338,7 +342,10 @@ async def current_virtual_backends(deps: QueenDeps) -> tuple[VirtualBackendCandi
     else:
         backends = deps.virtual_backends
     reserved = _provisioning_by_backend(deps)
-    return tuple(_less_room(backend, reserved[backend.name]) for backend in backends)
+    return tuple(
+        mark_held(deps, _less_room(backend, reserved[backend.name]), reserved[backend.name])
+        for backend in backends
+    )
 
 
 def _provisioning_by_backend(deps: QueenDeps) -> Counter[str]:

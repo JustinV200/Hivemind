@@ -13,7 +13,9 @@ read it live) and `zero_grant` (what a grant that runs no bee does: wait PENDING
 shortfall to pass, within `[forage] zero_grant_patience_s`, or be denied at once). The dispatcher
 lifecycle fix adds `provisions` (the lane a Virtual Cell is acquired in beside the Queen's tick,
 bounded, collected by a later pass, released when its task is gone; `stop_provisions` is what
-`Queen.stop` awaits). This file is the package's face: every name below but `stop_provisions` is
+`Queen.stop` awaits). The backend backoff adds `backoff` (a Virtual backend whose provisions keep
+failing is held back a while, twice as long after each failed round, and tried one provision at a
+time until one succeeds). This file is the package's face: every name below but `stop_provisions` is
 exactly what `hivemind.queen.dispatcher.py` used to export, so every existing caller
 (`hivemind.queen.queen`, `hivemind.queen.ticks.results`, `hivemind.queen.cluster.protocol`)
 imports it unchanged.

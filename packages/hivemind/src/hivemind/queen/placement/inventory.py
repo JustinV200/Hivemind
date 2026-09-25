@@ -41,6 +41,8 @@ Key invariants:
     - `VirtualBackendCandidate.capabilities.headroom` is already the caller's own *remaining*
       figure (roadmap step 5.6's retry path zeroes it for one backend after a failed provision,
       ADR-0028 Consequences): `decide` only ever compares it against zero, never subtracts.
+    - `VirtualBackendCandidate.held_back` is the caller's own judgement too (a backend whose
+      provisions keep failing, rested a while): `decide` only reads whether it is set.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the Inventory/ForageView split
@@ -120,11 +122,15 @@ class VirtualBackendCandidate:
             docstring's own key invariant): `decide` only ever compares it against zero.
         specs: The `VirtualCellSpec`s this backend can provision right now, in the caller's own
             preference order; `decide` picks the first one that fits a task's needs and Forage.
+        held_back: Why the caller holds this backend back right now, or None: its provisions
+            keep failing, so it rests a while (`hivemind.queen.dispatcher.backoff`); `decide`
+            skips a held backend, naming this reason.
     """
 
     name: str
     capabilities: BackendCapabilities
     specs: tuple[VirtualCellSpec, ...] = ()
+    held_back: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

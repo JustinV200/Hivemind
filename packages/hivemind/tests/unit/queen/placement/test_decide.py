@@ -412,6 +412,22 @@ def test_no_backend_headroom_excludes_a_virtual_candidate() -> None:
         decide(TaskNeeds(), inventory, _forage(), _policy(prefer="virtual"))
 
 
+def test_a_backend_held_back_is_passed_over_naming_why() -> None:
+    # Its provisions keep failing, so the dispatcher rests it; the next backend is used instead.
+    docker = _backend(name="docker")
+    held = VirtualBackendCandidate(
+        name=docker.name, capabilities=docker.capabilities, specs=docker.specs, held_back="resting"
+    )
+    both = Inventory(virtual_backends=(held, _backend(name="qemu")))
+    policy = _policy(prefer="virtual")
+
+    placed = decide(TaskNeeds(), both, _forage(), policy)
+
+    assert isinstance(placed, ProvisionVirtual) and placed.backend == "qemu"
+    with pytest.raises(PlacementError, match="Backend docker: resting"):
+        decide(TaskNeeds(), Inventory(virtual_backends=(held,)), _forage(), policy)
+
+
 def test_insufficient_spec_capacity_excludes_a_virtual_candidate() -> None:
     tiny_capacity = make_capacity(max_sub_bees=0)
     backend = _backend(capacity=tiny_capacity)
