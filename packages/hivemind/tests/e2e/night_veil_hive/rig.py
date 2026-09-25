@@ -15,8 +15,8 @@ Fits into the Hive:
 
 Key invariants:
     - Every container a run started is stopped once `running` exits.
-    - A held Worker call ships its Cell's trail before it waits, so the Queen's segment holds
-      everything the Cell recorded up to the hold.
+    - A held Worker call ships its Cell's trail before it waits, and names what it shipped
+      (`NightVeilRun.held`), so a scenario can wait until the Queen's segment holds all of it.
 
 See Also:
     - tests.e2e.test_night_veil_link for the same Hive, its Tor link and its binding.
@@ -122,14 +122,15 @@ class NightVeilRun:
         manifest_path: The manifest every Hive of the test is built from.
         tor: The fake Tor every Cell's link rides.
         in_cell: Every in-Cell Warden's deps, across every Hive of the test.
-        holding: Set once a Cell's Worker holds (its trail shipped), when the run holds work.
+        held: The ids of every event a Cell had recorded when its Worker held, one set per
+            hold: all shipped to the Queen before the hold began.
     """
 
     hive: Hive
     manifest_path: Path
     tor: FakeSocksProxy
     in_cell: list[WardenDeps]
-    holding: asyncio.Event = field(default_factory=asyncio.Event)
+    held: list[frozenset[str]] = field(default_factory=list)
 
     @property
     def backend(self) -> ContainerSpawningFakeCellBackend:
@@ -155,7 +156,7 @@ class NightVeilRun:
     async def rebuilt(self) -> NightVeilRun:
         """A new Hive over the same manifest and stores: a Queen restart, a fresh backend."""
         hive = await _build(self.manifest_path)
-        return NightVeilRun(hive, self.manifest_path, self.tor, self.in_cell, self.holding)
+        return NightVeilRun(hive, self.manifest_path, self.tor, self.in_cell, self.held)
 
 
 @asynccontextmanager
@@ -182,13 +183,13 @@ async def night_veil_hive(
         ContainerSpawningFakeCellBackend,
     )
     monkeypatch.setattr("hivemind.cli.compose.virtual_cells._fail_closed_night_veil_probe", probes)
-    holding = asyncio.Event()
-    in_cell = _watch_in_cell(monkeypatch, hold_after, holding)
+    held: list[frozenset[str]] = []
+    in_cell = _watch_in_cell(monkeypatch, hold_after, held)
     tor = FakeSocksProxy()
     await tor.start()
     try:
         manifest_path = _manifest(tmp_path, tor, tuning)
-        yield NightVeilRun(await _build(manifest_path), manifest_path, tor, in_cell, holding)
+        yield NightVeilRun(await _build(manifest_path), manifest_path, tor, in_cell, held)
     finally:
         await tor.close()
 
@@ -272,7 +273,7 @@ async def _build(manifest_path: Path) -> Hive:
 
 
 def _watch_in_cell(
-    monkeypatch: pytest.MonkeyPatch, hold_after: int | None, holding: asyncio.Event
+    monkeypatch: pytest.MonkeyPatch, hold_after: int | None, held: list[frozenset[str]]
 ) -> list[WardenDeps]:
     """Record every in-Cell Warden's deps as the backend builds it; optionally hold its work."""
     built: list[WardenDeps] = []
@@ -288,7 +289,7 @@ def _watch_in_cell(
                 on_deps_built(deps)  # The backend's own script first, as it runs alone.
             built.append(deps)
             if hold_after is not None:
-                _hold_work(deps, monkeypatch, hold_after, holding)
+                _hold_work(deps, monkeypatch, hold_after, held)
 
         await real_run_in_cell_warden(environ, clock, on_deps_built=watch)
 
@@ -297,14 +298,14 @@ def _watch_in_cell(
 
 
 def _hold_work(
-    deps: WardenDeps, monkeypatch: pytest.MonkeyPatch, after: int, holding: asyncio.Event
+    deps: WardenDeps, monkeypatch: pytest.MonkeyPatch, after: int, held: list[frozenset[str]]
 ) -> None:
     """Make the Cell's Worker calls past the first `after` wait until the Cell is destroyed.
 
     Before it waits, a held call ships the Cell's trail to the Queen, as its Warden's next
-    heartbeat would, then sets `holding`: the scenario reads the Cell at work without waiting out
-    that cadence, and with everything its Worker did first (its Capping included) on the Queen's
-    side.
+    heartbeat would, and adds the ids it shipped to `held`: the scenario reads the Cell at work
+    without waiting out that cadence, once the Queen has merged everything its Worker did first
+    (its Capping included).
     """
     provider, trail_sync = deps.bound.provider, deps.trail_sync
     assert trail_sync is not None  # Every in-Cell Warden ships its own trail.
@@ -316,7 +317,7 @@ def _hold_work(
         if request.slot is ModelSlot.WORKER:
             if answered >= after:
                 await trail_sync.sync()
-                holding.set()
+                held.append(frozenset(event.id for event in await deps.trail.query(EVERYTHING)))
                 await asyncio.Event().wait()  # Never set: the container's cancel ends the wait.
             answered += 1
         return await real_complete(request)

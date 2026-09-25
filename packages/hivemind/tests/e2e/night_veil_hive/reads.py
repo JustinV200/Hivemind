@@ -84,10 +84,18 @@ async def counted(run: NightVeilRun, kind: str, expected: int) -> bool:
 
 
 async def working(run: NightVeilRun) -> bool:
-    """Whether a Cell's Worker is holding, its record shipped; fails fast if it never can."""
+    """Whether a Cell's Worker holds, all it shipped merged; fails fast if it never can hold.
+
+    The hold ships the Cell's trail before it waits, but the Queen merges it on her own side of
+    the link: only once every id a hold shipped is in a held segment is the Cell's record there.
+    """
     for task in await tasks(run):
         assert not is_terminal(task.status), task.outcome  # Ended before its Worker could hold.
-    return run.holding.is_set()
+    segments = run.night_veil.segments
+    merged = {
+        e.id for cell in segments.held_cells() for e in await segments.query(cell, EVERYTHING)
+    }
+    return bool(run.held) and all(shipped <= merged for shipped in run.held)
 
 
 def night_veil_cells(events: Iterable[PheromoneEvent]) -> list[str]:
