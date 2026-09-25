@@ -47,9 +47,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from waggle.ids import CellId, WardenId
+from waggle.ids import CellId, GrantId, WardenId
 
-__all__ = ["Headroom", "LocalPoolReport"]
+__all__ = ["CellRows", "Headroom", "LocalPoolReport"]
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -95,3 +95,20 @@ class Headroom:
 
     sub_bees: int
     shared_seats: int
+
+
+@dataclass(frozen=True, slots=True)
+class CellRows:
+    """Every ledger row keyed to one Cell or one of its Wardens: what a Night Veil purge forgets.
+
+    Attributes:
+        cell_id: The Cell: its capacity and hosting plan rows are keyed by it.
+        wardens: Its Wardens: each one's local-pool report and ceilings rows are keyed by it.
+        grants: Every grant still held on the Cell or by one of its Wardens.
+        tasks: The tasks those grants were issued for.
+    """
+
+    cell_id: CellId
+    wardens: frozenset[WardenId]
+    grants: frozenset[GrantId]
+    tasks: frozenset[str]

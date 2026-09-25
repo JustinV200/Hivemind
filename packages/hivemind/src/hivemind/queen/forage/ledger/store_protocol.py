@@ -29,7 +29,8 @@ Key invariants:
       (`waggle.messages.forage.grants.GrantIssued`'s own docstring) and a Cell's or Warden's latest
       report replacing whatever it last reported.
     - `delete_grant` is idempotent: deleting an id that is not stored is a no-op, not an error,
-      matching `hivemind.memory.store.protocol.MemoryStore.remove_pin`'s own contract.
+      matching `hivemind.memory.store.protocol.MemoryStore.remove_pin`'s own contract; so is
+      `forget`, the Night Veil teardown's delete of one Cell's rows across five tables.
     - `get_reserve`/`list_capacities`/`list_local_reports`/`list_grants`/`list_seat_capacities`/
       `list_spend_by_goal`/`list_hosting_plans`/`list_ceilings` never raise for an empty store;
       they return the store's own defaults or empty collections.
@@ -46,7 +47,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
-from hivemind.queen.forage.ledger.model import LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport
 from waggle.ids import CellId, GrantId, TaskId, WardenId
 
 __all__ = ["LedgerStore"]
@@ -167,4 +168,19 @@ class LedgerStore(Protocol):
 
     async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
         """Return every stored `(holder, ceilings)` pair, in no particular order."""
+        ...
+
+    async def forget(self, rows: CellRows) -> int:
+        """Delete every row `rows` names, in one atomic write: the Night Veil teardown's.
+
+        Codingrules section 12: a Night Veil Cell's capacity, pool reports, hosting plan,
+        ceilings and any grant still held on it must not outlive the Cell; the purge records only
+        how many went. Idempotent: rows already gone are skipped.
+
+        Args:
+            rows: The Cell's rows (`ForageLedger.rows_about`).
+
+        Returns:
+            How many rows were deleted.
+        """
         ...

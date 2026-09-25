@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 
 from hivemind.forage import Ceilings, HostingPlan
+from hivemind.queen.forage.ledger.model import CellRows
 from hivemind.queen.forage.ledger.store_protocol import LedgerStore
 from waggle.ids import CellId, WardenId
 
@@ -101,6 +102,17 @@ class DecisionBook:
     def ceilings_for(self, holder: WardenId) -> Ceilings | None:
         """Return the ceilings currently set for `holder`, or None if none have been set yet."""
         return self._ceilings.get(holder)
+
+    def forget(self, rows: CellRows) -> int:
+        """Drop the Cell's plan and its Wardens' ceilings from memory; return how many went.
+
+        The Night Veil teardown's (`ForageLedger.forget_cell`, which removes the stored rows).
+        """
+        plans = [self._plans.pop(rows.cell_id, None)]
+        ceilings = [self._ceilings.pop(holder, None) for holder in rows.wardens]
+        for holder in rows.wardens:
+            self._ceilings_revision.pop(holder, None)
+        return sum(row is not None for row in (*plans, *ceilings))
 
     async def restore(self) -> None:
         """Rebuild both maps from `self._store`; a no-op with no store."""

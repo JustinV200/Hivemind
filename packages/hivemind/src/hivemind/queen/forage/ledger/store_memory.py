@@ -26,7 +26,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
-from hivemind.queen.forage.ledger.model import LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport
 from waggle.ids import CellId, GrantId, TaskId, WardenId
 
 __all__ = ["InMemoryLedgerStore"]
@@ -114,3 +114,12 @@ class InMemoryLedgerStore:
     async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
         """Return every stored ceilings pair; see `LedgerStore.list_ceilings`."""
         return tuple(self._ceilings.items())
+
+    async def forget(self, rows: CellRows) -> int:
+        """Delete every row `rows` names; see `LedgerStore.forget`."""
+        removed = int(self._capacities.pop(rows.cell_id, None) is not None)
+        removed += int(self._hosting_plans.pop(rows.cell_id, None) is not None)
+        for holder in rows.wardens:
+            removed += int(self._local_reports.pop(holder, None) is not None)
+            removed += int(self._ceilings.pop(holder, None) is not None)
+        return removed + sum(self._grants.pop(g, None) is not None for g in rows.grants)

@@ -23,6 +23,10 @@ Fits into the Hive:
     expiry. Calls into `hivemind.forage`, `hivemind.llm.fanner` (for the `LlmEventRecorder`
     Protocol `LedgerRecorder` implements), `hivemind.common` and waggle only.
 
+A Night Veil Cell's rows leave with it (codingrules section 12): `ForageLedger.forget_cell`
+drops its capacity, its Wardens' pool reports and ceilings, its hosting plan and any grant still
+held on it, from memory and from the store (`LedgerStore.forget`), at its teardown purge.
+
 Key invariants:
     - `ForageLedger._grants` never holds a terminal-state (REVOKED) grant; see `book.py`.
     - Every `LedgerStore` implementation honours the same upsert/idempotent-delete contract; see
@@ -35,8 +39,8 @@ See Also:
     - .claude/codingrules.md Appendix C for the durability contract this package implements.
 
 Public API:
-    - ForageLedger: the live book (book).
-    - Headroom, LocalPoolReport: the ledger's own small value types (model).
+    - ForageLedger, cell_rows: the live book, and which of its rows are one Cell's (book).
+    - Headroom, LocalPoolReport, CellRows: the ledger's own small value types (model).
     - SeatBook, SpendBook, DecisionBook: roadmap step 4.8's three sub-books (seats, spend,
       decisions).
     - LedgerRecorder: the Fanner-facing LlmEventRecorder implementation (recorder).
@@ -45,9 +49,9 @@ Public API:
     - SqliteLedgerStore, apply_ledger_migrations: the durable implementation (store_sqlite).
 """
 
-from hivemind.queen.forage.ledger.book import ForageLedger
+from hivemind.queen.forage.ledger.book import ForageLedger, cell_rows
 from hivemind.queen.forage.ledger.decisions import DecisionBook
-from hivemind.queen.forage.ledger.model import Headroom, LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, Headroom, LocalPoolReport
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
 from hivemind.queen.forage.ledger.seats import SeatBook
 from hivemind.queen.forage.ledger.spend import SpendBook
@@ -56,6 +60,7 @@ from hivemind.queen.forage.ledger.store_protocol import LedgerStore
 from hivemind.queen.forage.ledger.store_sqlite import SqliteLedgerStore, apply_ledger_migrations
 
 __all__ = [
+    "CellRows",
     "DecisionBook",
     "ForageLedger",
     "Headroom",
@@ -67,4 +72,5 @@ __all__ = [
     "SpendBook",
     "SqliteLedgerStore",
     "apply_ledger_migrations",
+    "cell_rows",
 ]
