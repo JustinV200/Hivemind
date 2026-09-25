@@ -18,16 +18,20 @@ dispatch calls into these; none of them is a general-purpose module on its own).
   Warden's own self-raised Alarm; `retire_sub_bee`, the one way a sub-bee leaves its Warden (its
   runtime stopped, its link closed, its slot freed), shared with `results`, `control`,
   `heartbeat`, `Warden.stop` and the quarantine path; a respawn keeps the slot for the fresh bee
-  (`keep_slot`).
+  (`keep_slot`). `resume_from_handoff`: a bee stopped at a Handoff its own Warden ordered is
+  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot.
 - `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
   `lease_creation` point.
 - `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back; since
   roadmap step 10.3 only when the sub-bee holds `question:human` (the `question_routing` point).
 - `control`: forward `TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` from the Queen unchanged;
   a cancel marks the bee's row so any terminal state it reports next ends it, a cancel for a bee
-  that has already ended retires it at once, and `RELEASE_LEASE` retires every sub-bee.
+  that has already ended retires it at once, and `RELEASE_LEASE` retires every sub-bee. A Queen
+  pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any Handoff the
+  Warden had ordered itself; the Warden's own Handoff lever marks the bee for a successor.
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
-  Heartbeat says it has ended with nothing more to send), watch for a stall,
+  Heartbeat says it has ended with nothing more to send, or starting its successor when the
+  Warden's own context check had ordered it to hand off), watch for a stall,
   and build the `HotStateSources` an awake episode reads -- including `wax(cells)` (roadmap step
   4.2a), WRITTEN Cell Wax for the given Cells, capped per Cell the same way
   `hivemind.queen.awake.episode.QueenSources.wax` is.

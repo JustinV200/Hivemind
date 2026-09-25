@@ -17,6 +17,9 @@ refused target escalates exactly like "no allowed binding left"), a Queen-sent o
 rebind that lands records `llm.rebound`, the declared-but-never-recorded kind. A respawn hands its
 predecessor's slot straight to the fresh bee (`retire_sub_bee(keep_slot=True)`): giving it back to
 the pool first let a parked assignment start beside the respawned bee, one over the cap.
+`resume_from_handoff` is the same hand-over for a bee that stopped at a Handoff its own Warden
+ordered for its context size: the fresh bee resumes the same attempt from that Handoff, where
+before nothing started it and the task stayed RUNNING with no bee.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -96,6 +99,7 @@ __all__ = [
     "handle_alarm_action",
     "rebind_sub_bee",
     "report_refused",
+    "resume_from_handoff",
     "retire_sub_bee",
     "send_alarm_to_queen",
 ]
@@ -245,6 +249,32 @@ def _cell_context(warden: Warden) -> WardenCellContext | None:
         lease=warden._lease,
         session=warden._session,
     )
+
+
+async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
+    """Retire a bee stopped at its own Warden's Handoff, and start the fresh bee resuming it.
+
+    The Handoff lever's own meaning (`hivemind.supervision.intervention.Handoff`: "a fresh bee
+    resumes the task from it"): the same attempt carries on, on the same binding and in the slot
+    the stopped bee kept, from the Handoff its last checkpoint reported. A grant or lease the
+    Queen has taken back (an isolation revokes the grant before it pauses anything) leaves the
+    task to her, so the bee is retired and nothing starts; a binding the Guard now refuses reports
+    the task FAILED.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+        sub_bee: The stopped bee (`SubBee.awaits_successor`).
+    """
+    grant = warden._grants.get(sub_bee.assignment.grant_id)
+    ctx = _cell_context(warden)
+    if grant is None or ctx is None:
+        # The Queen took the grant or the lease back: what happens to the task next is hers.
+        await retire_sub_bee(warden, sub_bee)
+        return
+    # The same attempt, not a retry: a context handoff is the work carrying on, not failing.
+    successor = sub_bee.assignment.model_copy(update={"resume_from": sub_bee.last_handoff})
+    await retire_sub_bee(warden, sub_bee, keep_slot=True)
+    await _spawn_into_slot(warden, ctx, successor, sub_bee.binding, None)
 
 
 async def _retire_and_spawn(

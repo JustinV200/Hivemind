@@ -212,8 +212,9 @@ async def settle_after_tick(warden: Warden) -> None:
     `spawn_parked` runs first so a task parked for a full pool starts the same tick the pool has
     room again (nothing else ever re-drove it); `hivemind.wardens.state.settled_state` then reads
     the sub-bee table (and, roadmap step 4.9, `warden._clustered_tasks`) that spawn may just have
-    grown, through `assert_transition`, so a state this pair can never legally reach (CLUSTERED
-    with no sub-bees left, say) raises loudly rather than being written silently. Every settled
+    grown, through `assert_transition`, so a move the machine has no edge for raises loudly
+    rather than being written silently (a clustered Warden whose paused bees have all been retired
+    stays CLUSTERED rather than asking for WATCH, `settled_state`'s own docstring). Every settled
     state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`), beside
     the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel file stays
     inside its size cap (codingrules 5.1); it is the second half of this module's spawn duty.

@@ -16,7 +16,10 @@ Warden never provisions Cells itself.
   a claim accepted, an Alarm's RETRY/REBIND/CANCEL_TASK, a quarantine, the lease taken back, the
   Queen's next attempt of the same task superseding it, and a Heartbeat saying the bee has ended
   with nothing more to send (`SubBee.has_ended`: KILLED by a cancel or kill, DONE after a
-  stop-handoff, or FAILED once a cancel has reached it). One tick drains the queen link
+  stop-handoff, or FAILED once a cancel has reached it). A bee that stopped at a Handoff its own
+  Warden ordered (its context past the handoff threshold, or the Warden's Handoff lever) is the one
+  ending that is not the task's: a fresh bee resumes the same attempt from that Handoff in its slot
+  (`SubBee.awaits_successor`, `wardens.ticks.alarms.resume_from_handoff`). One tick drains the queen link
   and every sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
   through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the
@@ -25,9 +28,9 @@ Warden never provisions Cells itself.
   Also implements `hivemind.supervision.Supervisor` over its sub-bees. Roadmap step 4.9
   (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
-  `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`; any one no
-  longer in that set (a `TaskResume`, or the Queen's fresh `TaskAssign` resuming the task) moves
-  it back, recording
+  `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`, and it stays
+  there once those paused bees have stopped and been retired; any one no longer in that set (a
+  `TaskResume`, or the Queen's fresh `TaskAssign` resuming the task) moves it back, recording
   `warden.clustered`/`warden.active`
   (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's own wiring step: `_record_routine`
   also handles a Queen-sent `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/

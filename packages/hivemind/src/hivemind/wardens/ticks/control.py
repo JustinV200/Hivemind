@@ -20,7 +20,11 @@ A cancel (`TaskCancel`, or an `Intervene(CANCEL)` lever) also marks the bee's ro
 whatever terminal state it reports next ends the row (`SubBee.has_ended`), and a row that has
 already ended (a FAILED bee an escalation left waiting on the Queen) is retired at once, as every
 sub-bee is when the Queen takes the lease back: through `hivemind.wardens.ticks.alarms.
-retire_sub_bee`, the one path that frees a bee's slot for the next assignment.
+retire_sub_bee`, the one path that frees a bee's slot for the next assignment. A Queen-sent pause
+(`TaskPause`, or the `Intervene(HANDOFF)` Clustering and isolation pull with it) makes the bee's
+next stop hers to resume, so it withdraws any Handoff this Warden had ordered itself
+(`SubBee.handoff_ordered`); the Warden's own Handoff lever (`send_intervention`) sets that mark,
+the same one its context check sets, so a fresh bee resumes the task once the bee stops.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -62,7 +66,7 @@ from typing import TYPE_CHECKING
 
 from hivemind.common.logging import get_logger
 from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
-from hivemind.supervision import Cancel, Intervention, to_wire
+from hivemind.supervision import Cancel, Handoff, Intervention, to_wire
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
@@ -138,6 +142,9 @@ async def forward_control(
         clustering_update(item.task_id, payload, warden._clustered_tasks)
     if sub_bee is None:
         return
+    if item.principal == _QUEEN_LINK and _is_pause(payload):
+        # The Queen resumes what she paused, with a fresh TaskAssign: this Warden starts nothing.
+        sub_bee.handoff_ordered = False
     if isinstance(payload, Intervene) and payload.action is InterventionAction.REBIND:
         await _handle_queen_rebind(warden, sub_bee, payload)
         return
@@ -153,6 +160,13 @@ async def forward_control(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
     )
     await sub_bee.link.send(wrap(payload, hop, clock=warden._deps.clock))
+
+
+def _is_pause(payload: _Control) -> bool:
+    """True for a TaskPause or an Intervene(HANDOFF): the Queen's pause, hers to resume."""
+    if isinstance(payload, Intervene):
+        return payload.action is InterventionAction.HANDOFF
+    return isinstance(payload, TaskPause)
 
 
 def _is_cancel(payload: _Control) -> bool:
@@ -206,6 +220,8 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
         raise UnknownSubBeeError(child)
     if isinstance(intervention, Cancel):
         sub_bee.cancelled = True  # It ends for good: any terminal state it reports ends its row.
+    elif isinstance(intervention, Handoff):
+        sub_bee.handoff_ordered = True  # It stops at its Handoff; a fresh bee resumes from it.
     action, slot = to_wire(intervention)
     message = Intervene(
         action=action,
