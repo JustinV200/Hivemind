@@ -8,8 +8,11 @@ answers "does the lifecycle know this Cell at all" -- None for a Real Cell (the 
 tracked one), a real `VirtualCellStatus` for a Virtual one. `hivemind.queen.ticks.results.
 complete_task` calls the callable this factory builds for every finished task's own Cell,
 unconditionally, via the additive `QueenDeps.on_task_finished` seam (documented there and on
-`QueenDeps` itself): this module is what the composition root actually builds that callable from,
-once it also holds a `CellLifecycle` and a `Scrubber`.
+`QueenDeps` itself), and so does the dispatcher's `hivemind.queen.dispatcher.provisions.
+release_cell` for a Cell acquired for a task that will never run on it (cancelled or failed while
+its Cell was being made, or its grant denied once placed), with that task's own outcome, never a
+success, so the Cell is torn down: this module is what the composition root actually builds that
+callable from, once it also holds a `CellLifecycle` and a `Scrubber`.
 
 `make_on_cell_granted` is the other half of the same seam: `hivemind.queen.dispatcher.ready`
 awaits `QueenDeps.on_cell_granted` the moment a task is granted onto a Cell, and the callable built
@@ -44,7 +47,8 @@ Fits into the Hive:
     the composition root alongside `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider`,
     over the same `CellLifecycle` and `Scrubber`, and set on `QueenDeps.on_task_finished`. Called by
     `hivemind.queen.ticks.results.complete_task` (and, in a later pass, `fail_task`/`retry_task`,
-    left out of this dispatch's own minimal edit -- see that module's own docstring). Calls into
+    left out of this dispatch's own minimal edit -- see that module's own docstring) and by
+    `hivemind.queen.dispatcher.provisions.release_cell` for a Cell left behind. Calls into
     `hivemind.brood_chamber` (TaskOutcome, TaskStatus), `hivemind.hive` (BackendCapabilityError),
     `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.overwinter` (OverwinterDecision,
     ReleaseOutcome, Scrubber) and waggle only.
@@ -63,7 +67,8 @@ See Also:
     - .claude/roadmap.md step 5.9 for the release-then-decide edge this module wires up.
     - docs/adr/0029-overwintering-policy.md for the ReleaseOutcome shape this module builds.
     - hivemind.queen.cell_gate.quiesce for make_quiesce, the real `quiesce` implementation.
-    - hivemind.queen.ticks.results for complete_task, this module's one caller today.
+    - hivemind.queen.ticks.results for complete_task, and hivemind.queen.dispatcher.provisions
+      for release_cell, this module's two callers.
     - hivemind.queen.cell_gate.provider for LifecycleVirtualCellProvider, built alongside this.
 """
 

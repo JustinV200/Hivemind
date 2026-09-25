@@ -1,8 +1,9 @@
 """Define LifecycleVirtualCellProvider: the real `hivemind.queen.deps.VirtualCellProvider`.
 
-Roadmap step 5.6's own last piece: `hivemind.queen.dispatcher.acquire.resolve_link` calls
+Roadmap step 5.6's own last piece: `hivemind.queen.dispatcher.acquire.acquire_virtual` calls
 `QueenDeps.virtual_provider.acquire(placement, task)` whenever `hivemind.queen.placement.decide`
-returns a `ProvisionVirtual`/`ReuseDormant` Placement; `LifecycleVirtualCellProvider` is the
+returns a `ProvisionVirtual`/`ReuseDormant` Placement (beside the Queen's tick, as an acquisition
+`hivemind.queen.dispatcher.provisions` starts); `LifecycleVirtualCellProvider` is the
 implementation that actually drives a `hivemind.hive.lifecycle.CellLifecycle` and hands back the
 `WardenLink` `hivemind.queen.cell_gate.listener.CellListener` already attached to the Queen once
 the Cell's own `CellReady`/`CellHeartbeat` handshake verified.
@@ -34,7 +35,7 @@ path ultimately talks to is also still stubbed (this dispatch's own report names
 
 On any failure past a successful `lifecycle.provision`/`.resume` (a wait-ready timeout, or no
 matching link ever showing up in `queen.wardens`), this provider tears the Cell down and raises
-`hivemind.hive.CellProvisionError` so `hivemind.queen.dispatcher.acquire.resolve_link`'s own
+`hivemind.hive.CellProvisionError` so `hivemind.queen.dispatcher.acquire.acquire_virtual`'s own
 retry-once path runs (ADR-0028 Consequences); a failure from `lifecycle.provision`/`.resume`
 themselves already raises `CellProvisionError` on its own and needs no extra teardown (neither
 call ever leaves a dangling record on its own failure path -- see `hivemind.hive.lifecycle`'s own
@@ -109,7 +110,7 @@ See Also:
       of an image, never configuration of a Cell".
     - hivemind.hive.night_veil for NightVeilProbe and attest_cell, this module's own attestation
       call.
-    - hivemind.queen.dispatcher.acquire for resolve_link, this provider's one caller.
+    - hivemind.queen.dispatcher.acquire for acquire_virtual, this provider's one caller.
     - hivemind.queen.cell_gate.listener for CellListener, which attaches the WardenLink this
       provider looks up.
 """
@@ -206,8 +207,8 @@ class LifecycleVirtualCellProvider:
         See `hivemind.queen.deps.VirtualCellProvider.acquire` for the full contract.
         """
         if isinstance(placement, ReuseReal):
-            # Unreachable in practice: hivemind.queen.dispatcher.acquire.resolve_link resolves a
-            # ReuseReal placement itself and never calls this provider for one.
+            # Unreachable in practice: hivemind.queen.dispatcher.acquire resolves a ReuseReal
+            # placement itself (`resolve_link`) and never calls this provider for one.
             raise TypeError("LifecycleVirtualCellProvider.acquire got a ReuseReal placement.")
         if isinstance(placement, ProvisionVirtual):
             link = await self._acquire_provision(placement)

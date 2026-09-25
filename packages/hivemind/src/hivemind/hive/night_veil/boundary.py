@@ -5,8 +5,9 @@ to the Cell and purges them at teardown (`hivemind.pheromone.retention`). This m
 Virtual Cell lifecycle meets that boundary, so every path a Night Veil Cell ends runs the purge:
 `provisioned_facts` opens the Cell's segment the moment `hivemind.hive.lifecycle.CellLifecycle`
 provisions one, before the Queen records a word about it (and `failure_facts` withholds the
-`cell.provision_failed` of one whose backend failed before the Queen ever knew its id: no segment
-could hold it, and the skeleton has no such kind); `end_night_veil` runs
+`cell.provision_failed` of one whose backend failed: the skeleton has no such kind, and with no
+Cell ever made the lifecycle takes its segment, which holds only its `cell.provisioning`, unread
+and unpurged); `end_night_veil` runs
 `NightVeilTeardownPurge` the moment the lifecycle destroys one (a finished task, a failed
 provision after the Cell existed, a Hive shutdown), and `hivemind.cli.readback.virtual_abscond`
 calls it for each Night Veil Cell an Absconding destroys (`adopt_night_veil` says which);
@@ -153,9 +154,11 @@ def failure_facts(
 ) -> dict[str, JsonValue] | None:
     """Return the payload `cell.provision_failed` carries, or None to withhold it for Night Veil.
 
-    A Night Veil provision its backend failed left no Cell id the Queen knows, so no segment can
-    hold the record, and the skeleton names no such kind: it is withheld whole, its reason (free
-    text from the Cell's own boot) with it. Only the backend's name reaches the Queen's log.
+    The Queen knows a failed Night Veil provision's Cell id (the lifecycle mints it before the
+    backend is called, and opened its segment under it), so the record could be kept there; it is
+    withheld whole instead, its reason (free text from the Cell's own boot) with it, since the
+    skeleton names no such kind and the lifecycle takes that segment unread, no Cell ever having
+    been made. Only the backend's name reaches the Queen's log.
 
     Returns:
         The backend, image and reason for any other tier; None for a Night Veil spec.
