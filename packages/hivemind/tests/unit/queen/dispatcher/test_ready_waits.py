@@ -1,9 +1,10 @@
-"""Tests for hivemind.queen.dispatcher.ready's zero-grant path: wait, retry, expire, or deny.
+"""Tests for hivemind.queen.dispatcher.ready's waits: for a grant, and for a Cell to take a task.
 
-The defect these pin down: a grant zeroed by a passing reading (the Hive Stand's load right now)
-used to fail its task at once, so any moment of host load failed every goal. Every scenario here
-drives the real dispatch path (`Queen.submit_goal`, then `dispatch_ready` for each later pass)
-over `builders.queen`'s fakes, with the Hive Stand's live reading injected through
+The defects these pin down: a grant zeroed by a passing reading (the Hive Stand's load right now)
+used to fail its task at once, so any moment of host load failed every goal; and a task no Cell
+could take was said to wait again on every pass, one trail row per task per tick. Every scenario
+here drives the real dispatch path (`Queen.submit_goal`, then `dispatch_ready` for each later
+pass) over `builders.queen`'s fakes, with the Hive Stand's live reading injected through
 `WardenLink.live_capacity` and time moved only by the FakeClock, never slept.
 
 Fits into the Hive:
@@ -33,13 +34,16 @@ from hivemind.brood_chamber import BroodChamber, TaskFilter, TaskOutcome, TaskSt
 from hivemind.cell import Cell, CellKind, HoneyClearance
 from hivemind.forage import ForageCapacity, GoalBudgets, RoyalReserve
 from hivemind.llm import FakeLLMProvider
+from hivemind.memory import CellWax, MemoryContext, WaxSeverity
+from hivemind.memory.cell_wax.writes import WaxProposalInput, clear_wax, propose_wax, write_wax
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, redispatch
 from hivemind.queen.queen import Queen
 from waggle.clock import FakeClock
 from waggle.envelope import Envelope
-from waggle.ids import TaskId
+from waggle.ids import CellId, TaskId
+from waggle.messages.cell.wax import WaxDecision, WaxOrigin
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
@@ -445,3 +449,70 @@ async def test_a_wait_whose_tightest_host_figure_changes_is_still_one_wait_on_on
     assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.PENDING
     assert len(await _denials(stand.deps)) == 1
     assert stand.deps.dispatch.waits.waits[goal_id].since == started
+
+
+def _three_haiku(_goal: str) -> dict[str, object]:
+    """Plan three independent tasks: two fill a two-bee Cell, and the third waits for it."""
+    return independent_haiku_plan(("haiku_1.txt", "haiku_2.txt", "haiku_3.txt"))
+
+
+async def test_a_task_no_cell_can_take_is_said_to_wait_once_per_cause() -> None:
+    # A lone two-bee Cell: its goal's first two tasks fill it, so the third finds no Cell at all.
+    stand = await _stand(_Reading(make_capacity(max_sub_bees=2)), _Setup(plan=_three_haiku))
+    goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
+    tasks = await stand.deps.chamber.list(TaskFilter(goal_id=goal_id))
+    [waiting] = [task for task in tasks if task.status is TaskStatus.PENDING]
+
+    for _ in range(20):
+        await dispatch_ready(stand.deps, [stand.link])
+    full = await _unplaced(stand.deps, waiting.id)
+    wax = await _block(stand.deps, stand.link.cell.id)  # The cause changes: now a BLOCK note.
+    for _ in range(20):
+        await dispatch_ready(stand.deps, [stand.link])
+    blocked = await _unplaced(stand.deps, waiting.id)
+
+    assert len(full) == 1 and "no free Forage capacity" in str(full[0].payload["detail"])
+    assert len(blocked) == 2 and "BLOCK Cell Wax" in str(blocked[1].payload["detail"])
+    # The wait ends once the task is placed: a running sibling finishes, the note is cleared.
+    await _clear(stand.deps, wax)
+    running = next(task for task in tasks if task.status is TaskStatus.RUNNING)
+    outcome = TaskOutcome(
+        status=TaskStatus.SUCCEEDED, summary="Done.", verified_by=stand.link.warden_id
+    )
+    await stand.deps.chamber.complete(running.id, outcome)
+    await dispatch_ready(stand.deps, [stand.link])
+    await dispatch_ready(stand.deps, [stand.link])
+    assert (await stand.deps.chamber.get(waiting.id)).status is TaskStatus.RUNNING
+    assert stand.deps.dispatch.unplaced == {}
+    assert len(await _unplaced(stand.deps, waiting.id)) == 2
+
+
+async def _unplaced(deps: QueenDeps, task_id: TaskId) -> list[PheromoneEvent]:
+    """Every `queen.decided` saying `task_id` found no Cell, oldest first."""
+    decided = await deps.trail.query(TrailQuery(kind="queen.decided", subject_id=task_id))
+    return [event for event in decided if event.payload.get("reason") == "placement_failed"]
+
+
+def _wax_context(deps: QueenDeps) -> MemoryContext:
+    """The MemoryContext a test's Cell Wax writes go through."""
+    return MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+
+
+async def _block(deps: QueenDeps, cell_id: CellId) -> CellWax:
+    """Write a BLOCK Cell Wax note on `cell_id`, as the human would, and return it."""
+    proposal = WaxProposalInput(
+        cell_id=cell_id,
+        severity=WaxSeverity.BLOCK,
+        text="disk nearly full",
+        reason="test setup",
+        clearance=HoneyClearance.C1,
+        origin=WaxOrigin.HUMAN,
+    )
+    context = _wax_context(deps)
+    proposed = await propose_wax(proposal, text_cap_chars=4_000, ctx=context)
+    return await write_wax(proposed, WaxDecision.AUTOPILOT, "test setup", context)
+
+
+async def _clear(deps: QueenDeps, wax: CellWax) -> None:
+    """Clear a BLOCK note `_block` wrote."""
+    await clear_wax(wax, "test cleanup", _wax_context(deps))

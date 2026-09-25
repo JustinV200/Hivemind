@@ -62,7 +62,8 @@ meanwhile, or whose grant was denied, is released rather than left behind. Every
 returns the grants of every task that has ended to the pool (`hivemind.queen.forage.grants.
 release_finished`), so the ledger, and the placement snapshot that now reads the grants in force
 on each Cell, never count finished work. Busy seats wait like a goal's allowance, before any Cell
-is chosen (`zero_grant.hold_for_room`).
+is chosen (`zero_grant.hold_for_room`). A task no Cell can take is said to wait once per cause
+(`queen.decided`, `DispatchBook.unplaced`), not on every pass.
 
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
@@ -120,7 +121,8 @@ Key invariants:
       later pass, or released once the task is gone or its grant denied.
     - A pass releases the grants of every ended task before it places anything.
     - `guard.denied` for placement is recorded only when the goal's capability set alone left no
-      candidate; a capacity or fit failure records `queen.decided` and nothing more.
+      candidate; a capacity or fit failure records `queen.decided` and nothing more, once per
+      cause for as long as its task waits PENDING.
 
 See Also:
     - .claude/roadmap.md step 5.7 for "records queen.placed with the reason, the wax that weighed
@@ -406,14 +408,21 @@ async def _record_placement_failure(deps: QueenDeps, task: Task, error: Placemen
     """Record why `task` found no Cell, and refuse each capability its goal alone lacked.
 
     `queen.decided` carries the error's own message (every rule that eliminated a candidate),
-    bounded to the trail's per-string limit. When the goal's set alone left no candidate
-    (`error.denied`, roadmap step 10.3), the Queen acting for the goal checks each missing
-    capability at the placement point, so each is a `guard.denied` row with its reason, and then
-    cancels the task: a goal's set is fixed for its whole life, so no later pass could place it,
-    and leaving it PENDING would re-record the same refusals on every tick.
+    bounded to the trail's per-string limit. A task left waiting is said to be once per cause,
+    exactly as a grant's wait is: the row is recorded when its wait begins or its cause changes,
+    never on every pass it keeps waiting (a full lone Cell used to add one row per task per
+    tick), and `zero_grant.forget_waits` ends the wait once the task leaves PENDING. When the
+    goal's set alone left no candidate (`error.denied`, roadmap step 10.3), the Queen acting for
+    the goal checks each missing capability at the placement point, so each is a `guard.denied`
+    row with its reason, and then cancels the task: a goal's set is fixed for its whole life, so
+    no later pass could place it, and leaving it PENDING would re-record the same refusals.
     """
     detail = str(error)[:MAX_PAYLOAD_STRING_CHARS]
-    await record_event(deps, "queen.decided", task.id, reason="placement_failed", detail=detail)
+    # The message names every rule that eliminated a candidate and no passing figure, so the same
+    # text is the same cause: already said, so said no more.
+    if deps.dispatch.unplaced.get(task.id) != detail:
+        deps.dispatch.unplaced[task.id] = detail
+        await record_event(deps, "queen.decided", task.id, reason="placement_failed", detail=detail)
     if error.final and not error.denied:
         # Roadmap step 10.3a: a Night Veil rule broken for good, refused once and loudly; its
         # guard.denied, when a floor refused, is already on the trail.

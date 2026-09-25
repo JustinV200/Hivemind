@@ -100,7 +100,9 @@ every assignment goes to a Warden, over Waggle.
   in force on it, and each backend's headroom less the Cells being provisioned on it; every pass
   first returns an ended task's grants to the pool (`queen.forage.grants.release_finished`,
   `forage.revoked` with cause RELEASED). The dispatcher's lock, waits and lane live in one
-  `QueenDeps.dispatch` (`DispatchBook`).
+  `QueenDeps.dispatch` (`DispatchBook`). A task no Cell can take records `queen.decided` once per
+  cause (`DispatchBook.unplaced`), again only when the cause changes or it waits afresh, never on
+  every pass.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules

@@ -217,15 +217,19 @@ async def deny_zero_grant(deps: QueenDeps, task: Task, sized: SizedGrant) -> Non
 
 
 def forget_waits(deps: QueenDeps, ready: Collection[TaskId]) -> None:
-    """Drop the wait of every task no longer ready to dispatch (its goal cancelled, say).
+    """Drop every wait, for a grant or for a Cell, of a task no longer ready to dispatch.
+
+    A wait ends when its task leaves PENDING (placed, cancelled, or failed once its patience ran
+    out), so a later wait of the same task is said afresh, once.
 
     Args:
-        deps: The Queen's collaborators; `dispatch.waits.waits` is pruned in place.
+        deps: The Queen's collaborators; `dispatch.waits.waits` and `dispatch.unplaced` are
+            pruned in place.
         ready: The ids of every task ready to dispatch on this pass.
     """
-    waits = deps.dispatch.waits.waits
-    for task_id in [task_id for task_id in waits if task_id not in ready]:
-        del waits[task_id]
+    for book in (deps.dispatch.waits.waits, deps.dispatch.unplaced):
+        for task_id in [task_id for task_id in book if task_id not in ready]:
+            del book[task_id]
 
 
 def _passing(*, is_live: bool) -> frozenset[GrantBound]:

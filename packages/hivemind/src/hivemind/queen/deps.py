@@ -424,17 +424,23 @@ class ProvisionLane:
 class DispatchBook:
     """The dispatcher's own runtime bookkeeping, one per Queen: its lock, waits and provisions.
 
+    Owns its own mutable state in place (codingrules section 8.5), in memory only: a restarted
+    Queen says each wait afresh rather than trusting a record she did not keep.
+
     Attributes:
-        lock: Serialises every dispatch pass on this Queen, and so every change to `waits` and
-            `provisions`: `Queen.submit_goal`, a finished task and her tick each dispatch, and
-            two passes interleaving could both pick the same PENDING task and lose the chamber's
-            PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
+        lock: Serialises every dispatch pass on this Queen, and so every change to `waits`,
+            `unplaced` and `provisions`: `Queen.submit_goal`, a finished task and her tick each
+            dispatch, and two passes interleaving could both pick the same PENDING task and lose
+            the chamber's PENDING -> ASSIGNED race (found by the phase 5 e2e slice).
         waits: Fresh tasks waiting for a grant, and their patience (`GrantWaits`).
+        unplaced: Every ready task no Cell could take, by task id, with the cause its one
+            `queen.decided` named: said once per cause, never on every pass it keeps waiting.
         provisions: Virtual Cells being acquired beside her tick (`ProvisionLane`).
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     waits: GrantWaits = field(default_factory=GrantWaits)
+    unplaced: dict[TaskId, str] = field(default_factory=dict)
     provisions: ProvisionLane = field(default_factory=ProvisionLane)
 
 
