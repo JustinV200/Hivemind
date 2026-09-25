@@ -61,7 +61,8 @@ pass collects the Cell and places the task on it, and a Cell whose task was canc
 meanwhile, or whose grant was denied, is released rather than left behind. Every pass first
 returns the grants of every task that has ended to the pool (`hivemind.queen.forage.grants.
 release_finished`), so the ledger, and the placement snapshot that now reads the grants in force
-on each Cell, never count finished work.
+on each Cell, never count finished work. Busy seats wait like a goal's allowance, before any Cell
+is chosen (`zero_grant.hold_for_room`).
 
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
@@ -165,7 +166,7 @@ from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventor
 from hivemind.queen.dispatcher.zero_grant import (
     deny_zero_grant,
     forget_waits,
-    hold_for_goal,
+    hold_for_room,
     settle_wait,
 )
 from hivemind.queen.forage import grants as forage_grants
@@ -328,9 +329,9 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
         return  # Its Cell is still being made beside the tick: never awaited here.
     # Roadmap steps 10.3a/c: a Night Veil task meets the tier's floors before any Cell is chosen.
     await check_night_veil_placement(deps, task)
-    # A goal whose running tasks hold its whole allowance waits before any Cell is chosen: a
-    # Cell acquired now would only sit idle.
-    if await hold_for_goal(deps, task):
+    # A goal whose running tasks hold its whole allowance, or a task whose every seat is busy,
+    # waits before any Cell is chosen: a Cell acquired now would only sit idle.
+    if await hold_for_room(deps, task):
         return
     placed = await _place(deps, wardens, task)
     if placed is None:

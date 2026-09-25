@@ -364,8 +364,8 @@ class GrantWaits:
     A fresh task whose grant a passing shortfall zeroes stays PENDING and is tried again on every
     later dispatch pass (`hivemind.queen.dispatcher.zero_grant`); this is where each such wait's
     start is kept, so the first pass records the one `forage.denied` that says so, later passes
-    record nothing, and a wait on the Cell's live figures past `patience_s` fails the task with
-    the figures instead of waiting for ever.
+    record nothing, and a wait on a passing figure (the Cell's live load or free memory, or busy
+    model seats) past `patience_s` fails the task with the figures instead of waiting for ever.
     Held in `DispatchBook`, for the same reason `Housekeeping` is held on `QueenDeps`. Owns its own
     mutable state in place (codingrules section 8.5): `waits` changes on every dispatch pass that
     starts, changes or ends a wait. In memory only: a restarted Queen starts each wait afresh (and
@@ -373,7 +373,7 @@ class GrantWaits:
 
     Attributes:
         patience_s: `[forage] zero_grant_patience_s`: the longest a task waits on its Cell's live
-            figures, in seconds.
+            figures or on busy seats, in seconds.
         waits: Every fresh task waiting for a grant right now, by task id.
     """
 

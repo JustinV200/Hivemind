@@ -34,7 +34,10 @@ held elsewhere), so the Queen's dispatcher can tell a grant that a passing short
 Hive Stand's load right now) from one no wait can ever lift (a reserve that claims every seat)
 without parsing `ForageGrant.reason`. `grant` reads the very same computation, so the two can never
 disagree, and its reason now names the tightest limit too. `goal_limit` is the goal's own allowance
-alone, for a caller that must know whether a goal has room before any Cell is chosen.
+alone, for a caller that must know whether a goal has room before any Cell is chosen, and
+`seat_limit` (the dispatcher lifecycle fix) is the model seats alone, for the same caller: seats
+belong to the Forage map, never to a Cell, so a task whose every allowed seat is busy can wait for
+one before a Cell is acquired for it.
 
 Fits into the Hive:
     Layer 1 (forage; foundational services, capacity as data). Called by the Queen's dispatcher
@@ -133,6 +136,7 @@ __all__ = [
     "SubBeeLimits",
     "goal_limit",
     "grant",
+    "seat_limit",
     "should_recompute",
     "sub_bee_limits",
 ]
@@ -368,6 +372,34 @@ def goal_limit(
     )
 
 
+def seat_limit(
+    forage_map: ForageMap, budgets: GoalBudgets, reserve: RoyalReserve, tempo: Tempo
+) -> SubBeeLimits:
+    """Return the model seats alone, as limits with only `SEATS` in them, before any Cell exists.
+
+    The same sources `grant` would allow a task at `tempo` (its grade floor, and a seat hour the
+    goal's spend cap can still pay for) with the same Royal Reserve held back and the same margin,
+    so a task this finds short would have been granted no bee on any Cell.
+
+    Args:
+        forage_map: The Forage map, whose live seat figures are read.
+        budgets: The goal's caps; `spend_cap_usd` narrows the sources.
+        reserve: The Royal Reserve whose seats are held back first.
+        tempo: The task's tempo: its grade floor and its margin.
+
+    Returns:
+        Limits whose `now` is the seats free on those sources and whose `at_best` is every seat
+        they offer, both less the reserve's.
+    """
+    floor = grade_floor(tempo.accuracy)
+    sources = _sources_within(forage_map, floor, budgets.spend_cap_usd, None)
+    return SubBeeLimits(
+        now={GrantBound.SEATS: _reachable_seats(sources, reserve.seats)},
+        at_best={GrantBound.SEATS: _reachable_seats_at_best(sources, reserve.seats)},
+        margin=_margin(reserve, tempo),
+    )
+
+
 def should_recompute(previous: ForageCapacity, current: ForageCapacity, threshold: float) -> bool:
     """Return whether `current` has drifted from `previous` enough to recompute a live grant.
 
@@ -403,10 +435,16 @@ def _sources_clearing_floor(
     inputs: GrantInputs, floor: int, remaining_spend: float
 ) -> tuple[ModelSource, ...]:
     """Return every map source clearing the grade floor, the spend cap and reachability."""
-    reachable = inputs.reachable_source_ids
+    return _sources_within(inputs.map, floor, remaining_spend, inputs.reachable_source_ids)
+
+
+def _sources_within(
+    forage_map: ForageMap, floor: int, remaining_spend: float, reachable: frozenset[str] | None
+) -> tuple[ModelSource, ...]:
+    """Return every source on `forage_map` clearing `floor`, `remaining_spend` and `reachable`."""
     return tuple(
         source
-        for source in inputs.map.sources()
+        for source in forage_map.sources()
         if source.spec.grade >= floor
         and source.spec.cost.cost_per_seat_hour_usd <= remaining_spend
         # None means "no narrowing": every source the two checks above already allow is reachable

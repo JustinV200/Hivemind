@@ -8,35 +8,39 @@ spec) is short -- fails the task at once with `forage.denied` and the figures (`
 exactly as the phase 4 fix did (`.claude/phase-4-handoff.md` section 4.2 item 1: a grant that
 empty used to be sent anyway and park its task RUNNING until its timeout, nothing on screen). A
 passing one -- the free cores or free memory of a Cell whose capacity is read live (the Hive
-Stand's one-minute load), or a goal whose other running tasks hold its whole sub-bee allowance --
-used to fail the task too, so a busy moment on the host failed every goal outright and the Hive's
-own running Drones, by raising the load, failed its next task. Such a task now waits: it stays
-PENDING, the first pass records one `forage.denied` with `deferred = true`, the limit waited on
-and the figures, later passes record nothing, and each pass tries again (`settle_wait`,
-`hold_for_goal`). A wait on the Cell's live figures is bounded by `[forage] zero_grant_patience_s`
-and then fails the task like a lasting shortfall, the wait's length in its summary, so nothing
-waits for ever unseen; a wait on the goal's own allowance ends when one of its tasks does. Which
-limit was tightest comes from the allocator itself as data (`hivemind.forage.SubBeeLimits`), never
-from parsing a reason string.
+Stand's one-minute load), every seat its allowed sources offer busy right now (calls in flight,
+or a provider's rate limit masking its seats until the window passes), or a goal whose other
+running tasks hold its whole sub-bee allowance -- used to fail the task too, so a busy moment on
+the host or on a provider failed every goal outright. Such a task now waits: it stays PENDING, the
+first pass records one `forage.denied` with `deferred = true`, the limit waited on and the
+figures, later passes record nothing, and each pass tries again (`settle_wait`, `hold_for_room`).
+A wait on a passing figure (the Cell's live ones, or the seats) is bounded by `[forage]
+zero_grant_patience_s` and then fails the task like a lasting shortfall, the wait's length in its
+summary, so nothing waits for ever unseen; a wait on the goal's own allowance ends when one of its
+tasks does. Busy seats are read from the Forage map, never from a Cell, so they are waited out
+before any Cell is chosen (`hold_for_room`), exactly like the goal's allowance: a Cell acquired
+for a task that then waits for a seat would sit idle. Which limit was tightest comes from the
+allocator itself as data (`hivemind.forage.SubBeeLimits`), never from parsing a reason string.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` on every dispatch pass. Calls into
     `hivemind.brood_chamber` (Task, TaskFilter, TaskOutcome, TaskStatus), `hivemind.forage`
-    (GrantBound, SubBeeLimits, goal_limit), `hivemind.queen.deps` (GrantWait, QueenDeps),
-    `hivemind.queen.dispatcher.sizing` (SizedGrant), `hivemind.queen.intake` (goal_budgets),
-    `hivemind.queen.trail` (record_forage_event) and waggle only.
+    (GrantBound, RoyalReserve, SubBeeLimits, goal_limit, seat_limit), `hivemind.queen.deps`
+    (GrantWait, QueenDeps), `hivemind.queen.dispatcher.sizing` (SizedGrant),
+    `hivemind.queen.intake` (goal_budgets), `hivemind.queen.trail` (record_forage_event) and
+    waggle only.
 
 Key invariants:
     - A wait records exactly one `forage.denied` (`deferred = true`) when it starts, or when it
-      moves between the Cell's live figures and the goal's own allowance, and nothing on any other
+      moves between a passing figure and the goal's own allowance, and nothing on any other
       pass; nothing is ever sent to a Warden for a waiting task, and the chamber never moves it
       out of PENDING.
     - Only a limit whose figure can change while the task waits is waited out: `FREE_CORES` and
-      `FREE_MEMORY` only on a Cell whose reading is live, `GOAL_BEES` always, `CELL_CAP` and
-      `SEATS` never, and no limit at all that leaves no bee even at its best.
-    - A wait on the Cell's live figures ends in a grant or, once `patience_s` has passed, in
-      `deny_zero_grant`; the task never waits on them for longer.
+      `FREE_MEMORY` only on a Cell whose reading is live, `SEATS` and `GOAL_BEES` on any Cell,
+      `CELL_CAP` never, and no limit at all that leaves no bee even at its best.
+    - A wait on a passing figure ends in a grant or, once `patience_s` has passed, in
+      `deny_zero_grant`; the task never waits on one for longer.
     - `deny_zero_grant` always records `forage.denied` before it fails the task, so the cause is
       on the trail before the outcome is.
 
@@ -55,7 +59,7 @@ from collections.abc import Collection
 from pydantic import JsonValue
 
 from hivemind.brood_chamber import Task, TaskFilter, TaskOutcome, TaskStatus
-from hivemind.forage import GrantBound, SubBeeLimits, goal_limit
+from hivemind.forage import GrantBound, RoyalReserve, SubBeeLimits, goal_limit, seat_limit
 from hivemind.queen.deps import GrantWait, QueenDeps
 from hivemind.queen.dispatcher.sizing import SizedGrant
 from hivemind.queen.intake import goal_budgets
@@ -65,7 +69,10 @@ from waggle.ids import TaskId
 # A goal's own allowance is freed as its own tasks finish: the goal's own progress, not a host
 # figure that may never move, so a task may always wait on it, with no patience of its own (one
 # would fail a healthy goal whose tasks simply run longer than the patience).
-_PASSING_ALWAYS = frozenset({GrantBound.GOAL_BEES})
+_UNTIMED = frozenset({GrantBound.GOAL_BEES})
+# Busy seats free up as calls end and rate limits lapse, whichever Cell the task would run on:
+# the Forage map reads them live for every Cell alike, so they pass anywhere, within patience.
+_PASSING_ANYWHERE = _UNTIMED | {GrantBound.SEATS}
 # The free figures of a Cell read live change while a task waits; on a Cell whose capacity is
 # fixed for its life they never will, so waiting on them there would only delay the same denial.
 _PASSING_WHEN_LIVE = frozenset({GrantBound.FREE_CORES, GrantBound.FREE_MEMORY})
@@ -75,7 +82,7 @@ _HOLDS_A_BEE = frozenset(
     {TaskStatus.ASSIGNED, TaskStatus.RUNNING, TaskStatus.BLOCKED, TaskStatus.PAUSED}
 )
 
-__all__ = ["deny_zero_grant", "forget_waits", "hold_for_goal", "settle_wait", "waits_on"]
+__all__ = ["deny_zero_grant", "forget_waits", "hold_for_room", "settle_wait", "waits_on"]
 
 
 def waits_on(limits: SubBeeLimits, *, is_live: bool) -> GrantBound | None:
@@ -101,23 +108,34 @@ def waits_on(limits: SubBeeLimits, *, is_live: bool) -> GrantBound | None:
     return limits.limited_by if short <= _passing(is_live=is_live) else None
 
 
-async def hold_for_goal(deps: QueenDeps, task: Task) -> bool:
-    """Hold `task` PENDING while its goal's other running tasks hold its whole allowance.
+async def hold_for_room(deps: QueenDeps, task: Task) -> bool:
+    """Hold `task` PENDING while its goal's allowance, or every seat it may use, is taken.
 
-    Checked before any Cell is chosen: a Cell acquired for a task that then waits would sit idle,
-    and a fresh Virtual one would be provisioned again on the next pass. The allowance counts the
-    bees the goal's siblings run (one per started, unfinished task), not their grants' ceilings:
-    a ceiling is only the most a Warden may spawn, and the Hive Stand's Warden sizes its one pool
-    from the latest grant it holds (`hivemind.wardens.ticks.assign.handle_grant`).
+    Checked before any Cell is chosen, since neither depends on one: a Cell acquired for a task
+    that then waits would sit idle, and a fresh Virtual one would be provisioned again on the next
+    pass. The allowance counts the bees the goal's siblings run (one per started, unfinished task),
+    not their grants' ceilings: a ceiling is only the most a Warden may spawn, and the Hive Stand's
+    Warden sizes its one pool from the latest grant it holds (`hivemind.wardens.ticks.assign.
+    handle_grant`). The seats are those the task's tempo allows on the Forage map, less the Royal
+    Reserve's, exactly as its grant would count them (`hivemind.forage.seat_limit`).
 
     Args:
-        deps: The Queen's collaborators.
+        deps: The Queen's collaborators; `dispatch.waits` is read and written.
         task: The ready task about to be placed.
 
     Returns:
-        True when the task waits (its one wait event already recorded); False when the goal has
-        room, or never will (a cap too small for even one bee, denied once the task is placed).
+        True when the task waits (its wait's one event recorded when it began); False when there
+        is room, when a shortfall never lifts (a cap too small for even one bee, a reserve holding
+        every seat: denied once the task is placed), or when a wait for seats has outlasted
+        `[forage] zero_grant_patience_s` (placed, so its grant is denied with the figures).
     """
+    if await _hold_for_goal(deps, task):
+        return True
+    return await _hold_for_seats(deps, task)
+
+
+async def _hold_for_goal(deps: QueenDeps, task: Task) -> bool:
+    """Hold `task` while its goal's other running tasks hold its whole allowance (untimed)."""
     used = await _goal_bees_in_use(deps, task)
     budgets = goal_budgets(deps.budgets, task.spec)
     limits = goal_limit(budgets, used, deps.reserve, task.spec.needs.tempo)
@@ -126,6 +144,20 @@ async def hold_for_goal(deps: QueenDeps, task: Task) -> bool:
         return False
     await _note_wait(deps, task, bound, _goal_figures(task, limits, used))
     return True
+
+
+async def _hold_for_seats(deps: QueenDeps, task: Task) -> bool:
+    """Hold `task` while every seat its tempo may use is busy, within the wait's patience."""
+    budgets = goal_budgets(deps.budgets, task.spec)
+    limits = seat_limit(deps.map, budgets, deps.reserve, task.spec.needs.tempo)
+    # Seats pass on any Cell (_PASSING_ANYWHERE): no Cell's reading is involved here at all.
+    bound = waits_on(limits, is_live=False)
+    if bound is None:
+        return False
+    wait = await _note_wait(deps, task, bound, _seat_figures(task, limits, deps.reserve))
+    # Past its patience the task is placed after all: its grant, sized on the same seats, is then
+    # denied with the figures by settle_wait, the same end a wait on the host's figures meets.
+    return (deps.clock.now() - wait.since).total_seconds() < deps.dispatch.waits.patience_s
 
 
 async def settle_wait(deps: QueenDeps, task: Task, sized: SizedGrant) -> SizedGrant | None:
@@ -198,12 +230,12 @@ def forget_waits(deps: QueenDeps, ready: Collection[TaskId]) -> None:
 
 def _passing(*, is_live: bool) -> frozenset[GrantBound]:
     """Return the limits a wait can lift, given whether the Cell's reading is live."""
-    return _PASSING_ALWAYS | (_PASSING_WHEN_LIVE if is_live else frozenset())
+    return _PASSING_ANYWHERE | (_PASSING_WHEN_LIVE if is_live else frozenset())
 
 
 def _is_timed(bound: GrantBound) -> bool:
     """Return whether a wait on `bound` is bounded by `[forage] zero_grant_patience_s`."""
-    return bound not in _PASSING_ALWAYS
+    return bound not in _UNTIMED
 
 
 async def _note_wait(
@@ -213,11 +245,12 @@ async def _note_wait(
     book = deps.dispatch.waits
     previous = book.waits.get(task.id)
     # Still waiting on the same kind of shortfall: already said once, so say nothing more and keep
-    # the clock. Which of the host's live figures is tightest may change from pass to pass (cores
-    # one pass, memory the next) without the host ever having had room, so that is one wait.
+    # the clock. Which passing figure is tightest may change from pass to pass (cores one pass,
+    # memory the next, busy seats after that) without the task ever having had room, so that is
+    # one wait, and its patience runs from when it began.
     if previous is not None and _is_timed(previous.bound) == _is_timed(bound):
         return previous
-    # A new wait, or one moving between the host's figures and the goal's own allowance: a
+    # A new wait, or one moving between a passing figure and the goal's own allowance: a
     # different cause with a different end, so it is said once and runs its own clock.
     wait = GrantWait(bound=bound, since=deps.clock.now())
     book.waits[task.id] = wait
@@ -298,5 +331,23 @@ def _goal_figures(task: Task, limits: SubBeeLimits, used: int) -> dict[str, Json
         "reason": (
             f"goal {task.goal_id}: {used} of its {cap} sub-bees are held by its running tasks, "
             f"leaving {limits.max_sub_bees} once the {1 - limits.margin:.0%} headroom is taken."
+        ),
+    }
+
+
+def _seat_figures(task: Task, limits: SubBeeLimits, reserve: RoyalReserve) -> dict[str, JsonValue]:
+    """Return the figures the seats were read from, for a `forage.denied` payload."""
+    free, every = limits.now[GrantBound.SEATS], limits.at_best[GrantBound.SEATS]
+    return {
+        "task_id": task.id,
+        "goal_id": task.goal_id,
+        "max_sub_bees": limits.max_sub_bees,
+        "seats_free": free,
+        "seats_at_best": every,
+        "reserve_seats": reserve.seats,
+        "reason": (
+            f"every seat its tempo's sources offer is busy: {free} free of {every} once the Royal "
+            f"Reserve's {reserve.seats} are held, leaving {limits.max_sub_bees} after the "
+            f"{1 - limits.margin:.0%} headroom."
         ),
     }

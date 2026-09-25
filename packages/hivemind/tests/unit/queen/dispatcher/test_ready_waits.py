@@ -49,6 +49,7 @@ _PATIENCE_S = 300.0  # QueenDeps' own default: the manifest's own [forage] defau
 _BUSY = make_capacity(host=make_host_capacity(cpu_load=7.9 / 8))
 _IDLE = make_capacity()  # The same host at a load of 1.6: six Drones' worth of free cores.
 _GOAL = "Write a haiku."
+_SOURCE_ID = "fake-worker"  # builders.queen's one Forage map source, with FORAGE_SOURCE_SEATS.
 _ONLY_THE_BINDING_ORDERS = ("CeilingsSet", "PlanWritten")  # A Warden's first dispatch, no grant.
 
 
@@ -225,6 +226,52 @@ async def test_a_wait_past_its_patience_fails_the_task_with_the_figures() -> Non
     assert stand.recorder.kinds() == list(_ONLY_THE_BINDING_ORDERS)
     assert all(statuses[goal_id] is TaskStatus.RUNNING for _, statuses in stand.recorder.sent)
     assert stand.deps.dispatch.waits.waits == {}
+
+
+async def test_busy_seats_defer_the_task_before_any_cell_is_chosen() -> None:
+    # Every seat on its one allowed source is taken right now (calls in flight), not for good.
+    stand = await _stand(_Reading(_IDLE))
+    await stand.deps.map.set_abundance(_SOURCE_ID, seats_free=0)
+
+    goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
+    await dispatch_ready(stand.deps, [stand.link])  # A later pass: tried again, quietly.
+
+    assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.PENDING
+    [wait] = await _denials(stand.deps)
+    assert wait.subject_id == goal_id
+    assert wait.payload["deferred"] is True
+    assert wait.payload["limited_by"] == "seats"
+    assert wait.payload["patience_s"] == _PATIENCE_S
+    assert wait.payload["seats_free"] == 0
+    # Held before any Cell was chosen: nothing placed, nothing sent.
+    assert stand.recorder.sent == []
+    assert "queen.placed" not in await _kinds(stand.deps)
+
+    await stand.deps.map.set_abundance(_SOURCE_ID, seats_free=FORAGE_SOURCE_SEATS)
+    await dispatch_ready(stand.deps, [stand.link])
+
+    assert (await stand.deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+    assert len(await _denials(stand.deps)) == 1
+
+
+async def test_busy_seats_past_their_patience_fail_the_task_with_the_figures() -> None:
+    clock = FakeClock()
+    stand = await _stand(_Reading(_IDLE), _Setup(clock=clock))
+    await stand.deps.map.set_abundance(_SOURCE_ID, seats_free=0)
+    goal_id = await stand.queen.submit_goal(_GOAL, clearance=HoneyClearance.C1)
+
+    clock.advance(_PATIENCE_S + 1)
+    await dispatch_ready(stand.deps, [stand.link])
+
+    task = await stand.deps.chamber.get(goal_id)
+    assert task.status is TaskStatus.FAILED
+    assert task.outcome is not None
+    assert "after waiting" in task.outcome.summary and "seats" in task.outcome.summary
+    _wait, denial = await _denials(stand.deps)
+    assert denial.payload["deferred"] is False
+    assert denial.payload["limited_by"] == "seats"
+    waited_s = denial.payload["waited_s"]
+    assert isinstance(waited_s, float) and waited_s >= _PATIENCE_S
 
 
 _TWO_CORE_ROLE = {WorkerRole.DRONE: make_footprint(cpu_cores=2.0)}

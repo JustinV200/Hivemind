@@ -79,16 +79,18 @@ from `hivemind.forage.models` and this package's own `__init__.py`:
   (`hivemind.queen.forage.ledger`) to decide when a live grant needs recomputing. Property-tested
   with hypothesis: a grant never exceeds capacity minus the Royal Reserve, and every allowed
   binding's grade clears `tempo.grade_floor`, under every tempo v1 can draw.
-- **`sub_bee_limits`, `goal_limit`** (`hivemind.forage.allocate`, the zero-grant fix): the five
-  limits `max_sub_bees` is the minimum of, as data. `SubBeeLimits` names each (`GrantBound`:
-  `CELL_CAP`, `FREE_CORES`, `FREE_MEMORY`, `SEATS`, `GOAL_BEES`) with its value as the figures
-  stand and at their best (an idle host, all of its memory free, every seat free, none of the
-  goal's allowance held), plus the headroom margin; `limited_by` is the tightest limit, `short()`
-  the limits that leave no whole bee now, `never_lifts()` those that leave none even at best. The
-  Queen's dispatcher reads them to tell a passing shortfall (wait) from a lasting one (deny at
-  once) without parsing the grant's reason, which now names the tightest limit too. `goal_limit`
-  is the goal's own allowance alone, for a caller with no Cell yet. Property-tested: the limits'
-  `max_sub_bees` is always the grant's, and no figure at its best allows fewer bees.
+- **`sub_bee_limits`, `goal_limit`, `seat_limit`** (`hivemind.forage.allocate`, the zero-grant
+  fix): the five limits `max_sub_bees` is the minimum of, as data. `SubBeeLimits` names each
+  (`GrantBound`: `CELL_CAP`, `FREE_CORES`, `FREE_MEMORY`, `SEATS`, `GOAL_BEES`) with its value as
+  the figures stand and at their best (an idle host, all of its memory free, every seat free, none
+  of the goal's allowance held), plus the headroom margin; `limited_by` is the tightest limit,
+  `short()` the limits that leave no whole bee now, `never_lifts()` those that leave none even at
+  best. The Queen's dispatcher reads them to tell a passing shortfall (wait) from a lasting one
+  (deny at once) without parsing the grant's reason, which now names the tightest limit too.
+  `goal_limit` is the goal's own allowance alone and `seat_limit` the model seats alone, for a
+  caller with no Cell yet (the dispatcher waits out busy seats before it acquires one).
+  Property-tested: the limits' `max_sub_bees` is always the grant's, and no figure at its best
+  allows fewer bees.
 - **`GrantState`** (`hivemind.forage.grant_state`): `ISSUED -> ACTIVE -> REVOKED`;
   `ACTIVE -> EXHAUSTED -> ACTIVE` (top-up). `can_transition`/`assert_transition` are the only way
   to check or enforce an edge (codingrules Appendix C, "Forage grant" row).

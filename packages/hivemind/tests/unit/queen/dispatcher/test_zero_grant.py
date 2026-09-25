@@ -61,20 +61,23 @@ def test_a_limit_that_never_lifts_is_denied_at_once_even_beside_a_passing_one() 
     assert waits_on(limits, is_live=True) is None
 
 
-def test_seats_short_right_now_are_denied_at_once_even_on_a_live_cell() -> None:
-    # Seats are not one of the limits a wait may lift (the classification's own table).
+def test_busy_seats_are_waited_out_on_any_cell() -> None:
+    # Every allowed seat taken right now, but not for good: calls end and rate limits lapse, and
+    # the Forage map reads seats live whatever Cell the task would run on.
     limits = _limits({GrantBound.SEATS: 0}, {GrantBound.SEATS: 3})
 
-    assert waits_on(limits, is_live=True) is None
+    assert waits_on(limits, is_live=True) is GrantBound.SEATS
+    assert waits_on(limits, is_live=False) is GrantBound.SEATS
 
 
 def test_a_passing_shortfall_beside_a_denied_one_is_denied_at_once() -> None:
+    # Busy seats could pass, but a fixed Cell's free cores never will: nothing worth waiting for.
     limits = _limits(
         {GrantBound.FREE_CORES: 0, GrantBound.SEATS: 0},
         {GrantBound.FREE_CORES: 8, GrantBound.SEATS: 3},
     )
 
-    assert waits_on(limits, is_live=True) is None
+    assert waits_on(limits, is_live=False) is None
 
 
 def test_the_goals_own_allowance_is_waited_out_on_any_cell() -> None:

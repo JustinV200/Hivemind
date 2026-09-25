@@ -84,12 +84,12 @@ every assignment goes to a Warden, over Waggle.
   memory or all its cores could never hold one bee, no allowed source offers a seat past the
   reserve, or any shortfall on a Cell whose capacity is fixed) records `forage.denied` with the
   figures and fails the task at once. A passing one (the Hive Stand's free cores or free memory
-  right now) is sized before the chamber moves, so the task stays PENDING, one `forage.denied` with
-  `deferred = true` says so, every later pass tries again quietly, and the task fails with the
-  figures only once `[forage] zero_grant_patience_s` has passed; a goal whose other running tasks
-  hold its whole `max_sub_bees_per_goal` waits, before any Cell is chosen, until one of them
-  finishes. One dispatch pass tries every ready task once, and a waiting one never holds up the
-  rest. `redispatch` (a RUNNING retry) and
+  right now, or every allowed model seat busy) is sized before the chamber moves, so the task stays
+  PENDING, one `forage.denied` with `deferred = true` says so, every later pass tries again
+  quietly, and the task fails with the figures only once `[forage] zero_grant_patience_s` has
+  passed; busy seats, like a goal whose other running tasks hold its whole
+  `max_sub_bees_per_goal`, are waited out before any Cell is chosen. One dispatch pass tries every
+  ready task once, and a waiting one never holds up the rest. `redispatch` (a RUNNING retry) and
   `resume_paused` (a `resume_from` resume) fail at once on any zero: a RUNNING task has no queue to
   wait in, which is also why they size their grants from the link's own Cell as probed, as before,
   so a busy moment never fails running work. The dispatcher lifecycle fix: a pass never awaits a
