@@ -14,9 +14,9 @@ in that one episode, and files its request through the Queen's door. The rule is
 pattern, so she isolates the Cell by rule. The segment holds the whole story while the Cell lives;
 once the Hive stops and the Cell is torn down, the segment is purged with it, the Guard Bee's alert
 among its records, and the durable trail holds nothing about the Cell or its task but the skeleton
-codingrules section 12 names. One known exception, outside the Guard Bee and reported apart: the
-isolation's BLOCK Cell Wax note, whose `memory.wax_*` records the memory store writes with the
-note's own row, bypassing the boundary.
+codingrules section 12 names. The isolation writes no Cell Wax (a note and its `memory.wax_*`
+records would outlive the Cell): while the Cell lives, its isolation stands in its own segment,
+where the Queen reads it back, and no placement is ever offered the Cell.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -32,6 +32,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -46,12 +47,13 @@ from e2e.kernel_helpers import (
     wait_until,
 )
 
-from hivemind.cell import Cell, CombShieldLevel
+from hivemind.cell import Cell, CombShieldLevel, HoneyClearance
 from hivemind.cli.compose import Hive, build_hive, run_hive
 from hivemind.forage import ModelSlot
 from hivemind.hive.night_veil import FakeNightVeilProbe, NightVeilProbe
 from hivemind.llm import LLMRequest, LLMResponse, text_response
 from hivemind.manifest import load_manifest
+from hivemind.memory import WaxState
 from hivemind.pheromone import (
     MAX_QUERY_LIMIT,
     SKELETON_KINDS,
@@ -60,6 +62,8 @@ from hivemind.pheromone import (
     TrailQuery,
     skeleton_event,
 )
+from hivemind.queen.dispatcher.snapshot import build_inventory
+from hivemind.queen.isolation import IsolationState, read_isolation
 from waggle.clock import SystemClock
 from waggle.ids import CellId
 from waggle.transport.socks import FakeSocksProxy
@@ -74,10 +78,8 @@ _PLAN = single_haiku_plan("haiku_1.txt")
 _EVERYTHING = TrailQuery(limit=MAX_QUERY_LIMIT)
 _REQUEST_RECORDS = "queen.goal_request_"  # The human's own request records, not the Cell's work.
 _PURGED = "cell.purged"
-# The isolation's BLOCK Cell Wax note is written by the memory store with its row, in the same
-# transaction, outside the Night Veil boundary (as any Cell Wax about a Night Veil Cell is): its
-# `memory.wax_*` records reach the durable trail. A boundary gap, not the Guard Bee's: reported.
-_CELL_WAX = "memory.wax_"
+_CELL_WAX = "memory.wax_"  # A Cell Wax note's own records: none may name a Night Veil Cell.
+_ALARM_ESCALATED = "alarm.escalated"  # The SECURITY Alarm's own row (see its assertion below).
 _ID_PREFIXES = ("task_", "worker_", "warden_", "grant_", "cell_")  # What the story's ids look like.
 # What the whole story is, inside the segment: the Cell's own records and the Queen's about it.
 _STORY = ("guard.injection_suspected", "guard.denied", "guard.alert", "queen.decided")
@@ -178,6 +180,7 @@ async def _run_until_isolated(hive: Hive, tor: FakeSocksProxy) -> CellId:
             await wait_until(lambda: _is_isolated(hive), timeout_s=_WAIT_S)
             cell = await _isolated_cell(hive)
             assert cell is not None
+            await _assert_held_with_no_wax(hive, cell)
     finally:
         await backend.aclose()
     return cell
@@ -186,6 +189,18 @@ async def _run_until_isolated(hive: Hive, tor: FakeSocksProxy) -> CellId:
 async def _is_isolated(hive: Hive) -> bool:
     """Whether a Night Veil Cell's segment records its isolation yet."""
     return await _isolated_cell(hive) is not None
+
+
+async def _assert_held_with_no_wax(hive: Hive, cell: CellId) -> None:
+    """While the isolated Cell lives: read back from its segment, never placed on, no Cell Wax."""
+    deps = hive.queen._deps
+    assert (await read_isolation(deps, cell)).state is IsolationState.ISOLATED
+    assert cell in {link.cell.id for link in hive.queen.wardens}  # Its Warden is still attached.
+    inventory = await build_inventory(deps, hive.queen.wardens)
+    assert cell not in {candidate.cell_id for candidate in inventory.real}
+    assert await hive.stores.memory.list_wax(cell, frozenset(WaxState), HoneyClearance.C2) == ()
+    durable = await hive.stores.trail.query(_EVERYTHING)
+    assert [e.kind for e in durable if e.kind.startswith(_CELL_WAX)] == []
 
 
 def _assert_the_story_was_in_the_segment(hive: Hive, cell: CellId, snapshot: Snapshot) -> None:
@@ -227,10 +242,15 @@ async def _assert_only_the_skeleton_survives(hive: Hive, cell: CellId, snapshot:
     ]
     assert about, "The Cell's skeleton itself should be on the durable trail."
     assert not {e.kind for e in about} & {*_STORY, "cell.isolated"}  # None of the story.
+    assert await hive.stores.memory.list_wax(cell, frozenset(WaxState), HoneyClearance.C2) == ()
+    # Nor does anything else name the Cell anywhere in its words (a memory label's reason, say),
+    # but for the isolation's SECURITY Alarm, whose `alarm.escalated` detail names the Cell: a
+    # boundary gap in the Alarm's own record (and its chat line), outside isolation, reported apart.
+    kept = SKELETON_KINDS | {_PURGED}
+    named = {e.kind for e in durable if cell in json.dumps(e.payload) and e.kind not in kept}
+    assert named <= {_ALARM_ESCALATED}, named
     for event in about:
-        if event.kind.startswith(_CELL_WAX):
-            continue  # The isolation's BLOCK note: a boundary gap reported apart (module doc).
-        assert event.kind in SKELETON_KINDS | {_PURGED}, event.kind
+        assert event.kind in kept, event.kind
         if event.kind in SKELETON_KINDS:
             cut = skeleton_event(event)
             assert cut is not None and cut.payload == event.payload, event.kind
