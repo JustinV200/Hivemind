@@ -3,7 +3,8 @@
 `bound_to` names the live tasks placed on a Cell and their Wardens, whatever their status and
 however many there are (past one page of the store), and nothing of another Cell's or of a
 finished task's; `scrub_night_veil` hands the store's own scrub through (its contract suite holds
-what a reduced row keeps).
+what a reduced row keeps); `end_night_veil` cancels every live task still placed on the ending
+Cell, whatever its status, and reduces it with the finished ones, leaving another Cell's alone.
 
 Fits into the Hive:
     Mirrors src/hivemind/brood_chamber/chamber/night_veil.py (codingrules section 3).
@@ -95,3 +96,23 @@ async def test_scrub_night_veil_reduces_through_the_store() -> None:
     assert await chamber.scrub_night_veil(frozenset({finished.id})) == 1
 
     assert (await chamber.get(finished.id)).spec.title == SCRUBBED_TEXT
+
+
+async def test_end_night_veil_cancels_the_cells_live_tasks_and_reduces_them() -> None:
+    clock = FakeClock()
+    chamber, store = _chamber(clock)
+    cell, other = new_cell_id(clock), new_cell_id(clock)
+    running = await _placed(store, clock, TaskStatus.RUNNING, cell)
+    blocked = await _placed(store, clock, TaskStatus.BLOCKED, cell)
+    elsewhere = await _placed(store, clock, TaskStatus.RUNNING, other)
+    finished = await _seed(store, clock, make_task(TaskStatus.SUCCEEDED, clock))
+
+    reduced = await chamber.end_night_veil(cell, frozenset({finished.id}))
+
+    for task in (running, blocked):
+        ended = await chamber.get(task.id)
+        assert (ended.status, ended.cell_id) == (TaskStatus.CANCELLED, None)
+        assert ended.spec.title == SCRUBBED_TEXT
+    assert (await chamber.get(finished.id)).spec.title == SCRUBBED_TEXT
+    assert reduced == 3  # The two cancelled and the one already finished; questions have none.
+    assert await chamber.get(elsewhere.id) == elsewhere  # Another Cell's task is untouched.

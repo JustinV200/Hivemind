@@ -98,20 +98,7 @@ class _OutcomesMixin(_ChamberBase):
         Returns:
             The task, now CANCELLED.
         """
-        task = await self._store.get_task(task_id)
-        outcome = TaskOutcome(status=TaskStatus.CANCELLED, summary=reason)
-        payload: dict[str, JsonValue] = {"reason": reason, "from_status": task.status.value}
-        return await self._transition(
-            task,
-            TaskStatus.CANCELLED,
-            "task.cancelled",
-            payload,
-            outcome=outcome,
-            warden_id=None,
-            cell_id=None,
-            bound_tier=None,
-            pending_question_id=None,
-        )
+        return await self._cancel(await self._store.get_task(task_id), reason)
 
     async def cancel_stranded(self, goal_id: TaskId | None = None) -> tuple[Task, ...]:
         """Cancel every PENDING task a FAILED or CANCELLED dependency left unable to ever run.

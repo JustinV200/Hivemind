@@ -5,8 +5,8 @@ one Night Veil Cell ran one task, and every store besides the trail holds rows a
 episode naming the task, the task's own words, the Cell's capacity and its Warden's pool report).
 Its teardown purge leaves none of them, and counts every one in `cell.purged`; the same purge by a
 process that never held the Cell's segment (the Cell's task still running when its Queen stopped)
-still finds the task and the Warden through the chamber and the ledger, and leaves a live task its
-words. Another Cell's rows stay.
+still finds the task and the Warden through the chamber and the ledger, and cancels the task,
+which can never finish now, before reducing it with the rest. Another Cell's rows stay.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/compose/night_veil/side_channels.py (codingrules section 3).
@@ -182,4 +182,6 @@ async def test_a_process_that_never_held_the_cell_still_finds_its_rows(tmp_path:
     # The chamber named its running task, so the Queen's episode about it went too.
     assert await hive.stores.memory.list_episodes(None, HoneyClearance.C2, 10) == ()
     assert hive.ledger.capacity_for(cell_id) is None
-    assert await hive.stores.chamber.get(task.id) == task  # Live: it may yet run elsewhere.
+    # It could never finish without its Cell: cancelled, then reduced with the rest.
+    ended = await hive.stores.chamber.get(task.id)
+    assert (ended.status, ended.spec.title) == (TaskStatus.CANCELLED, SCRUBBED_TEXT)

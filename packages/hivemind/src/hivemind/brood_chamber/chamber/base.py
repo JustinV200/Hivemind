@@ -5,9 +5,10 @@ or the literal "human"/"system") a `BroodChamber` (`hivemind.brood_chamber.chamb
 every `TaskEvent` (`hivemind.pheromone`, the Pheromone Trail's audit record of who did what to
 what and when) it writes. `_ChamberBase` is the private base every mixin in this package
 (`submission.py`, `lifecycle.py`, `outcomes.py`, `questions.py`, `queries.py`) inherits: it holds
-the `TaskStore`, `Clock` and `ChamberIdentity` every method needs, and the three private helpers
+the `TaskStore`, `Clock` and `ChamberIdentity` every method needs, and the private helpers
 (`_build_event`, `_write`, `_transition`) that turn "apply these field updates and write a matching
-event" into one call, so no mixin repeats the `TaskEvent(...)` construction by hand.
+event" into one call, so no mixin repeats the `TaskEvent(...)` construction by hand; `_cancel` is
+the one cancellation both `outcomes.py` and `night_veil.py` write.
 
 `_build_event` is also where a Night Veil task's events are cut to the skeleton (codingrules
 section 12: "task state transitions carrying nothing beyond the task id"). A task is Night Veil
@@ -47,7 +48,7 @@ from datetime import datetime
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.store.protocol import TaskStore
-from hivemind.brood_chamber.task.model import Task
+from hivemind.brood_chamber.task.model import Task, TaskOutcome
 from hivemind.brood_chamber.task.state import TaskStatus, assert_transition
 from hivemind.cell import CombShieldLevel
 from hivemind.pheromone import TaskEvent, skeleton_event
@@ -162,6 +163,23 @@ class _ChamberBase:
         # legality, never a caller's own judgement.
         assert_transition(task.status, new_status, task_id=task.id)
         return await self._write(task, kind, payload, status=new_status, **updates)
+
+    async def _cancel(self, task: Task, reason: str) -> Task:
+        """Move non-terminal `task` -> CANCELLED, its outcome built from `reason`; see `cancel`."""
+        outcome = TaskOutcome(status=TaskStatus.CANCELLED, summary=reason)
+        payload: dict[str, JsonValue] = {"reason": reason, "from_status": task.status.value}
+        # A cancelled task is never placed, nor still blocked on a question (BLOCKED -> CANCELLED).
+        return await self._transition(
+            task,
+            TaskStatus.CANCELLED,
+            "task.cancelled",
+            payload,
+            outcome=outcome,
+            warden_id=None,
+            cell_id=None,
+            bound_tier=None,
+            pending_question_id=None,
+        )
 
 
 def _is_night_veil(task: Task) -> bool:

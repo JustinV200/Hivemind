@@ -5,11 +5,13 @@ trail, and four stores besides the trail hold rows about it: the Queen's memory 
 episode records, Handoffs, Bee Bread, notes and Cell Wax about the Cell or its tasks, taint labels
 and all), the Brood Chamber (its tasks' words and their questions' and answers'), the Forage
 ledger (the Cell's capacity and hosting plan, its Warden's pool report and ceilings, any grant
-still held) and the backend's snapshot images. `attach_side_channels` hands the boundary's
-`NightVeilTeardownPurge` one side channel per store (`hivemind.pheromone.SideChannels`), each a
-thin adapter over that store's own Night Veil method, and the two stores that tie ids to a Cell
-durably (the chamber's live tasks, the ledger's reports and grants) as member sources, so a
-purge by a Queen that never held the Cell's segment still finds its tasks and its Warden. The
+still held) and the backend's snapshot images; a task still placed on the Cell is cancelled
+before the chamber's rows are reduced, since it can never finish now (`BroodChamber.
+end_night_veil`). `attach_side_channels` hands the boundary's `NightVeilTeardownPurge` one side
+channel per store (`hivemind.pheromone.SideChannels`), each a thin adapter over that store's own
+Night Veil method, and the two stores that tie ids to a Cell durably (the chamber's live tasks,
+the ledger's reports and grants) as member sources, so a purge by a Queen that never held the
+Cell's segment still finds its tasks and its Warden. The
 composition root calls it once a Hive's stores exist (`hivemind.cli.compose.hive.build_hive`),
 and each offline `hive cells` command that can end a Cell does too.
 
@@ -108,9 +110,8 @@ class _ChamberSide:
         self._chamber = chamber
 
     async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
-        """Reduce every finished Night Veil task (the Cell's among them) to its skeleton."""
-        del cell_id  # A task names its Cell only while it runs; the members name its tasks.
-        return await self._chamber.scrub_night_veil(members)
+        """Cancel the Cell's live tasks; reduce every finished Night Veil task to its skeleton."""
+        return await self._chamber.end_night_veil(cell_id, members)
 
     async def members_of(self, cell_id: CellId) -> frozenset[str]:
         """Name the live tasks placed on the Cell and their Wardens."""
