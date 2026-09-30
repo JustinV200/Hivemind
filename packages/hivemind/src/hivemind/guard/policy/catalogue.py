@@ -230,6 +230,8 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("honey.retired", _NARROWING),  # Superseded: no longer returned to anyone.
     ("honey.vectors_pruned", _NARROWING),
     ("honey.note_proposed", _PROPOSAL),
+    ("honey.lowering_proposed", _PROPOSAL),  # ADR-0038: filed; nothing lowers until decided.
+    ("honey.lowering_rejected", _REFUSAL),  # The judge or the human said no; the label stays.
     ("queen.honey_consulted", _DECISION),  # Her read is honey.queried; this records its use.
 )
 
