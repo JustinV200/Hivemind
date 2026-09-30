@@ -59,3 +59,42 @@ HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 `HIVEMIND_LOCAL_RIPENER_MODEL` and `HIVEMIND_LOCAL_EMBED_MODEL` replace the two slots' model ids
 for a server that hosts different ones than the manifest names. Like the handoff eval it skips
 cleanly when unset, and nothing about it runs in CI.
+
+A second case, `test_ripening_embeds_in_process_with_sentence_transformers`, runs the same pass
+with `EMBEDDER` on the in-process `sentence_transformers` adapter instead of the server (`RIPENER`
+stays on the server). It runs when `HIVEMIND_LOCAL_ST_EMBED_MODEL` names a model, as a
+sentence-transformers name or a local directory, and the `embeddings` extra is installed
+(`uv sync --extra embeddings`). The manifest is offline, so the model loads with
+`local_files_only` and never reaches a model hub: download it first.
+
+Both cases passed on 2026-09-24 against llama.cpp's OpenAI-compatible server
+(`llama-cpp-python[server]`) serving qwen2.5-3B-Instruct (Q4_K_M) for `RIPENER` and
+nomic-embed-text v1.5 for `EMBEDDER`, with Qwen3-Embedding 0.6B in process for the second case.
+Those runs found and fixed three adapter problems no fake could show:
+
+- A text-only message sent as a part array made llama.cpp return a 500.
+- HTTP clients that were never closed failed the session under warnings-as-errors.
+- sentence-transformers 5.x warns on `get_sentence_embedding_dimension`.
+
+### `test_clearance_judge_local.py`: the clearance judge on a local model
+
+ADR-0038's clearance judge (`ModelClearanceJudge` on the `JUDGE` slot, the shipped
+`judge_clearance.md` rubric) is asked, at a `C1` target, about six texts. It must approve two: a
+verified Hive Stand outcome naming a service's port, and a build log. It must reject four: a
+person's name, a private address with a machine name, a home path that names a person, and an API
+key. The binding comes from `docs/manifests/local.toml` through the production registry and
+`resolve_judge`.
+
+```bash
+HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+  HIVEMIND_LOCAL_JUDGE_MODEL=<the judge model> \
+  uv run pytest -m local_llm packages/hivemind/tests/evals/honey/test_clearance_judge_local.py
+```
+
+Run it against any model meant for the `JUDGE` slot and before and after any change to the rubric.
+Each case is one sampled answer at the server's default temperature, so a single wrong answer is a
+signal to re-run and look at the reasons, not proof either way.
+
+On 2026-09-24, against the same llama.cpp server, qwen2.5-7B-Instruct (Q4_K_M) passed all six
+cases. qwen2.5-3B-Instruct (Q4_K_M) rejected everything, so it failed both texts it must approve,
+the build log included. Bind the judge to a different, stronger model than the Ripener.

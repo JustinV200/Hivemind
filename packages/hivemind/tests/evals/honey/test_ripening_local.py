@@ -28,6 +28,7 @@ See Also:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -52,7 +53,7 @@ from hivemind.honey_store import (
 )
 from hivemind.llm import ProviderRegistry
 from hivemind.manifest import HiveManifest, load_manifest
-from hivemind.manifest.schema.llm import SlotBinding
+from hivemind.manifest.schema.llm import ProviderSpec, SlotBinding
 from hivemind.pheromone import SqlitePheromoneTrail
 from waggle.clock import SystemClock
 from waggle.ids import new_cell_id
@@ -61,6 +62,7 @@ from waggle.messages.honey import NectarKind
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _LOCAL_MANIFEST = _REPO_ROOT / "docs" / "manifests" / "local.toml"
 _LOCAL_PROVIDER = "local"  # The one provider docs/manifests/local.toml declares.
+_IN_PROCESS_PROVIDER = "in_process"  # Added for the in-process EMBEDDER case below.
 _FINDING = (
     "The widget factory's staging environment reads its configuration from "
     "/etc/widgets/staging.toml. After editing that file, restart the service with "
@@ -90,6 +92,21 @@ def _local_manifest(environ: Mapping[str, str]) -> HiveManifest:
     ):
         if environ.get(variable):
             slots[key] = SlotBinding(provider=_LOCAL_PROVIDER, model=environ[variable])
+    update = {"providers": providers, "slots": slots}
+    return manifest.model_copy(update={"llm": llm.model_copy(update=update)})
+
+
+def _with_in_process_embedder(manifest: HiveManifest, model: str) -> HiveManifest:
+    """Rebind EMBEDDER to a `sentence_transformers` provider running `model` in this process.
+
+    `model` is a sentence-transformers model name or a local path; local.toml's `offline = true`
+    makes the adapter load it with `local_files_only`, so it never reaches a model hub.
+    """
+    llm = manifest.llm
+    providers = dict(llm.providers)
+    providers[_IN_PROCESS_PROVIDER] = ProviderSpec(kind="sentence_transformers")
+    slots = dict(llm.slots)
+    slots["embedder"] = SlotBinding(provider=_IN_PROCESS_PROVIDER, model=model)
     update = {"providers": providers, "slots": slots}
     return manifest.model_copy(update={"llm": llm.model_copy(update=update)})
 
@@ -177,3 +194,27 @@ async def _ripen_and_find(access: HoneyAccess, manifest: HiveManifest) -> None:
     assert found.vector_used, found.response.reason
     assert found.response.hits, found.response.reason
     assert found.response.hits[0].honey_ref.startswith("/hive/")
+
+
+@pytest.mark.local_llm
+async def test_ripening_embeds_in_process_with_sentence_transformers(tmp_path: Path) -> None:
+    """The same pass with EMBEDDER on the in-process adapter; RIPENER stays on the server.
+
+    Skips cleanly unless the gates above are set, `HIVEMIND_LOCAL_ST_EMBED_MODEL` names a model
+    (a name or a local path) and the optional `embeddings` extra is installed.
+    """
+    if os.environ.get("HIVEMIND_LIVE_LLM") != "1":
+        pytest.skip("HIVEMIND_LIVE_LLM is not set to '1'.")
+    if not os.environ.get("HIVEMIND_LOCAL_LLM_BASE_URL"):
+        pytest.skip("HIVEMIND_LOCAL_LLM_BASE_URL must be set.")
+    model = os.environ.get("HIVEMIND_LOCAL_ST_EMBED_MODEL")
+    if not model:
+        pytest.skip("HIVEMIND_LOCAL_ST_EMBED_MODEL must name a sentence-transformers model.")
+    if importlib.util.find_spec("sentence_transformers") is None:
+        pytest.skip("the optional embeddings extra (sentence-transformers) is not installed.")
+    manifest = _with_in_process_embedder(_local_manifest(os.environ), model)
+    access, registry = await _local_access(tmp_path, manifest)
+    try:
+        await _ripen_and_find(access, manifest)
+    finally:
+        await registry.aclose()

@@ -53,10 +53,14 @@ none of the three facts and is never eligible. This rule is a pure function
 transaction that applies one. A merge, a raise or a taint in between leaves the label where it is.
 
 **The Ripener's honest reading.** `ripen_nectar.md` now asks for the content's own label,
-independent of the current one. A label above the current one raises it at once, as before. A
-label below it is stored as `ripener_clearance` and never lowers anything by itself. It can only
-start a proposal. The Ripener's one-line reason is kept on the proposal for the human and never
-shown to the judge.
+independent of the current one. A label above the current one raises it at once, as before. A label
+below it is stored as `ripener_clearance` and never lowers anything by itself. It can only start a
+proposal. The Ripener's one-line reason is kept on the proposal for the human and never shown to the
+judge. A deposit whose label the floor alone holds up is read however short it is. Below
+`[honey.ripening] summarise_min_chars` (400 by default) a deposit is otherwise its own summary and
+gets no model call, so it has no reading and could never be proposed, and a verified outcome on the
+Hive Stand is usually that short. The check that needs no reading is one pure function,
+`clearance.held_by_floor_alone`, which the eligibility rule builds on.
 
 **One proposal per Nectar, ever.** `honey_lowerings` (migration `0003`) holds each proposal: its
 id, the Nectar, the from and to labels, its state, the approver, the Ripener's reason, the
@@ -102,6 +106,16 @@ and a rejection records `honey.lowering_rejected` (the approver and the outcome)
 `honey.*` kind, these are written on the Queen's own node. No Night Veil Nectar is ever eligible,
 so none of them concerns a Night Veil Cell.
 
+**A lowering holds for every repeat of the same text.** A later deposit that dedupes onto a lowered
+Nectar (by content or by source key) never changes its stored text, which is the text the judge or
+the human cleared. A merge still raises the label to anything the review did not cover: a higher
+declared label, or a HUMAN or WATCH origin. It does not re-apply a Real Cell floor no higher than
+the one already cleared. Only an approved lowering ever leaves a Nectar's label below its floor
+(`hive honey relabel` changes single Honey rows), so the Nectar's own facts say so, and no lookup is
+needed. Without this rule the second run's identical outcome raised the Nectar back to `C2` in the
+first real two-process run. One proposal per Nectar means it could never be proposed again, so a
+lowering reached exactly one later run.
+
 **The operator.** `hive honey review` lists proposals, waiting ones first, with the Ripener's
 reason, the judge's reasons, attempts and notes. `hive honey review approve <id> --reason` lowers
 as `HUMAN` from `PROPOSED` or `REJECTED`. `hive honey review deny <id> --reason` rejects as
@@ -123,12 +137,12 @@ default `C1` goal once an independent judge agrees, with the chain of custody on
 Real Cell floor stays exactly as strict at intake, and the human keeps the last word both ways.
 A Hive with no `JUDGE` binding loses nothing: proposals wait in `hive honey review`.
 
-Negative: every eligible Nectar costs one judge call. A judge that approves wrongly exposes
-Hive Stand material to `C1` readers, and Night Veil Cells read `C1` too. Pin `JUDGE` to a
-different provider or model than `RIPENER` so the two do not share blind spots, the same advice
-as for the Capping judge. Set `[honey.lowering] enabled = false` for a Hive that should never
-lower without the human. Summary and chunk text is labelled as a whole Nectar, so one personal
-line keeps the whole deposit `C2`.
+Negative: every eligible Nectar costs one judge call, and every deposit the floor alone holds up
+costs one Ripener call, however short. A judge that approves wrongly exposes Hive Stand material to
+`C1` readers, and Night Veil Cells read `C1` too. Pin `JUDGE` to a different provider or model than
+`RIPENER` so the two do not share blind spots, the same advice as for the Capping judge. Set
+`[honey.lowering] enabled = false` for a Hive that should never lower without the human. Summary and
+chunk text is labelled as a whole Nectar, so one personal line keeps the whole deposit `C2`.
 
 ## Alternatives considered
 

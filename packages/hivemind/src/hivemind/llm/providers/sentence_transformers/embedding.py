@@ -111,7 +111,11 @@ class EncoderModel(Protocol):
         ...
 
     def get_sentence_embedding_dimension(self) -> int | None:
-        """Return this model's output vector length, or None when the model does not report one."""
+        """Return this model's output vector length, or None when the model does not report one.
+
+        sentence-transformers 5.x also offers it as `get_embedding_dimension`, which
+        `_reported_dimension` prefers when present, since 5.x warns on this older name.
+        """
         ...
 
 
@@ -245,7 +249,7 @@ class SentenceTransformersEmbedding:
                 # A model that reports its own dimension upfront saves waiting for a real
                 # embed() call to learn it; one that returns None (some custom models) still
                 # falls back to _record_dimensions on the first embed().
-                self._dimensions = self._model.get_sentence_embedding_dimension()
+                self._dimensions = _reported_dimension(self._model)
             return self._model
 
     async def _load_model(self) -> EncoderModel:
@@ -286,6 +290,23 @@ def _default_loader(model: str, device: str | None, local_files_only: bool) -> E
         model, device=device, local_files_only=local_files_only
     )
     return loaded
+
+
+def _reported_dimension(model: EncoderModel) -> int | None:
+    """Return the dimension `model` reports up front, through whichever name its library has.
+
+    sentence-transformers 5.x renamed `get_sentence_embedding_dimension` to
+    `get_embedding_dimension` and warns on the old name, while 3.x and 4.x (inside this extra's
+    `>=3,<6` pin) have only the old one. Asking for the new name first keeps a current library
+    quiet: the old one's FutureWarning failed the phase 7 `local_llm` eval on its first real
+    model (2026-09-24), because warnings are errors in this repository's tests.
+    """
+    current = getattr(model, "get_embedding_dimension", None)
+    # A library new enough to have the new name: use it, never the deprecated one.
+    if callable(current):
+        reported: int | None = current()
+        return reported
+    return model.get_sentence_embedding_dimension()
 
 
 def _token_estimate(texts: list[str]) -> int:

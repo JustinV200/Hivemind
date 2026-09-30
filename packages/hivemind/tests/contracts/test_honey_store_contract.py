@@ -29,39 +29,31 @@ from pathlib import Path
 import pytest
 from builders.honey import make_honey_draft, make_nectar_draft
 from contracts.honey_store_contract_harness import (
+    HARNESS_KINDS,
     Harness,
     event,
     nectar_events,
+    open_harness,
     prune_events,
     ripen,
     sha,
 )
 
 from hivemind.cell import CombShieldLevel, HoneyClearance
-from hivemind.common.sqlite import connect
 from hivemind.honey_store.errors import NectarNotFoundError, NectarNotRipenableError
 from hivemind.honey_store.models import HoneyPart, NectarState, ReadFilter
 from hivemind.honey_store.scope import HIVE_SCOPE, task_scope
 from hivemind.honey_store.store import build_match
-from hivemind.honey_store.store.sqlite import SqliteHoneyStore
-from hivemind.pheromone import SqlitePheromoneTrail, TrailQuery
-from waggle.clock import FakeClock
+from hivemind.pheromone import TrailQuery
 from waggle.ids import new_cell_id, new_nectar_id, new_task_id
 
-_HARNESS_KINDS = ("tempfile_sqlite_vec", "tempfile_python", "memory_sqlite_vec")
 _FORBIDDEN_ROW_COUNT = 20  # Enough that an accidental "filter after limit" bug cannot pass by luck.
 
 
-@pytest.fixture(params=_HARNESS_KINDS)
+@pytest.fixture(params=HARNESS_KINDS)
 async def harness(request: pytest.FixtureRequest, tmp_path: Path) -> Harness:
     """Build the parametrised harness: a fresh honey store over an already-trailed connection."""
-    clock = FakeClock()
-    is_memory = request.param == "memory_sqlite_vec"
-    connection = connect(":memory:" if is_memory else tmp_path / "hive.sqlite3")
-    trail = await SqlitePheromoneTrail.create(connection, clock)
-    force_python = request.param == "tempfile_python"
-    store = await SqliteHoneyStore.create(connection, clock, force_python_vectors=force_python)
-    return Harness(store=store, trail=trail, connection=connection, clock=clock)
+    return await open_harness(request.param, tmp_path)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

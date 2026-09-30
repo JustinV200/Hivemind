@@ -39,7 +39,8 @@ Public API:
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
     - Security and clearance (security.tiers): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
-    - The Honey Store (honey): HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection.
+    - The Honey Store (honey): HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection,
+      HoneyLoweringSection.
     - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
       VirtualCellsSection, VirtualCellsOverwinterSection.
     - Exoskeleton (exoskeleton): ExoskeletonSection.
@@ -64,6 +65,7 @@ from hivemind.manifest.schema.entrance import (
 from hivemind.manifest.schema.exoskeleton import ExoskeletonSection
 from hivemind.manifest.schema.forage import ForageSection
 from hivemind.manifest.schema.honey import (
+    HoneyLoweringSection,
     HoneyRetrievalSection,
     HoneyRipeningSection,
     HoneyStoreSection,
@@ -117,6 +119,7 @@ __all__ = [
     "HiveStandCapacityOverrides",
     "HiveStandSection",
     "HoneyClearanceSection",
+    "HoneyLoweringSection",
     "HoneyRetrievalSection",
     "HoneyRipeningSection",
     "HoneySection",

@@ -3,9 +3,9 @@
 A **prompt asset** is one of the plain-markdown files shipped beside this module
 (``queen_system.md``, ``decompose_goal.md``, ``warden_system.md``, ``drone_system.md``,
 ``attendant_triage.md``, ``compact_records.md``, ``judge_review.md``, ``forager_system.md``,
-``scout_system.md``, ``ripen_nectar.md``, ``taint_review.md``, ``guard_review.md``): the system
-text a bee's awake episode (a bounded, stateless turn where a bee is allowed to think with a model)
-opens with.
+``scout_system.md``, ``ripen_nectar.md``, ``judge_clearance.md``, ``taint_review.md``,
+``guard_review.md``): the system text a bee's awake episode (a bounded, stateless turn where a
+bee is allowed to think with a model) opens with.
 :func:`load_prompt` reads one such file through ``importlib.resources`` rather than a filesystem
 path built from ``__file__``, so it works the same way from an installed wheel as from a checkout.
 :func:`render` then appends whatever durable state
@@ -85,6 +85,7 @@ class PromptName(Enum):
     RIPEN_NECTAR = "ripen_nectar"  # honey_store.ripening: one Nectar's title, summary, label (7.5).
     TAINT_REVIEW = "taint_review"  # memory.taint.judge: may a tainted item be cleared (10.6d).
     GUARD_REVIEW = "guard_review"  # workers.roles.guard_bee: judge one Guard finding (10.6).
+    JUDGE_CLEARANCE = "judge_clearance"  # honey_store.lowering: may a text carry a lower label?
 
 
 class SectionLabel(Enum):

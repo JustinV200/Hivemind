@@ -1,27 +1,33 @@
 """Summarise one Nectar deposit for its Honey: a title, a summary with key facts, and a label.
 
-Ripening files every Nectar (a raw deposit in the Honey Store, the Hive's knowledge base) under
-one SUMMARY row, whose text is also repeated on each of its CHUNK rows as context (ADR-0035). This
+Ripening files every Nectar (a raw deposit in the Honey Store, the Hive's knowledge base) under one
+SUMMARY row, whose text is also repeated on each of its CHUNK rows as context (ADR-0035). This
 module writes that summary. With a RIPENER binding (the model slot for batch work), summaries on,
-and enough text to be worth it, it asks the model through `complete_structured` (the structured-
-output ladder, codingrules 8.6) with the `ripen_nectar.md` prompt, showing the deposit's metadata
-and at most `summarise_max_input_chars` of its text inside the prompt's labelled event section as
-untrusted data. Otherwise -- or when the call fails in any way, times out, or is refused -- it
-falls back to a heuristic summary (the deposit's own title, else its first line; its first ~600
-characters; its own label), because ripening must never fail for want of a summary. A model may
-raise the deposit's label (`raise_label`) and is never able to lower it.
+and enough text to be worth it -- or, however short, a label only the Real Cell floor holds up,
+since the model's reading is the one way such a label may come down (ADR-0038) -- it asks the model
+through `complete_structured` (the structured-output ladder, codingrules 8.6) with the
+`ripen_nectar.md` prompt, showing the deposit's metadata and at most `summarise_max_input_chars` of
+its text inside the prompt's labelled event section as untrusted data. Otherwise -- or when the call
+fails in any way, times out, or is refused -- it falls back to a heuristic summary (the deposit's
+own title, else its first line; its first ~600 characters; its own label), because ripening must
+never fail for want of a summary. A model may raise the deposit's label (`raise_label`) and is never
+able to lower it. The model labels the text itself, whatever its current label (ADR-0038), and the
+outcome keeps that reading (`SummaryOutcome.reading`) beside the raise-only label: a reading below
+the label is stored with the Nectar and can only start a lowering proposal an independent judge or
+the human decides.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.ripening`.
     Called by `hivemind.honey_store.ripening.pipeline.Ripener` once per text Nectar; its outcome
     becomes the SUMMARY draft and every CHUNK draft's summary (`.drafts`). Calls into
     `hivemind.llm` (the ladder, the prompt, the request model), `hivemind.honey_store.clearance`
-    and `.models` only.
+    (raise_label, held_by_floor_alone) and `.models` only.
 
 Key invariants:
     - `summarise` never raises for a model failure: every `LLMError` and the call's own timeout
       end in the heuristic outcome with `summarised=False`.
-    - The outcome's clearance is never below the Nectar's own (`raise_label`).
+    - The outcome's clearance is never below the Nectar's own (`raise_label`); its `reading` is
+      the model's own label, unmodified, and None whenever no model's reply was used.
     - `summary_text` never exceeds `MAX_SUMMARY_CHARS`, and a key fact is either whole or absent,
       never cut mid-line; `title` is never empty.
     - The model is shown the deposit's text only inside the prompt's delimited event section,
@@ -29,6 +35,7 @@ Key invariants:
 
 See Also:
     - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the SUMMARY row and label rules.
+    - docs/adr/0038-honey-label-lowering-is-a-judge-reviewed-proposal.md for the reading.
     - hivemind.llm.prompts's `ripen_nectar.md` for the prompt this module renders.
     - hivemind.memory.compact.run for the Bee Bread summariser this mirrors on the same slot.
 """
@@ -43,9 +50,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.logging import get_logger
-from hivemind.honey_store.clearance import raise_label
-from hivemind.honey_store.models import Nectar
+from hivemind.honey_store.clearance import held_by_floor_alone, raise_label
+from hivemind.honey_store.models import Nectar, RipenerReading
 from hivemind.honey_store.models.honey import MAX_SUMMARY_CHARS
+from hivemind.honey_store.models.nectar import MAX_RIPENER_REASON_CHARS
 from hivemind.honey_store.ripening.deps import RipenerDeps
 from hivemind.llm import (
     BoundModel,
@@ -64,7 +72,7 @@ SUMMARY_TITLE_CHARS = 120  # One line in a listing or a hit header; shorter than
 SUMMARY_CHARS = 800  # A paragraph, leaving room for key facts inside MAX_SUMMARY_CHARS (1,000).
 MAX_KEY_FACTS = 8  # A handful of findable facts; more belongs in the chunks themselves.
 KEY_FACT_CHARS = 200  # One line each.
-CLEARANCE_REASON_CHARS = 300  # One sentence on why the label is what it is.
+CLEARANCE_REASON_CHARS = MAX_RIPENER_REASON_CHARS  # One sentence, kept whole on the Nectar.
 HEURISTIC_SUMMARY_CHARS = 600  # About a paragraph of the text's own opening when no model writes.
 SUMMARY_OUTPUT_TOKENS = 2_048  # RipenedSummary at its bounds, plus the ladder's own JSON preamble.
 SUMMARISE_TIMEOUT_S = 120.0  # A local ripener takes tens of seconds; a pass never hangs on one.
@@ -126,7 +134,8 @@ class RipenedSummary(BaseModel):
         description="Up to eight facts worth finding again on their own, one line each.",
     )
     clearance: HoneyClearance = Field(
-        description="C0 public, C1 internal, C2 personal or sensitive; only a raise has effect."
+        description="C0 public, C1 internal, C2 personal or sensitive, for the text itself, "
+        "whatever its current label; a lower one only starts an independent review."
     )
     clearance_reason: str = Field(
         default="",
@@ -164,6 +173,7 @@ class SummaryOutcome:
     clearance: HoneyClearance  # The Nectar's own label, raised when the model said higher.
     summarised: bool  # True only when a model's reply was used.
     ripener_model: str | None  # The RIPENER binding's model id when a model wrote it.
+    reading: RipenerReading | None = None  # The model's own label and reason; None if heuristic.
 
 
 async def summarise(nectar: Nectar, text: str, deps: RipenerDeps) -> SummaryOutcome:
@@ -176,13 +186,17 @@ async def summarise(nectar: Nectar, text: str, deps: RipenerDeps) -> SummaryOutc
         deps: The ripening settings, the RIPENER binding (or None) and its call gate.
 
     Returns:
-        The model's summary when `deps.ripening.summarise` is on, a binding exists and `text` is
-        at least `summarise_min_chars` long and the call succeeds; otherwise the heuristic one.
+        The model's summary when `deps.ripening.summarise` is on, a binding exists, `text` is at
+        least `summarise_min_chars` long or only the Real Cell floor holds the label up, and the
+        call succeeds; otherwise the heuristic one.
     """
     bound = deps.ripener
     settings = deps.ripening
-    # No model, summaries switched off, or a text already short enough to be its own summary.
-    if bound is None or not settings.summarise or len(text) < settings.summarise_min_chars:
+    # A short text is its own summary, unless only the floor holds its label up: then the model's
+    # reading is what may start a lowering (ADR-0038), and a short verified outcome on the Hive
+    # Stand would otherwise stay C2, out of every C1 goal's reach, for good.
+    worth_reading = len(text) >= settings.summarise_min_chars or held_by_floor_alone(nectar)
+    if bound is None or not settings.summarise or not worth_reading:
         return heuristic_summary(nectar, text)
     request = _summary_request(bound, nectar, text, settings.summarise_max_input_chars)
     try:
@@ -270,10 +284,12 @@ def _model_outcome(
     return SummaryOutcome(
         title=reply.title.strip() or heuristic_title(nectar, text),
         summary_text=compose_summary_text(summary, reply.key_facts),
-        # A label below the Nectar's own is ignored: only a judge or a human may lower one.
+        # A label below the Nectar's own lowers nothing: only a judge or a human may lower one.
         clearance=raise_label(nectar.clearance, reply.clearance),
         summarised=True,
         ripener_model=bound.model[:MAX_RIPENER_MODEL_CHARS],
+        # Kept as the model said it, below the label or not: it may start a lowering proposal.
+        reading=RipenerReading(clearance=reply.clearance, reason=reply.clearance_reason.strip()),
     )
 
 
