@@ -22,12 +22,6 @@ _INVITED = "guard.entrance_invited"
 _DENIED = "guard.entrance_denied"
 
 
-async def _record(trail: MemoryPheromoneTrail, clock: SystemClock, kind: str) -> None:
-    """Record one Entrance event of ``kind``."""
-    identity = make_identity(clock)
-    await trail.record(identity.event(clock, kind, identity.hive_id, {}))
-
-
 async def test_every_subscriber_gets_the_events_its_filter_accepts() -> None:
     clock = SystemClock()
     trail = MemoryPheromoneTrail(clock)
@@ -35,10 +29,13 @@ async def test_every_subscriber_gets_the_events_its_filter_accepts() -> None:
     invited = hub.subscribe("invites", lambda event: event.kind == _INVITED)
     everything = hub.subscribe("all", lambda event: True)
     since = clock.now()
+    # One node for both: the trail orders ties on `at` by node id, so two identities (two random
+    # node ids) recorded in the same clock tick, common on a coarse Windows clock, could swap.
+    identity = make_identity(clock)
     async with asyncio.TaskGroup() as group:
         runner = group.create_task(hub.run(since))
-        await _record(trail, clock, _INVITED)
-        await _record(trail, clock, _DENIED)
+        await trail.record(identity.event(clock, _INVITED, identity.hive_id, {}))
+        await trail.record(identity.event(clock, _DENIED, identity.hive_id, {}))
 
         async with asyncio.timeout(2.0):
             seen: list[PheromoneEvent] = []
