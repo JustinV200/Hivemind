@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ from hivemind.exoskeleton.browser.launch import (
     parse_port,
 )
 from hivemind.exoskeleton.browser.locate import ChromiumLocator, HostPlatform
+from hivemind.exoskeleton.browser.profile import LOCAL_STATE
 from hivemind.exoskeleton.errors import AttachError
 from hivemind.exoskeleton.scratch import ScratchLayout
 from waggle.clock import FakeClock
@@ -47,12 +49,12 @@ class _Connector:
         self.roots: list[tuple[Path, ...]] = []
         self._fails = fails
 
-    async def __call__(self, endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
+    async def __call__(self, endpoint: str, request: BrowserLaunch) -> Browser:
         self.endpoints.append(endpoint)
-        self.roots.append(file_roots)
+        self.roots.append(request.file_roots)
         if self._fails:
             raise AttachError("could not attach to the browser over CDP: refused")
-        return FakeBrowser(login_site(), FakeClock(), file_roots=file_roots)
+        return FakeBrowser(login_site(), FakeClock(), file_roots=request.file_roots)
 
 
 class _RecordingClock(FakeClock):
@@ -194,6 +196,9 @@ async def test_launch_starts_chromium_and_connects_to_the_port_it_wrote(tmp_path
     assert isinstance(launched.browser, FakeBrowser)
     assert [process.argv[0] for process in launched.processes] == [_CHROMIUM]
     assert session.running_pids == tuple(process.pid for process in launched.processes)
+    # The profile was seeded before Chromium read it: its own file dialogs are refused (ADR-0058).
+    local_state = await session.get_file(_port_file(request).parent / LOCAL_STATE)
+    assert json.loads(local_state) == {"select_file_dialogs": {"allowed": False}}
 
 
 async def test_a_browser_that_never_opens_its_port_is_stopped_before_attach_fails(

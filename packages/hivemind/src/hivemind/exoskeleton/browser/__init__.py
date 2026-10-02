@@ -31,6 +31,10 @@ Public API:
       (excerpts).
     - FakeBrowser, FakeBrowserLauncher, FakeSite, login_site: the in-memory browser, its launcher,
       a site as data and the fixture login site (fake).
+    - HostScopes, BrowserBlock, BlockRule, BlockSink, request_host: which hosts a lease's browser
+      may request, and the record of what its guards block (hosts, ADR-0058).
+    - chrome_chord: which of the browser's own windows a key chord opens (keys, ADR-0058).
+    - seed_profile: the per-lease settings that keep the browser's file dialogs shut (profile).
 """
 
 from hivemind.exoskeleton.browser.base import (
@@ -51,14 +55,26 @@ from hivemind.exoskeleton.browser.fake import (
     FakeSite,
     login_site,
 )
+from hivemind.exoskeleton.browser.hosts import (
+    BlockRule,
+    BlockSink,
+    BrowserBlock,
+    HostScopes,
+    request_host,
+)
+from hivemind.exoskeleton.browser.keys import chrome_chord
 from hivemind.exoskeleton.browser.launch import CdpConnector, ChromiumLauncher, ChromiumSettings
 from hivemind.exoskeleton.browser.locate import ChromiumExecutable, ChromiumLocator, HostPlatform
+from hivemind.exoskeleton.browser.profile import seed_profile
 
 __all__ = [
     "MAX_ELEMENT_TEXT_CHARS",
     "MAX_PAGE_TEXT_CHARS",
     "MAX_SNAPSHOT_CHARS",
+    "BlockRule",
+    "BlockSink",
     "Browser",
+    "BrowserBlock",
     "BrowserCheckpoint",
     "BrowserLaunch",
     "BrowserLauncher",
@@ -71,6 +87,10 @@ __all__ = [
     "FakeBrowserLauncher",
     "FakeSite",
     "HostPlatform",
+    "HostScopes",
     "LaunchedBrowser",
+    "chrome_chord",
     "login_site",
+    "request_host",
+    "seed_profile",
 ]

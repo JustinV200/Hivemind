@@ -168,7 +168,8 @@ def test_the_in_cell_wiring_keeps_recordings_in_memory_and_drops_chromiums_sandb
     )
 
     assert isinstance(wiring.recordings, InMemoryRecordingStore)
-    assert wiring.config == ExoskeletonConfig(browser_sandbox=False)
+    # The Cell is the sandbox, and its loopback is its own container's (ADR-0058).
+    assert wiring.config == ExoskeletonConfig(browser_sandbox=False, private_loopback=True)
     assert wiring.ears is None
     assert isinstance(wiring.launcher, ChromiumLauncher) is _HAS_BROWSER_EXTRA
 
@@ -197,7 +198,9 @@ def test_the_device_wiring_is_the_in_cell_one_but_for_chromiums_sandbox(
 
     # A Virtual Cell is its own sandbox; a machine the Hive borrows is not, so Chromium keeps its.
     assert device.config.browser_sandbox is True and in_cell.config.browser_sandbox is False
-    assert dataclasses.replace(device.config, browser_sandbox=False) == in_cell.config
+    assert dataclasses.replace(device.config, browser_sandbox=False, private_loopback=True) == (
+        in_cell.config
+    )
     assert type(device.launcher) is type(in_cell.launcher)
     assert device.ears is None and in_cell.ears is None  # Nothing bound to the transcriber hears.
 

@@ -8,13 +8,16 @@ own when allowed, else a private Xvfb and window manager, `attach.display`), a s
 is one). The peripherals are then built over what started, and `cell.exoskeleton_attached` goes on
 the trail. If any step fails, everything already started is stopped before the error leaves, so a
 failed attach leaves the Cell as it found it; a successful one is undone by
-`ExoskeletonHandle.detach`, and the lease's own release is the backstop for both.
+`ExoskeletonHandle.detach`, and the lease's own release is the backstop for both. The browser is
+launched held to the bee's `net` scopes (ADR-0058), with loopback its own only where the
+composition root says the Cell's loopback is private, and whatever it blocks goes on the trail.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.exoskeleton.attach`.
     Called by the Warden's spawn path for a task whose needs carry an Exoskeleton. Calls into
     `hivemind.cell`, `hivemind.guard` (CapabilitySet), `hivemind.pheromone` (PheromoneTrail), the
-    peripheral backends and the other `attach` modules; waggle for the clock and the need.
+    peripheral backends, `browser.hosts` and the other `attach` modules; waggle for the clock and
+    the need.
 
 Key invariants:
     - Nothing starts before the plan is known to be satisfiable.
@@ -35,6 +38,7 @@ from pydantic import JsonValue
 from hivemind.cell import BackgroundProcess, Cell, CellIdentity, CellSession, ExecSpec, run
 from hivemind.exoskeleton.antennae.xdotool import XdotoolAntennae
 from hivemind.exoskeleton.attach.audio import start_sound_server
+from hivemind.exoskeleton.attach.blocks import BlockTrail
 from hivemind.exoskeleton.attach.display import (
     StartedDisplay,
     borrow_running_display,
@@ -44,6 +48,7 @@ from hivemind.exoskeleton.attach.handle import ExoskeletonHandle, ExoskeletonTra
 from hivemind.exoskeleton.attach.plan import AttachPlan, DisplaySource, plan_attach
 from hivemind.exoskeleton.attach.ready import Deadline, stop_all
 from hivemind.exoskeleton.browser.base import Browser, BrowserLaunch, BrowserLauncher
+from hivemind.exoskeleton.browser.hosts import HostScopes
 from hivemind.exoskeleton.buzz.pulseaudio import PulseAudioBuzz, PulseServer
 from hivemind.exoskeleton.compound_eye.x11 import X11CompoundEye
 from hivemind.exoskeleton.errors import AttachError
@@ -77,11 +82,16 @@ class ExoskeletonConfig:
         browser_sandbox: Whether the browser keeps Chromium's own sandbox. The composition root
             sets False only where the Cell is itself the sandbox (a Virtual Cell, whose
             container drops the capabilities the sandbox needs) or the Hive runs as root.
+        private_loopback: Whether the Cell's loopback is its own, so a loopback page stays in
+            the lease (ADR-0058). The composition root sets True only where the Cell has a
+            network namespace of its own (a Virtual Cell's container); False, the default,
+            treats loopback as the host's own services, which need `net:loopback`.
     """
 
     screen: ScreenSize = DEFAULT_SCREEN
     ready_timeout_s: float = DEFAULT_READY_TIMEOUT_S
     browser_sandbox: bool = True
+    private_loopback: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +113,8 @@ class _Attaching:
     layout: ScratchLayout
     deadline: Deadline
     deps: AttachDeps
+    hosts: HostScopes  # The hosts the browser may request: the bee's `net` scopes.
+    blocks: BlockTrail  # Where the browser's guards report what they block.
     started: list[BackgroundProcess] = field(default_factory=list)
     environment: dict[str, str] = field(default_factory=dict)
 
@@ -133,16 +145,26 @@ async def attach(
     plan = _fit_launcher(plan_attach(need, cell.capabilities, granted), need, deps)
     layout = ScratchLayout.under(session.scratch_dir)
     deadline = Deadline.after(deps.clock, deps.config.ready_timeout_s)
-    work = _Attaching(session, layout, deadline, deps, environment=layout.home_environment())
+    trail = ExoskeletonTrail(deps.trail, deps.identity, deps.clock, cell.id)
+    hosts = HostScopes(granted, private_loopback=deps.config.private_loopback)
+    environment = layout.home_environment()
+    work = _Attaching(
+        session, layout, deadline, deps, hosts, BlockTrail(trail), environment=environment
+    )
     try:
         peripherals = await _equip(work, plan)
     except BaseException:
         # Whatever failed, cancellation included: leave the Cell as found, then propagate.
         await stop_all(session, work.started)
         raise
-    trail = ExoskeletonTrail(deps.trail, deps.identity, deps.clock, cell.id)
     handle = ExoskeletonHandle(
-        plan, peripherals, work.environment, session, tuple(work.started), trail
+        plan,
+        peripherals,
+        work.environment,
+        session,
+        tuple(work.started),
+        trail,
+        private_loopback=deps.config.private_loopback,
     )
     await trail.record("cell.exoskeleton_attached", _attached_payload(plan, work.started))
     return handle
@@ -218,6 +240,9 @@ async def _attach_browser(work: _Attaching, *, headed: bool) -> Browser:
         # The lease's scratch is the only place a file URL may read from: a bee's own pages live
         # there, and everything else on the Cell's disk is outside what the lease lent it.
         file_roots=(work.session.scratch_dir,),
+        # Every web request, a page's own included, is held to the bee's `net` scopes.
+        hosts=work.hosts,
+        on_blocked=work.blocks,
     )
     launched = await launcher.launch(work.session, request)
     work.started.extend(launched.processes)

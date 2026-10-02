@@ -23,8 +23,8 @@ Fits into the Hive:
     `hivemind.exoskeleton.browser.fake.FakeBrowser`; called by the Capping gate's GUI surface, the
     `browser_*` tools and the flight recorder; `BrowserLauncher` is implemented by the Playwright
     launcher and the fake, and called by `hivemind.exoskeleton.attach`. Calls into `hivemind.cell`
-    (CellSession, BackgroundProcess), `hivemind.exoskeleton.frames`, `.scratch` and waggle's
-    ElementTarget only.
+    (CellSession, BackgroundProcess), `hivemind.exoskeleton.frames`, `.scratch`, `.hosts` and
+    waggle's ElementTarget only.
 
 Key invariants:
     - Every read that returns page content is bounded by its implementation's own character cap,
@@ -48,6 +48,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import BackgroundProcess, CellSession
+from hivemind.exoskeleton.browser.hosts import BlockSink, HostScopes
 from hivemind.exoskeleton.frames import Frame
 from hivemind.exoskeleton.scratch import ScratchLayout
 from waggle.messages.capping import ElementTarget
@@ -212,6 +213,10 @@ class BrowserLaunch:
         file_roots: The only directories a file URL may load from, a link or a frame's included:
             the lease's scratch (`hivemind.guard.file_urls`). Empty, the default, refuses every
             file URL, so a request that names no roots can never read the Cell's disk.
+        hosts: The hosts a web request may go to, a page's own requests included (ADR-0058).
+            The default allows none, so a request that names no grant reaches no host.
+        on_blocked: Where every refused request is reported (attach puts it on the trail); None
+            reports nowhere but the log.
     """
 
     layout: ScratchLayout
@@ -219,6 +224,8 @@ class BrowserLaunch:
     sandbox: bool
     environment: Mapping[str, str] = field(default_factory=dict)
     file_roots: tuple[Path, ...] = ()
+    hosts: HostScopes = field(default_factory=HostScopes)
+    on_blocked: BlockSink | None = None
 
 
 @dataclass(frozen=True, slots=True)

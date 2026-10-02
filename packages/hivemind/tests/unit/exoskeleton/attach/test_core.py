@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,8 @@ from builders.exoskeleton import ScriptedDesktop, StubLauncher, desktop_session,
 
 from hivemind.cell.fake import FakeSession, FakeStart
 from hivemind.exoskeleton.antennae.xdotool import XdotoolAntennae
-from hivemind.exoskeleton.attach import AttachDeps, DisplaySource, attach
+from hivemind.exoskeleton.attach import AttachDeps, DisplaySource, ExoskeletonConfig, attach
+from hivemind.exoskeleton.browser.hosts import BlockRule, BrowserBlock
 from hivemind.exoskeleton.buzz.pulseaudio import PulseAudioBuzz
 from hivemind.exoskeleton.compound_eye.x11 import X11CompoundEye
 from hivemind.exoskeleton.errors import AttachError
@@ -148,6 +150,32 @@ async def test_a_browser_only_task_starts_the_browser_alone_and_headless(tmp_pat
     assert [spec.argv[0] for spec in session.started] == ["chromium"]
     assert not launcher.requests[0].headed
     assert handle.peripherals.compound_eye is None
+
+
+@pytest.mark.parametrize("private", [False, True])
+async def test_the_browser_is_held_to_the_bees_net_scopes_and_reports_to_the_trail(
+    tmp_path: Path, private: bool
+) -> None:
+    # Arrange: the composition root says whether the Cell's loopback is its own (ADR-0058).
+    clock = FakeClock()
+    launcher = StubLauncher()
+    deps = replace(_deps(clock, launcher), config=ExoskeletonConfig(private_loopback=private))
+    granted = CapabilitySet.parse("exoskeleton:browser", "net:api.example.com")
+    cell = make_cell(capabilities=make_capabilities(has_browser=True))
+
+    handle = await attach(
+        cell, FakeSession(tmp_path, clock), ExoskeletonNeed(browser_only=True), granted, deps
+    )
+    (request,) = launcher.requests
+    assert request.on_blocked is not None
+    await request.on_blocked(BrowserBlock(BlockRule.NET, "tracker.example"))
+
+    assert request.hosts.allows("api.example.com")
+    assert not request.hosts.allows("tracker.example")
+    assert request.hosts.allows("127.0.0.1") is private
+    assert handle.private_loopback is private
+    blocked = [payload for kind, payload in await _kinds(deps) if kind == "cell.browser_blocked"]
+    assert blocked == [{"rule": "net", "host": "tracker.example"}]
 
 
 async def test_without_a_launcher_a_desktop_attaches_without_the_browser(tmp_path: Path) -> None:

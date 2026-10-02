@@ -14,7 +14,6 @@ import http.server
 import threading
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import pytest
 
@@ -22,7 +21,7 @@ pytest.importorskip("playwright.async_api")
 
 from contracts.browser_harness import SITE_DIR, OpenBrowser, RealBrowserHarness
 
-from hivemind.exoskeleton.browser import Browser
+from hivemind.exoskeleton.browser import Browser, BrowserLaunch
 from hivemind.exoskeleton.browser.fake import LOGIN_PASSWORD, LOGIN_USERNAME, SESSION_KEY
 from hivemind.exoskeleton.browser.playwright import PlaywrightBrowser, PlaywrightTimeouts
 from hivemind.exoskeleton.browser.playwright.calls import PlaywrightCalls
@@ -58,9 +57,9 @@ class _Capture:
     def __init__(self) -> None:
         self.connection: CdpConnection | None = None
 
-    async def __call__(self, endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
+    async def __call__(self, endpoint: str, request: BrowserLaunch) -> Browser:
         self.connection = await attach_cdp(endpoint, _TIMEOUTS)
-        return PlaywrightBrowser(self.connection, SystemClock(), _TIMEOUTS, file_roots)
+        return PlaywrightBrowser(self.connection, SystemClock(), _TIMEOUTS, request.file_roots)
 
 
 @pytest.fixture

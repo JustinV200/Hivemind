@@ -30,6 +30,9 @@ Vocabulary (family -> kind -> when it is recorded):
         with a display, input, audio or browser for one task: peripheral names and how many
         processes it started, never a frame, roadmap step 6.4); exoskeleton_detached (detach
         stopped exactly those processes: how many stopped and how many were still running);
+        browser_blocked (a lease's browser refused something at the browser itself: a file outside
+        scratch or hard-linked, a request to a host no `net` scope covers, or a DevTools window;
+        the rule and, for a host, the host, never a URL or path, once per rule and host, ADR-0058);
         isolated (the Queen isolated the Cell: its
         Warden's grant revoked, its bees checkpointed and paused, a BLOCK Cell Wax written, a
         Virtual Cell's egress cut to its Waggle link; carries the reason, the GuardReport id and
@@ -110,6 +113,8 @@ class CellEvent(PheromoneEvent):
             # for one task; neither ever carries a frame, a recording or typed text.
             "cell.exoskeleton_attached",
             "cell.exoskeleton_detached",
+            # ADR-0058: something a lease's browser refused at the browser itself.
+            "cell.browser_blocked",
             "cell.isolated",  # Roadmap step 10.6a: the Queen isolated the Cell (ADR-0043).
             "cell.isolation_lifted",  # Roadmap step 10.6a: the human lifted it, with step-up.
         }

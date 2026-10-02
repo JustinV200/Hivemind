@@ -30,6 +30,8 @@ Public API:
     - Point, Region, ScreenSize (geometry); Frame, PNG_MEDIA_TYPE (frames); ScratchLayout
       (scratch); X11Display (x11).
     - The peripheral protocols CompoundEye, Antennae, Buzz, Recording, Browser (their packages).
+    - HostScopes, chrome_chord: the hosts a lease's browser may request, and the key chords that
+      open its own windows (browser, ADR-0058).
 """
 
 from hivemind.exoskeleton.antennae import Antennae
@@ -44,7 +46,7 @@ from hivemind.exoskeleton.attach import (
     attach,
     plan_attach,
 )
-from hivemind.exoskeleton.browser import Browser
+from hivemind.exoskeleton.browser import Browser, HostScopes, chrome_chord
 from hivemind.exoskeleton.buzz import Buzz, Recording
 from hivemind.exoskeleton.compound_eye import CompoundEye
 from hivemind.exoskeleton.errors import (
@@ -74,6 +76,7 @@ __all__ = [
     "ExoskeletonError",
     "ExoskeletonHandle",
     "Frame",
+    "HostScopes",
     "PeripheralError",
     "Peripherals",
     "Point",
@@ -83,5 +86,6 @@ __all__ = [
     "ScreenSize",
     "X11Display",
     "attach",
+    "chrome_chord",
     "plan_attach",
 ]

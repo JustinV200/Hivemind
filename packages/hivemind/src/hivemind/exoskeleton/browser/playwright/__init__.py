@@ -6,7 +6,8 @@ only place in the Hive that imports Playwright, an optional dependency (the `hiv
 extra) that an import-linter contract confines here; the launcher imports it lazily, at launch, so
 a Hive without the extra still imports everything else. Its modules split the backend by
 responsibility: `calls` (every Playwright call bounded and its errors mapped), `connect` (attaching
-over CDP), `storage` (what a checkpoint covers) and `page` (the Browser itself).
+over CDP), `guard`, `hosts` and `chrome` (what the browser may load and open), `storage` (what a
+checkpoint covers) and `page` (the Browser itself).
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
@@ -26,11 +27,15 @@ Public API:
     - PlaywrightBrowser: the Browser over one Chromium page (page).
     - PlaywrightTimeouts: how long loads, element waits and the attach may take (connect).
     - FileGuard: the route that keeps every file request inside the lease's roots (guard).
+    - HostGuard: the route that keeps every web request on the lease's granted hosts (hosts).
+    - ChromeGuard: closes DevTools as it opens and denies downloads (chrome).
     - redact_field_values: keep password values out of an aria snapshot (page).
 """
 
+from hivemind.exoskeleton.browser.playwright.chrome import ChromeGuard
 from hivemind.exoskeleton.browser.playwright.connect import PlaywrightTimeouts
 from hivemind.exoskeleton.browser.playwright.guard import FileGuard
+from hivemind.exoskeleton.browser.playwright.hosts import HostGuard
 from hivemind.exoskeleton.browser.playwright.page import (
     PlaywrightBrowser,
     connect_browser,
@@ -38,7 +43,9 @@ from hivemind.exoskeleton.browser.playwright.page import (
 )
 
 __all__ = [
+    "ChromeGuard",
     "FileGuard",
+    "HostGuard",
     "PlaywrightBrowser",
     "PlaywrightTimeouts",
     "connect_browser",

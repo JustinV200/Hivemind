@@ -21,11 +21,13 @@ without it fails with an `AttachError` naming the extra.
 | `base.py` | The protocols: `Browser`, `BrowserCheckpoint`, `BrowserLauncher`, `BrowserLaunch`, `LaunchedBrowser`. |
 | `locate.py` | `ChromiumLocator`: finds a browser on the Cell and verifies it through the session; `HostPlatform`, the host facts it reads (read once, injectable). |
 | `launch.py` | `ChromiumLauncher`: starts Chromium through the session, waits for its DevTools port, connects; `ChromiumSettings`; `chromium_spec`, the exact command. |
-| `playwright/` | The Playwright backend: `calls` (every call bounded, every error mapped), `connect` (attach over CDP), `guard` (`FileGuard`, the route every file request passes), `storage` (what a checkpoint covers), `page` (`PlaywrightBrowser`). |
+| `playwright/` | The Playwright backend: `calls` (every call bounded, every error mapped), `connect` (attach over CDP), `guard` (`FileGuard`, the route every file request passes), `hosts` (`HostGuard`, the route every web request passes), `chrome` (`ChromeGuard`: DevTools closed as it opens, downloads denied), `storage` (what a checkpoint covers), `page` (`PlaywrightBrowser`). |
 | `fake/` | `FakeSite` (a site as data), `FakeBrowser`, `FakeBrowserLauncher`, and `login_site()`, the fixture login site as a FakeSite. |
 | `targets.py` | The rule both browsers share: a target names exactly one visible element. |
 | `files.py` | `refuse_outside_roots`: the one refusal both browsers give a file URL outside `BrowserLaunch.file_roots` (the lease's scratch). |
-| `keys.py` | `browser_chord`: a GUI step's chord ("ctrl+a", "Return") in the browser's spelling. |
+| `keys.py` | `browser_chord`: a GUI step's chord ("ctrl+a", "Return") in the browser's spelling; `chrome_chord`: which of the browser's own windows (DevTools, Save As, Open File, Print) a chord opens. |
+| `hosts.py` | `HostScopes`: the hosts a lease's browser may request (the bee's `net` scopes; loopback needs `net:loopback` unless the Cell's loopback is private); `BrowserBlock`, `BlockSink`: what a guard blocked, and where it is reported. |
+| `profile.py` | `seed_profile`: the per-lease settings written into the profile before Chromium starts (file dialogs refused, downloads in scratch). |
 | `excerpts.py` | The caps every read obeys (`MAX_SNAPSHOT_CHARS`, `MAX_PAGE_TEXT_CHARS`, `MAX_ELEMENT_TEXT_CHARS`) and one-line, URL-free error details. |
 | `state.py` | `BrowserState`, the cookies and per-origin local storage a checkpoint carries, and `storage_origin`. |
 
@@ -39,14 +41,18 @@ attach ──BrowserLaunch──▶ ChromiumLauncher.launch(session, request)
                                            then Edge and Chrome's install paths on Windows and the
                                            app bundles on macOS; each verified on the Cell
                                            (`--version`, or `where` on Windows)
-   3. session.start(chromium_spec(...))    profile, log and TMPDIR in <scratch>/exoskeleton/browser,
+   3. seed_profile(session, profile, ...)  Local State refuses file dialogs; Preferences keep any
+                                           download in scratch (merged into an existing profile)
+   4. session.start(chromium_spec(...))    profile, log and TMPDIR in <scratch>/exoskeleton/browser,
                                            --remote-debugging-port=0 on 127.0.0.1, headless unless
                                            headed, --no-sandbox only when the request says so
-   4. poll <profile>/DevToolsActivePort    on the injected clock; a crash fails at once with the
+   5. poll <profile>/DevToolsActivePort    on the injected clock; a crash fails at once with the
                                            end of its log (one line, URLs masked)
-   5. connect_over_cdp(http://127.0.0.1:<port>) ──▶ PlaywrightBrowser on the default page
-   6. FileGuard(request.file_roots).install  a route on file://**, before the first page loads
-   any failure after 3: session.stop(process), then the AttachError (or the cancellation)
+   6. connect_over_cdp(http://127.0.0.1:<port>) ──▶ PlaywrightBrowser on the default page
+   7. FileGuard(request.file_roots).install  a route on file://**, before the first page loads
+      HostGuard(request.hosts).install       a route on every http(s) request, likewise
+      ChromeGuard().install                  closes every devtools:// target; denies downloads
+   any failure after 4: session.stop(process), then the AttachError (or the cancellation)
 ```
 
 A file URL reads the Cell's disk without the path rules a session applies, so a browser loads one
@@ -54,9 +60,14 @@ only from its file roots (`BrowserLaunch.file_roots`, the lease's scratch; empty
 URL). Both browsers refuse a navigation outside them with the same `PeripheralError`
 (`files.OUTSIDE_FILE_ROOTS`). The real one also routes every file request Chromium makes, a
 link's, a frame's, an image's, through `playwright/guard.py`: continued only when the path is
-inside the roots as written and once symlinks are resolved, aborted as blocked otherwise, so
-nothing outside is ever read. A hard link planted in scratch is indistinguishable from a file
-there; making one needs a command, which the Capping gate tiers by its own rules.
+inside the roots as written and once symlinks are resolved, and naming a file with no second hard
+link (realpath cannot see one, so its other name could be anywhere); aborted as blocked otherwise,
+so nothing outside is ever read.
+
+Web requests are held to the bee's `net` scopes the same way (ADR-0058): `playwright/hosts.py`
+continues a request only to a host `BrowserLaunch.hosts` allows, so a clicked link or a page's
+own fetch reaches no host the bee was not granted. Every guard reports what it blocked to
+`BrowserLaunch.on_blocked`, which attach turns into `cell.browser_blocked` on the trail.
 
 The browser is a lease-started process like the display and the sound server: detach stops it,
 the lease's release kills it as a backstop, and `Browser.close()` only disconnects Playwright.
@@ -73,8 +84,14 @@ path would not fit a Unix socket address under a realistic scratch root.
 - **The DevTools port is open to the Cell's other users.** Chromium listens on 127.0.0.1 only, but
   on a shared multi-user Real Cell any local user who finds the port can drive the lease's browser
   (read its pages and cookies, act as it) for as long as the lease runs. Chromium offers no
-  authentication on that port; a pipe-based transport would close this and is post-1.0. Borrow
-  only single-user machines for browser work until then.
+  authentication on that port. A pipe (`--remote-debugging-pipe`) needs two descriptors the
+  session would have to hand Chromium at start, and Playwright's driver still connects only over
+  a socket, so it waits on a `CellSession` change (ADR-0058). Borrow only single-user machines
+  for browser work until then.
+- **The host route does not see everything.** Playwright asks a route only about a request's first
+  URL, so a redirect a granted host answers with is followed (checked on Edge 154, 2026-10-02),
+  and WebSockets, WebRTC and a worker's own connections are not routed requests. On a Virtual
+  Cell the container's egress policy still bounds them (ADR-0058).
 - **Chromium still makes a few connections of its own.** The switches in `QUIET_FLAGS` stop most
   background traffic, but no switch stops all of it (a Google endpoint or two at start-up, seen in
   testing). The Cell's network policy is what bounds egress.

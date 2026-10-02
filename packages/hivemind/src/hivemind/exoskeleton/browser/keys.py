@@ -10,10 +10,17 @@ is. Anything else is refused with a ValueError before a key is pressed, so a typ
 the bee can correct, never an unknown key pressed into a page. Both browsers use the same table,
 so the fake gives a chord exactly the meaning the real browser does.
 
+The same table answers one more question (ADR-0058): whether a chord opens the browser's own
+DevTools, Save As, Open File or Print dialog, which a lease never uses. `chrome_chord` names the
+one a chord opens, under Control or the macOS Command key alike, so the desktop and browser
+tools refuse it before a key is pressed; the profile and `browser.playwright.chrome` shut the
+same doors again inside the browser.
+
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.exoskeleton.browser`.
-    Called by `browser.playwright` and `browser.fake` for `Browser.press`. Calls into the standard
-    library and waggle's KEYS_PATTERN only.
+    Called by `browser.playwright` and `browser.fake` for `Browser.press`, and by the Worker's
+    `press` and `browser_press` tools for `chrome_chord`. Calls into the standard library and
+    waggle's KEYS_PATTERN only.
 
 Key invariants:
     - Every chord `browser_chord` returns names only keys Playwright's keyboard knows.
@@ -80,7 +87,14 @@ _NAMED_KEYS: dict[str, str] = {
     "capslock": "CapsLock",
 }
 
-__all__ = ["ENTER", "browser_chord"]
+# The chords that open the browser's own windows, as (modifiers, key) in the browser's spelling.
+# Control and Meta (Command) both count as the command modifier, since macOS uses Meta.
+_COMMAND = frozenset({"Control", "Meta"})
+_DEVTOOLS_KEYS = frozenset({"i", "j", "c"})  # With command+shift (or command+alt on macOS).
+_DIALOG_KEYS = {"s": "Save As", "o": "Open File", "p": "Print"}  # With command, any others.
+_DEVTOOLS_KEY = "F12"  # Opens DevTools on its own, whatever is held with it.
+
+__all__ = ["ENTER", "browser_chord", "chrome_chord"]
 
 
 def browser_chord(keys: str) -> str:
@@ -115,3 +129,32 @@ def _key_name(name: str) -> str:
     if len(name) == 1:
         return name
     raise ValueError(f"{name!r} is not a key the browser knows.")
+
+
+def chrome_chord(keys: str) -> str | None:
+    """Return which of the browser's own windows `keys` would open, or None for any other chord.
+
+    Args:
+        keys: One chord in waggle's KEYS_PATTERN syntax; one that is not a chord opens nothing.
+
+    Returns:
+        "DevTools", "Save As", "Open File" or "Print" for a chord that opens it in Chromium
+        (F12; command+shift or command+alt with I, J or C; command with S, O or P); None
+        otherwise. A key name the browser table does not know is compared as written.
+
+    Example:
+        >>> chrome_chord("ctrl+shift+I"), chrome_chord("ctrl+c")
+        ('DevTools', None)
+    """
+    if not _CHORD.fullmatch(keys):
+        return None
+    names = [_NAMED_KEYS.get(name.lower(), name) for name in keys.split("+")]
+    *held, key = names
+    modifiers = frozenset(held)
+    if key.upper() == _DEVTOOLS_KEY:
+        return "DevTools"
+    if not modifiers & _COMMAND:
+        return None
+    if key.lower() in _DEVTOOLS_KEYS and modifiers & {"Shift", "Alt"}:
+        return "DevTools"
+    return _DIALOG_KEYS.get(key.lower())

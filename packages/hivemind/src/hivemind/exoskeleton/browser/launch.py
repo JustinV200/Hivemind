@@ -13,18 +13,22 @@ gets HOME and the XDG directories in scratch (the request's environment). And Ch
 directory, where it keeps the socket and lock that allow one browser per profile and which it
 leaves behind even after a clean exit, is the browser directory in scratch, named relatively
 (TMPDIR=".") because an absolute path would not fit a Unix socket address under a deep scratch
-root. Whatever goes wrong once the process has started, it is stopped before the error leaves.
+root. Before Chromium starts, its profile is seeded with the settings that keep its own file
+dialogs shut and its downloads in scratch (`browser.profile`, ADR-0058); the connector then guards
+every request the page makes and closes DevTools whenever it opens. Whatever goes wrong once the
+process has started, it is stopped before the error leaves.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.exoskeleton.browser`.
     Called by `hivemind.exoskeleton.attach` (built in the composition root). Calls into
-    `hivemind.cell` (CellSession, BackgroundSpec), `.locate`, `.excerpts`, `.base`,
+    `hivemind.cell` (CellSession, BackgroundSpec), `.locate`, `.excerpts`, `.base`, `.profile`,
     `hivemind.exoskeleton.errors`, `.geometry` and, lazily, `.playwright`.
 
 Key invariants:
     - A launch that raises has stopped everything it started, whatever the failure: a locate or
       connect error, a closed session, a crash, a timeout or a cancellation.
-    - The browser's DevTools port listens on loopback only, and nothing here logs it.
+    - The browser's DevTools port listens on loopback only, and nothing here logs it. Any local
+      user can still reach it for the lease's life (ADR-0031's known limits, ADR-0058).
     - Chromium's sandbox is dropped only when the request says so (`BrowserLaunch.sandbox`).
 
 See Also:
@@ -54,6 +58,7 @@ from hivemind.common.logging import get_logger
 from hivemind.exoskeleton.browser.base import Browser, BrowserLaunch, LaunchedBrowser
 from hivemind.exoskeleton.browser.excerpts import detail
 from hivemind.exoskeleton.browser.locate import ChromiumLocator
+from hivemind.exoskeleton.browser.profile import DOWNLOADS_DIR, seed_profile
 from hivemind.exoskeleton.errors import AttachError
 from hivemind.exoskeleton.geometry import ScreenSize
 from waggle.clock import Clock
@@ -126,10 +131,10 @@ class ChromiumSettings:
 class CdpConnector(Protocol):
     """Connect a Browser to the Chromium serving DevTools at `endpoint`."""
 
-    async def __call__(self, endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
-        """Connect and return the Browser, loading file URLs only inside `file_roots`.
+    async def __call__(self, endpoint: str, request: BrowserLaunch) -> Browser:
+        """Connect and return the Browser, held to the request's file roots and hosts.
 
-        Raises AttachError when connecting, or guarding the browser's file access, fails.
+        Raises AttachError when connecting, or guarding the browser's requests, fails.
         """
         ...
 
@@ -169,14 +174,16 @@ class ChromiumLauncher:
         # Playwright or without a browser never starts one it cannot drive.
         connect = self._connector or _playwright_connector(self._clock, self._settings)
         executable = await self._locator.locate(session)
-        port_file = request.layout.browser_dir / PROFILE_DIR / PORT_FILE
+        profile = request.layout.browser_dir / PROFILE_DIR
+        port_file = profile / PORT_FILE
         await _forget_stale_port(session, port_file)
+        await seed_profile(session, profile, request.layout.browser_dir / DOWNLOADS_DIR)
         started_at = self._clock.monotonic()
         process = await _start(session, chromium_spec(executable.path, request, self._settings))
         launched = False
         try:
             port = await self._wait_for_port(session, process, port_file)
-            browser = await connect(f"http://127.0.0.1:{port}", request.file_roots)
+            browser = await connect(f"http://127.0.0.1:{port}", request)
             launched = True
         finally:
             # Any failure, a cancellation included: the lease must not keep a half-started browser.
@@ -278,9 +285,9 @@ def _playwright_connector(clock: Clock, settings: ChromiumSettings) -> CdpConnec
         navigation_s=settings.navigation_timeout_s, element_s=settings.element_timeout_s
     )
 
-    async def connect(endpoint: str, file_roots: tuple[Path, ...]) -> Browser:
+    async def connect(endpoint: str, request: BrowserLaunch) -> Browser:
         """Attach Playwright to the browser at `endpoint` (seconds at most; see its timeouts)."""
-        return await driver.connect_browser(endpoint, clock, timeouts, file_roots)
+        return await driver.connect_browser(endpoint, clock, timeouts, request)
 
     return connect
 

@@ -12,16 +12,18 @@ redirects itself on load (a login guard) is followed rather than reported as int
 navigation waits for the error page Chromium commits a moment after the failure is reported, so it
 cannot overlap (and drop) the next navigation, and a navigation an error page still displaced is
 asked for once more. Checkpoint and restore are `.storage`'s; restore then reloads the checkpoint's
-URL. Every file request goes through `.guard.FileGuard`, installed before the first page loads, and
-a navigation to a file URL outside the lease's file roots is refused before it starts.
+URL. Every file request goes through `.guard.FileGuard` and every web request through
+`.hosts.HostGuard`, and `.chrome.ChromeGuard` closes DevTools and denies downloads, all installed
+before the first page loads; a navigation to a file URL outside the lease's file roots is refused
+before it starts.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
     `hivemind.exoskeleton.browser.playwright`. Built by `connect_browser`, which
     `browser.launch.ChromiumLauncher` calls; driven by attach's handle, the Capping gate's GUI
     surface and the `browser_*` tools. Calls into Playwright, `.calls`, `.connect`, `.guard`,
-    `.storage`, `browser.targets`, `.keys`, `.excerpts`, `.files`, `.state`, `.base`,
-    `hivemind.exoskeleton.frames`.
+    `.hosts`, `.chrome`, `.storage`, `browser.targets`, `.keys`, `.excerpts`, `.files`, `.state`,
+    `.base`, `hivemind.exoskeleton.frames`.
 
 Key invariants:
     - Every Playwright call goes through `PlaywrightCalls.run`: bounded, mapped, refused after
@@ -48,7 +50,7 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Frame as PageFrame
 from playwright.async_api import Locator, Page
 
-from hivemind.exoskeleton.browser.base import BrowserCheckpoint
+from hivemind.exoskeleton.browser.base import BrowserCheckpoint, BrowserLaunch
 from hivemind.exoskeleton.browser.excerpts import (
     MAX_ELEMENT_TEXT_CHARS,
     MAX_PAGE_TEXT_CHARS,
@@ -59,12 +61,14 @@ from hivemind.exoskeleton.browser.excerpts import (
 from hivemind.exoskeleton.browser.files import refuse_outside_roots
 from hivemind.exoskeleton.browser.keys import browser_chord
 from hivemind.exoskeleton.browser.playwright.calls import PlaywrightCalls, close_quietly
+from hivemind.exoskeleton.browser.playwright.chrome import ChromeGuard
 from hivemind.exoskeleton.browser.playwright.connect import (
     CdpConnection,
     PlaywrightTimeouts,
     attach_cdp,
 )
 from hivemind.exoskeleton.browser.playwright.guard import FileGuard
+from hivemind.exoskeleton.browser.playwright.hosts import HostGuard
 from hivemind.exoskeleton.browser.playwright.storage import CheckpointStorage
 from hivemind.exoskeleton.browser.state import BrowserState
 from hivemind.exoskeleton.browser.targets import PERIPHERAL, ambiguity, normalised
@@ -103,7 +107,7 @@ async def connect_browser(
     endpoint: str,
     clock: Clock,
     timeouts: PlaywrightTimeouts,
-    file_roots: tuple[Path, ...] = (),
+    request: BrowserLaunch,
 ) -> PlaywrightBrowser:
     """Attach to the Chromium serving DevTools at `endpoint` and return a Browser on its page.
 
@@ -111,26 +115,29 @@ async def connect_browser(
         endpoint: "http://127.0.0.1:<port>", the port the browser wrote to DevToolsActivePort.
         clock: Stamps every screenshot.
         timeouts: How long attaching, loading and waiting for elements may take.
-        file_roots: The only directories a file URL may load from (`BrowserLaunch.file_roots`);
-            empty refuses every file URL.
+        request: The launch request; its file roots, hosts and block sink are the guards'.
 
     Returns:
         The connected browser, on the page Chromium opened (about:blank), with every file request
-        routed through a `FileGuard` over `file_roots`.
+        routed through a `FileGuard`, every web request through a `HostGuard`, and DevTools and
+        downloads shut by a `ChromeGuard` (ADR-0034, ADR-0058).
 
     Raises:
         AttachError: Playwright's driver would not start, the browser could not be attached, or
-            the file guard could not be installed (the connection is closed first).
+            a guard could not be installed (the connection is closed first).
     """
     connection = await attach_cdp(endpoint, timeouts)
+    sink = request.on_blocked
     try:
         # WHY: installed before the bee's first navigation, so no page ever loads unguarded.
-        await FileGuard(file_roots).install(connection.context)
+        await FileGuard(request.file_roots, sink).install(connection.context)
+        await HostGuard(request.hosts, sink).install(connection.context)
+        await ChromeGuard(sink).install(connection.browser)
     except (PlaywrightError, TimeoutError) as error:
         await close_quietly(connection.browser)
         await close_quietly(connection.driver)
-        raise AttachError(f"could not guard the browser's file access: {error}") from error
-    return PlaywrightBrowser(connection, clock, timeouts, file_roots)
+        raise AttachError(f"could not guard the browser: {error}") from error
+    return PlaywrightBrowser(connection, clock, timeouts, request.file_roots)
 
 
 class PlaywrightBrowser:

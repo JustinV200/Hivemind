@@ -54,11 +54,13 @@ from hivemind.exoskeleton.browser import (
     ChromiumLocator,
     ChromiumSettings,
     FakeBrowserLauncher,
+    HostScopes,
     login_site,
 )
 from hivemind.exoskeleton.browser.fake import FIXTURE_ORIGIN
 from hivemind.exoskeleton.errors import AttachError
 from hivemind.exoskeleton.scratch import ScratchLayout
+from hivemind.guard import CapabilitySet
 from waggle.clock import FakeClock, SystemClock
 
 SITE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "sites" / "login"
@@ -277,7 +279,9 @@ def _request(scratch: Path) -> BrowserLaunch:
     sandbox cannot start as root, nor where unprivileged user namespaces are blocked, which
     covers this suite's containers and CI runners; the flag's handling is unit-tested instead.
     The file roots are scratch, as attach names them, plus the fixture site's directory, which
-    this harness opens as file:// URLs in place of pages a bee wrote into scratch.
+    this harness opens as file:// URLs in place of pages a bee wrote into scratch. The hosts are
+    `net:loopback` alone, as an operator would grant a Real Cell's bee to reach a site it serves
+    itself, so a test serving pages on loopback works and every other host is blocked.
     """
     layout = ScratchLayout.under(scratch)
     for directory in layout.directories():
@@ -288,6 +292,7 @@ def _request(scratch: Path) -> BrowserLaunch:
         sandbox=False,
         environment=layout.home_environment(),
         file_roots=(scratch, SITE_DIR),
+        hosts=HostScopes(CapabilitySet.parse("net:loopback")),
     )
 
 

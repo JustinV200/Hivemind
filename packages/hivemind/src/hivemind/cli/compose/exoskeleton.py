@@ -41,6 +41,10 @@ Key invariants:
       nothing on the device can play them back, and a borrowed machine is left with as little of
       the Hive's as can be, so no frame of them is written to its disk. It forgets one a day after
       its last action (`DEVICE_RECORDING_KEEP`), because it runs for months.
+    - Loopback counts as the lease's own only inside a Virtual Cell, whose container has a
+      network namespace of its own; on the Hive Stand or a borrowed device it is the machine's
+      services, the Hive's own loopback listener included, and needs `net:loopback` (ADR-0058).
+      No setting changes it.
     - A transcriber binding that cannot hear leaves `ears` None, so the `listen` tool is simply
       not offered, rather than failing the whole composition.
 
@@ -171,7 +175,9 @@ def in_cell_exoskeleton(
 
     A Virtual Cell reads no manifest, so the screen and readiness budget are `ExoskeletonConfig`'s
     defaults (the same values `[exoskeleton]` defaults to). Chromium's own sandbox is off: the
-    Cell is itself the sandbox, and its container drops the capabilities that sandbox needs. The
+    Cell is itself the sandbox, and its container drops the capabilities that sandbox needs. For
+    the same reason its loopback is private: nothing but the Cell's own processes listens there,
+    so a loopback page stays in the lease without a `net:loopback` grant (ADR-0058). The
     Cell has no database file of its own (its Warden's memory store and trail segment live in
     process), so recordings go to an `InMemoryRecordingStore`: a Virtual Cell's recordings live
     with the Cell and go when it is torn down, until a later step ships them to the Queen. Its
@@ -187,7 +193,9 @@ def in_cell_exoskeleton(
         The wiring `hivemind.cli.in_cell.deps.build_in_cell_warden_deps` applies.
     """
     gate = FannerTranscriptionGate(fanner, Tempo())
-    return _cell_exoskeleton(registry, clock, gate, browser_sandbox=False, retention=None)
+    return _cell_exoskeleton(
+        registry, clock, gate, browser_sandbox=False, private_loopback=True, retention=None
+    )
 
 
 def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonWiring:
@@ -222,6 +230,7 @@ def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonW
         # a transcription there is neither counted against the provider's seats nor recorded.
         DirectTranscriptionGate(),
         browser_sandbox=not running_as_root(),
+        private_loopback=False,  # A borrowed machine's loopback is its owner's services.
         retention=Retention(clock, DEVICE_RECORDING_KEEP),
     )
 
@@ -331,15 +340,17 @@ def _cell_exoskeleton(
     gate: TranscriptionGate,
     *,
     browser_sandbox: bool,
+    private_loopback: bool,
     retention: Retention | None,
 ) -> ExoskeletonWiring:
     """Build the wiring of a Warden that reads no manifest: defaults, recordings in memory.
 
     Shared by `in_cell_exoskeleton` and `device_exoskeleton`, which differ only in whether
-    Chromium keeps its own sandbox and in whether the recordings are forgotten, so the two cannot
-    drift apart in anything else.
+    Chromium keeps its own sandbox, whether loopback is the lease's own, whether the ears are
+    metered and whether the recordings are forgotten, so the two cannot drift apart in anything
+    else.
     """
-    config = ExoskeletonConfig(browser_sandbox=browser_sandbox)
+    config = ExoskeletonConfig(browser_sandbox=browser_sandbox, private_loopback=private_loopback)
     return ExoskeletonWiring(
         config=config,
         launcher=build_browser_launcher(clock, config.screen),

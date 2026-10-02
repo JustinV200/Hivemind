@@ -45,7 +45,14 @@ that have no API; it is not a stealth layer (codingrules 15; the Pheromone Mask 
   started before raising; `detach` stops exactly those processes and verifies they are gone.
 - **The browser reads only scratch.** Attach names the lease's scratch as the browser's only file
   root (`BrowserLaunch.file_roots`): a `file://` URL anywhere else, typed, clicked or framed, is
-  refused, and the real browser resolves symlinks before it loads a file (`browser/README.md`).
+  refused, and the real browser resolves symlinks and refuses a hard-linked file before it loads
+  one (`browser/README.md`).
+- **The browser reaches only its granted hosts and never its own chrome** (ADR-0058). Attach holds
+  every web request to the bee's `net` scopes (`BrowserLaunch.hosts`), loopback included unless
+  the composition root says the Cell's loopback is private (`ExoskeletonConfig.private_loopback`,
+  a Virtual Cell); each profile refuses file dialogs and keeps downloads in scratch; DevTools is
+  closed as it opens and downloads are denied over CDP; whatever is blocked goes on the trail as
+  `cell.browser_blocked`, once per rule and host.
 - **On the trail.** `cell.exoskeleton_attached` and `cell.exoskeleton_detached`, with peripheral
   names and counts, never a frame.
 

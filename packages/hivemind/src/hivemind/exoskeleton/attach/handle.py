@@ -108,6 +108,9 @@ class ExoskeletonHandle:
     _processes: tuple[BackgroundProcess, ...]
     _trail: ExoskeletonTrail
     _report: DetachReport | None = field(default=None)
+    # Whether the Cell's loopback is its own (ExoskeletonConfig.private_loopback): the tools tier
+    # a loopback page by it, as the browser's host route judges a loopback request (ADR-0058).
+    private_loopback: bool = False
 
     @property
     def processes(self) -> tuple[BackgroundProcess, ...]:

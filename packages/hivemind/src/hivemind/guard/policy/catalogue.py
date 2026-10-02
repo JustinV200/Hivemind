@@ -250,6 +250,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("guard.handshake_refused", _REFUSAL),  # A Cell that never proved itself is never attached.
     ("memory.tainted", _NARROWING),  # A tainted item only ever leaves prompts.
     ("cell.exoskeleton_detached", _LIFECYCLE),  # The end of an attach: its processes stopped.
+    ("cell.browser_blocked", _REFUSAL),  # ADR-0058: a request or DevTools the browser refused.
     ("honey.nectar_deduplicated", _OUTCOME),  # A deposit met a stored one; a label only rose.
     ("honey.nectar_rejected", _REFUSAL),
     ("honey.ripen_failed", _OUTCOME),  # The Nectar stays pending for the next pass.
