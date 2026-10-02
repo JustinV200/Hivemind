@@ -1,4 +1,4 @@
-"""Provide ``hive remote certificate fetch|import``: keep this device's mutual-TLS certificate.
+"""Provide ``hive remote certificate fetch|import|renew``: keep this device's mTLS certificate.
 
 A Hive whose remote listener demands client certificates (``lan`` and ``tunnel``, and ``vpn`` when
 the operator turns mutual TLS on) admits this laptop only with the certificate its Hive signed at
@@ -7,7 +7,10 @@ every call (``hivemind.cli.landing.certificate``). A laptop that enrolled over a
 reach ``fetch``-es it from there once approved (``GET /v1/devices/me/certificate``, logged in as
 the device). A laptop that could reach no enrolment listener (``hive remote enrol --offline``)
 ``import``-s the file the operator wrote at approval; the certificate names the device, which
-completes the profile. Either way the certificate is checked before it is kept: it must certify
+completes the profile. A certificate lasts 90 days: in its last 30 the laptop ``renew``-s it over
+the listener it reaches, presenting the one it holds and sending a request for its own key
+(``POST /v1/devices/me/certificate/renew``, ADR-0058); the one it replaces stops working at once.
+Every way the certificate is checked before it is kept: it must certify
 this device's own key, be current, and name the profile's device.
 
 Fits into the Hive:
@@ -42,19 +45,20 @@ from hivemind.cli.landing import (
     carried_flag,
     carried_text,
     certificate_facts,
+    certificate_request,
     describe,
 )
 from hivemind.cli.remote.profiles import DEFAULT_PROFILE, ProfileStore
 from hivemind.cli.remote.session import PROFILE, run_remote
 from hivemind.common.errors import HiveMindError
-from hivemind.entrance.models import CertificateView
+from hivemind.entrance.models import CertificateView, RenewalBody
 from waggle.clock import SystemClock
 
 CertificateCommand = carried_command(PROFILE, PASSWORD_STDIN)
 
 app = typer.Typer(
     name="certificate",
-    help="Keep this device's mutual-TLS client certificate: fetch it, or import it.",
+    help="Keep this device's mutual-TLS client certificate: fetch it, import it, or renew it.",
     no_args_is_help=True,
 )
 
@@ -75,6 +79,26 @@ def fetch_command(ctx: typer.Context) -> None:
 
     pem, facts = run_remote(
         "remote certificate fetch", profile_name, carried_flag(ctx, PASSWORD_STDIN), fetch
+    )
+    _keep(profile_name, pem, facts)
+
+
+@app.command("renew", cls=CertificateCommand)
+def renew_command(ctx: typer.Context) -> None:
+    """Renew this device's certificate in its last 30 days, for the same key, and keep it."""
+    profile_name = carried_text(ctx, PROFILE) or DEFAULT_PROFILE
+
+    async def renew(board: SignedIn) -> tuple[bytes, CertificateFacts]:
+        """Ask for a certificate for the key this device logs in with, and check what came."""
+        key = board.session.credential.key
+        body = RenewalBody(certificate_request=certificate_request(key.signer, key.device_id))
+        path = "/v1/devices/me/certificate/renew"
+        issued = await board.call("POST", path, body, CertificateView)
+        pem = issued.certificate_pem.encode("ascii")
+        return pem, certificate_facts(pem, key.signer, SystemClock().now())
+
+    pem, facts = run_remote(
+        "remote certificate renew", profile_name, carried_flag(ctx, PASSWORD_STDIN), renew
     )
     _keep(profile_name, pem, facts)
 

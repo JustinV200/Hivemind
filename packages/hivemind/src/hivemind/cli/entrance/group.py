@@ -3,12 +3,12 @@
 The Hive Entrance is the Hive's one HTTP door (ADR-0040), and on the Hive Stand (the machine the
 Queen, the orchestrator, runs on) ``hive entrance`` is how the operator keeps it: the password
 (``operator``), who may come in (``invite``, ``register``, ``pending``, ``approve``, ``deny``,
-``devices``, ``revoke``, ``steward``, ``unlock``) and how wide the door is (``reduce``, ``open``,
-``status``, ``expose``). Every command that decides something acts as the console device over the
-loopback listener of a running ``hive serve`` (``hivemind.cli.entrance.console``); only ``operator
-password`` and ``unlock --console`` touch the Entrance tables directly, and ``--reset`` and ``unlock
---console`` only while ``hive serve`` is stopped. This module only registers the commands; each
-lives in the module named for what it keeps.
+``devices``, ``revoke``, ``steward``, ``unlock``, ``reissue``) and how wide the door is (``reduce``,
+``open``, ``status``, ``expose``). Every command that decides something acts as the console device
+over the loopback listener of a running ``hive serve`` (``hivemind.cli.entrance.console``); only
+``operator password`` and ``unlock --console`` touch the Entrance tables directly, and ``--reset``
+and ``unlock --console`` only while ``hive serve`` is stopped. This module only registers the
+commands; each lives in the module named for what it keeps.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.entrance``. Its ``app`` is added to the root
@@ -29,6 +29,7 @@ import typer
 from hivemind.cli.entrance.console import ConsoleCommand
 from hivemind.cli.entrance.devices import (
     devices_command,
+    reissue_command,
     revoke_command,
     steward_command,
     unlock_command,
@@ -70,6 +71,7 @@ app.command("devices", cls=ConsoleCommand)(devices_command)
 app.command("revoke", cls=ConsoleCommand)(revoke_command)
 app.command("steward", cls=ConsoleCommand)(steward_command)
 app.command("unlock", cls=ConsoleCommand)(unlock_command)
+app.command("reissue", cls=ConsoleCommand)(reissue_command)
 
 # How wide the door is; expose alone needs no password and starts nothing.
 app.command("reduce", cls=ConsoleCommand)(reduce_command)

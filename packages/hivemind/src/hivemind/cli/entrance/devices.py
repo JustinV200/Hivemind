@@ -1,4 +1,4 @@
-"""Provide ``hive entrance devices|revoke|steward|unlock``: an admitted device's standing.
+"""Provide ``hive entrance devices|revoke|steward|unlock|reissue``: an admitted device's standing.
 
 Once a device is approved its standing changes only on the Hive Stand's loopback listener
 (ADR-0041), and each command here is the console device calling one of those routes. ``devices``
@@ -10,35 +10,46 @@ steward_devices`` is on); widening a device's set needs a step-up, which the con
 the password it already holds. ``unlock`` returns a locked device to APPROVED; ``unlock --console``
 is the one offline path, for the console itself, which cannot log in while locked: it holds the
 serve lock (so ``hive serve`` must be stopped) and proves the password by opening the console key.
+``reissue`` gives an approved device a new client certificate (ADR-0058): one approved while the
+Hive ran loopback only, which has none, or one whose certificate lapsed; from ``--csr`` or the
+request it sent at redemption, written with ``--certificate-out`` for the operator to carry, or a
+browser's bundle under mutual TLS, written owner-only and its passphrase shown once.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.entrance``. Registered by
-    ``hivemind.cli.entrance.group``. Calls into ``hivemind.cli.entrance.console`` and ``.render``,
-    the Landing Board's models and ``hivemind.entrance.enrol.unlock_console``.
+    ``hivemind.cli.entrance.group``. Calls into ``hivemind.cli.entrance.console``, ``.render`` and
+    ``.enrolments`` (what an issue writes), the Landing Board's models and
+    ``hivemind.entrance.enrol.unlock_console``.
 
 Key invariants:
-    - A device's capabilities change only through the loopback route, never by writing tables.
+    - A device's capabilities and certificate change only through the loopback route, never by
+      writing tables.
     - ``unlock --console`` never runs beside ``hive serve``.
 
 See Also:
     - hivemind.entrance.routes.devices for the routes.
     - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md for the steward rule.
+    - docs/adr/0058-device-certificates-are-renewed-by-their-key-and-re-issued-on-loopback.md.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from hivemind.cli.entrance.console import Stand, run_console, run_offline
+from hivemind.cli.entrance.enrolments import issued_lines, writable
 from hivemind.cli.entrance.render import devices_table
 from hivemind.cli.landing import LandingError, SignedIn, shown
 from hivemind.cli.stores import JsonOption
 from hivemind.entrance.enrol import ConsoleDeps, DeviceStatus, EnrolledDevice, unlock_console
 from hivemind.entrance.models import (
+    ApprovedDeviceView,
     DeviceList,
     DeviceView,
+    ReissueBody,
     RevocationView,
     RevokeBody,
     WidenBody,
@@ -50,8 +61,38 @@ DeviceArgument = Annotated[str, typer.Argument(help="The device's id (device_...
 OptionalDevice = Annotated[
     str | None, typer.Argument(help="The locked device's id; omit with --console.")
 ]
+CsrOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--csr",
+        help="The device's certificate signing request for its own key, a PEM file (default: "
+        "the one it sent when it enrolled).",
+    ),
+]
+CertificateOutOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--certificate-out",
+        help="Write the certificate to this file, for the device to import with hive remote "
+        "certificate import.",
+    ),
+]
+BundleOutOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--bundle-out",
+        help="Where a browser's PKCS#12 bundle goes, owner-only (default: ./<device id>.p12).",
+    ),
+]
 
-__all__ = ["STEWARD", "devices_command", "revoke_command", "steward_command", "unlock_command"]
+__all__ = [
+    "STEWARD",
+    "devices_command",
+    "reissue_command",
+    "revoke_command",
+    "steward_command",
+    "unlock_command",
+]
 
 
 def devices_command(
@@ -147,6 +188,34 @@ def unlock_command(
 
     device = run_console(ctx, "unlock", reopen)
     typer.echo(f"Unlocked {device.id} ({shown(device.name)}); it may log in again.")
+
+
+def reissue_command(
+    ctx: typer.Context,
+    device_id: DeviceArgument,
+    csr: CsrOption = None,
+    certificate_out: CertificateOutOption = None,
+    bundle_out: BundleOutOption = None,
+) -> None:
+    """Re-issue an approved device's client certificate (loopback only): none yet, or lapsed."""
+    try:
+        request = csr.read_text(encoding="ascii") if csr is not None else None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise typer.BadParameter(f"{csr} is not a readable PEM file.") from exc
+    # A browser's bundle is sealed once: its destination must be writable before it exists.
+    bundle_path = writable(bundle_out or Path(f"{device_id}.p12"))
+
+    async def reissue(board: SignedIn, _stand: Stand) -> ApprovedDeviceView:
+        """Re-issue it on loopback."""
+        path = f"/v1/devices/{device_id}/certificate"
+        return await board.call(
+            "POST", path, ReissueBody(certificate_request=request), ApprovedDeviceView
+        )
+
+    reissued = run_console(ctx, "reissue", reissue)
+    typer.echo(f"Re-issued {reissued.id} ({shown(reissued.name)}) a client certificate.")
+    for line in issued_lines(reissued, certificate_out, bundle_path):
+        typer.echo(line)
 
 
 async def _unlock_console(deps: ConsoleDeps, stand: Stand) -> EnrolledDevice:

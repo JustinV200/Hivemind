@@ -146,10 +146,12 @@ __all__ = [
     "approve_command",
     "deny_command",
     "invite_command",
+    "issued_lines",
     "parse_capabilities",
     "parse_expiry",
     "pending_command",
     "register_command",
+    "writable",
 ]
 
 
@@ -238,7 +240,7 @@ def approve_command(
             typer.echo(line)
         # A browser may get a bundle, sealed only once: it needs a place to go before it exists.
         if device.key_kind == "passkey":
-            _writable(bundle_path)
+            writable(bundle_path)
         # The fingerprint is on screen; the operator compares it with the one the device shows.
         if not confirmed and not typer.confirm(f"Approve {device.id}?", default=False):
             raise NotConfirmedError(f"Device {device.id} was not approved.")
@@ -257,7 +259,7 @@ def approve_command(
         f"Approved {approved.id} as {shown(approved.name)}: {len(approved.capabilities)} "
         f"capabilities, {spend_cap:.2f} USD a day, interactive={approved.interactive}."
     )
-    for line in _issued(approved, carried_path(ctx, CERTIFICATE_OUT), bundle_path):
+    for line in issued_lines(approved, carried_path(ctx, CERTIFICATE_OUT), bundle_path):
         typer.echo(line)
 
 
@@ -321,10 +323,20 @@ def parse_expiry(text: str, now: datetime) -> datetime:
     return moment
 
 
-def _issued(
+def issued_lines(
     approved: ApprovedDeviceView, certificate_out: Path | None, bundle_out: Path
 ) -> list[str]:
-    """Keep what the approval issued (a certificate, a bundle) and say where it went."""
+    """Keep what an approval or a re-issue issued (a certificate, a bundle); say where it went.
+
+    Args:
+        approved: The answer, with its certificate's PEM or a browser's bundle.
+        certificate_out: Where to write the certificate for the operator to carry; None leaves
+            the device to fetch it.
+        bundle_out: Where a bundle goes, owner-only (already checked writable).
+
+    Returns:
+        The lines to print, the bundle's passphrase among them when one was sealed.
+    """
     lines: list[str] = []
     if approved.certificate_serial is not None:
         lines.append(
@@ -347,8 +359,18 @@ def _issued(
     return lines
 
 
-def _writable(path: Path) -> Path:
-    """Refuse a destination whose directory cannot be written, before anything is issued."""
+def writable(path: Path) -> Path:
+    """Refuse a destination whose directory cannot be written, before anything is issued.
+
+    Args:
+        path: Where a bundle sealed once will be written.
+
+    Returns:
+        ``path``, unchanged.
+
+    Raises:
+        typer.BadParameter: Its directory is missing or not writable by this user.
+    """
     folder = path.parent if str(path.parent) else Path()
     if not folder.is_dir() or not os.access(folder, os.W_OK):
         raise typer.BadParameter(f"{folder} is not a directory this user can write to.")

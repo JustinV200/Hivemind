@@ -8,7 +8,9 @@ from its request back on loopback, read its inbox on the remote listener, and be
 handshake again once the operator revokes it. ``import`` keeps a certificate the
 operator carried to a laptop enrolled offline only when it certifies the laptop's own key, and
 once the profile names a device, only one for that device. A loopback-only Hive issues no
-certificate, and ``fetch`` says so.
+certificate, and ``fetch`` says so. ``renew`` is refused until the certificate is due, then renews
+it over the mutual-TLS listener itself; the operator's ``hive entrance reissue`` replaces that one
+(the laptop is refused at the handshake until it imports the file carried to it).
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/remote/certificates.py (codingrules section 3).
@@ -19,9 +21,10 @@ Key invariants:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from builders.entrance.auth import PASSWORD
 from builders.entrance.mtls import tunnel_manifest
 from builders.entrance.stand import (
@@ -37,6 +40,7 @@ from builders.entrance.stand import (
 from hivemind.cli.entrance import read_serve_record
 from hivemind.cli.landing import certificate_request
 from hivemind.common.secrets import MemorySecretStore
+from hivemind.entrance.enrol.certificates import renewal
 from hivemind.entrance.expose import issue_client_certificate, load_or_create_authority
 from waggle.clock import SystemClock
 from waggle.ids import HiveId, new_device_id
@@ -133,6 +137,39 @@ async def test_import_keeps_only_a_certificate_for_this_devices_key_and_device(
     assert imports["ours"].exit_code == 0 and f"device {device_id}" in imports["ours"].output
     assert imports["renamed"].exit_code == 1
     assert f"for device {other_id}, not this profile's {device_id}" in imports["renamed"].output
+
+
+async def test_a_laptop_renews_over_mutual_tls_and_the_operator_re_issues_on_loopback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, tls = tunnel_manifest(tmp_path / "stand")
+    await set_password(path)
+    laptop = laptop_terminal(tmp_path / "laptop")
+    carried = tmp_path / "reissued.crt"
+    renew = ("remote", "certificate", "renew", "--password-stdin")
+
+    async with serving_stand(path) as (stand, entrance):
+        device_id = await _enrol_on_loopback(stand, laptop)
+        await laptop.hive("remote", "certificate", "fetch", "--password-stdin", **_IN)
+        remote = f"https://127.0.0.1:{entrance.listeners.remote_port}"
+        await laptop.hive("remote", "set-url", remote, "--ca-file", str(tls.ca_path))
+        early = await laptop.hive(*renew, **_IN)
+        # A fresh certificate has 90 days left; a window this wide makes it due now.
+        monkeypatch.setattr(renewal, "RENEWAL_WINDOW", timedelta(days=91))
+        renewed = await laptop.hive(*renew, **_IN)  # Over the mutual-TLS listener itself.
+        inbox = await laptop.hive(*_INBOX, **_IN)  # With the renewed one.
+        reissued = await stand.entrance("reissue", device_id, "--certificate-out", str(carried))
+        stale = await laptop.hive(*_INBOX, **_IN)  # The renewed one was replaced: refused.
+        kept = await laptop.hive("remote", "certificate", "import", str(carried))
+        again = await laptop.hive(*_INBOX, **_IN)
+
+    assert early.exit_code == 1 and "not due for renewal until" in early.output, early.output
+    assert renewed.exit_code == 0 and f"device {device_id}" in renewed.output, renewed.output
+    assert inbox.exit_code == 0 and _read(inbox.output), inbox.output
+    assert reissued.exit_code == 0 and str(carried) in reissued.output, reissued.output
+    assert stale.exit_code == 1, stale.output
+    assert kept.exit_code == 0, kept.output
+    assert again.exit_code == 0 and _read(again.output), again.output
 
 
 async def test_fetch_on_a_hive_that_issued_nothing_says_so(tmp_path: Path) -> None:

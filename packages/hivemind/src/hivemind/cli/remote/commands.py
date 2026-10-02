@@ -9,7 +9,7 @@ to register at the Hive Stand (``hive entrance register``), and the certificate 
 imported (``hive remote certificate import``). ``profiles`` lists the Hives this laptop is
 enrolled with and whether it holds a certificate there; ``set-url`` points a profile at another
 listener of the same Hive (the mutual-TLS one, once the certificate is kept); ``forget`` drops one
-(its key and certificate too); ``certificate`` fetches or imports a certificate
+(its key and certificate too); ``certificate`` fetches, imports or renews a certificate
 (``hivemind.cli.remote.certificates``). ``remote_run`` is ``hive run --remote "goal"``: the goal
 submitted through the Entrance and followed to its end, the Queen's lines printed as they come,
 exit 0 when it finished, 1 when it was refused, 2 when the timeout ended the follow first.
