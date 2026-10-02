@@ -30,7 +30,8 @@ See Also:
 
 Public API:
     - Assignment (assignment): TaskAssign, TaskCancel, TaskPause, TaskResume, WorkerRole.
-    - Reports (reports): ArtifactRef, TaskOutcome, TaskProgress, TaskResult, TaskStage.
+    - Reports (reports): ArtifactRef, ResultCause, TaskOutcome, TaskProgress, TaskResult,
+      TaskStage.
     - Needs (needs): ExoskeletonNeed, NetworkScope.
     - Recon (recon): ScoutReport, SCOUT_REPORT_FILE.
     - Handoff (handoff): HandoffDecision, HandoffDocument.
@@ -48,6 +49,7 @@ from waggle.messages.task.needs import ExoskeletonNeed, NetworkScope
 from waggle.messages.task.recon import SCOUT_REPORT_FILE, ScoutReport
 from waggle.messages.task.reports import (
     ArtifactRef,
+    ResultCause,
     TaskOutcome,
     TaskProgress,
     TaskResult,
@@ -61,6 +63,7 @@ __all__ = [
     "HandoffDecision",
     "HandoffDocument",
     "NetworkScope",
+    "ResultCause",
     "ScoutReport",
     "TaskAssign",
     "TaskCancel",

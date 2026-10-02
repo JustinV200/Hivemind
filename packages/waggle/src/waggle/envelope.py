@@ -57,9 +57,9 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.13"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.14"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 13  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 14  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
 # Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 3 for
 # TaskAssign.leaves, a new optional field (roadmap step 5.0b, "the plan declares what stays"); 4
@@ -92,7 +92,9 @@ PROTOCOL_MINOR = 13  # Additive changes bump it; any minor of a known major is a
 # ladder and amend its terms), swarm.observe and swarm.observation (read-only watching),
 # TaskAssign.handoff (a Handoff carried inline), TrailSegmentSync.segment_signature (a node vouches
 # for its offline trail segment), CellRequest.scratch_quota_bytes, SessionRequestKind.DELETE_FILE
-# and AlarmKind.PATROL_ANOMALY.
+# and AlarmKind.PATROL_ANOMALY; 14 for TaskResult.cause, a new optional field, and its ResultCause
+# enum (ADR-0060: a task whose Cell refused its commands is re-placed on one that runs them, not
+# failed).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.

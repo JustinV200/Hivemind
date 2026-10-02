@@ -73,6 +73,7 @@ __all__ = [
     "MIN_SPEND",
     "MIN_SUMMARY_CHARS",
     "ArtifactRef",
+    "ResultCause",
     "TaskOutcome",
     "TaskProgress",
     "TaskResult",
@@ -88,6 +89,18 @@ class TaskStage(Enum):
     CHECKPOINTED = "CHECKPOINTED"  # A Handoff was just written; the report carries it.
     PAUSED = "PAUSED"
     RESUMED = "RESUMED"
+
+
+class ResultCause(Enum):
+    """A typed cause an attempt ended as it did, which a supervisor acts on without reading prose.
+
+    Protocol 1.14. Set on the Worker's claim and carried onto the Warden's verified result; the
+    Queen reads it to decide something a plain retry on the same Cell could never fix.
+    """
+
+    # The attempt's Cell refused its commands under the access-level rule (ADR-0060): it needs a
+    # Cell that runs them, so the Queen re-places it once with needs.commands set.
+    CELL_RUNS_NO_COMMANDS = "CELL_RUNS_NO_COMMANDS"
 
 
 class TaskOutcome(Enum):
@@ -198,6 +211,11 @@ class TaskResult(WaggleMessage):
         description="What a Scout found (roadmap step 6.10), carried unchanged from the Worker's "
         "claim through the Warden's verified result to the Queen; None for every other role. "
         "Protocol 1.6.",
+    )
+    cause: ResultCause | None = Field(
+        default=None,
+        description="A typed cause the attempt ended as it did, carried from the Worker's claim "
+        "onto the Warden's result; None when the reason alone says it. Protocol 1.14.",
     )
 
     @model_validator(mode="after")

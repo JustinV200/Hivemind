@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.13`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.14`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.13"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.14"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.13"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 13` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.14"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 14` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -260,6 +260,11 @@ validates every message a newer one sends it, as long as the sender honours the 
     reported back by the Warden that runs with them.
 
   A sender uses none of these toward a peer that has not advertised minor 13 (section 4's rule).
+- **1.14** (additive): `TaskResult.cause` and its `ResultCause` enum (section 8.2, ADR-0060): a
+  typed cause an attempt ended as it did, carried from the Worker's claim onto the Warden's result.
+  `CELL_RUNS_NO_COMMANDS` says the Cell refused the attempt's commands, and the Queen re-places the
+  task once on a Cell that runs them. The field defaults to None, so a peer below minor 14 still
+  validates every result that leaves it unset.
 
 ## 5. Wire format and size limit
 
@@ -804,6 +809,11 @@ from the Worker, then the Warden's verified result after the acceptance checks.
 - `scout_report` (`ScoutReport | None`, `PROTOCOL_MINOR` 6): what a Scout found, carried
   unchanged from the Worker's claim through the Warden's result; None for every other role and
   by default.
+- `cause` (`ResultCause | None`, `PROTOCOL_MINOR` 14): a typed cause the attempt ended as it did,
+  set on the Worker's claim and carried onto the Warden's result, so the Queen can act on it
+  without reading `reason`; None by default. `CELL_RUNS_NO_COMMANDS`: the Cell refused the
+  attempt's commands under the access-level rule (ADR-0060), so the Queen re-places the task once
+  on a Cell that runs them instead of retrying it where they will be refused again.
 
 #### TaskCancel
 
