@@ -14,14 +14,17 @@ raw `pydantic.ValidationError` to find out what to fix.
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by the composition root
     (`cli/stores.py`, a later roadmap step) and by tests that load the shipped example manifests.
-    Calls into `hivemind.manifest.env`, `hivemind.manifest.errors` and `hivemind.manifest.schema`
-    only.
+    Calls into `hivemind.manifest.env`, `hivemind.manifest.errors`, `hivemind.manifest.schema`,
+    `hivemind.manifest.advice` (load-time advice, logged as a warning) and
+    `hivemind.common.logging` only.
 
 Key invariants:
     - `load_manifest` never returns a partially-built manifest: it either returns a fully
       validated `HiveManifest` or raises `ManifestError`.
     - The raw `dict` `tomllib.load` produces is never returned, stored, or handed to anything but
       `HiveManifest.model_validate` (codingrules section 9).
+    - A manifest that validates is never refused for advice: a JUDGE slot sharing the RIPENER's
+      model is logged as `manifest.judge_shares_ripener` and the manifest is still returned.
     - `environ=None` (the default) applies no environment overrides at all, so a caller that wants
       a pure, deterministic read of the file alone gets exactly that.
     - When a document has more than one problem and at least one is a section's own
@@ -46,11 +49,15 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from hivemind.common.logging import get_logger
+from hivemind.manifest.advice import judge_shares_ripener
 from hivemind.manifest.env import apply_env, read_env
 from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.schema import HiveManifest
 
 __all__ = ["load_manifest"]
+
+log = get_logger(__name__)
 
 
 def load_manifest(path: Path, environ: Mapping[str, str] | None = None) -> HiveManifest:
@@ -90,6 +97,10 @@ def load_manifest(path: Path, environ: Mapping[str, str] | None = None) -> HiveM
     manifest = manifest.model_copy(update={"source_path": path})
     if environ is not None:
         manifest = apply_env(manifest, read_env(environ))
+    # Valid but worth saying (hivemind.manifest.advice): logged, never refused.
+    shared = judge_shares_ripener(manifest.llm)
+    if shared is not None:
+        log.warning("manifest.judge_shares_ripener", path=str(path), advice=shared)
     return manifest
 
 

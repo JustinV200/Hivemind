@@ -58,6 +58,7 @@ from hivemind.cli.honey.context import (
 )
 from hivemind.cli.honey.render import (
     ReviewEntry,
+    print_advice,
     print_decision,
     print_review,
     print_review_entry,
@@ -205,6 +206,7 @@ def _judge_now(cli_ctx: HoneyCliContext) -> None:
     for entry in entries:
         print_review_entry(entry)
     print_slot("judge", opened.bindings.judge, _NO_JUDGE)
+    print_advice(opened.bindings.judge_advice)
 
 
 async def _judge_queue(

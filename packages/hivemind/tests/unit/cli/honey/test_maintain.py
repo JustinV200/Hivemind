@@ -171,6 +171,22 @@ def test_ripen_now_says_when_it_stopped_at_its_pass_bound(
     assert second["ripen"]["ripened"] == 2
 
 
+def test_ripen_now_warns_when_the_judge_runs_on_the_ripeners_own_model(tmp_path: Path) -> None:
+    """(phase 7 handoff item 2) the harness binds every slot to one model; said on stderr."""
+    manifest = make_hive(tmp_path)
+    off = make_hive(tmp_path / "off")
+    append_toml(off, "[honey.lowering]\nenabled = false")
+
+    shared = invoke(manifest, "ripen", "--now")
+    unused = invoke(off, "ripen", "--now")
+
+    assert shared.exit_code == 0, shared.output
+    assert "warning: [llm.slots] binds JUDGE and RIPENER to the same model" in shared.stderr
+    assert "warning:" not in shared.stdout
+    assert unused.exit_code == 0, unused.output
+    assert "warning: [llm.slots]" not in unused.stderr  # No judge runs: only the load-time log.
+
+
 def test_ripen_now_without_an_embedder_still_ripens_and_says_why(tmp_path: Path) -> None:
     manifest = _seeded(tmp_path)
     bind_embedder(manifest, hosted=True)

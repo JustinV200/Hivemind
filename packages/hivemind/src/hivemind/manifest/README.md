@@ -52,6 +52,13 @@ enums rather than the hivemind-side mirrors those two packages own.
   `HIVEMIND_DEVICE_MANIFEST`) and, since step 11.10, an eighth that is set only when the operator
   named directories for it to watch (`HIVEMIND_WATCH_ROOTS`, a JSON array).
 - **Errors** (`hivemind.manifest.errors`): `ManifestError(ConfigurationError)`.
+- **Advice** (`hivemind.manifest.advice`): `judge_shares_ripener(llm) -> str | None`, a warning
+  when the JUDGE and RIPENER slots resolve to the same model (same model id at the same provider
+  kind and base URL). A valid manifest is never refused for it: `load_manifest` logs it as
+  `manifest.judge_shares_ripener`, and `hive honey ripen --now` and `review --judge` print it on
+  stderr when the judge will run. The clearance judge (ADR-0038) is meant to be an independent
+  second reading; on the Ripener's own model it shares its blind spots, and a weak shared model
+  blocks every lowering.
 
 ### The slot-table validators (`LlmSection`)
 

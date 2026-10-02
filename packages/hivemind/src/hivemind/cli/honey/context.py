@@ -25,6 +25,8 @@ Key invariants:
       and a non-zero exit by `run_or_exit`; no command prints a traceback for one.
     - The JUDGE probe honours `[honey.lowering] enabled = false` exactly as `build_honey_access`
       does: the slot is reported as unused for that reason and never resolved.
+    - A bound JUDGE on the RIPENER's own model carries `hivemind.manifest.judge_shares_ripener`'s
+      advice, for the commands that run the judge to print (phase 7 handoff item 2).
 
 See Also:
     - hivemind.cli.compose.honey for build_honey_access, the one way the Honey Store is built.
@@ -60,7 +62,7 @@ from hivemind.forage import ModelSlot
 from hivemind.honey_store import HoneyAccess, HoneyIdentity, HoneyReader, LoweringInputError
 from hivemind.honey_store.browse import BrowseInputError, BrowsePathError, operator_reader
 from hivemind.llm import ProviderRegistry
-from hivemind.manifest import HiveManifest, HoneyLoweringSection
+from hivemind.manifest import HiveManifest, judge_shares_ripener
 from waggle.clock import SystemClock
 
 HUMAN_ACTOR = "human"  # Every write these commands record is the operator's own act.
@@ -74,7 +76,8 @@ ClearanceOption = Annotated[
     HoneyClearance,
     typer.Option(
         "--clearance",
-        help="The most sensitive label to read (C0, C1 or C2); applies to query, ls and cat.",
+        help="The most sensitive label to read (C0, C1 or C2); applies to query, ls, cat and "
+        "review.",
     ),
 ]
 
@@ -129,6 +132,9 @@ class BindingStatus:
     embedder: SlotStatus  # Without it, rows get no vectors and search is full text only.
     ripener: SlotStatus  # Without it, summaries are heuristic.
     judge: SlotStatus  # Without it, every lowering proposal waits for the human (ADR-0038).
+    # Why a bound judge on the RIPENER's own model is a poor check (hivemind.manifest.advice);
+    # None when the judge is unbound or differs.
+    judge_advice: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,7 +223,7 @@ def open_access(cli_ctx: HoneyCliContext) -> OpenedHoney:
     registry = build_provider_registry(manifest, os.environ, clock, forage_map, None)
     fanner = build_fanner(manifest, forage_map, open_trail(cli_ctx.db), clock)
     access = build_honey_access(manifest, store, registry, fanner, clock)
-    bindings = _probe_bindings(registry, manifest.honey.lowering)
+    bindings = _probe_bindings(registry, manifest)
     return OpenedHoney(access=access, bindings=bindings, registry=registry)
 
 
@@ -247,18 +253,21 @@ def run_or_exit[ResultT](work: Coroutine[object, None, ResultT]) -> ResultT:
         raise typer.Exit(code=EXIT_REFUSED) from exc
 
 
-def _probe_bindings(registry: ProviderRegistry, lowering: HoneyLoweringSection) -> BindingStatus:
+def _probe_bindings(registry: ProviderRegistry, manifest: HiveManifest) -> BindingStatus:
     """Resolve the three slots the way build_honey_access does, keeping why any one failed."""
     # Lowering switched off: the judge is never resolved, exactly as build_honey_access skips it.
     judge = (
         _probe(lambda: registry.bound(ModelSlot.JUDGE).model)
-        if lowering.enabled
+        if manifest.honey.lowering.enabled
         else SlotStatus(model=None, reason=JUDGE_DISABLED)
     )
+    # Only a judge that will actually run is worth advice about the model it runs on.
+    advice = judge_shares_ripener(manifest.llm) if judge.model is not None else None
     return BindingStatus(
         embedder=_probe(lambda: registry.embedder(ModelSlot.EMBEDDER).model),
         ripener=_probe(lambda: registry.bound(ModelSlot.RIPENER).model),
         judge=judge,
+        judge_advice=advice,
     )
 
 

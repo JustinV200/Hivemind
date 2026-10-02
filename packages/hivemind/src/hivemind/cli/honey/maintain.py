@@ -76,6 +76,7 @@ from hivemind.cli.honey.context import (
 from hivemind.cli.honey.render import (
     RipenTotals,
     WaitingCounts,
+    print_advice,
     print_prune,
     print_ripen,
     print_slot,
@@ -166,6 +167,7 @@ def ripen_command(
     print_slot("ripener", opened.bindings.ripener, _NO_RIPENER)
     print_slot("embedder", opened.bindings.embedder, _NO_EMBEDDER)
     print_slot("judge", opened.bindings.judge, _NO_JUDGE)
+    print_advice(opened.bindings.judge_advice)
 
 
 def reembed_command(ctx: typer.Context, prune: PruneOption = False) -> None:

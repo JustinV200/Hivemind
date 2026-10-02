@@ -7,8 +7,9 @@ is a Hive Manifest... validated into HiveManifest (pydantic)... environment vari
 exactly one place... secrets are never in the manifest file." This package is that whole pipeline:
 ``schema`` (the fifteen-section model tree, ``HiveManifest`` at its root), ``loader``
 (``load_manifest``, TOML file to validated model), ``env`` (``read_env``/``apply_env``/
-``provider_api_key``, the one place `HIVEMIND_*` is read), and ``errors`` (``ManifestError``, the
-one exception every failure in this package raises).
+``provider_api_key``, the one place `HIVEMIND_*` is read), ``errors`` (``ManifestError``, the
+one exception every failure in this package raises), and ``advice`` (what a valid manifest allows
+but an operator should hear about, logged at load time and never refused).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by the composition root
@@ -55,8 +56,10 @@ Public API:
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
+    - Advice (`hivemind.manifest.advice`): judge_shares_ripener.
 """
 
+from hivemind.manifest.advice import judge_shares_ripener
 from hivemind.manifest.device import (
     DeviceForageSection,
     DeviceManifest,
@@ -178,6 +181,7 @@ __all__ = [
     "WatchSection",
     "WatchTuning",
     "apply_env",
+    "judge_shares_ripener",
     "load_device_manifest",
     "load_manifest",
     "provider_api_key",
