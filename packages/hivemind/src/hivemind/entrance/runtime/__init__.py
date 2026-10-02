@@ -27,7 +27,8 @@ Public API:
     - EntranceParts, EntranceSettings, EntranceTables, EntranceHive, EntranceKeys, IPAddress: what
       the Entrance is built from (parts).
     - build_entrance, BuiltEntrance, RELYING_PARTY_NAME, LOOPBACK_RP_ID: the wiring (build).
-    - HiveEntrance, EntranceWorkers, SWEEP_INTERVAL_S: the running Entrance (entrance).
+    - HiveEntrance, EntranceWorkers, SWEEP_INTERVAL_S, sweep_once: the running Entrance and one
+      pass of its sweep (entrance).
     - EntranceListeners, RemoteSetup, TunnelLaunch, FailureHandler, LOOPBACK_RESTART_FIRST_S,
       LOOPBACK_RESTART_MAX_S: the listeners (listeners).
     - ListenerServer, bind_listener, GRACEFUL_SHUTDOWN_S, STOP_TIMEOUT_S, LOOPBACK_NAME: one
@@ -43,7 +44,12 @@ from hivemind.entrance.runtime.build import (
     BuiltEntrance,
     build_entrance,
 )
-from hivemind.entrance.runtime.entrance import SWEEP_INTERVAL_S, EntranceWorkers, HiveEntrance
+from hivemind.entrance.runtime.entrance import (
+    SWEEP_INTERVAL_S,
+    EntranceWorkers,
+    HiveEntrance,
+    sweep_once,
+)
 from hivemind.entrance.runtime.listeners import (
     LOOPBACK_RESTART_FIRST_S,
     LOOPBACK_RESTART_MAX_S,
@@ -103,4 +109,5 @@ __all__ = [
     "build_entrance",
     "revoked_serial",
     "submit_confirmed_goals",
+    "sweep_once",
 ]

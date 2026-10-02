@@ -33,13 +33,15 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.logging import get_logger
 from hivemind.entrance.auth.confirm import expire_pending
 from hivemind.entrance.auth.session import Listener
-from hivemind.entrance.enrol import DeviceStatus, expire_due
+from hivemind.entrance.enrol import DeviceStatus, EnrolmentDeps, expire_due
 from hivemind.entrance.gate import EntranceServices
 from hivemind.entrance.notify import PushOutbox
 from hivemind.entrance.reducer import EntranceMode, ReduceReason
@@ -50,12 +52,16 @@ from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from waggle.ids import new_alarm_id
 from waggle.messages.supervision import AlarmContext
 
+if TYPE_CHECKING:
+    # Type-only, as in hivemind.entrance.gate.services: the voice package imports the gate.
+    from hivemind.entrance.voice.nectar import MediaNectar
+
 SWEEP_INTERVAL_S = 60.0  # How often lapsed devices, held requests and kept clips are expired.
 FAILURE_ACTOR = "system"  # A reduction for a failed listener is nobody's device's decision.
 
 log = get_logger(__name__)
 
-__all__ = ["SWEEP_INTERVAL_S", "EntranceWorkers", "HiveEntrance"]
+__all__ = ["SWEEP_INTERVAL_S", "EntranceWorkers", "HiveEntrance", "sweep_once"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,20 +165,14 @@ class HiveEntrance:
     async def _sweep(self) -> None:
         """Expire lapsed devices, held requests and kept voice clips on time, until cancelled."""
         services = self._services
-        enrolment = services.enrolment
         while True:
             # External wait: the sweep interval, on the Entrance's clock.
             await services.clock.sleep(SWEEP_INTERVAL_S)
-            # An approval that lapsed withdraws its certificate: the next handshake must know.
-            if await expire_due(enrolment):
-                await self._listeners.device_revoked()
-            await expire_pending(enrolment.records)
-            # A kept clip or image lives no longer than its retention window (and one sweep
-            # interval). Voice and images normally share one seam; it is swept once.
-            now = services.clock.now()
-            await services.images.nectar.sweep(now)
+            # Voice and images normally share one seam; it is swept once.
+            kept = [services.images.nectar]
             if services.voice is not None and services.voice.nectar is not services.images.nectar:
-                await services.voice.nectar.sweep(now)
+                kept.append(services.voice.nectar)
+            await sweep_once(services.enrolment, kept, self._listeners.device_revoked)
 
     async def _listener_failed(self, listener: Listener, failure: str) -> None:
         """A listener failed after start: reduce for the remote one, and tell the human."""
@@ -206,3 +206,26 @@ class HiveEntrance:
             raised_at=clock.now(),
             state=AlarmState.HANDLING,
         )
+
+
+async def sweep_once(
+    enrolment: EnrolmentDeps,
+    kept: Sequence[MediaNectar],
+    certificates_withdrawn: Callable[[], Awaitable[None]],
+) -> None:
+    """Run one pass of the Entrance's sweep: lapsed devices, held requests, kept clips and images.
+
+    Args:
+        enrolment: The enrolment dependencies; its clock dates every expiry.
+        kept: Each distinct store whose kept clips and images age out (voice's, images').
+        certificates_withdrawn: Rebuilds the mutual-TLS revocation list; called only when the
+            pass expired a device (``EntranceListeners.device_revoked`` in a running Entrance).
+    """
+    # An approval that lapsed withdraws its certificate: the next handshake must know.
+    if await expire_due(enrolment):
+        await certificates_withdrawn()
+    await expire_pending(enrolment.records)
+    # A kept clip or image lives no longer than its retention window (and one sweep interval).
+    now = enrolment.records.clock.now()
+    for store in kept:
+        await store.sweep(now)
