@@ -5,7 +5,9 @@ store, the Queen's resume from it (a fresh grant, then a `TaskAssign` resuming f
 as after the human's lift) is refused before anything spawns: a `guard.denied` row at the
 `isolation` point, the grant withdrawn, and the Queen told the task is held. A Handoff that was
 never tainted, or that a judge has since cleared, is admitted and the bee resumes from it, and a
-fresh start is admitted whatever the store holds.
+fresh start is admitted whatever the store holds. The Warden's own respawns (a RETRY, a REBIND,
+the Queen's ordered rebind, a context Handoff's successor) resume from the bee's last Handoff too,
+so they pass the same gate: a tainted one is refused and the task held, with no bee spawned.
 
 Fits into the Hive:
     Mirrors src/hivemind/wardens/isolation/gate.py (codingrules section 3), over a real Warden
@@ -46,10 +48,19 @@ from hivemind.memory.taint import (
     clear_taint,
 )
 from hivemind.pheromone import TrailQuery
+from hivemind.wardens.autopilot import WardenAction
+from hivemind.wardens.spawn.sub_bee import SubBee
+from hivemind.wardens.ticks.alarms import (
+    handle_alarm_action,
+    rebind_sub_bee,
+    resume_from_handoff,
+)
 from waggle.clock import FakeClock
-from waggle.ids import new_event_id, new_grant_id
-from waggle.messages import HandoffRef
+from waggle.ids import new_alarm_id, new_event_id, new_grant_id
+from waggle.messages import AlarmSeverity, HandoffRef
 from waggle.messages.cell import CellTaintOrder
+from waggle.messages.labels import HoneyClearance as WireHoneyClearance
+from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
 from waggle.messages.task import TaskAssign, TaskStage
 
 _WAIT_S = 5.0  # Bound on waiting for a resumed bee's role to start.
@@ -169,6 +180,106 @@ async def test_a_fresh_start_is_admitted_whatever_the_store_holds() -> None:
     assert await _refusals(scene) == []
     assert scene.role.resumed_from[-1] is None
     await stop_scene(scene)
+
+
+async def test_a_wardens_own_retry_from_a_tainted_handoff_is_refused_and_the_task_held() -> None:
+    scene = await start_scene()
+    sub_bee = await _bee_at_tainted_handoff(scene)
+
+    await handle_alarm_action(scene.warden, sub_bee, _alarm(scene), WardenAction.RETRY, None)
+
+    await _assert_held_without_a_respawn(scene)
+
+
+async def test_a_wardens_own_rebind_from_a_tainted_handoff_is_refused_and_the_task_held() -> None:
+    scene = await start_scene()
+    sub_bee = await _bee_at_tainted_handoff(scene)
+
+    await handle_alarm_action(
+        scene.warden, sub_bee, _alarm(scene), WardenAction.REBIND, sub_bee.binding
+    )
+
+    await _assert_held_without_a_respawn(scene)
+
+
+async def test_a_queen_ordered_rebind_from_a_tainted_handoff_is_refused() -> None:
+    scene = await start_scene()
+    sub_bee = await _bee_at_tainted_handoff(scene)
+
+    await rebind_sub_bee(scene.warden, sub_bee, sub_bee.binding)
+
+    await _assert_held_without_a_respawn(scene)
+
+
+async def test_a_context_handoffs_successor_from_a_tainted_handoff_is_refused() -> None:
+    scene = await start_scene()
+    sub_bee = await _bee_at_tainted_handoff(scene)
+
+    await resume_from_handoff(scene.warden, sub_bee)
+
+    await _assert_held_without_a_respawn(scene)
+
+
+async def test_a_wardens_own_retry_from_an_untainted_handoff_respawns() -> None:
+    scene = await start_scene()
+    deps = scene.deps
+    ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+    task = scene.assignment.task_id
+    [sub_bee] = scene.warden._sub_bees.values()
+    sub_bee.last_handoff = await write_checkpoint(make_handoff(task_id=task), task, ctx)
+    scene.role.started.clear()
+
+    await handle_alarm_action(scene.warden, sub_bee, _alarm(scene), WardenAction.RETRY, None)
+    await asyncio.wait_for(scene.role.started.wait(), timeout=_WAIT_S)
+
+    assert await _refusals(scene) == []
+    assert scene.role.resumed_from[-1] is not None
+    await stop_scene(scene)
+
+
+async def _bee_at_tainted_handoff(scene: QuarantineScene) -> SubBee:
+    """Return the scene's running bee, its last Handoff one the isolation's order tainted."""
+    ref = await _tainted_checkpoint(scene)
+    [sub_bee] = scene.warden._sub_bees.values()
+    # As if the bee had reported the checkpoint: a respawn resumes from exactly this Handoff.
+    sub_bee.last_handoff = ref
+    return sub_bee
+
+
+async def _assert_held_without_a_respawn(scene: QuarantineScene) -> None:
+    """Assert the gate refused the respawn: its row, the task held, and no fresh bee running."""
+    await queen_hears(scene, lambda: bool(scene.queen.progress))
+    assert await _refusals(scene) == [("isolation", "guard.scope.tainted_handoff")]
+    [held] = scene.queen.progress
+    assert (held.task_id, held.stage) == (scene.assignment.task_id, TaskStage.PAUSED)
+    assert scene.assignment.grant_id not in scene.warden._grants  # Nothing spawns under it.
+    assert scene.warden._sub_bees == {}
+    assert scene.role.resumed_from == [None]  # Only the first attempt ever ran.
+    await stop_scene(scene)
+
+
+def _alarm(scene: QuarantineScene) -> AlarmRaised:
+    """A sub-bee's own WORKER_FAILED Alarm about the scene's task, as its Warden would receive."""
+    clock = scene.deps.clock
+    [sub_bee] = scene.warden._sub_bees.values()
+    return AlarmRaised(
+        alarm_id=new_alarm_id(clock),
+        kind=AlarmKind.WORKER_FAILED,
+        severity=AlarmSeverity.WARNING,
+        origin=sub_bee.worker_id,
+        attempts=0,
+        raised_at=clock.now(),
+        context=AlarmContext(
+            task_id=scene.assignment.task_id,
+            cell_id=None,
+            worker_id=sub_bee.worker_id,
+            event_id=None,
+            handoff=None,
+        ),
+        detail="The tool call raised an exception.",
+        clearance=WireHoneyClearance.C1,
+        reason="The bee failed; its Warden retries it.",
+    )
 
 
 def _fake(scene: QuarantineScene) -> FakeClock:

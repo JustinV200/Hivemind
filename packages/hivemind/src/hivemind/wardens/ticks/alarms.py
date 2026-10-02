@@ -19,7 +19,11 @@ predecessor's slot straight to the fresh bee (`retire_sub_bee(keep_slot=True)`):
 the pool first let a parked assignment start beside the respawned bee, one over the cap.
 `resume_from_handoff` is the same hand-over for a bee that stopped at a Handoff its own Warden
 ordered for its context size: the fresh bee resumes the same attempt from that Handoff, where
-before nothing started it and the task stayed RUNNING with no bee.
+before nothing started it and the task stayed RUNNING with no bee. Every one of these respawns
+resumes from a Handoff, so each passes the isolation resume gate first (`hivemind.wardens.
+isolation.admit_resume`, ADR-0043), exactly as a Queen-sent `TaskAssign` does: before, a Warden's
+own RETRY or REBIND was covered only because an isolation revokes the grant and a Worker refuses a
+tainted Handoff itself; now a tainted resume is refused here, recorded, and the task held.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -28,7 +32,8 @@ Fits into the Hive:
     (HoneyClearance, CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.supervision`
     (Alarm, record_alarm_event -- this dispatch's own alarm-reaches-the-trail fix),
     `hivemind.wardens.spawn` (WardenCellContext, spawn_sub_bee, binding_check, authorize_binding),
-    `hivemind.wardens.errors` (BindingRefusedError), `hivemind.guard` (principals),
+    `hivemind.wardens.errors` (BindingRefusedError), `hivemind.wardens.isolation` (admit_resume),
+    `hivemind.guard` (principals),
     `hivemind.pheromone` (LlmEvent) and waggle only.
 
 Key invariants:
@@ -44,7 +49,9 @@ Key invariants:
       `guard.denied` and never retires a sub-bee without either respawning it or reporting its
       task FAILED.
     - A respawn's fresh bee takes its predecessor's slot, never a second one: the slot is kept
-      across the retire and released only if the Guard refuses the fresh bee's binding.
+      across the retire and released only if the Guard refuses the fresh bee's binding or the
+      isolation gate refuses its Handoff.
+    - No respawn spawns from a Handoff this Cell's store labels TAINTED (`admit_resume`).
     - `rebind_sub_bee` is the one place a fresh sub-bee is spawned on an explicit target binding
       without the grant's own `allowed`-bindings search: `hivemind.wardens.ticks.control`'s own
       Queen-driven REBIND path calls it with the binding key the Queen already resolved
@@ -75,6 +82,7 @@ from hivemind.pheromone import LlmEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.errors import BindingRefusedError
+from hivemind.wardens.isolation import admit_resume
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.spawn import (
     BindingTarget,
@@ -332,8 +340,19 @@ async def _spawn_into_slot(
     binding: BindingTarget | None,
     orderer: PrincipalRef | None,
 ) -> SubBee | None:
-    """Spawn `assignment` into the slot its retired predecessor kept, or report it refused."""
+    """Spawn `assignment` into the slot its retired predecessor kept, or report it refused.
+
+    Every Warden-side respawn comes through here (RETRY, REBIND, a Queen-ordered rebind and a
+    context-size Handoff's successor), so the isolation resume gate stands in front of all of
+    them exactly as it stands in front of every `TaskAssign`.
+    """
     grant = warden._grants[assignment.grant_id]  # Every caller checked it is there.
+    # ADR-0043: a respawn resumes from its predecessor's Handoff just as a Queen-sent resume does,
+    # so it passes the same isolation gate. A tainted one is refused there (grant withdrawn, the
+    # Queen told the task is held), and the kept slot goes back to the pool.
+    if not await admit_resume(warden, assignment):
+        warden._sub_bee_slots.release()
+        return None
     try:
         fresh = await spawn_sub_bee(ctx, assignment, grant, binding, orderer)
     except BindingRefusedError as refused:
