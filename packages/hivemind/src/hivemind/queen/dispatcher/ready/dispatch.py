@@ -116,6 +116,9 @@ Key invariants:
       nothing to it while it is held.
     - A pass first unassigns every task it finds ASSIGNED: no task stays ASSIGNED past the pass
       that assigned it.
+    - A pass sends every attached Warden still owed its ceilings or hosting plan (a first send
+      its link refused) both again before it assigns anything (`hivemind.queen.forage.
+      deliveries`).
     - `guard.denied` for placement is recorded only when the goal's capability set alone left no
       candidate; a capacity or fit failure records `queen.decided` and nothing more, once per
       cause for as long as its task waits PENDING.
@@ -171,6 +174,7 @@ from hivemind.queen.dispatcher.zero_grant import (
     settle_wait,
 )
 from hivemind.queen.forage import grants as forage_grants
+from hivemind.queen.forage import redeliver_owed
 from hivemind.queen.placement import (
     Placement,
     PlacementError,
@@ -206,6 +210,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
     async with deps.dispatch.lock:
         attempted: set[TaskId] = set()
         tasks = await _unassign_stranded(deps, await deps.chamber.list(TaskFilter()))
+        # A Warden whose ceilings or plan never reached it gets them before any new assignment.
+        await redeliver_owed(deps, wardens)
         # A task that has ended gives its grants back first, so this very pass sees their room.
         ended = {task.id for task in tasks if is_terminal(task.status)}
         await forage_grants.release_finished(deps.ledger, deps, ended)

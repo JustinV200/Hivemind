@@ -31,6 +31,9 @@ Key invariants:
       the one field small enough (an int) to compare directly on the trail without exceeding
       codingrules section 12's "ids, counts and enums, never text" rule for the rest of a
       `Ceilings`' own shape.
+    - A `CeilingsSet` the link could not take leaves its Warden owed it (`DecisionBook.owe`), so
+      `hivemind.queen.forage.deliveries` sends it again; it is never simply dropped (phase-7
+      handoff, section 8 item 5).
 
 See Also:
     - .claude/roadmap.md step 4.8 for the exact wording this module implements.
@@ -133,7 +136,7 @@ async def resend_ceilings(warden: WardenLink, deps: QueenDeps) -> bool:
         ceilings=ceilings.to_wire(),
         reason="The Warden re-attached: its current ceilings, sent again.",
     )
-    return await warden.send(wrap(message, warden.hop, clock=deps.clock))
+    return await _send_owed(warden, message, deps)
 
 
 async def _apply(
@@ -148,9 +151,10 @@ async def _apply(
         ceilings=ceilings.to_wire(),
         reason=reason,
     )
-    # The ledger write above is already durable; an unreachable Warden misses this one message and
-    # is sent the ledger's ceilings again when it re-attaches (`resend_ceilings`).
-    await warden.send(wrap(message, warden.hop, clock=deps.clock))
+    # The ledger write above is already durable. A link that could not take the message leaves
+    # the Warden owed it, and hivemind.queen.forage.deliveries sends it again on each dispatch pass
+    # until it gets through; a Warden that detaches is sent it on re-attach (`resend_ceilings`).
+    await _send_owed(warden, message, deps)
     await record_forage_event(
         deps,
         "forage.ceilings_set",
@@ -160,3 +164,11 @@ async def _apply(
         old_max_sub_bees=old.max_sub_bees if old is not None else None,
         new_max_sub_bees=ceilings.max_sub_bees,
     )
+
+
+async def _send_owed(warden: WardenLink, message: CeilingsSet, deps: QueenDeps) -> bool:
+    """Send `message` to `warden`; a link that refuses it leaves the Warden owed its ceilings."""
+    sent = await warden.send(wrap(message, warden.hop, clock=deps.clock))
+    if not sent:
+        deps.ledger.decisions.owe(warden.warden_id)
+    return sent

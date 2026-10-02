@@ -43,6 +43,8 @@ Key invariants:
       with an empty chain, which `SourceChain.primary` -- a required field -- could not express);
       `plan.default` always names the single best candidate across every slot's own pool, so a
       slot the plan does not name still has somewhere to go.
+    - A `PlanWritten` the link could not take leaves its Warden owed it (`DecisionBook.owe`), so
+      `hivemind.queen.forage.deliveries` sends it again; it is never simply dropped.
 
 See Also:
     - .claude/roadmap.md step 4.8 for the exact wording this module implements.
@@ -214,9 +216,13 @@ async def _send_plan(
         default=plan.default.to_wire(by_id),
         reason=plan.reason,
     )
-    # The plan is already recorded; an unreachable Warden misses this message and is sent the
-    # ledger's plan again when it re-attaches (`resend_plan`).
-    return await warden.send(wrap(message, warden.hop, clock=deps.clock))
+    # The plan is already recorded. A link that could not take it leaves the Warden owed it, and
+    # hivemind.queen.forage.deliveries sends it again on each dispatch pass until it gets through;
+    # a Warden that detaches is sent it again when it re-attaches (`resend_plan`).
+    sent = await warden.send(wrap(message, warden.hop, clock=deps.clock))
+    if not sent:
+        deps.ledger.decisions.owe(warden.warden_id)
+    return sent
 
 
 @dataclass(frozen=True, slots=True)

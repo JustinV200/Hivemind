@@ -20,6 +20,8 @@ Fits into the Hive:
     waggle only.
 
 Key invariants:
+    - A Warden is owed (`owe`/`settle`/`owed`) only between a send of its ceilings or plan that
+      found its link gone and the resend that gets through, or its detach.
     - Both maps are keyed by the single id that names "the current one" for their subject (a
       Cell's id for a plan, a Warden's id for ceilings): storing a fresh revision always replaces
       the prior one, never appends to a history the ledger does not keep.
@@ -63,6 +65,10 @@ class DecisionBook:
         # Queen restart resumes numbering from 0 rather than continuing the wire's prior sequence
         # -- a scope simplification flagged in this dispatch's own report.
         self._ceilings_revision: dict[WardenId, int] = {}
+        # Every attached Warden whose current ceilings or plan a send could not hand to its link:
+        # hivemind.queen.forage.deliveries sends both again on each dispatch pass until one gets
+        # through. In memory only, like the revisions: a re-attach re-sends them regardless.
+        self._owed: set[WardenId] = set()
         self._lock = asyncio.Lock()
 
     async def record_plan(self, plan: HostingPlan) -> None:
@@ -112,6 +118,18 @@ class DecisionBook:
         """
         return max(self._ceilings_revision.get(holder, 0), 0)
 
+    def owe(self, holder: WardenId) -> None:
+        """Note that `holder`'s current ceilings or plan did not reach its link."""
+        self._owed.add(holder)
+
+    def settle(self, holder: WardenId) -> None:
+        """Note that `holder` holds its current ceilings and plan, or no longer needs them."""
+        self._owed.discard(holder)
+
+    def owed(self) -> frozenset[WardenId]:
+        """Return every Warden still owed its current ceilings or plan."""
+        return frozenset(self._owed)
+
     def forget(self, rows: CellRows) -> int:
         """Drop the Cell's plan and its Wardens' ceilings from memory; return how many went.
 
@@ -121,6 +139,7 @@ class DecisionBook:
         ceilings = [self._ceilings.pop(holder, None) for holder in rows.wardens]
         for holder in rows.wardens:
             self._ceilings_revision.pop(holder, None)
+            self._owed.discard(holder)
         return sum(row is not None for row in (*plans, *ceilings))
 
     async def restore(self) -> None:
