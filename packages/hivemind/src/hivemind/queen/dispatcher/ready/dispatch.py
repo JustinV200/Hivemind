@@ -64,6 +64,14 @@ Busy seats wait like a goal's allowance, before any Cell is chosen (`zero_grant.
 task no Cell can take is said to wait once per cause (`queen.decided`, `DispatchBook.unplaced`),
 not on every pass.
 
+A task is ASSIGNED only between `chamber.assign` and `chamber.start` inside one pass, which
+holds the dispatch lock, and nothing is sent to its Warden before `start`. So a task any pass
+finds ASSIGNED was stranded there: the Queen stopped, or the pass failed, between the two writes,
+and its Warden never heard of it. Every pass gives such a task back to PENDING through
+`chamber.unassign` (the Brood Chamber's ASSIGNED -> PENDING edge, which had no production caller
+until now; phase-7 handoff, section 8 item 5), so it is placed afresh as a new attempt rather than
+left ASSIGNED for good, with its goal never finishing.
+
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
 `PlacementError` (a Night Veil rule broken for good) cancels the task with its reason at once,
@@ -106,6 +114,8 @@ Key invariants:
     - A pass releases the grants of every ended task before it places anything.
     - A held Cell is never chosen for a fresh placement, and `redispatch` and `resume_paused` send
       nothing to it while it is held.
+    - A pass first unassigns every task it finds ASSIGNED: no task stays ASSIGNED past the pass
+      that assigned it.
     - `guard.denied` for placement is recorded only when the goal's capability set alone left no
       candidate; a capacity or fit failure records `queen.decided` and nothing more, once per
       cause for as long as its task waits PENDING.
@@ -128,7 +138,7 @@ from collections.abc import Sequence
 
 from pydantic import JsonValue
 
-from hivemind.brood_chamber import Task, TaskFilter, is_terminal, ready_tasks
+from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal, ready_tasks
 from hivemind.guard import CapabilitySet, EnforcementPoint
 from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS
 from hivemind.queen.authority import goal_held, request_for, task_context
@@ -172,7 +182,11 @@ from hivemind.queen.trail import record_event
 from waggle.ids import TaskId, WardenId
 from waggle.messages import HandoffRef
 
-__all__ = ["dispatch_ready", "redispatch", "resume_paused"]
+# The reason `task.unassigned` records for a task a pass found stranded ASSIGNED: ids and plain
+# words only, never task content (codingrules section 12).
+STRANDED_REASON = "Found assigned but never started; its Warden was sent nothing."
+
+__all__ = ["STRANDED_REASON", "dispatch_ready", "redispatch", "resume_paused"]
 
 
 async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
@@ -191,7 +205,7 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
     # lose the chamber's own PENDING -> ASSIGNED transition (DispatchBook.lock's own docstring).
     async with deps.dispatch.lock:
         attempted: set[TaskId] = set()
-        tasks = await deps.chamber.list(TaskFilter())
+        tasks = await _unassign_stranded(deps, await deps.chamber.list(TaskFilter()))
         # A task that has ended gives its grants back first, so this very pass sees their room.
         ended = {task.id for task in tasks if is_terminal(task.status)}
         await forage_grants.release_finished(deps.ledger, deps, ended)
@@ -355,6 +369,19 @@ async def _placed_terms(deps: QueenDeps, link: WardenLink, task: Task) -> Assign
     # placement that follows (`DispatchBook.resumes`); any other task has none and starts fresh.
     plan = await resume_plan(deps, link, task, deps.dispatch.resumes.take(task.id))
     return AssignmentTerms(attempt=task.attempt, resume_from=plan.resume_from, handoff=plan.handoff)
+async def _unassign_stranded(deps: QueenDeps, tasks: tuple[Task, ...]) -> tuple[Task, ...]:
+    """Give every task stranded ASSIGNED back to PENDING; return `tasks` as they now stand.
+
+    Only ever called under the dispatch lock, where no pass is between its `assign` and `start`,
+    so every ASSIGNED task here is one whose Warden was never sent anything (module docstring).
+    """
+    stranded = {task.id for task in tasks if task.status is TaskStatus.ASSIGNED}
+    if not stranded:
+        return tasks
+    for task_id in stranded:
+        # A new attempt: the next assign re-binds it to whichever Cell it lands on.
+        await deps.chamber.unassign(task_id, STRANDED_REASON)
+    return tuple([await deps.chamber.get(t.id) if t.id in stranded else t for t in tasks])
 
 
 async def _start_on(deps: QueenDeps, task: Task, link: WardenLink) -> None:

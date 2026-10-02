@@ -105,6 +105,8 @@ class _LifecycleMixin(_ChamberBase):
         since RUNNING has no edge back to PENDING.
 
         Bumps `attempt` by one, so the next `assign` on this task already reflects a new attempt.
+        The Queen's dispatch pass calls this for a task it finds stranded ASSIGNED (a stop or a
+        failure between `assign` and `start`; `hivemind.queen.dispatcher.ready.dispatch`).
 
         Args:
             task_id: The task to unassign.
