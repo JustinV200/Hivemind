@@ -22,6 +22,7 @@ from builders.queen import WardenEnd, make_queen_deps, plan_responder
 from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.queen import Queen
 from hivemind.queen.ticks.results import (
@@ -272,19 +273,47 @@ async def test_an_infeasible_scout_cancels_every_task_after_it_and_nothing_else(
     assert statuses["The aside task"] is not TaskStatus.CANCELLED  # Never waited on the Scout.
 
 
-async def test_a_task_failing_for_any_other_reason_cancels_nothing() -> None:
+async def test_a_task_failing_for_any_other_reason_cancels_its_dependents_naming_it() -> None:
+    # Arrange: the alarm path's own call (fail_task, no report) on a task two others wait on.
     provider = FakeLLMProvider(responder=plan_responder(_scout_chain_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
     queen = Queen(deps)
     await queen.attach_warden(link)
     await queen.submit_goal("Log in somewhere.", clearance=HoneyClearance.C1)
-    scout = await _scout_assigned(warden_end)
+    failed = await _scout_assigned(warden_end)
     await warden_end.close()
-    payload = _result(scout, link.warden_id, TaskOutcome.FAILED, reason="Retries exhausted.")
 
-    await fail_task_from_result(deps, payload)
+    await fail_task(deps, failed, "Retries exhausted.")
 
-    cancelled = [
-        t for t in await deps.chamber.list(TaskFilter()) if t.status is TaskStatus.CANCELLED
-    ]
-    assert cancelled == []
+    tasks = {task.spec.title: task for task in await deps.chamber.list(TaskFilter())}
+    for title in ("The next task", "The after task"):  # Direct, then transitive.
+        cancelled = tasks[title]
+        assert cancelled.status is TaskStatus.CANCELLED
+        assert cancelled.outcome is not None
+        assert f"Dependency {failed} failed" in cancelled.outcome.summary
+        assert "Retries exhausted." in cancelled.outcome.summary
+    assert tasks["The aside task"].status is not TaskStatus.CANCELLED  # Never waited on it.
+    # Each cancellation is on the trail, its reason naming the failed task.
+    events = await deps.trail.query(TrailQuery(kind="task.cancelled"))
+    assert len(events) == 2
+    assert all(str(failed) in str(event.payload["reason"]) for event in events)
+
+
+async def test_a_dependent_already_finished_is_left_as_it_ended() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_scout_chain_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    await queen.submit_goal("Log in somewhere.", clearance=HoneyClearance.C1)
+    failed = await _scout_assigned(warden_end)
+    await warden_end.close()
+    tasks = {task.spec.title: task for task in await deps.chamber.list(TaskFilter())}
+    await deps.chamber.cancel(tasks["The next task"].id, "A human cancelled it first.")
+
+    await fail_task(deps, failed, "Retries exhausted.")
+
+    first = await deps.chamber.get(tasks["The next task"].id)
+    assert first.outcome is not None
+    assert first.outcome.summary == "A human cancelled it first."
+    after = await deps.chamber.get(tasks["The after task"].id)
+    assert after.status is TaskStatus.CANCELLED

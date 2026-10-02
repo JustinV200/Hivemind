@@ -8,7 +8,8 @@ Warden and a real Drone on a real lease) and asserts the goal ends long before i
 
 Fits into the Hive:
     Whole-Hive scenario (codingrules 14.2, `e2e`). Mirrors no single module: it exercises
-    hivemind.brood_chamber.task.graph.stranded_tasks through the Queen's tick.
+    hivemind.queen.ticks.results.fail_task's own cancellation of the failed task's dependents
+    (with hivemind.brood_chamber.task.graph.stranded_tasks, the per-tick sweep, as backstop).
 
 Key invariants:
     - None: this module holds tests only.
@@ -58,6 +59,11 @@ def test_a_goal_whose_root_fails_ends_with_its_dependant_cancelled(tmp_path: Pat
     assert not report.timed_out
     statuses = {task.spec.title: task.status for task in report.tasks}
     assert statuses == {"Do the work": TaskStatus.FAILED, "Needs the root": TaskStatus.CANCELLED}
+    # The operator reads why on the cancelled task itself: the root's failure, by id.
+    [root] = [task for task in report.tasks if task.spec.title == "Do the work"]
+    [child] = [task for task in report.tasks if task.spec.title == "Needs the root"]
+    assert child.outcome is not None
+    assert f"Dependency {root.id} failed" in child.outcome.summary
 
 
 async def _run(hive: Hive) -> GoalReport:

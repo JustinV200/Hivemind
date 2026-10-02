@@ -26,8 +26,17 @@ combination to `FAIL_TASK` instead of `COMPLETE_TASK`, and `fail_task_from_resul
 `TaskResult`-shaped `FAIL_TASK` (`hivemind.queen.queen._act_on_task_result`'s own branch) calls
 instead of `fail_task` directly, so the dependents `hivemind.brood_chamber.task.graph.
 ready_tasks` gates on it are never dispatched, without a second non-retryable state this module
-would have to add; it then cancels them, with the Scout's reason, so the goal ends rather than
-waiting on tasks that can never become ready.
+would have to add.
+
+Whatever the reason, a task `fail_task` closes out cancels every task that depends on it, directly
+or not, in the same call (the operator's decision, `.claude/phase-6-handoff.md` 4.5 item 1:
+cancel, not replan). Those tasks can never become ready, since a task runs only once every
+dependency has SUCCEEDED, so cancelling them at once lets the goal end as failed now instead of
+sitting PENDING until `hive run`'s own timeout. Each cancellation names the failed task and its
+reason (an infeasible Scout's with its own "Held back by Scout" wording) and lands on the trail as
+`task.cancelled`. The Queen's per-tick `BroodChamber.cancel_stranded` sweep remains the backstop
+for the paths that fail a task without this module (a grant denied at dispatch, a link that closed
+before an assignment reached it) and for a human's cancel.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -55,8 +64,9 @@ Key invariants:
     - `fail_task` never dispatches anything and never retries: it is the one caller of
       `chamber.fail`, whatever put it on the FAIL_TASK path (an exhausted retry, an escalated
       Alarm's own CANCEL, or an infeasible Scout).
-    - An infeasible Scout's transitive dependents are CANCELLED with its reason, so its goal ends;
-      any other failed task's dependents are left PENDING, as before.
+    - Every transitive dependent of a task `fail_task` fails that is not already terminal is
+      CANCELLED in the same call, its reason naming the failed task; one already finished is
+      left as it ended.
     - The outcome deposit never fails or delays a completion past `OUTCOME_DEPOSIT_TIMEOUT_S`: it
       runs after `chamber.complete`, and every failure is logged, never raised. It runs before
       the Cell's release starts, so the Cell's own link (borrowed or not, its tier) is still
@@ -228,6 +238,9 @@ async def fail_task(
         reason: Why it failed, for the outcome's own summary.
         scout_report: The Scout's own report, when this FAILED outcome is an infeasible Scout
             (roadmap step 6.10; module docstring); None for every other reason this is called.
+
+    Every task depending on `task_id`, directly or not, is then cancelled with a reason naming it
+    (module docstring), so the goal ends now rather than at its timeout.
     """
     outcome = TaskOutcome(
         status=TaskStatus.FAILED,
@@ -238,16 +251,20 @@ async def fail_task(
         scout_report=scout_report,
     )
     await deps.chamber.fail(task_id, outcome)
+    held_back = scout_report is not None and not scout_report.feasible
+    if held_back:
+        why = f"Held back by Scout {task_id}. {reason}"
+    else:
+        why = f"Dependency {task_id} failed, so this task can never run: {reason}"
+    await _cancel_dependents(deps, task_id, why)
 
 
 async def fail_task_from_result(deps: QueenDeps, payload: TaskResult) -> None:
     """Fail `payload`'s own task, building its reason and carrying its report in one call.
 
     The one caller (`hivemind.queen.queen._act_on_task_result`, its own FAIL_TASK branch) never
-    has to know `fail_reason`'s own rule or that `fail_task` takes a `scout_report` at all. An
-    infeasible Scout also cancels every task that depends on it, directly or not, with the Scout's
-    reason: the Scout said the work should not go ahead, so those tasks can never become ready,
-    and cancelling them lets the goal end now instead of sitting PENDING until a caller's timeout.
+    has to know `fail_reason`'s own rule or that `fail_task` takes a `scout_report` at all.
+    `fail_task` cancels the dependents, an infeasible Scout's with the Scout's own wording.
 
     Args:
         deps: The Queen's collaborators.
@@ -255,8 +272,6 @@ async def fail_task_from_result(deps: QueenDeps, payload: TaskResult) -> None:
     """
     reason = fail_reason(payload)
     await fail_task(deps, payload.task_id, reason, scout_report=payload.scout_report)
-    if _is_infeasible_scout(payload):
-        await _cancel_held_back(deps, payload.task_id, reason)
 
 
 def _is_infeasible_scout(payload: TaskResult) -> bool:
@@ -267,17 +282,17 @@ def _is_infeasible_scout(payload: TaskResult) -> bool:
     )
 
 
-async def _cancel_held_back(deps: QueenDeps, scout_id: TaskId, reason: str) -> None:
-    """Cancel every unfinished task that depends on the infeasible Scout `scout_id`."""
-    scout = await deps.chamber.get(scout_id)
-    goal_tasks = await deps.chamber.list(TaskFilter(goal_id=scout.goal_id))
+async def _cancel_dependents(deps: QueenDeps, failed_id: TaskId, reason: str) -> None:
+    """Cancel every unfinished task that depends, directly or not, on the failed `failed_id`."""
+    failed = await deps.chamber.get(failed_id)
+    goal_tasks = await deps.chamber.list(TaskFilter(goal_id=failed.goal_id))
     by_id = {task.id: task for task in goal_tasks}
-    held = f"Held back by Scout {scout_id}. {reason}"[:MAX_FAIL_SUMMARY_CHARS]
-    # Every transitive dependent, never the Scout's siblings: only work that waited on its
-    # findings is held back. One already finished (or cancelled) is left as it ended.
-    for task_id in sorted(descendants(goal_tasks, scout_id)):
+    why = reason[:MAX_FAIL_SUMMARY_CHARS]
+    # Every transitive dependent, never the failed task's siblings: only work that waited on it
+    # can never run. One already finished (or cancelled) is left as it ended.
+    for task_id in sorted(descendants(goal_tasks, failed_id)):
         if not is_terminal(by_id[task_id].status):
-            await deps.chamber.cancel(task_id, held)
+            await deps.chamber.cancel(task_id, why)
 
 
 def _artifact_paths(artifacts: tuple[ArtifactRef, ...]) -> tuple[str, ...]:

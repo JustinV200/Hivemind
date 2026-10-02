@@ -36,10 +36,13 @@ class stay within codingrules 5.1's size limits.
   optional `scout_report` for the FAILED outcome, `fail_reason` builds the infeasible-Scout
   wording (or echoes the result's own reason otherwise), and `fail_task_from_result` is the one
   call `hivemind.queen.queen._act_on_task_result` makes for a `TaskResult`-shaped `FAIL_TASK`,
-  wiring both together. For an infeasible Scout it also cancels every task that depends on the
-  Scout, directly or not, with the Scout's reason ("Held back by Scout <id>. ..."), so the goal
-  ends instead of waiting on tasks that can never become ready (a `hive run` would otherwise sit
-  out its whole timeout). Any other failed task's dependents stay PENDING, as before.
+  wiring both together. Whatever the reason, `fail_task` then cancels every task that depends on
+  the failed one, directly or not, in the same call: "Dependency <id> failed, so this task can
+  never run: ...", or for an infeasible Scout "Held back by Scout <id>. ...". The goal ends as
+  failed at once instead of waiting on tasks that can never become ready (a `hive run` would
+  otherwise sit out its whole timeout); each cancellation is a `task.cancelled` on the trail. The
+  Queen's per-tick `chamber.cancel_stranded` sweep stays as the backstop for failures that never
+  pass through here (a grant denied at dispatch, an unreachable Warden link).
 - `honey.handle_honey_item` (roadmap step 7.8): the third entry point `handle_infrastructure_item`
   reaches ahead of `decide`. A `NectarDeposit` chunk goes to the Honey Store's intake with the
   sending Warden's own Cell record as its source (a refusal answers `control.error` with the
