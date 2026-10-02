@@ -432,9 +432,10 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
 ## Command groups (phase 7 steps 7.10 and 7.11)
 
 - `honey/` (a package: `query.py`, `browse.py`, `maintain.py`, `review.py`, plus a shared
-  `context.py`, the browser's memory-backed `sources.py` and `render.py` for output, codingrules
-  section 5.1's 300-line limit) -- `hive honey`, the operator's door into the Honey Store (the
-  cold tier).
+  `context.py`, the browser's memory-backed `sources.py` and the `render/` package for output
+  (split by what it prints: `browse`, `store`, `review`, `ripen`, and their shared `common`),
+  codingrules section 5.1's 300-line limit) -- `hive honey`, the operator's door into the Honey
+  Store (the cold tier).
   `--manifest`, `--db` and `--clearance C0|C1|C2` (default C2: the most sensitive label the
   operator reads) belong to the group, so they come right after `honey` and before the
   subcommand (`hive honey --manifest hive.toml --clearance C1 ls /hive`). The operator reads as
@@ -460,8 +461,14 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
       rejected, unanswered, handed to the human), and each model slot's binding (ripener,
       embedder, judge), or why it has none (the pass still runs: heuristic summaries, no vectors,
       proposals left for the human). A judge outage fails the pass with its typed error (exit 1)
-      after ripening and filing are committed. Without `--now` it says how much Nectar and how
-      many notes are waiting, and how often a running House Bee acts.
+      after ripening and filing are committed. One pass drains at most the House Bee's own
+      per-pass batch of notes, so `--now` repeats the pass while each one drains a full batch and
+      notes remain, up to `MAX_RIPEN_PASSES` (about a thousand notes), then prints the summed
+      counts and any notes still queued with why: the pass bound (run it again) or refused notes
+      passed over (see the log). Without `--now` it says how much Nectar and how many notes are
+      waiting, and how often a running House Bee acts; a note count that reached its read cap
+      prints as "at least" that many. `--json` prints either form as one JSON object, with
+      `notes_left`, `notes_left_capped` and `hit_pass_cap` (or `notes_capped`) as fields.
     - `reembed [--prune]` repeats `Ripener.embed_pending()` until a pass embeds nothing (nothing
       pending, or no progress; at most `MAX_REEMBED_PASSES`), then prints how many rows it
       embedded for the current model and the vector count per model; with no usable embedder, or

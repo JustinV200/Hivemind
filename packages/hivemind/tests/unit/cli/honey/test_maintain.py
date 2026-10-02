@@ -17,6 +17,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ from unit.cli.honey.harness import (
 )
 
 import hivemind.cli.honey.maintain as maintain_module
+import hivemind.workers.roles.house_bee.loop as house_bee_loop
 from hivemind.cell import HoneyClearance, hive_stand_cell_id
 from hivemind.honey_store import LabelApprover, LoweringState, NectarOrigin
 from hivemind.manifest import load_manifest
@@ -103,6 +105,70 @@ def test_ripen_now_runs_one_pass_and_names_every_slot(tmp_path: Path) -> None:
     assert "judge: test-model" in result.stdout
     assert len(rows(manifest)) == 2
     assert len(trail_events(manifest, "honey.ripened")) == 2
+
+
+def _propose_notes(manifest: Path, count: int) -> None:
+    """Queue `count` distinct operator notes through `hive honey propose`."""
+    for index in range(count):
+        text = f"Ops note {index}: disk usage looked fine today."
+        assert invoke(manifest, "propose", "/hive", f"Note {index}", text).exit_code == 0
+
+
+def _small_batches(monkeypatch: pytest.MonkeyPatch, batch: int, passes: int) -> None:
+    """Shrink the House Bee's per-pass drain and `ripen --now`'s pass bound to test sizes."""
+    monkeypatch.setattr(house_bee_loop, "MAX_PROPOSALS_PER_PASS", batch)
+    monkeypatch.setattr(maintain_module, "_DRAIN_BATCH", batch)
+    monkeypatch.setattr(maintain_module, "MAX_RIPEN_PASSES", passes)
+
+
+def test_ripen_without_now_says_at_least_when_the_note_count_hit_its_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """(phase 7 handoff item 7) a capped count is never printed as exact."""
+    monkeypatch.setattr(maintain_module, "_WAITING_NOTES_LIMIT", 2)
+    manifest = make_hive(tmp_path)
+    _propose_notes(manifest, 3)
+
+    text = invoke(manifest, "ripen")
+    counts = json.loads(invoke(manifest, "ripen", "--json").stdout)
+
+    assert text.exit_code == 0, text.output
+    assert "at least 2 operator note(s) queued" in text.stdout
+    assert (counts["notes"], counts["notes_capped"]) == (2, True)
+
+
+def test_ripen_now_repeats_passes_until_every_queued_note_drains(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _small_batches(monkeypatch, batch=2, passes=10)
+    manifest = make_hive(tmp_path)
+    _propose_notes(manifest, 5)
+
+    result = invoke(manifest, "ripen", "--now")
+
+    assert result.exit_code == 0, result.output
+    assert "drained 5 operator note(s) in 3 pass(es)" in result.stdout
+    assert "still queued" not in result.stdout
+    assert len(rows(manifest)) == 5
+
+
+def test_ripen_now_says_when_it_stopped_at_its_pass_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """(phase 7 handoff item 7) stopping with notes left is said, in text and in --json."""
+    _small_batches(monkeypatch, batch=1, passes=2)
+    manifest = make_hive(tmp_path)
+    _propose_notes(manifest, 4)
+
+    first = invoke(manifest, "ripen", "--now")
+    second = json.loads(invoke(manifest, "ripen", "--now", "--json").stdout)
+
+    assert first.exit_code == 0, first.output
+    assert "drained 2 operator note(s) in 2 pass(es)" in first.stdout
+    assert "2 operator note(s) still queued: stopped at the 2-pass bound" in first.stdout
+    assert "run `hive honey ripen --now` again" in first.stdout
+    assert (second["drained"], second["notes_left"], second["hit_pass_cap"]) == (2, 0, False)
+    assert second["ripen"]["ripened"] == 2
 
 
 def test_ripen_now_without_an_embedder_still_ripens_and_says_why(tmp_path: Path) -> None:
