@@ -116,7 +116,12 @@ async def test_forget_waits_drops_every_task_no_longer_ready_and_keeps_the_rest(
 
 def _one_task_plan(goal: str) -> dict[str, object]:
     """A one-task plan, so a submitted goal leaves exactly one RUNNING task to deny."""
-    check: dict[str, object] = {"kind": "FILE_EXISTS", "subject": "scratch/done.txt", "argv": [], "expected": None}
+    check: dict[str, object] = {
+        "kind": "FILE_EXISTS",
+        "subject": "scratch/done.txt",
+        "argv": [],
+        "expected": None,
+    }
     return {
         "tasks": [
             {
