@@ -500,7 +500,10 @@ RELEASE-order and `run_release_tick` cases; `workers/roles/undertaker/test_role.
       id, from and to labels, attempts, its Nectar's SUMMARY row path (for `cat`) and title (only
       within `--clearance`; ids and labels always), the Ripener's reason, the judge's reasons,
       who decided it and when (with the judge's rubric id, or the human's reason) and the note
-      saying why it waits for the human; then how many wait for the judge and for the human. It
+      saying why it waits for the human; then how many wait for the judge and for the human.
+      Every reason (the Ripener's, the judge's, the human's) is C2 content, since a judge has
+      quoted the deposit's text in one: below `--clearance C2` they are withheld, in text and in
+      `--json` (nulled, with `reasons_withheld` true), here and under `--judge`. It
       needs no model binding. `review approve ID --reason TEXT` lowers as the human (from
       PROPOSED, or from REJECTED: the human is the last word) and `review deny ID --reason TEXT`
       rejects (from PROPOSED), both through `LabelLowering.decide` under the human's identity

@@ -1,9 +1,10 @@
 """Print label lowering proposals (ADR-0038): `hive honey review`'s listing, decisions and counts.
 
-`ReviewEntry` is the one shape defined in this package: a proposal beside the title and browser
-path `hive honey review` looked up for it. This module prints a listing of them (or one JSON
-document for `--json`), one proposal with its reasons and decision, what a judge review step did,
-and the human's decision as the store recorded it.
+`ReviewEntry` is a proposal beside the title and browser path `hive honey review` looked up for
+it, and whether the reader may see its reasons: every reason on a proposal is C2 content, since a
+judge has quoted the deposit's own text in one (phase 7 handoff item 3). This module prints a
+listing of them (or one JSON document for `--json`), one proposal with its reasons and decision,
+what a judge review step did, and the human's decision as the store recorded it.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.honey.render`. Re-exported
@@ -13,6 +14,8 @@ Fits into the Hive:
 Key invariants:
     - Nothing here reads a store or decides what a reader may see; a withheld title arrives as
       None and is printed as withheld.
+    - An entry whose reasons are withheld never prints or serialises any of them (the Ripener's,
+      the judge's or the human's), as text or JSON.
     - Every `--json` document is one JSON value on stdout.
 
 See Also:
@@ -31,6 +34,13 @@ from hivemind.cli.honey.render.common import INDENT, NONE
 from hivemind.honey_store import LoweringProposal, LoweringState, ReviewOutcome
 
 _WITHHELD = "(title above --clearance)"  # A proposal's title the reader's ceiling hides.
+_REASONS_WITHHELD = "(reasons are C2; pass --clearance C2)"  # Reasons a lower ceiling hides.
+# The proposal's free-text reasons, each of which may quote the deposit; blanked when withheld.
+_REASON_FIELDS: dict[str, object] = {
+    "ripener_reason": None,
+    "verdict_reasons": [],
+    "human_reason": None,
+}
 _DECIDE_HINT = "decide one with: hive honey review approve|deny <id> --reason TEXT"
 
 __all__ = [
@@ -52,6 +62,7 @@ class ReviewEntry:
     path: (
         str | None
     )  # Its SUMMARY row's browser path, for `hive honey cat`; None when none is live.
+    reasons_withheld: bool = False  # The reader's ceiling is below C2, where reasons sit.
 
 
 def print_review(entries: tuple[ReviewEntry, ...], is_truncated: bool) -> None:
@@ -89,7 +100,7 @@ def print_review_entry(entry: ReviewEntry) -> None:
         f"{proposal.state.value:<8}  {proposal.id}  {proposal.from_label.value} -> "
         f"{proposal.to_label.value}  attempts={proposal.attempts}  {entry.path or NONE}  {title}"
     )
-    for name, value in _proposal_details(proposal):
+    for name, value in _proposal_details(entry):
         typer.echo(f"{INDENT}{name}: {value}")
 
 
@@ -101,12 +112,10 @@ def review_json(entries: tuple[ReviewEntry, ...], is_truncated: bool) -> str:
         is_truncated: Whether more proposals exist past the listing's limit.
 
     Returns:
-        `{"proposals": [...], "is_truncated": bool}`; a withheld title is null.
+        `{"proposals": [...], "is_truncated": bool}`; a withheld title is null, and withheld
+        reasons are null (an empty list for the judge's) with `reasons_withheld` true.
     """
-    proposals = [
-        {**entry.proposal.model_dump(mode="json"), "title": entry.title, "path": entry.path}
-        for entry in entries
-    ]
+    proposals = [_proposal_json(entry) for entry in entries]
     return json.dumps({"proposals": proposals, "is_truncated": is_truncated}, indent=2)
 
 
@@ -146,19 +155,34 @@ def print_decision(proposal: LoweringProposal) -> None:
     )
 
 
-def _proposal_details(proposal: LoweringProposal) -> tuple[tuple[str, str], ...]:
-    """Return a proposal's detail lines: both reasons always; decision and note when present."""
-    details = [
-        ("ripener reason", proposal.ripener_reason or NONE),
-        ("judge reasons", "; ".join(proposal.verdict_reasons) or NONE),
-    ]
+def _proposal_json(entry: ReviewEntry) -> dict[str, object]:
+    """Return one proposal's stored fields, title and path; its reasons only when not withheld."""
+    fields: dict[str, object] = entry.proposal.model_dump(mode="json")
+    # C2 content (module docstring): a reader below C2 gets the shape, never the words.
+    if entry.reasons_withheld:
+        fields.update(_REASON_FIELDS)
+    fields.update(title=entry.title, path=entry.path, reasons_withheld=entry.reasons_withheld)
+    return fields
+
+
+def _proposal_details(entry: ReviewEntry) -> tuple[tuple[str, str], ...]:
+    """Return a proposal's detail lines: its reasons (or that they are withheld), then the rest."""
+    proposal = entry.proposal
+    # Withheld: one line in place of every reason, so the reader knows they exist and why not.
+    if entry.reasons_withheld:
+        details = [("reasons", _REASONS_WITHHELD)]
+    else:
+        details = [
+            ("ripener reason", proposal.ripener_reason or NONE),
+            ("judge reasons", "; ".join(proposal.verdict_reasons) or NONE),
+        ]
     # Decided: who decided it and when (under which rubric, for the judge), and the human's own
     # reason when it was theirs.
     if proposal.approver is not None:
         decided_at = proposal.decided_at.isoformat() if proposal.decided_at else NONE
         rubric = f" (rubric {proposal.rubric_id})" if proposal.rubric_id else ""
         details.append(("decided", f"{proposal.approver.value} at {decided_at}{rubric}"))
-    if proposal.human_reason:
+    if proposal.human_reason and not entry.reasons_withheld:
         details.append(("human reason", proposal.human_reason))
     # Why it waits for the human, or why it was rejected unasked.
     if proposal.note:

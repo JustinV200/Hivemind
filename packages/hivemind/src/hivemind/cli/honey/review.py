@@ -27,7 +27,10 @@ Key invariants:
     - The human's reason is kept on the proposal and never put on the trail (the service's own
       rule); a decision the store refuses exits 1 with its code, an unusable reason exits 2.
     - A proposal's title is the deposit's own words, so it is shown only when its Nectar's label
-      is within the group's `--clearance`; ids, labels and reasons are always shown.
+      is within the group's `--clearance`; ids and labels are always shown.
+    - Every reason on a proposal (the Ripener's, the judge's, the human's) is C2 content, shown
+      only when `--clearance` is C2 (the default): a judge has quoted the deposit's text in one
+      (phase 7 handoff item 3).
     - A flag that would be silently ignored (`--judge` or `--json` beside `approve`/`deny`, or
       both together) is refused as usage, exit 2.
 
@@ -246,5 +249,9 @@ async def _entry(
     # A title is the deposit's own words: shown only within the reader's ceiling, as `ls` does.
     title = nectar.title if nectar.clearance.rank <= ceiling.rank else None
     return ReviewEntry(
-        proposal=proposal, title=title, path=summary.path if summary is not None else None
+        proposal=proposal,
+        title=title,
+        path=summary.path if summary is not None else None,
+        # Reasons may quote the text whatever the Nectar's label now is: C2 always.
+        reasons_withheld=ceiling.rank < HoneyClearance.C2.rank,
     )

@@ -93,6 +93,46 @@ def test_review_json_withholds_a_title_above_the_readers_clearance(tmp_path: Pat
     assert full["is_truncated"] is False
 
 
+def test_review_shows_a_proposals_reasons_only_at_c2_clearance(tmp_path: Path) -> None:
+    """(phase 7 handoff item 3) a reason may quote the deposit, so every reason is C2 content."""
+    manifest, proposal = _filed(tmp_path)
+    assert (
+        invoke(manifest, "review", "deny", proposal.id, "--reason", "Names a host.").exit_code == 0
+    )
+
+    full = invoke(manifest, "review")
+    text = invoke(manifest, "--clearance", "C1", "review")
+    (entry,) = json.loads(invoke(manifest, "--clearance", "C1", "review", "--json").stdout)[
+        "proposals"
+    ]
+
+    assert f"ripener reason: {READING_REASON}" in full.stdout
+    assert "human reason: Names a host." in full.stdout
+    assert text.exit_code == 0, text.output
+    assert "reasons: (reasons are C2; pass --clearance C2)" in text.stdout
+    assert READING_REASON not in text.stdout and "Names a host." not in text.stdout
+    assert (entry["ripener_reason"], entry["verdict_reasons"], entry["human_reason"]) == (
+        None,
+        [],
+        None,
+    )
+    assert (entry["id"], entry["reasons_withheld"]) == (proposal.id, True)
+
+
+def test_review_judge_withholds_the_judges_reasons_below_c2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest, proposal = _filed(tmp_path)
+    script_judge(monkeypatch, "APPROVE")
+
+    result = invoke(manifest, "--clearance", "C1", "review", "--judge")
+
+    assert result.exit_code == 0, result.output
+    assert f"LOWERED   {proposal.id}  C2 -> C1" in result.stdout
+    assert "Scripted verdict." not in result.stdout
+    assert "reasons: (reasons are C2; pass --clearance C2)" in result.stdout
+
+
 def test_review_lists_waiting_proposals_first_and_says_when_more_exist(tmp_path: Path) -> None:
     manifest, first = _filed(tmp_path)
     seed_eligible(manifest, "ruff check: all checks passed on the build box.")

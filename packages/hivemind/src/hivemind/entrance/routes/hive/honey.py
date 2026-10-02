@@ -23,6 +23,9 @@ Key invariants:
     - Nothing reaches a client outside the device's scopes or above its allowance: the browser
       filters by the viewer's reader, and the item route checks again at the gate.
     - A refused item answers one fixed capability (``observe:honey``), never its scope or label.
+    - No route here serves a label lowering proposal. Whatever serves one serves its reasons (the
+      Ripener's, the judge's, the human's) only behind ``honey:clearance:c2`` (``Access.c2``): a
+      judge has quoted the deposit's own text in one (phase 7 handoff item 3).
 
 See Also:
     - hivemind.entrance.reads.honey for how a device becomes a reader.
