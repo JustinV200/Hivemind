@@ -25,7 +25,8 @@ Fits into the Hive:
     `hivemind.queen.queen` as she stops (stop_provisions). Calls into `hivemind.brood_chamber`
     (Task, TaskOutcome, TaskStatus), `hivemind.common.logging`, `hivemind.hive`
     (CellProvisionError), `hivemind.queen.deps` (ProvisionJob, QueenDeps, WardenLink),
-    `hivemind.queen.dispatcher.acquire` (acquire_virtual), `hivemind.queen.placement`
+    `hivemind.queen.dispatcher.acquire` (acquire_virtual), `hivemind.queen.dispatcher.releases`
+    (start_release), `hivemind.queen.placement`
     (Placement, PlacementError, ProvisionVirtual, ReuseDormant), `hivemind.queen.trail`
     (record_event) and waggle only.
 
@@ -42,7 +43,8 @@ Key invariants:
 See Also:
     - hivemind.queen.deps for ProvisionLane and ProvisionJob, the book this module keeps.
     - hivemind.queen.dispatcher.acquire for acquire_virtual, what each acquisition runs.
-    - hivemind.queen.cell_gate.release for the release chain `release_cell` hands a Cell to.
+    - hivemind.queen.cell_gate.release for the release chain `release_cell` hands a Cell to, and
+      hivemind.queen.dispatcher.releases for the lane that runs it beside the tick.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ from hivemind.common.logging import get_logger
 from hivemind.hive import CellProvisionError
 from hivemind.queen.deps import ProvisionJob, QueenDeps, WardenLink
 from hivemind.queen.dispatcher.acquire import acquire_virtual
+from hivemind.queen.dispatcher.releases import start_release
 from hivemind.queen.placement import Placement, PlacementError, ProvisionVirtual, ReuseDormant
 from hivemind.queen.trail import record_event
 from waggle.ids import TaskId
@@ -217,7 +220,8 @@ async def release_cell(deps: QueenDeps, task: Task, link: WardenLink, cause: str
     """Release a Cell acquired for `task` that the task will never run on: tear it down.
 
     Handed to the same release chain a finished task's Cell takes (`QueenDeps.on_task_finished`),
-    with the task's own outcome -- never a success, so the Cell is torn down rather than kept
+    started beside the tick (`hivemind.queen.dispatcher.releases.start_release`), with the task's
+    own outcome -- never a success, so the Cell is torn down rather than kept
     dormant for reuse -- and a no-op for any Cell the lifecycle does not track.
 
     Args:
@@ -229,9 +233,9 @@ async def release_cell(deps: QueenDeps, task: Task, link: WardenLink, cause: str
     await record_event(
         deps, "queen.decided", task.id, reason="cell_released", cause=cause, cell_id=link.cell.id
     )
-    if deps.on_task_finished is None:
-        return  # No release chain wired (a Hive with no Virtual side): nothing to tear down.
-    await deps.on_task_finished(link.cell.id, _released_outcome(task, cause))
+    # Beside the tick, like every release (`hivemind.queen.dispatcher.releases`): a graceful stop
+    # and a teardown must never hold this dispatch pass.
+    await start_release(deps, link.cell.id, _released_outcome(task, cause))
 
 
 def _released_outcome(task: Task, cause: str) -> TaskOutcome:

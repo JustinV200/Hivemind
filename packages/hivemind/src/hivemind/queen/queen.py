@@ -85,7 +85,7 @@ from hivemind.queen import attach, leave_memory, quarantine, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready, stop_provisions
+from hivemind.queen.dispatcher import dispatch_ready, stop_provisions, stop_releases
 from hivemind.queen.errors import UnknownWardenError
 from hivemind.queen.goal_submission import GoalDoor
 from hivemind.queen.guard_requests import GuardDoor, guard_items
@@ -327,6 +327,9 @@ async def _stop_queen(queen: Queen) -> None:
     # Phase 9: tool jobs are cancelled (a model call or a sandbox wait could outlast the Queen) and
     # awaited, so a sandbox Cell a job held is released by that job's own `finally` first.
     await ticks.tools.stop_tools(queen._deps)
+    # Every release still running is awaited too, never cancelled, while the links its quiesce
+    # needs are still open: the shutdown then retires every Cell left, none half released.
+    await stop_releases(queen._deps)
     await queen._links.aclose()
     # Roadmap step 10.5: a plan still in flight is reaped too; its request stays PLANNING, which
     # the next start settles (hivemind.queen.ticks.human.intake): nothing lost or planned twice.

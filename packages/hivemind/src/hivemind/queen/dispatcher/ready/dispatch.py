@@ -56,11 +56,13 @@ Virtual placement (`acquire.authorize_virtual`), sizes the grant its Cell's spec
 acquisition beside the tick (`hivemind.queen.dispatcher.provisions`, bounded) and moves on, the
 task still PENDING; a later pass collects the Cell and places the task on it, and a Cell whose
 task was cancelled or failed meanwhile, or whose grant was denied, is released rather than left
-behind. Every pass first returns the grants of every task that has ended to the pool
-(`hivemind.queen.forage.grants.release_finished`), so the ledger, and the placement snapshot that
-now reads the grants in force on each Cell, never count finished work. Busy seats wait like a
-goal's allowance, before any Cell is chosen (`zero_grant.hold_for_room`). A task no Cell can take
-is said to wait once per cause (`queen.decided`, `DispatchBook.unplaced`), not on every pass.
+behind, that release too running beside the tick (`hivemind.queen.dispatcher.releases`, whose
+ended releases every pass collects). Every pass first returns the grants of every task that has
+ended to the pool (`hivemind.queen.forage.grants.release_finished`), so the ledger, and the
+placement snapshot that now reads the grants in force on each Cell, never count finished work.
+Busy seats wait like a goal's allowance, before any Cell is chosen (`zero_grant.hold_for_room`). A
+task no Cell can take is said to wait once per cause (`queen.decided`, `DispatchBook.unplaced`),
+not on every pass.
 
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
@@ -149,6 +151,7 @@ from hivemind.queen.dispatcher.ready.assign import (
     send_grant_and_assign,
 )
 from hivemind.queen.dispatcher.ready.handoff import resume_plan
+from hivemind.queen.dispatcher.releases import collect_releases
 from hivemind.queen.dispatcher.sizing import size_grant
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.dispatcher.zero_grant import (
@@ -199,6 +202,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
         await settle_provisions(deps, {task.id for task in ready})
         # A Cell whose device the Queen is holding is not placed on until it is back (ADR-0053).
         wardens = [link for link in wardens if not deps.dispatch.held.is_held(link.cell.id)]
+        # A release that has ended leaves the lane; its Cell's room is the lifecycle's again.
+        await collect_releases(deps)
         # Each ready task once, earliest first; one left PENDING (unplaceable, waiting for a
         # grant, or its Cell still being made) is skipped rather than ending the pass, so it never
         # holds up the tasks behind it.

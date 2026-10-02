@@ -31,7 +31,9 @@ when the Hive was built was read, so a Cell already full of running work still c
 And a backend's room is less every fresh Cell being provisioned on it right now
 (`hivemind.queen.dispatcher.provisions`): an acquisition in flight has reserved room the
 lifecycle does not count until its Cell exists, and a placement decided meanwhile must not count
-on it too. A backend whose provisions keep failing is marked held back for a while
+on it too. A Cell whose release is running beside the tick (`hivemind.queen.dispatcher.
+releases`) is no candidate at all, attached or dormant: it is about to be torn down or paused.
+A backend whose provisions keep failing is marked held back for a while
 (`hivemind.queen.dispatcher.backoff`), placement data like any other, so `decide` skips it.
 
 Fits into the Hive:
@@ -146,19 +148,29 @@ async def build_inventory(
     if task is not None:
         # A Cell's own BLOCK note, when it has one, is the mention its placement reason names.
         blocked = {**await _held_for(deps, task.goal_id), **blocked}
-    real = await _real_candidates(deps, wardens, footprint)
+    # A Cell being released beside the tick is offered to no task, attached or dormant: it is
+    # about to be torn down or paused (hivemind.queen.dispatcher.releases).
+    releasing = deps.dispatch.releases.releasing()
+    real = await _real_candidates(deps, wardens, footprint, releasing)
     if virtual_backends is not None:
         backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
     else:
         backends = await current_virtual_backends(deps)
-    if deps.dormant_cell_source is not None:
-        live_dormant = await deps.dormant_cell_source()
-        dormant = tuple(cell for cell in live_dormant if cell.cell_id not in exclude_dormant)
-    else:
-        dormant = tuple(cell for cell in deps.dormant_cells if cell.cell_id not in exclude_dormant)
+    dormant = await _dormant_candidates(deps, exclude_dormant | releasing)
     return Inventory(
         real=real, virtual_backends=backends, dormant=dormant, blocked=blocked, cautioned=cautioned
     )
+
+
+async def _dormant_candidates(
+    deps: QueenDeps, exclude: frozenset[CellId]
+) -> tuple[DormantCandidate, ...]:
+    """Return the dormant Cells placement may resume: the live source when wired, less `exclude`."""
+    if deps.dormant_cell_source is not None:
+        candidates = await deps.dormant_cell_source()
+    else:
+        candidates = deps.dormant_cells
+    return tuple(cell for cell in candidates if cell.cell_id not in exclude)
 
 
 def build_forage_view(deps: QueenDeps, task: Task) -> ForageView:
@@ -258,9 +270,12 @@ def dormant_candidate_from_lifecycle(cell: LifecycleDormantCell) -> DormantCandi
 
 
 async def _real_candidates(
-    deps: QueenDeps, wardens: Sequence[WardenLink], footprint: RoleFootprint
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    footprint: RoleFootprint,
+    releasing: frozenset[CellId],
 ) -> tuple[RealCandidate, ...]:
-    """Return one RealCandidate per attached Warden's Cell, no Night Veil Cell among them."""
+    """Return one RealCandidate per attached Warden's Cell, none Night Veil or being released."""
     # One bee per task holding a grant in force on a Cell (module docstring), counted once.
     in_use = _bees_in_use(deps.ledger.live_grants())
     # A Night Veil Cell holds only the task it was provisioned for (module docstring).
@@ -269,6 +284,7 @@ async def _real_candidates(
             await _real_candidate(link, footprint, in_use[link.cell.id])
             for link in wardens
             if link.cell.comb_shield is not CombShieldLevel.NIGHT_VEIL
+            and link.cell.id not in releasing
         ]
     )
 

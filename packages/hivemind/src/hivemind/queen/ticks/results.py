@@ -36,8 +36,8 @@ Fits into the Hive:
     TaskOutcome, TaskStatus, descendants), `hivemind.cell` (Cell, CombShieldLevel),
     `hivemind.honey_store` (NectarSubmission, NectarOrigin, intake through `QueenDeps.honey`),
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.dispatcher` (dispatch_ready,
-    redispatch), `hivemind.queen.ticks.housekeeping` (placed_cell) and waggle (including
-    `waggle.messages.task.ScoutReport`) only.
+    redispatch, start_release), `hivemind.queen.ticks.housekeeping` (placed_cell) and waggle
+    (including `waggle.messages.task.ScoutReport`) only.
 
 Key invariants:
     - `complete_task` calls `dispatch_ready` immediately afterward, so a dependant task is placed
@@ -45,10 +45,10 @@ Key invariants:
     - `complete_task` carries `payload.scout_report` onto the SUCCEEDED `TaskOutcome` unchanged
       (roadmap step 6.10); an infeasible one never reaches it, since `hivemind.queen.autopilot.
       table` routes that case to FAIL_TASK before `complete_task` is ever called.
-    - `complete_task` tells `deps.on_task_finished` (roadmap step 5.6/5.9's own release seam, this
-      dispatch's own minimal edit) about the reporting Warden's own Cell before `dispatch_ready`
-      runs, so a Virtual Cell it releases is never still GRANTED when the next placement decision
-      reads `deps.virtual_backends`/`.dormant_cells`.
+    - `complete_task` starts the release of the reporting Warden's own Cell (roadmap step
+      5.6/5.9's `deps.on_task_finished` seam) before `dispatch_ready` runs, beside the tick
+      (`hivemind.queen.dispatcher.releases`), so the release never holds the tick, and the next
+      placement decision offers that Cell to no task until its release has finished.
     - `retry_task` never inspects an attempt ceiling itself, and never changes the task's own
       chamber status: the ceiling decision already happened in
       `hivemind.queen.autopilot.table.decide`; this function only carries out the resend.
@@ -59,15 +59,16 @@ Key invariants:
       any other failed task's dependents are left PENDING, as before.
     - The outcome deposit never fails or delays a completion past `OUTCOME_DEPOSIT_TIMEOUT_S`: it
       runs after `chamber.complete`, and every failure is logged, never raised. It runs before
-      `on_task_finished`, so the Cell's own link (borrowed or not, its tier) is still attached
-      when the deposit reads it; a task on a Night Veil Cell deposits nothing at all.
+      the Cell's release starts, so the Cell's own link (borrowed or not, its tier) is still
+      attached when the deposit reads it; a task on a Night Veil Cell deposits nothing at all.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the exact chamber calls this module
       makes.
     - .claude/roadmap.md step 6.10 for the Scout role and its infeasible-report path.
     - hivemind.queen.autopilot.table for decide, which chooses among these three.
-    - hivemind.queen.dispatcher for dispatch_ready and redispatch, the two calls this module makes.
+    - hivemind.queen.dispatcher for dispatch_ready, redispatch and start_release, the calls this
+      module makes into it.
     - hivemind.queen.queen for _act_on_task_result, the one caller of fail_task_from_result.
     - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the TASK_OUTCOME origin and its key.
 """
@@ -91,7 +92,7 @@ from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
 from hivemind.honey_store import NectarOrigin, NectarSubmission
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready, redispatch
+from hivemind.queen.dispatcher import dispatch_ready, redispatch, start_release
 from hivemind.queen.ticks.housekeeping import placed_cell
 from waggle.ids import CellId, TaskId, WardenId
 from waggle.messages import Postcondition
@@ -141,7 +142,8 @@ async def complete_task(
         warden_id: The Warden that reported this result, when the caller has it (`hivemind.queen.
             queen`'s own inbox item already names one). Roadmap step 5.6/5.9's own release seam:
             when given and `deps.on_task_finished` is set, that Warden's own Cell is told the task
-            finished (`hivemind.queen.cell_gate.release.make_on_task_finished`'s own no-op for a
+            finished, beside the tick (`hivemind.queen.dispatcher.releases.start_release`;
+            `hivemind.queen.cell_gate.release.make_on_task_finished`'s own no-op for a
             Cell the lifecycle does not track -- see `QueenDeps.on_task_finished`'s own docstring).
 
     With `deps.honey` set, the verified outcome is also deposited into the Honey Store (module
@@ -174,7 +176,9 @@ async def _notify_cell_finished(
         return
     link = next((w for w in wardens if w.warden_id == warden_id), None)
     if link is not None:
-        await deps.on_task_finished(link.cell.id, outcome)
+        # Beside the tick (hivemind.queen.dispatcher.releases): a graceful stop of up to 5 s and
+        # a teardown never hold her inbox, and placement skips the Cell until it is done.
+        await start_release(deps, link.cell.id, outcome)
 
 
 async def retry_task(

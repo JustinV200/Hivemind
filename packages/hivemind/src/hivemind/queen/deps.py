@@ -41,7 +41,8 @@ own runtime bookkeeping -- its lock, those waits and that lane -- into one `Disp
 (`dispatch`), kept here beside `housekeeping` for the same reason and so `QueenDeps` stays inside
 codingrules 5.1's class size. The backend backoff adds to that book the Virtual backends whose
 provisions keep failing, each held back for a while (`ProvisionBackoff`, one `BackendHold` per
-backend), its floor and cap her own defaults rather than manifest settings.
+backend), its floor and cap her own defaults rather than manifest settings. The release fix adds
+her Virtual Cells being released beside her tick (`ReleaseLane`), bounded the same way.
 Roadmap step 10.6a adds `guard`: her durable Guard requests, the dire patterns she
 decides by rule, and what isolating a Cell needs (`hivemind.queen.guard_requests.GuardDeps`).
 
@@ -177,6 +178,10 @@ _DEFAULT_ZERO_GRANT_PATIENCE_S = 300.0
 # [virtual_cells] max_cells lets exist, so the bound never starves a default Hive, while a Hive
 # configured for many more Cells still starts no more than this many containers or VMs together.
 _DEFAULT_PROVISIONS_IN_FLIGHT = 4
+# The most Virtual Cells released beside the tick at once (a graceful stop of up to 5 s, then a
+# teardown or a pause each): the same bound as provisioning, for the same reason, and a release
+# past it waits its turn rather than being dropped.
+_DEFAULT_RELEASES_IN_FLIGHT = 4
 # How long placement rests a Virtual backend whose provisions keep failing: this long after one
 # failed round, twice as long after each further one in a row, never longer than the cap. The
 # Queen's own defaults, not manifest settings: a backend's outage is hers to wait out, and the
@@ -210,6 +215,7 @@ __all__ = [
     "ProvisionLane",
     "QuarantineRecord",
     "QueenDeps",
+    "ReleaseLane",
     "SandboxCellProvider",
     "ToolLane",
     "UplinkKeys",
@@ -607,6 +613,36 @@ class ProvisionLane:
     closed: bool = False
 
 
+@dataclass(slots=True)
+class ReleaseLane:
+    """The Queen's Virtual Cells being released beside her tick, and how many may be at once.
+
+    Releasing a Virtual Cell asks its Warden to stop (up to 5 s) and then tears the Cell down or
+    pauses it; awaited inside the tick it stalled her inbox and liveness for that long, exactly as
+    provisioning once did. `hivemind.queen.dispatcher.releases` starts each release here instead,
+    at most `limit` running at once (the rest wait their turn on `slots`), and placement offers no
+    Cell named in `jobs` to any task while its release runs. `Queen.stop` awaits what is still in
+    flight, never cancels it, so the shutdown's retirement never races a release. Owns its own
+    mutable state in place (codingrules section 8.5).
+
+    Attributes:
+        limit: The most releases running at once; read once, when `slots` is first used.
+        jobs: Every Cell with a release started and not yet collected, by Cell id.
+        closed: Set as the Queen stops: a release asked for after that runs inline instead.
+        slots: Bounds the releases running at once to `limit`; built on first use, inside the
+            running loop, so a `QueenDeps` built outside one never holds a loop-bound primitive.
+    """
+
+    limit: int = _DEFAULT_RELEASES_IN_FLIGHT
+    jobs: dict[CellId, asyncio.Task[None]] = field(default_factory=dict)
+    closed: bool = False
+    slots: asyncio.Semaphore | None = None
+
+    def releasing(self) -> frozenset[CellId]:
+        """Return every Cell whose release is still running: never offered to placement."""
+        return frozenset(cell_id for cell_id, job in self.jobs.items() if not job.done())
+
+
 @dataclass(frozen=True, slots=True)
 class BackendHold:
     """One Virtual backend's run of failed provision rounds, and how long it is held back.
@@ -667,6 +703,7 @@ class DispatchBook:
         unplaced: Every ready task no Cell could take, by task id, with the cause its one
             `queen.decided` named: said once per cause, never on every pass it keeps waiting.
         provisions: Virtual Cells being acquired beside her tick (`ProvisionLane`).
+        releases: Virtual Cells being released beside her tick (`ReleaseLane`).
         backoff: Virtual backends held back after failed provisions (`ProvisionBackoff`),
             changed by the acquisitions themselves, beside her tick.
         held: The Cells whose node is away (roadmap 11.9): the dispatcher neither retries, resumes
@@ -679,6 +716,7 @@ class DispatchBook:
     waits: GrantWaits = field(default_factory=GrantWaits)
     unplaced: dict[TaskId, str] = field(default_factory=dict)
     provisions: ProvisionLane = field(default_factory=ProvisionLane)
+    releases: ReleaseLane = field(default_factory=ReleaseLane)
     backoff: ProvisionBackoff = field(default_factory=ProvisionBackoff)
     held: HeldCells = field(default_factory=HeldCells)
     resumes: ResumeHints = field(default_factory=ResumeHints)
@@ -775,10 +813,11 @@ class QueenDeps:
             instead of the static tuple above, when set (`build_inventory` reads it first).
         dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for
             `dormant_cells`.
-        on_task_finished: Told of every finished task's Cell (`CellId`, `TaskOutcome`) and of a
-            Cell acquired for a task cancelled before it ran there; `None` (the default) is a
-            no-op, and `queen.cell_gate.release.make_on_task_finished` builds the real one.
-        dispatch: The dispatcher's own lock, grant waits and provisions (`DispatchBook`).
+        on_task_finished: Told, beside the tick (`hivemind.queen.dispatcher.releases`), of every
+            finished task's Cell (`CellId`, `TaskOutcome`) and of a Cell acquired for a task
+            cancelled before it ran there; `None` (the default) is a no-op, and
+            `queen.cell_gate.release.make_on_task_finished` builds the real one.
+        dispatch: The dispatcher's own lock, waits, provisions and releases (`DispatchBook`).
         keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
             None (the default) until the operator sets one. Read only by `hivemind.queen.
             goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.

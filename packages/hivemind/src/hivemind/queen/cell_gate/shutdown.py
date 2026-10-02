@@ -27,7 +27,9 @@ a backend refused to destroy.
 Fits into the Hive:
     Layer 6 (the kernel). Built by `hivemind.cli.compose.virtual_cells.build_virtual_cells` and
     awaited by `hivemind.cli.compose.hive.run_hive` after the Queen has stopped (so no dispatch
-    can race a teardown, or re-place a task whose Warden just detached) and before the listener
+    can race a teardown, or re-place a task whose Warden just detached, and every release she
+    had running beside her tick has finished: `hivemind.queen.dispatcher.releases.stop_releases`
+    is part of `Queen.stop`) and before the listener
     stops (a quiesce still needs the Cells' own links). Calls into `hivemind.hive.cell_state`,
     `hivemind.hive.errors`, `hivemind.hive.lifecycle` and `hivemind.queen.cell_gate.quiesce`.
 

@@ -18,9 +18,12 @@ failing is held back a while, twice as long after each failed round, and tried o
 time until one succeeds). Roadmap phase 7 adds `honey`: the Queen's Honey pre-check (roadmap steps
 7.9 and 7.9a), which every assignment carries on `TaskAssign.honey`, and the planner's own
 consultation that `hivemind.queen.goal_submission` runs before a goal is planned, its hits scanned
-first (`screen_for_plan`). This file is the package's face: every name `hivemind.queen.
-dispatcher.py` used to export is still here, so every existing caller (`hivemind.queen.queen`,
-`hivemind.queen.ticks.results`, `hivemind.queen.cluster.protocol`) imports it unchanged.
+first (`screen_for_plan`). The release fix adds `releases`: a Virtual Cell whose task has ended
+(or will never run on it) is released beside the Queen's tick, bounded the same way, and offered
+to no placement meanwhile; `stop_releases` is what `Queen.stop` awaits next. This file is the
+package's face: every name `hivemind.queen.dispatcher.py` used to export is still here, so
+every existing caller (`hivemind.queen.queen`, `hivemind.queen.ticks.results`,
+`hivemind.queen.cluster.protocol`) imports it unchanged.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen` package. Called
@@ -36,7 +39,8 @@ Key invariants:
       own order).
     - A Virtual `Placement` is acquired beside the tick (`provisions`), never awaited by a
       dispatch pass, and before any chamber transition or wire send: a failed acquire never leaves
-      a task half-assigned, and a slow one never stalls the Queen.
+      a task half-assigned, and a slow one never stalls the Queen. Its release runs beside the
+      tick too (`releases`), and no placement is offered a Cell while its release runs.
     - A fresh task's grant is sized before its chamber transition, and nothing is sent to its
       Warden before that transition: a task left waiting for a grant stays PENDING, unsent.
     - Neither Honey consultation ever stops the work it precedes (`honey`'s own invariants).
@@ -53,6 +57,8 @@ Public API:
       ASSIGN_STAGE, PLAN_STAGE: the Queen's Honey pre-check and the planner's consultation (honey).
     - stop_provisions: await every Virtual Cell still being acquired as the Queen stops
       (provisions).
+    - start_release, drain_releases, stop_releases: release a Virtual Cell beside the tick, await
+      every release still running, and close the lane as the Queen stops (releases).
 """
 
 from hivemind.queen.dispatcher.honey import (
@@ -66,6 +72,7 @@ from hivemind.queen.dispatcher.honey import (
 )
 from hivemind.queen.dispatcher.provisions import stop_provisions
 from hivemind.queen.dispatcher.ready import dispatch_ready, redispatch, resume_paused
+from hivemind.queen.dispatcher.releases import drain_releases, start_release, stop_releases
 
 __all__ = [
     "ASSIGN_STAGE",
@@ -74,9 +81,12 @@ __all__ = [
     "consult_for_assignment",
     "consult_for_plan",
     "dispatch_ready",
+    "drain_releases",
     "record_consulted",
     "redispatch",
     "resume_paused",
     "screen_for_plan",
+    "start_release",
     "stop_provisions",
+    "stop_releases",
 ]

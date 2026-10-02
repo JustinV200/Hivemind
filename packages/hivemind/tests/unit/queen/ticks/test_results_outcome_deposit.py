@@ -36,6 +36,7 @@ from hivemind.honey_store import (
 )
 from hivemind.manifest import HoneyStoreSection
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.dispatcher import drain_releases
 from hivemind.queen.ticks.results import complete_task
 from waggle.clock import FakeClock
 from waggle.ids import CellId, TaskId
@@ -180,6 +181,7 @@ async def test_complete_task_deposits_before_the_cell_is_told_the_task_finished(
     task_id = await _running_task(deps, link)
 
     await complete_task(deps, [link], _verified(task_id, link), link.warden_id)
+    await drain_releases(deps)  # The release runs beside the tick.
 
     assert seen == [1]
 

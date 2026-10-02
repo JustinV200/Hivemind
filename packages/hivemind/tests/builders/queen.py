@@ -74,7 +74,7 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.chat import InMemoryChatLog
 from hivemind.queen.deps import MemoryBudget, QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready
+from hivemind.queen.dispatcher import dispatch_ready, drain_releases
 from hivemind.queen.intake import InMemoryGoalRequestStore
 from hivemind.supervision import load_policy
 from waggle.clock import Clock, FakeClock
@@ -201,7 +201,11 @@ def with_guard_policy(deps: QueenDeps, policy: GuardPolicy) -> QueenDeps:
 
 
 async def land_provisions(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
-    """Await every Virtual Cell being acquired, then run the dispatch pass that collects them.
+    """Await every Virtual Cell being acquired, run the pass that collects them, then its releases.
+
+    A Cell the collecting pass releases (its task gone, or its grant denied) is released beside
+    the tick (`hivemind.queen.dispatcher.releases`); this awaits that too, so a test reads the
+    release chain's record straight after.
 
     Args:
         deps: The Queen's collaborators; `dispatch.provisions` holds the acquisitions.
@@ -212,6 +216,7 @@ async def land_provisions(deps: QueenDeps, wardens: Sequence[WardenLink]) -> Non
         # A fake provider's acquire settles in a few loop turns; a real wait here is the test's own.
         await asyncio.wait(jobs)
     await dispatch_ready(deps, wardens)
+    await drain_releases(deps)
 
 
 def _build_enforcer(fields: dict[str, object], hive_id: HiveId, node_id: NodeId) -> Enforcer:

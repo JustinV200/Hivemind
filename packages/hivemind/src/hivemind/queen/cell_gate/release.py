@@ -6,13 +6,15 @@ The Queen never reads `cell.kind` outside placement (codingrules section 8.7): t
 callable does not need to either, because `hivemind.hive.lifecycle.CellLifecycle.status_of` already
 answers "does the lifecycle know this Cell at all" -- None for a Real Cell (the lifecycle never
 tracked one), a real `VirtualCellStatus` for a Virtual one. `hivemind.queen.ticks.results.
-complete_task` calls the callable this factory builds for every finished task's own Cell,
-unconditionally, via the additive `QueenDeps.on_task_finished` seam (documented there and on
-`QueenDeps` itself), and so does the dispatcher's `hivemind.queen.dispatcher.provisions.
-release_cell` for a Cell acquired for a task that will never run on it (cancelled or failed while
-its Cell was being made, or its grant denied once placed), with that task's own outcome, never a
-success, so the Cell is torn down: this module is what the composition root actually builds that
-callable from, once it also holds a `CellLifecycle` and a `Scrubber`.
+complete_task` has the callable this factory builds run for every finished task's own Cell,
+beside the Queen's tick (`hivemind.queen.dispatcher.releases.start_release`: its graceful stop
+and teardown never hold the tick), unconditionally, via the additive `QueenDeps.on_task_finished`
+seam (documented there and on `QueenDeps` itself), and so does the dispatcher's
+`hivemind.queen.dispatcher.provisions.release_cell` for a Cell acquired for a task that will
+never run on it (cancelled or failed while its Cell was being made, or its grant denied once
+placed), with that task's own outcome, never a success, so the Cell is torn down: this module is
+what the composition root actually builds that callable from, once it also holds a
+`CellLifecycle` and a `Scrubber`.
 
 `make_on_cell_granted` is the other half of the same seam: `hivemind.queen.dispatcher.ready`
 awaits `QueenDeps.on_cell_granted` the moment a task is granted onto a Cell, and the callable built
@@ -29,7 +31,7 @@ and `has_block_wax` both default False, since neither Capping nor a second Cell 
 at this call site yet; `single_use` defaults False, since `TaskNeeds.disposable` is not threaded
 this far either) and lets the real policy decide; a backend that turns out not to support pause
 after all (`BackendCapabilityError`, from `lifecycle.overwinter`'s own `backend.pause` call) falls
-back to teardown rather than raising out of a Queen tick.
+back to teardown rather than failing the release.
 
 **Graceful teardown (this dispatch's own fix, a real Docker run's own defect):** every path that
 ends in `lifecycle.teardown` now calls the injected `quiesce` first -- a FAILED task's own Cell, a
@@ -45,7 +47,8 @@ own module docstring names this as a deliberate, documented gap, not an oversigh
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`. Built by
     the composition root alongside `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider`,
-    over the same `CellLifecycle` and `Scrubber`, and set on `QueenDeps.on_task_finished`. Called by
+    over the same `CellLifecycle` and `Scrubber`, and set on `QueenDeps.on_task_finished`. Run by
+    the release lane (`hivemind.queen.dispatcher.releases`), beside the tick, for
     `hivemind.queen.ticks.results.complete_task` (and, in a later pass, `fail_task`/`retry_task`,
     left out of this dispatch's own minimal edit -- see that module's own docstring) and by
     `hivemind.queen.dispatcher.provisions.release_cell` for a Cell left behind. Calls into
@@ -133,8 +136,8 @@ def make_on_task_finished(
             `hivemind.queen.cell_gate.quiesce.make_quiesce` builds the real one, over a live Queen.
 
     Returns:
-        An async callable `hivemind.queen.ticks.results.complete_task` awaits once per finished
-        task, for that task's own Warden's Cell.
+        An async callable the release lane (`hivemind.queen.dispatcher.releases`) awaits once
+        per finished task, for that task's own Warden's Cell.
     """
     quiesce_fn = quiesce if quiesce is not None else _no_op_quiesce
 
