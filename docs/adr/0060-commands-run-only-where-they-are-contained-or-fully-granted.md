@@ -1,7 +1,7 @@
 # ADR-0060: Commands run only where they are contained or fully granted
 
 - Status: Accepted
-- Date: 2026-10-02
+- Date: 2026-10-02 (amended the same day: the gate's own commands, and a plan that forgets the need)
 
 ## Context
 
@@ -50,6 +50,32 @@ the `PlacementError` is final and the dispatcher cancels the task with that reas
 leaving it to wait. The planner's fleet summary marks each Cell "commands" or "no commands" so the
 model knows to set the need.
 
+**Commands the gate runs itself meet the same rule.** A `COMMAND_EXITS_ZERO` or `TEST_PASSES`
+postcondition (checked by the Capping gate after applying a proposal) or acceptance criterion
+(checked by the Warden on its own session) runs a command a model wrote. `check_postcondition`
+now takes a `supervision.capping.CommandAdmission` built from the `Cell` the gate already holds
+(its access level and `processes_contained`, never its kind) and the Warden's `Enforcer` and
+principal (`CommandGuard`, `GateDeps.command_guard`). On a Cell that may not run commands the
+command never starts: `Enforcer.check_access_level` (the access-level ceiling alone, since no held
+set governs the gate's own check) records `guard.denied` under `guard.access_level.<level>` as the
+Warden, and the criterion fails with that reason and `commands_refused`, so the proposal rolls
+back or the task's acceptance fails, never passes silently.
+
+**A plan that forgets the need is corrected at both ends.** The planner sets `needs.commands`
+itself for every task whose acceptance runs a command, since its Warden will run that command on
+the task's Cell. A task that still lands on a Cell that refuses its commands (its Worker ran one
+the plan never mentioned) is re-placed rather than retried there: the Worker's claim carries
+`ResultCause.CELL_RUNS_NO_COMMANDS` (a new optional `TaskResult.cause`, Waggle 1.11) when a
+`run_command` came back as an access-level refusal, and the Warden carries it onto a failed
+result, adding it itself when one of its command criteria was refused. The Queen's table maps
+such a FAILED result to `REQUEUE_TASK` while the task does not yet need commands; the Brood
+Chamber's one new edge, `RUNNING -> PENDING` (`requeue_for_commands`), sets `needs.commands` and
+nothing else in the spec, clears the placement and advances the attempt; the task's grants on the
+refusing Cell go back to the pool, and a dispatch pass places it where rule 4d lets it land. When
+placement says no Cell ever could (the final error above), the task fails with that reason
+instead. A task already needing commands is never re-placed again, so this happens at most once
+per task, and a claim that passes acceptance despite a refused command simply succeeds.
+
 ## Consequences
 
 Positive: on a Hive Stand at SCRATCH no Worker command reads the operator's files, whatever its
@@ -59,14 +85,16 @@ browser and the shell alike. A future sandboxed Real Cell only has to report
 
 Negative: a Hive with only a SCRATCH Hive Stand and no Virtual backend runs no commands at all;
 an operator who wants that has to grant the Hive Stand FULL, which is honest about what a command
-there can do. `TaskNeeds.commands` defaults to false, so a task whose plan leaves it unset is
-still placed on a SCRATCH Real Cell, and its Worker learns from the refusal; the planner is told
-which Cells run commands, but a model can still miss it. A Real Cell that becomes FULL later does
-not revive a task already cancelled for this reason.
+there can do. A task whose Worker needs commands its plan never named still spends one attempt
+on a Cell that refuses them before it is re-placed. A Worker that tries one command it could have
+done without, on a Hive with nowhere that runs commands, fails its task with the placement reason
+if its acceptance then fails. A Real Cell that becomes FULL later does not revive a task already
+cancelled or failed for this reason.
 
-Known limits: acceptance criteria that run a command (`COMMAND_EXITS_ZERO`, `TEST_PASSES`) are run
-by the Capping gate, not by a Worker tool, and are not covered by this rule; the planner writes
-them and the operator's goal bounds them. Closing that needs the gate to know its Cell's ceiling.
+Known limits: the cause is read from the attempt that claims; a refusal in an attempt that then
+handed off is seen again only if the resumed attempt tries a command too. `TaskResult.cause` is a
+1.11 field, so a Worker or Warden older than that never sends it, and its tasks are retried as
+before.
 
 ## Alternatives considered
 
@@ -75,4 +103,7 @@ form for a borrowed Windows or macOS device. Running the ALLOWLIST rung for scra
 SCRATCH ceiling granted `exec:*`, so it would pass every command. A `cell.kind` branch in the tool:
 codingrules 8.7 forbids it, and it would wrongly refuse a future sandboxed Real Cell. Defaulting
 `TaskNeeds.commands` to true: every task would skip a SCRATCH Hive Stand, and a Hive without a
-Virtual backend would place nothing at all.
+Virtual backend would place nothing at all. Re-placing through `redispatch`: it resends to the
+Cell the task is already on, which is the one refusing it. Failing the task and submitting a copy
+needing commands: its dependents would be cancelled with it, and the goal would lose the task's
+identity on the trail.
