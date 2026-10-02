@@ -13,14 +13,16 @@ in every remote mode: a device approved over the VPN keeps working if the operat
 mutual TLS on. ``CertificateRecord`` is what the device's record keeps of it: the serial the
 revocation list names, the fingerprint an operator compares, the expiry, the certificate itself
 (public, for the device to fetch), and when the Hive stopped honouring it. ``IssuedBundle`` is a
-bundle handed out once, never stored.
+bundle handed out once, never stored. A renewal or a re-issue (ADR-0058, ``.renewal``) certifies
+through the same certifier, a renewal only for the device's own enrolled key (``holder``).
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol``. The certifier
-    is built by the Entrance's composition root and carried in ``EnrolmentSeams``; approval
-    (``decisions``) issues through it, redemption and offline registration (``redeem``) check a
-    request with it; ``CertificateRecord`` is a field of ``EnrolledDevice``. Calls into
-    ``hivemind.entrance.expose.tls`` (the authority and the issuing) only.
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.enrol.certificates``.
+    The certifier is built by the Entrance's composition root and carried in ``EnrolmentSeams``;
+    approval (``decisions``) and renewal (``.renewal``) issue through it, redemption and offline
+    registration (``redeem``) check a request with it; ``CertificateRecord`` is a field of
+    ``EnrolledDevice``. Calls into ``hivemind.entrance.expose.tls`` (the authority and the
+    issuing) only.
 
 Key invariants:
     - No private key, passphrase or bundle is kept here or appears in a ``repr``; a bundle leaves
@@ -32,6 +34,7 @@ Key invariants:
 See Also:
     - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "receives its
       client certificate at approval".
+    - docs/adr/0058-device-certificates-are-renewed-by-their-key-and-re-issued-on-loopback.md.
     - hivemind.entrance.expose.tls.issue for the certificates themselves.
 """
 
@@ -50,6 +53,7 @@ from hivemind.entrance.expose.tls import (
     DeviceCertificate,
     HiveAuthority,
     check_certificate_request,
+    check_request_holds,
     issue_client_certificate,
     issue_pkcs12,
 )
@@ -58,6 +62,9 @@ from waggle.messages.base import UtcDatetime
 
 MAX_CERTIFICATE_REQUEST_CHARS = MAX_CSR_BYTES  # A request is ASCII PEM: characters are bytes.
 MAX_CERTIFICATE_PEM_CHARS = 8192  # A leaf certificate is under 2 KiB even with an RSA-4096 key.
+# Withdrawn certificates a device's record keeps until they expire, so the revocation list names
+# them: a renewal adds at most one a window, so this bounds only an operator re-issuing in a loop.
+MAX_SUPERSEDED_CERTIFICATES = 16
 PASSPHRASE_GROUPS = 5  # A bundle's passphrase: five groups of four base32 characters, 100 bits.
 _GROUP_CHARS = 4  # One group, read aloud or typed on a phone at a time.
 _PASSPHRASE_BYTES = 13  # 104 random bits, base32-encoded; the first 20 characters are kept.
@@ -65,7 +72,9 @@ _PASSPHRASE_BYTES = 13  # 104 random bits, base32-encoded; the first 20 characte
 __all__ = [
     "MAX_CERTIFICATE_PEM_CHARS",
     "MAX_CERTIFICATE_REQUEST_CHARS",
+    "MAX_SUPERSEDED_CERTIFICATES",
     "PASSPHRASE_GROUPS",
+    "CertificateChange",
     "CertificateRecord",
     "DeviceCertifier",
     "IssuedBundle",
@@ -101,6 +110,25 @@ class CertificateRecord(BaseModel):
         description="When the Hive stopped honouring it (its device was revoked or expired); "
         "None while it stands.",
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CertificateChange:
+    """A renewed or re-issued certificate, and the certificate the caller decided to replace.
+
+    What ``EntranceStore.update_device_certificate`` applies in one atomic step (ADR-0058).
+
+    Attributes:
+        certificate: The new certificate.
+        superseded: The device's whole new ``superseded_certificates``: the replaced one
+            (withdrawn) and the still-unexpired earlier ones.
+        replacing: The serial of the certificate the device held when the caller decided; None
+            when it held none. A device holding another by now refuses the change.
+    """
+
+    certificate: CertificateRecord
+    superseded: tuple[CertificateRecord, ...]
+    replacing: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,25 +180,31 @@ class DeviceCertifier:
         """
         check_certificate_request(request_pem.encode("utf-8"), device_id)
 
-    def certify(self, device_id: DeviceId, request_pem: str, now: datetime) -> CertificateRecord:
+    def certify(
+        self, device_id: DeviceId, request_pem: str, now: datetime, *, holder: bytes | None = None
+    ) -> CertificateRecord:
         """Sign the device's certificate from its request.
 
         Args:
-            device_id: The device being approved.
+            device_id: The device being approved (or renewed).
             request_pem: The request it sent (already checked when it arrived).
             now: The issuing time.
+            holder: The device's enrolled Ed25519 key, 32 raw bytes, when the request must
+                certify exactly that key (a renewal); None at approval.
 
         Returns:
             The record of the certificate.
 
         Raises:
             InvariantViolationError: This certifier has no authority (check ``issues`` first).
-            CertificateRequestError: The request does not verify.
+            CertificateRequestError: The request does not verify, or certifies another key than
+                ``holder``.
             CertificateAuthorityError: The authority is not current.
         """
-        issued = issue_client_certificate(
-            self._require_authority(), request_pem.encode("utf-8"), device_id, now
-        )
+        request = request_pem.encode("utf-8")
+        if holder is not None:
+            check_request_holds(request, device_id, holder)
+        issued = issue_client_certificate(self._require_authority(), request, device_id, now)
         return _record(issued)
 
     def bundle(self, device_id: DeviceId, now: datetime) -> tuple[CertificateRecord, IssuedBundle]:

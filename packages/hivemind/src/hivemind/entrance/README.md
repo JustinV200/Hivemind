@@ -140,6 +140,14 @@ anything. It names every certificate of a device that is no longer APPROVED or L
 closed, so a certificate that was never stamped is still listed, dated at its approval. The rebuilt
 context reaches the next handshake through the listener's SNI callback, without a restart.
 
+A certificate lasts 90 days (ADR-0058). In its last 30 an approved program renews it from either
+listener (`POST /v1/devices/me/certificate/renew`, `hive remote certificate renew`), with a request
+for the very key it enrolled; the operator re-issues one on loopback only
+(`POST /v1/devices/{device_id}/certificate`, `hive entrance reissue`), for a device approved while
+the Hive ran loopback only or one whose certificate lapsed. The certificate replaced is withdrawn in
+the same step, kept in the record's `superseded_certificates` until it expires, and listed on every
+revocation list built meanwhile, which both routes rebuild at once.
+
 ## Public API
 
 The face (`hivemind.entrance`) re-exports the credential primitives, the enrolled-device model,

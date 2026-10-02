@@ -30,7 +30,8 @@ Public API:
       NOT_BEFORE_SKEW: the authority and where it is kept.
     - issue_client_certificate, issue_pkcs12, check_certificate_request, DeviceCertificate,
       DeviceBundle, CLIENT_CERT_VALIDITY, MIN_PASSPHRASE_CHARS, MIN_RSA_BITS, MAX_CSR_BYTES,
-      PKCS12_KDF_ROUNDS: device certificates.
+      PKCS12_KDF_ROUNDS, check_request_holds: device certificates (a renewal certifies only the
+      device's own key).
     - build_crl, RevokedSerial: the revocation list.
     - server_context: the remote listener's TLS context.
     - ContextSwitch: swaps a rebuilt context in without restarting the listener.
@@ -54,6 +55,7 @@ from hivemind.entrance.expose.tls.issue import (
     DeviceBundle,
     DeviceCertificate,
     check_certificate_request,
+    check_request_holds,
     issue_client_certificate,
     issue_pkcs12,
 )
@@ -77,6 +79,7 @@ __all__ = [
     "RevokedSerial",
     "build_crl",
     "check_certificate_request",
+    "check_request_holds",
     "issue_client_certificate",
     "issue_pkcs12",
     "load_or_create_authority",

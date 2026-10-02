@@ -84,6 +84,7 @@ __all__ = [
     "DeviceBundle",
     "DeviceCertificate",
     "check_certificate_request",
+    "check_request_holds",
     "issue_client_certificate",
     "issue_pkcs12",
 ]
@@ -137,6 +138,30 @@ def check_certificate_request(csr_pem: bytes, device_id: str) -> None:
             verify, or its key is not a kind and size the Hive certifies.
     """
     _requested_key(csr_pem, device_id)
+
+
+def check_request_holds(csr_pem: bytes, device_id: str, ed25519_key: bytes) -> None:
+    """Check a request as issuing will, and that its key is exactly the device's Ed25519 key.
+
+    A renewal (ADR-0058) certifies the key the device enrolled with and logs in with, never a new
+    one: a session alone, without that key, must not be enough to get a certificate.
+
+    Args:
+        csr_pem: The device's PKCS#10 request, PEM.
+        device_id: The device it was sent for (named in a refusal, nowhere else).
+        ed25519_key: The device's enrolled Ed25519 public key, 32 raw bytes.
+
+    Raises:
+        CertificateRequestError: The request does not check, or certifies another key.
+    """
+    public_key = _requested_key(csr_pem, device_id)
+    raw = (
+        public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        if isinstance(public_key, ed25519.Ed25519PublicKey)
+        else None
+    )
+    if raw != ed25519_key:
+        raise CertificateRequestError(device_id, "its key is not the device's own enrolled key")
 
 
 def issue_client_certificate(

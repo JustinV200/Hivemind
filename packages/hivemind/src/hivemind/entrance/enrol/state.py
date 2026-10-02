@@ -44,9 +44,12 @@ from hivemind.entrance.errors import InvalidDeviceTransitionError
 
 INVITED_TRAIL_KIND = "guard.entrance_invited"  # Recorded when a device record is first created.
 APPROVED_TRAIL_KIND = "guard.entrance_approved"  # An approval, or the console's own entry.
+# A certificate renewed or re-issued to an approved device (ADR-0058); its status stays APPROVED.
+CERTIFICATE_TRAIL_KIND = "guard.entrance_certificate_issued"
 
 __all__ = [
     "APPROVED_TRAIL_KIND",
+    "CERTIFICATE_TRAIL_KIND",
     "ENTRY_TRAIL_KINDS",
     "INVITED_TRAIL_KIND",
     "TERMINAL_STATUSES",

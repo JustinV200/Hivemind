@@ -162,10 +162,11 @@ class DoorControl(Protocol):
         ...
 
     async def device_revoked(self, device_id: DeviceId) -> None:
-        """Rebuild the remote listener's mutual-TLS revocation list after a revocation.
+        """Rebuild the remote listener's mutual-TLS revocation list after a withdrawal.
 
         Args:
-            device_id: The device just revoked.
+            device_id: The device just revoked, or whose certificate was just replaced (a renewal
+                or re-issue withdraws the one it replaces, ADR-0058).
         """
         ...
 

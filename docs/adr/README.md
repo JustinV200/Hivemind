@@ -285,3 +285,8 @@ ADRs that exist today, in numeric order:
   configured, with no probe meaning no Cell; `cell.attested` names its tier, which the Night Veil
   boundary reads; and the in-Cell Warden accepts PROPOLIS on the ordinary link and reports its own
   tunnel checks.
+- `0058-device-certificates-are-renewed-by-their-key-and-re-issued-on-loopback.md`: an approved
+  program renews its mutual-TLS certificate in its last 30 days, only for the key it enrolled; the
+  operator re-issues one on loopback only (a device approved loopback-only, or one that lapsed);
+  whatever is replaced is withdrawn in the same step and stays on the revocation list until it
+  expires.

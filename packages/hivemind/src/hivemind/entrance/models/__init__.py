@@ -28,7 +28,8 @@ Public API:
     - ModeView, ChangedView, InviteRequest, InviteView, ApprovalBody, DenyBody,
       ConfirmationView, ConfirmationList, ConfirmedView, confirmation_view: the door (door).
     - DeviceView, DeviceList, RevokeBody, RevocationView, WidenBody, device_view,
-      CertificateView, ApprovedDeviceView, BundleView, approved_view: devices.
+      CertificateView, ApprovedDeviceView, BundleView, approved_view, RenewalBody, ReissueBody,
+      certificate_view: devices.
     - GoalSubmission, GoalAccepted, GoalView, DeclineBody, goal_view: goals.
     - ChatLine, ChatPage, ChatPost, ChatAccepted, chat_line: the chat.
     - QuestionView, AlarmView, InboxView, AnswerBody, AnsweredView, AcknowledgedView,
@@ -52,10 +53,13 @@ from hivemind.entrance.models.devices import (
     CertificateView,
     DeviceList,
     DeviceView,
+    ReissueBody,
+    RenewalBody,
     RevocationView,
     RevokeBody,
     WidenBody,
     approved_view,
+    certificate_view,
     device_view,
 )
 from hivemind.entrance.models.door import (
@@ -152,6 +156,8 @@ __all__ = [
     "QuestionView",
     "RedemptionView",
     "RegistrationBody",
+    "ReissueBody",
+    "RenewalBody",
     "RevocationView",
     "RevokeBody",
     "SecurityEventView",
@@ -164,6 +170,7 @@ __all__ = [
     "WidenBody",
     "alarm_view",
     "approved_view",
+    "certificate_view",
     "chat_line",
     "confirmation_view",
     "device_view",

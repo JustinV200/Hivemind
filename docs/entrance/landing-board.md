@@ -721,9 +721,28 @@ rm session.json
 
 **Revocation.** When the operator revokes the device, or its approval expires, the certificate's
 serial goes on the Hive's revocation list. The listener's TLS context is rebuilt at once, so the
-device's next handshake fails whatever sessions it held. A new certificate comes only with a new
-enrolment.
+device's next handshake fails whatever sessions it held. A revoked device gets a new certificate
+only with a new enrolment.
+
+**Renewal and re-issue.** A certificate lasts 90 days. In its last 30 an approved program renews it
+over whichever listener it reaches, presenting the one it holds: a signed
+`POST /v1/devices/me/certificate/renew` with `RenewalBody`, whose `certificate_request` is a CSR
+for the device's own enrolled key (the one it logs in with; a request for any other key is refused).
+It answers `CertificateView` for the same device id. The certificate it replaces goes on the
+revocation list at once, so keep the new one before the next handshake. A renewal asked for too
+early, or by a device whose certificate has lapsed or was never issued, is answered `409` with
+`hivemind.entrance.certificate_issue_refused`, naming when it is due or what to do instead.
+`hive remote certificate renew` does all of this for the CLI. A device approved while the Hive ran
+loopback only holds no certificate, and one whose certificate lapsed cannot present one; for both
+the operator re-issues it at the Hive Stand, through the loopback-only
+`POST /v1/devices/{device_id}/certificate`:
+
+```sh
+hive entrance reissue DEVICE_ID --certificate-out device.crt   # from the request it enrolled with
+hive entrance reissue DEVICE_ID --csr device.csr --certificate-out device.crt
+```
 
 **Not in the document.** The handshake refusal belongs to TLS, not HTTP, so the document does not
 describe it. Neither does it describe where the certificate comes from beyond
-`certificate_request`, `GET /v1/devices/me/certificate` and `POST /v1/entrance/register`.
+`certificate_request`, `GET /v1/devices/me/certificate`, the renewal and re-issue routes, and
+`POST /v1/entrance/register`.

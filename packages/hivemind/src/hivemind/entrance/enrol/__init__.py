@@ -36,8 +36,8 @@ See Also:
 
 Public API:
     - DeviceStatus, TRANSITIONS, TERMINAL_STATUSES, ENTRY_TRAIL_KINDS, INVITED_TRAIL_KIND,
-      APPROVED_TRAIL_KIND, assert_transition, can_transition, trail_kind, is_terminal: the
-      enrolled-device state machine.
+      APPROVED_TRAIL_KIND, CERTIFICATE_TRAIL_KIND, assert_transition, can_transition, trail_kind,
+      is_terminal: the enrolled-device state machine.
     - EnrolledDevice, DeviceDescription, DeviceInvite, OperatorCredential: the Entrance's records.
     - ConsoleDeps, bootstrap_operator, change_operator_password, unlock_console_key,
       console_record, reset_operator, unlock_console, CONSOLE_KEY_NAME, CONSOLE_CAPABILITIES,
@@ -54,19 +54,30 @@ Public API:
       REDEEM_FAILED_KIND: redemption, and the operator's offline registration.
     - ApprovalRequest, Approval, approve, approve_with_bundle, deny, GrantChange, regrant:
       decisions on a pending request, and re-granting an approved device.
-    - CertificateRecord, DeviceCertifier, IssuedBundle, withdrawn, new_bundle_passphrase: a
+    - CertificateRecord, CertificateChange, DeviceCertifier, IssuedBundle, withdrawn,
+      new_bundle_passphrase: a
       device's mutual-TLS client certificate, issued at approval.
+    - renew_certificate, reissue_certificate, Reissue, IssueHow, RENEWAL_WINDOW: a fresh
+      certificate later, renewed by the device's key or re-issued on loopback (ADR-0058).
     - LockReason, Revocation, revoke, lock, unlock, expire_due: an admitted device's standing.
     - approval_grant, device_ceiling, steward_grant, steward_terms: what an approval may grant.
     - OPERATOR_ACTOR: the trail's actor for the operator at the Hive Stand.
 """
 
 from hivemind.entrance.enrol.certificates import (
+    CertificateChange,
     CertificateRecord,
     DeviceCertifier,
     IssuedBundle,
     new_bundle_passphrase,
     withdrawn,
+)
+from hivemind.entrance.enrol.certificates.renewal import (
+    RENEWAL_WINDOW,
+    IssueHow,
+    Reissue,
+    reissue_certificate,
+    renew_certificate,
 )
 from hivemind.entrance.enrol.console import (
     CONSOLE_CAPABILITIES,
@@ -155,6 +166,7 @@ from hivemind.entrance.enrol.standing import (
 )
 from hivemind.entrance.enrol.state import (
     APPROVED_TRAIL_KIND,
+    CERTIFICATE_TRAIL_KIND,
     ENTRY_TRAIL_KINDS,
     INVITED_TRAIL_KIND,
     TERMINAL_STATUSES,
@@ -168,6 +180,7 @@ from hivemind.entrance.enrol.state import (
 
 __all__ = [
     "APPROVED_TRAIL_KIND",
+    "CERTIFICATE_TRAIL_KIND",
     "CONSOLE_CAPABILITIES",
     "CONSOLE_DEVICE_NAME",
     "CONSOLE_KEY_NAME",
@@ -178,10 +191,12 @@ __all__ = [
     "OPERATOR_ACTOR",
     "OPERATOR_RESET",
     "REDEEM_FAILED_KIND",
+    "RENEWAL_WINDOW",
     "TERMINAL_STATUSES",
     "TRANSITIONS",
     "Approval",
     "ApprovalRequest",
+    "CertificateChange",
     "CertificateRecord",
     "ConsoleDeps",
     "DeviceCertifier",
@@ -201,6 +216,7 @@ __all__ = [
     "GoalLedger",
     "GrantChange",
     "InviteQr",
+    "IssueHow",
     "IssuedBundle",
     "LockReason",
     "MintedInvite",
@@ -214,6 +230,7 @@ __all__ = [
     "RedeemFailure",
     "RedeemStep",
     "Redemption",
+    "Reissue",
     "Revocation",
     "SecurityNotice",
     "SecurityNotifier",
@@ -242,6 +259,8 @@ __all__ = [
     "redeem_passkey",
     "register_offline",
     "regrant",
+    "reissue_certificate",
+    "renew_certificate",
     "reset_operator",
     "revoke",
     "steward_grant",

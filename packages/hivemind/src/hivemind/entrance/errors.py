@@ -60,6 +60,7 @@ __all__ = [
     "BreakGlassRefusedError",
     "CapabilityCeilingError",
     "CellNotFoundError",
+    "CertificateIssueRefusedError",
     "CertificateNotIssuedError",
     "ChallengeRejectedError",
     "ConfirmationRefusedError",
@@ -228,6 +229,26 @@ class CertificateNotIssuedError(EntranceError, NotFoundError):
         super().__init__(
             f"Device {device_id} holds no client certificate: none was issued at its approval."
         )
+        self.device_id = device_id
+
+
+class CertificateIssueRefusedError(EntranceError, ConflictError):
+    """Raise when a device's certificate cannot be renewed or re-issued as things stand.
+
+    The Hive runs no authority, the device is a browser (it renews at the Hive Stand), its
+    certificate is not current or not yet due, or another renewal replaced it first (ADR-0058).
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.certificate_issue_refused"
+
+    def __init__(self, device_id: str, reason: str) -> None:
+        """Build the error for one refusal.
+
+        Args:
+            device_id: The device whose certificate was asked for.
+            reason: Why, as a clause naming no key material, e.g. "it is not due until ...".
+        """
+        super().__init__(f"No new certificate for device {device_id}: {reason}.")
         self.device_id = device_id
 
 

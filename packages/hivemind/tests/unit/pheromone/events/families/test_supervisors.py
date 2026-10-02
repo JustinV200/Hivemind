@@ -103,6 +103,7 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "held",
         "confirmed",
         "hold_ended",
+        "certificate_issued",
     }
     assert {
         "guard.denied",

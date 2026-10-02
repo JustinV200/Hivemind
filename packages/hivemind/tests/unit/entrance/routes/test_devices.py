@@ -8,11 +8,12 @@ before the task is recorded CANCELLED) and names both in the answer and in the r
 trail event. Without ``cancel_goals`` the placed goal is named as left running, the waiting
 request refused all the same. A device reads its own mutual-TLS certificate once approval issued
 one (the Hive running its authority, the program having sent a request for its key), and is told
-plainly when none was.
+plainly when none was. It renews its own once due (and is told when not), and only the loopback
+listener re-issues one (ADR-0058).
 
 Fits into the Hive:
-    Mirrors src/hivemind/entrance/routes/devices.py (codingrules section 3); the revoke and
-    own-certificate rows.
+    Mirrors src/hivemind/entrance/routes/devices.py (codingrules section 3); the revoke,
+    own-certificate, renewal and re-issue rows.
 
 Key invariants:
     - None: this module holds tests only.
@@ -22,7 +23,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
 
+import pytest
+from builders.entrance import program_request
 from builders.entrance.serving import ProgramGrant, RigOptions, ServingRig, serving
 from builders.human import single_task_plan
 from builders.queen import plan_responder
@@ -30,6 +34,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from hivemind.brood_chamber import TaskStatus
+from hivemind.entrance.enrol.certificates import renewal
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
 from hivemind.queen import GoalRequestState
@@ -37,6 +42,7 @@ from waggle.ids import DeviceId, TaskId
 from waggle.signing import Ed25519Signer
 
 _WAIT_S = 5.0  # Generous: planning here is one scripted model call.
+_RENEW = "/v1/devices/me/certificate/renew"  # A device's own renewal (ADR-0058).
 # A device's set is its goals' ceiling: running one on the Hive Stand needs its Cell, a tier and
 # model access, besides submitting it.
 _WORKER = ProgramGrant(
@@ -150,3 +156,38 @@ async def test_a_device_without_a_certificate_is_told_none_was_issued() -> None:
 
     assert missing.status_code == 404
     assert missing.json()["error"] == "hivemind.entrance.certificate_not_issued"
+
+
+async def test_a_device_renews_its_own_certificate_once_due_and_is_told_when_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with serving(RigOptions(authority=True)) as rig:
+        client, session = await rig.program(ProgramGrant(requesting=True))
+        assert isinstance(session.key.signer, Ed25519Signer)
+        body = {"certificate_request": program_request(session.key.signer)}
+        early = await client.call(session, "POST", _RENEW, body)
+        # A fresh certificate is 90 days from its end; a window this wide makes it due now.
+        monkeypatch.setattr(renewal, "RENEWAL_WINDOW", timedelta(days=91))
+        renewed = await client.call(session, "POST", _RENEW, body)
+        held = await client.call(session, "GET", "/v1/devices/me/certificate")
+        stored = await rig.store.get_device(DeviceId(session.key.device_id))
+
+    assert early.status_code == 409
+    assert early.json()["error"] == "hivemind.entrance.certificate_issue_refused"
+    assert renewed.status_code == 200, renewed.text
+    assert renewed.json() == held.json()  # The device now holds the renewed one.
+    [replaced] = stored.superseded_certificates
+    assert replaced.serial != renewed.json()["serial"] and replaced.revoked_at is not None
+
+
+async def test_the_operator_re_issues_a_certificate_on_loopback_only() -> None:
+    async with serving(RigOptions(authority=True, remote=True)) as rig:
+        _, session = await rig.program(ProgramGrant(requesting=True))
+        path = f"/v1/devices/{session.key.device_id}/certificate"
+        console, console_session = await rig.console_session()
+        reissued = await console.call(console_session, "POST", path, {})
+        remote = await rig.client(remote=True).http.post(path, json={})
+
+    assert reissued.status_code == 200, reissued.text
+    assert reissued.json()["certificate_pem"].startswith("-----BEGIN CERTIFICATE-----")
+    assert remote.status_code == 404  # Never mounted on the remote listener.

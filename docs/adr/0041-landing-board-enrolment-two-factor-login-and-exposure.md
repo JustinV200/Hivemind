@@ -163,7 +163,8 @@ secure context whose relying party is `localhost`. `entrance/expose.py` reads `[
   (`entrance/tls/`, its key in the secret store). A device enrols over loopback or `vpn`, or
   offline (the operator registers the device's public key and certificate request on the Hive
   Stand), and receives its client certificate at approval: signed from a CSR for a program, as a
-  PKCS#12 bundle for a browser. The remote listener requires a certificate chaining to the Hive's
+  PKCS#12 bundle for a browser (renewed by its own key, or re-issued on loopback: ADR-0058). The
+  remote listener requires a certificate chaining to the Hive's
   authority; a revocation rebuilds the TLS context, which new handshakes pick up through an
   `sni_callback`. uvicorn does not expose the peer certificate to the application, so mutual TLS
   is the outer gate and login the inner one. `tunnel` binds the remote listener to loopback for a

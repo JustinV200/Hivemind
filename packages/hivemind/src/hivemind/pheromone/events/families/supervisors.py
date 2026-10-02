@@ -82,7 +82,10 @@ Vocabulary (family -> kind -> when it is recorded):
         reason); entrance_held (a non-interactive device's request that needs step-up was held as
         a pending confirmation: its id, the device and the action, never the request's content);
         entrance_confirmed (an interactive device confirmed a held request after step-up);
-        entrance_hold_ended (a held request expired or was cancelled, with which). Roadmap step
+        entrance_hold_ended (a held request expired or was cancelled, with which);
+        entrance_certificate_issued (an approved device's client certificate renewed by its key, or
+        re-issued on loopback, by serial and fingerprint and the serial it replaced, ADR-0058).
+        Roadmap step
         10.6 adds two node-integrity refusals at the Cell gate, each about the Cell whose own
         authenticated link carried it and naming a reason, never the frame: envelope_refused (a
         frame on an attached Virtual Cell's link failed its signature, and the link was closed);
@@ -239,6 +242,7 @@ class GuardEvent(PheromoneEvent):
             "guard.entrance_held",  # A pending confirmation waiting on a human's step-up.
             "guard.entrance_confirmed",
             "guard.entrance_hold_ended",
+            "guard.entrance_certificate_issued",  # ADR-0058: renewed, or re-issued on loopback.
             "guard.envelope_refused",  # Roadmap step 10.6: a node-integrity refusal at the gate.
             "guard.segment_refused",
             "guard.basket_integrity_failed",  # Phase 9 (ADR-0048): a blob failed verification.

@@ -9,20 +9,25 @@ phone), and only loopback unlocks. Unlocking, revoking (refusing the device's un
 requests and, optionally, cancelling its open goals in the same step, the rest named in the answer)
 and re-granting what an approved device may do (after step-up: a capability change) exist only on
 the loopback listener, so the remote application never mounts them. A revocation also rebuilds the
-remote listener's mutual-TLS revocation list.
+remote listener's mutual-TLS revocation list. A certificate lasts 90 days (ADR-0058): an approved
+program renews its own from either listener within the last 30, with a request for the key it
+enrolled (``POST /v1/devices/me/certificate/renew``), and the operator re-issues one on loopback
+only (``POST /v1/devices/{device_id}/certificate``), for a device approved while the Hive ran
+loopback only, or one whose certificate lapsed. Either way the certificate replaced is withdrawn,
+so both rebuild the revocation list too.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Registered in
-    the route table. Calls into ``hivemind.entrance.enrol`` (standing and re-grant) and the gate's
-    step-up.
+    the route table. Calls into ``hivemind.entrance.enrol`` (standing, re-grant and certificates)
+    and the gate's step-up.
 
 Key invariants:
-    - Unlock, revoke and re-grant are loopback-only rows; lock needs a stepped-up interactive
-      session wherever it arrives.
+    - Unlock, revoke, re-grant and re-issue are loopback-only rows; lock needs a stepped-up
+      interactive session wherever it arrives; a renewal is the calling device's own, only.
     - Every change is an enrolment flow's, recorded with its ``guard.entrance_*`` event.
 
 See Also:
-    - hivemind.entrance.enrol.standing and .decisions for the flows.
+    - hivemind.entrance.enrol.standing, .decisions and .certificates for the flows.
 """
 
 from __future__ import annotations
@@ -32,7 +37,17 @@ from typing import Annotated
 from fastapi import Path
 
 from hivemind.entrance.auth.step_up import ActionKind
-from hivemind.entrance.enrol import GrantChange, LockReason, lock, regrant, revoke, unlock
+from hivemind.entrance.enrol import (
+    GrantChange,
+    LockReason,
+    Reissue,
+    lock,
+    regrant,
+    reissue_certificate,
+    renew_certificate,
+    revoke,
+    unlock,
+)
 from hivemind.entrance.errors import CertificateNotIssuedError
 from hivemind.entrance.gate.params import CallerParam, Services
 from hivemind.entrance.gate.spec import (
@@ -45,12 +60,17 @@ from hivemind.entrance.gate.spec import (
 )
 from hivemind.entrance.gate.step_up import require_step_up
 from hivemind.entrance.models import (
+    ApprovedDeviceView,
     CertificateView,
     DeviceList,
     DeviceView,
+    ReissueBody,
+    RenewalBody,
     RevocationView,
     RevokeBody,
     WidenBody,
+    approved_view,
+    certificate_view,
     device_view,
 )
 from waggle.messages.base import DeviceIdField
@@ -124,12 +144,49 @@ async def read_own_certificate(caller: CallerParam) -> CertificateView:
     # A withdrawn certificate is not the device's any more: the listener refuses it already.
     if certificate is None or certificate.revoked_at is not None:
         raise CertificateNotIssuedError(caller.device.id)
-    return CertificateView(
-        serial=certificate.serial,
-        fingerprint=certificate.fingerprint,
-        not_after=certificate.not_after,
-        certificate_pem=certificate.pem,
-    )
+    return certificate_view(certificate)
+
+
+async def renew_own_certificate(
+    body: RenewalBody, caller: CallerParam, services: Services
+) -> CertificateView:
+    """Renew the calling device's own certificate, from a request for its enrolled key.
+
+    Args:
+        body: The certificate signing request.
+        caller: The admitted caller; only its own certificate is ever renewed.
+        services: The Entrance's services.
+
+    Returns:
+        The new certificate.
+    """
+    request = body.certificate_request
+    renewed = await renew_certificate(services.enrolment, caller.device.id, request)
+    # The certificate it replaced stops working at the next handshake (mutual TLS modes).
+    await services.door.device_revoked(renewed.id)
+    assert renewed.certificate is not None  # noqa: S101 - the flow just recorded it.
+    return certificate_view(renewed.certificate)
+
+
+async def reissue_device_certificate(
+    device_id: DeviceIdPath, body: ReissueBody, caller: CallerParam, services: Services
+) -> ApprovedDeviceView:
+    """Re-issue an approved device's certificate (loopback only).
+
+    Args:
+        device_id: The APPROVED device.
+        body: The request to certify, or null for the one it sent (or a browser's bundle).
+        caller: The admitted caller, the re-issue's actor.
+        services: The Entrance's services.
+
+    Returns:
+        The device with its new certificate, and a browser's bundle (answered this once).
+    """
+    reissue = Reissue(actor=caller.device.id, request_pem=body.certificate_request)
+    reissued = await reissue_certificate(services.enrolment, device_id, reissue)
+    # Whatever it replaced stops working at the next handshake (mutual TLS modes).
+    await services.door.device_revoked(device_id)
+    return approved_view(reissued)
 
 
 async def unlock_device(
@@ -229,6 +286,28 @@ ROUTES: tuple[RouteSpec, ...] = (
         endpoint=read_own_certificate,
         summary="Read the calling device's own mutual-TLS client certificate.",
         response_model=CertificateView,
+    ),
+    RouteSpec(
+        method="POST",
+        path="/v1/devices/me/certificate/renew",
+        listeners=BOTH_LISTENERS,
+        access=Access(authenticated=True, capability=None),
+        effect=RouteEffect.SESSION,
+        endpoint=renew_own_certificate,
+        summary="Renew the calling device's own client certificate, within its last 30 days, "
+        "from a request for its enrolled key; the one it replaces is revoked.",
+        response_model=CertificateView,
+    ),
+    RouteSpec(
+        method="POST",
+        path=f"{_DEVICE}/certificate",
+        listeners=LOOPBACK_ONLY,
+        access=_STEWARD,
+        effect=RouteEffect.DOOR,
+        endpoint=reissue_device_certificate,
+        summary="Re-issue an approved device's client certificate (loopback only): for one "
+        "approved while the Hive ran loopback only, or one whose certificate lapsed.",
+        response_model=ApprovedDeviceView,
     ),
     RouteSpec(
         method="POST",

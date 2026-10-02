@@ -1,4 +1,4 @@
-"""Test hivemind.entrance.enrol.certificates: a device's client certificate, issued at approval.
+"""Test hivemind.entrance.enrol.certificates.issuing: a device's client certificate, at approval.
 
 The certifier itself: what it issues with the Hive's authority and refuses without one, the bundle a
 browser gets and its passphrase, a withdrawal, and the record's boundary. Then the certificate's
@@ -10,9 +10,9 @@ never stored), an offline registration by the operator, and the withdrawal a rev
 expiry stamps.
 
 Fits into the Hive:
-    Mirrors src/hivemind/entrance/enrol/certificates.py (codingrules section 3), with the flows
-    that issue through it (``redeem``, ``decisions``, ``standing``) as far as certificates go;
-    their other behaviour is in their own modules' tests.
+    Mirrors src/hivemind/entrance/enrol/certificates/issuing.py (codingrules section 3), with the
+    flows that issue through it (``redeem``, ``decisions``, ``standing``) as far as certificates
+    go; their other behaviour is in their own modules' tests.
 
 Key invariants:
     - None: this module holds tests only.

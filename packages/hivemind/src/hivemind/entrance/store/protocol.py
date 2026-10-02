@@ -15,8 +15,11 @@ the one that change records. A status change's other field updates travel as ``D
 keyword arguments typed per field; the id, the creation time, the console flag and the login
 bookkeeping cannot be among them. The login bookkeeping has its own write, ``record_login``
 (``apply_login`` is its rule): when an APPROVED device last logged in, from which network, and
-its passkey's signature counter, which may only move forward. ``EntranceStore`` also extends
-``AuthTables``: the session, login, pending-confirmation and mode tables (roadmap 10.5e).
+its passkey's signature counter, which may only move forward. A renewed or re-issued certificate
+(ADR-0058) has its own write too, ``update_device_certificate`` (``recertify_device`` is its rule):
+an APPROVED device's certificate is replaced only while it still holds the one the caller decided
+from, and the one replaced joins its withdrawn ``superseded_certificates``. ``EntranceStore`` also
+extends ``AuthTables``: the session, login, pending-confirmation and mode tables (roadmap 10.5e).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.store``. Used by
@@ -48,7 +51,7 @@ from typing import Protocol, TypedDict, Unpack
 
 from hivemind.common.errors import InvariantViolationError
 from hivemind.entrance.auth.keys import KeyKind
-from hivemind.entrance.enrol.certificates import CertificateRecord
+from hivemind.entrance.enrol.certificates import CertificateChange, CertificateRecord
 from hivemind.entrance.enrol.models import (
     DeviceDescription,
     DeviceInvite,
@@ -57,12 +60,14 @@ from hivemind.entrance.enrol.models import (
 )
 from hivemind.entrance.enrol.state import (
     APPROVED_TRAIL_KIND,
+    CERTIFICATE_TRAIL_KIND,
     ENTRY_TRAIL_KINDS,
     DeviceStatus,
     assert_transition,
     trail_kind,
 )
 from hivemind.entrance.errors import (
+    CertificateIssueRefusedError,
     DeviceStatusConflictError,
     InvalidDeviceEntryError,
     InviteAlreadyUsedError,
@@ -74,14 +79,17 @@ from hivemind.pheromone import GuardEvent
 from waggle.ids import DeviceId
 
 __all__ = [
+    "CertificateWrites",
     "DeviceChanges",
     "EntranceStore",
     "GrantChanges",
     "apply_login",
+    "check_certificate_change",
     "check_device_event",
     "check_grant_change",
     "check_new_device",
     "check_status_change",
+    "recertify_device",
     "regrant_device",
     "transition_device",
     "use_invite",
@@ -129,13 +137,41 @@ _CHANGEABLE_FIELDS = frozenset(DeviceChanges.__annotations__)
 _GRANT_FIELDS = frozenset(GrantChanges.__annotations__)
 
 
-class EntranceStore(AuthTables, Protocol):
+class CertificateWrites(Protocol):
+    """The one write a renewed or re-issued device certificate makes (ADR-0058)."""
+
+    async def update_device_certificate(
+        self, device_id: DeviceId, event: GuardEvent, change: CertificateChange
+    ) -> EnrolledDevice:
+        """Give an APPROVED device a new certificate, recording ``event`` atomically.
+
+        Args:
+            device_id: The device, APPROVED.
+            event: Its ``guard.entrance_certificate_issued`` event, about ``device_id``.
+            change: The new certificate and superseded list (``recertify_device``).
+
+        Returns:
+            The record as stored after the change.
+
+        Raises:
+            DeviceNotFoundError: No such device.
+            DeviceStatusConflictError: The device is not APPROVED.
+            CertificateIssueRefusedError: It no longer holds the certificate ``change`` replaces.
+            InvariantViolationError: ``event`` is not this change's event about this device.
+            DuplicateEventError: ``event``'s id is already on the trail.
+            pydantic.ValidationError: The changed record breaks a model rule.
+        """
+        ...
+
+
+class EntranceStore(AuthTables, CertificateWrites, Protocol):
     """Persist the operator row, enrolled devices and invites; apply the enrolment rules.
 
     Implementations serialise their own operations (one lock or one connection thread) and apply
-    ``check_new_device``, ``check_status_change``, ``transition_device``, ``use_invite`` and
-    ``apply_login`` inside the same atomic step as the write they guard, writing the change's
-    trail event in that step. The four tables of ``AuthTables`` come with the store.
+    ``check_new_device``, ``check_status_change``, ``transition_device``, ``use_invite``,
+    ``apply_login`` and ``recertify_device`` inside the same atomic step as the write they guard,
+    writing the change's trail event in that step. The four tables of ``AuthTables`` come with the
+    store, and ``CertificateWrites`` its certificate write.
     """
 
     async def get_operator(self) -> OperatorCredential | None:
@@ -440,6 +476,46 @@ def check_grant_change(device_id: DeviceId, event: GuardEvent) -> None:
         InvariantViolationError: ``event`` is of another kind or about another device.
     """
     check_device_event(device_id, APPROVED_TRAIL_KIND, event)
+
+
+def check_certificate_change(device_id: DeviceId, event: GuardEvent) -> None:
+    """Require a new certificate's event to be ``guard.entrance_certificate_issued`` about it.
+
+    Args:
+        device_id: The device being given a certificate.
+        event: The event about to be written with it.
+
+    Raises:
+        InvariantViolationError: ``event`` is of another kind or about another device.
+    """
+    check_device_event(device_id, CERTIFICATE_TRAIL_KIND, event)
+
+
+def recertify_device(current: EnrolledDevice, change: CertificateChange) -> EnrolledDevice:
+    """Apply one renewal or re-issue to ``current``: the single place a certificate is replaced.
+
+    Args:
+        current: The record as stored right now.
+        change: The new certificate, the superseded list and what it replaces.
+
+    Returns:
+        A new, fully re-validated record.
+
+    Raises:
+        DeviceStatusConflictError: ``current`` is not APPROVED.
+        CertificateIssueRefusedError: ``current`` holds another certificate than the one the
+            caller decided from (two renewals raced; the second loses).
+        pydantic.ValidationError: The result breaks a model rule.
+    """
+    # A locked device keeps the certificate it has; only an approved one gets a new one.
+    if current.status is not DeviceStatus.APPROVED:
+        raise DeviceStatusConflictError(current.id, DeviceStatus.APPROVED, current.status)
+    held = current.certificate.serial if current.certificate is not None else None
+    if held != change.replacing:
+        raise CertificateIssueRefusedError(current.id, "its certificate was replaced meanwhile")
+    fields: dict[str, object] = dict(current)
+    fields.update(certificate=change.certificate, superseded_certificates=change.superseded)
+    return EnrolledDevice.model_validate(fields)
 
 
 def regrant_device(current: EnrolledDevice, changes: Mapping[str, object]) -> EnrolledDevice:

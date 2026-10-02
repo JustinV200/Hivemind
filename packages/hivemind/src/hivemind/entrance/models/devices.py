@@ -10,7 +10,9 @@ answers: the view, the certificate issued from the device's request (for an oper
 to a device that registered offline) and, for a browser, its PKCS#12 bundle and passphrase, handed
 to the operator this once and stored nowhere. The change bodies are the operator's decisions on
 loopback: revoking (optionally cancelling the device's open goals in the same step) and widening
-what an approved device may do.
+what an approved device may do. ``RenewalBody`` is a device's own certificate renewal, a request
+for its enrolled key; ``ReissueBody`` the operator's loopback re-issue, answered like an approval
+(ADR-0058).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.models``. Used by
@@ -32,7 +34,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.entrance.enrol import Approval
+from hivemind.entrance.enrol import Approval, CertificateRecord
+from hivemind.entrance.enrol.certificates import MAX_CERTIFICATE_REQUEST_CHARS
 from hivemind.entrance.enrol.models import (
     MAX_CAPABILITIES,
     CapabilityText,
@@ -50,10 +53,13 @@ __all__ = [
     "CertificateView",
     "DeviceList",
     "DeviceView",
+    "ReissueBody",
+    "RenewalBody",
     "RevocationView",
     "RevokeBody",
     "WidenBody",
     "approved_view",
+    "certificate_view",
     "device_view",
 ]
 
@@ -185,6 +191,48 @@ class WidenBody(BaseModel):
     )
     spend_cap_usd_per_day: float | None = Field(
         default=None, ge=0, allow_inf_nan=False, description="A new daily cap; null keeps it."
+    )
+
+
+class RenewalBody(BaseModel):
+    """Renew the calling device's own client certificate (ADR-0058)."""
+
+    model_config = _CONFIG
+
+    certificate_request: str = Field(
+        max_length=MAX_CERTIFICATE_REQUEST_CHARS,
+        description="A PEM certificate signing request for the device's own enrolled Ed25519 "
+        "key: the key it logs in with, never a new one.",
+    )
+
+
+class ReissueBody(BaseModel):
+    """Re-issue a device's client certificate (loopback only, ADR-0058)."""
+
+    model_config = _CONFIG
+
+    certificate_request: str | None = Field(
+        default=None,
+        max_length=MAX_CERTIFICATE_REQUEST_CHARS,
+        description="A PEM certificate signing request for the device's enrolled key; null uses "
+        "the one it sent at redemption, or seals a browser's bundle under mutual TLS.",
+    )
+
+
+def certificate_view(certificate: CertificateRecord) -> CertificateView:
+    """Shape a device's certificate record for the device itself.
+
+    Args:
+        certificate: The record its device holds.
+
+    Returns:
+        The certificate, its serial, fingerprint and expiry.
+    """
+    return CertificateView(
+        serial=certificate.serial,
+        fingerprint=certificate.fingerprint,
+        not_after=certificate.not_after,
+        certificate_pem=certificate.pem,
     )
 
 

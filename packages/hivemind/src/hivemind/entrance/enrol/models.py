@@ -46,7 +46,11 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 from hivemind.entrance.auth.canonical import b64url_decode
 from hivemind.entrance.auth.keys import ED25519_PUBLIC_KEY_BYTES, KeyKind, key_fingerprint
 from hivemind.entrance.auth.network import is_device_network
-from hivemind.entrance.enrol.certificates import MAX_CERTIFICATE_REQUEST_CHARS, CertificateRecord
+from hivemind.entrance.enrol.certificates import (
+    MAX_CERTIFICATE_REQUEST_CHARS,
+    MAX_SUPERSEDED_CERTIFICATES,
+    CertificateRecord,
+)
 from hivemind.entrance.enrol.state import DeviceStatus
 from waggle.messages.base import DeviceIdField, UtcDatetime
 
@@ -250,7 +254,14 @@ class EnrolledDevice(BaseModel):
     )
     certificate: CertificateRecord | None = Field(
         default=None,
-        description="Its mutual-TLS client certificate, issued at approval; None when none was.",
+        description="Its mutual-TLS client certificate, issued at approval (or renewed or "
+        "re-issued since); None when none was.",
+    )
+    superseded_certificates: tuple[CertificateRecord, ...] = Field(
+        default=(),
+        max_length=MAX_SUPERSEDED_CERTIFICATES,
+        description="Certificates a renewal or re-issue replaced, each withdrawn when it was, "
+        "kept until it expires so the revocation list names it (ADR-0058).",
     )
 
     @property
@@ -313,6 +324,9 @@ class EnrolledDevice(BaseModel):
             raise ValueError("A device carrying a certificate must carry approved_at.")
         if self.certificate_request is not None and self.key_kind is not KeyKind.ED25519:
             raise ValueError("Only a program's Ed25519 key comes with a certificate request.")
+        # A replaced certificate is kept only to be named on the revocation list.
+        if any(old.revoked_at is None for old in self.superseded_certificates):
+            raise ValueError("A superseded certificate is always withdrawn.")
         return self
 
 

@@ -5261,6 +5261,44 @@
         "title": "RegistrationBody",
         "type": "object"
       },
+      "ReissueBody": {
+        "additionalProperties": false,
+        "description": "Re-issue a device's client certificate (loopback only, ADR-0058).",
+        "properties": {
+          "certificate_request": {
+            "anyOf": [
+              {
+                "maxLength": 16384,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A PEM certificate signing request for the device's enrolled key; null uses the one it sent at redemption, or seals a browser's bundle under mutual TLS.",
+            "title": "Certificate Request"
+          }
+        },
+        "title": "ReissueBody",
+        "type": "object"
+      },
+      "RenewalBody": {
+        "additionalProperties": false,
+        "description": "Renew the calling device's own client certificate (ADR-0058).",
+        "properties": {
+          "certificate_request": {
+            "description": "A PEM certificate signing request for the device's own enrolled Ed25519 key: the key it logs in with, never a new one.",
+            "maxLength": 16384,
+            "title": "Certificate Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificate_request"
+        ],
+        "title": "RenewalBody",
+        "type": "object"
+      },
       "RequestOrigin": {
         "description": "Who asked for a task to exist: a human, the Queen itself, or a Warden acting on its own.\n\nRoadmap step 5.7a: `queen.placement.policy.check_night_veil` reads this (carried on\n`brood_chamber.task.model.TaskSpec.origin`, never nested inside `TaskNeeds` itself, so a\nrequest's provenance stays a separate fact from what its Cell must provide) to enforce\ncodingrules section 8.7's \"NIGHT_VEIL requires explicit human request... and may not be\nautonomously escalated by the Queen or a Warden\": a NIGHT_VEIL task whose origin is anything\nbut HUMAN is a placement violation, however its `TaskNeeds` reads.",
         "enum": [
@@ -9446,6 +9484,108 @@
         ]
       }
     },
+    "/v1/devices/me/certificate/renew": {
+      "post": {
+        "operationId": "renew_own_certificate_v1_devices_me_certificate_renew_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewalBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CertificateView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Renew the calling device's own client certificate, within its last 30 days, from a request for its enrolled key; the one it replaces is revoked.",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "session",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
     "/v1/devices/{device_id}/capabilities": {
       "post": {
         "operationId": "regrant_device_v1_devices__device_id__capabilities_post",
@@ -9550,6 +9690,121 @@
           }
         ],
         "summary": "Replace what a device may do (loopback only, after step-up).",
+        "tags": [
+          "devices"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/devices/{device_id}/certificate": {
+      "post": {
+        "operationId": "reissue_device_certificate_v1_devices__device_id__certificate_post",
+        "parameters": [
+          {
+            "description": "The device's id.",
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "description": "The device's id.",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReissueBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovedDeviceView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Re-issue an approved device's client certificate (loopback only): for one approved while the Hive ran loopback only, or one whose certificate lapsed.",
         "tags": [
           "devices"
         ],

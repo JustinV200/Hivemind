@@ -44,7 +44,8 @@ Public API:
     - TunnelSupervisor, tunnel_environment: the supervised tunnel client.
     - HiveAuthority, load_or_create_authority, issue_client_certificate, issue_pkcs12,
       check_certificate_request, DeviceCertificate, DeviceBundle, build_crl, RevokedSerial,
-      server_context, ContextSwitch: mutual TLS (the rest via hivemind.entrance.expose.tls).
+      check_request_holds, server_context, ContextSwitch: mutual TLS (the rest via
+      hivemind.entrance.expose.tls).
     - ExposeError, ExposureRefusedError, CertificateAuthorityError, CertificateRequestError,
       CertificateIssueError: every refusal this package makes on purpose.
 """
@@ -99,6 +100,7 @@ from hivemind.entrance.expose.tls import (
     RevokedSerial,
     build_crl,
     check_certificate_request,
+    check_request_holds,
     issue_client_certificate,
     issue_pkcs12,
     load_or_create_authority,
@@ -136,6 +138,7 @@ __all__ = [
     "build_crl",
     "certificate_covers",
     "check_certificate_request",
+    "check_request_holds",
     "gather_facts",
     "host_platform",
     "is_dns_name",

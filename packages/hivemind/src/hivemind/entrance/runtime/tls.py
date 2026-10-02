@@ -6,11 +6,12 @@ is built inside a ``ContextSwitch`` whose ``listener_context`` uvicorn is starte
 ClientHello moves to the switch's current context, so a rebuilt one (with a fresh revocation
 list) reaches the next handshake without restarting the listener. ``RemoteTls`` builds the context
 with a fresh ``build_crl`` when the listener starts (a restart never serves a stale list), and
-rebuilds it after every revocation and every expiry sweep. The revoked serials come from a
-``RevokedSerials`` source; ``StoredSerials`` reads them from the Entrance tables at every build:
-the certificate of every device that no longer stands (anything but APPROVED or LOCKED), dated
-when its certificate was withdrawn. A LOCKED device keeps its certificate, since unlocking
-restores it; login is the gate that keeps a locked device out.
+rebuilds it after every revocation, renewal, re-issue and expiry sweep. The revoked serials come
+from a ``RevokedSerials`` source; ``StoredSerials`` reads them from the Entrance tables at every
+build: the certificate of every device that no longer stands (anything but APPROVED or LOCKED),
+dated when its certificate was withdrawn, and every certificate a renewal or re-issue replaced
+(``revoked_serials``, ADR-0058), whatever the device's standing. A LOCKED device keeps its
+certificate, since unlocking restores it; login is the gate that keeps a locked device out.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.runtime``. Used by the
@@ -21,7 +22,8 @@ Key invariants:
     - The listener is always started with ``ContextSwitch.listener_context``, never another.
     - A failed rebuild leaves the current context in place.
     - Every certificate of a device that left its approval is on every list built after it left,
-      whether or not the flow that moved it marked the certificate withdrawn.
+      whether or not the flow that moved it marked the certificate withdrawn; every certificate
+      a device was moved off is on every list built after, until it expires.
 
 See Also:
     - hivemind.entrance.expose.tls for the context, the switch and the list.
@@ -52,7 +54,7 @@ _STANDING = frozenset({DeviceStatus.APPROVED, DeviceStatus.LOCKED})
 
 log = get_logger(__name__)
 
-__all__ = ["RemoteTls", "RevokedSerials", "StoredSerials", "revoked_serial"]
+__all__ = ["RemoteTls", "RevokedSerials", "StoredSerials", "revoked_serial", "revoked_serials"]
 
 
 class RevokedSerials(Protocol):
@@ -79,14 +81,33 @@ class StoredSerials:
         self._store = store
 
     async def revoked(self) -> Iterable[RevokedSerial]:
-        """Return the certificate of every device that no longer stands.
+        """Return every certificate no longer honoured: departed devices' and replaced ones.
 
         Returns:
             One entry per withdrawn certificate.
         """
         # Latency: one local read of every device row; a Hive holds a handful of devices.
         devices = await self._store.list_devices()
-        return tuple(serial for device in devices if (serial := revoked_serial(device)) is not None)
+        return tuple(serial for device in devices for serial in revoked_serials(device))
+
+
+def revoked_serials(device: EnrolledDevice) -> tuple[RevokedSerial, ...]:
+    """Name every certificate of the device's no longer honoured, the replaced ones included.
+
+    Args:
+        device: One device record.
+
+    Returns:
+        ``revoked_serial``'s answer, if any, and each superseded certificate, dated when it was
+        withdrawn (ADR-0058: a renewal or re-issue withdraws what it replaces at once).
+    """
+    current = revoked_serial(device)
+    replaced = tuple(
+        RevokedSerial(serial=int(old.serial, 16), revoked_at=old.revoked_at)
+        for old in device.superseded_certificates
+        if old.revoked_at is not None  # Always set (the model's own rule); narrows the type.
+    )
+    return replaced if current is None else (*replaced, current)
 
 
 def revoked_serial(device: EnrolledDevice) -> RevokedSerial | None:

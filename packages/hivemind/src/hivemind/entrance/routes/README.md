@@ -50,6 +50,8 @@ own session.
 | POST | /v1/devices/{device_id}/unlock | L | entrance:steward | door |
 | POST | /v1/devices/{device_id}/revoke | L | entrance:steward | door |
 | POST | /v1/devices/{device_id}/capabilities | L | entrance:steward, step-up | door |
+| POST | /v1/devices/me/certificate/renew | L+R | session (an Ed25519 device, its own key) | session |
+| POST | /v1/devices/{device_id}/certificate | L | entrance:steward | door |
 | POST | /v1/goals | L+R | entrance:submit (step-up above `step_up_spend` or the daily cap) | inbox |
 | GET | /v1/goals/{request_id} | L+R | entrance:submit | read |
 | POST | /v1/goals/{request_id}/confirm | L+R | entrance:submit | inbox |

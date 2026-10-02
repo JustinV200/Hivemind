@@ -97,6 +97,7 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("guard.entrance_denied", P.ENTRANCE_ROUTE),
     ("guard.entrance_unlocked", P.ENTRANCE_ROUTE),
     ("guard.entrance_revoked", P.ENTRANCE_ROUTE),
+    ("guard.entrance_certificate_issued", P.ENTRANCE_ROUTE),  # Renewed, or re-issued on loopback.
     ("guard.entrance_login", P.ENTRANCE_ROUTE),  # The login route opened a session.
     ("guard.entrance_confirmed", P.ENTRANCE_ROUTE),  # A held request carried out after step-up.
     ("cell.isolated", P.ISOLATION),

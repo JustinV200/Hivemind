@@ -36,6 +36,7 @@ console). DENIED, EXPIRED and REVOKED are terminal.
 | `redeem.py` | `passkey_options`, `redeem_ed25519`, `redeem_passkey`: INVITED to PENDING, the invite spent in the same atomic step; every refusal is one `EnrolmentRefusedError` and a `guard.entrance_redeem_failed` event naming the address and a reason category. |
 | `decisions.py` | `ApprovalRequest`, `approve` (name, capabilities within the `device` ceiling or the proposed set, daily spend cap, expiry, interactivity), `deny`. |
 | `standing.py` | `revoke` (refuses the device's goal requests not planned yet, lists its open goals, cancels them when asked, names those left running), `lock`, `unlock`, `expire_due`. The console is never revoked or expired here. |
+| `certificates/` | `issuing`: `CertificateRecord`, `DeviceCertifier` (signs from a request, a renewal only for the device's own key, or seals a browser's bundle), `withdrawn`. `renewal` (ADR-0058): `renew_certificate` (an approved program, in its certificate's last 30 days) and `reissue_certificate` (the operator, on loopback); what they replace is withdrawn in the same step and kept in `superseded_certificates` until it expires. |
 | `grants.py` | The pure rules: `approval_grant` (the device ceiling), `steward_grant` (a steward's own set within the ceiling, never `entrance:steward`). |
 
 ## The seams later steps implement

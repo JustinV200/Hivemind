@@ -47,6 +47,7 @@ from typing import Unpack
 from hivemind.common.errors import MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.common.sqlite import ConnectionThread, transaction
+from hivemind.entrance.enrol.certificates import CertificateChange
 from hivemind.entrance.enrol.models import DeviceInvite, EnrolledDevice, OperatorCredential
 from hivemind.entrance.enrol.state import DeviceStatus
 from hivemind.entrance.errors import (
@@ -64,9 +65,11 @@ from hivemind.entrance.store.protocol import (
     DeviceChanges,
     GrantChanges,
     apply_login,
+    check_certificate_change,
     check_grant_change,
     check_new_device,
     check_status_change,
+    recertify_device,
     regrant_device,
     transition_device,
     use_invite,
@@ -270,6 +273,16 @@ class SqliteEntranceStore:
             # Blocking: one read, one write and one event insert in one transaction.
             return await self._thread.run(_rewrite, self._connection, device_id, apply, event)
 
+    async def update_device_certificate(
+        self, device_id: DeviceId, event: GuardEvent, change: CertificateChange
+    ) -> EnrolledDevice:
+        """Re-certify an approved device; see EntranceStore.update_device_certificate."""
+        check_certificate_change(device_id, event)
+        apply = partial(recertify_device, change=change)
+        async with self._lock:
+            # Blocking: one read, one write and one event insert in one transaction.
+            return await self._thread.run(_rewrite, self._connection, device_id, apply, event)
+
     async def put_invite(self, invite: DeviceInvite) -> None:
         """Record an invite for an INVITED device; see EntranceStore.put_invite."""
         async with self._lock:
@@ -305,11 +318,10 @@ class SqliteEntranceStore:
         self, device_id: DeviceId, at: datetime, network: str | None, sign_count: int | None
     ) -> EnrolledDevice:
         """Record a successful login on its device; see EntranceStore.record_login."""
+        apply = partial(apply_login, at=at, network=network, sign_count=sign_count)
         async with self._lock:
-            # Blocking: one read and one write in one transaction.
-            return await self._thread.run(
-                _login, self._connection, device_id, (at, network), sign_count
-            )
+            # Blocking: one read and one write in one transaction; a login records no event.
+            return await self._thread.run(_rewrite, self._connection, device_id, apply, None)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -400,14 +412,18 @@ def _rewrite(
     connection: sqlite3.Connection,
     device_id: DeviceId,
     apply: Callable[[EnrolledDevice], EnrolledDevice],
-    event: GuardEvent,
+    event: GuardEvent | None,
 ) -> EnrolledDevice:
-    """Re-read a device, apply one rule to it, and write the result and its event together."""
+    """Re-read a device, apply one rule to it, and write the result and its event together.
+
+    ``event`` is None only for a login, the one device write the trail does not record.
+    """
     with transaction(connection):
         row = _device_row(connection, device_id)
         updated = apply(EnrolledDevice.model_validate_json(row["body"]))
         connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), device_id))
-        insert_event(connection, event)
+        if event is not None:
+            insert_event(connection, event)
         return updated
 
 
@@ -453,23 +469,6 @@ def _redeem(
         connection.execute(_UPDATE_INVITE_SQL, (_body(used), code_hash))
         connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), updated.id))
         insert_event(connection, event)
-        return updated
-
-
-def _login(
-    connection: sqlite3.Connection,
-    device_id: DeviceId,
-    seen: tuple[datetime, str | None],
-    sign_count: int | None,
-) -> EnrolledDevice:
-    """Re-read the device, apply the login rule, and write the result (its status unchanged)."""
-    at, network = seen
-    with transaction(connection):
-        row = _device_row(connection, device_id)
-        updated = apply_login(
-            EnrolledDevice.model_validate_json(row["body"]), at, network, sign_count
-        )
-        connection.execute(_UPDATE_DEVICE_SQL, (updated.status.value, _body(updated), device_id))
         return updated
 
 
