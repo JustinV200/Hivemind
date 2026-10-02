@@ -293,6 +293,7 @@ def make_gui_context(
     *,
     display: DisplaySource = DisplaySource.LEASE,
     gate: Callable[[GateDeps], CappingGate] = CappingGate,
+    private_loopback: bool = False,
     **overrides: object,
 ) -> WorkerContext:
     """Build a WorkerContext with an Exoskeleton attached, over a real gate with a real surface.
@@ -303,6 +304,8 @@ def make_gui_context(
         display: Where the display came from, which decides desktop input's tier.
         gate: Builds the gate from its deps; a CappingGate subclass scripts an outcome the real
             gate cannot reach alone (a judge's review).
+        private_loopback: Whether the Cell's loopback is its own (a Virtual Cell's), so a
+            loopback page stays in the lease (ADR-0058); False, a Real Cell's, as attach defaults.
         **overrides: WorkerContext fields, as for `make_context`; a given `session`, `cell` or
             `trail` is shared with the gate and the handle.
 
@@ -327,7 +330,9 @@ def make_gui_context(
         "cell": cell,
         "session": session,
         "capping": gate(deps),
-        "exoskeleton": _gui_handle(peripherals, display, session, exoskeleton_trail),
+        "exoskeleton": _gui_handle(
+            peripherals, display, session, exoskeleton_trail, private_loopback=private_loopback
+        ),
         "capabilities": CapabilitySet.parse(*GUI_GRANTS),
     }
     fields.update(overrides)
@@ -365,6 +370,8 @@ def _gui_handle(
     display: DisplaySource,
     session: FakeSession,
     trail: ExoskeletonTrail,
+    *,
+    private_loopback: bool,
 ) -> ExoskeletonHandle:
     """Build the handle attach would return for `peripherals`, having started nothing itself."""
     plan = AttachPlan(
@@ -377,6 +384,7 @@ def _gui_handle(
         _session=session,
         _processes=(),
         _trail=trail,
+        private_loopback=private_loopback,
     )
 
 

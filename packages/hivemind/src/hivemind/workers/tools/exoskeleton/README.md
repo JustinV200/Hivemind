@@ -23,15 +23,15 @@ model call ──> tool ──> GuiStep(s) + expect ──> proposals.cap ──
 | Tool | Arguments | Proposes | Tier |
 |---|---|---|---|
 | `see` | `region?` ("x,y,w,h") | no; returns the frame as an image | read-only; offered only with `vision` |
-| `click` | `x`, `y`, `button?` (left/middle/right), `double?` | CLICK or DOUBLE_CLICK | display started by the lease: `scratch_write`; the operator's running display: `device_command` |
+| `click` | `x`, `y`, `button?` (left/middle/right), `double?` | CLICK or DOUBLE_CLICK | display started by the lease: `scratch_write`, raised to the page's tier while the lease's browser is shown on it; the operator's running display: `device_command` |
 | `move` | `x`, `y` | MOVE | as `click` |
 | `type` | `text`, `secret?` | TYPE | as `click` |
-| `press` | `keys` ("ctrl+s", "Return") | PRESS | as `click` |
+| `press` | `keys` ("ctrl+s", "Return") | PRESS | as `click`; while the lease's browser is on the display, a chord that opens its DevTools, Save As, Open File or Print is refused |
 | `scroll` | `dx?`, `dy?`, `x?`+`y?` | SCROLL | as `click` |
-| `browser_navigate` | `url` (http, https, about:blank, or a file inside scratch) | NAVIGATE | the destination: a file inside the lease's scratch, about:blank or a loopback host is `scratch_write`; any other page `network_egress` (and the gate wants `net:<host>`); a file URL anywhere else is refused before it is proposed |
+| `browser_navigate` | `url` (http, https, about:blank, or a file inside scratch) | NAVIGATE | the destination: a file inside the lease's scratch, about:blank, or a loopback host where the Cell's loopback is private (a Virtual Cell), is `scratch_write`; any other page `network_egress` (and the gate wants `net:<host>`, or `net:loopback` for a loopback host); a file URL anywhere else is refused before it is proposed |
 | `browser_click` | `target` | BROWSER_CLICK | the page shown now, by the same rule |
 | `browser_fill` | `target`, `text`, `secret?` | BROWSER_FILL | the page shown now |
-| `browser_press` | `keys`, `target?` | BROWSER_PRESS | the page shown now |
+| `browser_press` | `keys`, `target?` | BROWSER_PRESS | the page shown now; a chord that opens the browser's own DevTools or a file dialog is refused |
 | `browser_snapshot` | none | no; URL, title and accessibility tree | read-only |
 | `browser_read` | `target?` | no; the element's text, else the page's | read-only |
 | `browser_screenshot` | none | no; returns the viewport as an image | read-only; offered only with `vision` |
@@ -56,8 +56,18 @@ may open only files inside the lease's scratch (the bee's own pages). Three laye
 all asking `hivemind.guard.file_urls` the same lexical question: `browser_navigate` refuses any
 other file URL before proposing it; the gate's allowlist rung refuses one that reaches it anyway
 (it is tiered `outside_scratch_write`, so the rung runs); and the browser itself refuses it, the
-real one through a route that also resolves symlinks and covers links, frames and every other file
-request a page makes (`hivemind.exoskeleton.browser.playwright.guard`).
+real one through a route that also resolves symlinks, refuses a hard-linked file, and covers links,
+frames and every other file request a page makes (`hivemind.exoskeleton.browser.playwright.guard`).
+
+The browser is held to the bee's `net` scopes the same way (ADR-0058): `browser_navigate` is tiered
+by its destination and the gate wants `net:<host>`, and the browser's own route refuses every web
+request a page makes (a clicked link, a script's fetch, an image) to a host no `net` scope covers,
+putting each refusal on the trail as `cell.browser_blocked`. On a Real Cell loopback is the
+operator's own services, the Hive Stand's listener included, so it needs `net:loopback` by name; on
+a Virtual Cell it is the container's own and stays in the lease. Desktop input lands in the
+browser's window like a person's would, so it is tiered at least as the page shown, and the chords
+that open DevTools or a file dialog are refused; inside the browser, the profile refuses every file
+dialog and DevTools is closed the moment it opens.
 
 A `target` names one element exactly one way: `{"role", "name"?}` (preferred: what
 `browser_snapshot` shows), `{"label"}`, `{"text"}` or `{"selector"}`.

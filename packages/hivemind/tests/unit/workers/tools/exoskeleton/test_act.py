@@ -43,11 +43,6 @@ _SCRATCH = Path("/home/bee/scratch")  # The lease scratch every file URL here is
         ("about:blank", RiskTier.SCRATCH_WRITE),
         ("file:///home/bee/scratch/site/login.html", RiskTier.SCRATCH_WRITE),
         ("file://localhost/home/bee/scratch/site/login.html", RiskTier.SCRATCH_WRITE),
-        ("http://127.0.0.1:8000/login", RiskTier.SCRATCH_WRITE),
-        ("http://127.8.9.10/", RiskTier.SCRATCH_WRITE),
-        ("https://localhost:8443/", RiskTier.SCRATCH_WRITE),
-        ("http://app.localhost/", RiskTier.SCRATCH_WRITE),
-        ("http://[::1]:8000/", RiskTier.SCRATCH_WRITE),
         ("https://fixture.test/login", RiskTier.NETWORK_EGRESS),
         ("http://10.0.0.7/", RiskTier.NETWORK_EGRESS),
         ("file:///home/bee/.ssh/id_rsa", RiskTier.OUTSIDE_SCRATCH_WRITE),
@@ -61,6 +56,29 @@ def test_page_reach_keeps_only_pages_in_the_lease_at_scratch_write(
     url: str, tier: RiskTier
 ) -> None:
     assert page_reach(url, _SCRATCH) is tier
+    assert page_reach(url, _SCRATCH, private_loopback=True) is tier  # No loopback here.
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8000/login",
+        "http://127.8.9.10/",
+        "https://localhost:8443/",
+        "http://app.localhost/",
+        "http://[::1]:8000/",
+        "http://[::ffff:127.0.0.1]/",
+    ],
+)
+def test_a_loopback_page_stays_in_the_lease_only_where_the_cells_loopback_is_private(
+    url: str,
+) -> None:
+    # Arrange: a Virtual Cell's loopback is its container's; a Real Cell's is the operator's.
+    private = page_reach(url, _SCRATCH, private_loopback=True)
+    shared = page_reach(url, _SCRATCH)
+
+    assert private is RiskTier.SCRATCH_WRITE
+    assert shared is RiskTier.NETWORK_EGRESS  # The allowlist rung then needs net:loopback.
 
 
 @pytest.mark.parametrize(

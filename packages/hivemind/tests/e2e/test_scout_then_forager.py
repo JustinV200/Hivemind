@@ -42,7 +42,7 @@ from e2e.kernel_helpers import (
 )
 
 from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal
-from hivemind.cell import CellKind, HoneyClearance
+from hivemind.cell import AccessLevel, CellKind, HoneyClearance
 from hivemind.exoskeleton.browser.fake import (
     LOGIN_HEADING,
     LOGIN_PASSWORD,
@@ -62,11 +62,13 @@ from waggle.messages.task import SCOUT_REPORT_FILE
 
 pytestmark = pytest.mark.e2e
 
-_ORIGIN = "http://127.0.0.1:8000"  # A loopback origin: the fake site stays on the Cell.
+_ORIGIN = "http://127.0.0.1:8000"  # A loopback origin on the Hive Stand: needs net:loopback.
 _FORM_TARGET = f"{_ORIGIN}/login"  # What the Scout reports; the Forager must see it in its brief.
 _FORM_FINDING = "The login form has a Username field, a Password field and a Log in button."
 _TIMEOUT_S = 15.0  # Both tasks finish in well under a second; this bounds a hung dispatch.
-_BROWSER_NEED = {"exoskeleton": True, "browser_only": True}
+# The fake site is served on the Real Cell's own loopback, the operator's services, so the plan
+# grants it by name (ADR-0058).
+_BROWSER_NEED = {"exoskeleton": True, "browser_only": True, "network_scopes": ["loopback"]}
 _GREETING = ElementTarget(role="heading", name=WELCOME_HEADING)
 
 Turn = Callable[[LLMRequest], LLMResponse]
@@ -177,8 +179,11 @@ async def _pair(worker: Turn) -> ClusterPair:
     """Wire a real Queen and Warden over a fake-site browser, scripted with `worker`."""
     clock = SystemClock()
     script = HaikuScript(worker, plan=_plan(""))
-    capabilities = make_capabilities(has_browser=True)
-    cell = make_cell(kind=CellKind.REAL, clock=clock, capabilities=capabilities)
+    capabilities = make_capabilities(has_browser=True, network_scopes=("loopback",))
+    # FULL: a SCRATCH lease grants no network at all, and the site is on the operator's loopback.
+    cell = make_cell(
+        kind=CellKind.REAL, clock=clock, capabilities=capabilities, access_level=AccessLevel.FULL
+    )
     overrides = {
         "browser_launcher": FakeBrowserLauncher(login_site(_ORIGIN), clock),
         "recording_store": InMemoryRecordingStore(),

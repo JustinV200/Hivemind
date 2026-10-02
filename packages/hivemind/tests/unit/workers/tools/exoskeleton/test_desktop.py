@@ -22,6 +22,7 @@ from builders.workers import make_gui_context, proposals_of, run_tool
 
 from hivemind.exoskeleton import DisplaySource, Peripherals, Region, ScreenSize
 from hivemind.exoskeleton.antennae import FakeAntennae, InputEvent, InputKind
+from hivemind.exoskeleton.browser.fake import FIXTURE_ORIGIN, FakeBrowser, login_site
 from hivemind.exoskeleton.compound_eye import FakeCompoundEye, FakeScreen
 from hivemind.llm import JsonObject
 from hivemind.supervision.capping import Proposal, ProposalState, RiskTier
@@ -40,12 +41,16 @@ _SECRET = "correct-horse-battery"  # noqa: S105 -- a probe value, never a real c
 class _Desk:
     """A fake display whose button turns green when a click lands on it, and a context over it."""
 
-    def __init__(self, display: DisplaySource = DisplaySource.LEASE) -> None:
+    def __init__(
+        self, display: DisplaySource = DisplaySource.LEASE, browser: FakeBrowser | None = None
+    ) -> None:
         self.clock = FakeClock()
         self.screen = FakeScreen(_SIZE)
         self.antennae = FakeAntennae(_SIZE, on_input=self._react)
         peripherals = Peripherals(
-            compound_eye=FakeCompoundEye(self.screen, self.clock), antennae=self.antennae
+            compound_eye=FakeCompoundEye(self.screen, self.clock),
+            antennae=self.antennae,
+            browser=browser,
         )
         self.ctx: WorkerContext = make_gui_context(peripherals, self.clock, display=display)
 
@@ -178,6 +183,40 @@ async def test_press_proposes_the_chord_and_refuses_one_outside_the_key_pattern(
 
     assert (await desk.only_proposal()).action.gui == (GuiStep(op=GuiOp.PRESS, keys="ctrl+s"),)
     assert "keys" in refused.text and "pattern" in refused.text
+
+
+@pytest.mark.parametrize("keys", ["F12", "ctrl+shift+i", "ctrl+s", "ctrl+o", "ctrl+p"])
+async def test_press_refuses_a_browser_window_chord_while_the_browser_is_on_screen(
+    keys: str,
+) -> None:
+    # Arrange: the lease's browser is headed on this display, so focus may be its window.
+    desk = _Desk(browser=FakeBrowser(login_site(), FakeClock()))
+
+    refused = await desk.call("press", {"keys": keys})
+
+    assert "which a lease never uses" in refused.text
+    assert await proposals_of(desk.ctx) == []
+
+
+async def test_input_over_the_browser_takes_the_tier_of_the_page_it_shows() -> None:
+    # Arrange: the browser on screen shows a page off the Cell (ADR-0058).
+    browser = FakeBrowser(login_site(), FakeClock())
+    desk = _Desk(browser=browser)
+    await desk.call("click", {"x": 20, "y": 15})  # On about:blank: stays in the lease.
+    await browser.navigate(f"{FIXTURE_ORIGIN}/login")
+
+    await desk.call("click", {"x": 20, "y": 15})
+
+    tiers = [proposal.risk_tier for proposal in await proposals_of(desk.ctx)]
+    assert tiers == [RiskTier.SCRATCH_WRITE, RiskTier.NETWORK_EGRESS]
+
+
+async def test_input_on_the_operators_display_keeps_its_higher_tier_over_any_page() -> None:
+    desk = _Desk(DisplaySource.RUNNING, browser=FakeBrowser(login_site(), FakeClock()))
+
+    await desk.call("click", {"x": 20, "y": 15})
+
+    assert (await desk.only_proposal()).risk_tier is RiskTier.DEVICE_COMMAND
 
 
 async def test_scroll_drops_a_zero_axis_and_positions_the_pointer_when_asked() -> None:

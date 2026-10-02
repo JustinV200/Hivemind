@@ -5,20 +5,24 @@ attached for this task. Each tool here turns one call into one typed waggle `Gui
 it through `act` (roadmap step 6.5, ADR-0032): the Capping gate applies it through the attached
 Exoskeleton, verifies the call's `expect`, and rolls it back and raises an Alarm when that fails.
 The tier comes from the display: `scratch_write` on one the lease started, `device_command` on the
-operator's own. A point that leaves the screen is refused here when the display's size is known,
-before anything is proposed, since a step that fails at apply time also raises an Alarm. Typed
-text travels only inside its step; no result, reason or error here repeats it.
+operator's own, raised to the page's own tier while the lease's browser is shown on it, since
+input lands in that window like a person's would (ADR-0058). For the same reason a key chord that
+opens the browser's own DevTools, Save As, Open File or Print is refused while the browser is on
+screen. A point that leaves the screen is refused here when the display's size is known, before
+anything is proposed, since a step that fails at apply time also raises an Alarm. Typed text
+travels only inside its step; no result, reason or error here repeats it.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools.exoskeleton`. Offered by
     `offer.exoskeleton_specs` whenever the Antennae are attached. Calls into `hivemind.exoskeleton`
-    (Point), `hivemind.llm`, this package's `act`, `arguments` and `errors`,
+    (Point, the chord rule), `hivemind.llm`, this package's `act`, `arguments` and `errors`,
     `hivemind.workers.tools.registry` and waggle's GUI step models only.
 
 Key invariants:
     - Every call proposes exactly one GUI step; nothing here touches the Antennae directly.
     - A result never contains typed text: it is the gate's outcome, rendered by
       `hivemind.workers.tools.proposals.tool_output`.
+    - No chord that opens one of the browser's own windows is proposed while it is on screen.
 
 See Also:
     - hivemind.workers.tools.exoskeleton.act for the proposal every tool here makes.
@@ -28,9 +32,16 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.exoskeleton import ExoskeletonHandle, Point
+from hivemind.exoskeleton import DisplaySource, ExoskeletonHandle, Point
 from hivemind.llm import JsonObject
-from hivemind.workers.tools.exoskeleton.act import GuiAction, act, attached, desktop_reach, need
+from hivemind.workers.tools.exoskeleton.act import (
+    GuiAction,
+    act,
+    attached,
+    desktop_input_reach,
+    need,
+    refuse_chrome_chord,
+)
 from hivemind.workers.tools.exoskeleton.arguments import (
     action_definition,
     build_step,
@@ -41,7 +52,7 @@ from hivemind.workers.tools.exoskeleton.arguments import (
 )
 from hivemind.workers.tools.exoskeleton.errors import GuiArgumentError
 from hivemind.workers.tools.registry import ToolInvocation, ToolOutput, ToolSpec
-from waggle.messages.capping import GuiOp, MouseButton
+from waggle.messages.capping import GuiOp, GuiStep, MouseButton
 
 # One coordinate, as every desktop tool takes it: display pixels, (0, 0) at the top left.
 _PIXEL: JsonObject = {"type": "integer", "description": "Screen pixels from the top-left corner."}
@@ -129,7 +140,7 @@ async def click(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput
     op = GuiOp.DOUBLE_CLICK if flag(arguments, "double") else GuiOp.CLICK
     button = _button(arguments)
     step = build_step({"op": op, "x": point.x, "y": point.y, "button": button})
-    return await act(invocation, GuiAction("click", (step,), desktop_reach(handle), arguments))
+    return await _propose(invocation, handle, "click", step, arguments)
 
 
 async def move(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput:
@@ -137,7 +148,7 @@ async def move(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput:
     handle = _input(invocation)
     point = _point(handle, required_int(arguments, "x"), required_int(arguments, "y"))
     step = build_step({"op": GuiOp.MOVE, "x": point.x, "y": point.y})
-    return await act(invocation, GuiAction("move", (step,), desktop_reach(handle), arguments))
+    return await _propose(invocation, handle, "move", step, arguments)
 
 
 async def type_text(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput:
@@ -149,14 +160,21 @@ async def type_text(invocation: ToolInvocation, arguments: JsonObject) -> ToolOu
     handle = _input(invocation)
     text = required_text(arguments, "text")
     step = build_step({"op": GuiOp.TYPE, "text": text, "secret": flag(arguments, "secret")})
-    return await act(invocation, GuiAction("type", (step,), desktop_reach(handle), arguments))
+    return await _propose(invocation, handle, "type", step, arguments)
 
 
 async def press(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput:
-    """Propose pressing one key chord; GuiStep holds it to waggle's KEYS_PATTERN."""
+    """Propose pressing one key chord; GuiStep holds it to waggle's KEYS_PATTERN.
+
+    While the lease's browser is shown on the display, a chord that opens its DevTools or a file
+    dialog is refused (`act.refuse_chrome_chord`): the window under focus may be the browser's.
+    """
     handle = _input(invocation)
-    step = build_step({"op": GuiOp.PRESS, "keys": required_text(arguments, "keys")})
-    return await act(invocation, GuiAction("press", (step,), desktop_reach(handle), arguments))
+    keys = required_text(arguments, "keys")
+    if handle.peripherals.browser is not None and handle.plan.display is not DisplaySource.NONE:
+        refuse_chrome_chord(keys)
+    step = build_step({"op": GuiOp.PRESS, "keys": keys})
+    return await _propose(invocation, handle, "press", step, arguments)
 
 
 async def scroll(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutput:
@@ -175,7 +193,7 @@ async def scroll(invocation: ToolInvocation, arguments: JsonObject) -> ToolOutpu
         point = _point(handle, x, y)
         fields.update(x=point.x, y=point.y)
     step = build_step(fields)
-    return await act(invocation, GuiAction("scroll", (step,), desktop_reach(handle), arguments))
+    return await _propose(invocation, handle, "scroll", step, arguments)
 
 
 CLICK_SPEC = ToolSpec(definition=CLICK_DEFINITION, run=click)
@@ -183,6 +201,18 @@ MOVE_SPEC = ToolSpec(definition=MOVE_DEFINITION, run=move)
 TYPE_SPEC = ToolSpec(definition=TYPE_DEFINITION, run=type_text)
 PRESS_SPEC = ToolSpec(definition=PRESS_DEFINITION, run=press)
 SCROLL_SPEC = ToolSpec(definition=SCROLL_DEFINITION, run=scroll)
+
+
+async def _propose(
+    invocation: ToolInvocation,
+    handle: ExoskeletonHandle,
+    tool: str,
+    step: GuiStep,
+    arguments: JsonObject,
+) -> ToolOutput:
+    """Propose `step` at desktop input's reach: the display's, or the shown page's if higher."""
+    reach = await desktop_input_reach(handle, invocation.ctx.session.scratch_dir)
+    return await act(invocation, GuiAction(tool, (step,), reach, arguments))
 
 
 def _input(invocation: ToolInvocation) -> ExoskeletonHandle:

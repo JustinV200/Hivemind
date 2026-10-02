@@ -41,7 +41,9 @@ from waggle.messages.capping import ElementTarget, GuiOp, GuiStep
 from waggle.messages.labels import PostconditionKind
 from waggle.messages.supervision import AlarmKind
 
-_LOOPBACK = "http://127.0.0.1:8000"  # The fixture site served on this machine: stays on the Cell.
+# The fixture site served on the Cell's own loopback; it stays in the lease where that loopback is
+# private (a Virtual Cell's container), which `_Session` models unless told otherwise.
+_LOOPBACK = "http://127.0.0.1:8000"
 _USERNAME: JsonObject = {"label": "Username"}
 _PASSWORD: JsonObject = {"label": "Password"}
 _LOG_IN: JsonObject = {"role": "button", "name": "Log in"}
@@ -50,15 +52,23 @@ _LOG_IN: JsonObject = {"role": "button", "name": "Log in"}
 class _Session:
     """The fake browser on the fixture login site, and a context driving it."""
 
-    def __init__(self, origin: str = _LOOPBACK, grants: CapabilitySet | None = None) -> None:
+    def __init__(
+        self,
+        origin: str = _LOOPBACK,
+        grants: CapabilitySet | None = None,
+        *,
+        private_loopback: bool = True,
+    ) -> None:
         clock = FakeClock()
         self.origin = origin
         self.browser = FakeBrowser(login_site(origin), clock)
         peripherals = Peripherals(browser=self.browser)
         self.ctx: WorkerContext = (
-            make_gui_context(peripherals, clock)
+            make_gui_context(peripherals, clock, private_loopback=private_loopback)
             if grants is None
-            else make_gui_context(peripherals, clock, capabilities=grants)
+            else make_gui_context(
+                peripherals, clock, private_loopback=private_loopback, capabilities=grants
+            )
         )
 
     async def call(self, name: str, arguments: JsonObject) -> ToolOutput:
@@ -86,6 +96,32 @@ async def test_navigate_to_a_loopback_page_is_a_scratch_write_navigate_step() ->
     assert proposal.action.gui == (GuiStep(op=GuiOp.NAVIGATE, url=f"{_LOOPBACK}/login"),)
     assert proposal.risk_tier is RiskTier.SCRATCH_WRITE
     assert await session.browser.url() == f"{_LOOPBACK}/login"
+
+
+async def test_a_loopback_page_on_a_real_cell_is_network_egress_and_needs_net_loopback() -> None:
+    # Arrange: a Real Cell's loopback is the operator's own services (ADR-0058).
+    held = ("exoskeleton:browser", "tool:*")
+    without = _Session(grants=CapabilitySet.parse(*held), private_loopback=False)
+    holding = _Session(grants=CapabilitySet.parse(*held, "net:loopback"), private_loopback=False)
+
+    refused = await without.call("browser_navigate", {"url": f"{_LOOPBACK}/login"})
+    allowed = await holding.call("browser_navigate", {"url": f"{_LOOPBACK}/login"})
+
+    assert (await without.last_proposal()).risk_tier is RiskTier.NETWORK_EGRESS
+    assert "net:loopback" in refused.text
+    assert await without.browser.url() == "about:blank"
+    assert allowed.text.startswith("state=VERIFIED")
+    assert (await holding.last_proposal()).risk_tier is RiskTier.NETWORK_EGRESS
+
+
+async def test_press_refuses_a_chord_that_opens_the_browsers_own_windows() -> None:
+    session = _Session()
+
+    for keys in ("F12", "ctrl+shift+i", "ctrl+s", "ctrl+o", "ctrl+p", "cmd+alt+j"):
+        result = await session.call("browser_press", {"keys": keys})
+        assert "which a lease never uses" in result.text
+
+    assert not await proposals_of(session.ctx)
 
 
 async def test_navigate_to_a_file_outside_scratch_is_refused_before_any_proposal() -> None:

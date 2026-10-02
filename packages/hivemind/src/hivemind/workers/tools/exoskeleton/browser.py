@@ -7,17 +7,19 @@ named by role and name, label, visible text or CSS selector. Each tool here turn
 one typed waggle `GuiStep` and proposes it through `act` (ADR-0032), where the Capping gate applies
 it, verifies the call's `expect`, and rolls the page back (URL, cookies, local storage) and raises
 an Alarm when that fails. The tier comes from the page: one that stays in the lease (a file inside
-its scratch, about:blank, a loopback host) is `scratch_write`, any other `network_egress`; a
-navigation takes its destination's, every other action the page shown now. A file URL anywhere
-else on the Cell is refused before it is proposed: a file URL reads the Cell's disk without the
-path rules `read_file` applies, so the browser may open only the bee's own pages in scratch, and
-the gate and the browser itself refuse the rest again. Filled text travels only in its step.
+its scratch, about:blank, a loopback host where the Cell's loopback is private) is
+`scratch_write`, any other `network_egress`; a navigation takes its destination's, every other
+action the page shown now. A file URL anywhere else on the Cell is refused before it is proposed:
+a file URL reads the Cell's disk without the path rules `read_file` applies, so the browser may
+open only the bee's own pages in scratch, and the gate and the browser itself refuse the rest
+again. A key chord that opens the browser's own DevTools or a file dialog is refused the same way
+(ADR-0058). Filled text travels only in its step.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools.exoskeleton`. Offered by
     `offer.exoskeleton_specs` whenever a browser is attached. Calls into `hivemind.exoskeleton`
-    (Browser), `hivemind.guard` (the file URL rule), `hivemind.llm`, this package's `act`,
-    `arguments` and `errors`,
+    (Browser), `hivemind.guard` (the file URL rule), `hivemind.llm`,
+    `hivemind.supervision.capping` (RiskTier), this package's `act`, `arguments` and `errors`,
     `hivemind.workers.tools.registry` and waggle's GUI step models only.
 
 Key invariants:
@@ -38,6 +40,7 @@ from __future__ import annotations
 from hivemind.exoskeleton import Browser
 from hivemind.guard import file_url_escapes
 from hivemind.llm import JsonObject
+from hivemind.supervision.capping import RiskTier
 from hivemind.workers.tools.exoskeleton.act import (
     GuiAction,
     act,
@@ -45,6 +48,7 @@ from hivemind.workers.tools.exoskeleton.act import (
     current_page_reach,
     need,
     page_reach,
+    refuse_chrome_chord,
 )
 from hivemind.workers.tools.exoskeleton.arguments import (
     TARGET_SCHEMA,
@@ -135,7 +139,7 @@ async def browser_navigate(invocation: ToolInvocation, arguments: JsonObject) ->
     if file_url_escapes(url, (scratch,)):
         raise GuiArgumentError(_OUTSIDE_SCRATCH)
     step = build_step({"op": GuiOp.NAVIGATE, "url": url})
-    reach = page_reach(url, scratch)
+    reach = page_reach(url, scratch, private_loopback=attached(invocation).private_loopback)
     return await act(invocation, GuiAction("browser_navigate", (step,), reach, arguments))
 
 
@@ -143,7 +147,7 @@ async def browser_click(invocation: ToolInvocation, arguments: JsonObject) -> To
     """Propose clicking the element `target` names; see `browser_navigate` for the rest."""
     browser = _browser(invocation)
     step = build_step({"op": GuiOp.BROWSER_CLICK, "target": target_from(arguments.get("target"))})
-    reach = await current_page_reach(browser, invocation.ctx.session.scratch_dir)
+    reach = await _page_reach(invocation, browser)
     return await act(invocation, GuiAction("browser_click", (step,), reach, arguments))
 
 
@@ -157,7 +161,7 @@ async def browser_fill(invocation: ToolInvocation, arguments: JsonObject) -> Too
         "secret": flag(arguments, "secret"),
     }
     step = build_step(fields)
-    reach = await current_page_reach(browser, invocation.ctx.session.scratch_dir)
+    reach = await _page_reach(invocation, browser)
     return await act(invocation, GuiAction("browser_fill", (step,), reach, arguments))
 
 
@@ -167,8 +171,10 @@ async def browser_press(invocation: ToolInvocation, arguments: JsonObject) -> To
     raw_target = arguments.get("target")
     target = None if raw_target is None else target_from(raw_target)
     keys = required_text(arguments, "keys")
+    # The page's keys can reach the browser's own shortcuts too (ADR-0058).
+    refuse_chrome_chord(keys)
     step = build_step({"op": GuiOp.BROWSER_PRESS, "keys": keys, "target": target})
-    reach = await current_page_reach(browser, invocation.ctx.session.scratch_dir)
+    reach = await _page_reach(invocation, browser)
     return await act(invocation, GuiAction("browser_press", (step,), reach, arguments))
 
 
@@ -181,3 +187,10 @@ BROWSER_PRESS_SPEC = ToolSpec(definition=BROWSER_PRESS_DEFINITION, run=browser_p
 def _browser(invocation: ToolInvocation) -> Browser:
     """Return this task's attached browser, or refuse the call when it has none."""
     return need(attached(invocation).peripherals.browser, "browser")
+
+
+async def _page_reach(invocation: ToolInvocation, browser: Browser) -> RiskTier:
+    """Return the reach of the page the browser shows, loopback judged as this Cell's is."""
+    loopback = attached(invocation).private_loopback
+    scratch = invocation.ctx.session.scratch_dir
+    return await current_page_reach(browser, scratch, private_loopback=loopback)
