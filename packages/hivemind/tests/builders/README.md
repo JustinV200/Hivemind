@@ -217,3 +217,12 @@ Queen's own memory, `taint` and `isolate` write what her trail would say, and `d
 standing isolation, above the task's clearance, a Night Veil Cell's) and `refused(site, case)`
 plants each, so the three paths that resume a task from a Handoff (a device taken back, a Warden
 renewed, Clustering's resume) are held to one list, each with nothing in her own memory first.
+## `orphan_browsers.py` (phase 6 handoff 4.5 item 7)
+
+`stop_orphaned_test_browsers`: kills the Chromium a killed earlier test run left behind. The
+hivemind suite's `conftest.py` calls it once per session, before the first test. It reads Linux's
+`/proc` only and finds nothing elsewhere, which matches where the real browser harnesses run. A
+process is stopped only when its executable is Chromium-family, an argument names a harness
+scratch directory (`/tmp/hm-...`), and no Python process is among its ancestors, so a concurrent
+run's browsers (descendants of its live pytest) are never touched. `orphaned_test_browsers` lists
+them without signalling anything.
