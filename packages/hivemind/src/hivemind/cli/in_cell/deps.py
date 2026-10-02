@@ -22,7 +22,7 @@ all recording `llm.call` to this Cell's own trail segment, which the trail sync 
 The Exoskeleton wiring (roadmap steps 6.4-6.6) comes from
 `hivemind.cli.compose.exoskeleton.in_cell_exoskeleton`: the default screen, Chromium without its
 own sandbox (the Cell is the sandbox), a browser launcher only where the browser extra is
-installed, unmetered ears when the Cell's slot table binds a transcriber, and an in-memory
+installed, ears on the Cell's own Fanner when its slot table binds a transcriber, and an in-memory
 recording store. The Cell's own resident Basket (roadmap phase 9) is a small store below its
 scratch root (`hivemind.cli.in_cell.basket`); the Warden is also given that store and the keys its
 link already holds, to sign and verify the blobs it ships. A Virtual Cell has no database file of
@@ -48,18 +48,18 @@ Key invariants:
     - `build_core_deps` is everything a Warden that dials the Queen from a Cell shares, and
       `build_in_cell_warden_deps` adds only what is a Virtual Cell's alone (the Queen-relayed
       snapshotter and the resident Basket) and its own Exoskeleton wiring (`in_cell_exoskeleton`,
-      which a colonized device's `device_exoskeleton` differs from in Chromium's sandbox and in
-      how long a recording is kept);
+      which a colonized device's `device_exoskeleton` differs from in Chromium's sandbox, in
+      how long a recording is kept and in its ears, which are unmetered there);
       `hivemind.cli.in_cell.borrowed` builds a colonized device's Warden from the same core, so
       the two cannot drift apart.
     - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
       `hivemind.cli.compose.deps.build_warden_deps` wires for the Hive Stand.
     - The gate has a JUDGE rung, and the Warden a model-backed judge, exactly when the Cell's slot
       table binds `ModelSlot.JUDGE`; without one, every JUDGE tier fails closed.
-    - `call_gate`, every `lane_for_grant` lane and every judge review's lane are lanes of one
-      Fanner per Cell, built the same way whichever provider registry was built (the fallback fake
-      one included): no model call in a Virtual Cell ever bypasses the seat meter or goes
-      unrecorded.
+    - `call_gate`, every `lane_for_grant` lane, every judge review's lane and the ears' gate all
+      draw on one Fanner per Cell, built the same way whichever provider registry was built (the
+      fallback fake one included): no model call in a Virtual Cell ever bypasses the seat meter
+      or goes unrecorded.
 
 See Also:
     - .claude/codingrules.md section 5.1 for "introduce a frozen dataclass for the argument group",
@@ -154,14 +154,14 @@ def build_in_cell_warden_deps(
     Returns:
         A WardenDeps ready for `hivemind.wardens.Warden(config.warden_id, deps)`.
     """
-    deps, registry = build_core_deps(config, source, queen_link, trail, clock)
+    deps, registry, fanner = build_core_deps(config, source, queen_link, trail, clock)
     # What only a Virtual Cell's Warden has (a device's, `hivemind.cli.in_cell.borrowed`, borrows
     # a machine that cannot be snapshotted and holds no Basket of the Hive's): the Hive's
     # snapshotter and its resident Basket. The Exoskeleton wiring of roadmap steps 6.4-6.6
     # (module docs) is this Cell's own: a device's differs in Chromium's sandbox and in how long
     # it keeps a recording.
     deps = _with_cell_extras(deps, config, queen_link, clock)
-    return in_cell_exoskeleton(registry, clock).apply(deps)
+    return in_cell_exoskeleton(registry, fanner, clock).apply(deps)
 
 
 def build_core_deps(
@@ -170,7 +170,7 @@ def build_core_deps(
     queen_link: Transport,
     trail: PheromoneTrail,
     clock: Clock,
-) -> tuple[WardenDeps, ProviderRegistry]:
+) -> tuple[WardenDeps, ProviderRegistry, Fanner]:
     """Build the WardenDeps every Warden that dials the Queen from a Cell shares.
 
     A Virtual Cell's Warden and a colonized device's (roadmap step 11.6a) differ in a few things
@@ -185,7 +185,8 @@ def build_core_deps(
         clock: Injected time source shared by every collaborator this composes.
 
     Returns:
-        The WardenDeps, and the provider registry its model door was built from.
+        The WardenDeps, the provider registry its model door was built from, and the Cell's one
+        Fanner, for a composer whose wiring meters more calls on it (the ears).
     """
     parts = _Parts(
         registry=build_in_cell_provider_registry(clock, config),
@@ -199,7 +200,7 @@ def build_core_deps(
     deps = _warden_deps(config, parts)
     deps = _with_trail_sync(deps, config, queen_link, trail, clock)
     routed = _routed(deps, config, parts.fanner, parts.registry)
-    return _with_judge(routed, parts.registry, parts.fanner), parts.registry
+    return _with_judge(routed, parts.registry, parts.fanner), parts.registry, parts.fanner
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest
+from builders.llm import make_fanner_deps
 from builders.recordings import RECORDING_START, make_recorded_action, make_recording_info
 from builders.wardens import make_warden_deps
 
@@ -54,6 +55,7 @@ from hivemind.forage.map import SlotBinding
 from hivemind.forage.slots import Effort
 from hivemind.llm import (
     DirectTranscriptionGate,
+    Fanner,
     FannerTranscriptionGate,
     ProviderConfig,
     ProviderRegistry,
@@ -161,12 +163,26 @@ def test_the_hive_stands_warden_is_equipped_by_build_hive(tmp_path: Path) -> Non
 def test_the_in_cell_wiring_keeps_recordings_in_memory_and_drops_chromiums_sandbox() -> None:
     clock = FakeClock()
 
-    wiring = in_cell_exoskeleton(_registry_without_a_transcriber(clock), clock)
+    wiring = in_cell_exoskeleton(
+        _registry_without_a_transcriber(clock), Fanner(make_fanner_deps(clock)), clock
+    )
 
     assert isinstance(wiring.recordings, InMemoryRecordingStore)
     assert wiring.config == ExoskeletonConfig(browser_sandbox=False)
     assert wiring.ears is None
     assert isinstance(wiring.launcher, ChromiumLauncher) is _HAS_BROWSER_EXTRA
+
+
+def test_the_in_cell_wirings_ears_hear_through_the_cells_own_fanner(tmp_path: Path) -> None:
+    # Phase 6 handoff 4.5.3: a Cell's transcriptions are metered and recorded like its chat calls.
+    clock = FakeClock()
+    registry = build_registry(load_manifest(fake_manifest(tmp_path), {}), {}, clock)
+    fanner = Fanner(make_fanner_deps(clock))
+
+    wiring = in_cell_exoskeleton(registry, fanner, clock)
+
+    assert wiring.ears is not None and isinstance(wiring.ears.gate, FannerTranscriptionGate)
+    assert wiring.ears.gate._fanner is fanner
 
 
 def test_the_device_wiring_is_the_in_cell_one_but_for_chromiums_sandbox(
@@ -177,7 +193,7 @@ def test_the_device_wiring_is_the_in_cell_one_but_for_chromiums_sandbox(
     monkeypatch.setattr(wiring_module, "running_as_root", lambda: False)
 
     device = device_exoskeleton(registry, clock)
-    in_cell = in_cell_exoskeleton(registry, clock)
+    in_cell = in_cell_exoskeleton(registry, Fanner(make_fanner_deps(clock)), clock)
 
     # A Virtual Cell is its own sandbox; a machine the Hive borrows is not, so Chromium keeps its.
     assert device.config.browser_sandbox is True and in_cell.config.browser_sandbox is False
@@ -231,7 +247,9 @@ async def test_a_device_wardens_store_forgets_a_recording_a_day_after_its_last_a
 
 async def test_a_virtual_cells_store_forgets_nothing_because_it_lives_as_long_as_its_cell() -> None:
     clock = FakeClock(RECORDING_START)
-    wiring = in_cell_exoskeleton(_registry_without_a_transcriber(clock), clock)
+    wiring = in_cell_exoskeleton(
+        _registry_without_a_transcriber(clock), Fanner(make_fanner_deps(clock)), clock
+    )
     store = wiring.recordings
     assert store is not None
     await store.open(make_recording_info("rec_old", started_at=clock.now()))

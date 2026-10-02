@@ -158,7 +158,9 @@ def build_borrowed_warden_deps(
         A WardenDeps ready for `Warden(config.runtime.warden_id, deps)`.
     """
     runtime = config.runtime
-    deps, registry = build_core_deps(runtime, parts.source, parts.link, parts.stores.trail, clock)
+    deps, registry, _fanner = build_core_deps(
+        runtime, parts.source, parts.link, parts.stores.trail, clock
+    )
     deps = dataclasses.replace(
         deps,
         memory=parts.stores.memory,

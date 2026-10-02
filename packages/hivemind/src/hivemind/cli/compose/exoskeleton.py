@@ -10,7 +10,8 @@ and `ears` (the transcriber slot's chain behind a transcription gate, for the `l
 module builds all four for the three Wardens that run where their Cell is: the Hive Stand's, from
 the manifest's `[exoskeleton]` section, the Hive's database file and its Fanner (the seat meter
 every model call passes through); the in-Cell Warden's of a Virtual Cell
-(`hivemind.cli.in_cell.deps`), from defaults, since a Virtual Cell reads no manifest; and the
+(`hivemind.cli.in_cell.deps`), from defaults, since a Virtual Cell reads no manifest, and the
+Cell's own Fanner; and the
 Warden of a colonized device (`hivemind.cli.in_cell.borrowed`, roadmap step 11.11), from the same
 defaults, because it too reads no Hive Manifest, except that the machine it borrows is no sandbox
 and its Warden runs for months, so it keeps Chromium's sandbox and forgets a recording after a day.
@@ -76,6 +77,7 @@ from hivemind.forage import Tempo
 from hivemind.llm import (
     DirectTranscriptionGate,
     Ears,
+    Fanner,
     FannerTranscriptionGate,
     ProviderRegistry,
     TranscriptionGate,
@@ -162,7 +164,9 @@ def hive_stand_exoskeleton(parts: HiveParts) -> ExoskeletonWiring:
     )
 
 
-def in_cell_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonWiring:
+def in_cell_exoskeleton(
+    registry: ProviderRegistry, fanner: Fanner, clock: Clock
+) -> ExoskeletonWiring:
     """Build the in-Cell Warden's wiring: defaults, no Chromium sandbox, recordings in memory.
 
     A Virtual Cell reads no manifest, so the screen and readiness budget are `ExoskeletonConfig`'s
@@ -170,18 +174,20 @@ def in_cell_exoskeleton(registry: ProviderRegistry, clock: Clock) -> Exoskeleton
     Cell is itself the sandbox, and its container drops the capabilities that sandbox needs. The
     Cell has no database file of its own (its Warden's memory store and trail segment live in
     process), so recordings go to an `InMemoryRecordingStore`: a Virtual Cell's recordings live
-    with the Cell and go when it is torn down, until a later step ships them to the Queen. The
-    Cell's ears are unmetered (a `DirectTranscriptionGate`): its Fanner meters the chat calls, but
-    is built beside this wiring, not in reach of it.
+    with the Cell and go when it is torn down, until a later step ships them to the Queen. Its
+    ears hear through the Cell's own Fanner, like its chat calls, so every transcription is
+    metered and recorded as an `llm.call` on the Cell's trail segment.
 
     Args:
         registry: The Cell's own ProviderRegistry (`hivemind.cli.in_cell.providers`).
+        fanner: The Cell's own Fanner (`hivemind.cli.in_cell.fanner.build_in_cell_fanner`).
         clock: Paces the browser launcher's waits and stamps its screenshots.
 
     Returns:
         The wiring `hivemind.cli.in_cell.deps.build_in_cell_warden_deps` applies.
     """
-    return _cell_exoskeleton(registry, clock, browser_sandbox=False, retention=None)
+    gate = FannerTranscriptionGate(fanner, Tempo())
+    return _cell_exoskeleton(registry, clock, gate, browser_sandbox=False, retention=None)
 
 
 def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonWiring:
@@ -212,6 +218,9 @@ def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonW
     return _cell_exoskeleton(
         registry,
         clock,
+        # NOTE: unmetered. The device's Fanner is built beside this wiring and not passed in, so
+        # a transcription there is neither counted against the provider's seats nor recorded.
+        DirectTranscriptionGate(),
         browser_sandbox=not running_as_root(),
         retention=Retention(clock, DEVICE_RECORDING_KEEP),
     )
@@ -271,7 +280,8 @@ def resolve_ears(registry: ProviderRegistry, gate: TranscriptionGate) -> Ears | 
 
     Args:
         registry: The ProviderRegistry whose `[llm.slots] transcriber` chain is resolved.
-        gate: The Fanner's metered gate on the Hive Stand, the direct one inside a Cell.
+        gate: The Fanner's metered gate (the Hive Stand's, or a Virtual Cell's own), or the
+            direct one on a colonized device.
 
     Returns:
         The Ears every sub-bee's `listen` tool uses, or None.
@@ -318,6 +328,7 @@ def open_hive_recordings(
 def _cell_exoskeleton(
     registry: ProviderRegistry,
     clock: Clock,
+    gate: TranscriptionGate,
     *,
     browser_sandbox: bool,
     retention: Retention | None,
@@ -333,7 +344,5 @@ def _cell_exoskeleton(
         config=config,
         launcher=build_browser_launcher(clock, config.screen),
         recordings=InMemoryRecordingStore(retention),
-        # NOTE: unmetered. The Cell's Fanner is built beside this wiring and is not in reach of
-        # it, so a transcription is neither counted against the provider's seats nor recorded.
-        ears=resolve_ears(registry, DirectTranscriptionGate()),
+        ears=resolve_ears(registry, gate),  # The caller decides whether its ears are metered.
     )
