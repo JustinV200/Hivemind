@@ -332,10 +332,21 @@ The commit bodies have the details.
    `local.toml` binds every slot to one model and now says why the judge should differ. A check
    that warns when JUDGE and RIPENER resolve to the same model would belong with phase 8's routing.
    So would running the judge eval per candidate model.
+   **Warning closed (2026-10-02):** `hivemind.manifest.advice.judge_shares_ripener` compares the
+   two bindings (same model id at the same provider kind and base URL). `load_manifest` logs it as
+   `manifest.judge_shares_ripener`, and `hive honey ripen --now` and `review --judge` print it on
+   stderr when the judge will run. There is no `hive doctor` yet; add it there when one lands.
+   The per-candidate judge eval stays open for phase 8.
 3. **Verdict reasons can quote the text.** The 3B judge copied an API key into its reason despite
    the hard rule. Reasons live only on the proposal row and in `hive honey review`, never on the
    trail. Treat them as C2 wherever a later phase shows them (the Entrance's `honey` route, the
    Observation Hive).
+   **Closed (2026-10-02):** `hive honey review` (and `--judge`) shows every reason (Ripener,
+   judge, human) only at `--clearance C2`; below it the text says they are C2, and `--json` nulls
+   them with `reasons_withheld: true`. The Entrance's `honey` route is still the 501 row and no
+   route or view serves a proposal. `tests/unit/entrance/routes/later/test_honey.py` walks the
+   real route table and fails if any body carries a reason field without `Access.c2`, so the
+   phase that builds the honey route has to gate it.
 4. **Per-embedder calibration.** `min_score` and the fusion weights were tuned on one embedder;
    each needs its own (phase 8's eval). The Python vector fallback stays linear, at 208 ms for 5k
    rows of 768 dimensions.
@@ -345,8 +356,17 @@ The commit bodies have the details.
    - The Queen does not re-send a ceiling or a hosting plan after a failed first delivery.
 6. **Size watch.** `pheromone/events/families.py` is at 295 of 300 lines of code, and
    `cli/honey/render.py` at 248. The next event family or renderer needs a split first.
+   **Closed (2026-10-02):** `pheromone/events/families` was already a package (split in the phase
+   10 merge; its biggest module is 101 lines of code). `cli/honey/render` is now a package too
+   (`browse`, `store`, `review`, `ripen`, `common`), with the old import path kept by its face.
 7. **`ripen --now` drains at most 1,000 waiting notes** (`_WAITING_NOTES_LIMIT`) and does not say
    when it hit that cap.
+   **Closed (2026-10-02).** In fact one pass drained at most the House Bee's
+   `MAX_PROPOSALS_PER_PASS` (32), and the 1,000 cap was on plain `ripen`'s count. `--now` now
+   repeats the pass while each drains a full batch and notes remain, up to `MAX_RIPEN_PASSES` (32),
+   then prints any notes still queued and why (the bound, so run it again, or refused notes). The
+   count prints "at least N" when it hits its cap. `ripen --json` has `notes_left`,
+   `notes_left_capped` and `hit_pass_cap` (plain `ripen`: `notes_capped`).
 
 ## 9. Traps
 
