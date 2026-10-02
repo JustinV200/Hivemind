@@ -51,8 +51,9 @@ Positive: no file outside scratch reaches a read, a screenshot or a recording th
 whether the bee asked for it or a page it loaded did; a symlink planted in scratch cannot lead out.
 The rule is one pure function, tested with property-based cases, shared by all three layers.
 
-Negative: a hard link in scratch is indistinguishable from a file there; making one needs a
-command. That points at a wider, older gap this ADR does not close: `run_command` is tiered by its
+Negative: a hard link in scratch is indistinguishable from a file there to realpath; making one
+needs a command. (Amended 2026-10-02 by ADR-0059: `FileGuard` now refuses any file with a second
+hard link, so the browser no longer reads one; a command can still copy a file into scratch.) That points at a wider, older gap this ADR does not close: `run_command` is tiered by its
 working directory, so a command run in scratch is `scratch_write`, the allowlist rung (and with it
 the `exec:` capability check) never runs, and the command can copy any file the Cell user can read
 into scratch for `read_file`. It needs its own decision about what a scratch command may touch on

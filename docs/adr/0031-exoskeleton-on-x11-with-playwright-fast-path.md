@@ -118,8 +118,12 @@ browser only; a native Windows desktop backend is post-1.0.
 
 Known limits, found while building the fast path (2026-09-24). The DevTools port listens on
 loopback only, but on a Real Cell shared by several local users any of them can reach it for the
-life of the lease; a pipe transport (`--remote-debugging-pipe`) would close that and is the next
-step if multi-user Real Cells matter. Chromium's crash handler runs in its own process group,
+life of the lease. A pipe transport (`--remote-debugging-pipe`) would close that, but it was looked
+at and not taken (2026-10-02, ADR-0059): Chromium then speaks CDP over two inherited descriptors,
+which `CellSession.start` cannot hand a process, and Playwright's driver attaches to a running
+browser only over a socket, so it needs a session that can pass a pipe pair plus a secret-gated
+relay for the driver. Playwright's own `launch()` has a pipe but takes the process away from the
+lease (Alternatives, below). Until then, borrow only single-user machines for browser work. Chromium's crash handler runs in its own process group,
 outside the lease's recorded processes; it exits within about a second of the browser, so release
 leaves nothing behind in practice, but release does not kill it by name. The Windows and macOS
 locator paths (Edge first on Windows, the app bundles on macOS) are written and unit-tested but

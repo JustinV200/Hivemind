@@ -59,7 +59,7 @@ other file URL before proposing it; the gate's allowlist rung refuses one that r
 real one through a route that also resolves symlinks, refuses a hard-linked file, and covers links,
 frames and every other file request a page makes (`hivemind.exoskeleton.browser.playwright.guard`).
 
-The browser is held to the bee's `net` scopes the same way (ADR-0058): `browser_navigate` is tiered
+The browser is held to the bee's `net` scopes the same way (ADR-0059): `browser_navigate` is tiered
 by its destination and the gate wants `net:<host>`, and the browser's own route refuses every web
 request a page makes (a clicked link, a script's fetch, an image) to a host no `net` scope covers,
 putting each refusal on the trail as `cell.browser_blocked`. On a Real Cell loopback is the

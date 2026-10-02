@@ -9,7 +9,7 @@ is one). The peripherals are then built over what started, and `cell.exoskeleton
 the trail. If any step fails, everything already started is stopped before the error leaves, so a
 failed attach leaves the Cell as it found it; a successful one is undone by
 `ExoskeletonHandle.detach`, and the lease's own release is the backstop for both. The browser is
-launched held to the bee's `net` scopes (ADR-0058), with loopback its own only where the
+launched held to the bee's `net` scopes (ADR-0059), with loopback its own only where the
 composition root says the Cell's loopback is private, and whatever it blocks goes on the trail.
 
 Fits into the Hive:
@@ -83,7 +83,7 @@ class ExoskeletonConfig:
             sets False only where the Cell is itself the sandbox (a Virtual Cell, whose
             container drops the capabilities the sandbox needs) or the Hive runs as root.
         private_loopback: Whether the Cell's loopback is its own, so a loopback page stays in
-            the lease (ADR-0058). The composition root sets True only where the Cell has a
+            the lease (ADR-0059). The composition root sets True only where the Cell has a
             network namespace of its own (a Virtual Cell's container); False, the default,
             treats loopback as the host's own services, which need `net:loopback`.
     """

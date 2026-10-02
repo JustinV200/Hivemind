@@ -14,7 +14,7 @@ directory, where it keeps the socket and lock that allow one browser per profile
 leaves behind even after a clean exit, is the browser directory in scratch, named relatively
 (TMPDIR=".") because an absolute path would not fit a Unix socket address under a deep scratch
 root. Before Chromium starts, its profile is seeded with the settings that keep its own file
-dialogs shut and its downloads in scratch (`browser.profile`, ADR-0058); the connector then guards
+dialogs shut and its downloads in scratch (`browser.profile`, ADR-0059); the connector then guards
 every request the page makes and closes DevTools whenever it opens. Whatever goes wrong once the
 process has started, it is stopped before the error leaves.
 
@@ -28,7 +28,7 @@ Key invariants:
     - A launch that raises has stopped everything it started, whatever the failure: a locate or
       connect error, a closed session, a crash, a timeout or a cancellation.
     - The browser's DevTools port listens on loopback only, and nothing here logs it. Any local
-      user can still reach it for the lease's life (ADR-0031's known limits, ADR-0058).
+      user can still reach it for the lease's life (ADR-0031's known limits, ADR-0059).
     - Chromium's sandbox is dropped only when the request says so (`BrowserLaunch.sandbox`).
 
 See Also:

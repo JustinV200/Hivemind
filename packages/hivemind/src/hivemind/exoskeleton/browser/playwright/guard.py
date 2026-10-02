@@ -8,7 +8,7 @@ repository's Chromium, 2026-09-24: a direct navigation, a percent-encoded `..`, 
 clicked link all arrived at the route). `FileGuard` answers each request: continue when the file
 lies inside the lease's file roots, both as written (`hivemind.guard.file_urls`) and once symlinks
 are resolved, so a link planted in scratch cannot lead out, and names a file with no other hard
-link (ADR-0058): realpath cannot see a hard link, so a second name for a file outside scratch
+link (ADR-0059): realpath cannot see a hard link, so a second name for a file outside scratch
 would otherwise pass as a file inside it. Abort it as blocked by the client otherwise, which
 leaves Chromium's own error page where the file would have been, and report the refusal so attach
 can put it on the trail. Nothing outside the roots is ever read, so no later read, screenshot or

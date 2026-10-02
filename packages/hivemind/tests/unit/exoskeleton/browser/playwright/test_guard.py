@@ -1,7 +1,7 @@
 """Unit tests for hivemind.exoskeleton.browser.playwright.guard: no file outside the roots loads.
 
 `FileGuard.allows` is checked on its own over a real directory tree, symlinks and hard links
-included (ADR-0058); the rest runs a real Chromium through the contract suite's harness, whose
+included (ADR-0059); the rest runs a real Chromium through the contract suite's harness, whose
 file roots are its scratch and the fixture site: a page the bee wrote into scratch that frames and
 links a file outside it, and a symlink planted in scratch that points out of it. Nothing outside
 may ever reach a read.

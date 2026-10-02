@@ -10,7 +10,7 @@ is. Anything else is refused with a ValueError before a key is pressed, so a typ
 the bee can correct, never an unknown key pressed into a page. Both browsers use the same table,
 so the fake gives a chord exactly the meaning the real browser does.
 
-The same table answers one more question (ADR-0058): whether a chord opens the browser's own
+The same table answers one more question (ADR-0059): whether a chord opens the browser's own
 DevTools, Save As, Open File or Print dialog, which a lease never uses. `chrome_chord` names the
 one a chord opens, under Control or the macOS Command key alike, so the desktop and browser
 tools refuse it before a key is pressed; the profile and `browser.playwright.chrome` shut the

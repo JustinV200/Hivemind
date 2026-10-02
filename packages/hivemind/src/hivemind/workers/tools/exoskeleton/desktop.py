@@ -6,7 +6,7 @@ it through `act` (roadmap step 6.5, ADR-0032): the Capping gate applies it throu
 Exoskeleton, verifies the call's `expect`, and rolls it back and raises an Alarm when that fails.
 The tier comes from the display: `scratch_write` on one the lease started, `device_command` on the
 operator's own, raised to the page's own tier while the lease's browser is shown on it, since
-input lands in that window like a person's would (ADR-0058). For the same reason a key chord that
+input lands in that window like a person's would (ADR-0059). For the same reason a key chord that
 opens the browser's own DevTools, Save As, Open File or Print is refused while the browser is on
 screen. A point that leaves the screen is refused here when the display's size is known, before
 anything is proposed, since a step that fails at apply time also raises an Alarm. Typed text

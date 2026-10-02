@@ -199,7 +199,7 @@ async def test_press_refuses_a_browser_window_chord_while_the_browser_is_on_scre
 
 
 async def test_input_over_the_browser_takes_the_tier_of_the_page_it_shows() -> None:
-    # Arrange: the browser on screen shows a page off the Cell (ADR-0058).
+    # Arrange: the browser on screen shows a page off the Cell (ADR-0059).
     browser = FakeBrowser(login_site(), FakeClock())
     desk = _Desk(browser=browser)
     await desk.call("click", {"x": 20, "y": 15})  # On about:blank: stays in the lease.

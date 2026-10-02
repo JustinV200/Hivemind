@@ -99,7 +99,7 @@ async def test_navigate_to_a_loopback_page_is_a_scratch_write_navigate_step() ->
 
 
 async def test_a_loopback_page_on_a_real_cell_is_network_egress_and_needs_net_loopback() -> None:
-    # Arrange: a Real Cell's loopback is the operator's own services (ADR-0058).
+    # Arrange: a Real Cell's loopback is the operator's own services (ADR-0059).
     held = ("exoskeleton:browser", "tool:*")
     without = _Session(grants=CapabilitySet.parse(*held), private_loopback=False)
     holding = _Session(grants=CapabilitySet.parse(*held, "net:loopback"), private_loopback=False)

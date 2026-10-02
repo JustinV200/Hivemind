@@ -168,7 +168,7 @@ def test_the_in_cell_wiring_keeps_recordings_in_memory_and_drops_chromiums_sandb
     )
 
     assert isinstance(wiring.recordings, InMemoryRecordingStore)
-    # The Cell is the sandbox, and its loopback is its own container's (ADR-0058).
+    # The Cell is the sandbox, and its loopback is its own container's (ADR-0059).
     assert wiring.config == ExoskeletonConfig(browser_sandbox=False, private_loopback=True)
     assert wiring.ears is None
     assert isinstance(wiring.launcher, ChromiumLauncher) is _HAS_BROWSER_EXTRA

@@ -23,12 +23,12 @@ Key invariants:
     - The gate never applies a GUI proposal without a surface; it rejects it before any check.
     - Every step names the capabilities it needs; a NAVIGATE to an http or https URL also needs
       `net:<host>` (file and about:blank stay on the Cell), and `net:loopback` for a loopback
-      host, however it is spelled (ADR-0058). A file URL must also stay inside the lease's
+      host, however it is spelled (ADR-0059). A file URL must also stay inside the lease's
       scratch, which the allowlist rung checks separately.
 
 See Also:
     - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md.
-    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md for
+    - docs/adr/0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md for
       the loopback scope.
     - waggle.messages.capping.gui for GuiStep and GuiOp.
 """
@@ -70,7 +70,7 @@ BROWSER_OPS = frozenset(
 _OFF_CELL_SCHEMES = frozenset({"http", "https"})  # file:// and about:blank never leave the Cell.
 # The one `net` scope every loopback host needs, however it is spelled (127.1, [::1], localhost):
 # on a Real Cell loopback is the operator's own services, the Hive Stand's own listener included,
-# so it is granted by name, never covered by a grant for some other host (ADR-0058).
+# so it is granted by name, never covered by a grant for some other host (ADR-0059).
 LOOPBACK_SCOPE = "loopback"
 _UNNAMEABLE_HOST = Capability.parse("net:host.invalid")  # What a malformed host is held to.
 

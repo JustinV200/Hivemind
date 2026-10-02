@@ -156,7 +156,7 @@ async def test_a_browser_only_task_starts_the_browser_alone_and_headless(tmp_pat
 async def test_the_browser_is_held_to_the_bees_net_scopes_and_reports_to_the_trail(
     tmp_path: Path, private: bool
 ) -> None:
-    # Arrange: the composition root says whether the Cell's loopback is its own (ADR-0058).
+    # Arrange: the composition root says whether the Cell's loopback is its own (ADR-0059).
     clock = FakeClock()
     launcher = StubLauncher()
     deps = replace(_deps(clock, launcher), config=ExoskeletonConfig(private_loopback=private))

@@ -213,7 +213,7 @@ class BrowserLaunch:
         file_roots: The only directories a file URL may load from, a link or a frame's included:
             the lease's scratch (`hivemind.guard.file_urls`). Empty, the default, refuses every
             file URL, so a request that names no roots can never read the Cell's disk.
-        hosts: The hosts a web request may go to, a page's own requests included (ADR-0058).
+        hosts: The hosts a web request may go to, a page's own requests included (ADR-0059).
             The default allows none, so a request that names no grant reaches no host.
         on_blocked: Where every refused request is reported (attach puts it on the trail); None
             reports nowhere but the log.

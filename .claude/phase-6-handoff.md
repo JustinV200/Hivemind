@@ -93,12 +93,12 @@ Path shorthands used below:
 
   | Action | Tier |
   |---|---|
-  | Input on a lease-started display; a page that stays on the Cell (a `file://` URL inside scratch, `about:blank`, a loopback host) | `scratch_write` |
+  | Input on a lease-started display; a page that stays on the Cell (a `file://` URL inside scratch, `about:blank`, a loopback host where the Cell's loopback is private, i.e. a Virtual Cell) | `scratch_write`; input over a display showing the lease's browser takes the page's tier if higher |
   | A `file://` URL outside scratch | Never loaded. `browser_navigate` refuses it before proposing; any other proposal of it is `outside_scratch_write` and `GuiAllowlistCheck` fails it; both browsers refuse it; `FileGuard` aborts the request however it arose (a link, a script, an iframe). |
   | Input on the operator's own display | `device_command` |
-  | Anything that leaves the Cell | `network_egress`, plus `net:<host>` at the ALLOWLIST rung |
+  | Anything that leaves the Cell, a loopback host on a Real Cell included | `network_egress`, plus `net:<host>` (`net:loopback` for loopback) at the ALLOWLIST rung |
 
-  `irreversible=true` raises any action to `irreversible`. The loopback row, and what clicks and scripts can reach, are open items (4.2).
+  `irreversible=true` raises any action to `irreversible`. Since ADR-0059 the browser also holds every request a page makes to the bee's `net` scopes (4.2).
 - **Roles.**
   - A Forager refuses to run without an attached Exoskeleton (`ForagerRequiresExoskeletonError`), which the runtime turns into an Alarm and a FAILED result: a Forager without one is a placement bug. Round caps: Drone 12, Forager 16, Scout 6.
   - Every successful `browser_read` or `browser_snapshot` a Forager makes is Nectar: a Bee Bread `TOOL_RESULT` at the task's clearance, prefixed with the page's URL, scrubbed for credential shapes and capped. Frames never reach it. Phase 7's Honey Store replaces Bee Bread as the body later.
@@ -155,27 +155,25 @@ declined, and nothing of 6.13 exists: no `supervision/mask.py`, no tactics, no m
 - Whether any part of 6.13 should still be built is the user's call. Raise it with them; do not build it from the roadmap text. Nearby needs that are in scope are separate features and should be proposed as such: a house style for the Hive's own messages to its operator, or input pacing for an application that drops events delivered too fast.
 - The `copytone-justin` skill's own files tell an agent to add `.claude/` to `.gitignore`. This repository tracks `.claude/` (the roadmap, the rules and these handoffs), so do not apply that instruction here. None of the skill's files were committed.
 
-### 4.2 Security gaps found while closing the `file://` hole (not fixed)
+### 4.2 Security gaps found while closing the `file://` hole (items 2-6 closed; item 1 open)
 
-In rough order of severity:
+In rough order of severity. Items 2 to 6 were closed on 2026-10-02 (ADR-0059); item 1 waits on an
+operator decision.
 
 1. **`run_command` is confined only by its working directory.**
    - `H/workers/tools/session.py` tiers a command by its cwd, so a command run in scratch is `scratch_write`: SCHEMA and SIZE_CAP, never the ALLOWLIST rung.
    - On a Real Cell the process (`H/cell/local/process.py`) is a plain subprocess with a file-size limit. It can read, copy or change anything the Cell user can, and on the Hive Stand that is the operator's account. `cp ~/.ssh/id_rsa .` followed by `read_file` walks straight past ADR-0034.
    - Running the ALLOWLIST rung alone would not help: the SCRATCH access level grants `exec:*` (`H/guard/access.py:47`).
    - It needs its own decision about what a scratch command may touch on a Real Cell: for example a filesystem sandbox rooted at scratch (bubblewrap, Landlock), or no `run_command` on the Hive Stand below some access level. ADR-0034's consequences record the gap.
-2. **Desktop input reaches Chromium's own dialogs and DevTools.**
-   - Only the `browser_*` tools are held to the file roots. On a lease-started display, `press`, `type` and `click` are `scratch_write`.
-   - A key chord into the browser window can open Save As, which writes the page anywhere the Cell user can write, or DevTools, whose workspace reads and writes local folders.
-   - Opening a file with Ctrl+O still ends in a `file://` request that `FileGuard` aborts, but the file dialog itself lists directories.
-   - Options: disable DevTools and file dialogs for the lease's Chromium (Chromium policies are machine-wide on Linux, so the images could ship them and a Real Cell could not), refuse those chords at the desktop tools, or tier desktop input over a browser window as the browser's own tools are tiered.
-3. **Loopback counts as staying on the Cell.** `page_reach` tiers a loopback host `scratch_write`. On a Virtual Cell that is the container. On a Real Cell it is the operator's own local services, the Hive Stand's own loopback listener included. Consider tiering loopback on a Real Cell as `network_egress` with a `net:` scope of its own.
-4. **Clicks and page scripts reach hosts no `net:` capability names.**
-   - Only `browser_navigate`'s own URL is checked against `net:<host>`. A click is tiered by the page it starts on, and a page's scripts fetch what they like.
-   - On a Virtual Cell the container's network policy bounds this; on a Real Cell nothing does.
-   - A Playwright route on every request, like `FileGuard`, could hold each host to the lease's `net:` scopes.
-5. **A hard link in scratch passes `FileGuard`**, because realpath cannot see one. Making one needs a command, so item 1 bounds it.
-6. **The DevTools port on a shared Real Cell** is loopback-only, but any local user can reach it; `--remote-debugging-pipe` would close this. Chromium's crash handler also runs outside the lease's process list. Both are in ADR-0031's known limits.
+2. **Closed: desktop input reaches Chromium's own dialogs and DevTools.**
+   - Each lease's profile is seeded before Chromium starts with `select_file_dialogs.allowed = false` and downloads in scratch (`H/exoskeleton/browser/profile.py`): Save As, Open File, Print to PDF and a page's picker are refused as if cancelled. Per lease, so no machine-wide policy is written.
+   - DevTools cannot be switched off by setting (`devtools.availability = 2` also refuses the remote debugging the lease drives by), so `ChromeGuard` (`H/exoskeleton/browser/playwright/chrome.py`) closes every `devtools://` target over CDP as it opens, and denies downloads.
+   - `press` refuses F12, Ctrl/Cmd+Shift/Alt+I/J/C and Ctrl/Cmd+S/O/P while the lease's browser is on the display; `browser_press` always does (`keys.chrome_chord`). Desktop input over a display showing the browser takes the page's tier when that is higher (`desktop_input_reach`).
+   - Checked on Edge 154 on Windows (2026-10-02); the Linux Chromium images were not run (no Docker here).
+3. **Closed: loopback counts as staying on the Cell.** A loopback host, however spelled, needs `net:loopback` (`supervision.capping.host_need`), and `page_reach` tiers it `network_egress` unless the composition root says the Cell's loopback is private (`ExoskeletonConfig.private_loopback`, set only by the in-Cell wiring). No `cell.kind` branch.
+4. **Closed, with known limits: clicks and page scripts reach hosts no `net:` capability names.** `HostGuard` (`H/exoskeleton/browser/playwright/hosts.py`), a route on every http(s) request installed beside `FileGuard`, blocks any host the bee's `net` scopes do not cover and reports it; attach records `cell.browser_blocked` (rule and host, once per pair, at most 64). Limits: a redirect from a granted host is followed (Playwright routes only a request's first URL; confirmed on Edge), and WebSockets, WebRTC and worker connections are not routed. A Virtual Cell's egress policy still bounds them; a Real Cell's nothing does.
+5. **Closed: a hard link in scratch passes `FileGuard`.** `FileGuard` refuses any non-directory whose `st_nlink` is above one. Item 1 still lets a command copy a file into scratch for `read_file`.
+6. **Investigated, not switched: the DevTools port on a shared Real Cell.** `--remote-debugging-pipe` needs two inherited descriptors, which `CellSession.start` cannot hand a process, and Playwright attaches to a running browser only over a socket; Playwright's own `launch()` takes the process away from the lease (ADR-0031's rejected alternative). Closing it needs a `CellSession` that passes a pipe pair plus a secret-gated relay, or a rule that multi-user Real Cells take no browser work. Recorded in ADR-0031's known limits and ADR-0059; the crash handler note stays in ADR-0031.
 
 ### 4.3 Free memory is read as `MemFree`, so a warm Linux host looks full
 

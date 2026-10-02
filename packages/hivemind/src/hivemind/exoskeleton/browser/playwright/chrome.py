@@ -2,7 +2,7 @@
 
 Desktop input lands in the browser window like a person's would, so a key chord or the context
 menu's Inspect can open DevTools, whose console runs code with the browser's own privileges and
-whose workspace reads and writes local folders (ADR-0058). Chromium's per-profile switch for that
+whose workspace reads and writes local folders (ADR-0059). Chromium's per-profile switch for that
 (`devtools.availability`) also refuses remote debugging, which is how the lease drives the
 browser, so DevTools is closed instead: `ChromeGuard` opens a browser-level CDP session, asks to
 be told about every target, and closes any whose URL is a DevTools page the moment it appears or
@@ -22,7 +22,7 @@ Key invariants:
     - A target that is already gone when it is closed is not an error.
 
 See Also:
-    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
+    - docs/adr/0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
     - hivemind.exoskeleton.browser.keys.chrome_chord for the chords the tools refuse first.
 """
 

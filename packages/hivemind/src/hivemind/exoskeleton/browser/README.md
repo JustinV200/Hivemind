@@ -64,7 +64,7 @@ inside the roots as written and once symlinks are resolved, and naming a file wi
 link (realpath cannot see one, so its other name could be anywhere); aborted as blocked otherwise,
 so nothing outside is ever read.
 
-Web requests are held to the bee's `net` scopes the same way (ADR-0058): `playwright/hosts.py`
+Web requests are held to the bee's `net` scopes the same way (ADR-0059): `playwright/hosts.py`
 continues a request only to a host `BrowserLaunch.hosts` allows, so a clicked link or a page's
 own fetch reaches no host the bee was not granted. Every guard reports what it blocked to
 `BrowserLaunch.on_blocked`, which attach turns into `cell.browser_blocked` on the trail.
@@ -86,12 +86,12 @@ path would not fit a Unix socket address under a realistic scratch root.
   (read its pages and cookies, act as it) for as long as the lease runs. Chromium offers no
   authentication on that port. A pipe (`--remote-debugging-pipe`) needs two descriptors the
   session would have to hand Chromium at start, and Playwright's driver still connects only over
-  a socket, so it waits on a `CellSession` change (ADR-0058). Borrow only single-user machines
+  a socket, so it waits on a `CellSession` change (ADR-0059). Borrow only single-user machines
   for browser work until then.
 - **The host route does not see everything.** Playwright asks a route only about a request's first
   URL, so a redirect a granted host answers with is followed (checked on Edge 154, 2026-10-02),
   and WebSockets, WebRTC and a worker's own connections are not routed requests. On a Virtual
-  Cell the container's egress policy still bounds them (ADR-0058).
+  Cell the container's egress policy still bounds them (ADR-0059).
 - **Chromium still makes a few connections of its own.** The switches in `QUIET_FLAGS` stop most
   background traffic, but no switch stops all of it (a Google endpoint or two at start-up, seen in
   testing). The Cell's network policy is what bounds egress.

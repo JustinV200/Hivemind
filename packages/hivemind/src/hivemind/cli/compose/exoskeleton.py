@@ -43,7 +43,7 @@ Key invariants:
       its last action (`DEVICE_RECORDING_KEEP`), because it runs for months.
     - Loopback counts as the lease's own only inside a Virtual Cell, whose container has a
       network namespace of its own; on the Hive Stand or a borrowed device it is the machine's
-      services, the Hive's own loopback listener included, and needs `net:loopback` (ADR-0058).
+      services, the Hive's own loopback listener included, and needs `net:loopback` (ADR-0059).
       No setting changes it.
     - A transcriber binding that cannot hear leaves `ears` None, so the `listen` tool is simply
       not offered, rather than failing the whole composition.
@@ -177,7 +177,7 @@ def in_cell_exoskeleton(
     defaults (the same values `[exoskeleton]` defaults to). Chromium's own sandbox is off: the
     Cell is itself the sandbox, and its container drops the capabilities that sandbox needs. For
     the same reason its loopback is private: nothing but the Cell's own processes listens there,
-    so a loopback page stays in the lease without a `net:loopback` grant (ADR-0058). The
+    so a loopback page stays in the lease without a `net:loopback` grant (ADR-0059). The
     Cell has no database file of its own (its Warden's memory store and trail segment live in
     process), so recordings go to an `InMemoryRecordingStore`: a Virtual Cell's recordings live
     with the Cell and go when it is torn down, until a later step ships them to the Queen. Its

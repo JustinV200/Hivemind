@@ -120,7 +120,7 @@ async def connect_browser(
     Returns:
         The connected browser, on the page Chromium opened (about:blank), with every file request
         routed through a `FileGuard`, every web request through a `HostGuard`, and DevTools and
-        downloads shut by a `ChromeGuard` (ADR-0034, ADR-0058).
+        downloads shut by a `ChromeGuard` (ADR-0034, ADR-0059).
 
     Raises:
         AttachError: Playwright's driver would not start, the browser could not be attached, or

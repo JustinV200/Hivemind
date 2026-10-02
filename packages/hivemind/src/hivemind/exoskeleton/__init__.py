@@ -31,7 +31,7 @@ Public API:
       (scratch); X11Display (x11).
     - The peripheral protocols CompoundEye, Antennae, Buzz, Recording, Browser (their packages).
     - HostScopes, chrome_chord: the hosts a lease's browser may request, and the key chords that
-      open its own windows (browser, ADR-0058).
+      open its own windows (browser, ADR-0059).
 """
 
 from hivemind.exoskeleton.antennae import Antennae

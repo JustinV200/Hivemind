@@ -32,8 +32,8 @@ Public API:
     - FakeBrowser, FakeBrowserLauncher, FakeSite, login_site: the in-memory browser, its launcher,
       a site as data and the fixture login site (fake).
     - HostScopes, BrowserBlock, BlockRule, BlockSink, request_host: which hosts a lease's browser
-      may request, and the record of what its guards block (hosts, ADR-0058).
-    - chrome_chord: which of the browser's own windows a key chord opens (keys, ADR-0058).
+      may request, and the record of what its guards block (hosts, ADR-0059).
+    - chrome_chord: which of the browser's own windows a key chord opens (keys, ADR-0059).
     - seed_profile: the per-lease settings that keep the browser's file dialogs shut (profile).
 """
 

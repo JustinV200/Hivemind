@@ -1,6 +1,6 @@
 """Put what a lease's browser blocked on the trail: `cell.browser_blocked`, once per rule and host.
 
-The browser's guards (ADR-0034, ADR-0058) refuse a file outside scratch, a request to a host the
+The browser's guards (ADR-0034, ADR-0059) refuse a file outside scratch, a request to a host the
 bee holds no `net` scope for, and a DevTools window, at the browser itself, where no proposal and
 so no Capping gate record exists. `BlockTrail` is the sink attach hands them, so each refusal is
 still on the trail: one `cell.browser_blocked` event per distinct rule and host for the lease,
@@ -20,7 +20,7 @@ Key invariants:
     - At most MAX_BLOCK_EVENTS events per lease.
 
 See Also:
-    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
+    - docs/adr/0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
     - hivemind.pheromone.events.families.work for the event kind.
 """
 

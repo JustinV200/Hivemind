@@ -7,7 +7,7 @@ states, and runs it through the Capping gate (the quality gate every side effect
 checks, applies it through the attached Exoskeleton, verifies it, rolls it back and records it
 (ADR-0032). The tool declares the tier from what the action reaches: input on a display the lease
 started is `scratch_write` and on the operator's running display `device_command`, and input on a
-display that shows the lease's browser is tiered at least as the page it shows (ADR-0058); a page
+display that shows the lease's browser is tiered at least as the page it shows (ADR-0059); a page
 that stays in the lease (a file inside its scratch, about:blank, a loopback host where the Cell's
 loopback is private) is `scratch_write`, a file anywhere else on the Cell `outside_scratch_write`
 (which the gate's allowlist rung refuses; the navigate tool refuses it before that) and any other
@@ -35,7 +35,7 @@ Key invariants:
 See Also:
     - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md for "the
       tool declares the tier from what the action reaches".
-    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md for
+    - docs/adr/0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md for
       loopback and input over the browser.
     - hivemind.workers.tools.proposals for make_proposal, cap and tool_output.
     - hivemind.supervision.capping.gui for what the allowlist rung requires of each step.
@@ -214,7 +214,7 @@ def page_reach(url: str, scratch: Path, *, private_loopback: bool = False) -> Ri
     if is_file_url(url):
         escapes = file_url_escapes(url, (scratch,))
         return RiskTier.OUTSIDE_SCRATCH_WRITE if escapes else RiskTier.SCRATCH_WRITE
-    # Loopback stays in the lease only where nothing but the Cell listens there (ADR-0058).
+    # Loopback stays in the lease only where nothing but the Cell listens there (ADR-0059).
     host = parts.hostname
     if private_loopback and scheme in _WEB_SCHEMES and host and is_loopback_host(host):
         return RiskTier.SCRATCH_WRITE
@@ -249,7 +249,7 @@ async def desktop_input_reach(handle: ExoskeletonHandle, scratch: Path) -> RiskT
 
     Input on a display lands wherever the pointer or focus is, the lease's browser window
     included, so it reaches whatever that page reaches, as the browser's own tools are tiered
-    (ADR-0058). A headless browser (no display) is never under the pointer.
+    (ADR-0059). A headless browser (no display) is never under the pointer.
 
     Args:
         handle: The attached Exoskeleton.
@@ -272,7 +272,7 @@ def refuse_chrome_chord(keys: str) -> None:
 
     A lease never uses those windows: DevTools reads and writes local folders and runs code with
     the browser's own privileges, and a file dialog lists and writes the Cell's directories
-    (ADR-0058). The browser shuts them again itself; refusing here keeps the bee's step honest.
+    (ADR-0059). The browser shuts them again itself; refusing here keeps the bee's step honest.
 
     Args:
         keys: The chord the call names.

@@ -305,7 +305,7 @@ def make_gui_context(
         gate: Builds the gate from its deps; a CappingGate subclass scripts an outcome the real
             gate cannot reach alone (a judge's review).
         private_loopback: Whether the Cell's loopback is its own (a Virtual Cell's), so a
-            loopback page stays in the lease (ADR-0058); False, a Real Cell's, as attach defaults.
+            loopback page stays in the lease (ADR-0059); False, a Real Cell's, as attach defaults.
         **overrides: WorkerContext fields, as for `make_context`; a given `session`, `cell` or
             `trail` is shared with the gate and the handle.
 

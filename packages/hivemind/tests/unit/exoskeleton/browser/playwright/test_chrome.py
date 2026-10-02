@@ -2,7 +2,7 @@
 
 `ChromeGuard` is driven with stand-ins for Playwright's browser and its CDP session, the two
 objects it touches. That a real Chromium reports a DevTools window as a target, and closes it on
-`Target.closeTarget`, was checked on Edge 154 on Windows (2026-10-02; ADR-0058).
+`Target.closeTarget`, was checked on Edge 154 on Windows (2026-10-02; ADR-0059).
 """
 
 from __future__ import annotations

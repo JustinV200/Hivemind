@@ -3,7 +3,7 @@
 A lease's browser has a profile of its own in scratch (`--user-data-dir`), so what Chromium reads
 from that profile at start is per-lease, unlike its machine-wide policies (written as root under
 /etc on Linux, which a Real Cell could not use without changing the operator's machine). Two of
-the settings there close what desktop input could otherwise reach (ADR-0058):
+the settings there close what desktop input could otherwise reach (ADR-0059):
 
 - `select_file_dialogs.allowed = false` in `Local State`, the setting the
   `AllowFileSelectionDialogs` policy sets: Save As, Open File, Print to PDF's save and a page's
@@ -28,7 +28,7 @@ Key invariants:
     - A file that cannot be read as a JSON object is replaced by the settings alone.
 
 See Also:
-    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
+    - docs/adr/0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
     - hivemind.exoskeleton.browser.launch for the launch this prepares.
 """
 

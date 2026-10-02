@@ -67,7 +67,7 @@ Public API:
       required_capabilities: the seam a GUI proposal is applied, verified and rolled back through,
       and the GUI kinds a task's acceptance may state (gui, roadmap steps 6.5 and 6.7).
     - LOOPBACK_SCOPE, host_need, is_loopback_host: the `net` scope a page's host needs, loopback
-      named by a scope of its own (gui, ADR-0058).
+      named by a scope of its own (gui, ADR-0059).
     - GuiAllowlistCheck: the allowlist rung for GUI steps (checks).
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
       audit_completed, review_applied: the after-the-fact sampled audit, and the unsampled

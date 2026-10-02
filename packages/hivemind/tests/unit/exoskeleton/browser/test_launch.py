@@ -196,7 +196,7 @@ async def test_launch_starts_chromium_and_connects_to_the_port_it_wrote(tmp_path
     assert isinstance(launched.browser, FakeBrowser)
     assert [process.argv[0] for process in launched.processes] == [_CHROMIUM]
     assert session.running_pids == tuple(process.pid for process in launched.processes)
-    # The profile was seeded before Chromium read it: its own file dialogs are refused (ADR-0058).
+    # The profile was seeded before Chromium read it: its own file dialogs are refused (ADR-0059).
     local_state = await session.get_file(_port_file(request).parent / LOCAL_STATE)
     assert json.loads(local_state) == {"select_file_dialogs": {"allowed": False}}
 

@@ -47,7 +47,7 @@ that have no API; it is not a stealth layer (codingrules 15; the Pheromone Mask 
   root (`BrowserLaunch.file_roots`): a `file://` URL anywhere else, typed, clicked or framed, is
   refused, and the real browser resolves symlinks and refuses a hard-linked file before it loads
   one (`browser/README.md`).
-- **The browser reaches only its granted hosts and never its own chrome** (ADR-0058). Attach holds
+- **The browser reaches only its granted hosts and never its own chrome** (ADR-0059). Attach holds
   every web request to the bee's `net` scopes (`BrowserLaunch.hosts`), loopback included unless
   the composition root says the Cell's loopback is private (`ExoskeletonConfig.private_loopback`,
   a Virtual Cell); each profile refuses file dialogs and keeps downloads in scratch; DevTools is

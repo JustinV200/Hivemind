@@ -3,7 +3,7 @@
 A lease's browser is granted hosts the way every other tool is: by the bee's `net` capabilities.
 Only a navigation the bee proposes passes the Capping gate, though; a link it clicks, a form it
 submits, and every image, script and fetch a page makes go straight to the network. So the
-browser holds every request to the same rule (ADR-0058): a web request may go to a host only when
+browser holds every request to the same rule (ADR-0059): a web request may go to a host only when
 the bee holds the `net` scope that host needs (`hivemind.supervision.capping.host_need`), and a
 loopback host needs `net:loopback` by name. The one exception is a Cell whose loopback is its own
 (a Virtual Cell's container, where nothing else listens), which the composition root says with
@@ -25,7 +25,7 @@ Key invariants:
       covers some other spelling of it.
 
 See Also:
-    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
+    - docs/adr/0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md.
     - hivemind.exoskeleton.browser.playwright.hosts for the route that applies this rule.
 """
 
@@ -55,8 +55,8 @@ class BlockRule(Enum):
     """Which of the browser's guards blocked something."""
 
     FILE = "file"  # A file URL outside the lease's file roots, or hard-linked (ADR-0034, 0058).
-    NET = "net"  # A web request to a host no `net` scope the bee holds covers (ADR-0058).
-    DEVTOOLS = "devtools"  # A DevTools window, closed as it opened (ADR-0058).
+    NET = "net"  # A web request to a host no `net` scope the bee holds covers (ADR-0059).
+    DEVTOOLS = "devtools"  # A DevTools window, closed as it opened (ADR-0059).
 
 
 @dataclass(frozen=True, slots=True)

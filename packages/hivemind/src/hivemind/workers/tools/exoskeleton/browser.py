@@ -13,7 +13,7 @@ action the page shown now. A file URL anywhere else on the Cell is refused befor
 a file URL reads the Cell's disk without the path rules `read_file` applies, so the browser may
 open only the bee's own pages in scratch, and the gate and the browser itself refuse the rest
 again. A key chord that opens the browser's own DevTools or a file dialog is refused the same way
-(ADR-0058). Filled text travels only in its step.
+(ADR-0059). Filled text travels only in its step.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools.exoskeleton`. Offered by
@@ -171,7 +171,7 @@ async def browser_press(invocation: ToolInvocation, arguments: JsonObject) -> To
     raw_target = arguments.get("target")
     target = None if raw_target is None else target_from(raw_target)
     keys = required_text(arguments, "keys")
-    # The page's keys can reach the browser's own shortcuts too (ADR-0058).
+    # The page's keys can reach the browser's own shortcuts too (ADR-0059).
     refuse_chrome_chord(keys)
     step = build_step({"op": GuiOp.BROWSER_PRESS, "keys": keys, "target": target})
     reach = await _page_reach(invocation, browser)

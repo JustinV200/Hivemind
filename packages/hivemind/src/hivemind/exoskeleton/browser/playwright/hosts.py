@@ -6,12 +6,12 @@ wherever the page says. `HostGuard` is a Playwright route over every http and ht
 the lease's browser context, installed before the first page loads, like `FileGuard` beside it:
 it continues a request only when the lease's `HostScopes` allow its host (the bee's `net` scopes,
 `net:loopback` for a loopback host unless the Cell's loopback is private) and aborts it as blocked
-by the client otherwise, then reports the refusal so attach can put it on the trail (ADR-0058).
+by the client otherwise, then reports the refusal so attach can put it on the trail (ADR-0059).
 
 Playwright asks a route only about a request's first URL: a redirect a granted server answers
 with is followed without asking again. WebSockets, WebRTC and a worker's own connections are not
 requests a route sees either. On a Virtual Cell the container's egress policy still bounds all of
-them; on a Real Cell this guard is what bounds a page, and those are its known limits (ADR-0058).
+them; on a Real Cell this guard is what bounds a page, and those are its known limits (ADR-0059).
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside

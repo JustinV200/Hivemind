@@ -290,3 +290,9 @@ ADRs that exist today, in numeric order:
   operator re-issues one on loopback only (a device approved loopback-only, or one that lapsed);
   whatever is replaced is withdrawn in the same step and stays on the revocation list until it
   expires.
+- `0059-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md`: every web request a
+  lease's browser makes is held to the bee's `net` scopes by a route; loopback needs `net:loopback`
+  unless the Cell's loopback is private (a Virtual Cell); file dialogs are refused in the lease's
+  profile, DevTools is closed over CDP as it opens, downloads are denied, and the desktop tools
+  refuse the chords that open them; a hard-linked file is refused; blocks go on the trail; the
+  DevTools transport stays a loopback port until a session can hand Chromium a pipe.
