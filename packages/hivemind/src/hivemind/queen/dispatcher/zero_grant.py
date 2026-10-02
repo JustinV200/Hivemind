@@ -366,7 +366,9 @@ def _figures(sized: SizedGrant) -> dict[str, JsonValue]:
         "cores": host.cores,
         "cpu_load": host.cpu_load,
         "free_memory_bytes": host.memory_free_bytes,
-        "reserve_memory_bytes": inputs.reserve.memory_bytes,
+        # What Forage actually held back on this Cell (scaled to its size), not the configured
+        # ceiling: the explanation must match the decision it explains.
+        "reserve_memory_bytes": inputs.reserve.memory_for(host.memory_bytes),
         "reserve_seats": inputs.reserve.seats,
         "footprint_cpu_cores": inputs.footprint.cpu_cores,
         "footprint_memory_bytes": inputs.footprint.memory_bytes,

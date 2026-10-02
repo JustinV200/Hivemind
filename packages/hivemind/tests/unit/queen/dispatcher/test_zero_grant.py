@@ -15,15 +15,25 @@ See Also:
 
 from __future__ import annotations
 
-from builders.queen import make_queen_deps
+import dataclasses
+
+from builders.forage import make_capacity, make_host_capacity, make_reserve
+from builders.queen import FORAGE_SOURCE_SEATS, make_queen_deps, plan_responder
 from builders.tasks import make_task
 
+from hivemind.cell import HoneyClearance
 from hivemind.forage import GrantBound, SubBeeLimits
+from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import GrantWait
-from hivemind.queen.dispatcher.zero_grant import forget_waits, waits_on
+from hivemind.queen.dispatcher.sizing import size_for_capacity
+from hivemind.queen.dispatcher.zero_grant import deny_zero_grant, forget_waits, waits_on
+from hivemind.queen.queen import Queen
 
 _MARGIN = 0.9  # The default 10% headroom margin.
 _ROOMY = 4  # A limit value that leaves whole bees under the margin.
+_MIB = 1024**2
+_GIB = 1024**3
 
 
 def _limits(now: dict[GrantBound, int], at_best: dict[GrantBound, int]) -> SubBeeLimits:
@@ -102,3 +112,45 @@ async def test_forget_waits_drops_every_task_no_longer_ready_and_keeps_the_rest(
     forget_waits(deps, {ready.id})
 
     assert set(deps.dispatch.waits.waits) == {ready.id}
+
+
+def _one_task_plan(goal: str) -> dict[str, object]:
+    """A one-task plan, so a submitted goal leaves exactly one RUNNING task to deny."""
+    check = {"kind": "FILE_EXISTS", "subject": "scratch/done.txt", "argv": [], "expected": None}
+    return {
+        "tasks": [
+            {
+                "key": "root",
+                "title": "Root task",
+                "objective": f"Do the work for: {goal}",
+                "acceptance": [check],
+                "needs": {},
+                "clearance": "C1",
+                "depends_on": [],
+            }
+        ]
+    }
+
+
+async def test_a_denial_reports_the_reserve_memory_forage_actually_held_on_that_cell() -> None:
+    # Arrange: a running task, and a 1 GiB Cell on which the 512 MiB reserve scales down to an
+    # eighth (RoyalReserve.memory_for); every seat is reserved, so the grant sizes to zero.
+    provider = FakeLLMProvider(responder=plan_responder(_one_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    task_id = await queen.submit_goal("Do a thing.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    await warden_end.close()
+    reserve = make_reserve(seats=FORAGE_SOURCE_SEATS, memory_bytes=512 * _MIB)
+    zeroing = dataclasses.replace(deps, reserve=reserve)
+    host = make_host_capacity(memory_bytes=_GIB, memory_free_bytes=_GIB // 2)
+    task = await deps.chamber.get(task_id)
+    sized = size_for_capacity(zeroing, make_capacity(host=host), task)
+
+    await deny_zero_grant(zeroing, task, sized)
+
+    [denied] = await deps.trail.query(TrailQuery(kind="forage.denied"))
+    # The figure Forage's own decision used (128 MiB here), not the configured 512 MiB ceiling.
+    assert denied.payload["reserve_memory_bytes"] == reserve.memory_for(_GIB)
+    assert denied.payload["reserve_memory_bytes"] == _GIB // 8
