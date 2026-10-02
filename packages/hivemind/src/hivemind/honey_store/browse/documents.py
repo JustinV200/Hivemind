@@ -86,7 +86,7 @@ __all__ = [
 class HoneyDocument(Honey):
     """One Honey row as `cat` returns it: the row itself, plus its Nectar's extra sources.
 
-    A subclass of `Honey`, not a wrapper, so it carries every field `honey_entry` and `render.py`
+    A subclass of `Honey`, not a wrapper, so it carries every field `honey_entry` and `render`
     already read from a plain `Honey` and every existing `isinstance(document, Honey)` check still
     recognises it; `sources` is the one field `cat` adds over what `ls` already shows. Never built
     by ripening, `list_honey`, search or any store read but `read_document`'s own HONEY path.

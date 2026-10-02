@@ -9,8 +9,8 @@ whole pass: drains queued notes, ripens, then files and reviews label lowerings 
 [--prune]`, `relabel`), `review.py` (`review`, ADR-0038's judge-reviewed label lowering: list
 proposals, `approve`/`deny` one as the human, `--judge` to run the judge now), a shared
 `context.py` (the group's options, the operator's reader, opening the store), `sources.py` (the
-browser's memory-backed wax and Bee Bread sources) and `render.py` (printing). This face only
-wires them together (codingrules section 5.4). `--manifest`, `--db` and `--clearance` belong to
+browser's memory-backed wax and Bee Bread sources) and the `render` package (printing). This face
+only wires them together (codingrules section 5.4). `--manifest`, `--db` and `--clearance` belong to
 the group, so they come right after `honey` and before the subcommand (`hive honey --manifest
 hive.toml --clearance C1 ls /hive`); `review`'s own `--judge`, `--limit` and `--json` come right
 after `review` (`hive honey review --json`), and its decisions are its subcommands (`hive honey

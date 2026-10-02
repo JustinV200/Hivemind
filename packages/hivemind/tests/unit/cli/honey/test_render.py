@@ -6,7 +6,7 @@ own: the JSON kind of each document shape, both forms of a slot's status line, e
 prune's result, and a proposal whose title is withheld and whose decision was the human's.
 
 Fits into the Hive:
-    Mirrors src/hivemind/cli/honey/render.py (codingrules section 3).
+    Mirrors src/hivemind/cli/honey/render/ (codingrules section 3), through its face.
 
 Key invariants:
     - None: this module holds tests only.
