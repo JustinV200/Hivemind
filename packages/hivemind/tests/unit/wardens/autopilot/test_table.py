@@ -385,3 +385,15 @@ def test_decide_maps_a_forage_reply_to_record_and_not_to_an_awake_episode() -> N
     action = decide(make_inbox_item(payload=reply, principal="queen"), None, make_policy())
 
     assert action is WardenAction.RECORD
+
+
+def test_decide_records_a_refused_trail_segment_chunk_without_waking_a_model() -> None:
+    """The Queen already recorded guard.segment_refused; the Warden has nothing to judge."""
+    refused = ErrorMessage(
+        code="hivemind.queen.segment_refused.corrupt",
+        message="Trail segment chunk refused: its bytes do not match what it declared.",
+        failed_kind="swarm.trail_segment_sync",
+        is_retryable=False,
+    )
+
+    assert decide(_item(refused), None, make_policy()) is WardenAction.RECORD

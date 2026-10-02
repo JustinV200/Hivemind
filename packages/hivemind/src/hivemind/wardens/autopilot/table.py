@@ -26,7 +26,10 @@ step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.
 `hivemind.wardens.ticks.honey` relays or logs; the Royal Jelly Lab's and the Basket's traffic
 (roadmap phase 9) maps to `FORWARD_TOOL` (a `ToolRequest`, `ToolPromoted`, `ToolQuarantineReport`
 or a `control.error` about a tool message), `RUN_QUARANTINE` (a `ToolQuarantine` order) and
-`BASKET` (every `basket.*` payload); every other recognised kind maps to a fixed action;
+`BASKET` (every `basket.*` payload); a `control.error` whose `failed_kind` is
+`swarm.trail_segment_sync` (the Queen refused a trail segment chunk this Warden shipped, code
+`hivemind.queen.segment_refused.<reason>`, already `guard.segment_refused` on her trail) maps to
+`RECORD`; every other recognised kind maps to a fixed action;
 anything this table has never seen returns `NEEDS_JUDGEMENT`, the one signal that hands the item
 to `hivemind.wardens.awake` instead of silently dropping it.
 
@@ -88,7 +91,7 @@ from waggle.messages.supervision import (
     InterventionAction,
     Question,
 )
-from waggle.messages.swarm import NucPromote
+from waggle.messages.swarm import NucPromote, TrailSegmentSync
 from waggle.messages.task import (
     TaskAssign,
     TaskCancel,
@@ -115,6 +118,8 @@ __all__ = ["SubBeeView", "decide"]
 # The kind a Queen's control.error names when it refuses a deposit this Warden relayed; read from
 # the registry, the one place kinds live, so it can never drift from the wire.
 _NECTAR_DEPOSIT_KIND = kind_for(NectarDeposit)
+# The kind a Queen's control.error names when she refuses a trail segment chunk this Warden shipped.
+_TRAIL_SEGMENT_SYNC_KIND = kind_for(TrailSegmentSync)
 
 # The kinds a control.error names when it answers something this Warden sent on the Royal Jelly
 # Lab's behalf (a relayed request, its own sandbox request, its own promotion); every other
@@ -252,6 +257,11 @@ def _decide_cell_order(payload: object) -> WardenAction | None:
         # ordered (the handler checks who ordered it, for which Cell and against which ceilings),
         # never a judgement call.
         return WardenAction.NUC_PROMOTE
+    if isinstance(payload, ErrorMessage) and payload.failed_kind == _TRAIL_SEGMENT_SYNC_KIND:
+        # The Queen refused a trail segment chunk this Warden shipped
+        # (`hivemind.queen.segment_refused.<reason>`) and already recorded it on her own trail;
+        # nothing here can mend the chunk, so it is never a judgement call.
+        return WardenAction.RECORD
     return None
 
 
