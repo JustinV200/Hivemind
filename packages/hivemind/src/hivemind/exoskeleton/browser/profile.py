@@ -1,9 +1,9 @@
-"""Seed a lease's Chromium profile with the settings that keep its own file dialogs shut.
+"""Seed a lease's Chromium profile with the settings that keep its file dialogs and WebRTC shut.
 
 A lease's browser has a profile of its own in scratch (`--user-data-dir`), so what Chromium reads
 from that profile at start is per-lease, unlike its machine-wide policies (written as root under
-/etc on Linux, which a Real Cell could not use without changing the operator's machine). Two of
-the settings there close what desktop input could otherwise reach (ADR-0059):
+/etc on Linux, which a Real Cell could not use without changing the operator's machine). Three of
+the settings there close what desktop input or a page could otherwise reach (ADR-0059):
 
 - `select_file_dialogs.allowed = false` in `Local State`, the setting the
   `AllowFileSelectionDialogs` policy sets: Save As, Open File, Print to PDF's save and a page's
@@ -12,6 +12,11 @@ the settings there close what desktop input could otherwise reach (ADR-0059):
   with AbortError at once, and the value read back as user-controlled `false`).
 - the download directory in `Default/Preferences`, pointed into scratch with no prompt, so a
   download that does happen lands inside the lease rather than in the operator's own folder.
+- `webrtc.ip_handling_policy = disable_non_proxied_udp` in `Default/Preferences`, the setting the
+  `WebRtcIPHandling` policy sets: no route sees WebRTC, and with no proxy this leaves it no UDP
+  and no local address to show (checked on Edge 154, 2026-10-02: a page gathered no candidates).
+  It still lets a page reach a TURN server over TCP, so peer connections are also switched off
+  in every page (`browser.playwright.hosts.peers`).
 
 DevTools has a matching setting (`devtools.availability = 2`), but Chromium then refuses remote
 debugging too, and the lease drives its browser over exactly that, so DevTools is closed over CDP
@@ -45,8 +50,17 @@ LOCAL_STATE = "Local State"  # Chromium's browser-wide settings file, at the pro
 PREFERENCES = Path("Default") / "Preferences"  # The default profile's own settings file.
 DOWNLOADS_DIR = "downloads"  # Inside the browser directory: where any download lands.
 FILE_CALL_TIMEOUT_S = 10.0  # One small file read or write through the session.
+# WebRTC over a proxy only, and the lease's browser has none: no UDP, no local addresses shown.
+WEBRTC_POLICY = "disable_non_proxied_udp"
 
-__all__ = ["DOWNLOADS_DIR", "LOCAL_STATE", "PREFERENCES", "lease_settings", "seed_profile"]
+__all__ = [
+    "DOWNLOADS_DIR",
+    "LOCAL_STATE",
+    "PREFERENCES",
+    "WEBRTC_POLICY",
+    "lease_settings",
+    "seed_profile",
+]
 
 
 def lease_settings(downloads: Path) -> dict[Path, dict[str, object]]:
@@ -64,6 +78,7 @@ def lease_settings(downloads: Path) -> dict[Path, dict[str, object]]:
         PREFERENCES: {
             "download": {"prompt_for_download": False, "default_directory": folder},
             "savefile": {"default_directory": folder},
+            "webrtc": {"ip_handling_policy": WEBRTC_POLICY},
         },
     }
 

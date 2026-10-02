@@ -142,6 +142,10 @@ def test_a_headless_sandboxed_spec_keeps_every_file_in_the_browser_directory(
     assert "--headless=new" in spec.argv
     assert "--no-sandbox" not in spec.argv
     assert "--window-size=1280,800" in spec.argv
+    # No shared workers (no route sees them), and no local-network check that would refuse a
+    # granted loopback socket from a page the host guard answered (ADR-0059).
+    assert "--disable-shared-workers" in spec.argv
+    assert "--disable-features=LocalNetworkAccessChecks" in spec.argv
     assert spec.cwd == browser_dir
     assert spec.log_path == browser_dir / LOG_FILE
     # The lease's HOME and display, and a temporary directory relative to the browser directory.

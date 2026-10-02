@@ -37,6 +37,15 @@ async def test_a_fresh_profile_gets_file_dialogs_refused_and_downloads_in_scratc
     assert preferences["savefile"] == {"default_directory": str(_DOWNLOADS)}
 
 
+async def test_a_fresh_profile_keeps_webrtc_off_udp_and_local_addresses() -> None:
+    session = FakeSession(_SCRATCH, FakeClock())
+
+    await seed_profile(session, _PROFILE, _DOWNLOADS)
+
+    preferences = await _read(session, PREFERENCES)
+    assert preferences["webrtc"] == {"ip_handling_policy": "disable_non_proxied_udp"}
+
+
 async def test_an_existing_profile_keeps_its_other_settings() -> None:
     session = FakeSession(_SCRATCH, FakeClock())
     existing = {"select_file_dialogs": {"allowed": True, "other": 1}, "browser": {"x": 2}}

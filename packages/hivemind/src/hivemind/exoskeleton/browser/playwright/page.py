@@ -12,10 +12,10 @@ redirects itself on load (a login guard) is followed rather than reported as int
 navigation waits for the error page Chromium commits a moment after the failure is reported, so it
 cannot overlap (and drop) the next navigation, and a navigation an error page still displaced is
 asked for once more. Checkpoint and restore are `.storage`'s; restore then reloads the checkpoint's
-URL. Every file request goes through `.guard.FileGuard` and every web request through
-`.hosts.HostGuard`, and `.chrome.ChromeGuard` closes DevTools and denies downloads, all installed
-before the first page loads; a navigation to a file URL outside the lease's file roots is refused
-before it starts.
+URL. Every file request goes through `.guard.FileGuard`, every web request, redirect and WebSocket
+through `.hosts.HostGuard`, and `.chrome.ChromeGuard` closes DevTools and denies downloads, all
+installed before the first page loads; a navigation to a file URL outside the lease's file roots
+is refused before it starts.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
@@ -131,7 +131,7 @@ async def connect_browser(
     try:
         # WHY: installed before the bee's first navigation, so no page ever loads unguarded.
         await FileGuard(request.file_roots, sink).install(connection.context)
-        await HostGuard(request.hosts, sink).install(connection.context)
+        await HostGuard(request.hosts, sink, timeouts.navigation_s).install(connection.context)
         await ChromeGuard(sink).install(connection.browser)
     except (PlaywrightError, TimeoutError) as error:
         await close_quietly(connection.browser)

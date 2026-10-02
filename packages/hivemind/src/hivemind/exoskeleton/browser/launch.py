@@ -14,8 +14,9 @@ directory, where it keeps the socket and lock that allow one browser per profile
 leaves behind even after a clean exit, is the browser directory in scratch, named relatively
 (TMPDIR=".") because an absolute path would not fit a Unix socket address under a deep scratch
 root. Before Chromium starts, its profile is seeded with the settings that keep its own file
-dialogs shut and its downloads in scratch (`browser.profile`, ADR-0059); the connector then guards
-every request the page makes and closes DevTools whenever it opens. Whatever goes wrong once the
+dialogs shut, its downloads in scratch and its WebRTC off the network (`browser.profile`, ADR-0059),
+and it starts with shared workers off; the connector then guards every request, redirect and
+socket the page makes and closes DevTools whenever it opens. Whatever goes wrong once the
 process has started, it is stopped before the error leaves.
 
 Fits into the Hive:
@@ -94,6 +95,14 @@ QUIET_FLAGS = (
     "--disable-default-apps",
     "--disable-extensions",
     "--disable-breakpad",
+    # No shared workers: Playwright routes no request a shared worker makes, so a page could reach
+    # any host through one (checked on Edge 154, 2026-10-02). Pages see `SharedWorker` undefined.
+    "--disable-shared-workers",
+    # The host guard answers every page itself, so Chromium cannot tell which address a page came
+    # from and treats it as public, then refuses its sockets to loopback or the local network
+    # (ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS on Edge 154). The guard's own rule is stricter
+    # than that check: such a host is reached only when granted, loopback by `net:loopback` alone.
+    "--disable-features=LocalNetworkAccessChecks",
     # A container's /dev/shm is 64 MB, which a heavy page exhausts; Chromium uses TMPDIR instead.
     "--disable-dev-shm-usage",
 )
