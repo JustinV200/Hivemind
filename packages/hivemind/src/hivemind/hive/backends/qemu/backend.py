@@ -366,7 +366,9 @@ def _build_cell(
         kind=CellKind.VIRTUAL,
         name=spec.image,
         source=source,
-        capabilities=ready_info.capabilities,
+        # The VM is this backend's own boundary, so the Cell contains what it runs (ADR-0060);
+        # the Cell's own report never says so for itself.
+        capabilities=ready_info.capabilities.model_copy(update={"processes_contained": True}),
         capacity=ready_info.capacity,
         access_level=AccessLevel.FULL,
         comb_shield=spec.comb_shield,

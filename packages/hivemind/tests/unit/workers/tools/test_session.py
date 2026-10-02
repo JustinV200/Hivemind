@@ -11,9 +11,10 @@ from pathlib import Path
 
 import pytest
 from builders.capping import FakeLeaseView
+from builders.cells import make_capabilities, make_cell
 from builders.workers import make_assignment, make_context
 
-from hivemind.cell import CompletedCommand, PathNotAllowedError
+from hivemind.cell import AccessLevel, CompletedCommand, PathNotAllowedError
 from hivemind.cell.fake import FakeSession
 from hivemind.guard import CapabilitySet
 from hivemind.pheromone import TrailQuery
@@ -28,6 +29,8 @@ from hivemind.workers.tools.session import (
 from waggle.clock import FakeClock
 
 _SCRATCH_DIR = Path("scratch")
+# A Real Cell its operator granted in full: commands run there (ADR-0060).
+_FULL_CELL = make_cell(access_level=AccessLevel.FULL)
 _OUTSIDE_PATH = "../outside/note.txt"  # Resolves outside _SCRATCH_DIR via its own ".." segment.
 # Resolved once at import time (a plain Path.resolve(), not inside an async test body: ASYNC240
 # flags a blocking pathlib call directly inside an async function).
@@ -132,7 +135,7 @@ async def test_run_command_is_verified_when_the_scripted_exit_code_is_zero() -> 
         clock=clock,
         responder={"true": CompletedCommand(exit_code=0, stdout=b"", stderr=b"", duration_s=0.0)},
     )
-    ctx = make_context(clock=clock, session=session)
+    ctx = make_context(clock=clock, session=session, cell=_FULL_CELL)
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment(clock=clock))
 
     result = await run_command(invocation, {"argv": ["true"]})
@@ -142,13 +145,37 @@ async def test_run_command_is_verified_when_the_scripted_exit_code_is_zero() -> 
 
 async def test_run_command_names_the_exit_code_when_the_gate_rolls_back() -> None:
     # FakeSession's default responder answers every unscripted command with exit code 127.
-    ctx = make_context()
+    ctx = make_context(cell=_FULL_CELL)
     invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
 
     result = await run_command(invocation, {"argv": ["not-a-real-command"]})
 
     assert "state=ROLLED_BACK" in result
     assert "command exited 127" in result
+
+
+async def test_run_command_is_refused_on_an_uncontained_cell_below_full_before_proposing() -> None:
+    # ADR-0060: make_context's default Cell is a Real one at SCRATCH, a plain subprocess there.
+    ctx = make_context()
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
+
+    result = await run_command(invocation, {"argv": ["cp", "/home/op/.ssh/id_rsa", "."]})
+
+    assert result.startswith("refused by the Guard (guard.access_level.scratch)")
+    assert "it needs a Virtual Cell" in result
+    assert not await ctx.trail.query(TrailQuery(kind="capping.proposed"))
+    [denial] = await ctx.trail.query(TrailQuery(kind="guard.denied"))
+    assert denial.payload["capability"] == "exec:cp"
+
+
+async def test_run_command_runs_on_a_contained_cell_at_scratch() -> None:
+    contained = make_cell(capabilities=make_capabilities(processes_contained=True))
+    ctx = make_context(cell=contained)
+    invocation = ToolInvocation(ctx=ctx, assignment=make_assignment())
+
+    result = await run_command(invocation, {"argv": ["not-a-real-command"]})
+
+    assert "state=ROLLED_BACK" in result
 
 
 async def test_run_command_rejects_a_malformed_argv_without_proposing() -> None:

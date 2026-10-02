@@ -13,7 +13,10 @@ exec or a network scope. `ceiling_for` builds the widest governed set a level pe
 at all, which is what the policy engine's access-level rule reads. The Exoskeleton's peripherals
 split by level (ADR-0031): the browser fast path at SCRATCH, the lease's own display and sound
 server at FULL, and the operator's running display only at FULL with that Cell's own opt-in
-(`real_display`).
+(`real_display`). Running commands (`exec`) splits by containment (ADR-0060): a command is a
+process that can read and change anything the Cell's user can, so below FULL only a Cell whose
+processes are contained (`CellCapabilities.processes_contained`) may run one; on an uncontained
+Real Cell, `exec` needs FULL.
 
 This step changes phase 3's `ceiling_for` (roadmap 3.13a): `tool` and `spend` are no longer in
 any ceiling, because neither is an effect on the Cell; a tool's effects are checked through the
@@ -39,11 +42,15 @@ Key invariants:
       device, outside-scratch, Exoskeleton, location or host-metadata capability, however
       `requested` was built.
     - The levels nest: each ceiling holds everything the level below it holds.
+    - `exec` is in a ceiling below FULL only for a Cell whose processes are contained, on that
+      Cell's own capability report; never implied.
     - Pure: `scratch_root` is only written into a scope string, never read from disk.
 
 See Also:
     - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Access levels narrow
       only what touches the Cell".
+    - docs/adr/0060-commands-run-only-where-they-are-contained-or-fully-granted.md for why
+      `exec` is FULL's, or a contained Cell's.
     - .claude/codingrules.md section 8.7 for what each AccessLevel means for a Real Cell.
     - .claude/roadmap.md step 10.7 for the access-level data and watch mode's bound.
     - hivemind.cell.tiers for AccessLevel itself.
@@ -82,19 +89,20 @@ _LEVEL_GRANTS: Mapping[AccessLevel, tuple[str, ...]] = MappingProxyType(
     {
         # Reading is harmless to the machine, so even READ_ONLY reads anywhere.
         AccessLevel.READ_ONLY: ("fs:read:**",),
-        # Writes stay inside the lease's own scratch directory; commands may run, since Capping
-        # still gates any effect they have outside scratch before it lands; and so may the
-        # browser fast path, which keeps its profile and home inside scratch (ADR-0031). A
-        # display or a sound server touches the host outside scratch, so neither is here.
+        # Writes stay inside the lease's own scratch directory, and so does the browser fast
+        # path, which keeps its profile and home inside scratch (ADR-0031). A display or a sound
+        # server touches the host outside scratch, so neither is here. Nor are commands
+        # (ADR-0060): a command run in scratch still reads and copies whatever the Cell's user
+        # can, so SCRATCH runs one only on a Cell that contains its processes (`_CONTAINED_EXEC`).
         AccessLevel.SCRATCH: (
             f"fs:write:{SCRATCH_PLACEHOLDER}/**",
-            "exec:*",
             "exoskeleton:browser",
         ),
-        # The whole Cell, within its other controls: writes anywhere, the network, devices,
-        # paths outside scratch, the lease's own display and sound server (ADR-0031), and the
-        # location and host facts only a full grant should ever reveal.
+        # The whole Cell, within its other controls: commands, writes anywhere, the network,
+        # devices, paths outside scratch, the lease's own display and sound server (ADR-0031),
+        # and the location and host facts only a full grant should ever reveal.
         AccessLevel.FULL: (
+            "exec:*",
             "fs:write:**",
             "net:*",
             "device:*",
@@ -111,6 +119,10 @@ _LEVEL_GRANTS: Mapping[AccessLevel, tuple[str, ...]] = MappingProxyType(
 # FULL only where the Cell's capability report says its operator allowed it (codingrules section
 # 15, "never issued implicitly").
 _REAL_DISPLAY = "exoskeleton:real_display"
+# Commands below FULL (ADR-0060): added only where the Cell's capability report says its processes
+# are contained, so a command there reaches no further than the lease does.
+_CONTAINED_EXEC = "exec:*"
+_CONTAINED_EXEC_FROM = AccessLevel.SCRATCH  # The lowest level a contained Cell runs commands at.
 
 __all__ = [
     "CELL_EFFECT_FAMILIES",
@@ -137,7 +149,11 @@ def governs(family: CapabilityFamily) -> bool:
 
 
 def ceiling_for(
-    level: AccessLevel, scratch_root: PurePath, *, real_display: bool = False
+    level: AccessLevel,
+    scratch_root: PurePath,
+    *,
+    real_display: bool = False,
+    processes_contained: bool = False,
 ) -> CapabilitySet:
     """Build the widest set of Cell-effect capabilities an AccessLevel permits on one Cell.
 
@@ -148,6 +164,9 @@ def ceiling_for(
         real_display: Whether the Cell's operator allowed the Hive to drive the display already
             running there (`CellCapabilities.real_display_allowed`, roadmap step 6.3). Adds
             `exoskeleton:real_display` at FULL only; ignored below FULL, and never implied.
+        processes_contained: Whether the Cell contains every process it runs, so a command
+            reaches no further than the lease (`CellCapabilities.processes_contained`,
+            ADR-0060). Adds `exec:*` at SCRATCH; FULL holds it either way, READ_ONLY never.
 
     Returns:
         Every governed capability `level` permits, each level including the ones below it. No
@@ -164,10 +183,15 @@ def ceiling_for(
         # The operator's own opt-in for this Cell, and only at FULL: driving someone's screen
         # reaches far outside any lease's scratch.
         specs.append(_REAL_DISPLAY)
+    if processes_contained and level.rank >= _CONTAINED_EXEC_FROM.rank:
+        # A contained command cannot reach past the lease, so SCRATCH may run one too.
+        specs.append(_CONTAINED_EXEC)
     return CapabilitySet.parse(*specs)
 
 
-def admits(level: AccessLevel, family: CapabilityFamily) -> bool:
+def admits(
+    level: AccessLevel, family: CapabilityFamily, *, processes_contained: bool = False
+) -> bool:
     """Decide whether an AccessLevel permits any capability of `family`, whatever its scope.
 
     The policy engine's access-level rule reads this: it knows a Cell's level but not the lease's
@@ -178,11 +202,12 @@ def admits(level: AccessLevel, family: CapabilityFamily) -> bool:
     Args:
         level: The Cell's access level.
         family: The family of the capability an action needs.
+        processes_contained: Whether the Cell contains its processes; see `ceiling_for`.
 
     Returns:
         True for a family `level` does not govern, or one its ceiling holds at some scope.
     """
-    return not governs(family) or family in _ADMITTED[level]
+    return not governs(family) or family in _ADMITTED[(level, processes_contained)]
 
 
 def cap_to_access(
@@ -191,6 +216,7 @@ def cap_to_access(
     scratch_root: PurePath,
     *,
     real_display: bool = False,
+    processes_contained: bool = False,
 ) -> CapabilitySet:
     """Narrow a requested set to what an AccessLevel permits, leaving ungoverned families alone.
 
@@ -199,12 +225,15 @@ def cap_to_access(
         level: That Cell's access level.
         scratch_root: The lease's scratch directory, for the ceiling's `fs:write` scope.
         real_display: The Cell operator's running-display opt-in; see `ceiling_for`.
+        processes_contained: Whether the Cell contains its processes; see `ceiling_for`.
 
     Returns:
         Every capability of `requested` whose family access levels do not govern, unchanged, plus
         every governed one the level's ceiling allows. Never anything `requested` lacks.
     """
-    ceiling = ceiling_for(level, scratch_root, real_display=real_display)
+    ceiling = ceiling_for(
+        level, scratch_root, real_display=real_display, processes_contained=processes_contained
+    )
     kept = frozenset(
         capability
         for capability in requested
@@ -231,14 +260,18 @@ def fill_scratch(template: str, scratch_root: PurePath) -> str:
     return template.replace(SCRATCH_PLACEHOLDER, posix_root)
 
 
-def _admitted_families() -> Mapping[AccessLevel, frozenset[CapabilityFamily]]:
-    """Map each level to the governed families its ceiling holds at any scope."""
+def _admitted_families() -> Mapping[tuple[AccessLevel, bool], frozenset[CapabilityFamily]]:
+    """Map each (level, processes contained) pair to the governed families its ceiling holds."""
     return MappingProxyType(
         {
-            level: frozenset(
-                capability.family for capability in ceiling_for(level, _SAMPLE_SCRATCH_ROOT)
+            (level, contained): frozenset(
+                capability.family
+                for capability in ceiling_for(
+                    level, _SAMPLE_SCRATCH_ROOT, processes_contained=contained
+                )
             )
             for level in AccessLevel
+            for contained in (False, True)
         }
     )
 

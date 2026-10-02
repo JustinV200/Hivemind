@@ -121,6 +121,7 @@ def _request(
     context = PolicyContext(
         comb_shield=ctx.cell.comb_shield,
         access_level=ctx.cell.access_level,
+        processes_contained=ctx.cell.capabilities.processes_contained,
         bound_tier=ctx.cell.comb_shield,
         resolved_addresses=resolved,
     )

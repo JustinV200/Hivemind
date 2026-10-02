@@ -24,9 +24,10 @@ import dataclasses
 from pathlib import Path
 
 import pytest
+from builders.cells import make_cell
 from builders.workers import make_assignment, make_context
 
-from hivemind.cell import CellIdentity
+from hivemind.cell import AccessLevel, CellIdentity
 from hivemind.guard import CapabilitySet, Enforcer, load_guard_policy
 from hivemind.guard.policy import HiveState
 from hivemind.pheromone import PheromoneEvent, TrailQuery
@@ -45,7 +46,8 @@ _EVERYTHING = CapabilitySet.parse(
 
 def _context() -> WorkerContext:
     """A Worker holding every Cell effect, whose Enforcer knows the Hive's own state paths."""
-    base = make_context(capabilities=_EVERYTHING)
+    # At FULL, so the access level leaves commands to the floors and the gate (ADR-0060).
+    base = make_context(capabilities=_EVERYTHING, cell=make_cell(access_level=AccessLevel.FULL))
     policy = dataclasses.replace(
         load_guard_policy(), hive_state=HiveState.of(db=_DB, secrets_dir=_STATE_DIR / "secrets")
     )

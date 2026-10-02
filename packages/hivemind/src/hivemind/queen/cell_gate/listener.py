@@ -406,7 +406,9 @@ def _cell_from_binding(binding: _ReadyBinding) -> Cell:
         kind=CellKind.VIRTUAL,
         name=str(binding.cell_id),
         source="virtual",
-        capabilities=binding.info.capabilities,
+        # The Queen provisioned this Cell, so she knows its processes are contained (ADR-0060);
+        # its own report never carries that.
+        capabilities=binding.info.capabilities.model_copy(update={"processes_contained": True}),
         capacity=binding.info.capacity,
         access_level=AccessLevel.FULL,  # Cell's own validator: every VIRTUAL Cell is FULL.
         comb_shield=binding.comb_shield,

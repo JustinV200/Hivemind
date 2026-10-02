@@ -21,9 +21,9 @@ like every other one.
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Called by `hivemind.guard.enforcer.
     Enforcer.check`, the one adapter every enforcement point goes through (roadmap step 10.3).
-    Calls into `hivemind.guard.access` (`admits`) and this package's `floors`, `models` and
-    `table`; no I/O, no clock, no trail: the enforcer records a denial, this module only decides
-    it.
+    Calls into `hivemind.guard.access` (`admits`), `hivemind.guard.capabilities`
+    (`CapabilityFamily`) and this package's `floors`, `models` and `table`; no I/O, no clock, no
+    trail: the enforcer records a denial, this module only decides it.
 
 Key invariants:
     - Pure and total: the same request and policy always give the same decision, and every
@@ -47,6 +47,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from hivemind.guard.access import admits
+from hivemind.guard.capabilities import CapabilityFamily
 from hivemind.guard.policy.floors import STATE_FLOOR_RULE, TIER_FLOOR_RULE, floor_refusal
 from hivemind.guard.policy.models import (
     EscalationAction,
@@ -176,14 +177,19 @@ def _access_level_ceiling(request: PolicyRequest, policy: GuardPolicy) -> _Verdi
     del policy  # The ceiling is fixed data in hivemind.guard.access, not configuration.
     level = request.context.access_level
     family = request.needed.family
+    contained = request.context.processes_contained
     # Not on a Cell, or a family this level permits at some scope: the held set, narrowed with
     # the real scratch root when it was built, decides the exact scope later.
-    if level is None or admits(level, family):
+    if level is None or admits(level, family, processes_contained=contained):
         return None
-    return _Verdict(
-        rule=f"{ACCESS_LEVEL_RULE}.{level.name.lower()}",
-        why=f"a {level.name} Cell never permits {family.value}",
-    )
+    why = f"a {level.name} Cell never permits {family.value}"
+    if family is CapabilityFamily.EXEC and admits(level, family, processes_contained=True):
+        # ADR-0060: the level would allow it on a contained Cell, so say what would.
+        why = (
+            f"this Cell cannot run commands at access level {level.name}, because its processes "
+            "are not contained; it needs a Virtual Cell, or FULL access"
+        )
+    return _Verdict(rule=f"{ACCESS_LEVEL_RULE}.{level.name.lower()}", why=why)
 
 
 def _deny_list(request: PolicyRequest, policy: GuardPolicy) -> _Verdict | None:

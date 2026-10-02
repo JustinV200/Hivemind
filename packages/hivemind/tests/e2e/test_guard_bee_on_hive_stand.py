@@ -77,7 +77,8 @@ def _lured_drone(request: LLMRequest) -> LLMResponse:
 
 def _hive(tmp_path: Path) -> Hive:
     """Compose the Hive exactly as `hive run` does, the Guard Bee reading every half second."""
-    tuning = ManifestTuning(heartbeat_interval_s=_HEARTBEAT_S)
+    # FULL: the lured Drone's command must run for the Guard Bee to see it (ADR-0060).
+    tuning = ManifestTuning(heartbeat_interval_s=_HEARTBEAT_S, hive_stand_full=True)
     manifest_path = quick_rounds(fake_manifest(tmp_path, tuning=tuning), interval_s=_HEARTBEAT_S)
     script = HaikuScript(_lured_drone, plan=single_task_plan("haiku_1.txt"))
     return build_hive(

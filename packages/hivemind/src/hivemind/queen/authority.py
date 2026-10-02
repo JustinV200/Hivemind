@@ -69,9 +69,15 @@ def warden_held(deps: QueenDeps, cell: Cell) -> CapabilitySet:
         cell: The Cell the Warden supervises (its `WardenLink.cell`).
 
     Returns:
-        The `warden` role default narrowed to `cell.access_level`, less the deny list.
+        The `warden` role default narrowed to `cell.access_level` (and, below FULL, to whether
+        the Cell contains its processes, ADR-0060), less the deny list.
     """
-    return warden_set(deps.enforcer.policy, cell.access_level, deps.scratch_root)
+    return warden_set(
+        deps.enforcer.policy,
+        cell.access_level,
+        deps.scratch_root,
+        processes_contained=cell.capabilities.processes_contained,
+    )
 
 
 def goal_held(task: Task) -> CapabilitySet | None:
@@ -104,6 +110,7 @@ def task_context(task: Task, cell: Cell | None = None) -> PolicyContext:
     return PolicyContext(
         comb_shield=cell.comb_shield if cell is not None else None,
         access_level=cell.access_level if cell is not None else None,
+        processes_contained=cell is not None and cell.capabilities.processes_contained,
         bound_tier=bound,
         origin=task.spec.origin,
     )

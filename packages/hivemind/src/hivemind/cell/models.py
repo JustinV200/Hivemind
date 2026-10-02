@@ -5,7 +5,8 @@ provisions and later destroys) or Real (an existing device: the Hive Stand or a 
 borrowed for a task and returned unchanged) -- `CellKind`. `CellCapabilities` is the one place
 platform facts (what the machine is: its OS family, architecture, distribution, shell, package
 manager, Python) and capability flags (what it can do: has_display, has_audio, has_browser,
-can_start_display, can_host_model, real_display_allowed, network_scopes) live together, so
+can_start_display, can_host_model, real_display_allowed, processes_contained, network_scopes)
+live together, so
 placement and Worker tool code branch on what a Cell can actually do rather than on its kind
 (codingrules section 8.7, "Branch on capabilities, never on kind"). `Cell` ties a `CellId`, its
 `kind`, `capabilities`, `capacity` (`hivemind.forage.ForageCapacity`, capacity as data),
@@ -29,6 +30,10 @@ Key invariants:
     - CellCapabilities.to_wire/from_wire split platform facts onto waggle's PlatformReport and
       capability flags onto CellCapabilitiesReport, the same split hivemind.forage.HostCapacity
       uses for the same reason (the wire carries the two on separate messages).
+      `processes_contained` alone never travels: whether a Cell's processes are contained is
+      known by whoever made the Cell (a Virtual backend, the Queen's listener for a Cell it
+      provisioned), never taken from a device's own report (ADR-0060), so `from_wire` leaves it
+      False.
     - `Cell.is_borrowed` is the one property outside `queen.placement` and
       `workers.roles.undertaker` that reads `kind` (`scripts/check_no_kind_branches.py` allows
       the whole `hivemind/cell/` package for exactly this reason); everywhere else reads
@@ -138,6 +143,13 @@ class CellCapabilities(BaseModel):
         default=False,
         description="Whether the operator allows the Hive to drive the display already running "
         "on this Cell (their own screen); never implied by has_display (roadmap step 6.3).",
+    )
+    processes_contained: bool = Field(
+        default=False,
+        description="Whether every process the Cell runs is contained, reaching no further than "
+        "the lease: true for a Virtual Cell's container, false for a plain Real Cell, whose "
+        "commands run as its user. Below FULL access only a contained Cell runs commands "
+        "(ADR-0060). Never carried on the wire.",
     )
     network_scopes: tuple[str, ...] = Field(
         max_length=MAX_NETWORK_SCOPES,

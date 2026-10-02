@@ -166,6 +166,8 @@ class ManifestTuning:
             off from the Queen before it clusters fully (the manifest's own default is ten
             minutes), with a `[supervision.reconnect_budget]` carved out of it at half; omitted
             writes neither. A Night Veil Cell is told it (roadmap step 10.3a).
+        hive_stand_full: When True, writes `[hive_stand] access_level = "FULL"`: a scenario whose
+            Drone runs commands on the Hive Stand, which below FULL is refused (ADR-0060).
     """
 
     worker_fallback: bool = False
@@ -174,6 +176,7 @@ class ManifestTuning:
     watch_table: str = ""
     drone_cpu_cores: float = _DEFAULT_DRONE_CPU_CORES
     max_offline_s: float | None = None
+    hive_stand_full: bool = False
 
 
 def fake_manifest(
@@ -215,6 +218,7 @@ def fake_manifest(
         watch_table=active_tuning.watch_table,
         drone_cpu_cores=active_tuning.drone_cpu_cores,
         max_offline_s=active_tuning.max_offline_s,
+        hive_stand_full=active_tuning.hive_stand_full,
     )
     manifest_path = tmp_path / "hive.toml"
     manifest_path.write_text(_render(spec), encoding="utf-8")
@@ -236,6 +240,7 @@ class _ManifestSpec:
     watch_table: str = ""
     drone_cpu_cores: float = _DEFAULT_DRONE_CPU_CORES
     max_offline_s: float | None = None
+    hive_stand_full: bool = False
 
 
 def _render(spec: _ManifestSpec) -> str:
@@ -247,7 +252,7 @@ def _render(spec: _ManifestSpec) -> str:
     )
     sections = [
         _hive_section(spec.hive_id, spec.node_id, spec.db_path),
-        _queen_and_hive_stand_section(spec.scratch_root, heartbeat_s),
+        _queen_and_hive_stand_section(spec.scratch_root, heartbeat_s, full=spec.hive_stand_full),
         _provider_section(spec.capabilities),
         _slots_section(worker_fallback=spec.worker_fallback),
         _forage_section(spec.drone_cpu_cores),
@@ -265,16 +270,19 @@ def _hive_section(hive_id: str, node_id: str, db_path: Path) -> str:
     )
 
 
-def _queen_and_hive_stand_section(scratch_root: Path, heartbeat_interval_s: float) -> str:
+def _queen_and_hive_stand_section(
+    scratch_root: Path, heartbeat_interval_s: float, *, full: bool
+) -> str:
     """Build `[queen]` and `[hive_stand]`: short cadences, the Hive Stand enabled and scratched.
 
     `[hive_stand.capacity] cores` comes after `[hive_stand]`'s own keys, so a test that inserts
     keys right after the `[hive_stand]` header (`tests.e2e.test_keep_tool`) still lands in the
     right table.
     """
+    access = 'access_level = "FULL"\n' if full else ""
     return (
         f"[queen]\ntick_interval_s = 0.05\nheartbeat_interval_s = {heartbeat_interval_s}\n\n"
-        f'[hive_stand]\nenabled = true\nscratch_root = "{scratch_root.as_posix()}"\n\n'
+        f'[hive_stand]\nenabled = true\nscratch_root = "{scratch_root.as_posix()}"\n{access}\n'
         f"[hive_stand.capacity]\ncores = {HIVE_STAND_CORES}\n"
     )
 

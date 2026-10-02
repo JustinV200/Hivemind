@@ -147,6 +147,21 @@ def test_a_scratch_cell_refuses_the_network_but_leaves_write_scopes_to_the_held_
     assert outside.rule == NOT_HELD_RULE
 
 
+def test_a_scratch_cell_refuses_a_command_unless_it_contains_its_processes() -> None:
+    # ADR-0060: the reason tells the Worker what would run it.
+    uncontained = PolicyContext(access_level=AccessLevel.SCRATCH)
+    contained = PolicyContext(access_level=AccessLevel.SCRATCH, processes_contained=True)
+
+    refused = evaluate(_request("exec:ls", "exec:*", context=uncontained), _POLICY)
+    allowed = evaluate(_request("exec:ls", "exec:*", context=contained), _POLICY)
+
+    assert refused.allowed is False
+    assert refused.rule == f"{ACCESS_LEVEL_RULE}.scratch"
+    assert "cannot run commands at access level SCRATCH" in refused.reason
+    assert "it needs a Virtual Cell, or FULL access" in refused.reason
+    assert allowed.allowed is True
+
+
 def test_the_access_level_never_touches_a_family_it_does_not_govern() -> None:
     context = PolicyContext(access_level=AccessLevel.READ_ONLY)
 

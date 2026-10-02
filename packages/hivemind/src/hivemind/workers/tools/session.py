@@ -8,10 +8,13 @@ before anything runs or lands; `read_file` has none, so it goes straight to the 
 capability check (only for a path outside scratch -- scratch is always readable) passes; since
 roadmap step 10.3 that check is the Guard's `session_outside_scratch` enforcement point, through
 the Worker's `Enforcer`, so a refused read is a `guard.denied` row with its reason. Roadmap step
-10.3a puts the Guard's floors in front of the other two: a command's `exec` and a write's
-`fs:write` are held-checked by the Capping gate, so each tool first asks the floors alone
-(`floor_refusal_text`), and a command that runs the Hive's own entry point, or a write that lands
-on the Hive's own state, is refused as `guard.denied` before it is ever proposed (ADR-0041).
+10.3a puts the Guard's floors in front of `write_file`: a write's `fs:write` is held-checked by
+the Capping gate, so the tool first asks the floors alone (`floor_refusal_text`), and a write that
+lands on the Hive's own state is refused as `guard.denied` before it is ever proposed (ADR-0041).
+`run_command` asks the whole policy for `exec:<argv[0]>` before proposing (ADR-0060), because the
+Capping gate checks `exec` only for a command run outside scratch, and a command run in scratch
+can still read anything the Cell's user can: on a Cell whose processes are not contained, below
+FULL access, the access-level rule refuses it as `guard.denied` and nothing starts.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
@@ -138,12 +141,13 @@ async def run_command(invocation: ToolInvocation, arguments: JsonObject) -> str:
     # An empty program names nothing to run (or to check), so it is malformed like no argv.
     if not argv or not argv[0]:
         return "argv must be a non-empty list of strings."
-    # Roadmap step 10.3a: the gate checks `exec` is held; the floors refuse the Hive's own
-    # entry points whatever is held, before anything is proposed.
+    # The whole policy, before anything is proposed: the floors refuse the Hive's own entry points
+    # (roadmap step 10.3a), and the access-level rule refuses any command on an uncontained Cell
+    # below FULL (ADR-0060), which the gate's scratch tier would never check.
     program = Capability(family=CapabilityFamily.EXEC, scope=argv[0])
-    refused = await floor_refusal_text(invocation, EnforcementPoint.TOOL_INVOCATION, program)
-    if refused is not None:
-        return refused
+    decision = await authorize(invocation, EnforcementPoint.TOOL_INVOCATION, program)
+    if not decision.allowed:
+        return refusal_text(decision)
     ctx = invocation.ctx
     cwd = arguments.get("cwd")
     cwd_str = cwd if isinstance(cwd, str) else None

@@ -131,12 +131,15 @@ async def open_lease(warden: Warden) -> None:
         await _give_back(warden, lease)
         await _watch(warden)
         return
-    # The operator's real-display opt-in rides on the Cell's own report (roadmap step 6.3).
+    # The operator's real-display opt-in rides on the Cell's own report (roadmap step 6.3), and
+    # so does whether its processes are contained, without which SCRATCH runs no command
+    # (ADR-0060).
     warden._ceiling = warden_set(
         warden._deps.guard,
         lease.access_level,
         lease.scratch_root,
         real_display=cell.capabilities.real_display_allowed,
+        processes_contained=cell.capabilities.processes_contained,
     )
     assert_transition(warden._state, WardenState.ACTIVE, warden_id=warden._warden_id)
     warden._state = WardenState.ACTIVE

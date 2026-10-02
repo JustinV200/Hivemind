@@ -86,8 +86,16 @@ def test_a_scratch_warden_writes_only_inside_its_scratch_and_reaches_no_network(
 
     assert warden.allows(Capability.parse("fs:write:/hive/scratch/out.txt"))
     assert not warden.allows(Capability.parse("fs:write:/etc/passwd"))
-    assert warden.allows(Capability.parse("exec:ls"))
     assert not warden.allows(Capability.parse("net:api.example.com"))
+
+
+def test_a_scratch_warden_runs_commands_only_on_a_cell_that_contains_its_processes() -> None:
+    # ADR-0060: an uncontained command in scratch still reads anything the Cell's user can.
+    uncontained = warden_set(_POLICY, AccessLevel.SCRATCH, _SCRATCH)
+    contained = warden_set(_POLICY, AccessLevel.SCRATCH, _SCRATCH, processes_contained=True)
+
+    assert not uncontained.allows(Capability.parse("exec:ls"))
+    assert contained.allows(Capability.parse("exec:ls"))
 
 
 def test_a_full_warden_holds_its_whole_role_default_once_its_operator_allows_the_display() -> None:

@@ -115,7 +115,8 @@ class InCellSpawnSource:
             kind=CellKind.VIRTUAL,
             name=str(config.cell_id),
             source=_SOURCE_NAME,
-            capabilities=config.capabilities,
+            # This process runs inside the Virtual Cell's own container (ADR-0060).
+            capabilities=config.capabilities.model_copy(update={"processes_contained": True}),
             capacity=config.capacity,
             # Cell's own validator (codingrules section 6.1): a VIRTUAL Cell is always FULL.
             access_level=AccessLevel.FULL,

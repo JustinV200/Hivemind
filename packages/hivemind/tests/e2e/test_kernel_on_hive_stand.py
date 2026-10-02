@@ -719,8 +719,11 @@ def test_a_failing_command_proposal_is_rolled_back(
     `alarm.raised` (kind `POSTCONDITION_FAILED`) and `alarm.handled` (the Warden's own policy
     dispatch, action `RETRY` per `supervision/defaults/default-policy.toml`'s own
     `POSTCONDITION_FAILED`@1 row) -- is now asserted deterministically below.
+
+    The Hive Stand is FULL: below it, the command is refused before any proposal (ADR-0060).
     """
-    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    full = ManifestTuning(hive_stand_full=True)
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities, tuning=full)
     if quarter_budget:
         set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(_failing_command_worker_turn()))
@@ -787,7 +790,9 @@ def test_the_hive_stand_is_left_exactly_as_found_after_the_goal(
             return tool_response(request, tuple(write_call(name) for name in _DEFAULT_FILES))
         return text_response("Three haiku written.")
 
-    manifest_path = fake_manifest(tmp_path, capabilities=capabilities)
+    # FULL, so the spawned command runs at all (ADR-0060); the lease still restores everything.
+    full = ManifestTuning(hive_stand_full=True)
+    manifest_path = fake_manifest(tmp_path, capabilities=capabilities, tuning=full)
     if quarter_budget:
         set_budget_fraction(manifest_path, _QUARTER_BUDGET_FRACTION)
     hive = _hive(manifest_path, HaikuScript(worker_turn))

@@ -275,7 +275,8 @@ async def _run(hive: Hive, drone: _SuspectDrone) -> tuple[GoalReport, list[Phero
 def test_a_drone_quarantined_mid_command_is_killed_held_and_let_out_only_once_cleared(
     tmp_path: Path,
 ) -> None:
-    tuning = ManifestTuning(heartbeat_interval_s=_HEARTBEAT_S)
+    # FULL: the Drone is quarantined mid-command, so its command must run (ADR-0060).
+    tuning = ManifestTuning(heartbeat_interval_s=_HEARTBEAT_S, hive_stand_full=True)
     manifest = load_manifest(fake_manifest(tmp_path, tuning=tuning), {})
     drone = _SuspectDrone()
     script = HaikuScript(drone.turn, plan=single_task_plan(*_FILES))

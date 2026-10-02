@@ -147,6 +147,12 @@ class PolicyContext(BaseModel):
         description="The Cell's access level; None when not on a Cell, so no access-level "
         "ceiling applies (a Virtual Cell is always FULL).",
     )
+    processes_contained: bool = Field(
+        default=False,
+        description="Whether the Cell contains every process it runs "
+        "(`CellCapabilities.processes_contained`); below FULL the access-level rule admits "
+        "`exec` only where it does (ADR-0060). False when unknown, which refuses.",
+    )
     bound_tier: CombShieldLevel | None = Field(
         default=None,
         description="The tier the task is bound to after placement, or the tier it requested "

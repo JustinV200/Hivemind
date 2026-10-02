@@ -78,6 +78,7 @@ def warden_set(
     scratch_root: PurePath,
     *,
     real_display: bool = False,
+    processes_contained: bool = False,
 ) -> CapabilitySet:
     """Return a Warden's whole set: its role default, narrowed to its Cell, less the deny list.
 
@@ -88,6 +89,9 @@ def warden_set(
         real_display: Whether its Cell's operator allowed the Hive to drive the display already
             running there (`CellCapabilities.real_display_allowed`, ADR-0031); without it no
             Warden holds `exoskeleton:real_display`, whatever its role default names.
+        processes_contained: Whether its Cell contains its processes
+            (`CellCapabilities.processes_contained`, ADR-0060); without it no Warden below FULL
+            holds `exec`.
 
     Returns:
         The `warden` role's set, kept only where `access_level` permits a Cell effect, with every
@@ -98,6 +102,7 @@ def warden_set(
         access_level,
         scratch_root,
         real_display=real_display,
+        processes_contained=processes_contained,
     )
     # An entry the deny list covers could only ever be refused at its point; dropping it here
     # keeps it out of everything the Warden hands down, too.

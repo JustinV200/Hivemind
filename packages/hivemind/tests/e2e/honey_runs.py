@@ -180,9 +180,12 @@ def scripted_hive(
 ) -> Hive:
     """Build a whole Hive over the Hive Stand, real SQLite and `script`; outside any loop.
 
-    Its manifest is `fake_manifest`'s own file, `tmp_path / "hive.toml"`, for a CLI to read.
+    Its manifest is `fake_manifest`'s own file, `tmp_path / "hive.toml"`, for a CLI to read. The
+    Hive Stand is FULL unless `tuning` says otherwise: the first run's Drone runs a discovery
+    command there, which below FULL is refused (ADR-0060).
     """
-    manifest = load_manifest(fake_manifest(tmp_path, capabilities=capabilities, tuning=tuning), {})
+    active = tuning if tuning is not None else ManifestTuning(hive_stand_full=True)
+    manifest = load_manifest(fake_manifest(tmp_path, capabilities=capabilities, tuning=active), {})
     return build_hive(
         manifest, environ={}, clock=SystemClock(), responders={"fake": script.responder}
     )

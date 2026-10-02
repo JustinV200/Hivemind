@@ -95,17 +95,30 @@ def test_read_only_reads_anywhere_and_nothing_else() -> None:
     assert ceiling_for(AccessLevel.READ_ONLY, _SCRATCH_ROOT).as_strings() == ("fs:read:**",)
 
 
-def test_scratch_adds_scratch_writes_and_exec() -> None:
+def test_scratch_adds_scratch_writes_but_no_commands() -> None:
     assert _allows(AccessLevel.SCRATCH, "fs:write:/hive/scratch/sub/out.txt") is True
     assert _allows(AccessLevel.SCRATCH, "fs:write:/etc/passwd") is False
-    assert _allows(AccessLevel.SCRATCH, "exec:ls") is True
+    # ADR-0060: a command in scratch still reads anything the Cell's user can.
+    assert _allows(AccessLevel.SCRATCH, "exec:ls") is False
     assert _allows(AccessLevel.SCRATCH, "net:api.example.com") is False
     assert _allows(AccessLevel.SCRATCH, "device:phone1") is False
     assert _allows(AccessLevel.SCRATCH, "cell:outside_scratch:/etc/x") is False
 
 
+def test_commands_need_full_or_a_cell_that_contains_its_processes() -> None:
+    def runs(level: AccessLevel, contained: bool) -> bool:
+        ceiling = ceiling_for(level, _SCRATCH_ROOT, processes_contained=contained)
+        return ceiling.allows(Capability.parse("exec:ls"))
+
+    assert runs(AccessLevel.READ_ONLY, contained=True) is False
+    assert runs(AccessLevel.SCRATCH, contained=False) is False
+    assert runs(AccessLevel.SCRATCH, contained=True) is True
+    assert runs(AccessLevel.FULL, contained=False) is True
+
+
 def test_full_adds_every_other_cell_effect() -> None:
     for spec in [
+        "exec:ls",
         "fs:write:/etc/passwd",
         "net:api.example.com",
         "device:phone1",
@@ -182,11 +195,20 @@ def test_a_set_built_from_an_escaped_root_still_attenuates_to_itself() -> None:
         (AccessLevel.READ_ONLY, CapabilityFamily.TOOL, True),  # Not governed: always admitted.
         (AccessLevel.SCRATCH, CapabilityFamily.FS_WRITE, True),  # At some scope: scratch.
         (AccessLevel.SCRATCH, CapabilityFamily.NET, False),
+        (AccessLevel.SCRATCH, CapabilityFamily.EXEC, False),  # Uncontained (ADR-0060).
+        (AccessLevel.FULL, CapabilityFamily.EXEC, True),
         (AccessLevel.FULL, CapabilityFamily.HOST_METADATA, True),
     ],
 )
 def test_admits(level: AccessLevel, family: CapabilityFamily, expected: bool) -> None:
     assert admits(level, family) is expected
+
+
+def test_admits_exec_at_scratch_only_on_a_cell_that_contains_its_processes() -> None:
+    exec_family = CapabilityFamily.EXEC
+
+    assert admits(AccessLevel.SCRATCH, exec_family, processes_contained=True) is True
+    assert admits(AccessLevel.READ_ONLY, exec_family, processes_contained=True) is False
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -409,6 +409,7 @@ def _build_cell(spec: VirtualCellSpec, source: str, cell_id: CellId) -> Cell:
         has_browser=spec.exoskeleton,
         can_start_display=spec.exoskeleton,
         can_host_model=True,
+        processes_contained=True,  # As a real backend's container would (ADR-0060).
         network_scopes=(
             spec.network_allowlist if spec.network_policy is NetworkPolicy.ALLOWLIST else ()
         ),
