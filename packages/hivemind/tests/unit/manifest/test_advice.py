@@ -1,4 +1,4 @@
-"""Tests for hivemind.manifest.advice: the JUDGE-shares-RIPENER warning, and that loading logs it.
+"""Tests for hivemind.manifest.advice: the JUDGE-shares-RIPENER warning on real manifests.
 
 Fits into the Hive:
     Mirrors src/hivemind/manifest/advice.py (codingrules section 3). Builds real `LlmSection`
@@ -58,17 +58,17 @@ def test_a_judge_on_another_model_or_another_server_gets_no_advice() -> None:
     assert judge_shares_ripener(elsewhere) is None
 
 
-def test_load_manifest_logs_the_advice_and_still_returns_the_manifest() -> None:
+def test_the_shipped_local_manifest_gets_the_advice_and_the_minimal_one_does_not() -> None:
+    local = load_manifest(_MANIFESTS_DIR / "local.toml")
+    minimal = load_manifest(_MANIFESTS_DIR / "minimal.toml")
+
+    assert judge_shares_ripener(local.llm) is not None  # One model behind every slot.
+    assert judge_shares_ripener(minimal.llm) is None
+
+
+def test_loading_a_manifest_stays_silent_about_it() -> None:
+    """Advice is logged where a judge is built, never on every load (every CLI command loads)."""
     with capture_logs() as logs:
-        manifest = load_manifest(_MANIFESTS_DIR / "local.toml")
-
-    (warning,) = [entry for entry in logs if entry["event"] == "manifest.judge_shares_ripener"]
-    assert warning["log_level"] == "warning"
-    assert warning["advice"] == judge_shares_ripener(manifest.llm)
-
-
-def test_load_manifest_says_nothing_when_the_judge_differs() -> None:
-    with capture_logs() as logs:
-        load_manifest(_MANIFESTS_DIR / "minimal.toml")
+        load_manifest(_MANIFESTS_DIR / "local.toml")
 
     assert not [entry for entry in logs if entry["event"] == "manifest.judge_shares_ripener"]

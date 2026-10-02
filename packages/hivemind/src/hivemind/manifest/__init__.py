@@ -9,7 +9,7 @@ exactly one place... secrets are never in the manifest file." This package is th
 (``load_manifest``, TOML file to validated model), ``env`` (``read_env``/``apply_env``/
 ``provider_api_key``, the one place `HIVEMIND_*` is read), ``errors`` (``ManifestError``, the
 one exception every failure in this package raises), and ``advice`` (what a valid manifest allows
-but an operator should hear about, logged at load time and never refused).
+but an operator should hear about, logged by whoever acts on it and never refused).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by the composition root

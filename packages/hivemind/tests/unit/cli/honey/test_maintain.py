@@ -181,10 +181,11 @@ def test_ripen_now_warns_when_the_judge_runs_on_the_ripeners_own_model(tmp_path:
     unused = invoke(off, "ripen", "--now")
 
     assert shared.exit_code == 0, shared.output
-    assert "warning: [llm.slots] binds JUDGE and RIPENER to the same model" in shared.stderr
-    assert "warning:" not in shared.stdout
+    assert "manifest.judge_shares_ripener" in shared.stderr
+    assert "binds JUDGE and RIPENER to the same model" in shared.stderr
+    assert "judge_shares_ripener" not in shared.stdout
     assert unused.exit_code == 0, unused.output
-    assert "warning: [llm.slots]" not in unused.stderr  # No judge runs: only the load-time log.
+    assert "judge_shares_ripener" not in unused.stderr  # No judge is built, so no advice.
 
 
 def test_ripen_now_without_an_embedder_still_ripens_and_says_why(tmp_path: Path) -> None:

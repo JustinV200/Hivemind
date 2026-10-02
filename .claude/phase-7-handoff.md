@@ -333,9 +333,12 @@ The commit bodies have the details.
    that warns when JUDGE and RIPENER resolve to the same model would belong with phase 8's routing.
    So would running the judge eval per candidate model.
    **Warning closed (2026-10-02):** `hivemind.manifest.advice.judge_shares_ripener` compares the
-   two bindings (same model id at the same provider kind and base URL). `load_manifest` logs it as
-   `manifest.judge_shares_ripener`, and `hive honey ripen --now` and `review --judge` print it on
-   stderr when the judge will run. There is no `hive doctor` yet; add it there when one lands.
+   two bindings (same model id at the same provider kind and base URL).
+   `build_honey_access` logs it as `manifest.judge_shares_ripener` whenever it builds a judge that
+   will run (`hive run`, `hive serve`, and `hive honey ripen --now`, `review --judge`, `query`,
+   `reembed` on stderr). Not at `load_manifest`: every CLI command loads the manifest, and the
+   warning broke 22 CLI tests that read stdout and stderr together. There is no `hive doctor`
+   yet; add it there when one lands.
    The per-candidate judge eval stays open for phase 8.
 3. **Verdict reasons can quote the text.** The 3B judge copied an API key into its reason despite
    the hard rule. Reasons live only on the proposal row and in `hive honey review`, never on the

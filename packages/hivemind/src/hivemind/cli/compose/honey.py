@@ -25,6 +25,8 @@ Key invariants:
       becomes None, logged once with its reason, and the store works without it (ADR-0036).
     - `[honey.lowering] enabled = false` builds no judge at all (the JUDGE slot is not even
       resolved), so no clearance judge is ever called on that Hive (ADR-0038).
+    - A judge that is built on the RIPENER's own model is logged once as
+      `manifest.judge_shares_ripener` (`hivemind.manifest.advice`), never refused.
     - Ripening calls run on a LOW-accuracy lane so a background summary never queues ahead of a
       bee's own call for a seat; a query's own embedding and the clearance judge's verdicts run
       on ordinary lanes, because a judge's call is a decision, not batch work.
@@ -57,7 +59,7 @@ from hivemind.honey_store import (
 )
 from hivemind.honey_store.access import HoneyAccess
 from hivemind.llm import BoundEmbedder, BoundModel, Fanner, ProviderRegistry
-from hivemind.manifest import HiveManifest, HoneyLoweringSection
+from hivemind.manifest import HiveManifest, HoneyLoweringSection, judge_shares_ripener
 from waggle.clock import Clock
 
 HONEY_ACTOR = "system"  # The Honey Store's own writes are the Hive's, never a bee's or the human's.
@@ -119,7 +121,7 @@ def build_honey_access(
         ripening=honey.ripening,
         clearance=honey.clearance,
         lowering=honey.lowering,
-        judge=_build_judge(registry, fanner, honey.lowering),
+        judge=_build_judge(manifest, registry, fanner),
     )
 
 
@@ -192,12 +194,17 @@ def _build_ripener(base: RipenerDeps, registry: ProviderRegistry, fanner: Fanner
 
 
 def _build_judge(
-    registry: ProviderRegistry, fanner: Fanner, lowering: HoneyLoweringSection
+    manifest: HiveManifest, registry: ProviderRegistry, fanner: Fanner
 ) -> ClearanceJudge | None:
     """Build the model-backed clearance judge on an ordinary lane, or None when there is none."""
-    bound = resolve_judge(registry, lowering)
+    bound = resolve_judge(registry, manifest.honey.lowering)
     if bound is None:
         return None
+    # A judge on the Ripener's own model is no independent check (phase 7 handoff item 2): said
+    # here, where a judge that will actually run is built, never as a refusal.
+    advice = judge_shares_ripener(manifest.llm)
+    if advice is not None:
+        log.warning("manifest.judge_shares_ripener", advice=advice)
     # A verdict is a safety decision, not batch work: an ordinary (NORMAL-accuracy) lane, since a
     # LOW one would also lower routing's grade floor for the very model that clears a label.
     return ModelClearanceJudge(bound, fanner.lane(Tempo()))

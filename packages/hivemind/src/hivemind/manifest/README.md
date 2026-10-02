@@ -54,9 +54,10 @@ enums rather than the hivemind-side mirrors those two packages own.
 - **Errors** (`hivemind.manifest.errors`): `ManifestError(ConfigurationError)`.
 - **Advice** (`hivemind.manifest.advice`): `judge_shares_ripener(llm) -> str | None`, a warning
   when the JUDGE and RIPENER slots resolve to the same model (same model id at the same provider
-  kind and base URL). A valid manifest is never refused for it: `load_manifest` logs it as
-  `manifest.judge_shares_ripener`, and `hive honey ripen --now` and `review --judge` print it on
-  stderr when the judge will run. The clearance judge (ADR-0038) is meant to be an independent
+  kind and base URL). A valid manifest is never refused for it: `build_honey_access` logs it
+  as `manifest.judge_shares_ripener` whenever it builds a judge that will run, so `hive run`,
+  `hive serve` and the `hive honey` commands that open the store with its models (`ripen --now`,
+  `review --judge`, `query`, `reembed`) all say it on stderr. The clearance judge (ADR-0038) is meant to be an independent
   second reading; on the Ripener's own model it shares its blind spots, and a weak shared model
   blocks every lowering.
 

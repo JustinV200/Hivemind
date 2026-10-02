@@ -26,8 +26,8 @@ See Also:
 
 Public API:
     - print_listing, print_document, document_json: a folder page and one document (browse).
-    - print_response, print_stats, print_slot, print_advice, print_prune: hits, counts, a
-      slot and manifest advice about it, a prune (store).
+    - print_response, print_stats, print_slot, print_prune: hits, counts, a slot, a prune
+      (store).
     - ReviewEntry, print_review, print_review_entry, review_json, review_counts,
       print_decision: label lowering proposals (review).
     - RipenTotals, WaitingCounts, print_ripen, print_waiting, ripen_json: `ripen` with and
@@ -51,7 +51,6 @@ from hivemind.cli.honey.render.ripen import (
     ripen_json,
 )
 from hivemind.cli.honey.render.store import (
-    print_advice,
     print_prune,
     print_response,
     print_slot,
@@ -63,7 +62,6 @@ __all__ = [
     "RipenTotals",
     "WaitingCounts",
     "document_json",
-    "print_advice",
     "print_decision",
     "print_document",
     "print_listing",

@@ -13,7 +13,7 @@ Fits into the Hive:
 
 Key invariants:
     - Nothing here reads a store; it prints what it is given.
-    - A refused prune, and manifest advice, are printed to stderr, never mixed into stdout.
+    - A refused prune is printed to stderr, since the command then exits 1.
 
 See Also:
     - waggle.messages.honey for HoneyResponse and HoneyHit.
@@ -29,7 +29,7 @@ from hivemind.cli.honey.render.common import INDENT, counts, provenance
 from hivemind.honey_store import HoneyStats, PruneOutcome
 from waggle.messages.honey import HoneyResponse
 
-__all__ = ["print_advice", "print_prune", "print_response", "print_slot", "print_stats"]
+__all__ = ["print_prune", "print_response", "print_slot", "print_stats"]
 
 
 def print_response(response: HoneyResponse) -> None:
@@ -87,17 +87,6 @@ def print_slot(name: str, status: SlotStatus, without: str) -> None:
         typer.echo(f"{name}: {status.model}")
         return
     typer.echo(f"{name}: none ({status.reason}); {without}")
-
-
-def print_advice(advice: str | None) -> None:
-    """Print one piece of manifest advice as a warning on stderr; nothing when there is none.
-
-    Args:
-        advice: What `hivemind.manifest`'s load-time checks said, or None.
-    """
-    # Stderr: advice about the setup, never part of what a command's stdout reports.
-    if advice is not None:
-        typer.echo(f"warning: {advice}", err=True)
 
 
 def print_prune(outcome: PruneOutcome) -> None:

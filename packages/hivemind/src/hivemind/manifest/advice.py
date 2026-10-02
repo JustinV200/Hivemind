@@ -5,12 +5,13 @@ JUDGE and RIPENER slots resolve to the same model. The clearance judge (ADR-0038
 an independent second reading of a deposit the Ripener read as less sensitive; asked by the same
 model, it shares the Ripener's blind spots, so a lowering is not really checked. And a weak shared
 model silently blocks lowering instead (phase 7 handoff item 2: a 3B judge proved useless). That
-is the operator's choice to make, so it is advice, never a validation error: `load_manifest` logs
-it as a warning, and the commands that run the judge print it too.
+is the operator's choice to make, so it is advice, never a validation error: the composition root
+logs it as a warning whenever it builds a judge that will actually run (`hive run`, `hive serve`
+and every `hive honey` command that opens the store with its models).
 
 Fits into the Hive:
-    Layer 1 (foundational services; capacity as data). Called by `hivemind.manifest.loader`
-    after a manifest validates, and by the CLI commands that run the judge. Calls into
+    Layer 1 (foundational services; capacity as data). Called by
+    `hivemind.cli.compose.honey.build_honey_access` once it has built a judge. Calls into
     `hivemind.manifest.schema` and `hivemind.forage` (ModelSlot) only.
 
 Key invariants:
