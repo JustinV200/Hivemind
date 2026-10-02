@@ -79,6 +79,51 @@ loads beside `FileGuard`, continues a request only to a host `HostScopes` allows
 scopes, plus loopback where it is private) and aborts it as blocked otherwise. A request whose host
 cannot be read is blocked.
 
+**Redirects, sockets, workers and WebRTC are held to the same hosts.** Added the same day, after
+the route alone was measured on Edge 154 (Playwright 1.63, over CDP) with a local server answering
+on a granted loopback address and on an ungranted LAN address of the same host, counting every
+connection each address received. Playwright continues a redirect's next hop unasked even when the
+route answered the first hop itself (a fulfilled 302 to a granted address that redirected again
+reached the ungranted one); a page's, a same-origin frame's and a dedicated worker's WebSockets, a
+shared worker's fetches, and a TURN server over TCP all reached it; a dedicated or service
+worker's fetches were routed. So, in `browser.playwright.hosts`:
+
+1. A navigation or a script (resource types `document` and `script`) is fetched by the route
+   itself, one hop (`route.fetch(max_redirects=0)`). A redirect to a refused host is aborted and
+   reported with that host. A navigation's redirect to an allowed host is answered with a small
+   page that calls `location.replace` on the target, a fresh navigation that comes back through
+   the route, so every hop of a chain is judged; a followed redirect's single history entry and
+   the hops' cookies (Playwright's request client stores them in the context) are kept. A non-GET
+   navigation redirected with its method kept (307, 308) is refused rather than replayed as GET.
+2. Every page and script the route fetched is answered with the lease's page policy
+   (`browser.hosts.page_policy`): a `default-src` naming each allowed host the grammar can spell
+   on http, https, ws and wss, any port, plus data:, blob: and the page's own inline and evaluated
+   code, joined to the site's own policy so both are enforced. The browser then checks every other
+   request a page or worker makes, each redirect hop of it, and every WebSocket, a worker's
+   included, before sending it. Other requests (images, fetches, streams) are continued in the
+   browser as before, so they still stream. `page_policy` names only hosts `HostScopes.allows`
+   (unit-tested), and is omitted when `net:*` is held.
+3. `SocketGuard` (`context.route_web_socket`) closes a page's or frame's WebSocket to a refused
+   host with code 1008 and reports it, and connects the rest to their server.
+4. Shared workers are off (`--disable-shared-workers`): Playwright routes none of their requests.
+5. WebRTC: the profile sets `webrtc.ip_handling_policy = disable_non_proxied_udp` (no UDP, no
+   local addresses shown), and since that still let a page reach a TURN server over TCP, an init
+   script removes `RTCPeerConnection` and its companions from every page and frame.
+6. Chromium's local network access check is off (`--disable-features=LocalNetworkAccessChecks`).
+   A page the route answered has no address Chromium can see, so it counts as public and its
+   granted socket to loopback was refused (`ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS`); the
+   host rule is stricter than that check, since such a host is reached only when granted.
+
+Checked end to end through `connect_browser` on Edge 154, granted `net:loopback`: a direct
+redirect and a granted-then-ungranted chain were blocked (both reported); a three-hop granted chain
+landed on its final page with every hop's cookie and one history entry; a fetch, an image, an
+EventSource and a dedicated worker's fetch through the same chain, and a worker's WebSocket, were
+refused by the page policy; a page's WebSocket to the ungranted address was closed with 1008 and
+reported, and one to a granted loopback echo server echoed; a granted EventSource streamed;
+`SharedWorker` and `RTCPeerConnection` (in the page and a fresh frame) were undefined; a site's own
+`img-src 'none'` still held; a POST answered with 307 was refused. The ungranted address received
+no connection at all.
+
 **A file with a second hard link is refused.** `FileGuard` refuses a file whose link count is
 above one, even inside scratch, since its other name may be anywhere. A directory (whose link count
 counts its subdirectories) and a missing file (nothing to read) are judged by path alone.
@@ -102,8 +147,9 @@ Real Cells take no browser work; both are outside this change, and ADR-0031's kn
 
 ## Consequences
 
-Positive: a bee's browser reaches no host it was not granted, by navigation, click or a page's own
-request, and on a Real Cell that includes the operator's loopback services; no file dialog or
+Positive: a bee's browser reaches no host it was not granted, by navigation, click, a page's own
+request, a redirect, a WebSocket, a worker or WebRTC, and on a Real Cell that includes the
+operator's loopback services; no file dialog or
 DevTools window can be used to read or write outside scratch; a hard link no longer passes as a
 file in scratch; every block is auditable. The rules are pure functions (`host_need`,
 `HostScopes.allows`, `chrome_chord`) unit-tested on their own, and the guards' real behaviour was
@@ -114,12 +160,24 @@ those hosts granted, or those requests fail; the planner and the operator must g
 pages really use. A task on a Real Cell that drives a site the operator serves on loopback needs
 `net:loopback` granted explicitly. Downloads no longer work at all through the lease's browser. A
 bee that pressed one of the refused chords for an ordinary reason (Control+S in a page's own
-editor) is refused while the browser is on screen.
+editor) is refused while the browser is on screen. Navigations and scripts are fetched by
+Playwright's request client rather than Chromium's network stack (the same machine, since the
+driver attaches over loopback, and the browser's cookies): a server sees that client's TLS
+handshake and headers (no `Sec-Fetch-*`), which bot checks may refuse; a streamed page arrives
+whole; a large file opened as a page is fetched whole, bounded by the navigation timeout, before
+the download is refused. WebRTC and shared workers do not work at all, and a non-GET navigation
+redirected with 307 or 308 fails.
 
-Known limits. Playwright asks a route only about a request's first URL, so a redirect a granted
-host answers with is followed; WebSockets, WebRTC and a worker's own connections are not routed
-requests either. On a Virtual Cell the container's egress policy (ADR-0026) bounds all of these; on
-a Real Cell they reach whatever the granted host or page sends them to. DevTools is closed after it
+Known limits. What the page policy cannot cover: a page loaded from a `file://` URL is not answered
+by the host route, so it has no policy, and its subresources' redirect hops and its workers'
+WebSockets are unchecked; a grant for an IPv6 literal or a network range has no spelling in a
+source list, so it serves navigations but a page cannot load from it (stricter, never looser); a
+hop the policy refuses is refused in the browser and shown on the page's console, not recorded on
+the trail. The WebRTC removal is a script, so it holds for pages and frames but relies on running
+before the page's own code (Playwright's init script does; the profile setting is the second layer
+and stops UDP regardless). Service worker registration cannot be blocked on the default context
+Playwright attaches to over CDP; their fetches are routed and their scripts carry the policy. On a
+Virtual Cell the container's egress policy (ADR-0026) still bounds all of these. DevTools is closed after it
 opens, within a CDP round trip, not prevented. The DevTools port on a shared multi-user Real Cell
 (above) and Chromium's crash handler running outside the lease's process list (ADR-0031) remain.
 `run_command` confinement (phase 6 handoff 4.2 item 1) is a separate decision this ADR does not
@@ -133,6 +191,15 @@ in the profile: per lease, but it turns off the remote debugging the lease drive
 A `framenavigated` check that navigates away from an ungranted host: the request has already been
 sent by then, so contact with the host is not prevented, and subresources never fire it. Driving
 Chromium's Fetch domain on a second CDP session to see redirect hops: it would contend with
-Playwright's own interception on the same targets. Tiering all desktop input over a browser window
+Playwright's own interception on the same targets. Answering an allowed redirect with the 3xx itself
+(what Playwright's examples do): the browser follows the next hop unrouted, so a chain through a
+granted open redirector leaves. Following the whole chain in the guard and answering with the final
+response: a navigation would show one site's page under another's URL, and a page's fetch would
+read a second granted host's authenticated response as same-origin. Probing the chain and then
+redirecting the browser straight to its end: the end is requested twice, which spends a login's
+one-time code. A filtering forward proxy (`--proxy-server`) would see every hop and socket, workers'
+and WebRTC's included, but is a listener of its own to run and secure per lease; it remains the
+next step if the page policy's gaps matter. `route_web_socket` alone: it hooks sockets from inside
+the page, so a worker's sockets pass it. Tiering all desktop input over a browser window
 `network_egress`: the allowlist rung would then run for a click on a page that stays in the lease,
 for nothing; the shown page's own reach says what the input can reach.
