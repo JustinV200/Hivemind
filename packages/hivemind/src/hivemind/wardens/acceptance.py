@@ -15,13 +15,16 @@ unsupported `PostconditionKind` (`HTTP_STATUS`, `JUDGE_RUBRIC` in v0) reports `h
 acceptance fails closed rather than silently passing something nobody actually checked. The GUI
 kinds (`URL_MATCHES`, `ELEMENT_TEXT`; ADR-0032, roadmap step 6.7) are checked through `gui_check`,
 which the caller builds over the Exoskeleton the Warden attached for the task, through its own
-session; with no Exoskeleton attached they fail closed the same way.
+session; with no Exoskeleton attached they fail closed the same way. A command criterion runs
+only where the Warden's Cell may run commands (`CommandAdmission`, ADR-0060): the planner wrote
+it, so on an uncontained Cell below FULL it is never started, fails with the Guard's reason, and
+is recorded as the Warden's own `guard.denied`.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Called
     by `hivemind.wardens.ticks.results` once a sub-bee's `TaskResult(CLAIMED)` arrives. Calls into
     `hivemind.cell` (CellSession) and `hivemind.supervision.capping` (check_postcondition,
-    PostconditionOutcome, GUI_POSTCONDITION_KINDS) and waggle only.
+    PostconditionOutcome, GUI_POSTCONDITION_KINDS, CommandAdmission) and waggle only.
 
 Key invariants:
     - `run_acceptance` never raises for a failing or unsupported criterion; every outcome (held or
@@ -48,6 +51,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.cell import CellSession
 from hivemind.supervision.capping import (
     GUI_POSTCONDITION_KINDS,
+    CommandAdmission,
     PostconditionOutcome,
     check_postcondition,
 )
@@ -76,6 +80,7 @@ class AcceptanceReport(BaseModel):
 async def run_acceptance(
     session: CellSession,
     postconditions: Sequence[Postcondition],
+    commands: CommandAdmission,
     gui_check: GuiCheck | None = None,
 ) -> AcceptanceReport:
     """Check every acceptance criterion on the Warden's own session.
@@ -85,6 +90,8 @@ async def run_acceptance(
             work never verifies it (codingrules section 8.12).
         postconditions: The task's acceptance criteria, from `TaskAssign.acceptance`; an empty
             sequence passes vacuously.
+        commands: Whether a command criterion may run on the Warden's Cell (ADR-0060), and the
+            Guard a refusal is recorded through.
         gui_check: Checks a GUI criterion on the Exoskeleton attached for the task; None when
             the task has none, and then every GUI criterion fails closed.
 
@@ -93,7 +100,7 @@ async def run_acceptance(
     """
     outcomes = tuple(
         [
-            await _check_one(session, index, criterion, gui_check)
+            await _check_one(session, index, criterion, commands, gui_check)
             for index, criterion in enumerate(postconditions)
         ]
     )
@@ -102,11 +109,15 @@ async def run_acceptance(
 
 
 async def _check_one(
-    session: CellSession, index: int, criterion: Postcondition, gui_check: GuiCheck | None
+    session: CellSession,
+    index: int,
+    criterion: Postcondition,
+    commands: CommandAdmission,
+    gui_check: GuiCheck | None,
 ) -> PostconditionOutcome:
     """Route one criterion: a GUI kind to the Exoskeleton, every other kind to the session."""
     if criterion.kind not in GUI_POSTCONDITION_KINDS:
-        return await check_postcondition(session, index, criterion)
+        return await check_postcondition(session, index, criterion, commands)
     if gui_check is None:
         # A page criterion on a task nothing attached a browser for: it can never be checked.
         observed = "no Exoskeleton is attached to check it on"

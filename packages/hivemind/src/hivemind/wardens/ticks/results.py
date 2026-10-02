@@ -15,8 +15,9 @@ Fits into the Hive:
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
     assign`'s own module docstring for why). Calls into `hivemind.cell` (CellIdentity),
     `hivemind.exoskeleton.surface` (check_structural, for a task's page criteria),
-    `hivemind.supervision` (Alarm, record_alarm_event -- this dispatch's own alarm-reaches-the-
-    trail fix), `hivemind.wardens.acceptance` (run_acceptance), `hivemind.wardens.ticks.alarms`
+    `hivemind.guard` (warden_principal), `hivemind.supervision` (Alarm, record_alarm_event --
+    this dispatch's own alarm-reaches-the-trail fix; capping's CommandAdmission and CommandGuard,
+    ADR-0060), `hivemind.wardens.acceptance` (run_acceptance), `hivemind.wardens.ticks.alarms`
     (retire_sub_bee, for the shared close-and-release-the-slot step) and waggle only.
 
 Key invariants:
@@ -35,6 +36,9 @@ Key invariants:
     - Both `_send_succeeded` and `_send_acceptance_failed` copy `claim.scout_report` onto the
       TaskResult they send unchanged (roadmap step 6.10): a Scout's report reaches the Queen
       whether its own task's acceptance (FILE_EXISTS on `SCOUT_REPORT_FILE`) passed or failed.
+    - A failed acceptance carries `ResultCause.CELL_RUNS_NO_COMMANDS` exactly when the claim did
+      or a command criterion was refused on this Cell (ADR-0060), so the Queen re-places the
+      task rather than retrying it where its commands will be refused again.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "the proposer never verifies its own work".
@@ -50,8 +54,10 @@ from typing import TYPE_CHECKING
 
 from hivemind.cell import CellError, CellIdentity, HoneyClearance
 from hivemind.exoskeleton.surface import check_structural
+from hivemind.guard import warden_principal
 from hivemind.supervision import Alarm as MirroredAlarm
 from hivemind.supervision import record_alarm_event
+from hivemind.supervision.capping import CommandAdmission, CommandGuard
 from hivemind.wardens.acceptance import AcceptanceReport, GuiCheck, run_acceptance
 from hivemind.wardens.deps import device_outage
 from hivemind.wardens.links import send_guarded
@@ -62,7 +68,7 @@ from waggle.errors import TransportError
 from waggle.ids import new_alarm_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
-from waggle.messages.task import TaskOutcome, TaskResult
+from waggle.messages.task import ResultCause, TaskOutcome, TaskResult
 
 if TYPE_CHECKING:
     from hivemind.wardens.spawn.sub_bee import SubBee
@@ -88,16 +94,20 @@ async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> N
         # The Warden asked for this task itself: its ending is the Warden's to read, not hers.
         sub_bee.local.claim = claim
         return
-    if warden._session is None:
+    if warden._session is None or warden._cell is None:
         return  # Defensive: unreachable once a sub-bee has spawned on this Warden's own session.
     outage = device_outage(warden._deps)
     if outage is not None:
         # The bee finished its work before it obeyed a pause: this claim, not a resume, is its end.
         outage.forget(sub_bee.task_id)
+    # ADR-0060: a command criterion runs only where this Cell may run commands, asked as this
+    # Warden, so a refusal is its own guard.denied row.
+    guard = CommandGuard(warden._deps.enforcer, warden_principal(warden._warden_id))
+    commands = CommandAdmission(warden._cell, guard)
     # Before retiring: retiring detaches the Exoskeleton, and a page criterion reads its browser.
     try:
         report = await run_acceptance(
-            warden._session, sub_bee.assignment.acceptance, _gui_check(warden, sub_bee)
+            warden._session, sub_bee.assignment.acceptance, commands, _gui_check(warden, sub_bee)
         )
     except DEVICE_ERRORS as error:
         # A device that went away mid-check (roadmap 11.6a, 4b): a handled outcome, not a crash
@@ -202,12 +212,10 @@ async def _send_acceptance_failed(
     )
     # This Warden raises ACCEPTANCE_FAILED itself (this dispatch's own fix 1: the same rule
     # hivemind.wardens.ticks.heartbeat.raise_stalled_alarms follows for WORKER_STALLED).
+    mirrored = MirroredAlarm.from_wire(alarm)
+    identity = _cell_identity(warden)
     await record_alarm_event(
-        warden._deps.trail,
-        _cell_identity(warden),
-        warden._deps.clock,
-        MirroredAlarm.from_wire(alarm),
-        "alarm.raised",
+        warden._deps.trail, identity, warden._deps.clock, mirrored, "alarm.raised"
     )
     # Queued durably by a reconnecting link while cut off, like _send_succeeded's own send.
     await _send_to_queen(warden, alarm)
@@ -223,9 +231,24 @@ async def _send_acceptance_failed(
         spend=claim.spend,
         reason="acceptance",
         scout_report=claim.scout_report,
+        cause=_failure_cause(claim, report),
     )
     await ship_trail_before_result(warden)  # Same reason as _send_succeeded: teardown follows.
     await _send_to_queen(warden, result)
+
+
+def _failure_cause(claim: TaskResult, report: AcceptanceReport) -> ResultCause | None:
+    """Name the typed cause a failed acceptance reports: the Cell refused the task's commands.
+
+    ADR-0060: the Worker's own claim says so when the Cell refused one of its commands, and so
+    does a command criterion this Warden was refused; either way a retry on this Cell would meet
+    the same refusal, so the Queen re-places the task instead.
+    """
+    if claim.cause is not None:
+        return claim.cause
+    if any(outcome.commands_refused for outcome in report.failing):
+        return ResultCause.CELL_RUNS_NO_COMMANDS
+    return None
 
 
 def _cell_identity(warden: Warden) -> CellIdentity:

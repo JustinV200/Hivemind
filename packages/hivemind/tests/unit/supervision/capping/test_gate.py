@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -21,18 +22,19 @@ from hivemind.cell import (
     FakeSession,
     NoopSnapshotter,
 )
-from hivemind.guard import CapabilitySet
+from hivemind.guard import CapabilitySet, Enforcer, load_guard_policy, warden_principal
 from hivemind.pheromone import MemoryPheromoneTrail, TrailQuery
 from hivemind.supervision.capping.checks import Check
 from hivemind.supervision.capping.checks.deterministic import deterministic_checks
 from hivemind.supervision.capping.checks.judge import JudgeRequest, judge_checks
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
+from hivemind.supervision.capping.commands import CommandGuard
 from hivemind.supervision.capping.errors import JudgeAnswerError, UnknownProposalError
 from hivemind.supervision.capping.gate import CappingGate, GateDeps
 from hivemind.supervision.capping.state import ProposalState
 from hivemind.supervision.capping.tiers import RiskTier, TierSpec, TierTable
 from waggle.clock import FakeClock
-from waggle.ids import MessageId
+from waggle.ids import MessageId, new_warden_id
 from waggle.messages.capping import ActionKind, CheckKind
 from waggle.messages.labels import PostconditionKind
 
@@ -160,6 +162,31 @@ async def test_gate_run_command_verifies_on_zero_exit(tmp_path: Path) -> None:
     assert outcome.state is ProposalState.VERIFIED
     kinds = await _trail_kinds(trail, proposal_id)
     assert kinds[-1] == "capping.verified"
+
+
+async def test_gate_runs_no_command_postcondition_its_cell_may_not_run(tmp_path: Path) -> None:
+    # ADR-0060: make_cell's Real Cell is SCRATCH with uncontained processes, so the Worker's
+    # TEST_PASSES postcondition never starts; the proposal rolls back and the Warden is refused.
+    deps, trail, _session = _deps(
+        tmp_path,
+        _scratch_write_tiers(),
+        responder={"pytest": CompletedCommand(exit_code=0, stdout=b"", stderr=b"", duration_s=0.0)},
+    )
+    enforcer = Enforcer(load_guard_policy(), trail, deps.clock, deps.identity)
+    guard = CommandGuard(enforcer, warden_principal(new_warden_id(deps.clock)))
+    gate = CappingGate(dataclasses.replace(deps, command_guard=guard))
+    tests_pass = make_postcondition(PostconditionKind.TEST_PASSES, argv=("pytest",))
+    proposal = make_proposal(risk_tier=RiskTier.SCRATCH_WRITE, postconditions=(tests_pass,))
+
+    proposal_id = await gate.propose(proposal)
+    outcome = await gate.run(
+        proposal_id, CapabilitySet.parse(), FakeLeaseView(deps.session.scratch_dir)
+    )
+
+    assert outcome.state is ProposalState.ROLLED_BACK
+    assert [pc.commands_refused for pc in outcome.postconditions] == [True]
+    [denied] = await trail.query(TrailQuery(kind="guard.denied"))
+    assert denied.payload["rule"] == "guard.access_level.scratch"
 
 
 async def test_gate_run_command_rolls_back_on_nonzero_exit(tmp_path: Path) -> None:

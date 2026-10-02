@@ -10,7 +10,8 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.supervision.capping.
     gate`. Read and built by `hivemind.supervision.capping.gate.core`; re-exported by `hivemind.
     supervision.capping.gate`'s own `__init__.py`. Calls into `hivemind.cell`, `hivemind.
-    supervision.capping.checks`, `.leave`, `.postconditions`, `.state`, `.tiers` and waggle only.
+    supervision.capping.checks`, `.commands`, `.leave`, `.postconditions`, `.state`, `.tiers` and
+    waggle only.
 
 Key invariants:
     - `GateDeps` and `GateOutcome` carry no behaviour of their own; every state transition and
@@ -33,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from hivemind.cell import Cell, CellIdentity, CellSession, Snapshotter
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision.capping.checks import Check, CheckResultRecord, JudgeVerdict
+from hivemind.supervision.capping.commands import CommandGuard
 from hivemind.supervision.capping.gui import GuiSurface
 from hivemind.supervision.capping.leave import (
     DEFAULT_HUMAN_TIMEOUT_S,
@@ -92,6 +94,10 @@ class GateDeps:
     # The objective of the task this gate's proposals serve (its TaskAssign.objective), handed to
     # the real-time judge through CheckContext.goal; None where no task stands behind the gate.
     goal: str | None = None
+    # ADR-0060: the Warden's Enforcer and principal, through which a command postcondition the
+    # gate runs itself is checked against `cell`'s access level and a refusal recorded as
+    # `guard.denied`. None still refuses such a command on a Cell that may not run one, unrecorded.
+    command_guard: CommandGuard | None = None
 
 
 class GateOutcome(BaseModel):

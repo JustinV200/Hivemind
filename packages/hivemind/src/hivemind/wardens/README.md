@@ -60,6 +60,10 @@ Warden never provisions Cells itself.
   the Warden is built), and the Queen judges the frozen Warden by that longer window.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.
+  A command criterion runs only where the Warden's Cell may run commands (ADR-0060, through
+  `supervision.capping.CommandAdmission`); refused, it fails unrun as the Warden's own
+  `guard.denied`, and the FAILED result carries `ResultCause.CELL_RUNS_NO_COMMANDS` (as it does
+  when the sub-bee's claim did) so the Queen re-places the task instead of retrying it here.
 - `cell_request`, `forage_request`, `tool_request`, `propose_wax` (`requests.py`): the requests a
   Warden sends the Queen when it needs something beyond its grant. `propose_wax` (roadmap step
   4.2a) builds a `CellWaxProposed` about the Warden's own Cell, `origin=BEE` and `proposer` the

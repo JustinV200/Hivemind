@@ -62,6 +62,9 @@ Public API:
     - apply_unified_diff: the pure diff applier behind a DIFF action (diff).
     - PostconditionOutcome, check_postcondition: checking one assertion after applying
       (postconditions).
+    - CommandAdmission, CommandGuard, COMMAND_POSTCONDITION_KINDS: whether a command the gate
+      runs itself may run on its Cell, the Guard it asks, and the kinds that run one (commands,
+      ADR-0060).
     - CappingGate, GateDeps, GateOutcome: the gate itself (gate).
     - GuiSurface, GuiApplyResult, GUI_POSTCONDITION_KINDS, ACCEPTANCE_GUI_KINDS, BROWSER_OPS,
       required_capabilities: the seam a GUI proposal is applied, verified and rolled back through,
@@ -123,6 +126,11 @@ from hivemind.supervision.capping.checks import (
     judge_checks,
     load_judge_rubrics,
 )
+from hivemind.supervision.capping.commands import (
+    COMMAND_POSTCONDITION_KINDS,
+    CommandAdmission,
+    CommandGuard,
+)
 from hivemind.supervision.capping.diff import apply_unified_diff
 from hivemind.supervision.capping.errors import (
     CappingError,
@@ -172,6 +180,7 @@ __all__ = [
     "AUDIT_RATE_RAISED_KIND",
     "BROWSER_OPS",
     "CHECKABLE_KINDS",
+    "COMMAND_POSTCONDITION_KINDS",
     "GUI_POSTCONDITION_KINDS",
     "LOOPBACK_SCOPE",
     "MAX_CARRIED_PER_TIER",
@@ -193,7 +202,9 @@ __all__ = [
     "Check",
     "CheckContext",
     "CheckResultRecord",
+    "CommandAdmission",
     "CommandAllowlistCheck",
+    "CommandGuard",
     "DiffApplyError",
     "DiffSizeCapCheck",
     "FakeJudgeReviewer",

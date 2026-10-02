@@ -22,11 +22,15 @@ from builders.capping import make_postcondition
 
 from hivemind.exoskeleton.attach import Peripherals
 from hivemind.exoskeleton.browser import Browser
+from hivemind.supervision.capping import PostconditionOutcome
+from hivemind.wardens.acceptance import AcceptanceReport
 from hivemind.wardens.spawn.sub_bee import SubBee
-from hivemind.wardens.ticks.results import _gui_check
+from hivemind.wardens.ticks.results import _failure_cause, _gui_check
 from hivemind.wardens.warden import Warden
 from waggle.clock import FakeClock
-from waggle.messages.labels import PostconditionKind
+from waggle.ids import IdKind, TaskId, new_id
+from waggle.messages.labels import HoneyClearance, PostconditionKind
+from waggle.messages.task import ResultCause, TaskOutcome, TaskResult
 
 
 class _Page:
@@ -61,3 +65,53 @@ async def test_the_page_check_reads_the_browser_attached_for_the_sub_bee() -> No
     outcome = await check(2, arrived)
 
     assert (outcome.index, outcome.has_held) == (2, True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The typed cause a failed acceptance carries (ADR-0060)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _claim(cause: ResultCause | None = None) -> TaskResult:
+    """Build a sub-bee's claim, with `cause` when it says its Cell refused a command."""
+    return TaskResult(
+        task_id=TaskId(new_id(IdKind.TASK, FakeClock())),
+        attempt=1,
+        outcome=TaskOutcome.CLAIMED,
+        summary="Tried.",
+        clearance=HoneyClearance.C1,
+        artifacts=(),
+        checked_by=None,
+        handoff=None,
+        spend=0.0,
+        reason="The role completed its work.",
+        cause=cause,
+    )
+
+
+def _report(*, commands_refused: bool) -> AcceptanceReport:
+    """Build a failed report whose one criterion was a command, refused or simply failing."""
+    failing = PostconditionOutcome(
+        index=0,
+        kind=PostconditionKind.TEST_PASSES,
+        has_held=False,
+        observed="not run" if commands_refused else "exit code 1",
+        commands_refused=commands_refused,
+    )
+    return AcceptanceReport(outcomes=(failing,), passed=False, failing=(failing,))
+
+
+def test_a_failed_acceptance_carries_the_claims_own_cause() -> None:
+    claim = _claim(ResultCause.CELL_RUNS_NO_COMMANDS)
+
+    assert _failure_cause(claim, _report(commands_refused=False)) is claim.cause
+
+
+def test_a_refused_command_criterion_is_the_cause_when_the_claim_has_none() -> None:
+    cause = _failure_cause(_claim(), _report(commands_refused=True))
+
+    assert cause is ResultCause.CELL_RUNS_NO_COMMANDS
+
+
+def test_an_ordinary_acceptance_failure_carries_no_cause() -> None:
+    assert _failure_cause(_claim(), _report(commands_refused=False)) is None

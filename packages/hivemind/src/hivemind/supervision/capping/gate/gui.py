@@ -11,7 +11,7 @@ and tell the surface the terminal outcome so the flight recorder can close the e
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside
-    `hivemind.supervision.capping.gate`. Called by `gate.core`. Calls into `.gui`,
+    `hivemind.supervision.capping.gate`. Called by `gate.core`. Calls into `.commands`, `.gui`,
     `.postconditions`, `.proposal`, `gate.model` and waggle only.
 
 Key invariants:
@@ -25,6 +25,7 @@ See Also:
 
 from __future__ import annotations
 
+from hivemind.supervision.capping.commands import CommandAdmission
 from hivemind.supervision.capping.gate.model import GateDeps
 from hivemind.supervision.capping.gui import GUI_POSTCONDITION_KINDS
 from hivemind.supervision.capping.postconditions import PostconditionOutcome, check_postcondition
@@ -72,9 +73,14 @@ async def gui_before(deps: GateDeps, proposal: Proposal) -> None:
 async def check_one(
     deps: GateDeps, proposal: Proposal, index: int, pc: Postcondition
 ) -> PostconditionOutcome:
-    """Check one postcondition: GUI kinds through the surface, every other kind on the session."""
+    """Check one postcondition: GUI kinds through the surface, every other kind on the session.
+
+    A command kind runs only where the gate's own Cell may run commands (ADR-0060), asked through
+    the Warden's guard when one is wired.
+    """
     if pc.kind not in GUI_POSTCONDITION_KINDS:
-        return await check_postcondition(deps.session, index, pc)
+        commands = CommandAdmission(deps.cell, deps.command_guard)
+        return await check_postcondition(deps.session, index, pc, commands)
     if deps.gui is None:
         return PostconditionOutcome(index=index, kind=pc.kind, has_held=False, observed=NO_SURFACE)
     return await deps.gui.check(proposal, index, pc)

@@ -101,7 +101,7 @@ from hivemind.guard import CapabilitySet, PolicyContext, PrincipalRef, warden_pr
 from hivemind.llm.ladders.gate import CallGate
 from hivemind.llm.slots import BoundModel
 from hivemind.pheromone import WorkerEvent
-from hivemind.supervision.capping import GateDeps, GuiSurface
+from hivemind.supervision.capping import CommandGuard, GateDeps, GuiSurface
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.links import send_guarded
@@ -418,8 +418,8 @@ def _build_capping_gate(
     `hivemind.wardens.snapshot_relay.RelaySnapshotter` for a Virtual Cell's own Warden. Roadmap
     step 5.0c: it also carries this Warden's own leave-policy fields, plus `assignment.leaves` --
     this one sub-bee's own declared Leavings, never widened beyond what its TaskAssign carries.
-    Both judges review against `assignment.objective`: the real-time JUDGE rung through
-    `GateDeps.goal`, and the after-the-fact audit through `AuditWiring.goal`.
+    Both judges review against `assignment.objective` (`GateDeps.goal`, `AuditWiring.goal`), and
+    a command postcondition this Cell may not run is this Warden's own `guard.denied` (ADR-0060).
     """
     deps = ctx.deps
     return AuditingCappingGate(
@@ -443,6 +443,7 @@ def _build_capping_gate(
             disk_reserve_mb=deps.disk_reserve_mb,
             gui=gui,
             goal=assignment.objective,
+            command_guard=CommandGuard(deps.enforcer, warden_principal(ctx.warden_id)),
         ),
         AuditWiring(
             reviewer=deps.judge_reviewer,

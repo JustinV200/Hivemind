@@ -46,10 +46,15 @@ called by the proposing bee's Warden, never by the bee itself.
   (DIFF via `diff.apply_unified_diff`, COMMAND via `cell.run`), `ApplyResult`, `TouchedPath`.
 - **Diff** (`diff.py`): `apply_unified_diff(prior, diff_text, *, path=...) -> bytes`, the pure
   function behind a DIFF action's apply step.
-- **Postconditions** (`postconditions.py`): `check_postcondition(session, index, pc) ->
+- **Postconditions** (`postconditions.py`): `check_postcondition(session, index, pc, commands) ->
   PostconditionOutcome`. `FILE_EXISTS`/`FILE_ABSENT`/`COMMAND_EXITS_ZERO`/`TEST_PASSES` are
   checked for real; every other `PostconditionKind` reports `has_held=False`,
-  `observed="unsupported in v0"`.
+  `observed="unsupported in v0"`. A command kind runs only where `commands` admits it.
+- **Commands** (`commands.py`, ADR-0060): `CommandAdmission(cell, guard)` decides whether a
+  command the gate (or the Warden's acceptance) runs itself may run on its Cell, from the Cell's
+  access level and `processes_contained`; `CommandGuard` (the Warden's `Enforcer` and principal,
+  `GateDeps.command_guard`) records a refusal as `guard.denied`. A refused criterion fails unrun
+  with `commands_refused=True`. `COMMAND_POSTCONDITION_KINDS` names the kinds that run one.
 - **Gate** (`gate.py`): `CappingGate` (`propose`, `get`, `pending`, `run`), `GateDeps` (session,
   snapshotter, cell, tiers, trail, identity, clock, checks), `GateOutcome` (proposal_id, state,
   checks, postconditions, reason). `run` computes its required ladder through `tiers.checks_for`.
