@@ -26,8 +26,9 @@ every assignment goes to a Warden, over Waggle.
   `hivemind.supervision.Supervisor` over her attached Wardens. `_recoverable_errors` names
   `InvalidTransitionError`: a chamber transition failing on a stale status backs a tick off and
   records it (`queen.decided`), rather than ending `run()` and taking the whole Hive down.
-  `stop()` sets the stop flag first, then reaps every attached Warden's own reader task, so none
-  is ever left pending once `run()` ends (codingrules section 11).
+  `stop()` sets the stop flag first, awaits every Virtual Cell still being provisioned or
+  released beside her tick (never cancelling one), then reaps every attached Warden's own reader
+  task, so none is ever left pending once `run()` ends (codingrules section 11).
 - `QueenDeps`, `WardenLink`, `MemoryBudget`, `Housekeeping` (`deps.py`): every collaborator one
   Queen is built with, and one attached Warden's own address and link; manifest *slices* only,
   never a `HiveManifest`. `Housekeeping` (roadmap step 4.3's own wiring step) is the Queen's own
@@ -82,7 +83,10 @@ every assignment goes to a Warden, over Waggle.
   (`queen.forage.ceilings.set_ceilings`, from the Cell's own capacity report) and writes its
   Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
   over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
-  attached" means, so every later dispatch to the same Warden is a no-op here. The `TaskAssign` it
+  attached" means, so every later dispatch to the same Warden is a no-op here. A send of either
+  that the link refuses leaves the Warden owed (`DecisionBook.owe`): every dispatch pass sends
+  both again, before any assignment, while it stays attached (`queen.forage.deliveries.
+  redeliver_owed`), and every re-attach sends what is in force again (`forage.resend`). The `TaskAssign` it
   builds carries `task.spec.leaves` unchanged (roadmap step 5.0b) and `task.spec.role` (roadmap
   steps 6.9/6.10) as its own `role`, plus `recon`: the `waggle.messages.task.ScoutReport`s of the
   task's SUCCEEDED Scout dependencies, at most `MAX_RECON_REPORTS`, newest completion first
@@ -112,7 +116,13 @@ every assignment goes to a Warden, over Waggle.
   Virtual Cell's provision; `dispatcher.provisions` acquires it beside the tick (at most
   `ProvisionLane.limit` at once, collected by a later pass, awaited by `Queen.stop`), and a Cell
   acquired for a task that was cancelled or whose grant was denied is released through
-  `QueenDeps.on_task_finished`. Placement reads each attached Cell's live capacity less the grants
+  `QueenDeps.on_task_finished`. Every release, a finished task's included, runs beside the tick
+  too (`dispatcher.releases`, `ReleaseLane`: at most 4 at once, the rest waiting their turn; two
+  of one Cell in order; collected by every pass; awaited, never cancelled, by `Queen.stop` before
+  the shutdown retires what is left), and placement offers a Cell being released to no task. A
+  task a pass finds ASSIGNED was stranded between `chamber.assign` and `chamber.start` (a stop or
+  a failure; nothing was sent to its Warden yet), so every pass first gives it back to PENDING
+  through `chamber.unassign` and places it afresh as a new attempt. Placement reads each attached Cell's live capacity less the grants
   in force on it, and each backend's headroom less the Cells being provisioned on it; every pass
   first returns an ended task's grants to the pool (`queen.forage.grants.release_finished`,
   `forage.revoked` with cause RELEASED). The dispatcher's lock, waits and lane live in one
@@ -221,6 +231,8 @@ every assignment goes to a Warden, over Waggle.
   decision plus an effectful trail-and-ledger-and-Waggle edge: `write_hosting_plan` now also
   sends `PlanWritten` to the Cell's own Warden when given one (roadmap step 4.8's own wiring step,
   `dispatcher._ensure_warden_provisioned`'s one caller), mirroring `set_ceilings`'s own send.
+  `deliveries` (`redeliver_owed`) sends an attached Warden its ceilings and plan in force again
+  when the first send found its link closed, until the link takes them.
 - `queen.cluster` (roadmap step 4.9, docs/adr/0024-clustering-protocol.md): Clustering, the
   pause-and-preserve protocol for a provider outage. `protocol.cluster`/`.resume` find every bee
   bound to a provider through `deps.ledger.live_grants()` filtered against `deps.map` (the

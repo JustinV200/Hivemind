@@ -353,10 +353,16 @@ The commit bodies have the details.
 4. **Per-embedder calibration.** `min_score` and the fusion weights were tuned on one embedder;
    each needs its own (phase 8's eval). The Python vector fallback stays linear, at 208 ms for 5k
    rows of 768 dimensions.
-5. **Link findings from the send guard** (not fixed, out of phase 7's scope):
-   - The Brood Chamber's `unassign` edge has no production caller.
-   - There is no Warden outbox. A send that fails on a closed link is logged and dropped.
-   - The Queen does not re-send a ceiling or a hosting plan after a failed first delivery.
+5. **Link findings from the send guard** (all three fixed):
+   - `unassign` now has a caller. Every dispatch pass unassigns a task it finds stranded
+     ASSIGNED, meaning a stop or failure hit between `assign` and `start`, before anything
+     reached its Warden (`queen/dispatcher/ready/dispatch.py`).
+   - A Warden that dials the Queen queues its results, progress and Alarms durably while cut
+     off, and replays them on reconnect (phase 11: `wardens/offline`, ADR-0053), and every
+     receiver drops a replayed envelope id (ADR-0055's replay window).
+   - The Queen now re-sends ceilings and plans: a refused send leaves the Warden owed, and every
+     dispatch pass sends what is in force again (`queen/forage/deliveries.py`); a re-attach gets
+     them from `queen/forage/resend.py`.
 6. **Size watch.** `pheromone/events/families.py` is at 295 of 300 lines of code, and
    `cli/honey/render.py` at 248. The next event family or renderer needs a split first.
    **Closed (2026-10-02):** `pheromone/events/families` was already a package (split in the phase

@@ -284,11 +284,14 @@ are named by the roadmap step that owns them.
 
 **Phase 10, found this session, not yet fixed:**
 - `queen/README.md` and the module docstrings touched by the patches: keep them true as you merge.
-- A Cell release still runs inside the Queen's tick: up to 5 s for the graceful stop plus the
-  teardown. Provisioning moved beside the tick; release did not.
-- The Warden's own RETRY and REBIND do not go through the isolation resume gate
-  (`wardens/isolation/gate.py::admit_resume`). This is covered in practice, because grants are
-  revoked on isolation and a Worker refuses a tainted Handoff itself. Make it explicit.
+- ~~A Cell release still runs inside the Queen's tick.~~ Fixed: every release runs beside the
+  tick in `queen/dispatcher/releases.py` (a `ReleaseLane`, at most 4 at once, two of one Cell in
+  order, collected each pass). Placement offers no task a Cell being released. `Queen.stop`
+  awaits running releases before `retire_all`.
+- ~~The Warden's own RETRY and REBIND skip the isolation resume gate.~~ Fixed: every Warden-side
+  respawn (RETRY, REBIND, a Queen-ordered rebind, a context Handoff's successor) passes
+  `admit_resume` in `wardens/ticks/alarms.py::_spawn_into_slot`. Tests in
+  `tests/unit/wardens/isolation/test_gate.py`.
 - An isolated Docker Cell can still reach host services bound to `0.0.0.0` on the control
   gateway. The doc tells operators to bind model servers to docker0. A real fix needs a host
   firewall rule, meaning root outside Docker's API, so this is the user's decision.

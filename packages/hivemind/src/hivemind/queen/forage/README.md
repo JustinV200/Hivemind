@@ -101,7 +101,13 @@ handling, hosting plans and Ceilings per Warden.
   `hivemind.queen.dispatcher`'s own "write, then send, then record" ordering for a grant.
   `initial_ceilings(cell)` is the first ceilings a newly attached Warden gets, from its Cell's own
   free figures with nothing exported or allowlisted; the first dispatch sets them and a failed Nuc
-  promotion (roadmap 11.8, `hivemind.queen.swarm_gate.colonize.nuc`) puts them back.
+  promotion (roadmap 11.8, `hivemind.queen.swarm_gate.colonize.nuc`) puts them back. A send the
+  link refuses leaves the Warden owed (`ledger.decisions.owe`) rather than dropped.
+- **`deliveries`**: `redeliver_owed(deps, wardens)` (phase-7 handoff, section 8 item 5) -- send an
+  attached Warden the ceilings and Cell plan the ledger holds in force again, on every dispatch
+  pass, until its link takes both; one that detached is forgotten (its re-attach gets them from
+  `resend`). Nothing new goes on the trail: the decision already did. No acknowledgement exists in
+  Waggle for either message; "delivered" means handed to a live, ordered link.
 - **`night_veil`**: `night_veil_local_only(plan, forage_map) -> tuple[str, ...]` and
   `restrict_to_local(plan, forage_map, cell_id) -> HostingPlan` (roadmap step 5.7a) -- ADR-0030's
   "every model slot resolves to a local provider" rule for a NIGHT_VEIL Cell's own `HostingPlan`: a

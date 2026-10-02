@@ -26,7 +26,10 @@ Warden never provisions Cells itself.
   Queen link already closed or dropped is recoverable (`wardens.ticks.heartbeat.send_heartbeat`
   records `warden.offline` and moves on), never an exception out of this Warden's own loop or
   `stop()`: every Warden -> Queen and Warden -> sub-bee send in this package goes through
-  `wardens.links.send_guarded` (phase-7 handoff open item 8), not `Warden.stop()` alone.
+  `wardens.links.send_guarded` (phase-7 handoff open item 8), not `Warden.stop()` alone. A
+  result, progress report or Alarm the Queen link cannot take is held in the Warden's outbox
+  (`wardens.offline.QueenOutbox`, through `report_to_queen`) rather than dropped, and delivered
+  in order on the next heartbeat the link takes frames again, and once more at `stop()`.
   Also implements `hivemind.supervision.Supervisor` over its sub-bees. Roadmap step 4.9
   (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
@@ -148,7 +151,10 @@ Warden never provisions Cells itself.
   `gate.admit_resume` stands in front of every `TaskAssign` after the quarantine gate: a resume
   from a Handoff the store labels tainted is refused at the `isolation` point
   (`guard.scope.tainted_handoff`), its grant dropped, the refusal shipped and the task reported
-  held. `WardenAction.TAINT_MEMORY` is the order's autopilot action.
+  held. The same gate stands in front of every respawn this Warden makes itself (a RETRY, a
+  REBIND, a Queen-ordered rebind, a context Handoff's successor: `wardens.ticks.alarms.
+  _spawn_into_slot`), so a tainted resume is refused on those paths too and its kept slot freed.
+  `WardenAction.TAINT_MEMORY` is the order's autopilot action.
 - `wardens.offline` (roadmap steps 11.6a, 11.9): what a Warden does when it is cut off, and how it
   catches the Queen up: `ReconnectingQueenLink` (a `Transport` that redials, re-announces, replays a
   durable outbox and ships the trail), the pure table that routes each send while the link is down,
