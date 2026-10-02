@@ -30,8 +30,10 @@ Fits into the Hive:
 
 Key invariants:
     - Every field is defaulted, so TaskNeeds() is the plain case: preferred isolation, no
-      Exoskeleton, any OS, no network scopes, a disposable Cell, the MEADOW shield, no need to
-      survive a lost link, and NORMAL-accuracy Tempo with no latency budget.
+      Exoskeleton, no commands, any OS, no network scopes, a disposable Cell, the MEADOW shield, no
+      need to survive a lost link, and NORMAL-accuracy Tempo with no latency budget.
+    - `commands` (ADR-0060) is a placement need only: it never travels to the Warden, because
+      the Cell's own access ceiling refuses a command wherever placement would have refused it.
     - `browser_only` and `audio` (roadmap step 6.12) refine an Exoskeleton need and so require
       `exoskeleton`; they are never both set, because audio needs the desktop's sound server,
       which a browser-only attachment never starts.
@@ -143,6 +145,12 @@ class TaskNeeds(BaseModel):
         default=False,
         description="Whether the task needs to hear or speak through the Cell's audio. Requires "
         "exoskeleton; never together with browser_only.",
+    )
+    commands: bool = Field(
+        default=False,
+        description="Whether the task runs commands (run_command) on its Cell. Below FULL "
+        "access only a Cell that contains its processes (a Virtual Cell) runs one, so such a "
+        "task is never placed on a Real Cell below FULL (ADR-0060).",
     )
     os: OsFamily | None = Field(
         default=None,

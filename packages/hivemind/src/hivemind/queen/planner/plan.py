@@ -24,7 +24,8 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's planner
     sub-package (which MAY import `hivemind.llm`). Called by `hivemind.queen.goal_submission.
     submit_goal`. Calls into `hivemind.brood_chamber` (TaskDraft, TaskGraphDraft, GoalRequestId),
-    `hivemind.cell` (HoneyClearance, the tier and isolation enums, TaskNeeds), `hivemind.llm`
+    `hivemind.cell` (HoneyClearance, the tier and isolation enums, TaskNeeds), `hivemind.guard`
+    (admits, CapabilityFamily: whether a Cell runs commands), `hivemind.llm`
     (CallGate, LLMRequest, LadderObserver, Message, PromptName, Role, SectionLabel,
     complete_structured, render), `hivemind.memory` (RETRIEVED_PREAMBLE, render_item,
     RetrievedItem, is_refused, ITEM_CAP_CHARS), `hivemind.queen.planner.schema` and
@@ -73,6 +74,7 @@ from hivemind.brood_chamber import TaskDraft, TaskGraphDraft
 from hivemind.brood_chamber.task import GoalRequestId
 from hivemind.cell import Cell, CombShieldLevel, HoneyClearance, Isolation, RequestOrigin, TaskNeeds
 from hivemind.common.errors import ConfigurationError
+from hivemind.guard import CapabilityFamily, admits
 from hivemind.llm import (
     CallGate,
     LadderObserver,
@@ -263,9 +265,11 @@ def describe_fleet(cells: Sequence[Cell]) -> str:
     """Summarise the Cells the Hive can place work on, for the planner's hot-state section.
 
     One line per Cell with the facts a plan is judged against: the OS family
-    `queen.placement.decide` matches `TaskNeeds.os` on, and the architecture, shell and Python a
-    command criterion may assume. An empty fleet is said plainly, so the model keeps needs at
-    their defaults instead of guessing.
+    `queen.placement.decide` matches `TaskNeeds.os` on, the architecture, shell and Python a
+    command criterion may assume, and whether a Worker there may run commands at all (ADR-0060:
+    below FULL, only a Cell that contains its processes), which `TaskNeeds.commands` is placed
+    by. An empty fleet is said plainly, so the model keeps needs at their defaults instead of
+    guessing.
 
     Args:
         cells: The Cells behind every attached Warden, in any order.
@@ -279,13 +283,19 @@ def describe_fleet(cells: Sequence[Cell]) -> str:
         )
     lines = [
         "Fleet: the Cells the Hive can place work on right now. A subtask's needs must fit one of "
-        "them, and a command criterion must run on it as a plain argument list, without a shell."
+        "them, and a command criterion must run on it as a plain argument list, without a shell. "
+        "A subtask whose Worker runs commands sets needs.commands; a Cell marked 'no commands' "
+        "never takes one, so it goes to a Virtual Cell."
     ]
     for cell in cells:
         caps = cell.capabilities
         python = f"python {caps.python_version}" if caps.python_version else "no python"
+        runs = admits(
+            cell.access_level, CapabilityFamily.EXEC, processes_contained=caps.processes_contained
+        )
         lines.append(
-            f"- {cell.name}: os {caps.os.value}, {caps.arch}, shell {caps.shell}, {python}"
+            f"- {cell.name}: os {caps.os.value}, {caps.arch}, shell {caps.shell}, {python}, "
+            f"{'commands' if runs else 'no commands'}"
         )
     return "\n".join(lines)
 

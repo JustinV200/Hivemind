@@ -24,7 +24,7 @@ from builders.house_bee import make_retrieved_hit
 from builders.llm import make_bound
 from builders.queen import plan_responder
 
-from hivemind.cell import HoneyClearance
+from hivemind.cell import AccessLevel, HoneyClearance
 from hivemind.llm import DirectCallGate, FakeLLMProvider
 from hivemind.llm.errors import MalformedOutputError
 from hivemind.memory import RETRIEVED_PREAMBLE, RetrievedItem
@@ -428,6 +428,18 @@ def test_describe_fleet_names_each_cell_and_the_os_placement_matches_on() -> Non
     assert "hive-stand" in text
     assert cell.capabilities.os.value in text
     assert cell.capabilities.shell in text
+
+
+def test_describe_fleet_marks_which_cells_run_commands() -> None:
+    # ADR-0060: the planner sets needs.commands from this, so placement keeps the task off.
+    scratch = make_cell(name="hive-stand", access_level=AccessLevel.SCRATCH)
+    full = make_cell(name="lab-box", access_level=AccessLevel.FULL)
+
+    lines = describe_fleet((scratch, full)).splitlines()
+
+    assert "needs.commands" in lines[0]
+    assert lines[1].startswith("- hive-stand") and lines[1].endswith(", no commands")
+    assert lines[2].startswith("- lab-box") and lines[2].endswith(", commands")
 
 
 def test_describe_fleet_says_plainly_when_no_cell_is_attached() -> None:

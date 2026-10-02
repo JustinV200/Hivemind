@@ -38,6 +38,10 @@ lends its operator's own, an audio need where it also has a sound server, each w
 Cell's access level ever grants -- and otherwise lands on a Virtual Cell whose spec provisions one
 (the manifest's desktop image). Every Real Cell it skips is named in the reason with the one
 requirement it lacks, so a `prefer = "real"` Hive falling back to Virtual explains itself.
+ADR-0060 does the same for a task that runs commands (`TaskNeeds.commands`): a Real Cell below FULL
+whose processes are not contained never takes one, and when no attached Cell may and the Hive has
+no Virtual backend at all, the `PlacementError` is final, so the task fails at once with that
+reason rather than waiting for a Cell that cannot come.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
@@ -119,7 +123,8 @@ class PlacementError(QueenError):
                 candidate (roadmap step 10.3): the dispatcher records one `guard.denied` for
                 each. Empty for any other failure, however many candidates the goal excluded.
             final: True when no later pass could place the task either (roadmap step 10.3a: a
-                Night Veil rule the task or this Hive's configuration breaks), so the
+                Night Veil rule the task or this Hive's configuration breaks; ADR-0060: commands
+                no attached Cell may run, on a Hive with no Virtual backend), so the
                 dispatcher cancels it with this message rather than retrying every tick.
         """
         super().__init__(message)
@@ -166,6 +171,14 @@ def decide(
     reasons = real_eliminated + virtual_eliminated
     named = "; ".join(reasons) if reasons else "no candidates in inventory"
     denied = _capability_denials(needs, inventory, forage.goal_capabilities)
+    if _commands_need_a_virtual_cell(needs, inventory):
+        # ADR-0060: no attached Cell may run its commands and this Hive has no Virtual Cell to
+        # send it to, so no later pass could place it either; it fails now, saying why.
+        raise PlacementError(
+            f"No Cell fits {needs!r}: {named}; the task runs commands, which needs a Virtual "
+            "Cell, and no Virtual backend is configured.",
+            final=True,
+        )
     raise PlacementError(f"No Cell fits {needs!r}: {named}.", denied)
 
 
@@ -220,8 +233,11 @@ def _real_exclusion_reason(
         wanted, has = needs.comb_shield.name, candidate.comb_shield.name
         return f"Comb Shield mismatch (needs {wanted}, has {has})"
     # Roadmap step 6.12: rule 4c already words what the Cell lacks (a browser, a display it may
-    # start or drive, a sound server) and which fact fails it, so the reason is used as it is.
-    shortfall = rules.exoskeleton_shortfall(needs, candidate.capabilities, candidate.access_level)
+    # start or drive, a sound server) and which fact fails it, so the reason is used as it is;
+    # so does rule 4d (ADR-0060), for a task that runs commands on an uncontained Cell below FULL.
+    shortfall = rules.exoskeleton_shortfall(
+        needs, candidate.capabilities, candidate.access_level
+    ) or rules.command_shortfall(needs, candidate.capabilities, candidate.access_level)
     if shortfall is not None:
         return shortfall
     if not rules.real_has_forage(candidate):
@@ -501,6 +517,21 @@ def _prefer_first(
         )
         return ReuseReal(top.cell_id, top.warden_id, reason)
     return None
+
+
+def _commands_need_a_virtual_cell(needs: TaskNeeds, inventory: Inventory) -> bool:
+    """Say whether only a Virtual Cell could run this task's commands, and the Hive has none.
+
+    True when the task runs commands, at least one Real Cell is attached and none of them may
+    run one (rule 4d), and there is no Virtual backend or dormant Cell at all. With no Cell
+    attached yet the wait is ordinary: a Warden may still attach.
+    """
+    if not needs.commands or inventory.virtual_backends or inventory.dormant:
+        return False
+    return bool(inventory.real) and all(
+        rules.command_shortfall(needs, candidate.capabilities, candidate.access_level) is not None
+        for candidate in inventory.real
+    )
 
 
 def _label(candidate: RealCandidate) -> str:

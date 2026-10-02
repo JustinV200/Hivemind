@@ -26,6 +26,9 @@ Cell's own Warden builds it). A browser-only need needs a browser; a desktop nee
 the lease may start, or the running display its operator lets the Hive drive; an audio need also
 needs a sound server. These return the unmet requirement in words, or `None`, rather than a bare
 `bool`, so `decide`'s reason names the rule that excluded the Cell and the fact that failed it.
+ADR-0060 adds rule 4d the same way: a task that runs commands needs a Cell whose ceiling holds
+`exec`, which below FULL only a Cell that contains its processes does (`command_shortfall`). A
+Virtual spec always meets it: its container contains what it runs, and it is always FULL.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
@@ -81,6 +84,7 @@ _DISPLAY = Capability.parse("exoskeleton:display")  # Drive a display the lease 
 _REAL_DISPLAY = Capability.parse("exoskeleton:real_display")  # Drive the operator's own screen.
 _AUDIO = Capability.parse("exoskeleton:audio")  # Hear and speak through the lease's sound server.
 _BROWSER = Capability.parse("exoskeleton:browser")  # Drive the lease's own browser.
+_EXEC = Capability.parse("exec:*")  # Rule 4d (ADR-0060): run any command on the Cell.
 # WHY a stand-in: `ceiling_for` reads a lease's scratch root only to build its `fs:write` scope
 # (its own docstring), and placement runs before any lease exists. No Exoskeleton scope depends on
 # the root, so this value never reaches an answer rule 4c reads; reusing `ceiling_for` rather than
@@ -99,6 +103,7 @@ __all__ = [
     "audio_shortfall",
     "browser_shortfall",
     "caution_rank",
+    "command_shortfall",
     "desktop_shortfall",
     "excluded_by_block_wax",
     "excluded_by_hive_stand_policy",
@@ -284,6 +289,28 @@ def audio_shortfall(capabilities: CellCapabilities, access_level: AccessLevel) -
     return None
 
 
+def command_shortfall(
+    needs: TaskNeeds, capabilities: CellCapabilities, access_level: AccessLevel
+) -> str | None:
+    """Rule 4d: say why a Real Cell cannot run the task's commands, or None if it can.
+
+    Asks the ceiling the Cell's own Warden will build (ADR-0060): below FULL, only a Cell whose
+    processes are contained holds `exec`, so a Real Cell at SCRATCH sends a task that runs
+    commands to a Virtual Cell instead.
+
+    Example:
+        The Hive Stand at SCRATCH gets "running commands needs FULL access or a Cell that
+        contains its processes (access level SCRATCH, processes_contained=false)".
+    """
+    if not needs.commands or _ceiling(capabilities, access_level).allows(_EXEC):
+        return None
+    contained = str(capabilities.processes_contained).lower()
+    return (
+        "running commands needs FULL access or a Cell that contains its processes "
+        f"(access level {access_level.name}, processes_contained={contained})"
+    )
+
+
 def real_has_forage(candidate: RealCandidate) -> bool:
     """Rule 5a: a Real Cell needs the free-capacity flag the caller already measured."""
     return candidate.has_free_capacity
@@ -344,7 +371,10 @@ def _ceiling(capabilities: CellCapabilities, access_level: AccessLevel) -> Capab
     # The operator's running-display opt-in rides on the Cell's own report, exactly as
     # hivemind.wardens.warden passes it once leased: never implied (codingrules section 15).
     return ceiling_for(
-        access_level, _NO_LEASE_SCRATCH_ROOT, real_display=capabilities.real_display_allowed
+        access_level,
+        _NO_LEASE_SCRATCH_ROOT,
+        real_display=capabilities.real_display_allowed,
+        processes_contained=capabilities.processes_contained,
     )
 
 

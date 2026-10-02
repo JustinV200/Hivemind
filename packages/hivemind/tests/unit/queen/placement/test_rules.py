@@ -255,6 +255,30 @@ def test_a_windows_hive_stand_takes_a_browser_only_need_but_not_a_desktop(
     assert rules.exoskeleton_shortfall(_DESKTOP, capabilities, level) is not None
 
 
+_COMMANDS = TaskNeeds(commands=True)
+
+
+@pytest.mark.parametrize("level", list(AccessLevel))
+def test_command_shortfall_none_for_a_task_that_runs_no_commands(level: AccessLevel) -> None:
+    assert rules.command_shortfall(TaskNeeds(), make_capabilities(), level) is None
+
+
+def test_command_shortfall_refuses_an_uncontained_cell_below_full() -> None:
+    # ADR-0060: the Hive Stand at SCRATCH, a plain subprocess under the operator's account.
+    shortfall = rules.command_shortfall(_COMMANDS, make_capabilities(), AccessLevel.SCRATCH)
+
+    assert shortfall is not None
+    assert "access level SCRATCH, processes_contained=false" in shortfall
+
+
+def test_command_shortfall_none_at_full_or_on_a_contained_cell_at_scratch() -> None:
+    contained = make_capabilities(processes_contained=True)
+
+    assert rules.command_shortfall(_COMMANDS, make_capabilities(), AccessLevel.FULL) is None
+    assert rules.command_shortfall(_COMMANDS, contained, AccessLevel.SCRATCH) is None
+    assert rules.command_shortfall(_COMMANDS, contained, AccessLevel.READ_ONLY) is not None
+
+
 def _real_candidate(*, has_free_capacity: bool) -> RealCandidate:
     return RealCandidate(
         warden_id=new_warden_id(_CLOCK),
