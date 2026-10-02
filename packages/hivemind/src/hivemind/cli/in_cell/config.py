@@ -34,7 +34,9 @@ Virtual Cell looked just as busy, and its grants shrank to nothing. What the bac
 the Cell (`hivemind.hive.models.CellReservation`, from its `VirtualCellSpec`) is all it has and
 no other tenant contends for it, so that is its capacity, with no load; the probe still supplies
 its platform facts (architecture, OS) and capability flags. A Cell whose bootstrap names no
-reservation (minted before one was shipped) reports what it probes, as every Cell used to.
+reservation (minted before one was shipped) reports what it probes, as every Cell used to; the
+probe reads the container's own cgroup memory limit and usage where one is set
+(`hivemind.cell.local.probe.linux_memory_bytes`), so even then its memory is the Cell's own.
 
 Key invariants:
     - `build_runtime_config` raises `ConfigurationError` naming the missing or malformed variable

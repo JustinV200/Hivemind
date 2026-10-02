@@ -51,7 +51,8 @@ Key invariants:
     - grant() never mutates `inputs.map`; it only reads `ForageMap.sources()`.
     - The returned ForageGrant's max_sub_bees never exceeds `inputs.cell_capacity.max_sub_bees`,
       `inputs.budgets.max_sub_bees - inputs.goal_sub_bees_used`, or what the Cell's free memory
-      allows once `inputs.reserve.memory_bytes` is subtracted (property-tested with hypothesis),
+      allows once the reserve's memory for that Cell (`inputs.reserve.memory_for` its total) is
+      subtracted (property-tested with hypothesis),
       under every Tempo v1 can draw.
     - Every AllowedBinding grant() returns names a source whose `effective_grade` is at
       least `grade_floor(inputs.tempo.accuracy)` and, when `inputs.reachable_source_ids` is not
@@ -512,8 +513,13 @@ def _short_of_one(limits: Mapping[GrantBound, int], margin: float) -> frozenset[
 
 
 def _bound_by_memory(free_bytes: int, inputs: GrantInputs) -> int:
-    """Return how many footprints fit in `free_bytes` once the Royal Reserve's memory is held."""
-    after_reserve = max(0, free_bytes - inputs.reserve.memory_bytes)
+    """Return how many footprints fit in `free_bytes` once the Royal Reserve's memory is held.
+
+    The reserve scales with the Cell (`RoyalReserve.memory_for`): a flat 512 MiB would hold back
+    half of a 1 GiB Virtual Cell and deny it every sub-bee.
+    """
+    held = inputs.reserve.memory_for(inputs.cell_capacity.host.memory_bytes)
+    after_reserve = max(0, free_bytes - held)
     return _bound_by_rate(float(after_reserve), float(inputs.footprint.memory_bytes))
 
 

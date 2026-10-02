@@ -12,10 +12,16 @@ safe to run here. `ProbeError` (already defined in `hivemind.cell.errors`) is th
 module refuses to guess through: a host that reports zero usable cores is unusable, not merely
 under-specified.
 
+Free memory means memory the kernel can hand out, not memory nobody has touched: on Linux that is
+`MemAvailable`, not `MemFree` (which leaves out reclaimable page cache, so a warm host looked
+full), and inside a container whose cgroup sets a limit, the limit and what the cgroup has left of
+it (`linux_memory_bytes`), since the kernel's own figures there describe the host, not the Cell.
+
 Fits into the Hive:
     Layer 2 (the Cell abstraction), inside `hivemind.cell.local` (the Hive Stand). Called by
     `hivemind.cell.local.source.HiveStandSource.cells()` once at construction (the static half)
-    and again on every call (the live half, through `refresh_live`). Calls into the standard
+    and again on every call (the live half, through `refresh_live`), and by the in-Cell entry
+    point's own probe (`hivemind.cli.in_cell.config`). Calls into the standard
     library only (`os`, `platform`, `shutil`, `ctypes` on Windows), plus `hivemind.cell.needs`,
     `hivemind.cell.local.config` and `hivemind.forage`.
 
@@ -34,6 +40,8 @@ Key invariants:
     - `can_host_model` is exactly `HiveStandConfig.can_host_model` (roadmap step 8.3): False unless
       the operator declared a model server for this machine, because a probe cannot know whether
       a server program is installed; the platform shims below always report False.
+    - On Linux, free memory never exceeds the host's `MemAvailable`, nor, under a cgroup limit
+      below the host's total, that limit less the cgroup's working set.
 
 See Also:
     - .claude/roadmap.md step 3.11 for "probe.py (platform, arch, cores, memory, GPU, display,
@@ -82,6 +90,12 @@ AUDIO_PROGRAMS = ("pulseaudio", "pactl", "parec", "paplay")
 # Where Playwright keeps the Chromium builds it manages when PLAYWRIGHT_BROWSERS_PATH is unset,
 # relative to the home directory; a build there is a browser as good as one on PATH.
 _PLAYWRIGHT_CACHE = Path(".cache") / "ms-playwright"
+_PROC_MEMINFO = Path("/proc/meminfo")  # The kernel's own memory accounting, in kB.
+# The cgroup filesystem's mount point. Inside a container (a private cgroup namespace, Docker's
+# default) its root is the container's own cgroup, so its limit files describe the container; on a
+# host its root is the root cgroup, which has no limit (v2: no memory.max at all).
+_CGROUP_ROOT = Path("/sys/fs/cgroup")
+_CGROUP_UNLIMITED = "max"  # cgroup v2's word for "no limit" in memory.max.
 
 __all__ = [
     "AUDIO_PROGRAMS",
@@ -90,6 +104,7 @@ __all__ = [
     "X11_DISPLAY_PROGRAMS",
     "ProbeResult",
     "host_platform",
+    "linux_memory_bytes",
     "probe_host",
     "refresh_live",
 ]
@@ -177,6 +192,35 @@ def refresh_live(config: HiveStandConfig, capacity: ForageCapacity) -> ForageCap
         }
     )
     return capacity.model_copy(update={"host": host})
+
+
+def linux_memory_bytes(meminfo: Path, cgroup_root: Path) -> tuple[int, int]:
+    """Return (total, available) Linux memory: the cgroup's own when it is limited, else the host's.
+
+    The host's figures are `MemTotal` and `MemAvailable` (free memory plus the page cache the
+    kernel can reclaim), never `MemFree`. Inside a container the kernel is the host's, so those
+    describe the host (on Docker Desktop, its VM), not the container: when the cgroup at
+    `cgroup_root` has a limit below the host's total, the total is that limit and the available
+    figure what the cgroup has left of it, never more than the host itself has available.
+
+    Args:
+        meminfo: The `/proc/meminfo` to read; a test passes a fake one.
+        cgroup_root: The cgroup filesystem's root (`/sys/fs/cgroup`); v2 and v1 are both read.
+
+    Returns:
+        (total, available) in bytes; (0, 0) when `meminfo` cannot be read, the probe's
+        conservative unknown (module docstring).
+    """
+    host_total, host_available = _meminfo_bytes(meminfo)
+    limited = _cgroup_memory(cgroup_root)
+    if limited is None:
+        return host_total, host_available
+    limit, in_use = limited
+    if host_total and limit >= host_total:
+        return host_total, host_available  # A limit past the host's own memory limits nothing.
+    left = max(0, limit - in_use)
+    # A cgroup can be promised more than the host has free; the host's figure then binds.
+    return limit, min(left, host_available) if host_total else left
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -349,7 +393,8 @@ def _memory_bytes() -> tuple[int, int]:
     mypy's platform narrowing only exempts `ctypes.windll`/`os.sysconf` from attribute-existence
     checking inside a matching `if sys.platform == ...:` branch of *the function that reads
     them* -- a helper called from an already-guarded branch is analysed on its own and would
-    still fail on whichever platform's mypy run does not natively have that attribute.
+    still fail on whichever platform's mypy run does not natively have that attribute. Linux
+    reads only files (`linux_memory_bytes`), so it needs no such narrowing; macOS keeps sysconf.
     """
     if sys.platform == "win32":
         status = _MemoryStatusEx()
@@ -358,7 +403,12 @@ def _memory_bytes() -> tuple[int, int]:
         # struct's dwLength must be pre-filled exactly as done above or the call fails.
         if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
             return 0, 0
+        # ullAvailPhys already counts standby (reclaimable cache) memory as available.
         return status.ullTotalPhys, status.ullAvailPhys
+    elif sys.platform == "linux":
+        # Not SC_AVPHYS_PAGES: on Linux that is MemFree, which leaves out reclaimable page cache,
+        # so a warm host looked full and was denied every grant (phase 6 handoff 4.3).
+        return linux_memory_bytes(_PROC_MEMINFO, _CGROUP_ROOT)
     else:
         try:
             page_size = os.sysconf("SC_PAGE_SIZE")
@@ -368,25 +418,67 @@ def _memory_bytes() -> tuple[int, int]:
             # Unknown -> conservative: report nothing, rather than guess a figure that could be
             # wrong in either direction for a memory-allocation decision.
             return 0, 0
-        # SC_AVPHYS_PAGES is MemFree, which leaves out the page cache the kernel hands back on
-        # demand: a warm Linux host looked out of memory and its grants waited. MemAvailable is
-        # what an allocation can count on; elsewhere the sysconf figure is all there is.
-        available = _linux_mem_available()
-        free = available if available is not None else page_size * avail_pages
-        return page_size * total_pages, free
+        return page_size * total_pages, page_size * avail_pages
 
 
-def _linux_mem_available() -> int | None:
-    """Return Linux's MemAvailable in bytes from /proc/meminfo, or None where it cannot be read."""
+def _meminfo_bytes(meminfo: Path) -> tuple[int, int]:
+    """Return (MemTotal, MemAvailable) from `meminfo` in bytes; (0, 0) when it cannot be read."""
     try:
-        # An in-memory kernel table, read in microseconds like the sysconf calls beside it.
-        with open("/proc/meminfo", encoding="ascii") as meminfo:
-            for line in meminfo:
-                if line.startswith("MemAvailable:"):
-                    return int(line.split()[1]) * _KIB  # The kernel reports it in kB.
-    except (OSError, ValueError, IndexError):
-        return None
+        text = meminfo.read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return 0, 0  # No /proc: report nothing rather than guess (module docstring).
+    # Each line is "Name:   <value> kB"; collect the values by name.
+    fields: dict[str, int] = {}
+    for line in text.splitlines():
+        name, _, rest = line.partition(":")
+        parts = rest.split()
+        if parts and parts[0].isdigit():
+            fields[name.strip()] = int(parts[0]) * _KIB
+    # Kernels before 3.14 have no MemAvailable; MemFree is the conservative stand-in there.
+    available = fields.get("MemAvailable", fields.get("MemFree", 0))
+    return fields.get("MemTotal", 0), available
+
+
+def _cgroup_memory(root: Path) -> tuple[int, int] | None:
+    """Return (limit, working set) of the cgroup at `root`, or None when it sets no limit.
+
+    The working set is the usage less the inactive file cache, which the kernel reclaims before
+    it would hit the limit: the same reading `docker stats` and the kubelet take, and the cgroup's
+    own counterpart of MemAvailable. cgroup v2 (`memory.max`) is tried first, then v1.
+    """
+    for limit_file, usage_file, stat_file, inactive_key in (
+        ("memory.max", "memory.current", "memory.stat", "inactive_file"),
+        (
+            "memory/memory.limit_in_bytes",
+            "memory/memory.usage_in_bytes",
+            "memory/memory.stat",
+            "total_inactive_file",
+        ),
+    ):
+        try:
+            limit_text = (root / limit_file).read_text(encoding="ascii").strip()
+            usage = int((root / usage_file).read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            continue  # This cgroup version is not mounted here, or is unreadable: try the next.
+        if limit_text == _CGROUP_UNLIMITED or not limit_text.isdigit():
+            return None
+        inactive = _stat_value(root / stat_file, inactive_key)
+        return int(limit_text), max(0, usage - inactive)
     return None
+
+
+def _stat_value(stat: Path, key: str) -> int:
+    """Return `key`'s value in the cgroup `memory.stat` file `stat`; 0 when absent or unreadable."""
+    try:
+        lines = stat.read_text(encoding="ascii").splitlines()
+    except OSError:
+        return 0  # Counting no cache as reclaimable under-reports what is free, never over.
+    # Each line is "<key> <bytes>".
+    for line in lines:
+        name, _, value = line.partition(" ")
+        if name == key and value.strip().isdigit():
+            return int(value.strip())
+    return 0
 
 
 def _disk_bytes(scratch_root: Path) -> tuple[int, int]:

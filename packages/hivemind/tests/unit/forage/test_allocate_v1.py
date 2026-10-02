@@ -409,11 +409,10 @@ def _assert_never_exceeds_caps(
     # what the goal's other live grants already hold).
     assert 0 <= result.max_sub_bees <= scenario.cell_cap
     assert result.max_sub_bees <= remaining_bees
-    # Never exceeds what free memory allows once the Royal Reserve is subtracted.
+    # Never exceeds what free memory allows once the Royal Reserve, scaled to the Cell, is held.
     if scenario.footprint.memory_bytes > 0:
-        memory_after_reserve = max(
-            0, scenario.host.memory_free_bytes - scenario.reserve.memory_bytes
-        )
+        held = scenario.reserve.memory_for(scenario.host.memory_bytes)
+        memory_after_reserve = max(0, scenario.host.memory_free_bytes - held)
         assert result.max_sub_bees * scenario.footprint.memory_bytes <= memory_after_reserve
     # Never exceeds the goal's remaining spend cap, or the token cap (tokens read no tempo, so
     # that half is still bound by the raw budget as in v0).

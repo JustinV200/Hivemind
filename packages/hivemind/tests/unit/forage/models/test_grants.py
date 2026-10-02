@@ -80,6 +80,19 @@ def test_royal_reserve_has_sensible_defaults() -> None:
     assert reserve.headroom_fraction == 0.1
 
 
+@pytest.mark.parametrize(
+    ("total", "held"),
+    [
+        (64 * 1024**3, 512 * 1024**2),  # A big Hive Stand keeps the whole default.
+        (4 * 1024**3, 512 * 1024**2),  # The point where an eighth reaches the default.
+        (1024**3, 128 * 1024**2),  # A default 1 GiB Virtual Cell keeps an eighth.
+        (0, 0),  # Unknown memory holds nothing back; nothing is reported free either.
+    ],
+)
+def test_royal_reserve_memory_for_scales_down_on_a_small_cell(total: int, held: int) -> None:
+    assert make_reserve().memory_for(total) == held
+
+
 @pytest.mark.parametrize("fraction", [-0.1, 1.0, 1.5])
 def test_royal_reserve_rejects_a_headroom_fraction_outside_zero_to_one(fraction: float) -> None:
     with pytest.raises(ValidationError):

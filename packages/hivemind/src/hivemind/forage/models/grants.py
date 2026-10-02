@@ -32,6 +32,7 @@ Key invariants:
       itself; ForageGrant carries no reference to a `ForageMap`.
     - RoyalReserve.headroom_fraction is in [0, 1): a reserve that held back *all* remaining
       capacity would make every grant computation moot.
+    - `RoyalReserve.memory_for(total)` never exceeds `memory_bytes` or an eighth of `total`.
 
 See Also:
     - .claude/roadmap.md step 3.12 for the field-by-field description this module implements.
@@ -76,11 +77,19 @@ from waggle.messages.forage.values import ForageRequestKind as WireForageRequest
 DEFAULT_RESERVE_SEATS = 1  # Enough for the Queen's own awake episode without contending for one.
 DEFAULT_RESERVE_MEMORY_BYTES = 512 * 1024 * 1024  # 512 MiB: the Attendant and House Bees are light.
 DEFAULT_RESERVE_HEADROOM_FRACTION = 0.1  # A 10% margin absorbs measurement drift between reports.
+# The most of a Cell's total memory the reserve's memory may hold back. The 512 MiB default is
+# sized for a Hive Stand running the Queen, the Attendant and the House Bees; on a small Cell a
+# flat 512 MiB is half of a 1 GiB Virtual Cell (the default size), and a Cell that also runs its
+# own Warden is then denied every sub-bee. An eighth keeps 128 MiB on a 1 GiB Cell, half a default
+# 256 MiB footprint, as margin for drift, and reaches the full 512 MiB from 4 GiB up, so every
+# Hive Stand big enough to run the Queen in comfort keeps exactly the reserve it had.
+RESERVE_MEMORY_MAX_FRACTION = 0.125
 
 __all__ = [
     "DEFAULT_RESERVE_HEADROOM_FRACTION",
     "DEFAULT_RESERVE_MEMORY_BYTES",
     "DEFAULT_RESERVE_SEATS",
+    "RESERVE_MEMORY_MAX_FRACTION",
     "AllowedBinding",
     "ForageGrant",
     "ForageRequest",
@@ -226,13 +235,27 @@ class RoyalReserve(BaseModel):
     )
     memory_bytes: Annotated[int, Field(ge=0)] = Field(
         default=DEFAULT_RESERVE_MEMORY_BYTES,
-        description="Memory held back on the Hive Stand for the same, in bytes.",
+        description="Memory held back on the Hive Stand for the same, in bytes; on a Cell with "
+        "less than eight times this much memory, an eighth of its total instead.",
     )
     headroom_fraction: Annotated[float, Field(ge=0, lt=1)] = Field(
         default=DEFAULT_RESERVE_HEADROOM_FRACTION,
         description="An extra margin subtracted from whatever remains, as a fraction in [0, 1), "
         "absorbing drift between capacity reports.",
     )
+
+    def memory_for(self, total_memory_bytes: int) -> int:
+        """Return the memory this reserve holds back on a Cell with `total_memory_bytes` in all.
+
+        Args:
+            total_memory_bytes: The Cell's total memory (`HostCapacity.memory_bytes`); 0 when
+                unknown, which holds nothing back, since such a Cell reports nothing free either.
+
+        Returns:
+            `memory_bytes`, or `RESERVE_MEMORY_MAX_FRACTION` of the total when that is smaller
+            (the constant's own comment says why a small Cell keeps less).
+        """
+        return min(self.memory_bytes, int(total_memory_bytes * RESERVE_MEMORY_MAX_FRACTION))
 
 
 class ForageGrant(BaseModel):

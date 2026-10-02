@@ -117,8 +117,8 @@ def test_seats_busy_right_now_are_short_but_lift_once_the_calls_finish() -> None
 
 
 def test_a_host_whose_whole_memory_cannot_hold_one_bee_never_lifts() -> None:
-    # 768 MiB in all, 512 MiB of it the Royal Reserve's: 256 MiB can never hold a 512 MiB Drone.
-    host = make_host_capacity(memory_bytes=768 * _MIB, memory_free_bytes=768 * _MIB)
+    # 512 MiB in all, an eighth of it the Royal Reserve's: 448 MiB can never hold a 512 MiB Drone.
+    host = make_host_capacity(memory_bytes=512 * _MIB, memory_free_bytes=512 * _MIB)
 
     limits = sub_bee_limits(_inputs(cell_capacity=make_capacity(host=host)))
 

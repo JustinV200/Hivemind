@@ -164,6 +164,24 @@ def test_grant_subtracts_the_royal_reserve_memory_before_dividing() -> None:
     assert result.max_sub_bees == 2  # (3 - 1) GiB free after reserve // 1 GiB per bee.
 
 
+def test_grant_scales_the_reserve_down_so_a_1_gib_virtual_cell_still_gets_a_bee() -> None:
+    # A default 1 GiB Virtual Cell whose own Warden already uses 200 MiB: a flat 512 MiB reserve
+    # left 312 MiB, one 256 MiB bee before the 10% headroom and none after it.
+    mib = 1024**2
+    host = make_host_capacity(memory_bytes=1024 * mib, memory_free_bytes=824 * mib)
+    inputs = _inputs(
+        cell_capacity=make_capacity(host=host, max_sub_bees=4),
+        footprint=make_footprint(cpu_cores=0.0, memory_bytes=256 * mib),
+        reserve=make_reserve(seats=0),  # The default memory and headroom.
+        budgets=_budgets(max_sub_bees=4),
+        map=_abundant_seats_map(),
+    )
+
+    result = grant(inputs)
+
+    assert result.max_sub_bees == 1  # (824 - 128) MiB // 256 MiB = 2, less the 10% headroom.
+
+
 def test_grant_headroom_fraction_shaves_a_margin_off_the_raw_limit() -> None:
     inputs = _inputs(
         cell_capacity=make_capacity(max_sub_bees=10),
