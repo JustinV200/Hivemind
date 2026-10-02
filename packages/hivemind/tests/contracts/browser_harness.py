@@ -17,8 +17,13 @@ Fits into the Hive:
     `contracts.test_browser_contract` and by the Playwright backend's unit tests.
 
 Key invariants:
-    - The real harness works in a short scratch directory under /tmp, never pytest's tmp_path:
-      Chromium's singleton socket must fit a Unix socket address.
+    - The real harness works in a short scratch directory (`short_scratch`), never pytest's
+      tmp_path: on POSIX it is under /tmp, because Chromium's singleton socket must fit a Unix
+      socket address; Windows has no such socket and no /tmp, so there it is the system's own
+      temporary directory.
+    - `processes_mentioning` reads every process's command line, from /proc on Linux and from
+      the process table (through PowerShell) on Windows, so a browser that outlived its lease
+      is found on both.
     - Everything a harness started is stopped in `close`, and its scratch is removed.
 
 See Also:
@@ -30,7 +35,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import os
 import shutil
+import subprocess
 import tempfile
 import time
 from collections.abc import Callable
@@ -70,6 +77,13 @@ _QUOTA_BYTES = 1 << 30  # A profile is tens of megabytes; the quota is not under
 _UNREADY_TIMEOUT_S = 0.001  # Far shorter than any Chromium takes to open its port (0.25 s+).
 _SETTLE_S = 10.0  # How long a stopped browser's own crash handler may take to follow it out.
 _POLL_S = 0.1  # How often the process table is re-read while waiting for that.
+# Where POSIX scratch goes: short, so a Unix socket path under it fits in 108 bytes.
+_POSIX_SCRATCH_ROOT = "/tmp"  # noqa: S108  # SAFETY: mkdtemp makes a private 0700 directory.
+_PROCESS_LIST_TIMEOUT_S = 60.0  # One PowerShell process query: about a second, slow when cold.
+# Every process on Windows, one per line: its id, a tab, its command line (blank when unreadable).
+_WINDOWS_PROCESS_QUERY = (
+    'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }'
+)
 
 __all__ = [
     "ELEMENT_TIMEOUT_S",
@@ -80,6 +94,7 @@ __all__ = [
     "OpenBrowser",
     "RealBrowserHarness",
     "processes_mentioning",
+    "short_scratch",
 ]
 
 
@@ -187,8 +202,7 @@ class RealBrowserHarness:
     async def open(self) -> OpenBrowser:
         """Start a real Chromium through a LocalProcessSession, or skip without one."""
         clock = SystemClock()
-        # Short on purpose: see this module's first invariant.
-        self._scratch = Path(tempfile.mkdtemp(prefix="hm-", dir="/tmp"))
+        self._scratch = short_scratch()
         lease = make_real_cell_lease(
             self._scratch, clock=clock, releaser=make_hive_stand_releaser(clock=clock)
         )
@@ -232,7 +246,8 @@ class RealBrowserHarness:
         # Chromium's crash handler runs in a process group of its own and leaves once the browser
         # is gone, so allow it a moment before calling anything a leftover.
         deadline = time.monotonic() + _SETTLE_S
-        inside = f"{self._scratch}/"  # Every path a lease-started browser is given is under it.
+        # Every path a lease-started browser is given is under it, spelled the platform's way.
+        inside = f"{self._scratch}{os.sep}"
         found = processes_mentioning(inside)
         while found and time.monotonic() < deadline:
             await asyncio.sleep(_POLL_S)
@@ -253,8 +268,27 @@ class RealBrowserHarness:
         )
 
 
+def short_scratch(prefix: str = "hm-") -> Path:
+    """Make a fresh, private scratch directory with a short path; see the module's invariants.
+
+    Args:
+        prefix: The directory name's start; `hm-` is what the orphan sweep looks for.
+
+    Returns:
+        A new directory under /tmp on POSIX, under the system's temporary directory on Windows.
+        The caller removes it.
+    """
+    root = _POSIX_SCRATCH_ROOT if os.name == "posix" else None
+    return Path(tempfile.mkdtemp(prefix=prefix, dir=root))
+
+
 def processes_mentioning(text: str) -> tuple[str, ...]:
-    """Describe every live process whose command line contains `text` (Linux's /proc only)."""
+    """Describe every live process whose command line contains `text` (Linux and Windows).
+
+    Elsewhere (macOS) nothing is found: no real browser harness has run there.
+    """
+    if os.name == "nt":  # Not sys.platform: mypy would drop the other branch per platform.
+        return _windows_processes_mentioning(text)
     if not Path("/proc").is_dir():
         return ()
     found = []
@@ -269,6 +303,27 @@ def processes_mentioning(text: str) -> tuple[str, ...]:
             continue  # It exited while being read.
         if text in command and state != "Z":
             found.append(f"pid {entry.name}: {command[:80]}")
+    return tuple(found)
+
+
+def _windows_processes_mentioning(text: str) -> tuple[str, ...]:
+    """Describe every Windows process whose command line contains `text`, from the process table.
+
+    Windows has no /proc; its process table gives every process's command line through WMI.
+    The query's own PowerShell process is left out: its command line holds the query, not `text`.
+    """
+    result = subprocess.run(  # noqa: S603  # SAFETY: a fixed argument list, never a shell.
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", _WINDOWS_PROCESS_QUERY],  # noqa: S607
+        capture_output=True,
+        text=True,
+        timeout=_PROCESS_LIST_TIMEOUT_S,
+        check=True,
+    )
+    found = []
+    for line in result.stdout.splitlines():
+        pid, _, command = line.partition("\t")
+        if text in command:
+            found.append(f"pid {pid}: {command[:80]}")
     return tuple(found)
 
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import tempfile
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -19,7 +18,7 @@ import pytest
 
 pytest.importorskip("playwright.async_api")
 
-from contracts.browser_harness import OpenBrowser, RealBrowserHarness
+from contracts.browser_harness import OpenBrowser, RealBrowserHarness, short_scratch
 
 from hivemind.exoskeleton.browser.hosts import BlockRule, BrowserBlock
 from hivemind.exoskeleton.browser.playwright import FileGuard
@@ -33,7 +32,7 @@ _SECRET = "the-operator's-own-key"  # noqa: S105 -- a marker the outside file ho
 @pytest.fixture
 def outside() -> Iterator[Path]:
     """A file beside the lease, never inside it, holding _SECRET."""
-    directory = Path(tempfile.mkdtemp(prefix="hm-out-", dir="/tmp"))
+    directory = short_scratch("hm-out-")
     secret = directory / "id_rsa"
     secret.write_text(_SECRET)
     yield secret
@@ -52,6 +51,18 @@ async def real() -> AsyncIterator[OpenBrowser]:
         yield opened
     finally:
         await harness.close()
+
+
+def _symlink_or_skip(target: Path, link: Path) -> None:
+    """Make `link` point at `target`, or skip the test where the host will not make a symlink.
+
+    Creating a symlink needs a privilege this account may not hold (notably on Windows without
+    Developer Mode); the guard's rule a symlink test checks does not depend on the host.
+    """
+    try:
+        os.symlink(target, link)
+    except OSError:
+        pytest.skip("this host will not create a symlink for this test")
 
 
 async def test_allows_a_file_inside_the_roots_and_nothing_else(tmp_path: Path) -> None:
@@ -75,7 +86,7 @@ async def test_a_symlink_out_of_the_roots_is_not_allowed(tmp_path: Path) -> None
     scratch, target = tmp_path / "scratch", tmp_path / "id_rsa"
     scratch.mkdir()
     target.write_text(_SECRET)
-    os.symlink(target, scratch / "planted")
+    _symlink_or_skip(target, scratch / "planted")
     guard = FileGuard((scratch,))
     await guard.resolve()
 
@@ -175,7 +186,7 @@ async def test_a_symlink_planted_in_scratch_is_blocked_by_the_route(
 ) -> None:
     # Arrange: inside scratch as written, outside once resolved; only the route can tell.
     planted = real.session.scratch_dir / "planted.txt"
-    os.symlink(outside, planted)
+    _symlink_or_skip(outside, planted)
 
     with pytest.raises(PeripheralError):
         await real.browser.navigate(planted.as_uri())
