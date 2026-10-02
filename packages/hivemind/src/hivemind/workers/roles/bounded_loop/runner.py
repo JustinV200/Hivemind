@@ -170,13 +170,7 @@ async def run_bounded_loop(
         # never has to read ctx.telemetry itself (LoopStoppedError's own docstring).
         _record_usage(ctx, attempt.tally.usage)
         return stopped.outcome.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
-    # The tally, not `result.usage`: after a tool rebuild the final loop's usage is only its own.
-    _record_usage(ctx, attempt.tally.usage)
-    artifacts = await collect_artifacts(ctx, attempt.executor.records)
-    claimed = build_claimed_outcome(assignment, result, artifacts)
-    # The claim is the task's one TaskResult, so its spend is every attempt's, the handed-off
-    # ones before this included: telemetry's running total, as the other two endings report.
-    return claimed.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
+    return await _claim(attempt, result)
 
 
 def _build_attempt(
@@ -260,6 +254,20 @@ async def _run_once(attempt: _Attempt, budget: TokenBudget) -> ToolLoopResult:
     tools = attempt.executor.registry.definitions()
     request = build_request(attempt.ctx, prompt, attempt.assignment, tools, attempt.profile)
     return await run_tool_loop(attempt.ctx.bound, request, tools, attempt.executor, attempt.options)
+
+
+async def _claim(attempt: _Attempt, result: ToolLoopResult) -> WorkerOutcome:
+    """Record a finished loop's usage and build its claim, priced at every attempt's spend.
+
+    The claim is the task's one TaskResult, so its spend covers the handed-off attempts before
+    this one too: telemetry's running total, as the handoff and LoopStoppedError endings report.
+    """
+    ctx = attempt.ctx
+    # The tally, not `result.usage`: after a tool rebuild the final loop's usage is only its own.
+    _record_usage(ctx, attempt.tally.usage)
+    artifacts = await collect_artifacts(ctx, attempt.executor.records)
+    claimed = build_claimed_outcome(attempt.assignment, result, artifacts)
+    return claimed.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
 
 
 def _record_usage(ctx: WorkerContext, usage: Usage) -> None:
