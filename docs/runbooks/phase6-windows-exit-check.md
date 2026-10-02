@@ -75,15 +75,25 @@ expect `1 passed, 2 skipped`.
 
 The automated check above proves the mechanism with a scripted model. To see an actual model log
 in to the fixture site, point a manifest at a local server (LM Studio, Ollama, or any
-OpenAI-compatible server) the way `docs/manifests/local.toml` does. The Hive Stand's default
-`[hive_stand] access_level` (`SCRATCH`) already grants `exoskeleton:browser`
-(`hivemind.guard.access.ceiling_for`), so a browser-only need works with no manifest change
-there; leave `[placement] prefer = "real"` (the default) so the goal stays on the Windows Hive
-Stand rather than provisioning a Linux Virtual Cell it cannot drive. Serve the fixture site
-yourself first (a second PowerShell window):
+OpenAI-compatible server) the way `docs/manifests/local.toml` does. The fixture site is served on
+the Hive Stand's own loopback, which a Real Cell's bee reaches only with `net:loopback` granted
+(ADR-0059). The default `[hive_stand] access_level` (`SCRATCH`) grants `exoskeleton:browser` but
+no `net` scope at all (`hivemind.guard.access.ceiling_for`), so set it to `FULL` in the manifest
+for this check:
+
+```toml
+[hive_stand]
+access_level = "FULL"
+```
+
+The planner must then ask for `loopback` in the subtask's `needs.network_scopes`. The Hive Stand
+reports `loopback` as reachable, so placement accepts that need. Leave `[placement] prefer =
+"real"` (the default) so the goal stays on the Windows Hive Stand rather than provisioning a
+Linux Virtual Cell it cannot drive. Serve the fixture site yourself first (a second PowerShell
+window), on loopback only:
 
 ```powershell
-python -m http.server 8080 --directory packages\hivemind\tests\fixtures\sites\login
+python -m http.server 8080 --bind 127.0.0.1 --directory packages\hivemind\tests\fixtures\sites\login
 ```
 
 Then, with a manifest as above (`hive.toml`) and the server's provider running:
@@ -104,3 +114,24 @@ ask for a full desktop rather than the browser alone, which fails closed on Wind
 a planning choice, not a failure of this check; if it happens, say so explicitly in the goal text
 ("using only the browser, no other window") and try again. Step 2 is the exit criterion's own
 proof either way.
+
+With a local server, check how the model is loaded before blaming the Hive. The planner's reply
+counts its reasoning against the context, so a server that splits a small context across
+parallel slots (LM Studio reloaded the 2026-10-02 run's model at 8,192 tokens per slot after
+loading the embedder) cuts the plan off. Another GPU application can also slow generation until
+the provider's `timeout_s` ends the call. Either shows up as `ProviderUnavailableError:
+ReadTimeout`, not as a planning or browser failure.
+
+## If the browser exits at once
+
+`Chromium exited before it was ready: its log is empty`, or `Chromium handed itself to a process
+the lease did not start`, means the browser the locator found relaunched itself. Edge does this
+when it inherits an application compatibility layer (`__COMPAT_LAYER`, which some terminals and
+IDEs set to `RunAsInvoker`). The launcher clears that variable for the browser, so this should not
+happen. If it does, look for another wrapper that relaunches the browser before you work around
+it. A relaunched browser runs outside the lease's process tree, and detach cannot stop it. After
+any run, this should list nothing:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*--remote-debugging-port=0*' }
+```

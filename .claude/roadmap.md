@@ -1239,6 +1239,23 @@ in a real `desktop-ubuntu` container against a scripted OpenAI-compatible server
 own Warden running the Forager and judging a sampled audit (11.6 s, no container left). The
 Windows leg is the operator's to run: `docs/runbooks/phase6-windows-exit-check.md`.
 
+**Windows leg met 2026-10-02 on the Windows 11 dev host (Edge 154), scripted model**: runbook
+step 2 passes (`1 passed, 2 skipped` for the module), and the real browser contract suite and
+the Playwright backend's real-browser tests run there too. Getting there found three defects.
+Edge relaunches itself when it inherits an application compatibility layer (`__COMPAT_LAYER=
+RunAsInvoker`, handed down by the terminal), so the started process exited, the launch failed,
+and the relaunched browser stayed alive outside the lease's process tree. The browser's
+environment now clears the layer, and a launch whose started process exits after writing its
+port is refused. A loopback site on a Real Cell needs `net:loopback` since ADR-0059, but the Hive
+Stand reported no reachable network scopes, so placement could never take such a task; it now
+reports `loopback`, and the exit scenario's plan asks for it. After the run, no live process names
+the lease's scratch (checked from the process table on Windows as well as /proc). Runbook step 3
+(a real model) was tried twice with the local Qwen3.8-27B on LM Studio and got no further than
+planning, for serving reasons rather than code ones. LM Studio reloaded the model with 8,192
+tokens per slot, so the planner's reasoning hit the context limit, and generation stalled to
+nearly 0 t/s while another GPU application was running. Both runs ended in a provider
+ReadTimeout and left the stand as found.
+
 ### ADRs to write
 
 - `exoskeleton-on-x11-with-playwright-fast-path.md`.
