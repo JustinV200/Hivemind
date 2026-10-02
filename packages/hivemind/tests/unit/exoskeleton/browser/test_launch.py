@@ -6,16 +6,18 @@ import asyncio
 import json
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 import hivemind.exoskeleton.browser as browser_package
-from hivemind.cell import CompletedCommand, ExecSpec
+from hivemind.cell import BackgroundProcess, BackgroundSpec, CompletedCommand, ExecSpec
 from hivemind.cell.fake import FakeSession, FakeStart
 from hivemind.exoskeleton.browser import Browser, BrowserLaunch, FakeBrowser, LaunchedBrowser
 from hivemind.exoskeleton.browser.fake import login_site
 from hivemind.exoskeleton.browser.launch import (
+    COMPAT_LAYER_VARIABLE,
     EXTRA_NAME,
     LOG_FILE,
     PORT_FILE,
@@ -69,15 +71,20 @@ class _RecordingClock(FakeClock):
         await super().sleep(seconds)
 
 
-def _session(scratch: Path, *, browser: bool = True) -> FakeSession:
-    """A FakeSession whose Cell has Chromium on the PATH (or no browser at all)."""
+def _responder(*, browser: bool = True) -> Callable[[ExecSpec], CompletedCommand]:
+    """Answer the locator's version probe: Chromium on the PATH, or no browser at all."""
     version = CompletedCommand(exit_code=0, stdout=b"Chromium 141.0\n", stderr=b"", duration_s=0.0)
     missing = CompletedCommand(exit_code=127, stdout=b"", stderr=b"not found", duration_s=0.0)
 
     def respond(spec: ExecSpec) -> CompletedCommand:
         return version if browser and spec.argv[0] == _CHROMIUM else missing
 
-    return FakeSession(scratch, FakeClock(), responder=respond)
+    return respond
+
+
+def _session(scratch: Path, *, browser: bool = True) -> FakeSession:
+    """A FakeSession whose Cell has Chromium on the PATH (or no browser at all)."""
+    return FakeSession(scratch, FakeClock(), responder=_responder(browser=browser))
 
 
 def _request(scratch: Path, *, headed: bool = False, sandbox: bool = True) -> BrowserLaunch:
@@ -266,6 +273,43 @@ async def test_a_browser_that_exits_on_start_fails_fast_with_its_log_tail(tmp_pa
         await launch
     assert "Missing X server at <url>" in str(raised.value)
     assert "token" not in str(raised.value)
+
+
+class _RelaunchingSession(FakeSession):
+    """A Cell whose browser relaunches itself: the port is written, the started process is gone.
+
+    What Edge does on Windows under an inherited compatibility layer (launch's module docstring):
+    its relaunched copy writes DevToolsActivePort while the process the lease started exits.
+    """
+
+    port_file: Path
+
+    async def start(self, spec: BackgroundSpec) -> BackgroundProcess:
+        process = await super().start(spec)
+        await self.put_file(self.port_file, _PORT_DATA)
+        return process
+
+
+async def test_a_browser_that_hands_itself_to_another_process_is_refused(tmp_path: Path) -> None:
+    clock, connector, request = FakeClock(), _Connector(), _request(tmp_path)
+    session = _RelaunchingSession(tmp_path, clock, responder=_responder())
+    session.port_file = _port_file(request)
+    session.script_start(_CHROMIUM, FakeStart(running=False))
+    launch = asyncio.create_task(_launcher(clock, tmp_path, connector).launch(session, request))
+
+    await _drive(launch, clock, session, port_file=None)
+
+    # Never connected: a browser the lease cannot stop is never driven.
+    with pytest.raises(AttachError, match="handed itself to a process the lease did not start"):
+        await launch
+    assert connector.endpoints == []
+
+
+def test_no_compatibility_layer_reaches_the_browser(tmp_path: Path) -> None:
+    spec = chromium_spec("msedge.exe", _request(tmp_path), ChromiumSettings())
+
+    # Set, and empty: the parent's own layer is overridden, not inherited (launch's docstring).
+    assert spec.env[COMPAT_LAYER_VARIABLE] == ""
 
 
 async def test_a_failed_connect_stops_the_browser(tmp_path: Path) -> None:

@@ -8,16 +8,24 @@ free DevTools port on loopback (`--remote-debugging-port=0`), waits for the port
 `DevToolsActivePort` in the profile, and hands `http://127.0.0.1:<port>` to a connector: by default
 Playwright's `connect_over_cdp` (`browser.playwright`), imported only here and only at launch, so a
 Hive without the `hivemind[browser]` extra imports this module fine and learns at attach time
-what is missing. Two details keep a borrowed machine as it was found. Every lease-started process
+what is missing. Three details keep a borrowed machine as it was found. Every lease-started process
 gets HOME and the XDG directories in scratch (the request's environment). And Chromium's temporary
 directory, where it keeps the socket and lock that allow one browser per profile and which it
 leaves behind even after a clean exit, is the browser directory in scratch, named relatively
 (TMPDIR=".") because an absolute path would not fit a Unix socket address under a deep scratch
-root. Before Chromium starts, its profile is seeded with the settings that keep its own file
-dialogs shut, its downloads in scratch and its WebRTC off the network (`browser.profile`, ADR-0059),
-and it starts with shared workers off; the connector then guards every request, redirect and
-socket the page makes and closes DevTools whenever it opens. Whatever goes wrong once the
-process has started, it is stopped before the error leaves.
+root. And the browser must stay the process the lease started, since detach and the lease's
+release kill that process's tree and nothing else: Edge on Windows, started with an application
+compatibility layer in its environment (`__COMPAT_LAYER`, which a terminal or an IDE can hand down;
+`RunAsInvoker` is common), relaunches itself without it and lets the started process exit, so the
+real browser would run outside the lease's tree and outlive it. The browser's environment clears
+the layer, and a browser whose started process exits after writing its port is refused rather than
+driven (checked on Edge 154 on Windows 11, 2026-10-02).
+
+Before Chromium starts, its profile is seeded with the settings that keep its own file dialogs
+shut, its downloads in scratch and its WebRTC off the network (`browser.profile`, ADR-0059), and
+it starts with shared workers off; the connector then guards every request, redirect and socket
+the page makes and closes DevTools whenever it opens. Whatever goes wrong once the process has
+started, it is stopped before the error leaves.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.exoskeleton.browser`.
@@ -31,6 +39,8 @@ Key invariants:
     - The browser's DevTools port listens on loopback only, and nothing here logs it. Any local
       user can still reach it for the lease's life (ADR-0031's known limits, ADR-0059).
     - Chromium's sandbox is dropped only when the request says so (`BrowserLaunch.sandbox`).
+    - A launch returns only while the process it started is still running, so every browser it
+      hands back is one the lease can stop.
 
 See Also:
     - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for why the browser is a
@@ -78,6 +88,8 @@ PORT_FILE = "DevToolsActivePort"  # Chromium writes the port it chose here, in t
 PROFILE_DIR = "profile"  # The profile's directory inside the layout's browser directory.
 LOG_FILE = "chromium.log"  # Chromium's stdout and stderr, inside the browser directory.
 LOG_TAIL_BYTES = 4_096  # How much of a failed browser's log is read to say why it stopped.
+# Windows' application compatibility layer variable; set empty, no layer applies (module docstring).
+COMPAT_LAYER_VARIABLE = "__COMPAT_LAYER"
 EXTRA_NAME = "hivemind[browser]"  # The optional extra that installs Playwright.
 # Switches every lease's browser gets, each group for one reason.
 QUIET_FLAGS = (
@@ -108,6 +120,7 @@ QUIET_FLAGS = (
 )
 
 __all__ = [
+    "COMPAT_LAYER_VARIABLE",
     "DEFAULT_ELEMENT_TIMEOUT_S",
     "DEFAULT_LAUNCH_TIMEOUT_S",
     "DEFAULT_NAVIGATION_TIMEOUT_S",
@@ -212,12 +225,12 @@ class ChromiumLauncher:
         deadline = self._clock.monotonic() + timeout_s
         while True:
             port = await _read_port(session, port_file)
+            # Liveness is checked after the port is read: a port written by a browser whose
+            # started process has gone belongs to a process the lease cannot stop.
+            if not await _still_running(session, process):
+                raise AttachError(await _exit_reason(session, process, handed_off=port is not None))
             if port is not None:
                 return port
-            # A browser that crashed on start says why in its log; waiting on would only time out.
-            if not await _still_running(session, process):
-                reason = await _log_tail(session, process)
-                raise AttachError(f"Chromium exited before it was ready: {reason}")
             remaining_s = deadline - self._clock.monotonic()
             if remaining_s <= 0:
                 reason = await _log_tail(session, process)
@@ -256,8 +269,9 @@ def chromium_spec(
         *(() if request.sandbox else ("--no-sandbox",)),
         "about:blank",
     )
-    # TMPDIR is relative to the working directory, the browser directory (module docstring).
-    environment = {**request.environment, "TMPDIR": "."}
+    # TMPDIR is relative to the working directory, the browser directory, and no compatibility
+    # layer reaches the browser, so it never relaunches itself out of the lease (module docstring).
+    environment = {**request.environment, "TMPDIR": ".", COMPAT_LAYER_VARIABLE: ""}
     return BackgroundSpec(
         argv=argv, cwd=browser_dir, env=environment, log_path=browser_dir / LOG_FILE
     )
@@ -340,6 +354,20 @@ async def _still_running(session: CellSession, process: BackgroundProcess) -> bo
             return await session.is_running(process)
     except TimeoutError as error:
         raise AttachError("the Cell's session did not say whether Chromium is running") from error
+
+
+async def _exit_reason(
+    session: CellSession, process: BackgroundProcess, *, handed_off: bool
+) -> str:
+    """Say why a launch whose started process exited fails: a hand-off, or its log's last line."""
+    if handed_off:
+        # Its port was written, so a browser runs, but not as the process the lease started.
+        return (
+            "Chromium handed itself to a process the lease did not start (its started process "
+            "exited after writing its DevTools port), so the lease could not stop it"
+        )
+    # A browser that crashed on start says why in its log; waiting on would only time out.
+    return f"Chromium exited before it was ready: {await _log_tail(session, process)}"
 
 
 async def _log_tail(session: CellSession, process: BackgroundProcess) -> str:
