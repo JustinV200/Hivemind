@@ -16,17 +16,20 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest
+from structlog.testing import capture_logs
 
 from hivemind.cli.compose import virtual_cell_backends
 from hivemind.cli.compose.virtual_cell_backends import RegistryContext
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.hive.backends.docker.backend import DockerCellBackend
 from hivemind.hive.backends.docker.fake import FakeDockerClient
-from hivemind.manifest import load_manifest
+from hivemind.manifest import HiveManifest, load_manifest
+from hivemind.manifest.schema.llm import ProviderSpec
 from hivemind.manifest.schema.placement import VirtualCellsSection
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
@@ -109,3 +112,50 @@ async def test_a_fake_backend_hive_prepares_nothing(tmp_path: Path) -> None:
     await parts.prepare()  # No Docker client is ever built for a fake-backend Hive.
 
     assert set(parts.registry.names()) == {"fake"}
+
+
+_EXPOSED = "virtual_cells.provider_reachable_through_isolation"
+
+
+async def test_a_model_server_answering_on_the_gateway_is_warned_about(tmp_path: Path) -> None:
+    # Arrange: loopback stands in for the control gateway, and a listener for a model server
+    # bound to every interface; the provider names the host the way a local server does.
+    server = await asyncio.start_server(_hang_up, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    manifest = _with_provider(tmp_path, f"http://localhost:{port}/v1")
+
+    async with server:
+        with capture_logs() as logs:
+            await virtual_cell_backends.warn_exposed_providers(manifest, "127.0.0.1")
+
+    [warning] = [entry for entry in logs if entry["event"] == _EXPOSED]
+    assert warning["log_level"] == "warning"
+    assert (warning["provider"], warning["port"]) == ("local", port)
+    assert "docker0" in warning["hint"]
+
+
+async def test_a_model_server_bound_elsewhere_draws_no_warning(tmp_path: Path) -> None:
+    server = await asyncio.start_server(_hang_up, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    server.close()
+    await server.wait_closed()  # Bound nowhere the gateway reaches: the connect is refused.
+    manifest = _with_provider(tmp_path, f"http://127.0.0.1:{port}/v1")
+
+    with capture_logs() as logs:
+        await virtual_cell_backends.warn_exposed_providers(manifest, "127.0.0.1")
+
+    assert [entry for entry in logs if entry["event"] == _EXPOSED] == []
+
+
+def _with_provider(tmp_path: Path, base_url: str) -> HiveManifest:
+    """`fake_manifest`'s manifest with one `openai_compat` provider, "local", at `base_url`."""
+    manifest = load_manifest(fake_manifest(tmp_path))
+    providers = dict(manifest.llm.providers)
+    providers["local"] = ProviderSpec(kind="openai_compat", base_url=base_url)
+    llm = manifest.llm.model_copy(update={"providers": providers})
+    return manifest.model_copy(update={"llm": llm})
+
+
+async def _hang_up(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Accept, then close at once: the probe only needs the accept."""
+    writer.close()

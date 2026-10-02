@@ -14,10 +14,19 @@ it is reachable from inside a Cell, and every provider's own API key is resolved
 composition root's own environment through `hivemind.manifest.env.provider_api_key`, the same
 function that resolves one for the Hive Stand's own registry.
 
+`providers_answering_on` asks the opposite question of the same table: which host-side providers
+an isolated Cell can still reach. With `[virtual_cells] control_subnet` set, a Docker Cell keeps
+its link to the control gateway through an egress cut, so a model server bound to every interface
+(`0.0.0.0`) answers it there too; the operator decided on a warning and docs, not a host firewall
+rule (`.claude/phase-10-handoff.md`), so the probe is one bounded TCP connect per provider and
+`hivemind.cli.compose.virtual_cell_backends.prepare_backend` logs what answered.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
-    `hivemind.cli.compose.virtual_cells._endpoint_for`. Calls into `hivemind.cli.in_cell.config`
-    (rewrite_loopback_base_url), `hivemind.cli.stores` (provider_configs, slot_bindings),
+    `hivemind.cli.compose.virtual_cells._endpoint_for`, and by `virtual_cell_backends.
+    prepare_backend` for the exposure probe. Calls into asyncio (one TCP connect per probe),
+    `hivemind.cli.in_cell.config` (rewrite_loopback_base_url), `hivemind.cli.stores`
+    (provider_configs, slot_bindings),
     `hivemind.hive.backends.provider_table` (CellProviderSpec, CellSlotSpec), `hivemind.manifest`
     (HiveManifest), `hivemind.manifest.env` (provider_api_key), `hivemind.manifest.schema.llm`
     (ProviderSpec), `hivemind.llm.registry` (ProviderConfig, a type only) and waggle only.
@@ -31,6 +40,8 @@ Key invariants:
       variable name it read); kept as its own function so both `_cell_providers` (the name a Cell
       resolves against) and `_provider_api_keys` (the name this composition root renders under)
       agree, by construction, on the identical variable.
+    - `providers_answering_on` never sends a byte and never waits past its timeout per probe; a
+      provider whose base_url names a remote host is never probed.
 
 See Also:
     - hivemind.cli.compose.virtual_cells for _endpoint_for, this module's one caller.
@@ -41,7 +52,10 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 
@@ -53,7 +67,21 @@ from hivemind.manifest import HiveManifest
 from hivemind.manifest.env import provider_api_key
 from hivemind.manifest.schema.llm import ProviderSpec
 
-__all__ = ["cell_providers", "cell_slots", "provider_api_keys"]
+__all__ = [
+    "EXPOSURE_PROBE_TIMEOUT_S",
+    "cell_providers",
+    "cell_slots",
+    "provider_api_keys",
+    "providers_answering_on",
+]
+
+# One TCP connect to a local address: a listener answers in well under a millisecond, so this only
+# bounds a connect nothing answers (a filtered port, an address Docker Desktop keeps in its VM).
+EXPOSURE_PROBE_TIMEOUT_S = 0.5
+# Hosts a provider's base_url names when the model server runs on the Hive Stand itself; a Cell
+# reaches every one of them through the host (rewrite_loopback_base_url), so each is worth probing.
+_HOST_SIDE_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "host.docker.internal"})
+_DEFAULT_PORTS = {"http": 80, "https": 443}  # A base_url that names no port uses its scheme's.
 
 
 def cell_providers(
@@ -111,6 +139,62 @@ def provider_api_keys(manifest: HiveManifest, environ: Mapping[str, str]) -> dic
         if key is not None:
             keys[_provider_api_key_env(name, spec)] = key
     return keys
+
+
+async def providers_answering_on(
+    manifest: HiveManifest, address: str, timeout_s: float = EXPOSURE_PROBE_TIMEOUT_S
+) -> tuple[tuple[str, int], ...]:
+    """Return every host-side provider whose port also answers on `address`, with that port.
+
+    A model server bound to every interface answers on the Docker control gateway too, so an
+    isolated Cell still reaches it there: the egress cut cannot stop that service. One bounded TCP
+    connect per host-side provider, all at once; a provider named by a remote host is never
+    probed, and a connect refused, filtered or timed out counts as not answering.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
+        address: The host's own non-loopback address to probe, the control gateway.
+        timeout_s: The bound on each connect.
+
+    Returns:
+        `(provider name, port)` for each provider that answered, in manifest order.
+    """
+    candidates = [
+        (name, port)
+        for name, config in provider_configs(manifest).items()
+        if (port := _host_side_port(config.base_url)) is not None
+    ]
+    answers = await asyncio.gather(
+        *(_answers(address, port, timeout_s) for _name, port in candidates)
+    )
+    return tuple(pair for pair, answered in zip(candidates, answers, strict=True) if answered)
+
+
+def _host_side_port(base_url: str) -> int | None:
+    """Return the port of a base_url naming the Hive Stand itself; None for any other URL."""
+    parts = urlsplit(base_url)
+    if parts.hostname not in _HOST_SIDE_HOSTS:
+        return None  # A hosted API, or an in-process kind's empty base_url: nothing local.
+    try:
+        return parts.port or _DEFAULT_PORTS.get(parts.scheme)
+    except ValueError:
+        return None  # A malformed port: the provider fails on its own, nothing to probe here.
+
+
+async def _answers(address: str, port: int, timeout_s: float) -> bool:
+    """Return whether a TCP listener accepts a connection on `address:port` within `timeout_s`."""
+    try:
+        # External wait: one local connect, bounded so a filtered port never holds hive run.
+        async with asyncio.timeout(timeout_s):
+            _reader, writer = await asyncio.open_connection(address, port)
+    except (OSError, TimeoutError):
+        return False
+    writer.close()  # Nothing is sent: the accept alone proves the bind.
+    # A reset or a slow close changes nothing: it accepted. Bounded all the same.
+    with contextlib.suppress(OSError, TimeoutError):
+        async with asyncio.timeout(timeout_s):
+            await writer.wait_closed()
+    return True
 
 
 def _cell_provider(

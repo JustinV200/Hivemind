@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import get_args
 
@@ -22,6 +23,7 @@ from hivemind.cli.compose.virtual_cell_providers import (
     cell_providers,
     cell_slots,
     provider_api_keys,
+    providers_answering_on,
 )
 from hivemind.hive.backends.provider_table import CellProviderKind
 from hivemind.llm.registry import ProviderKind
@@ -147,3 +149,37 @@ def test_cell_providers_carries_the_prompt_overlay_into_the_cell(tmp_path: Path)
 
     local = next(p for p in providers if p.name == "local")
     assert local.prompt_overlay == "small_local"
+async def test_a_host_side_provider_listening_on_the_address_is_reported_with_its_port(
+    tmp_path: Path,
+) -> None:
+    # Arrange: a listener standing in for a model server bound where the probe looks.
+    server = await asyncio.start_server(_hang_up, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    manifest = _with_local_provider(tmp_path, base_url=f"http://localhost:{port}/v1")
+
+    async with server:
+        answering = await providers_answering_on(manifest, "127.0.0.1")
+
+    assert answering == (("local", port),)
+
+
+async def test_a_provider_nothing_listens_for_is_not_reported(tmp_path: Path) -> None:
+    server = await asyncio.start_server(_hang_up, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    server.close()
+    await server.wait_closed()  # The port is free again: nothing answers on it.
+    manifest = _with_local_provider(tmp_path, base_url=f"http://127.0.0.1:{port}/v1")
+
+    assert await providers_answering_on(manifest, "127.0.0.1", timeout_s=0.2) == ()
+
+
+async def test_a_provider_on_a_remote_host_is_never_probed(tmp_path: Path) -> None:
+    # Only the Hive Stand's own services ride the control gateway; a hosted API is not one.
+    manifest = _with_local_provider(tmp_path, base_url="https://models.example.com/v1")
+
+    assert await providers_answering_on(manifest, "127.0.0.1", timeout_s=0.2) == ()
+
+
+async def _hang_up(_reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Accept, then close at once: the probe only needs the accept."""
+    writer.close()

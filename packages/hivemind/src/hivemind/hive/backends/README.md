@@ -78,8 +78,10 @@ network and `restore_egress` attaches it again, both idempotent, and the link ne
 Night Veil (VPN_TOR) Cell is never dual-homed and is refused a cut, as is a Cell provisioned before
 the control subnet was set (`BackendCapabilityError`, recorded as `unsupported`). Anything on the
 host bound to every interface still answers on the control gateway; bind the model servers Cells
-use to docker0. `tests/integration/test_docker_egress.py` proves the cut, the link and the lift
-against a real daemon.
+use to docker0. `hive run` warns about each one it finds answering there
+(`virtual_cells.provider_reachable_through_isolation`, from `cli/compose/virtual_cell_backends.
+prepare_backend`; see `docs/guard/isolation.md`). `tests/integration/test_docker_egress.py`
+proves the cut, the link and the lift against a real daemon.
 
 ## What the QEMU backend's NetworkPolicy really enforces
 

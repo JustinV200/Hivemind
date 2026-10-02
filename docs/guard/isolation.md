@@ -131,7 +131,16 @@ listen_port = 47800
 
 What it does not do. Anything on the Hive Stand bound to every interface answers on the control
 gateway too, so an isolated Cell that dials that address still reaches it; bind the model servers
-Cells use to docker0 (`172.17.0.1`) or to loopback behind a proxy, never `0.0.0.0`. A Night Veil
+Cells use to docker0 (`172.17.0.1`) or to loopback behind a proxy, never `0.0.0.0`. Cutting that
+path would take a host firewall rule (root, outside Docker's API), and the operator chose not to
+ship one; instead, when `hive run` makes the control network it probes, with one TCP connect of at
+most half a second each, every `[llm.providers]` `base_url` that names the Hive Stand itself
+(`127.0.0.1`, `localhost`, `::1`, `host.docker.internal`) on the control gateway, and logs a
+`virtual_cells.provider_reachable_through_isolation` warning for each one that answers, naming
+the provider, the port and the fix. For LM Studio, Ollama or llama-server that means setting the
+server's bind address to the docker0 address (for example `172.17.0.1`; `ip -4 addr show docker0`
+prints it) instead of "all interfaces" / `0.0.0.0`. On Docker Desktop the gateway lives inside
+Docker's VM, so the probe cannot see it and stays quiet. A Night Veil
 (VPN_TOR) Cell is never dual-homed, since its link rides Tor over its egress, so its egress is not
 cut (`unsupported`), and neither is a Cell provisioned before the control subnet was set. Under
 `network_policy = "none"` a Cell's own network is `internal`, so the control network is its only

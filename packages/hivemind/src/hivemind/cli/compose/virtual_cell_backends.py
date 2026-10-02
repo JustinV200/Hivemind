@@ -12,14 +12,17 @@ inspect`/`destroy`/`abscond`, `cli/readback/virtual*.py`) is let through even th
 starts `CellListener` -- see its own docstring. Roadmap step 10.6a: with `[virtual_cells]
 control_subnet` set, the Docker backend gets the Hive's control network and dual-homes every Cell
 on it, and `prepare_backend` makes (or reuses) that network before the listener binds its gateway;
-the backend and the preparation share one Docker client (`RegistryContext.docker`).
+the backend and the preparation share one Docker client (`RegistryContext.docker`). Once that
+network exists, `warn_exposed_providers` logs every host-side model server that answers on its
+gateway: bound to every interface, it stays reachable from a Cell whose egress is cut.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
     `hivemind.cli.compose.virtual_cells.build_virtual_cells` (via `_build_registry`, this
     module's one public entry point). Calls into `hivemind.cell` (CombShieldLevel),
     `hivemind.cli.compose.virtual_cell_providers` (cell_providers, cell_slots,
-    provider_api_keys), `hivemind.common.errors` (ConfigurationError), `hivemind.hive`
+    provider_api_keys, providers_answering_on), `hivemind.common.errors` (ConfigurationError),
+    `hivemind.common.logging`, `hivemind.hive`
     (BackendRegistry, build_docker_backend, build_qemu_backend), `hivemind.hive.backends.
     bootstrap` (QueenEndpoint), `hivemind.hive.backends.docker` (DockerCellBackend,
     SdkDockerClient), `hivemind.hive.backends.fake` (FakeCellBackend), `hivemind.hive.backends.
@@ -57,8 +60,10 @@ from hivemind.cli.compose.virtual_cell_providers import (
     cell_providers,
     cell_slots,
     provider_api_keys,
+    providers_answering_on,
 )
 from hivemind.common.errors import ConfigurationError
+from hivemind.common.logging import get_logger
 from hivemind.hive import BackendRegistry, build_docker_backend, build_qemu_backend
 from hivemind.hive.backends.bootstrap import QueenEndpoint
 from hivemind.hive.backends.docker import (
@@ -86,7 +91,15 @@ _DOCKER_GATEWAY_HOST = "host.docker.internal"  # docker_gateway_url's own rewrit
 # (module docstring) needs a QueenEndpoint before CellListener.start() has ever run; never dialled.
 _UNSTARTED_LISTENER_PLACEHOLDER = "ws://127.0.0.1:0"
 
-__all__ = ["build_registry", "docker_gateway_url", "night_veil_socks_proxy_url", "prepare_backend"]
+__all__ = [
+    "build_registry",
+    "docker_gateway_url",
+    "night_veil_socks_proxy_url",
+    "prepare_backend",
+    "warn_exposed_providers",
+]
+
+log = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -133,6 +146,34 @@ async def prepare_backend(ctx: RegistryContext) -> None:
     control = _docker_control(ctx)
     if control is not None:
         await ensure_control(ctx.docker.get(), control)
+        # The gateway exists on the host only now: probe it for model servers isolation can't cut.
+        await warn_exposed_providers(ctx.manifest, control.gateway)
+
+
+async def warn_exposed_providers(manifest: HiveManifest, gateway: str) -> None:
+    """Warn about each host-side provider that answers on the control gateway.
+
+    An isolated Cell keeps its route to the gateway, so a model server bound to every interface
+    stays reachable through any egress cut (the operator chose a warning over a host firewall
+    rule; docs/guard/isolation.md). Never raises: a probe that fails is just a quiet one.
+
+    Args:
+        manifest: The Hive's manifest, whose `[llm.providers]` are probed.
+        gateway: The control network's gateway, the host's own address a Cell dials.
+    """
+    for name, port in await providers_answering_on(manifest, gateway):
+        log.warning(
+            "virtual_cells.provider_reachable_through_isolation",
+            provider=name,
+            port=port,
+            gateway=gateway,
+            hint=(
+                f"provider {name!r} answers on the control gateway {gateway}:{port}, so an "
+                "isolated Docker Cell can still reach it; isolation cannot cut a service bound "
+                "to every interface. Bind it to the docker0 address (e.g. 172.17.0.1) or to "
+                "loopback behind a proxy instead of 0.0.0.0."
+            ),
+        )
 
 
 def build_registry(ctx: RegistryContext, clock: Clock) -> BackendRegistry:

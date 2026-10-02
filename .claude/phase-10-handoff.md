@@ -292,9 +292,12 @@ are named by the roadmap step that owns them.
   respawn (RETRY, REBIND, a Queen-ordered rebind, a context Handoff's successor) passes
   `admit_resume` in `wardens/ticks/alarms.py::_spawn_into_slot`. Tests in
   `tests/unit/wardens/isolation/test_gate.py`.
-- An isolated Docker Cell can still reach host services bound to `0.0.0.0` on the control
-  gateway. The doc tells operators to bind model servers to docker0. A real fix needs a host
-  firewall rule, meaning root outside Docker's API, so this is the user's decision.
+- ~~An isolated Docker Cell can still reach host services bound to `0.0.0.0` on the control
+  gateway.~~ Resolved as documented (operator decision 2026-10-02: docs plus a warning, no
+  firewall rule). `prepare_backend` probes each host-side `[llm.providers]` port on the control
+  gateway once the network exists (`virtual_cell_providers.providers_answering_on`, one bounded
+  TCP connect each) and logs `virtual_cells.provider_reachable_through_isolation` with the fix;
+  `docs/guard/isolation.md` says how to bind a model server to docker0 instead.
 - The Guard Bee:
   - An in-Cell Warden has no model-backed judge, so its audit samples are recorded as
     inconclusive.
