@@ -164,7 +164,10 @@ def login_plan(
         acceptance is checked structurally (URL_MATCHES the welcome page, ELEMENT_TEXT its
         heading), never by a file the Worker writes.
     """
-    needs: dict[str, object] = {"exoskeleton": True}
+    # The site is served on the Hive Stand's own loopback, which a Real Cell's bee reaches only
+    # with `net:loopback` granted (ADR-0059); a Virtual Cell's loopback is private and needs none,
+    # but asking for it there is harmless, so every placement's plan says the same.
+    needs: dict[str, object] = {"exoskeleton": True, "network_scopes": ["loopback"]}
     if browser_only:
         needs["browser_only"] = True
     welcome_url = f"{origin}/welcome.html"

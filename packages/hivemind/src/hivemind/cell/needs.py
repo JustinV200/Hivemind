@@ -162,8 +162,9 @@ class TaskNeeds(BaseModel):
             default=(),
             max_length=MAX_NETWORK_SCOPES,
             description="Outbound network destinations (hostnames) the task's capability set "
-            "must allow reaching. Empty means the task needs no network beyond what its Cell "
-            "already grants.",
+            "must allow reaching. A site on the Cell's own loopback (127.0.0.1, localhost, "
+            "[::1], any port) is spelled `loopback`, never by its address. Empty means the task "
+            "needs no network beyond what its Cell already grants.",
         )
     )
     disposable: bool = Field(

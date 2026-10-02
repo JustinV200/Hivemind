@@ -48,6 +48,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -58,6 +59,7 @@ from builders.virtual_cells import (
     VirtualCellsTuning,
     virtual_cells_manifest,
 )
+from contracts.browser_harness import processes_mentioning
 from e2e.kernel_helpers import (
     HaikuScript,
     pid_alive,
@@ -93,6 +95,7 @@ pytestmark = pytest.mark.e2e
 _TIMEOUT_S = 30.0  # Generous: a real Xvfb, openbox and Chromium start and log in well under this.
 _GOAL = "Log in to the fixture site and reach the welcome page."
 _MIN_LOGIN_ACTIONS = 4  # navigate, fill username, fill password, click submit.
+_SETTLE_S = 10.0  # How long a stopped browser's crash handler may take to follow it out.
 
 
 def _skip_unless_real_desktop() -> None:
@@ -156,6 +159,15 @@ def _assert_left_as_found(
     assert snapshot_tree(tmp_path, exclude=(data_dir,)) == before
     assert len(run.started_pids) >= 1, "the run should have started at least one real process"
     asyncio.run(_assert_every_pid_dies(run.started_pids))
+    # The pids alone miss a browser that handed itself to a process the lease never started (Edge
+    # relaunching itself on Windows did): nothing alive may still name the lease's scratch.
+    asyncio.run(wait_until(_nothing_mentions(tmp_path / "scratch"), timeout_s=_SETTLE_S))
+
+
+def _nothing_mentions(scratch: Path) -> Callable[[], bool]:
+    """Build a `wait_until` condition: no live process's command line names a path in `scratch`."""
+    inside = f"{scratch}{os.sep}"
+    return lambda: not processes_mentioning(inside)
 
 
 def _assert_no_screenshots_anywhere(captured: str, run: _RealCellRun) -> None:

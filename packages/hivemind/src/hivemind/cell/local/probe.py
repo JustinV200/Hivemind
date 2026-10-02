@@ -40,6 +40,10 @@ Key invariants:
     - `can_host_model` is exactly `HiveStandConfig.can_host_model` (roadmap step 8.3): False unless
       the operator declared a model server for this machine, because a probe cannot know whether
       a server program is installed; the platform shims below always report False.
+    - `network_scopes` is `loopback` alone: every host reaches its own loopback, and placement
+      must be able to say so for a task that drives a site served there, which on a Real Cell
+      needs `net:loopback` granted (ADR-0059). Reaching it is still the grant's decision, not
+      this report's; whatever else the host reaches depends on networks this probe cannot see.
     - On Linux, free memory never exceeds the host's `MemAvailable`, nor, under a cgroup limit
       below the host's total, that limit less the cgroup's working set.
 
@@ -75,6 +79,8 @@ _MAX_DISK_PROBE_ANCESTORS = 32  # A generous bound; a filesystem root always ter
 _KIB = 1024  # /proc/meminfo reports its figures in kibibytes.
 _POSIX_BROWSERS = ("firefox", "google-chrome", "chromium", "chromium-browser")
 _POSIX_PACKAGE_MANAGERS = ("apt", "dnf", "yum", "pacman", "apk", "brew")
+# The network scopes every host reaches whatever its networks: its own loopback (module docstring).
+HOST_NETWORK_SCOPES = ("loopback",)
 # What the Exoskeleton's X11 display needs (roadmap step 6.3, ADR-0031): the virtual framebuffer,
 # pointer and keyboard input, and ImageMagick's screen capture. Attach writes the display's
 # authority cookie itself, so no cookie tool is needed. Kept in step with
@@ -100,6 +106,7 @@ _CGROUP_UNLIMITED = "max"  # cgroup v2's word for "no limit" in memory.max.
 __all__ = [
     "AUDIO_PROGRAMS",
     "DEFAULT_MAX_SUB_BEES",
+    "HOST_NETWORK_SCOPES",
     "WINDOW_MANAGERS",
     "X11_DISPLAY_PROGRAMS",
     "ProbeResult",
@@ -291,7 +298,7 @@ def _capabilities_posix() -> CellCapabilities:
         or _has_playwright_chromium(),
         can_start_display=system == "Linux" and _can_start_x11_display(),
         can_host_model=False,  # Set from HiveStandConfig.can_host_model by probe_host.
-        network_scopes=(),
+        network_scopes=HOST_NETWORK_SCOPES,
     )
 
 
@@ -361,7 +368,7 @@ def _capabilities_windows() -> CellCapabilities:
         has_browser=True,
         can_start_display=False,
         can_host_model=False,  # Set from HiveStandConfig.can_host_model by probe_host.
-        network_scopes=(),
+        network_scopes=HOST_NETWORK_SCOPES,
     )
 
 
