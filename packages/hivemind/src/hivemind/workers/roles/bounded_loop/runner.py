@@ -14,7 +14,8 @@ public function stays short. One awake episode per attempt (codingrules 8.8, 8.9
 it raises `hivemind.memory.overflow.ContextOverflowError`, which this function lets propagate
 uncaught, exactly like any other role bug. Two ways an attempt ends early instead of finishing its
 loop: `HandoffRequestedError` (this attempt's own telemetry crossed the handoff threshold) becomes
-a `claimed=False` outcome carrying a Handoff; `LoopStoppedError` (a tool, the Scout's
+a `claimed=False` outcome carrying a Handoff, after the tally's spend (never its tokens, see
+`_record_spend`) is booked on telemetry; `LoopStoppedError` (a tool, the Scout's
 `report_findings`, ended the loop itself with an already-built outcome) is returned with this
 attempt's own telemetry spend overlaid on it, after `_UsageTally` (the gate every call of the
 attempt goes through) records what the unfinished loop never got to sum. Roadmap step 9.7: a
@@ -158,7 +159,9 @@ async def run_bounded_loop(
         result = await _run_episodes(attempt)
     except HandoffRequestedError:
         # This attempt's own telemetry asked to checkpoint; hand back a Handoff instead of a
-        # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it.
+        # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it. Its calls
+        # still cost money: book the tally's spend first, so the Handoff's outcome carries it.
+        _record_spend(ctx, attempt.tally.usage)
         return await build_handoff_outcome(ctx, assignment, attempt.executor)
     except LoopStoppedError as stopped:
         # A tool (the Scout's report_findings) already built the outcome, and ended the loop
@@ -170,7 +173,10 @@ async def run_bounded_loop(
     # The tally, not `result.usage`: after a tool rebuild the final loop's usage is only its own.
     _record_usage(ctx, attempt.tally.usage)
     artifacts = await collect_artifacts(ctx, attempt.executor.records)
-    return build_claimed_outcome(assignment, result, artifacts)
+    claimed = build_claimed_outcome(assignment, result, artifacts)
+    # The claim is the task's one TaskResult, so its spend is every attempt's, the handed-off
+    # ones before this included: telemetry's running total, as the other two endings report.
+    return claimed.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
 
 
 def _build_attempt(
@@ -264,5 +270,18 @@ def _record_usage(ctx: WorkerContext, usage: Usage) -> None:
     """
     used = usage.input_tokens + usage.output_tokens
     ctx.telemetry.record_tokens(used, ctx.bound.context_window)
+    _record_spend(ctx, usage)
+
+
+def _record_spend(ctx: WorkerContext, usage: Usage) -> None:
+    """Add `usage`'s cost, when its provider priced it, to this Worker's running spend.
+
+    The handoff path records only this, never the token gauge: `record_tokens` overwrites the
+    figure `should_hand_off` reads, and the same tracker carries over into the resumed attempt
+    (`hivemind.workers.runtime.attempt.AttemptManager.start` resets only `handoff_requested`).
+    The resumed attempt starts from a fresh prompt, so a gauge describing the context it just
+    left would hand it off again before its first tool call, on every resume. Spend, by
+    contrast, adds up across attempts: the grant paid for every one of them.
+    """
     if usage.cost_usd is not None:
         ctx.telemetry.add_spend(usage.cost_usd)
