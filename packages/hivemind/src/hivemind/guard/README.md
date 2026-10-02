@@ -109,6 +109,9 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   `Enforcer.check_floors(request)` runs the floors alone and records a refusal the same way, for
   a point whose held set another rule checks (the Capping gate's `exec` and `fs:write`) or whose
   principal acts with no set of its own (the operator's goal at placement and egress).
+  `Enforcer.check_access_level(request)` runs the access-level ceiling alone the same way, for a
+  command the Capping gate or a Warden runs itself to check a postcondition or an acceptance
+  criterion (ADR-0060): no held set governs it, but a Cell that may not run commands refuses it.
 - **Errors** (`hivemind.guard.errors`): `GuardError` (root), `InvalidCapabilityError`,
   `CapabilityWideningError`, `GuardPolicyError`, `UnresolvableHostError`.
 

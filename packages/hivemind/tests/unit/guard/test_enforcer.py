@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from hivemind.cell import CellIdentity
+from hivemind.cell import AccessLevel, CellIdentity
 from hivemind.guard.capabilities import Capability, CapabilitySet
 from hivemind.guard.enforcer import DENIED_KIND, Enforcer
 from hivemind.guard.policy import (
@@ -184,4 +184,27 @@ async def test_check_floors_is_silent_when_no_floor_applies_held_or_not() -> Non
     enforcer, trail, _identity = _enforcer()
 
     assert await enforcer.check_floors(_worker_request("exec:git")) is None
+    assert await _events(trail) == ()
+
+
+async def test_check_access_level_records_an_uncontained_scratch_command_whatever_is_held() -> None:
+    # ADR-0060: a command the Capping gate runs itself meets the Cell's level, not a held set.
+    enforcer, trail, _identity = _enforcer()
+    context = PolicyContext(access_level=AccessLevel.SCRATCH, processes_contained=False)
+    request = _worker_request("exec:pytest", "exec:*").model_copy(update={"context": context})
+
+    decision = await enforcer.check_access_level(request)
+
+    assert decision is not None
+    assert decision.rule == "guard.access_level.scratch"
+    (event,) = await _events(trail)
+    assert event.payload["capability"] == "exec:pytest"
+
+
+async def test_check_access_level_is_silent_where_the_level_permits_and_nothing_is_held() -> None:
+    enforcer, trail, _identity = _enforcer()
+    context = PolicyContext(access_level=AccessLevel.SCRATCH, processes_contained=True)
+    request = _worker_request("exec:pytest").model_copy(update={"context": context})
+
+    assert await enforcer.check_access_level(request) is None
     assert await _events(trail) == ()

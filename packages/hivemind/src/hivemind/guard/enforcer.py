@@ -13,7 +13,9 @@ refusal the point reached itself, when the principal holds the capability but no
 target (a Warden asking to grow a grant another Warden holds): it records the identical row.
 `check_floors` (roadmap step 10.3a) runs only the floors, for a point whose held set another rule
 checks (a Worker's command or write, whose `exec` and `fs:write` the Capping gate checks): a floor
-still refuses there first, and records the identical row.
+still refuses there first, and records the identical row. `check_access_level` (ADR-0060) runs
+only the access-level ceiling, for a command the Capping gate runs itself to check an acceptance
+criterion or a postcondition: no held set governs it, but the Cell's level still bounds it.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Built by a composition root with the
@@ -45,6 +47,7 @@ from hivemind.guard.policy import (
     PolicyDecision,
     PolicyRequest,
     PrincipalRef,
+    access_level_decision,
     evaluate,
     floor_decision,
     refusal,
@@ -124,6 +127,29 @@ class Enforcer:
             Whatever the trail's `record` raises: a refusal is never returned unrecorded.
         """
         decision = floor_decision(request, self._policy)
+        if decision is not None:
+            # The same local, awaited trail write `check` makes before returning a refusal.
+            await self._trail.record(self._denied_event(request, decision))
+        return decision
+
+    async def check_access_level(self, request: PolicyRequest) -> PolicyDecision | None:
+        """Run only the access-level ceiling for `request`; record and return a refusal, or None.
+
+        For an action no principal's held set governs but the Cell's level still bounds: a
+        command the Capping gate runs itself (ADR-0060), refused on a Cell that may not run one
+        with the same rule a Worker's own command meets.
+
+        Args:
+            request: Who is acting, at which point, needing what, and where; `held` is not read.
+
+        Returns:
+            The refused PolicyDecision, already on the trail as `guard.denied`; None when the
+            Cell's level permits the need's family.
+
+        Raises:
+            Whatever the trail's `record` raises: a refusal is never returned unrecorded.
+        """
+        decision = access_level_decision(request, self._policy)
         if decision is not None:
             # The same local, awaited trail write `check` makes before returning a refusal.
             await self._trail.record(self._denied_event(request, decision))

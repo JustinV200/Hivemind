@@ -12,7 +12,10 @@ Shield tier floors (`guard.tier_floor.<floor>`: Night Veil's initiation, Virtual
 local-only slots, clearance, location blindness and control link, and tier inheritance), each
 reading the request's context and the policy's data, never the held set. `floor_decision` runs
 the floors alone, for a point whose held set is checked elsewhere (the Capping gate checks a
-Worker's `exec` and `fs:write`), so a floor still refuses there first. `refusal` (roadmap step
+Worker's `exec` and `fs:write`), so a floor still refuses there first. `access_level_decision`
+runs the access-level ceiling alone, for an action no principal's held set governs but the Cell's
+level still bounds: a command the Capping gate runs itself to check an acceptance criterion or a
+postcondition (ADR-0060). `refusal` (roadmap step
 10.3) builds the same shape of decision for a refusal an enforcement point reaches on its own,
 when the principal holds the capability but the action's target lies outside what it may touch
 with it (a grant another Warden holds): the rule is a `guard.scope.<why>` id and the reason reads
@@ -32,8 +35,8 @@ Key invariants:
       does not hold the needed capability is always refused.
     - A decision's reason names the principal (kind, id, role), the point and the capability,
       never any content the action carried.
-    - `refusal` and `floor_decision` only ever refuse: neither can allow, so the invariant above
-      still holds.
+    - `refusal`, `floor_decision` and `access_level_decision` only ever refuse: none can allow,
+      so the invariant above still holds.
 
 See Also:
     - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md, "Policy is a pure
@@ -71,6 +74,7 @@ __all__ = [
     "SCOPE_RULE",
     "STATE_FLOOR_RULE",
     "TIER_FLOOR_RULE",
+    "access_level_decision",
     "evaluate",
     "floor_decision",
     "refusal",
@@ -156,6 +160,27 @@ def floor_decision(request: PolicyRequest, policy: GuardPolicy) -> PolicyDecisio
         A refused PolicyDecision under the floor's own rule, or None; never an allow.
     """
     verdict = _floors(request, policy)
+    if verdict is None:
+        return None
+    return _decision(request, False, verdict, policy.escalation_for(request.point))
+
+
+def access_level_decision(request: PolicyRequest, policy: GuardPolicy) -> PolicyDecision | None:
+    """Run the access-level ceiling alone: its refusal, or None when the Cell's level permits it.
+
+    For an action the Capping gate takes itself rather than on a principal's behalf (a command
+    an acceptance criterion or a postcondition runs, ADR-0060): no held set governs it, but the
+    Cell it runs on still bounds it, so a command on a Cell that may not run one is refused with
+    the same rule and reason a Worker's own command would get.
+
+    Args:
+        request: Who is acting, at which point, needing what, and where; `held` is not read.
+        policy: The Guard policy; only the per-point escalation table is read.
+
+    Returns:
+        A refused PolicyDecision under `guard.access_level.<level>`, or None; never an allow.
+    """
+    verdict = _access_level_ceiling(request, policy)
     if verdict is None:
         return None
     return _decision(request, False, verdict, policy.escalation_for(request.point))

@@ -43,9 +43,10 @@ Public API:
       (table).
     - HiveState, comparable_path: the Hive's own state paths and addresses (hive_state).
     - load_guard_policy, DEFAULT_POLICY_FILENAME: build it from a file and `[guard]` (defaults).
-    - evaluate, floor_decision, refusal, HELD_RULE, NOT_HELD_RULE, DENY_LIST_RULE,
-      ACCESS_LEVEL_RULE, TIER_FLOOR_RULE, STATE_FLOOR_RULE, SCOPE_RULE: the decision, the floors
-      alone, a point-decided refusal and the stable rule ids (evaluate).
+    - evaluate, floor_decision, access_level_decision, refusal, HELD_RULE, NOT_HELD_RULE,
+      DENY_LIST_RULE, ACCESS_LEVEL_RULE, TIER_FLOOR_RULE, STATE_FLOOR_RULE, SCOPE_RULE: the
+      decision, the floors alone, the access-level ceiling alone, a point-decided refusal and the
+      stable rule ids (evaluate).
     - floors: the floor rules themselves, reached as `hivemind.guard.policy.floors` (its own face
       names every floor and its rule id).
     - role_set, warden_set, proposed_set, worker_role_name: a principal's set from its role
@@ -66,6 +67,7 @@ from hivemind.guard.policy.evaluate import (
     SCOPE_RULE,
     STATE_FLOOR_RULE,
     TIER_FLOOR_RULE,
+    access_level_decision,
     evaluate,
     floor_decision,
     refusal,
@@ -122,6 +124,7 @@ __all__ = [
     "PrincipalKind",
     "PrincipalRef",
     "RoleDefaults",
+    "access_level_decision",
     "classify",
     "comparable_path",
     "evaluate",

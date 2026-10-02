@@ -48,13 +48,15 @@ Public API:
       warden_set, proposed_set, worker_role_name: the policy engine (policy).
     - floor_decision, TIER_FLOOR_RULE, STATE_FLOOR_RULE, HiveState, comparable_path, ControlLink,
       GoalRequestFacts: the floors every decision runs first, the Hive's own state they protect
-      and the facts they read (policy, roadmap steps 10.3a-d).
+      and the facts they read (policy, roadmap steps 10.3a-d); ACCESS_LEVEL_RULE, the prefix of
+      every refusal a Cell's access level makes, so a refused command can be told apart from any
+      other refusal (ADR-0060).
     - queen_principal, warden_principal, worker_principal, QUEEN_ROLE, WARDEN_ROLE: who each bee
       acts as at a point, and the two roots' role names (policy).
     - AUTHORISED_AT, NOT_ACTIONS, PENDING_POINTS, classify: every trail kind's classification
       and the points still pending (policy, roadmap step 10.3).
-    - Enforcer: the effectful adapter every enforcement point calls: `check` and, for a refusal
-      the point decides itself, `refuse` (enforcer).
+    - Enforcer: the effectful adapter every enforcement point calls: `check`, `check_floors`,
+      `check_access_level` and, for a refusal the point decides itself, `refuse` (enforcer).
     - WatchObservation, WATCH_OBSERVATIONS, watch_permits: what watch mode may observe on a Real
       Cell, bounded by READ_ONLY and never the screen or the input (watch, roadmap step 10.7).
     - GuardReport, GuardAction, GuardConfidence, GuardRequestDoor, REQUEST_ACTIONS,
@@ -105,6 +107,7 @@ from hivemind.guard.file_urls import (
     is_within,
 )
 from hivemind.guard.policy import (
+    ACCESS_LEVEL_RULE,
     AUTHORISED_AT,
     NOT_ACTIONS,
     PENDING_POINTS,
@@ -165,6 +168,7 @@ from hivemind.guard.scanner import (
 from hivemind.guard.watch import WATCH_OBSERVATIONS, WatchObservation, watch_permits
 
 __all__ = [
+    "ACCESS_LEVEL_RULE",
     "AUTHORISED_AT",
     "CELL_EFFECT_FAMILIES",
     "EXOSKELETON_SCOPES",
