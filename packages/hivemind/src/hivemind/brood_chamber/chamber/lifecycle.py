@@ -4,6 +4,9 @@ Placement (`assign`, `unassign`, `start`) moves a task between PENDING, ASSIGNED
 Warden (a Cell's supervisor) takes on and starts the task; since roadmap step 10.3b `assign` also
 binds the task to its Cell's Comb Shield tier (`Task.bound_tier`, recorded on `task.assigned`)
 and `unassign` unbinds it, so a task moved to another Cell is re-bound before it runs again.
+`requeue_for_commands` (ADR-0060) moves a RUNNING task back to PENDING the same way, for a task
+whose Cell refused the commands its Worker or its acceptance runs: its needs gain `commands`, so
+its next placement lands on a Cell that runs them.
 `report_progress` records a running task's latest summary with no status change; `pause`/`resume`
 move a task in and out of PAUSED for Clustering (the Queen suspending work while a model provider
 is unavailable). Every transition
@@ -15,12 +18,16 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
     `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.task.state`,
-    `hivemind.brood_chamber.errors` and `hivemind.cell` (the tier enum) only.
+    `hivemind.brood_chamber.errors`, `hivemind.cell` (the tier enum) and `hivemind.common.errors`
+    (ConflictError) only.
 
 Key invariants:
-    - `assign` never changes `attempt`; `unassign` is the one place `attempt` advances, so a
+    - `assign` never changes `attempt`; `unassign` and `requeue_for_commands` are the only places
+      `attempt` advances, so a
       later `assign` on the same task already reflects how many times it has been placed, even
       across a process restart (the count lives on the stored Task, never in memory).
+    - `requeue_for_commands` changes the spec's `needs.commands` and nothing else in it, and only
+      ever from false to true, so a task is re-placed for this reason at most once.
     - `assign` is the only write that binds a tier and `unassign` (with every terminal
       transition, `hivemind.brood_chamber.chamber.outcomes`) the only ones that clear it, so a
       placed task's binding always names the Cell it was last assigned to.
@@ -44,6 +51,7 @@ from hivemind.brood_chamber.errors import InvalidTransitionError
 from hivemind.brood_chamber.task.model import Task
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.cell import CombShieldLevel
+from hivemind.common.errors import ConflictError
 from waggle.ids import CellId, TaskId, WardenId
 
 __all__: list[str] = []  # Private mixin: nothing here is part of the package's public API.
@@ -101,8 +109,9 @@ class _LifecycleMixin(_ChamberBase):
         """Move a task ASSIGNED or PAUSED -> PENDING: its placement is gone and it is placed afresh.
 
         ASSIGNED: its Warden was lost before the Worker started. PAUSED: its Cell's device was
-        lost for good and the Queen took the task back (ADR-0053); a running task is paused first,
-        since RUNNING has no edge back to PENDING.
+        lost for good and the Queen took the task back (ADR-0053); a running task is paused first.
+        RUNNING's own edge back to PENDING is `requeue_for_commands`'s alone (ADR-0060), so it is
+        refused here.
 
         Bumps `attempt` by one, so the next `assign` on this task already reflects a new attempt.
         The Queen's dispatch pass calls this for a task it finds stranded ASSIGNED (a stop or a
@@ -117,6 +126,9 @@ class _LifecycleMixin(_ChamberBase):
             it to whichever Cell it lands on) and an incremented `attempt`.
         """
         task = await self._store.get_task(task_id)
+        if task.status is TaskStatus.RUNNING:
+            # RUNNING -> PENDING is for re-placement only; a plain give-back pauses first.
+            raise InvalidTransitionError(task.status, TaskStatus.PENDING, subject_id=task.id)
         payload: dict[str, JsonValue] = {"reason": reason}
         return await self._transition(
             task,
@@ -127,6 +139,49 @@ class _LifecycleMixin(_ChamberBase):
             cell_id=None,
             bound_tier=None,
             attempt=task.attempt + 1,
+        )
+
+    async def requeue_for_commands(self, task_id: TaskId, reason: str, attempt: int) -> Task:
+        """Move a RUNNING task back to PENDING, needing a Cell that runs commands (ADR-0060).
+
+        For a task whose Cell refused the commands it runs: a retry there would be refused again,
+        so it is placed afresh with `needs.commands` set, which placement rule 4d only lets land
+        on a Cell that runs them.
+
+        Args:
+            task_id: The RUNNING task to re-place.
+            reason: Why its placement was given up, for the trail.
+            attempt: The attempt its next placement carries; the stored attempt never goes
+                backwards, so the larger of this and one past the stored one is written.
+
+        Returns:
+            The task, now PENDING with no placement or tier binding, `needs.commands` set and its
+            attempt advanced.
+
+        Raises:
+            InvalidTransitionError: The task is not RUNNING.
+            ConflictError: The task already needs commands (re-placed for them once already, or
+                planned so), so there is no wider placement to give it.
+        """
+        task = await self._store.get_task(task_id)
+        if task.spec.needs.commands:
+            # Once is the bound: a task that already needs commands has nowhere wider to go.
+            raise ConflictError(
+                f"Task {task_id} already needs commands; it is re-placed for them at most once."
+            )
+        needs = task.spec.needs.model_copy(update={"commands": True})
+        spec = task.spec.model_copy(update={"needs": needs})
+        payload: dict[str, JsonValue] = {"reason": reason, "from_status": task.status.value}
+        return await self._transition(
+            task,
+            TaskStatus.PENDING,
+            "task.unassigned",
+            payload,
+            spec=spec,
+            warden_id=None,
+            cell_id=None,
+            bound_tier=None,
+            attempt=max(attempt, task.attempt + 1),
         )
 
     async def start(self, task_id: TaskId) -> Task:

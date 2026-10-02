@@ -75,8 +75,8 @@ A package because the whole class broke the codingrules 5.1 200-line class limit
 `chamber/base.py` holds `ChamberIdentity` (the hive, node and actor every `TaskEvent` this facade
 writes is stamped with) and the private `_ChamberBase` every mixin below inherits (the
 store/clock/identity plus `_build_event`, `_write`, `_transition`). `chamber/submission.py`
-(`submit`), `chamber/lifecycle.py` (`assign`, `unassign`, `start`, `report_progress`, `pause`,
-`resume`), `chamber/outcomes.py` (`complete`, `fail`, `cancel`) and `chamber/questions.py` (`ask`,
+(`submit`), `chamber/lifecycle.py` (`assign`, `unassign`, `requeue_for_commands`, `start`,
+`report_progress`, `pause`, `resume`), `chamber/outcomes.py` (`complete`, `fail`, `cancel`) and `chamber/questions.py` (`ask`,
 `answer`, `withdraw`) are one mixin each, split by responsibility; `chamber/queries.py` holds the
 four read-only methods (`get`, `list`, `next_ready`, `pending_questions`). `chamber/__init__.py`
 composes `BroodChamber` from all five mixins and re-exports it with `ChamberIdentity`; every other

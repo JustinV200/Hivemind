@@ -25,6 +25,7 @@ from hivemind.brood_chamber.store.memory import MemoryTaskStore
 from hivemind.brood_chamber.task.model import Task
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.cell import CombShieldLevel
+from hivemind.common.errors import ConflictError
 from hivemind.pheromone import PheromoneEvent, TaskEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.pheromone.trail.protocol import TrailQuery
@@ -290,3 +291,58 @@ async def test_pause_from_pending_raises_invalid_transition() -> None:
 
     with pytest.raises(InvalidTransitionError):
         await chamber.pause(task.id, reason="x")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# requeue_for_commands (ADR-0060)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_requeue_for_commands_moves_running_to_pending_needing_commands() -> None:
+    clock = FakeClock()
+    chamber, store, trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+
+    requeued = await chamber.requeue_for_commands(task.id, "refused commands", attempt=3)
+
+    assert requeued.status is TaskStatus.PENDING
+    assert (requeued.warden_id, requeued.cell_id, requeued.bound_tier) == (None, None, None)
+    assert requeued.spec.needs.commands is True
+    # Nothing else in the spec changes: the correction is the one need.
+    assert requeued.spec.model_copy(update={"needs": task.spec.needs}) == task.spec
+    assert requeued.attempt == 3
+    assert (await store.get_task(task.id)).spec.needs.commands is True
+    last = (await _events_for(trail, task.id))[-1]
+    assert last.kind == "task.unassigned"
+    assert last.payload["from_status"] == "RUNNING"
+
+
+async def test_requeue_for_commands_never_moves_the_attempt_backwards() -> None:
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+
+    requeued = await chamber.requeue_for_commands(task.id, "refused commands", attempt=1)
+
+    assert requeued.attempt == task.attempt + 1
+
+
+async def test_requeue_for_commands_happens_at_most_once() -> None:
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+    await chamber.requeue_for_commands(task.id, "refused commands", attempt=2)
+    await chamber.assign(task.id, new_warden_id(clock), new_cell_id(clock), "p", bound_tier=_MEADOW)
+    await chamber.start(task.id)
+
+    with pytest.raises(ConflictError):
+        await chamber.requeue_for_commands(task.id, "refused again", attempt=3)
+
+
+async def test_requeue_for_commands_from_pending_raises_invalid_transition() -> None:
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.PENDING)
+
+    with pytest.raises(InvalidTransitionError):
+        await chamber.requeue_for_commands(task.id, "refused commands", attempt=2)

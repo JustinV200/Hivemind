@@ -35,9 +35,9 @@ See Also:
     - hivemind.cli.tasks and hivemind.cli.trail for the CLI built on this facade (roadmap 2.9).
 
 Public API:
-    - BroodChamber: the facade itself (submit, assign, unassign, start, report_progress, ask,
-      answer, withdraw, pause, resume, complete, fail, cancel, next_ready, get, list,
-      pending_questions, scrub_night_veil, bound_to).
+    - BroodChamber: the facade itself (submit, assign, unassign, requeue_for_commands, start,
+      report_progress, ask, answer, withdraw, pause, resume, complete, fail, cancel, next_ready,
+      get, list, pending_questions, scrub_night_veil, bound_to).
     - ChamberIdentity: the Hive, node and actor a BroodChamber stamps on every TaskEvent it writes.
 """
 

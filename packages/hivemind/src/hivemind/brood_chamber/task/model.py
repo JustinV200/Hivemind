@@ -128,7 +128,9 @@ class TaskSpec(BaseModel):
     """What a task is asked to do: its brief, its acceptance criteria, its needs and dependencies.
 
     Immutable once a Task carries it; a re-plan produces a new Task with a new TaskSpec rather
-    than editing one in place (codingrules section 8.5).
+    than editing one in place (codingrules section 8.5). One correction replaces it whole: a task
+    whose Cell refused its commands is re-placed with `needs.commands` set
+    (`BroodChamber.requeue_for_commands`, ADR-0060), and nothing else in it changes.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
