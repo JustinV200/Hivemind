@@ -312,9 +312,10 @@ async def test_requeue_for_commands_moves_running_to_pending_needing_commands() 
     assert requeued.spec.model_copy(update={"needs": task.spec.needs}) == task.spec
     assert requeued.attempt == 3
     assert (await store.get_task(task.id)).spec.needs.commands is True
-    last = (await _events_for(trail, task.id))[-1]
-    assert last.kind == "task.unassigned"
-    assert last.payload["from_status"] == "RUNNING"
+    # The FakeClock never moves, so read the one re-placement row by kind, not by position.
+    events = await _events_for(trail, task.id)
+    [requeue] = [event for event in events if event.kind == "task.unassigned"]
+    assert requeue.payload["from_status"] == "RUNNING"
 
 
 async def test_requeue_for_commands_never_moves_the_attempt_backwards() -> None:
