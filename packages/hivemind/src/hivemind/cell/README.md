@@ -19,8 +19,9 @@ here; `swarm` for enrolled devices, a later phase).
   (platform facts -- `os`, `arch`, `distribution`, `shell`, `package_manager`, `python_version`
   -- plus capability flags -- `has_display`, `has_audio`, `has_browser`, `can_start_display`,
   `can_host_model`, `real_display_allowed` (roadmap step 6.3: the operator's own opt-in to let the
-  Hive drive the display already running there), `network_scopes` -- with `to_wire()`/`from_wire()`
-  converting to and from the
+  Hive drive the display already running there), `processes_contained` (ADR-0060: every process
+  the Cell runs reaches no further than the lease; set by whoever made the Cell, never carried on
+  the wire), `network_scopes` -- with `to_wire()`/`from_wire()` converting to and from the
   waggle `PlatformReport`/`CellCapabilitiesReport` pair); `Cell` (id, kind, name, source,
   capabilities, capacity, access_level, comb_shield), whose validator refuses a REAL Cell at
   `NIGHT_VEIL` and a VIRTUAL Cell below `FULL` access.

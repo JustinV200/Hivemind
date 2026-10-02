@@ -31,9 +31,14 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   and a held glob scope always covers an identical needed one.
 - **Access** (`hivemind.guard.access`): `CELL_EFFECT_FAMILIES` (the families that act on the
   machine: `fs:*`, `exec`, `net`, `device`, `cell:outside_scratch`, `exoskeleton`, `geo`,
-  `wifi:scan`, `host:metadata`), `governs`, `ceiling_for(level, scratch_root, *, real_display)`,
-  `admits(level, family)` and `cap_to_access(requested, level, scratch_root, *, real_display)`,
+  `wifi:scan`, `host:metadata`), `governs`,
+  `ceiling_for(level, scratch_root, *, real_display, processes_contained)`,
+  `admits(level, family, *, processes_contained)` and
+  `cap_to_access(requested, level, scratch_root, *, real_display, processes_contained)`,
   which keeps every ungoverned capability and each governed one the level's ceiling allows.
+  Commands (`exec`) are FULL's, and SCRATCH's only on a Cell that contains its processes
+  (`CellCapabilities.processes_contained`, a Virtual Cell's container; ADR-0060): on a plain Real
+  Cell a command run in scratch still reads anything the Cell's user can.
   Roadmap 10.1/10.7 changed phase 3's ceilings: `tool` and `spend` are in none of them any more,
   because neither is an effect on the Cell. The Exoskeleton splits by level (ADR-0031): the
   browser at SCRATCH (it keeps its profile in scratch), the lease's own display and sound server
@@ -174,7 +179,7 @@ own trail segment).
 | `grant_issue` | the Queen | `llm:<slot>` per binding, in the Warden's set and the goal's, with its locality stated | `queen.dispatcher.grants` |
 | `forage_request` | the Warden | `forage:request`, and holding the grant | `queen.ticks.forage` |
 | `warden_spawn` | the Queen | `warden:spawn` | `queen.attach` |
-| `tool_invocation` | the Worker | `tool:<name>`; `net:<host>` for `http_request`, then every address it resolves to; `exec:<argv[0]>` against the floors; a Capping `exec`/`net` refusal | `workers.tools.registry`, `.http`, `.session`, `.proposals` |
+| `tool_invocation` | the Worker | `tool:<name>`; `net:<host>` for `http_request`, then every address it resolves to; `exec:<argv[0]>` against the whole policy (the access-level rule refuses it on an uncontained Cell below FULL, ADR-0060); a Capping `exec`/`net` refusal | `workers.tools.registry`, `.http`, `.session`, `.proposals` |
 | `session_outside_scratch` | the Worker | `fs:read:<path>`; a write also `cell:outside_scratch:<path>`, and `fs:write:<path>` against the floors | `workers.tools.session`, `.keep`, `.proposals` |
 | `slot_binding` | the Warden, or the Queen for her `Intervene(REBIND)` | `llm:<slot>` in the grant and the sub-bee's set, bound to the Cell's tier with the chain's locality stated | `wardens.spawn.binding` |
 | `question_routing` | the Worker at the Warden, the Warden at the Queen | `question:human` | `workers.tools.ask`, `wardens.ticks.questions`, `queen.questions` |

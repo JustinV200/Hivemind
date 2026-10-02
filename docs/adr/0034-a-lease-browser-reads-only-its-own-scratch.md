@@ -57,7 +57,10 @@ hard link, so the browser no longer reads one; a command can still copy a file i
 working directory, so a command run in scratch is `scratch_write`, the allowlist rung (and with it
 the `exec:` capability check) never runs, and the command can copy any file the Cell user can read
 into scratch for `read_file`. It needs its own decision about what a scratch command may touch on
-a Real Cell. A test harness that serves fixture pages as `file://` must name their directory as a
+a Real Cell. (Closed 2026-10-02 by ADR-0060: below FULL access a command runs only on a Cell that
+contains its processes, so on a SCRATCH Real Cell `run_command` is refused before anything starts
+and a task that needs commands is placed on a Virtual Cell; at FULL the operator has granted the
+Cell's whole account, and a command there can still copy any file it can read.) A test harness that serves fixture pages as `file://` must name their directory as a
 root, as the browser contract suite's does. A bee cannot open a page from an allowed path outside
 scratch in the browser; it can copy the file into scratch first.
 

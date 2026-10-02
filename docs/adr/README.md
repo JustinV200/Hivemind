@@ -296,3 +296,8 @@ ADRs that exist today, in numeric order:
   profile, DevTools is closed over CDP as it opens, downloads are denied, and the desktop tools
   refuse the chords that open them; a hard-linked file is refused; blocks go on the trail; the
   DevTools transport stays a loopback port until a session can hand Chromium a pipe.
+- `0060-commands-run-only-where-they-are-contained-or-fully-granted.md`: below FULL access a
+  command runs only on a Cell whose processes are contained (a Virtual Cell; never a device's own
+  claim); `run_command` asks the whole policy before it proposes, so on a SCRATCH Real Cell it is
+  `guard.denied` before anything starts; `TaskNeeds.commands` keeps such a task off such a Cell,
+  and fails it at once when the Hive has no Virtual backend.

@@ -155,12 +155,13 @@ declined, and nothing of 6.13 exists: no `supervision/mask.py`, no tactics, no m
 - Whether any part of 6.13 should still be built is the user's call. Raise it with them; do not build it from the roadmap text. Nearby needs that are in scope are separate features and should be proposed as such: a house style for the Hive's own messages to its operator, or input pacing for an application that drops events delivered too fast.
 - The `copytone-justin` skill's own files tell an agent to add `.claude/` to `.gitignore`. This repository tracks `.claude/` (the roadmap, the rules and these handoffs), so do not apply that instruction here. None of the skill's files were committed.
 
-### 4.2 Security gaps found while closing the `file://` hole (items 2-6 closed; item 1 open)
+### 4.2 Security gaps found while closing the `file://` hole (all closed)
 
-In rough order of severity. Items 2 to 6 were closed on 2026-10-02 (ADR-0059); item 1 waits on an
-operator decision.
+In rough order of severity. Items 2 to 6 were closed on 2026-10-02 (ADR-0059); item 1 was closed
+the same day by the operator's decision (ADR-0060).
 
-1. **`run_command` is confined only by its working directory.**
+1. **Closed: `run_command` is confined only by its working directory.**
+   - **Closed 2026-10-02 (ADR-0060).** Below FULL access a command runs only on a Cell whose processes are contained (`CellCapabilities.processes_contained`: set by the Virtual backends, the Queen's listener and the in-Cell Warden, never on the wire). `exec:*` moved from SCRATCH's grants to FULL's in `H/guard/access.py`, and comes back at SCRATCH only for a contained Cell. `run_command` now asks the whole policy for `exec:<argv[0]>` before proposing, so on the Hive Stand at SCRATCH it is `guard.denied` (`guard.access_level.scratch`) and nothing starts. `TaskNeeds.commands` steers placement (rule 4d, `command_shortfall`) to a Virtual Cell, and a Hive with no Virtual backend cancels such a task at once with the reason. Not covered: acceptance commands the Capping gate itself runs (ADR-0060, known limits). The original finding follows.
    - `H/workers/tools/session.py` tiers a command by its cwd, so a command run in scratch is `scratch_write`: SCHEMA and SIZE_CAP, never the ALLOWLIST rung.
    - On a Real Cell the process (`H/cell/local/process.py`) is a plain subprocess with a file-size limit. It can read, copy or change anything the Cell user can, and on the Hive Stand that is the operator's account. `cp ~/.ssh/id_rsa .` followed by `read_file` walks straight past ADR-0034.
    - Running the ALLOWLIST rung alone would not help: the SCRATCH access level grants `exec:*` (`H/guard/access.py:47`).
@@ -172,7 +173,7 @@ operator decision.
    - Checked on Edge 154 on Windows (2026-10-02); the Linux Chromium images were not run (no Docker here).
 3. **Closed: loopback counts as staying on the Cell.** A loopback host, however spelled, needs `net:loopback` (`supervision.capping.host_need`), and `page_reach` tiers it `network_egress` unless the composition root says the Cell's loopback is private (`ExoskeletonConfig.private_loopback`, set only by the in-Cell wiring). No `cell.kind` branch.
 4. **Closed, with known limits: clicks and page scripts reach hosts no `net:` capability names.** `HostGuard` (`H/exoskeleton/browser/playwright/hosts.py`), a route on every http(s) request installed beside `FileGuard`, blocks any host the bee's `net` scopes do not cover and reports it; attach records `cell.browser_blocked` (rule and host, once per pair, at most 64). Limits: a redirect from a granted host is followed (Playwright routes only a request's first URL; confirmed on Edge), and WebSockets, WebRTC and worker connections are not routed. A Virtual Cell's egress policy still bounds them; a Real Cell's nothing does.
-5. **Closed: a hard link in scratch passes `FileGuard`.** `FileGuard` refuses any non-directory whose `st_nlink` is above one. Item 1 still lets a command copy a file into scratch for `read_file`.
+5. **Closed: a hard link in scratch passes `FileGuard`.** `FileGuard` refuses any non-directory whose `st_nlink` is above one. A command can still copy a file into scratch for `read_file`, since ADR-0060 only where the Cell is FULL or contains its processes.
 6. **Investigated, not switched: the DevTools port on a shared Real Cell.** `--remote-debugging-pipe` needs two inherited descriptors, which `CellSession.start` cannot hand a process, and Playwright attaches to a running browser only over a socket; Playwright's own `launch()` takes the process away from the lease (ADR-0031's rejected alternative). Closing it needs a `CellSession` that passes a pipe pair plus a secret-gated relay, or a rule that multi-user Real Cells take no browser work. Recorded in ADR-0031's known limits and ADR-0059; the crash handler note stays in ADR-0031.
 
 ### 4.3 Free memory is read as `MemFree`, so a warm Linux host looks full

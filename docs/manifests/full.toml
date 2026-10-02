@@ -45,7 +45,9 @@ disk_reserve_mb = 1024
 # can be read afterwards. Breaks "left exactly as found" on purpose; `cell.released` then
 # reports is_restored = false, and the directories accumulate until removed by hand.
 keep_scratch = false
-# The most access any lease on the Hive Stand may hold: READ_ONLY, SCRATCH or FULL.
+# The most access any lease on the Hive Stand may hold: READ_ONLY, SCRATCH or FULL. Below FULL no
+# Worker here runs a command (ADR-0060): a task that needs one goes to a Virtual Cell, so a Hive
+# with no [virtual_cells] backend that should run commands on its own Hive Stand needs FULL.
 access_level = "SCRATCH"
 
 [hive_stand.capacity]

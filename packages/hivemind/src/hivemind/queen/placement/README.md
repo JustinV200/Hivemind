@@ -43,6 +43,11 @@ adds the Exoskeleton to the fit rule (`docs/adr/0031-exoskeleton-on-x11-with-pla
   need only when it provisions one (`VirtualCellSpec.exoskeleton`); the composition root offers
   one per backend, booting `[virtual_cells] exoskeleton_image` (`desktop-ubuntu` by default), after
   the terminal-only default spec, so a task without the need never boots the heavier image.
+- Command fit (ADR-0060): rule 4d (`rules.command_shortfall`) keeps a task whose
+  `TaskNeeds.commands` is set off a Real Cell whose ceiling holds no `exec`: below FULL, any Cell
+  that does not report `processes_contained`. A Virtual spec always fits. When no attached Cell
+  may run commands and the inventory holds no Virtual backend or dormant Cell at all, `decide`
+  raises a final `PlacementError`, which the dispatcher cancels the task with.
 - `PlacementError`, `decide` (`decide.py`): `decide(needs, inventory, forage, policy) -> Placement`
   runs ADR-0028's own ordered pipeline -- Night Veil first (always a fresh Virtual Cell, gated by
   `check_night_veil` above before any backend is even considered), then isolation (`REQUIRED`

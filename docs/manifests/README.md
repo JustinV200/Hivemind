@@ -118,6 +118,14 @@ exoskeleton_real_display = true` lends the operator's own running display at `"F
 needs audio also needs the Cell's sound tools. Every Real Cell placement skips is named in the
 placement reason with what it lacks.
 
+Commands follow the same shape (`docs/adr/0060-commands-run-only-where-they-are-contained-or-fully-granted.md`):
+a Worker runs `run_command` on a Real Cell only at `access_level = "FULL"`, because a command run
+in scratch can still read anything the Cell's user can. At `"SCRATCH"` (the Hive Stand's usual
+level) the command is refused before it starts, and a task whose needs set `commands` is placed on
+a Virtual Cell instead; with no `[virtual_cells] backend` configured, such a task fails at once
+with that reason. A Hive Stand that should run commands for its own operator, uncontained, needs
+`[hive_stand] access_level = "FULL"`.
+
 ## `[exoskeleton]` (roadmap steps 6.4-6.6)
 
 `[exoskeleton]` tunes the Exoskeleton (the optional display, input, audio and browser a task may
