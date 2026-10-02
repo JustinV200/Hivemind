@@ -21,12 +21,15 @@ Fits into the Hive:
 
 Key invariants:
     - The gate never applies a GUI proposal without a surface; it rejects it before any check.
-    - Every step names the capabilities it needs; a NAVIGATE also needs `net:<host>` for any
-      URL that leaves the Cell (http and https; file and about:blank stay on it). A file URL
-      must also stay inside the lease's scratch, which the allowlist rung checks separately.
+    - Every step names the capabilities it needs; a NAVIGATE to an http or https URL also needs
+      `net:<host>` (file and about:blank stay on the Cell), and `net:loopback` for a loopback
+      host, however it is spelled (ADR-0058). A file URL must also stay inside the lease's
+      scratch, which the allowlist rung checks separately.
 
 See Also:
     - docs/adr/0032-gui-actions-are-capped-recorded-and-rolled-back-by-checkpoint.md.
+    - docs/adr/0044-a-lease-browser-stays-inside-its-granted-hosts-and-its-own-chrome.md for
+      the loopback scope.
     - waggle.messages.capping.gui for GuiStep and GuiOp.
 """
 
@@ -36,7 +39,8 @@ from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from hivemind.guard import Capability
+from hivemind.guard import Capability, CapabilityFamily, InvalidCapabilityError
+from hivemind.guard.net import ip_literal, is_loopback_name
 from hivemind.supervision.capping.checks.judge import JudgeEvidence
 from hivemind.supervision.capping.postconditions import PostconditionOutcome
 from hivemind.supervision.capping.proposal import Proposal
@@ -64,13 +68,21 @@ BROWSER_OPS = frozenset(
     {GuiOp.NAVIGATE, GuiOp.BROWSER_CLICK, GuiOp.BROWSER_FILL, GuiOp.BROWSER_PRESS}
 )
 _OFF_CELL_SCHEMES = frozenset({"http", "https"})  # file:// and about:blank never leave the Cell.
+# The one `net` scope every loopback host needs, however it is spelled (127.1, [::1], localhost):
+# on a Real Cell loopback is the operator's own services, the Hive Stand's own listener included,
+# so it is granted by name, never covered by a grant for some other host (ADR-0058).
+LOOPBACK_SCOPE = "loopback"
+_UNNAMEABLE_HOST = Capability.parse("net:host.invalid")  # What a malformed host is held to.
 
 __all__ = [
     "ACCEPTANCE_GUI_KINDS",
     "BROWSER_OPS",
     "GUI_POSTCONDITION_KINDS",
+    "LOOPBACK_SCOPE",
     "GuiApplyResult",
     "GuiSurface",
+    "host_need",
+    "is_loopback_host",
     "required_capabilities",
 ]
 
@@ -175,5 +187,41 @@ def required_capabilities(step: GuiStep) -> tuple[Capability, ...]:
     if step.op is GuiOp.NAVIGATE and step.url is not None:
         parts = urlsplit(step.url)
         if parts.scheme.lower() in _OFF_CELL_SCHEMES and parts.hostname:
-            needs.append(Capability.parse(f"net:{parts.hostname}"))
+            # A host the `net` grammar cannot hold still needs a scope, so the rung fails it
+            # rather than letting it through: `.invalid` is reserved (RFC 2606) and never granted.
+            needs.append(host_need(parts.hostname) or _UNNAMEABLE_HOST)
     return tuple(needs)
+
+
+def is_loopback_host(host: str) -> bool:
+    """Return whether `host` is this machine: a localhost name (RFC 6761) or a loopback address.
+
+    Args:
+        host: A URL's host, as `urlsplit` gives it (no brackets), in any case.
+
+    Returns:
+        True for `localhost`, every `*.localhost` name and every loopback address in any
+        spelling `ipaddress` reads, an IPv4-mapped IPv6 one included; False for anything else,
+        since a name that is not localhost could be anywhere.
+    """
+    if is_loopback_name(host):
+        return True
+    address = ip_literal(host)
+    return address is not None and address.is_loopback
+
+
+def host_need(host: str) -> Capability | None:
+    """Return the `net` capability reaching `host` needs: its own, or `net:loopback`.
+
+    Args:
+        host: A URL's host; untrusted text a page or a model wrote.
+
+    Returns:
+        `net:loopback` for a loopback host, else `net:<host>`; None when the host is not one the
+        `net` grammar can hold, which no grant can then cover.
+    """
+    scope = LOOPBACK_SCOPE if is_loopback_host(host) else host
+    try:
+        return Capability.parse(f"{CapabilityFamily.NET.value}:{scope}")
+    except InvalidCapabilityError:
+        return None  # A malformed host is an answer here, never an exception.

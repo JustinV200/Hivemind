@@ -66,6 +66,8 @@ Public API:
     - GuiSurface, GuiApplyResult, GUI_POSTCONDITION_KINDS, ACCEPTANCE_GUI_KINDS, BROWSER_OPS,
       required_capabilities: the seam a GUI proposal is applied, verified and rolled back through,
       and the GUI kinds a task's acceptance may state (gui, roadmap steps 6.5 and 6.7).
+    - LOOPBACK_SCOPE, host_need, is_loopback_host: the `net` scope a page's host needs, loopback
+      named by a scope of its own (gui, ADR-0058).
     - GuiAllowlistCheck: the allowlist rung for GUI steps (checks).
     - AuditDeps, AuditFinding, AuditRates, AuditSampler, FindingsSink, InMemoryFindingsSink,
       audit_completed, review_applied: the after-the-fact sampled audit, and the unsampled
@@ -135,8 +137,11 @@ from hivemind.supervision.capping.gui import (
     ACCEPTANCE_GUI_KINDS,
     BROWSER_OPS,
     GUI_POSTCONDITION_KINDS,
+    LOOPBACK_SCOPE,
     GuiApplyResult,
     GuiSurface,
+    host_need,
+    is_loopback_host,
     required_capabilities,
 )
 from hivemind.supervision.capping.lease_view import LeaseView
@@ -168,6 +173,7 @@ __all__ = [
     "BROWSER_OPS",
     "CHECKABLE_KINDS",
     "GUI_POSTCONDITION_KINDS",
+    "LOOPBACK_SCOPE",
     "MAX_CARRIED_PER_TIER",
     "MAX_EVIDENCE_CHARS",
     "MAX_EVIDENCE_FRAMES",
@@ -227,6 +233,8 @@ __all__ = [
     "check_postcondition",
     "checks_for",
     "deterministic_checks",
+    "host_need",
+    "is_loopback_host",
     "is_terminal",
     "judge_checks",
     "live_audit_raises",

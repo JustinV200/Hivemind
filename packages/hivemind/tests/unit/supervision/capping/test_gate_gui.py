@@ -32,6 +32,8 @@ from hivemind.supervision.capping import (
     TierSpec,
     TierTable,
     deterministic_checks,
+    host_need,
+    is_loopback_host,
     required_capabilities,
 )
 from hivemind.supervision.capping.gate import CappingGate, GateDeps
@@ -201,9 +203,44 @@ async def test_the_allowlist_rung_needs_the_browser_scope_and_net_for_egress(
         (GuiStep(op=GuiOp.NAVIGATE, url="file:///s/site/index.html"), {"exoskeleton:browser"}),
         (
             GuiStep(op=GuiOp.NAVIGATE, url="http://localhost:8000/"),
-            {"exoskeleton:browser", "net:localhost"},
+            {"exoskeleton:browser", "net:loopback"},
+        ),
+        (
+            GuiStep(op=GuiOp.NAVIGATE, url="http://127.9.0.1/"),
+            {"exoskeleton:browser", "net:loopback"},
+        ),
+        (
+            GuiStep(op=GuiOp.NAVIGATE, url="https://api.example.com/x"),
+            {"exoskeleton:browser", "net:api.example.com"},
         ),
     ],
 )
 def test_required_capabilities_per_step(step: GuiStep, scopes: set[str]) -> None:
     assert {str(cap) for cap in required_capabilities(step)} == scopes
+
+
+@pytest.mark.parametrize(
+    ("host", "loopback"),
+    [
+        ("localhost", True),
+        ("LOCALHOST", True),
+        ("app.localhost", True),
+        ("127.0.0.1", True),
+        ("127.255.0.9", True),
+        ("::1", True),
+        ("::ffff:127.0.0.1", True),
+        ("example.com", False),
+        ("10.0.0.1", False),
+        ("localhost.example.com", False),
+    ],
+)
+def test_is_loopback_host_sees_through_every_spelling(host: str, loopback: bool) -> None:
+    assert is_loopback_host(host) is loopback
+
+
+def test_a_loopback_host_needs_net_loopback_and_a_malformed_one_needs_no_grantable_scope() -> None:
+    assert str(host_need("::1")) == "net:loopback"
+    assert str(host_need("api.example.com")) == "net:api.example.com"
+    assert host_need("exa mple.com") is None
+    step = GuiStep(op=GuiOp.NAVIGATE, url="http://exa_mple!.com/")
+    assert "net:host.invalid" in {str(cap) for cap in required_capabilities(step)}
