@@ -2344,6 +2344,11 @@ now loaded. The detailed sources follow as a `forage.capacity_report`.
 
 Ship one chunk of an offline Warden's local Pheromone Trail segment so the Queen merges it
 idempotently on reconnection. The bytes are the trail's own export format, opaque to Waggle.
+A chunk the Queen does not merge is answered with a `control.error` correlated to it, with
+`is_retryable` false, whose code names the reason: `hivemind.queen.segment_refused.another_node`
+(the receiver rule below, or another node's segment), `.another_cell` (a Cell the link did not
+prove), `.format` (an unknown `segment_format_version`) or `.corrupt` (bytes, digest or event
+count that do not match what the chunk declared). A merged chunk is not answered.
 
 - `node_id` (`NodeId`): the node whose segment this is. Must equal the envelope's `node_id`,
   and `warden_id` the envelope's `sender` (receiver rule, answered with `control.error`), so

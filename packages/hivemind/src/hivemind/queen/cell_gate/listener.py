@@ -16,14 +16,15 @@ holds only what is a Virtual Cell's own: how its first frame is verified, and wh
 reads.
 
 The identity puzzle (module docstring of `gate.py` explains the *why*; this is the *how*):
-`_GateVerifier`, this module's own `waggle.codec.Verifier`, is what the one shared `Codec` every
-accepted connection uses checks every incoming frame's signature against. For an already-bound
-`node_id` it looks the registered public key straight up; for an unknown `node_id`'s very first
-frame it has no key yet, so it parses `canonical` (the exact JSON `waggle.codec.canonical_bytes`
-produced, still available to a `Verifier.verify` call, since verification happens before the
-payload is parsed into a typed message, `waggle.codec.Codec.decode`'s own fixed order) to read the
-payload's own `cell_id`, looks *that* up in `QueenReadinessGate.expected_key` (registered before
-the Cell even existed, `hive.backends.bootstrap.mint_cell_bootstrap`), and verifies against it.
+`.handshake.GateVerifier`, the `waggle.codec.Verifier` this module builds, is what the one shared
+`Codec` every accepted connection uses checks every incoming frame's signature against. For an
+already-bound `node_id` it looks the registered public key straight up; for an unknown `node_id`'s
+very first frame it has no key yet, so it parses `canonical` (the exact JSON
+`waggle.codec.canonical_bytes` produced, still available to a `Verifier.verify` call, since
+verification happens before the payload is parsed into a typed message, `waggle.codec.Codec.
+decode`'s own fixed order) to read the payload's own `cell_id`, looks *that* up in
+`QueenReadinessGate.expected_key` (registered before the Cell even existed,
+`hive.backends.bootstrap.mint_cell_bootstrap`), and verifies against it.
 Every frame is still fully authenticated end to end -- signatures stay mandatory -- only the very
 first lookup differs from every one after it, once `node_id` is bound. A forged or replayed frame
 naming someone else's `cell_id` still fails: the signature must verify against *that* `cell_id`'s
@@ -43,14 +44,17 @@ Fits into the Hive:
     (ForageCapacity, HostCapacity), `hivemind.queen.attach` (the shared attach path),
     `hivemind.queen.deps` (WardenLink), `hivemind.queen.errors` (WardenSpawnRefusedError),
     `hivemind.queen.queen` (Queen), `hivemind.queen.cell_gate.gate` (QueenReadinessGate),
-    `hivemind.queen.cell_gate.refusals` (the transport options), `hivemind.queen.trail`
+    `hivemind.queen.cell_gate.refusals` (the transport options), `hivemind.queen.cell_gate.
+    handshake` (GateVerifier, HandshakeRefusals), `hivemind.queen.trail`
     (TrailSegmentReceiver), `hivemind.pheromone` (TrailRecorder), waggle (codec, envelope, errors,
     ids, signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
 
 Key invariants:
     - Every accepted connection's first frame must verify as a signed `CellReady` naming a
       `cell_id` `QueenReadinessGate.expect` already knows about; anything else closes the
-      connection with `UnknownSignerError` before it is ever attached.
+      connection with `UnknownSignerError` before it is ever attached, and a handshake frame
+      whose signature failed is `guard.handshake_refused` about the Hive, never the Cell it
+      claimed (`.handshake`).
     - `QueenReadinessGate.resolve` is called exactly once per Cell, only once both `CellReady` and
       a first `CellHeartbeat` on the same connection have arrived, and only after the Warden is in
       `queen.wardens`: a caller waking from `wait_ready` finds its link there.
@@ -80,7 +84,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -98,6 +101,7 @@ from hivemind.queen.attach import (
     serve_warden,
 )
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
+from hivemind.queen.cell_gate.handshake import GateVerifier, HandshakeRefusals
 from hivemind.queen.cell_gate.refusals import transport_options
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.errors import WardenSpawnRefusedError
@@ -107,13 +111,13 @@ from hivemind.swarm.gateway import GatewayHub
 from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop
-from waggle.errors import CodecError, ConnectionLostError, SignatureError, UnknownSignerError
-from waggle.ids import CellId, HiveId, IdKind, NodeId, WardenId, parse_id
+from waggle.errors import CodecError, ConnectionLostError, SignatureError
+from waggle.ids import CellId, HiveId, NodeId, WardenId
 from waggle.messages.cell.status import CellHeartbeat, CellReady
 from waggle.messages.forage.hosting import CapacityReport
 from waggle.messages.labels import OsFamily
 from waggle.messages.reports import PlatformReport
-from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_from_hex
+from waggle.signing import Ed25519Signer
 from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
 
@@ -145,7 +149,7 @@ class CellListenerDeps:
 
     Attributes:
         gate: Registers each Cell's expected key and resolves once it is ready; also this
-            listener's own `_GateVerifier` key source.
+            listener's own `GateVerifier` key source.
         queen_signer: Signs every frame the Queen sends over this listener's connections.
         queen_node_id: The node id the Queen signs her own frames as; stamped on every `Hop`.
         hive_id: The Queen's own bee address; the `sender` of every envelope this listener sends.
@@ -175,7 +179,9 @@ class CellListener:
             clock: Stamps every `CellSnapshotReply`/`CellRollbackReply` this listener sends back.
         """
         self._deps = deps
-        codec = Codec(signer=deps.queen_signer, verifier=_GateVerifier(deps.gate))
+        codec = Codec(signer=deps.queen_signer, verifier=GateVerifier(deps.gate))
+        # A handshake that fails its signature proves no Cell: recorded about the Hive (10.6).
+        self._handshakes = HandshakeRefusals(deps.recorder)
         # The transport's own defences (ADR-0055), on as they are on the swarm listener: a flood
         # closes the connection (4029), a replayed envelope id is dropped, and each is recorded.
         # A Cell's Warden that reconnects replays its outbox, whose duplicates are expected for a
@@ -260,7 +266,7 @@ class CellListener:
         fan-out's pump, because a transport allows one `receive()` stream at a time.
         """
         frames = transport.receive()
-        binding = await _await_ready(frames)
+        binding = await _await_ready(frames, self._handshakes, transport.remote_address)
         if binding is None:
             await transport.close()
             return  # Never became ready; nothing was attached, so nothing to detach either.
@@ -296,53 +302,6 @@ class CellListener:
             await transport.close()
 
 
-class _GateVerifier:
-    """The Verifier every accepted connection's shared Codec checks a signature against.
-
-    Module docstring: an already-bound node_id looks its key up directly; an unknown node_id's
-    first frame is resolved by reading the claimed cell_id out of the still-raw canonical bytes.
-    """
-
-    def __init__(self, gate: QueenReadinessGate) -> None:
-        """Hold the gate this verifier resolves an unknown node_id's first frame against."""
-        self._gate = gate
-        self._learned: dict[str, bytes] = {}  # node_id -> the raw public key it verified under.
-
-    def verify(self, node_id: str, canonical: bytes, signature: str) -> None:
-        """Verify `signature`, resolving `node_id`'s key by cell_id on its very first frame."""
-        raw_key = self._learned.get(node_id)
-        if raw_key is None:
-            raw_key = _key_for_first_frame(self._gate, canonical)
-        # A one-off Ed25519Verifier over exactly this key: raises InvalidSignatureError on a bad
-        # signature, which propagates unchanged -- this method never catches its own check.
-        Ed25519Verifier({node_id: raw_key}).verify(node_id, canonical, signature)
-        self._learned[node_id] = raw_key  # Only cached once the signature actually verified.
-
-
-def _key_for_first_frame(gate: QueenReadinessGate, canonical: bytes) -> bytes:
-    """Read the claimed cell_id out of raw canonical bytes and return its registered key.
-
-    Raises:
-        UnknownSignerError: The bytes are not readable JSON, carry no valid CellId-shaped
-            payload.cell_id, or that cell_id has no key registered (never expected, or forgotten).
-    """
-    try:
-        wire = json.loads(canonical)
-        raw_cell_id = str(wire["payload"]["cell_id"])
-        cell_id = CellId(parse_id(raw_cell_id, IdKind.CELL))
-    except (ValueError, KeyError, TypeError) as exc:
-        raise UnknownSignerError(
-            "The first frame from an unknown node did not carry a readable payload.cell_id."
-        ) from exc
-    key_hex = gate.expected_key(cell_id)
-    if key_hex is None:
-        raise UnknownSignerError(
-            f"Cell {cell_id} is not registered with this ReadinessGate (never expected, or "
-            "already forgotten)."
-        )
-    return public_key_from_hex(key_hex)
-
-
 @dataclass(frozen=True, slots=True)
 class _ReadyBinding:
     """What one connection's own CellReady + CellHeartbeat handshake resolved to."""
@@ -355,13 +314,17 @@ class _ReadyBinding:
     ready: Envelope  # The verified CellReady that identified the Warden.
 
 
-async def _await_ready(frames: AsyncIterator[Envelope]) -> _ReadyBinding | None:
+async def _await_ready(
+    frames: AsyncIterator[Envelope], handshakes: HandshakeRefusals, address: str
+) -> _ReadyBinding | None:
     """Drain `frames` until a verified CellReady then a CellHeartbeat both arrive, or it ends.
 
     Reads the connection's one frame iterator and leaves it positioned just after the heartbeat,
     still open: the shared attach path hands the same iterator to the fan-out's pump. The Cell's
     `CapacityReport`, which a real in-Cell Warden sends between the two, is captured too (module
-    docstring).
+    docstring). A frame whose signature fails here proves no Cell, so it is recorded through
+    `handshakes` about the Hive, with `address` and what it claimed kept apart
+    (`hivemind.queen.cell_gate.handshake`).
 
     Returns:
         The binding once both frames arrived, or None if the connection ended (or a frame failed
@@ -379,8 +342,11 @@ async def _await_ready(frames: AsyncIterator[Envelope]) -> _ReadyBinding | None:
                 capacity = _capacity_from_report(payload, ready.payload.platform)
             elif isinstance(payload, CellHeartbeat) and ready is not None:
                 return _binding(ready, capacity)
-    except (ConnectionLostError, CodecError, SignatureError):
-        pass  # The link ended, or a frame failed to verify; report "never became ready" below.
+    except SignatureError as error:
+        # Roadmap step 10.6: the Guard Bee hears of the knock, attributed to no Cell.
+        await handshakes.refused(error, address)
+    except (ConnectionLostError, CodecError):
+        pass  # The link ended, or a frame did not decode; report "never became ready" below.
     return None
 
 

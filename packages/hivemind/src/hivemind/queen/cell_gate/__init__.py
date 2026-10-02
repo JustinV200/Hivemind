@@ -53,23 +53,33 @@ Public API:
       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
     - GateSegmentKeys: the key a Virtual Cell's trail segment is checked against when it is signed
       (hivemind.queen.cell_gate.segment_keys, roadmap 11.9).
-    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND: what one Cell's
-      link refused, recorded for the Guard Bee (hivemind.queen.cell_gate.refusals, roadmap step
-      10.6).
+    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
+      SEGMENT_REFUSED_CODE, refusal_error: what one Cell's link refused, recorded for the Guard
+      Bee and answered to the Cell (hivemind.queen.cell_gate.refusals, roadmap step 10.6).
+    - HandshakeRefusals, HANDSHAKE_REFUSED_KIND, GateVerifier: a handshake that failed before
+      attach, recorded about the Hive, and the verifier every frame is checked by
+      (hivemind.queen.cell_gate.handshake).
     - transport_options, transport_refusals: the listener's frame ceiling and replay window, and
       the callback that records what they refuse as guard events
       (hivemind.queen.cell_gate.refusals, roadmap steps 11.3a and 11.3b).
 """
 
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
+from hivemind.queen.cell_gate.handshake import (
+    HANDSHAKE_REFUSED_KIND,
+    GateVerifier,
+    HandshakeRefusals,
+)
 from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps, SnapshotRequestHandler
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.cell_gate.quiesce import make_quiesce
 from hivemind.queen.cell_gate.refusals import (
     ENVELOPE_REFUSED_KIND,
+    SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
     SegmentRefusal,
+    refusal_error,
     transport_options,
     transport_refusals,
 )
@@ -80,11 +90,15 @@ from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
+    "HANDSHAKE_REFUSED_KIND",
+    "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "CellListener",
     "CellListenerDeps",
     "CellSnapshotHandler",
     "GateSegmentKeys",
+    "GateVerifier",
+    "HandshakeRefusals",
     "LifecycleVirtualCellProvider",
     "LinkRefusals",
     "QueenReadinessGate",
@@ -95,6 +109,7 @@ __all__ = [
     "make_on_task_finished",
     "make_quiesce",
     "make_retire_all",
+    "refusal_error",
     "transport_options",
     "transport_refusals",
 ]

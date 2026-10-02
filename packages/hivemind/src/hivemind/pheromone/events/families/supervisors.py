@@ -96,7 +96,10 @@ Vocabulary (family -> kind -> when it is recorded):
         an envelope id already seen inside the replay window, other than the expected duplicate
         after a reconnection, ADR-0055); and `segment_refused` gains the reasons `unsigned` and
         `bad_signature` (a Swarm node's segment without the Ed25519 signature Waggle 1.13 carries,
-        or with one that does not verify against the node's registered key, ADR-0053). The design
+        or with one that does not verify against the node's registered key, ADR-0053). A further
+        refusal, handshake_refused, is a handshake frame that failed its signature before any link
+        was attached: it proves no Cell, so it is about the Hive, and what the frame claimed is
+        recorded apart (claimed_cell_id, claimed_node_id) beside the reason and address. The design
         documents'
         `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
         (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
@@ -243,5 +246,6 @@ class GuardEvent(PheromoneEvent):
             # listener wrapper (waggle itself writes no trail), each naming the node.
             "guard.frame_ceiling",  # A connection exceeded its frames-per-minute ceiling.
             "guard.replay_refused",  # A frame repeated an envelope id inside the replay window.
+            "guard.handshake_refused",  # Before attach: about the Hive, never the claimed Cell.
         }
     )

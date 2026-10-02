@@ -35,8 +35,9 @@ Public API:
     - serve_warden, ProvedLink, LinkHooks, LinkServices, SnapshotRequestHandler: serve a gate's
       proved connection after its handshake (serve).
     - FanoutTransport, FANOUT_QUEUE_SIZE: the one-reader wrapper around a connection (fanout).
-    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND: what a link
-      refused, recorded for the Guard Bee (refusals).
+    - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
+      SEGMENT_REFUSED_CODE, refusal_error: what a link refused, recorded for the Guard Bee and
+      answered to the Warden (refusals).
 """
 
 from hivemind.queen.attach.admit import (
@@ -50,9 +51,11 @@ from hivemind.queen.attach.admit import (
 from hivemind.queen.attach.fanout import FANOUT_QUEUE_SIZE, FanoutTransport
 from hivemind.queen.attach.refusals import (
     ENVELOPE_REFUSED_KIND,
+    SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
     SegmentRefusal,
+    refusal_error,
 )
 from hivemind.queen.attach.serve import (
     LinkHooks,
@@ -65,6 +68,7 @@ from hivemind.queen.attach.serve import (
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
     "FANOUT_QUEUE_SIZE",
+    "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "FanoutTransport",
     "LinkHooks",
@@ -78,6 +82,7 @@ __all__ = [
     "detach_if_current",
     "detach_warden",
     "knows_warden",
+    "refusal_error",
     "serve_warden",
     "warden_state",
 ]

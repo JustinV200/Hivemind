@@ -36,8 +36,9 @@ Key invariants:
       `guard.envelope_refused` against the link's Cell; one that fails before the link is attached
       proves no Cell and is the gate's to close, not recorded here.
     - A snapshot relay request is answered on the connection it arrived on, correlated to its own
-      envelope; a trail segment chunk is handed to the receiver and never answered. Both are no-ops
-      when the services name no handler or receiver.
+      envelope; a trail segment chunk is handed to the receiver and answered only when refused,
+      with a `control.error` naming the reason. Both are no-ops when the services name no handler
+      or receiver.
     - A returning Warden's gate hears of it (`LinkHooks.on_returning`) before the fan-out's pump
       reads anything after the handshake, so a duplicate in its first frames is never met before
       the transport knows it is expected.
@@ -59,7 +60,7 @@ from hivemind.cell import Cell
 from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach.admit import current_link, detach_if_current, knows_warden
 from hivemind.queen.attach.fanout import FanoutTransport
-from hivemind.queen.attach.refusals import LinkRefusals
+from hivemind.queen.attach.refusals import LinkRefusals, refusal_error
 from hivemind.queen.deps import LiveCapacity, WardenLink, send_guarded
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.trail import TrailSegmentReceiver
@@ -296,7 +297,10 @@ class _Answers:
         """Merge a trail segment chunk through the link's refusals, if a receiver is bound."""
         receiver, chunk = self._services.trail, envelope.payload
         if receiver is not None and isinstance(chunk, TrailSegmentSync):
-            await self._refusals.merge(receiver, envelope, chunk)
+            refusal = await self._refusals.merge(receiver, envelope, chunk)
+            if refusal is not None:
+                # A refused chunk's Warden is told it was not merged, and why (spec 8.10).
+                await self._reply(envelope, refusal_error(refusal, chunk))
 
     async def _reply(self, request: Envelope, reply: WaggleMessage) -> None:
         """Send `reply` back on this link, correlated to the request that asked for it."""

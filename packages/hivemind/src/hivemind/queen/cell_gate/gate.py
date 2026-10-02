@@ -14,8 +14,8 @@ the Cell exists, so it can only ever be keyed by `cell_id`. But `waggle.signing.
 (what actually checks a signature) is keyed by `node_id`, and a Virtual Cell mints a *fresh*
 `NodeId` at boot (`hivemind.cli.in_cell.config.build_runtime_config`: `node_id=new_node_id(clock)`,
 unrelated to `cell_id`) -- there is no way to know which `node_id` a given `cell_id` will announce
-itself as before it does. This class's own answer: `hivemind.queen.cell_gate.listener.
-_GateVerifier` (the `waggle.codec.Codec` `Verifier` this gate hands `CellListener` for every fresh
+itself as before it does. This class's own answer: `hivemind.queen.cell_gate.handshake.
+GateVerifier` (the `waggle.codec.Codec` `Verifier` this gate hands `CellListener` for every fresh
 connection) reads the Cell's claimed `cell_id` straight out of the *unverified* canonical bytes
 `Codec.decode` already hands its `Verifier.verify` (the raw wire dict, JSON-decodable again,
 before the payload is parsed into a typed `CellReady`) on the very first frame from an unknown
@@ -73,7 +73,7 @@ class QueenReadinessGate:
     def __init__(self) -> None:
         """Create a gate expecting nothing yet; a backend's `provision()` calls `expect` first."""
         # cell_id -> the hex public key expect() registered; read by CellListener's own
-        # _GateVerifier the moment an unknown node_id's first frame claims that cell_id.
+        # GateVerifier the moment an unknown node_id's first frame claims that cell_id.
         self._expected: dict[CellId, str] = {}
         # cell_id -> set once CellListener has seen both a verified CellReady and the Cell's own
         # first CellHeartbeat; wait_ready blocks on this.

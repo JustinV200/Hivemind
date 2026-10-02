@@ -7,8 +7,11 @@ signed `CellReady` then `CellHeartbeat`, and this module checks the listener att
 `WardenLink` to the given `Queen` only once both have verified, and detaches it when the
 connection ends. Roadmap step 10.6: a frame that fails its signature on an attached link closes it
 and is `guard.envelope_refused` on the Queen's trail, and a segment chunk shipped as another node
-is refused (`guard.segment_refused`) while the link stays up; the Guard Bee reads that refusal and
-files a request through the running Queen's own door, and she isolates the Cell by rule. Roadmap
+is refused (`guard.segment_refused`) while the link stays up and its Warden is answered with a
+`control.error` naming the reason; the Guard Bee reads that refusal and files a request through the
+running Queen's own door, and she isolates the Cell by rule. A handshake frame that fails its
+signature before attach is `guard.handshake_refused` about the Hive, with what it claimed kept
+apart, never about the Cell it named. Roadmap
 steps 11.3a and 11.3b: the transport's own limits are on, so a frame flood closes the link (code
 4029) and a replayed envelope id is dropped, each recorded as a guard event naming the Cell's node.
 
@@ -28,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from builders.cell_listener import (
     WAIT_S,
     FakeCell,
@@ -61,6 +65,7 @@ from waggle.messages.cell.snapshot import (
     CellSnapshotRequest,
 )
 from waggle.messages.cell.status import CellHeartbeat, CellMode
+from waggle.messages.control import ErrorMessage
 from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, public_key_hex
 from waggle.transport.ceiling import DEFAULT_CEILING_LIMITS
@@ -231,7 +236,9 @@ async def test_a_segment_shipped_as_another_node_is_refused_and_the_link_stays_u
     chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
     forged = chunk.model_copy(update={"node_id": new_node_id(clock)})
 
-    await transport.send(wrap(forged, cell.hop(scenario.hive_id), clock=clock))
+    forged_envelope = wrap(forged, cell.hop(scenario.hive_id), clock=clock)
+    await transport.send(forged_envelope)
+    reply = await asyncio.wait_for(anext(transport.receive()), WAIT_S)
     await transport.send(wrap(chunk, cell.hop(scenario.hive_id), clock=clock))  # Then its own.
 
     async def _merged() -> bool:
@@ -241,6 +248,48 @@ async def test_a_segment_shipped_as_another_node_is_refused_and_the_link_stays_u
     [refused] = await scenario.trail.query(TrailQuery(kind="guard.segment_refused"))
     assert (refused.subject_id, refused.payload["reason"]) == (cell.cell_id, "another_node")
     assert cell.warden_id in attached_ids(scenario.queen)  # A refused segment cuts no link.
+    # The Cell's Warden is told, correlated to the refused chunk, with the reason in the code.
+    assert isinstance(reply.payload, ErrorMessage)
+    assert reply.correlation_id == forged_envelope.id
+    assert reply.payload.code == "hivemind.queen.segment_refused.another_node"
+    assert (reply.payload.failed_kind, reply.payload.is_retryable) == (
+        "swarm.trail_segment_sync",
+        False,
+    )
+    await transport.close()
+    await scenario.listener.stop()
+
+
+@pytest.mark.parametrize(
+    ("expected", "impostor", "reason"),
+    [
+        (True, True, "invalid"),  # A real, expected Cell's id, signed with a key not the Cell's.
+        (False, False, "unknown_node"),  # A Cell never expected: no key to check it against.
+    ],
+)
+async def test_a_failed_handshake_is_recorded_about_the_hive_never_the_cell_it_named(
+    expected: bool, impostor: bool, reason: str
+) -> None:
+    scenario = await build_scenario()
+    cell = FakeCell(scenario.listener)
+    if expected:
+        await scenario.gate.expect(cell.cell_id, public_key_hex(cell.signer.public_key_bytes))
+    signer = _Forger(Ed25519Signer.generate()) if impostor else None
+    transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer, signer)
+
+    await cell.send_ready(transport, scenario.hive_id)
+    await asyncio.wait_for(
+        until_async(lambda: recorded(scenario, "guard.handshake_refused")), WAIT_S
+    )
+
+    [refused] = await scenario.trail.query(TrailQuery(kind="guard.handshake_refused"))
+    assert refused.subject_id == scenario.hive_id  # Nothing proved the Cell: it is not blamed.
+    payload = refused.payload
+    assert (payload["claimed_cell_id"], payload["claimed_node_id"]) == (cell.cell_id, cell.node_id)
+    assert payload["reason"] == reason
+    assert str(payload["address"]).startswith("127.0.0.1:")
+    assert attached_ids(scenario.queen) == set()
+    assert not await recorded(scenario, "guard.envelope_refused")
     await transport.close()
     await scenario.listener.stop()
 

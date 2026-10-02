@@ -158,13 +158,21 @@ next two the same way, about the Cell whose own proved link carried the frame:
   segment need not be signed, but one that is is verified against the key the readiness gate
   registered for its Cell, so it can only be `bad_signature`. Nothing of a refused export is
   merged, and a partial one is dropped so a retry starts clean. The link stays up: an honest
-  Cell's bad export is a fault to hear of, not a reason to cut its Warden off mid-task.
+  Cell's bad export is a fault to hear of, not a reason to cut its Warden off mid-task. The Cell's Warden is answered with a `control.error`
+  whose code names the reason (`hivemind.queen.segment_refused.<reason>`), correlated to the
+  refused chunk.
 
 Each reason is recorded once per link, so no Cell can flood the trail. `subject_forgery`,
 `envelope_forgery` and `segment_forgery` are shipped dire patterns: the Queen isolates the Cell by
-rule. A frame that
-fails its signature before its link is attached proves no Cell (whoever dialled may have named any
-Cell's id), so the gate closes that connection and records nothing against anyone.
+rule.
+
+A frame that fails its signature before its link is attached proves no Cell (whoever dialled may
+have named any Cell's id), so the gate closes that connection and records
+**`guard.handshake_refused`** about the Hive, never about a Cell: the reason, the peer's address,
+and what the frame claimed kept apart as `claimed_cell_id` and `claimed_node_id` (each only when
+well formed). At most ten are recorded a minute; the knocks skipped in between are counted on the
+next record (`suppressed`). No shipped rule acts on it, on purpose: a rule that isolated the
+claimed Cell would let anyone frame an honest Cell by naming it.
 
 The Guard Bee learns which node speaks for which Cell from the Queen's own `warden.spawned`, and,
 since a Warden can come back on a link that proves another node (it moves onto its device when it

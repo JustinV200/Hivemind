@@ -4,7 +4,7 @@ Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/gate.py
     (codingrules section 3). Checks the ReadinessGate contract (ready only after resolve(), a
     timeout when it never comes, idempotent forget) plus the cell_id-keyed lookups
-    hivemind.queen.cell_gate.listener's own _GateVerifier depends on.
+    hivemind.queen.cell_gate.handshake's GateVerifier depends on.
 
 Key invariants:
     - None: this module holds tests only.

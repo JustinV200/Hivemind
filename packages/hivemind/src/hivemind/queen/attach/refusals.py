@@ -14,19 +14,22 @@ Cell's in a Night Veil Cell's segment. One that does not, and an export the rece
 unknown format, bytes that do not match what it declared, another node's segment, or, from phase 11,
 one whose sending node must sign and did not, or signed with a key that is not its registered
 one), is recorded as `guard.segment_refused`, and the link stays up: an honest Warden's bad export
-is a fault the Queen should hear of, not a reason to cut it off mid-task.
+is a fault the Queen should hear of, not a reason to cut it off mid-task. The Warden hears of it
+too: every refused chunk is answered with the `control.error` `refusal_error` builds, correlated to
+the chunk's envelope, whose code names the reason (`hivemind.queen.segment_refused.<reason>`,
+docs/waggle/spec.md section 8.10), so it learns the export was not merged.
 
 Both events are the Queen's own records, about the Cell whose own link carried the frame, and name
 a reason, never the frame. A frame that fails before its link is attached proves no Cell (whoever
-dialled may have named any Cell's id), so the gate closes that connection and records nothing
-against anyone.
+dialled may have named any Cell's id), so nothing is recorded against a Cell for it; the Cell gate
+records the knock about the Hive instead (`hivemind.queen.cell_gate.handshake`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.attach`.
     Built by `hivemind.queen.attach.serve` once per attached link, with the recorder its gate
     holds. Calls into `hivemind.common.logging`, `hivemind.pheromone` (GuardEvent, TrailRecorder),
     `hivemind.queen.trail` (the receiver and its errors) and waggle (envelope, errors, ids,
-    messages) only.
+    messages, registry) only.
 
 Key invariants:
     - A link records each kind and reason at most once, so no node can flood the trail by
@@ -34,6 +37,8 @@ Key invariants:
     - A chunk that breaks the receiver rule, or names a Cell its link did not prove, never
       reaches the receiver, so nothing it carries is merged or veiled.
     - Nothing is recorded without a recorder: a gate built without one refuses the same way.
+    - Every refused chunk is answered, never retryable (only a whole export sent again can
+      merge); the answer names ids and the reason, never the chunk's bytes.
 
 See Also:
     - hivemind.queen.attach.serve for the link this records about.
@@ -58,18 +63,23 @@ from hivemind.queen.trail import (
 from waggle.envelope import Envelope
 from waggle.errors import SignatureError
 from waggle.ids import CellId, NodeId, new_event_id
+from waggle.messages.control import ErrorMessage
+from waggle.messages.registry import kind_for
 from waggle.messages.swarm import TrailSegmentSync
 
 log = get_logger(__name__)
 
 ENVELOPE_REFUSED_KIND = "guard.envelope_refused"
 SEGMENT_REFUSED_KIND = "guard.segment_refused"
+SEGMENT_REFUSED_CODE = "hivemind.queen.segment_refused"  # The control.error code's stem.
 
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
+    "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "LinkRefusals",
     "SegmentRefusal",
+    "refusal_error",
 ]
 
 
@@ -82,6 +92,17 @@ class SegmentRefusal(StrEnum):
     CORRUPT = "corrupt"  # Its bytes, digest or event count do not match what it declared.
     UNSIGNED = "unsigned"  # A node whose segments must be signed (a Swarm node's) sent none.
     BAD_SIGNATURE = "bad_signature"  # Its signature is not the sending node's registered key's.
+
+
+# What the Warden is told, one clause per reason; ids only, never the chunk's bytes.
+_EXPLAINED = {
+    SegmentRefusal.ANOTHER_NODE: "it names a node or Warden other than the ones this link proved",
+    SegmentRefusal.ANOTHER_CELL: "it names a Cell other than the one this link proved",
+    SegmentRefusal.FORMAT: "its segment format is not one this Hive reads",
+    SegmentRefusal.CORRUPT: "its bytes, digest or event count do not match what it declared",
+    SegmentRefusal.UNSIGNED: "its export carries no signature, and this node's must be signed",
+    SegmentRefusal.BAD_SIGNATURE: "its signature does not verify against this node's key",
+}
 
 
 class LinkRefusals:
@@ -111,17 +132,21 @@ class LinkRefusals:
 
     async def merge(
         self, receiver: TrailSegmentReceiver, envelope: Envelope, chunk: TrailSegmentSync
-    ) -> None:
+    ) -> SegmentRefusal | None:
         """Hand `chunk` to `receiver` if its link may ship it; record why, if it was refused.
 
         Args:
             receiver: Reassembles, authenticates and merges the Warden's segment into the trail.
             envelope: The envelope `chunk` arrived in, whose node and sender the link proved.
             chunk: One slice of the Warden's trail segment export.
+
+        Returns:
+            Why it was refused, for the gate's `control.error`; None when it was accepted.
         """
         refusal = await _merged(receiver, envelope, chunk, self._cell_id)
         if refusal is not None:
             await self._record(SEGMENT_REFUSED_KIND, refusal.value)
+        return refusal
 
     async def _record(self, kind: str, reason: str) -> None:
         """Record `kind` about this link's Cell, unless there is no recorder or it already was."""
@@ -141,6 +166,28 @@ class LinkRefusals:
         )
         await recorder.trail.record(event)
         log.warning("queen.link_refused", kind=kind, cell_id=self._cell_id, reason=reason)
+
+
+def refusal_error(refusal: SegmentRefusal, chunk: TrailSegmentSync) -> ErrorMessage:
+    """The `control.error` a refused chunk is answered with (docs/waggle/spec.md section 8.10).
+
+    Args:
+        refusal: Why the chunk was not merged.
+        chunk: The refused chunk; only its ids and offset are named.
+
+    Returns:
+        An error whose code is `SEGMENT_REFUSED_CODE` plus the reason, never retryable.
+    """
+    return ErrorMessage(
+        code=f"{SEGMENT_REFUSED_CODE}.{refusal.value}",
+        message=(
+            f"The trail segment chunk at offset {chunk.offset} of export {chunk.first_event_id}"
+            f"..{chunk.last_event_id} was not merged: {_EXPLAINED[refusal]}."
+        ),
+        failed_kind=kind_for(TrailSegmentSync),
+        # The same chunk never merges alone: only a whole, honest export sent again can.
+        is_retryable=False,
+    )
 
 
 async def _merged(

@@ -375,6 +375,8 @@ async def _placed_terms(deps: QueenDeps, link: WardenLink, task: Task) -> Assign
     # placement that follows (`DispatchBook.resumes`); any other task has none and starts fresh.
     plan = await resume_plan(deps, link, task, deps.dispatch.resumes.take(task.id))
     return AssignmentTerms(attempt=task.attempt, resume_from=plan.resume_from, handoff=plan.handoff)
+
+
 async def _unassign_stranded(deps: QueenDeps, tasks: tuple[Task, ...]) -> tuple[Task, ...]:
     """Give every task stranded ASSIGNED back to PENDING; return `tasks` as they now stand.
 

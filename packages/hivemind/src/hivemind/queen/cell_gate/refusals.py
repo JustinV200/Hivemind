@@ -41,9 +41,11 @@ from hivemind.cell import CellIdentity
 from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach import (
     ENVELOPE_REFUSED_KIND,
+    SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
     SegmentRefusal,
+    refusal_error,
 )
 from hivemind.swarm import SwarmRecorder
 from hivemind.swarm.gateway import GatewayHub, TransportRefusals
@@ -53,9 +55,11 @@ from waggle.transport.websocket_server import ServerOptions
 
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
+    "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "LinkRefusals",
     "SegmentRefusal",
+    "refusal_error",
     "transport_options",
     "transport_refusals",
 ]
