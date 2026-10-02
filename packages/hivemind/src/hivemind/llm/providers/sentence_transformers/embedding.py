@@ -286,11 +286,9 @@ def _default_loader(model: str, device: str | None, local_files_only: bool) -> E
     # either -- codingrules section 9's "reason code and comment" for an untyped dependency.
     # Where the extra is installed (`uv sync --all-extras`) the import resolves and the ignore is
     # unused, which mypy --strict would otherwise report, hence the second code.
-    from sentence_transformers import (
-        SentenceTransformer,  # type: ignore[import-not-found,unused-ignore]
-    )
+    import sentence_transformers  # type: ignore[import-not-found,unused-ignore]
 
-    loaded: EncoderModel = SentenceTransformer(
+    loaded: EncoderModel = sentence_transformers.SentenceTransformer(
         model, device=device, local_files_only=local_files_only
     )
     return loaded
