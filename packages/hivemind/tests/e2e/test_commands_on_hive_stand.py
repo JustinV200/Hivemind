@@ -5,7 +5,11 @@ account, whatever its working directory. At `access_level = "SCRATCH"` (the mani
 Drone's `run_command` is refused by the Guard before any proposal exists, the refusal is a
 `guard.denied` row, and the Drone reads why and carries on without it. A task whose plan says it
 runs commands is never placed there; with no Virtual backend configured it is cancelled at once,
-saying so. Both scenarios run a whole Hive over real SQLite, as `hive run` composes it.
+saying so, and so is one whose acceptance runs a command, since the planner sets the need itself.
+A task whose plan forgot the need and whose Drone was refused a command comes back with a typed
+cause; the Queen re-places it rather than retrying it there, and with nowhere commands run it
+fails with placement's reason. Every scenario runs a whole Hive over real SQLite, as `hive run`
+composes it.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -141,3 +145,62 @@ async def _denied(hive: Hive) -> set[tuple[object, object, object]]:
     """Each `guard.denied` row's point, rule and capability."""
     rows = await hive.stores.trail.query(TrailQuery(kind="guard.denied"))
     return {(e.payload["point"], e.payload["rule"], e.payload["capability"]) for e in rows}
+
+
+def _stuck_drone(request: LLMRequest) -> LLMResponse:
+    """Try to run the tests, read the refusal, and give up without writing anything."""
+    if tool_round_count(request) == 0:
+        run = ("tests", "run_command", {"argv": ["pytest", "-q"]})
+        return tool_response(request, (run,))
+    return text_response("The tests could not run here; nothing was written.")
+
+
+def test_a_task_whose_command_was_refused_is_re_placed_not_retried_and_fails_with_the_reason(
+    tmp_path: Path,
+) -> None:
+    # The plan never said the Drone runs commands, so the task lands on the SCRATCH Hive Stand.
+    script = HaikuScript(_stuck_drone, plan=single_task_plan(_FILE))
+    hive = build_hive(
+        load_manifest(fake_manifest(tmp_path), {}),
+        environ={},
+        clock=SystemClock(),
+        responders={"fake": script.responder},
+    )
+
+    failed = asyncio.run(_ended(hive, TaskStatus.FAILED))
+
+    assert failed.outcome is not None
+    assert "Its Cell refused the commands it runs" in failed.outcome.summary
+    assert "no Virtual backend is configured" in failed.outcome.summary
+    assert failed.attempt == 1  # Never retried on the Cell that refused it.
+
+
+def test_a_task_whose_acceptance_runs_a_command_is_never_placed_on_a_scratch_hive_stand(
+    tmp_path: Path,
+) -> None:
+    # The model left needs empty; the planner sets needs.commands from the command criterion.
+    planned = single_task_plan(_FILE)
+    tasks = cast(list[dict[str, object]], planned["tasks"])
+    check = {"kind": "COMMAND_EXITS_ZERO", "subject": "tests", "argv": ["pytest"], "expected": None}
+    plan: dict[str, object] = {"tasks": [{**tasks[0], "acceptance": [check]}]}
+    hive = _hive(tmp_path, plan)
+
+    cancelled = asyncio.run(_cancelled(hive))
+
+    assert cancelled.spec.needs.commands is True
+    assert cancelled.outcome is not None
+    assert "no Virtual backend is configured" in cancelled.outcome.summary
+
+
+async def _ended(hive: Hive, status: TaskStatus) -> Task:
+    """Submit the goal and wait for its one task to end in `status`."""
+    async with run_hive(hive):
+        goal_id = await hive.queen.submit_goal("write one haiku", clearance=HoneyClearance.C1)
+
+        async def ended() -> bool:
+            tasks = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
+            return bool(tasks) and all(t.status is status for t in tasks)
+
+        await wait_until(ended, timeout_s=_TIMEOUT_S)
+        [task] = await hive.stores.chamber.list(TaskFilter(goal_id=goal_id))
+        return task

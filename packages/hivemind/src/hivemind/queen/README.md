@@ -47,7 +47,10 @@ every assignment goes to a Warden, over Waggle.
   deterministic dispatch tables; never imports `hivemind.llm`. `decide`'s own `_decide_task_
   result` maps a SUCCEEDED `TaskResult` whose `scout_report.feasible` is False to `FAIL_TASK`,
   never `COMPLETE_TASK` or `RETRY_TASK` (roadmap step 6.10): acceptance passed (the Scout wrote
-  its report), but the Scout itself recommends against the work.
+  its report), but the Scout itself recommends against the work. A current FAILED result carrying
+  `ResultCause.CELL_RUNS_NO_COMMANDS` maps to `REQUEUE_TASK` while its task does not yet need
+  commands (ADR-0060): re-placed once where commands run, never retried on the Cell refusing them.
+  The planner sets `needs.commands` itself on any task whose acceptance runs a command.
 - `queen.awake`: `QueenDecision`, `QueenSources` (its `wax(cells)` returns WRITTEN Cell Wax
   capped per Cell, `cap_wax_for_hot_state`), `decide_awake` (now takes an optional
   `cells_in_play`, roadmap step 4.2a) -- one stateless episode on `ModelSlot.QUEEN`, at the
@@ -69,8 +72,8 @@ every assignment goes to a Warden, over Waggle.
   `allow_hive_stand = false`, then fit, then Forage) and ranked (a `CAUTION` note behind a clean
   candidate, a dormant Cell before a fresh provision), only then honouring `prefer`. See
   `queen/placement/README.md` for the full module map.
-- `dispatch_ready`, `redispatch`, `resume_paused` (`dispatcher/`, a package since roadmap step
-  5.7): place, grant and assign every ready task, never to a Worker directly. `dispatcher.snapshot`
+- `dispatch_ready`, `redispatch`, `resume_paused`, `requeue_for_commands` (`dispatcher/`, a
+  package since roadmap step 5.7): place, grant and assign every ready task, never to a Worker directly. `dispatcher.snapshot`
   builds the pure `Inventory`/`ForageView` `queen.placement.decide` reads (the one place this
   dispatch awaits `deps.memory.list_wax`); `dispatcher.acquire.resolve_link` turns whatever
   `decide` returns into a `WardenLink`, acquiring a Virtual Cell through `QueenDeps.

@@ -149,6 +149,19 @@ async def test_plan_goal_converts_a_valid_scripted_plan_into_a_task_graph_draft(
     assert all(len(task.acceptance) >= 1 for task in draft.tasks)
 
 
+async def test_plan_goal_sets_needs_commands_wherever_acceptance_runs_a_command() -> None:
+    # ADR-0060: the child's COMMAND_EXITS_ZERO runs on its Cell, though the model left needs
+    # empty; the root checks only a file, so it may still land where commands do not run.
+    provider = FakeLLMProvider(responder=plan_responder(_valid_plan))
+    bound = make_bound(provider=provider)
+
+    draft = await plan_goal(
+        PlanBrief("Write three haiku about bees.", HoneyClearance.C1), bound, gate=DirectCallGate()
+    )
+
+    assert [task.needs.commands for task in draft.tasks] == [False, True]
+
+
 async def test_plan_goal_refuses_a_plan_with_a_subtask_lacking_acceptance() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_plan_missing_acceptance))
     bound = make_bound(provider=provider)

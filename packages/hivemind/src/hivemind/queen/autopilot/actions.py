@@ -9,7 +9,9 @@ every attached Warden's liveness) so the vocabulary stays complete and independe
 though the live Queen tick (`hivemind.queen.queen`) runs both unconditionally every tick rather than
 through a synthetic timer `InboxItem` -- see that module's own docstring for why; `COMPLETE_TASK`/
 `RETRY_TASK`/`FAIL_TASK`/`REBIND`/`ESCALATE_TO_HUMAN` are the five ways a `TaskResult` or an
-escalated `AlarmRaised` resolves; `BLOCK_ON_QUESTION`/`ROUTE_ANSWER` are the Question/Answer moves;
+escalated `AlarmRaised` resolves, and `REQUEUE_TASK` (ADR-0060) a sixth for a `TaskResult` whose
+Cell refused its commands: re-placed once where commands run; `BLOCK_ON_QUESTION`/`ROUTE_ANSWER`
+are the Question/Answer moves;
 `WRITE_WAX`/`REJECT_WAX`/`CLEAR_WAX` (roadmap step 4.2a) are the three ways a Cell Wax note's own
 life resolves -- reached by `hivemind.queen.autopilot.wax.decide_wax_proposal` for `WRITE_WAX`
 alone (a Warden's NOTE/CAUTION about its own Cell, within the per-Cell cap), and by
@@ -64,6 +66,7 @@ class QueenAction(Enum):
     DISPATCH = "DISPATCH"  # Place and grant whatever ready tasks the chamber now holds.
     COMPLETE_TASK = "COMPLETE_TASK"  # TaskResult(SUCCEEDED): chamber.complete, then dispatch.
     RETRY_TASK = "RETRY_TASK"  # Re-dispatch the same task, attempt+1.
+    REQUEUE_TASK = "REQUEUE_TASK"  # Re-place it where commands run, once (ADR-0060), attempt+1.
     FAIL_TASK = "FAIL_TASK"  # chamber.fail: the task is done, and it did not succeed.
     REBIND = "REBIND"  # Intervene(REBIND) to the Warden: move the task to a stronger binding.
     ESCALATE_TO_HUMAN = "ESCALATE_TO_HUMAN"  # human_inbox.add_alarm; no fallback binding is left.

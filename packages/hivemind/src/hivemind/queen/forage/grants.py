@@ -75,6 +75,9 @@ if TYPE_CHECKING:
     # a real (non-TYPE_CHECKING) import here would cycle back through queen/forage/__init__.py.
     from hivemind.queen.deps import QueenDeps
 
+# Why release_finished returns a grant by default: its task is over, so nothing draws on it.
+_ENDED_REASON = "Its task has ended; the holder no longer draws on it."
+
 __all__ = [
     "activate",
     "grant_message",
@@ -207,14 +210,20 @@ async def revoke(
 
 
 async def release_finished(
-    ledger: ForageLedger, deps: QueenDeps, finished: Collection[TaskId]
+    ledger: ForageLedger,
+    deps: QueenDeps,
+    finished: Collection[TaskId],
+    *,
+    reason: str = _ENDED_REASON,
 ) -> tuple[ForageGrant, ...]:
     """Return every live grant whose task has ended to the pool: revoked, cause RELEASED.
 
     Args:
         ledger: The Queen's live book.
         deps: The Queen's collaborators.
-        finished: The ids of every task that has reached a terminal state.
+        finished: The ids of every task that has reached a terminal state, or whose attempt on
+            its Cell is over for good (a task re-placed for its commands, ADR-0060).
+        reason: Why the grants go back, for the revocation; a task's end by default.
 
     Returns:
         Every grant this call released, in no particular order (empty when none was live).
@@ -226,7 +235,6 @@ async def release_finished(
         # ISSUED -> REVOKED is not an edge (Appendix C): a grant never drawn on is activated first,
         # the same step every task-dispatch grant takes before the ledger ever holds it.
         live = activate(grant) if grant.state is GrantState.ISSUED else grant
-        reason = "Its task has ended; the holder no longer draws on it."
         released.append(await revoke(ledger, deps, live, RevocationCause.RELEASED, reason))
     return tuple(released)
 

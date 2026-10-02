@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from builders.supervision import make_inbox_item, make_telemetry
 from builders.swarm import make_capacity_report, make_device_party
-from builders.tasks import make_task
+from builders.tasks import make_task, make_task_spec
 
 from hivemind.brood_chamber import TaskStatus
+from hivemind.cell import TaskNeeds
 from hivemind.queen.autopilot import QueenAction, decide
 from hivemind.supervision import AlarmKind as HiveAlarmKind
 from hivemind.supervision import EscalationPolicy, PolicyAction, PolicyRule
@@ -44,7 +45,7 @@ from waggle.messages.supervision import (
     Question,
     WardenState,
 )
-from waggle.messages.task import ArtifactRef, ScoutReport, TaskOutcome, TaskResult
+from waggle.messages.task import ArtifactRef, ResultCause, ScoutReport, TaskOutcome, TaskResult
 
 _DEFAULT_LIMIT = 3
 
@@ -171,6 +172,45 @@ def test_task_result_failed_fails_once_attempts_reach_the_limit() -> None:
     action = decide(item, task, 3, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
 
     assert action is QueenAction.FAIL_TASK
+
+
+def _refused_commands(clock: FakeClock, attempt: int = 1) -> TaskResult:
+    """A FAILED result whose Cell refused its commands (ADR-0060)."""
+    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=attempt)
+    return result.model_copy(update={"cause": ResultCause.CELL_RUNS_NO_COMMANDS})
+
+
+def test_a_failed_result_whose_cell_refused_its_commands_is_requeued_not_retried() -> None:
+    clock = FakeClock()
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=_refused_commands(clock))
+    task = make_task(status=TaskStatus.RUNNING, clock=clock)
+
+    action = decide(item, task, 1, _no_rules_policy(), _DEFAULT_LIMIT)
+
+    assert action is QueenAction.REQUEUE_TASK
+
+
+def test_a_task_already_needing_commands_is_never_requeued_again() -> None:
+    # Once is the bound: re-placed already (or planned so), it retries or fails like any other.
+    clock = FakeClock()
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=_refused_commands(clock))
+    spec = make_task_spec(needs=TaskNeeds(commands=True))
+    task = make_task(status=TaskStatus.RUNNING, clock=clock, spec=spec)
+
+    action = decide(item, task, 1, _no_rules_policy(), _DEFAULT_LIMIT)
+
+    assert action is QueenAction.RETRY_TASK
+
+
+def test_a_stale_refused_commands_result_is_only_recorded() -> None:
+    clock = FakeClock()
+    payload = _refused_commands(clock, attempt=1)
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=payload)
+    task = make_task(status=TaskStatus.RUNNING, clock=clock)
+
+    action = decide(item, task, 2, _no_rules_policy(), _DEFAULT_LIMIT)
+
+    assert action is QueenAction.RECORD
 
 
 def test_failed_result_for_an_attempt_older_than_the_current_one_is_a_stale_record() -> None:

@@ -28,8 +28,9 @@ Fits into the Hive:
     (admits, CapabilityFamily: whether a Cell runs commands), `hivemind.llm`
     (CallGate, LLMRequest, LadderObserver, Message, PromptName, Role, SectionLabel,
     complete_structured, render), `hivemind.memory` (RETRIEVED_PREAMBLE, render_item,
-    RetrievedItem, is_refused, ITEM_CAP_CHARS), `hivemind.queen.planner.schema` and
-    `waggle.messages` (Postcondition) only.
+    RetrievedItem, is_refused, ITEM_CAP_CHARS), `hivemind.queen.planner.schema`,
+    `hivemind.supervision.capping` (COMMAND_POSTCONDITION_KINDS) and `waggle.messages`
+    (Postcondition) only.
 
 Key invariants:
     - `plan_goal` never returns a `TaskGraphDraft` whose first task lacks acceptance criteria or
@@ -40,6 +41,8 @@ Key invariants:
     - A request's need to survive a lost link (`PlanBrief.survives_link_loss`) is switched on in
       every draft's needs and never off: the operator can add the need to a plan, and a plan can
       add it to a subtask the operator left alone, but nothing here removes it.
+    - A draft whose acceptance runs a command (`COMMAND_EXITS_ZERO`, `TEST_PASSES`) always has
+      `needs.commands` set (ADR-0060), whatever the model wrote.
     - Every `PlannedTask.key` becomes its `TaskDraft.key` unchanged, so `depends_on` references
       the model wrote resolve without this module renaming anything; every `PlannedTask.leaves`
       entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason. `PlannedTask.
@@ -96,6 +99,7 @@ from hivemind.memory import (
     render_item,
 )
 from hivemind.queen.planner.schema import PlannedPostcondition, PlannedTask, PlanSchema
+from hivemind.supervision.capping import COMMAND_POSTCONDITION_KINDS
 from waggle.messages import Postcondition
 
 PLANNER_MAX_OUTPUT_TOKENS = 8_192  # A whole task graph as JSON: generous, still bounded.
@@ -315,7 +319,8 @@ def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
     set (roadmap step 10.3) and its request's id and budget (roadmap step 10.5) are inherited the
     same way, for the same reason; its clearance is the lower of the task's own and the goal's
     ceiling, and a tier the request named replaces the task's own (`_needs_at_tier`); so does a
-    promise to survive a lost link (`_needs_for`).
+    promise to survive a lost link (`_needs_for`). A task whose acceptance runs a command needs a
+    Cell that runs one (`_needs_with_commands`).
     """
     return TaskDraft(
         key=task.key,
@@ -323,7 +328,7 @@ def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
         objective=task.objective,
         acceptance=tuple(_to_postcondition(item) for item in task.acceptance),
         role=task.role,
-        needs=_needs_for(task.needs, brief),
+        needs=_needs_for(_needs_with_commands(task), brief),
         clearance=min(task.clearance, brief.clearance, key=lambda label: label.rank),
         origin=brief.origin,
         depends_on=task.depends_on,
@@ -345,6 +350,20 @@ def _needs_for(needs: TaskNeeds, brief: PlanBrief) -> TaskNeeds:
         return tiered
     # A plain bool with no cross-field rule, so a copy is enough (codingrules 8.5).
     return tiered.model_copy(update={"survives_link_loss": True})
+
+
+def _needs_with_commands(task: PlannedTask) -> TaskNeeds:
+    """Return `task.needs`, with `commands` set whenever its acceptance runs a command.
+
+    ADR-0060: the Warden runs a command criterion on the task's own Cell, and a Cell that may not
+    run commands refuses it, so such a task needs a Cell that runs them whatever the model set.
+    Derived from the plan itself, never left to the model alone.
+    """
+    if task.needs.commands or not any(
+        item.kind in COMMAND_POSTCONDITION_KINDS for item in task.acceptance
+    ):
+        return task.needs
+    return task.needs.model_copy(update={"commands": True})
 
 
 def _needs_at_tier(needs: TaskNeeds, tier: CombShieldLevel | None) -> TaskNeeds:

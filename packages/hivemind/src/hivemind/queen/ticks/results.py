@@ -38,15 +38,20 @@ reason (an infeasible Scout's with its own "Held back by Scout" wording) and lan
 for the paths that fail a task without this module (a grant denied at dispatch, a link that closed
 before an assignment reached it) and for a human's cancel.
 
+`requeue_task` (ADR-0060) carries out a fourth decision, `REQUEUE_TASK`: a FAILED result whose
+Cell refused its commands (`ResultCause.CELL_RUNS_NO_COMMANDS`) is not retried where it would be
+refused again but re-placed once on a Cell that runs commands (`hivemind.queen.dispatcher.
+requeue_for_commands`), or failed with placement's own reason when no Cell ever could.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
     sub-package. Called by `hivemind.queen.queen.Queen`'s own tick dispatch, once per decided
-    `COMPLETE_TASK`/`RETRY_TASK`/`FAIL_TASK`. Calls into `hivemind.brood_chamber` (Task,
-    TaskOutcome, TaskStatus, descendants), `hivemind.cell` (Cell, CombShieldLevel),
+    `COMPLETE_TASK`/`RETRY_TASK`/`REQUEUE_TASK`/`FAIL_TASK`. Calls into `hivemind.brood_chamber`
+    (Task, TaskOutcome, TaskStatus, descendants), `hivemind.cell` (Cell, CombShieldLevel),
     `hivemind.honey_store` (NectarSubmission, NectarOrigin, intake through `QueenDeps.honey`),
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.dispatcher` (dispatch_ready,
-    redispatch, start_release), `hivemind.queen.ticks.housekeeping` (placed_cell) and waggle
-    (including `waggle.messages.task.ScoutReport`) only.
+    redispatch, requeue_for_commands, start_release), `hivemind.queen.ticks.housekeeping`
+    (placed_cell) and waggle (including `waggle.messages.task.ScoutReport`) only.
 
 Key invariants:
     - `complete_task` calls `dispatch_ready` immediately afterward, so a dependant task is placed
@@ -102,7 +107,12 @@ from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
 from hivemind.honey_store import NectarOrigin, NectarSubmission
 from hivemind.queen.deps import QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready, redispatch, start_release
+from hivemind.queen.dispatcher import (
+    dispatch_ready,
+    redispatch,
+    requeue_for_commands,
+    start_release,
+)
 from hivemind.queen.ticks.housekeeping import placed_cell
 from waggle.ids import CellId, TaskId, WardenId
 from waggle.messages import Postcondition
@@ -129,6 +139,7 @@ __all__ = [
     "fail_reason",
     "fail_task",
     "fail_task_from_result",
+    "requeue_task",
     "retry_task",
 ]
 
@@ -203,6 +214,37 @@ async def retry_task(
         attempt: The next attempt number, tracked by the caller.
     """
     await redispatch(deps, wardens, task_id, attempt)
+
+
+async def requeue_task(
+    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempt: int
+) -> int | None:
+    """Re-place a task whose Cell refused its commands on one that runs them, or fail it.
+
+    ADR-0060: a retry on the same Cell would be refused again, so the task goes back to PENDING
+    needing commands, as attempt `attempt`, and is placed again at once. When no Cell could ever
+    run them (placement's final reason: none attached may, and the Hive has no Virtual Cell), it
+    fails with that reason instead, and its dependents are cancelled as for any failure.
+
+    Args:
+        deps: The Queen's collaborators.
+        wardens: Every Warden currently attached.
+        task_id: The task to re-place; still RUNNING in the Brood Chamber, not yet needing
+            commands.
+        attempt: The next attempt number, tracked by the caller.
+
+    Returns:
+        The attempt the re-placed task now carries, for the caller's own count; None when it
+        failed instead, or when it is no longer RUNNING or already needs commands.
+    """
+    task = await deps.chamber.get(task_id)
+    if task.status is not TaskStatus.RUNNING or task.spec.needs.commands:
+        return None  # It moved on meanwhile (held, cancelled), or was re-placed once already.
+    refusal = await requeue_for_commands(deps, wardens, task_id, attempt)
+    if refusal is not None:
+        await fail_task(deps, task_id, f"Its Cell refused the commands it runs: {refusal}")
+        return None
+    return (await deps.chamber.get(task_id)).attempt
 
 
 def fail_reason(payload: TaskResult) -> str:

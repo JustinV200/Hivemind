@@ -7,12 +7,15 @@ checks, books and sends the grant and the `TaskAssign` once a task has its Cell 
 zero-grant refusal, the `grant_issue` point, the recon and Honey an assignment carries).
 `dispatch_ready`, `redispatch` and `resume_paused` are the three ways in; all of them end in
 `assign.send_grant_and_assign`, the one choke point a grant and an assignment pass.
+`requeue.requeue_for_commands` (ADR-0060) puts a task whose Cell refused its commands back in
+front of `dispatch_ready`, needing a Cell that runs them.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.dispatcher`. Called
     by `hivemind.queen.queen.Queen` (every tick, after `submit_goal`, after a finished task),
-    `hivemind.queen.ticks.results` and `.alarms` (a retry or a REBIND) and
-    `hivemind.queen.cluster.protocol` (a resume). Calls into this package's `dispatch` only.
+    `hivemind.queen.ticks.results` and `.alarms` (a retry, a REBIND or a re-placement for
+    commands) and `hivemind.queen.cluster.protocol` (a resume). Calls into this package's
+    `dispatch` and `requeue` only.
 
 Key invariants:
     - `GrantIssued` is always sent before `TaskAssign`, on the same Warden link, for the same task.
@@ -21,11 +24,14 @@ Key invariants:
 See Also:
     - hivemind.queen.dispatcher.ready.dispatch for the three entry points and placement.
     - hivemind.queen.dispatcher.ready.assign for the grant and the TaskAssign.
+    - hivemind.queen.dispatcher.ready.requeue for a re-placement on a Cell that runs commands.
 
 Public API:
     - dispatch_ready, redispatch, resume_paused: the three ways a task is (re-)assigned.
+    - requeue_for_commands: a task whose Cell refused its commands, placed again (ADR-0060).
 """
 
 from hivemind.queen.dispatcher.ready.dispatch import dispatch_ready, redispatch, resume_paused
+from hivemind.queen.dispatcher.ready.requeue import requeue_for_commands
 
-__all__ = ["dispatch_ready", "redispatch", "resume_paused"]
+__all__ = ["dispatch_ready", "redispatch", "requeue_for_commands", "resume_paused"]

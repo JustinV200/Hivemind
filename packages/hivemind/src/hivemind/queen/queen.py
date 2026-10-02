@@ -493,13 +493,22 @@ async def _act(
 async def _act_on_task_result(
     queen: Queen, action: QueenAction, payload: TaskResult, warden_id: WardenId
 ) -> None:
-    """Carry out COMPLETE_TASK, RETRY_TASK or FAIL_TASK for a TaskResult."""
+    """Carry out COMPLETE_TASK, RETRY_TASK, REQUEUE_TASK or FAIL_TASK for a TaskResult."""
     if action is QueenAction.COMPLETE_TASK:
         await ticks.results.complete_task(queen._deps, queen.wardens, payload, warden_id)
         await _resolve_pending_alarm(queen, payload.task_id)
     elif action is QueenAction.RETRY_TASK:
         attempt = _next_attempt(queen, payload.task_id)
         await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, attempt)
+    elif action is QueenAction.REQUEUE_TASK:
+        # ADR-0060: re-placed where commands run; its next attempt's number is the chamber's,
+        # so a late result from the refused attempt reads as stale.
+        attempt = _next_attempt(queen, payload.task_id)
+        placed = await ticks.results.requeue_task(
+            queen._deps, queen.wardens, payload.task_id, attempt
+        )
+        if placed is not None:
+            queen._attempts[payload.task_id] = placed
     elif action is QueenAction.FAIL_TASK:
         await ticks.results.fail_task_from_result(queen._deps, payload)
 

@@ -43,6 +43,9 @@ Key invariants:
     - A SUCCEEDED `TaskResult` whose `scout_report.feasible` is False always resolves to
       `FAIL_TASK`, never `RETRY_TASK`: an infeasible Scout is not a transient failure worth
       retrying, and `attempts`/`limit` play no part in that one decision.
+    - A current FAILED `TaskResult` carrying `ResultCause.CELL_RUNS_NO_COMMANDS` resolves to
+      `REQUEUE_TASK` only while its task does not yet need commands (ADR-0060), so a task is
+      re-placed for its commands at most once; after that it retries or fails as usual.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the autopilot-first-awake-second shape this table
@@ -69,7 +72,7 @@ from waggle.messages.cell.status import CellHeartbeat
 from waggle.messages.control import HumanMessage
 from waggle.messages.forage import CapacityReport
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
-from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
+from waggle.messages.task import ResultCause, TaskOutcome, TaskProgress, TaskResult, TaskStage
 
 __all__ = ["decide"]
 
@@ -121,7 +124,7 @@ def decide(
     payload = item.payload
     stale = task is not None and task.status in TERMINAL_STATUSES
     if isinstance(payload, TaskResult):
-        return QueenAction.RECORD if stale else _decide_task_result(payload, attempts, limit)
+        return QueenAction.RECORD if stale else _decide_task_result(payload, task, attempts, limit)
     if isinstance(payload, AlarmRaised):
         if stale or payload.kind is AlarmKind.ACCEPTANCE_FAILED:
             # A Warden raises ACCEPTANCE_FAILED and then reports TaskResult(FAILED) for the very
@@ -148,8 +151,10 @@ def decide(
     return QueenAction.NEEDS_JUDGEMENT
 
 
-def _decide_task_result(payload: TaskResult, attempts: int, limit: int) -> QueenAction:
-    """Map a TaskResult's own outcome to COMPLETE_TASK, RETRY_TASK or FAIL_TASK."""
+def _decide_task_result(
+    payload: TaskResult, task: Task | None, attempts: int, limit: int
+) -> QueenAction:
+    """Map a TaskResult's own outcome to COMPLETE_TASK, RETRY_TASK, REQUEUE_TASK or FAIL_TASK."""
     if payload.outcome is TaskOutcome.SUCCEEDED:
         if payload.scout_report is not None and not payload.scout_report.feasible:
             # Roadmap step 6.10: acceptance passed (the report file exists) but the Scout itself
@@ -163,11 +168,26 @@ def _decide_task_result(payload: TaskResult, attempts: int, limit: int) -> Queen
             # (attempt 1's result landing after attempt 2 went out) is history, not a decision:
             # retrying on it would run two attempts for one failure.
             return QueenAction.RECORD
+        if _needs_a_cell_that_runs_commands(payload, task):
+            # ADR-0060: its Cell refused its commands, so a retry there is refused again; it is
+            # re-placed once where commands run, whatever attempts remain.
+            return QueenAction.REQUEUE_TASK
         # roadmap 3.22's own exit criteria: retries with attempt+1 up to the limit, then FAIL_TASK.
         return QueenAction.RETRY_TASK if attempts < limit else QueenAction.FAIL_TASK
     # CLAIMED never reaches the Queen (the Warden intercepts it); CANCELLED is the echo of a
     # cancellation the Queen herself already decided elsewhere. Either way, nothing more to decide.
     return QueenAction.RECORD
+
+
+def _needs_a_cell_that_runs_commands(payload: TaskResult, task: Task | None) -> bool:
+    """Say whether a failed result asks for a Cell that runs commands its task lacked.
+
+    Only once per task: a task already needing commands (re-placed once, or planned so) is
+    retried or failed like any other, so the re-placement can never repeat.
+    """
+    if payload.cause is not ResultCause.CELL_RUNS_NO_COMMANDS:
+        return False
+    return task is not None and not task.spec.needs.commands
 
 
 def _decide_alarm(

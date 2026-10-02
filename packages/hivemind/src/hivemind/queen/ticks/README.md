@@ -43,6 +43,10 @@ class stay within codingrules 5.1's size limits.
   otherwise sit out its whole timeout); each cancellation is a `task.cancelled` on the trail. The
   Queen's per-tick `chamber.cancel_stranded` sweep stays as the backstop for failures that never
   pass through here (a grant denied at dispatch, an unreachable Warden link).
+- `results.requeue_task`: `REQUEUE_TASK` (ADR-0060), for a FAILED `TaskResult` whose Cell refused
+  its commands (`ResultCause.CELL_RUNS_NO_COMMANDS`): `dispatcher.requeue_for_commands` moves it
+  back to PENDING needing commands and places it again where they run, or the task fails with
+  placement's own reason when no Cell ever could. Once per task.
 - `honey.handle_honey_item` (roadmap step 7.8): the third entry point `handle_infrastructure_item`
   reaches ahead of `decide`. A `NectarDeposit` chunk goes to the Honey Store's intake with the
   sending Warden's own Cell record as its source (a refusal answers `control.error` with the
