@@ -128,7 +128,7 @@ async def test_a_blocked_file_request_is_reported_without_its_path(tmp_path: Pat
     guard = FileGuard((tmp_path,), sink)
     await guard.resolve()
 
-    await guard.decide(_FileRoute("file:///etc/passwd", answers))  # type: ignore[arg-type]
+    await guard.decide(_FileRoute("file:///etc/passwd", answers))  # type: ignore[arg-type, unused-ignore]
 
     assert answers == [f"abort:{BLOCKED}"]
     assert blocks == [BrowserBlock(BlockRule.FILE)]

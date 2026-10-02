@@ -63,7 +63,7 @@ def _event(target_id: str, url: str) -> dict[str, Any]:
 
 async def _installed(session: _Session, sink: _Sink | None = None) -> ChromeGuard:
     guard = ChromeGuard(sink)
-    await guard.install(_Browser(session))  # type: ignore[arg-type]
+    await guard.install(_Browser(session))  # type: ignore[arg-type, unused-ignore]
     return guard
 
 
