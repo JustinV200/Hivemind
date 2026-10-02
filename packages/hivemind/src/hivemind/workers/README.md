@@ -11,7 +11,9 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   `run` returns: a claim of completion (`claimed=True`) or a request to hand off
   (`handoff` set) -- never both, never neither. A Worker never marks itself `SUCCEEDED`.
   `scout_report` (roadmap step 6.10) carries a claimed Scout's `waggle.messages.task.ScoutReport`
-  onto the CLAIMED `TaskResult`; `None` for every other role.
+  onto the CLAIMED `TaskResult`; `None` for every other role. `cause` (ADR-0060) is
+  `ResultCause.CELL_RUNS_NO_COMMANDS` when the Cell's access level refused one of the attempt's
+  commands (`bounded_loop.records.refused_commands`), carried onto the claim the same way.
 - `state.py` -- `WorkerState` and its one transition table (codingrules Appendix C's "Worker"
   row): `SPAWNED -> RUNNING -> DONE/FAILED/KILLED`, `RUNNING <-> HANDING_OFF`,
   `RUNNING <-> PAUSED`, and `PAUSED -> DONE/FAILED` for a role that ends before it reaches the

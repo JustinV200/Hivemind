@@ -21,14 +21,16 @@ attempt's own telemetry spend overlaid on it, after `_UsageTally` (the gate ever
 attempt goes through) records what the unfinished loop never got to sum. Roadmap step 9.7: a
 `hivemind.workers.tools.ToolsChangedError` (the Warden changed this Worker's Comb tools, as when a
 requested tool was promoted and handed over) restarts the tool loop from state with a rebuilt
-registry and a note naming the new tools, at most `MAX_TOOL_REBUILDS` times.
+registry and a note naming the new tools, at most `MAX_TOOL_REBUILDS` times. Either claim carries
+`ResultCause.CELL_RUNS_NO_COMMANDS` when the Cell's access level refused one of the attempt's
+commands (ADR-0060), so a failed acceptance re-places the task rather than retrying it there.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Called once
     per attempt by every bounded-loop role's own `run` (`hivemind.workers.roles.drone.role.Drone`,
     `.forager.role.Forager`, `.scout.role.Scout`). Calls into `hivemind.llm` (the tool loop and the
-    trail observer), `hivemind.memory`, this package's `.executor`, `.outcome`, `.prompt` and
-    `.sources`, and waggle only.
+    trail observer), `hivemind.memory`, this package's `.executor`, `.outcome`, `.prompt`,
+    `.records` and `.sources`, and waggle only.
 
 Key invariants:
     - Never marks a task SUCCEEDED (codingrules 8.7): a `claimed=True` outcome says only that the
@@ -86,10 +88,11 @@ from hivemind.workers.roles.bounded_loop.prompt import (
     build_request,
     initial_budget,
 )
+from hivemind.workers.roles.bounded_loop.records import refused_commands
 from hivemind.workers.roles.bounded_loop.sources import RoleSources
 from hivemind.workers.tools import ToolInvocation, ToolsChangedError
 from waggle.ids import new_event_id
-from waggle.messages.task import TaskAssign
+from waggle.messages.task import ResultCause, TaskAssign
 
 # Roadmap step 9.7: how many times one attempt may restart its tool loop because the Warden changed
 # its Comb tools. Each restart is a promotion or a re-attenuation; a handful covers a task that
@@ -169,7 +172,8 @@ async def run_bounded_loop(
         # attempt's own telemetry spend the same way build_handoff_outcome does, so a raiser
         # never has to read ctx.telemetry itself (LoopStoppedError's own docstring).
         _record_usage(ctx, attempt.tally.usage)
-        return stopped.outcome.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
+        spend = ctx.telemetry.snapshot().spend
+        return stopped.outcome.model_copy(update={"spend_usd": spend, "cause": _cause(attempt)})
     return await _claim(attempt, result)
 
 
@@ -267,7 +271,20 @@ async def _claim(attempt: _Attempt, result: ToolLoopResult) -> WorkerOutcome:
     _record_usage(ctx, attempt.tally.usage)
     artifacts = await collect_artifacts(ctx, attempt.executor.records)
     claimed = build_claimed_outcome(attempt.assignment, result, artifacts)
-    return claimed.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
+    spend = ctx.telemetry.snapshot().spend
+    return claimed.model_copy(update={"spend_usd": spend, "cause": _cause(attempt)})
+
+
+def _cause(attempt: _Attempt) -> ResultCause | None:
+    """Name the typed cause this attempt's claim carries: its Cell refused a command, or none.
+
+    ADR-0060: a command the Cell's access level refuses will be refused on every retry there, so
+    the claim says so; if acceptance then fails, the Queen re-places the task on a Cell that runs
+    commands. A claim that passes acceptance anyway simply succeeds.
+    """
+    if refused_commands(attempt.executor.records):
+        return ResultCause.CELL_RUNS_NO_COMMANDS
+    return None
 
 
 def _record_usage(ctx: WorkerContext, usage: Usage) -> None:

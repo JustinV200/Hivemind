@@ -48,6 +48,7 @@ from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised, He
 from waggle.messages.supervision.alarms import MAX_DETAIL_CHARS
 from waggle.messages.task import (
     ArtifactRef,
+    ResultCause,
     ScoutReport,
     TaskAssign,
     TaskOutcome,
@@ -78,6 +79,7 @@ class ResultDetails:
     handoff: HandoffRef | None = None  # The last Handoff written, for a retry to resume from.
     spend: float = 0.0  # Total spend charged to this attempt.
     scout_report: ScoutReport | None = None  # What a Scout found (roadmap 6.10); None otherwise.
+    cause: ResultCause | None = None  # A typed cause the attempt ended so (ADR-0060); None usually.
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +172,7 @@ def build_result(assignment: TaskAssign, details: ResultDetails) -> TaskResult:
         spend=details.spend,
         reason=details.reason[:MAX_REASON_CHARS],
         scout_report=details.scout_report,
+        cause=details.cause,
     )
 
 

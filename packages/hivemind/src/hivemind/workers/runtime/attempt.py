@@ -258,6 +258,7 @@ class AttemptManager:
                 artifacts=outcome.artifacts,
                 spend=outcome.spend_usd,
                 scout_report=outcome.scout_report,  # roadmap 6.10: rides onto the TaskResult.
+                cause=outcome.cause,  # ADR-0060: the Queen re-places on it, the Warden carries it.
             )
         )
 

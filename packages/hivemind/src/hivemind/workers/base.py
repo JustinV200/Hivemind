@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from hivemind.cell import HoneyClearance
 from hivemind.memory import Handoff
 from hivemind.workers.context import WorkerContext
-from waggle.messages.task import ArtifactRef, ScoutReport, TaskAssign, WorkerRole
+from waggle.messages.task import ArtifactRef, ResultCause, ScoutReport, TaskAssign, WorkerRole
 
 MIN_SPEND_USD = 0.0  # Spend is never negative; the Hive meters cost, never refunds.
 
@@ -88,6 +88,12 @@ class WorkerOutcome(BaseModel):
         default=None,
         description="What a Scout found (roadmap step 6.10), carried unchanged onto the CLAIMED "
         "TaskResult; None for every other role and for a Scout's own handoff outcome.",
+    )
+    cause: ResultCause | None = Field(
+        default=None,
+        description="A typed cause this attempt ended as it did, carried onto the CLAIMED "
+        "TaskResult: CELL_RUNS_NO_COMMANDS when the Cell refused its commands (ADR-0060), so the "
+        "Queen can re-place the task if acceptance then fails. None otherwise.",
     )
 
     @model_validator(mode="after")

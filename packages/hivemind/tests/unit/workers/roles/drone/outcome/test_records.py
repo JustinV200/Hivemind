@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from builders.llm import make_tool_call
 
+from hivemind.workers.roles.bounded_loop.records import ToolCallRecord, refused_commands
 from hivemind.workers.roles.drone.outcome.records import classify_error, target_for
 
 
@@ -80,3 +81,20 @@ def test_target_for_falls_back_to_the_tool_name_for_an_untargeted_call() -> None
     call = make_tool_call(name="ask", arguments={"text": "Which environment?"})
 
     assert target_for(call) == "ask"
+
+
+def _record(name: str, result_text: str) -> ToolCallRecord:
+    """Build one recorded call to `name` that returned `result_text`."""
+    call = make_tool_call(name=name, arguments={"argv": ["pytest"]})
+    return ToolCallRecord(call=call, result_text=result_text, is_error=True)
+
+
+def test_refused_commands_reads_only_a_run_command_refused_by_the_cells_level() -> None:
+    # ADR-0060: the Guard's fixed template under `guard.access_level.<level>`, on run_command.
+    refused = "refused by the Guard (guard.access_level.scratch): Worker w ... Nothing was done."
+    other = "refused by the Guard (guard.not_held): Worker w ... Nothing was done."
+
+    assert refused_commands((_record("run_command", refused),)) is True
+    assert refused_commands((_record("run_command", other),)) is False
+    assert refused_commands((_record("write_file", refused),)) is False
+    assert refused_commands(()) is False

@@ -12,12 +12,15 @@ call acted on, so a Handoff line can say what, not just that something happened.
 Drone-specific, so that module now re-exports these same names for its own, unchanged tests.
 Roadmap step 10.3: a capability refusal is now the Guard's own, rendered by
 `hivemind.workers.tools.authorize.refusal_text` behind its fixed `GUARD_REFUSAL_PREFIX`, the one
-capability-denial template left.
+capability-denial template left. `refused_commands` (ADR-0060) reads the same fixed template for
+a `run_command` the Cell's access level refused (`guard.access_level.<level>`), so the attempt's
+claim can carry a typed cause the Queen re-places the task on.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Read by
     `hivemind.workers.roles.bounded_loop.executor` (to classify a call as it lands) and `.fields`
-    (to turn classified calls into Handoff lines). Calls into `hivemind.llm`,
+    (to turn classified calls into Handoff lines), and by `.runner` (`refused_commands`). Calls
+    into `hivemind.guard` (ACCESS_LEVEL_RULE), `hivemind.llm`,
     `hivemind.workers.tools.authorize` (GUARD_REFUSAL_PREFIX) and
     `hivemind.workers.tools.exoskeleton` (ACTION_TOOL_NAMES) only.
 
@@ -38,8 +41,10 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
+from hivemind.guard import ACCESS_LEVEL_RULE
 from hivemind.llm import ToolCall
 from hivemind.workers.tools.authorize import GUARD_REFUSAL_PREFIX
 from hivemind.workers.tools.exoskeleton import ACTION_TOOL_NAMES
@@ -49,6 +54,11 @@ from hivemind.workers.tools.exoskeleton import ACTION_TOOL_NAMES
 # looking at the call, since nothing else a bounded-loop role offers changes anything outside the
 # model's own next turn.
 SIDE_EFFECT_TOOLS = frozenset({"write_file", "run_command", "http_request", "keep", "retain"})
+
+# How a run_command refused by the Cell's access level opens (ADR-0060): the Guard's fixed prefix
+# and the rule id's own prefix, as `authorize.refusal_text` renders them; never model prose.
+_COMMAND_TOOL = "run_command"
+_ACCESS_LEVEL_REFUSAL = f"{GUARD_REFUSAL_PREFIX}({ACCESS_LEVEL_RULE}."
 
 # hivemind.workers.tools.proposals.describe's own rendering always starts with one of these two
 # tokens for a capped tool's result: reading them is parsing a fixed, machine-produced format,
@@ -86,6 +96,7 @@ __all__ = [
     "ToolCallRecord",
     "classify_error",
     "is_lasting",
+    "refused_commands",
     "target_for",
 ]
 
@@ -130,6 +141,22 @@ def classify_error(name: str, content: str) -> bool:
         # Reached before a Proposal was ever built (a malformed path/argv/url): always a failure.
         return True
     return content.startswith(_KNOWN_ERROR_PREFIXES)
+
+
+def refused_commands(records: Sequence[ToolCallRecord]) -> bool:
+    """Say whether this attempt's Cell refused one of its commands under its access level.
+
+    Args:
+        records: The attempt's own recorded calls (`LoopExecutor.records`).
+
+    Returns:
+        True when a `run_command` came back as a `guard.access_level.<level>` refusal: the Cell
+        may not run commands at all (ADR-0060), so no retry there can run them either.
+    """
+    return any(
+        record.call.name == _COMMAND_TOOL and record.result_text.startswith(_ACCESS_LEVEL_REFUSAL)
+        for record in records
+    )
 
 
 def is_lasting(call: ToolCall) -> bool:
