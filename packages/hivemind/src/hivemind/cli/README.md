@@ -144,7 +144,8 @@ typer layer that calls into a subsystem's public API and never contains logic of
   `forage.denied` with its cause (`deferred: waiting for free_cores (fails after 300s)` for a task
   left waiting for room, `denied: seats` for one refused), then a one-line summary; exits 0 on
   success, 1 when the goal failed, 2 on a timeout or a bad manifest. A timeout or Ctrl+C says the
-  goal is not cancelled: its unfinished tasks run again when the Hive next starts. The streamed view begins at
+  goal is not cancelled: its unfinished tasks run again when the Hive next starts (for a Night
+  Veil goal, what ran on its teardown-only Cell ended with it). The streamed view begins at
   the goal's own
   submission, never earlier (a store that already holds other runs does not replay them), and
   with `[hive_stand] keep_scratch = true` (development only) the last line names the lease

@@ -97,6 +97,7 @@ __all__ = [
     "DEFAULT_CLEARANCE",
     "DEFAULT_TIMEOUT_S",
     "NOT_CANCELLED",
+    "VEILED_NOT_CANCELLED",
     "ClearanceOption",
     "RunCommand",
     "TimeoutOption",
@@ -115,6 +116,12 @@ DEFAULT_CLEARANCE = "C1"  # codingrules 8.9's own default label for ordinary, no
 NOT_CANCELLED = (
     "is not cancelled: its unfinished tasks run again when this Hive next starts "
     "(hive run or hive serve)."
+)
+# The same for a goal asked for at Night Veil, whose Cell is teardown-only (codingrules 8.7): the
+# stop ended what ran on it with the Cell, and only a task never placed runs at the next start.
+VEILED_NOT_CANCELLED = (
+    "is not cancelled, but what it left on its Night Veil Cell ended with that Cell; a task not "
+    "yet placed runs when this Hive next starts (hive run or hive serve)."
 )
 
 # The trail kinds worth a line as `hive run` streams a goal: queen decisions, Warden/Worker
@@ -295,7 +302,7 @@ def run_command(
         _print_kept_scratch(loaded.resolve_path(loaded.hive_stand.scratch_root))
     if report.timed_out:
         if not options.as_json:
-            typer.echo(f"goal {report.goal_id} {NOT_CANCELLED}")
+            typer.echo(f"goal {report.goal_id} {_left_unfinished(options.comb_shield)}")
         raise typer.Exit(code=2)
     raise typer.Exit(code=0 if report.succeeded else 1)
 
@@ -319,6 +326,11 @@ def _run_remote(ctx: typer.Context, goal: str, options: _RunOptions) -> NoReturn
     )
 
 
+def _left_unfinished(tier: CombShieldLevel | None) -> str:
+    """Say what a stop leaves of a goal asked for at `tier`, once its run ended before it did."""
+    return VEILED_NOT_CANCELLED if tier is CombShieldLevel.NIGHT_VEIL else NOT_CANCELLED
+
+
 def _run_or_exit(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | GoalNotPlannedError:
     """Run the goal in its own event loop; a failure ends the command with one stderr line.
 
@@ -332,7 +344,8 @@ def _run_or_exit(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | Go
     except KeyboardInterrupt:
         # Ctrl+C: run_hive's teardown already ran whole. Say where the goal stands, then end the
         # way an interrupted command always has.
-        typer.echo(f"hive run interrupted; the goal {NOT_CANCELLED}", err=True)
+        left = _left_unfinished(options.comb_shield)
+        typer.echo(f"hive run interrupted; the goal {left}", err=True)
         raise
     except Exception as exc:
         # SAFETY: the command body's own broad catch (codingrules section 10's third allowed

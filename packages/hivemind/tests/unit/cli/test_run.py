@@ -254,6 +254,27 @@ def test_an_interrupted_run_says_its_goal_is_not_cancelled(
     assert f"hive run interrupted; the goal {run_module.NOT_CANCELLED}" in result.output
 
 
+def test_an_interrupted_night_veil_run_says_what_ran_on_its_cell_ended_with_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A Night Veil Cell is teardown-only: the stop ended its work, never placed it again.
+    manifest_path = fake_manifest(tmp_path)
+    _patch_build_hive(monkeypatch, _PLAN)
+
+    async def interrupted(*_args: object) -> None:
+        """Stand in for the run as Ctrl+C ends it: asyncio.run raises KeyboardInterrupt."""
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_module, "_run", interrupted)
+    argv = ["run", _GOAL, "--manifest", str(manifest_path), "--comb-shield", "night_veil"]
+
+    result = runner.invoke(app, argv)
+
+    assert result.exit_code == 130, result.output
+    assert run_module.VEILED_NOT_CANCELLED in result.output
+    assert run_module.NOT_CANCELLED not in result.output
+
+
 def test_run_help_says_how_hive_stand_honey_reaches_a_c1_goal() -> None:
     """ADR-0038: the C1 default stays, and the help names both ways Hive Stand Honey is read."""
     result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
