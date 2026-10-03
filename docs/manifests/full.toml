@@ -617,6 +617,10 @@ cpu_cores = 1.0
 memory_bytes = 1073741824
 # Disk to reserve, in bytes (8 GiB here).
 disk_bytes = 8589934592
+# The most sub-bees one Virtual Cell runs at once (4 when omitted): the cap its reservation carries
+# and its Warden reports. Forage still grants no more than the reserved cores and memory above
+# carry for each role's footprint, so raising this alone never overcommits a Cell.
+max_sub_bees = 4
 # The default outbound network shape: "none", "egress_only" or "allowlist". Never "vpn_tor": that
 # profile is Night Veil's own forced default, not a configurable one.
 network_policy = "egress_only"

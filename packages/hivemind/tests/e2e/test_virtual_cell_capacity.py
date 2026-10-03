@@ -49,7 +49,6 @@ pytestmark = pytest.mark.e2e
 
 _BUSY = (3.9, 3.9, 3.9)  # About this loaded, a four-core Hive Stand left its Cells no free core.
 _TIMEOUT_S = 30.0
-_MAX_SUB_BEES = 4  # hivemind.cli.compose.virtual_cells' own Virtual Cell cap.
 
 
 def test_a_virtual_cell_on_a_busy_host_reports_its_reservation_and_gets_its_bee(
@@ -83,7 +82,7 @@ async def _run_on_a_busy_host(hive: Hive) -> None:
         cpu_cores=section.cpu_cores,
         memory_bytes=section.memory_bytes,
         disk_bytes=section.disk_bytes,
-        max_sub_bees=_MAX_SUB_BEES,
+        max_sub_bees=section.max_sub_bees,  # The manifest's own Virtual Cell cap (open item 6).
     )
     try:
         async with run_hive(hive):

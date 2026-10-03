@@ -207,10 +207,6 @@ from waggle.ids import HiveId
 from waggle.messages import OsFamily as WireOsFamily
 from waggle.signing import Ed25519Signer
 
-# The manifest carries no `[virtual_cells] max_sub_bees` field yet (roadmap step 5.6's own gap,
-# named in this dispatch's report): every provisioned Cell's own template promises this many
-# concurrent sub-bees, matching `hivemind.hive.backends.fake.FakeCellBackend`'s own default.
-_DEFAULT_MAX_SUB_BEES = 4
 _VIRTUAL_CELL_ARCH = "x86_64"  # images/ is Ubuntu-based (codingrules section 2).
 
 __all__ = ["VirtualCellsParts", "build_virtual_cells", "docker_gateway_url"]
@@ -488,11 +484,13 @@ def _spec_from_section(
     """
     # The capacity placement reads is the reservation's own, computed exactly as the Cell will
     # compute it from its bootstrap (hivemind.hive.models.CellReservation): one set of figures.
+    # Its sub-bee cap is the manifest's (open item 6); Forage bounds each grant below it by the
+    # reserved cores and memory, as it bounds a Real Cell by its probed ones.
     reservation = CellReservation(
         cpu_cores=section.cpu_cores,
         memory_bytes=section.memory_bytes,
         disk_bytes=section.disk_bytes,
-        max_sub_bees=_DEFAULT_MAX_SUB_BEES,
+        max_sub_bees=section.max_sub_bees,
     )
     capacity = reservation.capacity(arch=_VIRTUAL_CELL_ARCH, os=WireOsFamily.LINUX)
     return VirtualCellSpec(

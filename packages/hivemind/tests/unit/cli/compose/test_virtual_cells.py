@@ -19,7 +19,7 @@ import pytest
 from builders.attested_cells import GatedFakeCellBackend, StubQueen, make_tier_spec
 from builders.cells import make_cell
 from builders.cli import fake_manifest
-from builders.forage import make_footprint
+from builders.forage import make_footprint, make_reserve, make_source
 
 from hivemind.cell import CombShieldLevel, TaskNeeds
 from hivemind.cli.compose import virtual_cell_backends
@@ -30,6 +30,10 @@ from hivemind.cli.compose.virtual_cells import (
     build_virtual_cells,
     docker_gateway_url,
 )
+from hivemind.forage.allocate import GoalBudgets, GrantInputs, grant
+from hivemind.forage.map import ForageMap
+from hivemind.forage.models import Abundance
+from hivemind.forage.tempo import Tempo
 from hivemind.hive import CellProvisionError
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.manifest import HiveManifest, load_manifest
@@ -46,7 +50,9 @@ from hivemind.queen.placement import (
     decide,
 )
 from waggle.clock import FakeClock
+from waggle.ids import new_cell_id, new_grant_id, new_warden_id
 from waggle.messages import CombShieldLevel as WireCombShieldLevel
+from waggle.messages.task import WorkerRole
 
 
 def _load_with_virtual_cells(tmp_path: Path, **overrides: object) -> HiveManifest:
@@ -165,6 +171,56 @@ async def test_virtual_backend_source_reports_the_fake_backend_with_a_default_sp
     assert (desktop.image, desktop.exoskeleton) == ("desktop-ubuntu", True)
     # Identical resources: neither spec ever fits Forage where the other would not.
     assert desktop.model_copy(update={"image": terminal.image, "exoskeleton": False}) == terminal
+
+
+async def test_every_composed_spec_carries_the_manifests_own_sub_bee_cap(tmp_path: Path) -> None:
+    """Phase 5 open item 6: `[virtual_cells] max_sub_bees` is each template's cap, no constant."""
+    manifest = _load_with_virtual_cells(tmp_path, max_sub_bees=7)
+    clock = FakeClock()
+    parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
+    assert parts is not None
+
+    candidates = await parts.virtual_backend_source()
+
+    assert [spec.capacity.max_sub_bees for spec in candidates[0].specs] == [7, 7]
+
+
+async def test_a_cap_above_the_reserved_cores_is_bounded_by_forage_at_grant_time(
+    tmp_path: Path,
+) -> None:
+    """Forage sizes a Virtual Cell's grant by its reservation, as a Real Cell's by its probe."""
+    manifest = _load_with_virtual_cells(tmp_path, max_sub_bees=32, cpu_cores=2.0)
+    clock = FakeClock()
+    parts = build_virtual_cells(manifest, MemoryPheromoneTrail(clock), clock)
+    assert parts is not None
+    spec = (await parts.virtual_backend_source())[0].specs[0]
+    # One whole core a bee, and nothing else binding: memory, seats and margin left out.
+    source = make_source(
+        seats=64,
+        abundance=Abundance(
+            seats_free=64, requests_per_minute_left=None, tokens_per_minute_left=None
+        ),
+    )
+    inputs = GrantInputs(
+        cell_capacity=spec.capacity,
+        role=WorkerRole.DRONE,
+        footprint=make_footprint(cpu_cores=1.0, memory_bytes=0),
+        tempo=Tempo(),
+        map=ForageMap([source], clock=clock),
+        reserve=make_reserve(seats=0, memory_bytes=0, headroom_fraction=0.0),
+        budgets=GoalBudgets(spend_cap_usd=100.0, token_budget=1_000_000, max_sub_bees=64),
+        holder=new_warden_id(clock),
+        cell_id=new_cell_id(clock),
+        task_id=None,
+        grant_id=new_grant_id(clock),
+        now=clock.now(),
+        ttl_s=300.0,
+    )
+
+    granted = grant(inputs)
+
+    assert spec.capacity.max_sub_bees == 32
+    assert granted.max_sub_bees == 2  # The two reserved cores, never the manifest's 32.
 
 
 async def test_virtual_backend_source_threads_the_manifests_own_exoskeleton_image(

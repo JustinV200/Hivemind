@@ -106,6 +106,13 @@ Both default such that a manifest that omits them entirely behaves exactly as be
 `prefer = "real"`, `allow_hive_stand = true`, and `[virtual_cells] backend` unset means no Virtual
 side is configured at all, so every task stays on the Real side.
 
+`[virtual_cells] max_sub_bees` (default 4, at least 1) is one Virtual Cell's own concurrent
+sub-bee cap, the Virtual counterpart of `[hive_stand.capacity] max_sub_bees`: the Cell's
+reservation carries it and its Warden reports it. Forage still sizes every grant as the smallest
+of that cap and what the Cell's reserved `cpu_cores` and `memory_bytes` carry for the role's
+`[forage.roles]` footprint, just as a Real Cell's probed cores and memory bound its own cap, so
+raise `cpu_cores` and `memory_bytes` with it when a Cell should really run more bees at once.
+
 Roadmap step 6.12 adds `[virtual_cells] exoskeleton_image` (default `"desktop-ubuntu"`): the image
 a Virtual Cell boots when its task needs an Exoskeleton (a display, input, audio or browser
 attachment, `docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md`). `default_image`

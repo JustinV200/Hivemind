@@ -49,6 +49,13 @@ keep its Waggle link (`hivemind.hive.backends.docker.network`). Its first host i
 (``control_gateway``): the validator holds ``listen_host`` to it, and ``advertise_url`` too when
 set, since a Cell reaches the listener there and nowhere else once its egress is cut.
 
+``max_sub_bees`` (phase 5 open item 6) is a Virtual Cell's own concurrent sub-bee cap, the figure
+its reservation carries (`hivemind.hive.CellReservation`) and its Warden reports, exactly as
+``[hive_stand.capacity] max_sub_bees`` is the Hive Stand's. Forage still sizes every grant as the
+smallest of that cap and what the Cell's reserved cores and memory carry for the role's footprint
+(`hivemind.forage.allocate`), the same bound a Real Cell's probed figures put on its own cap, so a
+cap above what the reservation holds is never a bee more than the Cell can run.
+
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
     ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``waggle.messages.task``
@@ -112,6 +119,9 @@ DEFAULT_VIRTUAL_CELLS_DISK_BYTES = 8 * 1024**3  # 8 GiB.
 # [virtual_cells] control_subnet too, whose gateway the link then rides (roadmap step 10.6a).
 DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY: NetworkPolicyName = "egress_only"
 DEFAULT_READY_TIMEOUT_S = 60.0  # Matches hivemind.hive.models.DEFAULT_READY_TIMEOUT_S.
+# One Cell's own sub-bee cap: the Hive Stand's probe default (hivemind.cell.local.probe), and the
+# figure every Virtual Cell carried before the field existed, so a manifest without it is unchanged.
+DEFAULT_VIRTUAL_CELLS_MAX_SUB_BEES = 4
 DEFAULT_MAX_CELLS = 4  # A conservative cap until the operator raises it deliberately.
 DEFAULT_OVERWINTER_ENABLED = True  # docs/adr/0029: reuse is the point of the pool.
 DEFAULT_OVERWINTER_MAX_CELLS = 4  # Matches [virtual_cells] max_cells by default.
@@ -148,6 +158,7 @@ __all__ = [
     "DEFAULT_VIRTUAL_CELLS_IMAGE",
     "DEFAULT_VIRTUAL_CELLS_LISTEN_HOST",
     "DEFAULT_VIRTUAL_CELLS_LISTEN_PORT",
+    "DEFAULT_VIRTUAL_CELLS_MAX_SUB_BEES",
     "DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES",
     "DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY",
     "MIN_CONTROL_SUBNET_ADDRESSES",
@@ -278,6 +289,13 @@ class VirtualCellsSection(BaseModel):
     )
     disk_bytes: int = Field(
         default=DEFAULT_VIRTUAL_CELLS_DISK_BYTES, gt=0, description="Disk to reserve."
+    )
+    max_sub_bees: int = Field(
+        default=DEFAULT_VIRTUAL_CELLS_MAX_SUB_BEES,
+        gt=0,
+        description="The most sub-bees one Virtual Cell runs at once: the cap its reservation "
+        "carries and its Warden reports. Forage still sizes each grant as the smaller of this and "
+        "what the reserved cores and memory carry for the role (hivemind.forage.allocate).",
     )
     network_policy: NetworkPolicyName = Field(
         default=DEFAULT_VIRTUAL_CELLS_NETWORK_POLICY,

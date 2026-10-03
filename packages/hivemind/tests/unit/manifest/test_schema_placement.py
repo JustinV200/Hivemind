@@ -100,6 +100,27 @@ def test_virtual_cells_section_rejects_an_unknown_backend() -> None:
         VirtualCellsSection(backend="not-a-backend")
 
 
+def test_virtual_cells_section_max_sub_bees_defaults_to_four() -> None:
+    """Phase 5 open item 6: the cap every Virtual Cell carried before the field existed."""
+    assert VirtualCellsSection().max_sub_bees == 4
+
+
+def test_virtual_cells_section_max_sub_bees_is_overridable() -> None:
+    assert VirtualCellsSection(max_sub_bees=12).max_sub_bees == 12
+
+
+@pytest.mark.parametrize("bees", [0, -1])
+def test_virtual_cells_section_rejects_a_cell_that_could_run_no_bee(bees: int) -> None:
+    with pytest.raises(ValidationError):
+        VirtualCellsSection(max_sub_bees=bees)
+
+
+def test_full_toml_names_the_virtual_cells_sub_bee_cap() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    assert manifest.virtual_cells.max_sub_bees == 4
+
+
 def test_virtual_cells_section_listener_fields_default_to_loopback() -> None:
     """Roadmap step 5.6: CellListener binds loopback by default, like WebSocketServer."""
     section = VirtualCellsSection()
