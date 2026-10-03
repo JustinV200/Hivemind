@@ -176,9 +176,11 @@ persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU
 
 ## 5. Open items, in suggested order
 
-1. **CI still lacks a Docker-enabled runner**: `.github/workflows/integration.yml` builds the
-   image but its `uv sync` must add `--all-extras` (or `--extra docker`) for the SDK. Locally,
-   `pytest -m integration` now passes against Docker Desktop.
+1. ~~**CI still lacks a Docker-enabled runner**~~ **Closed (already in `integration.yml`)**: the
+   Integration workflow runs on `ubuntu-latest`, which has Docker, builds the images, and syncs
+   with `uv sync --frozen --all-groups --extra docker --extra browser --extra whisper`, so the
+   Docker SDK is there for `pytest -m integration` (never `--all-extras`, which would pull the
+   embeddings extra's deep learning framework too).
 2. **Provider base URLs inside a Cell.** Grants name a provider binding, not a URL, so the in-Cell
    provider registry is a fake (`cli/in_cell/providers.py`). Phase 8's hosting plan should carry
    Cell-relative URLs; `rewrite_loopback_base_url` is the interim helper.
@@ -198,13 +200,50 @@ persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU
    (`hivemind.common.secrets.load_or_mint_hive_signer`, secret `hive.ed25519`), and `build_hive`
    hands it to `build_virtual_cells(hive_signer=...)`, so the Queen signs with the same key after a
    restart. Only the offline `hive cells` commands, which never provision, still use a throwaway.
-6. **`max_sub_bees` for Virtual specs is hardcoded to 4** in `cli/compose/virtual_cells.py`.
-7. **Snapshot relay matches replies FIFO per kind**, not by request id; fine for one in-flight
-   proposal per Warden, wrong under concurrency. Carry the envelope `correlation_id` into
-   `InboxItem` to fix.
-8. **Overwinter scrub is a no-op** (`_null_scrub`): the Warden inside the Cell should remove
-   scratch and stop sub-bees on `Intervene(RELEASE_LEASE)` before the pool pauses it; today the
-   pause happens with whatever is left.
+6. ~~**`max_sub_bees` for Virtual specs is hardcoded to 4**~~ **Closed 2026-10-03**:
+   `[virtual_cells] max_sub_bees` (default 4, at least 1; `manifest/schema/placement.py`) is the
+   cap every Virtual spec's reservation carries (`cli/compose/virtual_cells.py`), so the Cell's
+   Warden reports it; documented in `docs/manifests/README.md` and `full.toml`. No extra clamp:
+   Forage already sizes every grant as the smallest of the Cell's cap and what its reserved cores
+   and memory carry for the role's footprint (`forage/allocate.py`), the same bound a Real Cell's
+   probed figures put on its cap; a compose test proves a cap of 32 on two reserved cores grants
+   two bees.
+7. ~~**Snapshot relay matches replies FIFO per kind**~~ **Closed 2026-10-03**: `InboxItem` had
+   carried the envelope's `correlation_id` since roadmap 7.8 (phase 10's relay fix was a different
+   bug, the relay trusting `cell_id`), but `RelaySnapshotter` ignored it. Each ask now registers
+   under its request envelope's id and resolves only on a reply whose `correlation_id` names it,
+   of its own kind; the Warden's dispatch hands the id through. Two interleaved asks answered out
+   of order each get their own snapshot (`test_snapshot_relay.py`; that test fails on the old
+   relay).
+8. ~~**Overwinter scrub is a no-op**~~ **Closed 2026-10-03**: `queen/cell_gate/scrub.py`
+   (`make_scrub`, `ScrubAcks`) orders the Cell's own Warden over the Queen's link with
+   `Intervene(RELEASE_LEASE)` and waits, up to `SCRUB_TIMEOUT_S` (10 s) on the injected clock, for
+   its `LeaseReleased`. The Warden (`wardens/ticks/control.handle_release_lease`) retires every
+   sub-bee, releases its lease, which now also removes the lease's scratch directory
+   (`cell/in_cell.InCellLeaseReleaser`, through `cell/local/releaser.remove_scratch`), closes the
+   lease's session, ships its trail segment, then answers with the order's envelope id in
+   `correlation_id`. The listener hands the answer to its wait on the Cell's own pump
+   (`AnswerClaims`, checked against the Cell the handshake proved), so the Queen's tick never
+   reads it; a late answer to a scrub that gave up is dropped the same way. The pool pauses the
+   Cell only on `is_restored`; a scrub not confirmed (no Warden attached, link closed, no answer in
+   time, scratch left) is `cell.scrub_failed` (a new trail kind) and `CellScrubError`, and the
+   release tears the Cell down instead. Night Veil Cells are still never overwintered. No Waggle
+   bump: an event may name its antecedent (spec section 3), and the spec's correlation table and
+   `RELEASE_LEASE` entry now say so. Tests: unit (scrub, claims, listener fan-out, release chain,
+   pool, Warden, in-Cell releaser) and `tests/e2e/test_overwinter_scrub.py` (two goals on one
+   in-process Cell, its scratch empty after each pause; a Cell whose scratch cannot be removed is
+   destroyed, never paused). **Proven on real Docker** (Docker Desktop, image built from the
+   branch, the scripted model server, Hive Stand cores pinned): two goals back to back in one
+   `run_hive`; goal one provisioned a Cell (5.2 s), the Cell's own `cell.released` landed before
+   `cell.overwintered`, and its scratch volume, listed through a throwaway read-only container while
+   the Cell was paused, held nothing; goal two was placed `ReuseDormant` on the same Cell
+   (`cell.resumed`, no second provisioning), ran on a fresh lease, and its scratch was empty again
+   after the second pause; shutdown destroyed the Cell and left no container, volume or network.
+   The failure path too: a Cell built from the pre-scrub code answers uncorrelated, so the scrub
+   timed out after 10 s, `cell.scrub_failed` was recorded and the Cell was destroyed, never paused.
+   Seen, not changed: the Queen's autopilot has no rule for `cell.lease_released`, so an answer no
+   scrub claims (an operator's `hive cells release`, or that pre-scrub image's uncorrelated one)
+   still reaches her tick as an unknown kind and wakes an awake episode.
 9. **`night-veil-ubuntu` under Docker**: needs systemd; today's Docker hardening
    (`cap_drop ALL`, read-only root) forbids it. Either a Night-Veil-specific container profile
    or QEMU only.
