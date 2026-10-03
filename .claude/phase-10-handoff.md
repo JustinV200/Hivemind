@@ -467,13 +467,63 @@ echo "== RC=$rc"; exit $rc
 - **Night Veil teardown on real Docker:** snapshot images were removed, and containers ran with
   the `none` log driver.
 
-**Still to do:** one whole-system run once the patches land.
-- `hive serve` with a Docker Virtual side on a `control_subnet`, and a vpn remote listener.
-- A laptop container's `hive run --remote` goal lacking `cell:hive_stand` lands on a Docker Cell,
-  and its question is answered from the laptop.
-- Then `hive cells isolate <id> --reason ...` and `hive cells lift <id>` from the Stand's
-  console.
-- Check the trail, and leave no containers.
+**Still to do:** nothing from the whole-system run. It was briefed on 2026-10-02 and run on
+2026-10-03, on branch `worktree-agent-ae04a13deb9e4009b` (from `fix/open-items` at `f51c5818`).
+The host was Windows 11 with Docker Desktop 4.91 (WSL 2, engine 29.8).
+- **Rig.**
+  - The Cell image was built from this tree with `images/base-ubuntu`.
+  - The scripted model server answered on `127.0.0.1`. Desktop's `host.docker.internal` reaches
+    the host's loopback, so Cells reached it with no `0.0.0.0` bind.
+  - The Stand's cores were pinned. No LM Studio and no GPU were used.
+  - `hive serve` ran from the venv's `hive.exe`. Ctrl+C was delivered with
+    `GenerateConsoleCtrlEvent` to a console of its own.
+- **Windows Stand.**
+  - Setup: `[placement] prefer = "virtual"`, the Docker backend, `egress_only`, and the vpn
+    listener on the WSL vEthernet address `192.168.224.1`. TLS was for `hivestand.vpn.test`, from
+    a scratch CA the laptop pinned with `--ca-file`.
+  - A laptop container enrolled by invite and was approved on loopback, with matching
+    fingerprints.
+  - Its `hive run --remote` goal (no `cell:hive_stand`) was placed with `queen.placed`
+    `ProvisionVirtual` on `docker`. The Drone asked, the laptop answered (`task.answered`), the
+    task SUCCEEDED and the Cell was destroyed.
+  - A second goal's Cell was isolated from the Stand's console while its Drone waited:
+    - BLOCK wax, grant revoked, task PAUSED and question withdrawn;
+    - the in-Cell taint order was applied (0 items: the bee was held in `ask` and had
+      checkpointed nothing);
+    - the CRITICAL SECURITY Alarm reached the laptop;
+    - `hive cells lift` cleared the wax.
+  - No `guard.handshake_refused` and no CELL_UNREACHABLE appeared.
+- **Not possible on Windows: a `control_subnet`.** Docker Desktop keeps its networks in its own
+  Linux VM, so the gateway is never a Windows address and the Queen's listener cannot bind it.
+  The egress therefore stayed `unsupported`: the isolated Cell still reached the internet and
+  the model server.
+- **The closest honest variant: a Linux Stand inside Docker Desktop's VM.**
+  - The same tree ran in a host-network container with the daemon's socket, with
+    `control_subnet = "10.213.1.0/24"`, the vpn listener on docker0 (`172.17.0.1`) and a second
+    laptop container.
+  - The same flow passed, and the Cell was dual-homed.
+  - After `hive cells isolate`, DNS, the internet, the model server (`host.docker.internal`) and
+    docker0 all failed with `OSError(101)`. The Queen's link stayed open, with no redial and no
+    CELL_UNREACHABLE.
+  - After the lift, all of them answered again. So Desktop honours `internal`.
+- **Defects found and fixed, each with tests and real-run proof:**
+  - `c18395e9`: `hive serve` on Windows left the Cell running on Ctrl+C. It now owns SIGINT and
+    SIGBREAK, and exits 0.
+  - `9a8e99d8`: `run_hive`'s teardown was cut short in a cancelled task. This affected
+    `hive run` + Ctrl+C on Windows and on Linux. The fix is `hivemind.common.tasks.run_to_end`.
+  - `a42de970`: the isolation Alarm now says when the network is NOT cut.
+  - `0b8c1d55`: a `control_subnet` whose gateway the host lacks is refused with a clear
+    `ConfigurationError`. The docs had claimed Desktop worked.
+  - `8d9b9449`: `hive trail tail -n` above 10000 printed a traceback; it is now a usage error.
+- **Seen, not changed:**
+  - A goal whose `hive run` was interrupted stays BLOCKED in the Brood Chamber. Its question
+    waits, but its Cell is gone.
+  - Tasks paused by an isolation stay PAUSED after the lift, by design.
+  - `honey_store.embed_failed` warns every 30 s, because the scripted server has no embeddings
+    route.
+  - The laptop's follower calls a serve shutdown "refused".
+- **Cleanup.** No Cell, laptop or Stand container is left, and no hivemind network or volume of
+  the run's. The image the run built was removed. No `hive` or model-server process remains.
 
 ## Defects found and fixed this session (for the final report)
 
