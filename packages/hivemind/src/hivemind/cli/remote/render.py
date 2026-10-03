@@ -5,7 +5,8 @@ Alarms quote failures), so every string goes through ``hivemind.cli.landing.show
 reaches the terminal, one line at a time (a question's options arrive as its later lines). A
 question is printed with the command that answers it, an Alarm with the one that acknowledges it,
 because ``hive run --remote`` only follows: answering is ``hive inbox --remote``'s job, from any
-terminal, while the goal waits.
+terminal, while the goal waits. A follow the Hive went away from is said to have stopped, never to
+have been refused.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.remote``. Used by
@@ -22,7 +23,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.cli.landing import shown
-from hivemind.cli.remote.goals import FollowOutcome
+from hivemind.cli.remote.goals import FollowOutcome, HiveStoppedError
 from hivemind.entrance.models import ChatLine, InboxView
 from hivemind.queen import ChatAuthor, ChatKind
 
@@ -35,7 +36,7 @@ _LABELS = {
     ChatKind.ALARM: "alarm",
 }
 
-__all__ = ["MAX_LINE_CHARS", "chat_lines", "inbox_lines", "outcome_line"]
+__all__ = ["MAX_LINE_CHARS", "chat_lines", "inbox_lines", "outcome_line", "stopped_line"]
 
 
 def chat_lines(entry: ChatLine) -> list[str]:
@@ -84,6 +85,32 @@ def outcome_line(outcome: FollowOutcome) -> str:
     return (
         f"goal request {view.id} is still {view.state.value} (goal {view.goal_id or 'not planned'})"
         "; the Hive goes on with it."
+    )
+
+
+def stopped_line(stopped: HiveStoppedError) -> str:
+    """Say the Hive went away while the goal still ran, where it stood, and that it goes on.
+
+    Args:
+        stopped: How the follow ended.
+
+    Returns:
+        One line, never a refusal's words: nothing refused this device.
+    """
+    view = stopped.last_view
+    where = (
+        f"still {view.state.value} (goal {view.goal_id or 'not planned'})"
+        if view is not None
+        else "submitted"
+    )
+    how = (
+        "the Hive stopped (its Entrance shut down)"
+        if stopped.shut_down
+        else "the Hive stopped answering (the connection to it dropped)"
+    )
+    return (
+        f"goal request {stopped.request_id} was {where} when {how}; it is not cancelled, and "
+        "the Hive goes on with it once it runs again."
     )
 
 

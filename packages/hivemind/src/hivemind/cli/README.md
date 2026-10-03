@@ -686,7 +686,10 @@ prints the public half in hex, the form a peer pins).
   re-reads (a device without those views follows by re-reading alone), printing the Queen's lines
   with the command that answers a question, each once, and at the end reading the chat for any line
   the view had not delivered yet; exit 0 finished, 1 refused, 2 the timeout ended the follow first
-  (the goal goes on). `hive inbox --remote [--json]`, `hive inbox --remote answer ID TEXT [--option
+  (the goal goes on), 3 the Hive went away mid-goal (`hive serve` shut down and closed its views
+  with 1001, its server with 1012, or the connection dropped): said as the Hive stopping, with
+  where the goal stood, never as a refusal (4401, 4410 and every HTTP refusal still are). `hive
+  inbox --remote [--json]`, `hive inbox --remote answer ID TEXT [--option
   N]` and `hive inbox --remote acknowledge ALARM_ID` act on the remote inbox. Every refusal (no
   profile, pending, locked, revoked, a wrong password, a held request with its pending id, an
   Entrance that does not answer) is one stderr line and exit 1.

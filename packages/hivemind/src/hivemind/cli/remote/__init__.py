@@ -23,20 +23,21 @@ See Also:
     - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
 
 Public API:
-    - app, RemoteRun, remote_run, remote_inbox, remote_answer, remote_acknowledge, CA_FILE: the
-      commands (commands).
+    - app, RemoteRun, remote_run, remote_inbox, remote_answer, remote_acknowledge, CA_FILE,
+      EXIT_HIVE_STOPPED: the commands, and the exit a Hive gone mid-goal ends one with (commands).
     - RemoteProfile, ProfileStore, DEFAULT_PROFILE, check_profile_name: profiles and their keys
       (profiles).
     - EnrolmentOrder, InviteLink, OfflineEnrolment, enrol_device, enrol_offline,
       read_invite_link: enrolment, online or offline (enrol).
     - remote_session, run_remote, REMOTE, PROFILE: logging in as the device (session).
     - GoalAsk, FollowPace, FollowOutcome, Follower, submit_and_follow, follow_goal: a goal followed
-      to its end (goals).
-    - chat_lines, inbox_lines, outcome_line: what is printed (render).
+      to its end (goals); HiveStoppedError: the Hive went away first (goals).
+    - chat_lines, inbox_lines, outcome_line, stopped_line: what is printed (render).
 """
 
 from hivemind.cli.remote.commands import (
     CA_FILE,
+    EXIT_HIVE_STOPPED,
     RemoteRun,
     app,
     remote_acknowledge,
@@ -57,6 +58,7 @@ from hivemind.cli.remote.goals import (
     FollowOutcome,
     FollowPace,
     GoalAsk,
+    HiveStoppedError,
     follow_goal,
     submit_and_follow,
 )
@@ -66,12 +68,13 @@ from hivemind.cli.remote.profiles import (
     RemoteProfile,
     check_profile_name,
 )
-from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line
+from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line, stopped_line
 from hivemind.cli.remote.session import PROFILE, REMOTE, remote_session, run_remote
 
 __all__ = [
     "CA_FILE",
     "DEFAULT_PROFILE",
+    "EXIT_HIVE_STOPPED",
     "PROFILE",
     "REMOTE",
     "EnrolmentOrder",
@@ -79,6 +82,7 @@ __all__ = [
     "FollowPace",
     "Follower",
     "GoalAsk",
+    "HiveStoppedError",
     "InviteLink",
     "OfflineEnrolment",
     "ProfileStore",
@@ -99,5 +103,6 @@ __all__ = [
     "remote_run",
     "remote_session",
     "run_remote",
+    "stopped_line",
     "submit_and_follow",
 ]

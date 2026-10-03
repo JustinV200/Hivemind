@@ -1,8 +1,9 @@
 """Test hivemind.cli.landing.stream: a view authenticated by its first frame, over a real Entrance.
 
 The chat stream sends a line the moment it is written to a device the CLI logged in; a device
-without the view's capability sees the socket closed with the Entrance's own code; a quiet view
-times out without closing.
+without the view's capability sees the socket closed with the Entrance's own code; an Entrance
+shutting down closes every view with 1001, which (like a dropped connection) is the Hive going
+away rather than a refusal; a quiet view times out without closing.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/landing/stream.py (codingrules section 3).
@@ -22,7 +23,11 @@ from builders.entrance.serving import ServingRig, serving
 from pydantic import SecretStr
 
 from hivemind.cli.landing import (
+    FELL_BEHIND,
     FORBIDDEN,
+    GOING_AWAY,
+    SERVICE_RESTART,
+    SESSION_ENDED,
     DeviceKey,
     LandingClient,
     SignedIn,
@@ -82,6 +87,42 @@ async def test_a_device_without_the_views_capability_sees_it_closed_as_forbidden
             await view.next(ChatFrame, timeout_s=5.0)
 
     assert closed.value.close_code == FORBIDDEN
+
+
+async def test_a_view_the_entrance_closes_as_it_shuts_down_went_away() -> None:
+    # `hive serve` stopping closes every view with 1001: the Hive went away, nothing was refused.
+    async with serving() as rig, _device(rig, _READER) as board:
+        hub = rig.entrance.services.streams.hub
+        before = hub.subscribers
+        async with open_view(board, "/v1/chat/stream") as view:
+            # Admitted first, so the shutdown closes this socket rather than dropping it.
+            await rig.until(lambda: hub.subscribers > before)
+            await rig.entrance.stop()
+            with pytest.raises(ViewClosedError) as closed:
+                await view.next(ChatFrame, timeout_s=5.0)
+
+    assert closed.value.close_code == GOING_AWAY
+    assert closed.value.went_away
+
+
+@pytest.mark.parametrize(
+    ("close_code", "went_away"),
+    [
+        (GOING_AWAY, True),  # The Entrance's own shutdown (CloseReason.SHUTTING_DOWN).
+        (SERVICE_RESTART, True),  # Its web server going down under it.
+        (None, True),  # No close frame at all: the connection dropped.
+        (FORBIDDEN, False),
+        (FELL_BEHIND, False),
+        (SESSION_ENDED, False),
+        (4401, False),  # CloseReason.AUTHENTICATION_FAILED: no valid first frame.
+        (4411, False),  # CloseReason.REDUCED: the remote listener closed, the Hive still runs.
+        (1000, False),  # CloseReason.UNSUBSCRIBED: the view itself finished.
+    ],
+)
+def test_only_a_shutdown_or_a_drop_is_the_hive_going_away(
+    close_code: int | None, went_away: bool
+) -> None:
+    assert ViewClosedError("/v1/chat/stream", close_code, "").went_away is went_away
 
 
 async def test_a_quiet_view_times_out_and_stays_open() -> None:

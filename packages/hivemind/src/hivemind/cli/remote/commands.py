@@ -12,7 +12,9 @@ listener of the same Hive (the mutual-TLS one, once the certificate is kept); ``
 (its key and certificate too); ``certificate`` fetches, imports or renews a certificate
 (``hivemind.cli.remote.certificates``). ``remote_run`` is ``hive run --remote "goal"``: the goal
 submitted through the Entrance and followed to its end, the Queen's lines printed as they come,
-exit 0 when it finished, 1 when it was refused, 2 when the timeout ended the follow first.
+exit 0 when it finished, 1 when it was refused, 2 when the timeout ended the follow first, and 3
+when the Hive went away mid-goal (``hive serve`` shut down, or the connection dropped), which is
+said as the Hive stopping, never as a refusal.
 ``remote_inbox``, ``remote_answer`` and ``remote_acknowledge`` are ``hive inbox --remote``: what
 waits on the human, an answer to a question, an Alarm acknowledged. Each is a thin layer over
 ``hivemind.cli.remote``'s enrolment, session and goal follower.
@@ -25,7 +27,8 @@ Fits into the Hive:
 
 Key invariants:
     - Nothing here prints a key, a token, a password or an invite code.
-    - Every refusal is one stderr line and exit 1 (2 for bad usage).
+    - Every refusal is one stderr line and exit 1 (2 for bad usage); a Hive that went away
+      mid-goal is one stderr line and exit 3, and never called a refusal.
 
 See Also:
     - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md.
@@ -57,9 +60,15 @@ from hivemind.cli.landing import (
 )
 from hivemind.cli.remote.certificates import app as certificate_app
 from hivemind.cli.remote.enrol import EnrolmentOrder, enrol_device, enrol_offline
-from hivemind.cli.remote.goals import FollowOutcome, FollowPace, GoalAsk, submit_and_follow
+from hivemind.cli.remote.goals import (
+    FollowOutcome,
+    FollowPace,
+    GoalAsk,
+    HiveStoppedError,
+    submit_and_follow,
+)
 from hivemind.cli.remote.profiles import DEFAULT_PROFILE, ProfileStore
-from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line
+from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line, stopped_line
 from hivemind.cli.remote.session import PROFILE, run_remote
 from hivemind.common.errors import HiveMindError
 from hivemind.entrance.models import (
@@ -92,6 +101,7 @@ REQUEST_OUT = CarriedOption(
 )
 EnrolCommand = carried_command(PROFILE, CA_FILE, OFFLINE, REQUEST_OUT)
 SetUrlCommand = carried_command(PROFILE, CA_FILE)
+EXIT_HIVE_STOPPED = 3  # The Hive went away mid-goal: not its end (0, 1), nor the timeout (2).
 
 app = typer.Typer(
     name="remote",
@@ -102,6 +112,7 @@ app.add_typer(certificate_app, name="certificate")
 
 __all__ = [
     "CA_FILE",
+    "EXIT_HIVE_STOPPED",
     "OFFLINE",
     "REQUEST_OUT",
     "RemoteRun",
@@ -255,15 +266,20 @@ def remote_run(order: RemoteRun) -> NoReturn:
 
     Raises:
         typer.Exit: Always: 0 finished, 1 refused (or anything refused on the way), 2 the
-            timeout ended the follow first.
+            timeout ended the follow first, 3 the Hive went away while the goal still ran.
     """
     printer = _Printer(order.as_json)
 
-    async def work(board: SignedIn) -> FollowOutcome:
-        """Submit and follow."""
-        return await submit_and_follow(board, order.goal, FollowPace(order.timeout_s), printer)
+    async def work(board: SignedIn) -> FollowOutcome | HiveStoppedError:
+        """Submit and follow; the Hive going away mid-goal is an ending, never a refusal."""
+        try:
+            return await submit_and_follow(board, order.goal, FollowPace(order.timeout_s), printer)
+        except HiveStoppedError as stopped:
+            return stopped
 
     outcome = run_remote("run --remote", order.profile, order.from_stdin, work)
+    if isinstance(outcome, HiveStoppedError):
+        _exit_stopped(outcome, order.as_json)
     if order.as_json:
         typer.echo(outcome.view.model_dump_json(indent=2))
     else:
@@ -361,3 +377,11 @@ def _refuse(verb: str, exc: Exception) -> NoReturn:
     """Print why ``hive <verb>`` could not act, and exit 1."""
     typer.echo(f"hive {verb} refused: {describe(exc)}", err=True)
     raise typer.Exit(code=1) from exc
+
+
+def _exit_stopped(stopped: HiveStoppedError, as_json: bool) -> NoReturn:
+    """Say the Hive went away mid-goal (its last state too, in JSON mode), then exit 3."""
+    if as_json and stopped.last_view is not None:
+        typer.echo(stopped.last_view.model_dump_json(indent=2))
+    typer.echo(f"hive run --remote: {stopped_line(stopped)}", err=True)
+    raise typer.Exit(code=EXIT_HIVE_STOPPED)

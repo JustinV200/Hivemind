@@ -16,6 +16,13 @@ ended (a question asked and answered from another terminal while this one was st
 would end with it, so the follow closes by reading the chat page by page from the last line it
 relayed. Printing is the caller's: ``Follower`` receives what arrives, each line once.
 
+The Hive can also go away mid-follow: ``hive serve`` shutting down closes every view with 1001
+(its server's own shutdown, with 1012), a dropped connection closes one with no close frame, and
+a read finds nothing listening. None of those refused this device, so the follow ends with
+``HiveStoppedError``, naming where the goal stood when last read, and never with the refusal a
+close for a reason of this device's own (4401, 4410) still is. A goal whose end was already read
+is not stopped by a Hive that goes away after it.
+
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.remote``. Called by ``hive run --remote``
     (``hivemind.cli.remote.commands``). Calls into ``hivemind.cli.landing`` (signed calls and
@@ -25,8 +32,8 @@ Key invariants:
     - A goal is submitted once; everything after is reading.
     - Every chat line after the submission reaches the follower exactly once, in order, however
       the view and the closing read overlap.
-    - The follow ends when the goal request is finished or refused, or at the caller's timeout;
-      the goal itself goes on regardless.
+    - The follow ends when the goal request is finished or refused, at the caller's timeout, or
+      when the Hive goes away (``HiveStoppedError``); the goal itself goes on regardless.
 
 See Also:
     - hivemind.entrance.routes.goals and hivemind.entrance.streams.views for the server half.
@@ -37,7 +44,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from pydantic import BaseModel
 
@@ -46,6 +53,8 @@ from hivemind.cli.landing import (
     CAPABILITY_CODE,
     FELL_BEHIND,
     FORBIDDEN,
+    EntranceUnreachableError,
+    LandingError,
     LandingRefusedError,
     SignedIn,
     View,
@@ -78,6 +87,7 @@ __all__ = [
     "FollowPace",
     "Follower",
     "GoalAsk",
+    "HiveStoppedError",
     "follow_goal",
     "submit_and_follow",
 ]
@@ -140,6 +150,38 @@ class FollowOutcome:
     timed_out: bool
 
 
+class HiveStoppedError(LandingError):
+    """Raise when the Hive went away while the goal it holds was still being followed.
+
+    Not a refusal: nothing refused this device. ``hive serve`` shut down (its Entrance closed every
+    view with 1001, or its server with 1012), or the connection to it dropped.
+
+    Attributes:
+        request_id: The goal request being followed.
+        last_view: Where it stood when last read; None if it was never read.
+        shut_down: True when the Entrance said it was shutting down; False when the connection
+            dropped with no word (the Hive stopped, or the network to it went away).
+    """
+
+    code: ClassVar[str] = "hivemind.cli.remote.hive_stopped"
+
+    def __init__(self, request_id: str, last_view: GoalView | None, shut_down: bool) -> None:
+        """Build the error for one follow the Hive's going ended.
+
+        Args:
+            request_id: The goal request being followed.
+            last_view: Where it stood when last read, if it was.
+            shut_down: Whether the Entrance said it was shutting down.
+        """
+        how = "it shut down" if shut_down else "the connection to it dropped"
+        super().__init__(
+            f"The Hive went away while goal request {request_id} was still running ({how})."
+        )
+        self.request_id = request_id
+        self.last_view = last_view
+        self.shut_down = shut_down
+
+
 @dataclass(slots=True)
 class _ChatCursor:
     """The newest chat position told to the follower, shared by the live relay and the catch-up.
@@ -149,6 +191,19 @@ class _ChatCursor:
     """
 
     seq: int
+
+
+@dataclass(slots=True)
+class _Goal:
+    """The goal request being followed, and its state as last read.
+
+    Attributes:
+        request_id: The goal request (``goalreq_...``).
+        last: Its state as last read; None before the first read.
+    """
+
+    request_id: str
+    last: GoalView | None = None
 
 
 async def submit_and_follow(
@@ -166,6 +221,8 @@ async def submit_and_follow(
         Where the request stood.
 
     Raises:
+        HiveStoppedError: The Hive went away after the goal was submitted, before its end was
+            read.
         LandingRefusedError: The submission was refused (a held request names its pending
             confirmation), or a view closed for a reason other than falling behind.
     """
@@ -195,30 +252,34 @@ async def follow_goal(
         Where the request stood.
 
     Raises:
-        LandingError: A read was refused or a view closed for a reason other than falling behind.
+        HiveStoppedError: The Hive went away before the goal's end was read.
+        LandingError: A read was refused, or a view was closed on this device for a reason other
+            than falling behind.
     """
     cursor = None if after is None else _ChatCursor(after)
+    goal = _Goal(request_id)
     view: GoalView | None = None
     try:
         # External wait: the Hive's own work, bounded by the caller's patience.
         async with asyncio.timeout(pace.timeout_s):
-            view = await _race(board, request_id, cursor, pace.recheck_s, follower)
+            view = await _race(board, goal, cursor, pace.recheck_s, follower)
     except TimeoutError:
         pass  # The goal goes on without this terminal; where it stood is read below.
     except BaseExceptionGroup as group:
-        # A view's own failure, not the group it travelled in, is what the operator reads.
-        raise _first_failure(group) from group
+        # A view's own failure, not the group it travelled in, is what the operator reads; a Hive
+        # that went away is said to have stopped, never to have refused this device.
+        raise _ended_by(group, goal) from group
     if cursor is not None:
         # The view is live, not a record: what it had not delivered yet is read now.
         await _catch_up(board, cursor, follower)
     if view is None:
-        return FollowOutcome(await _read_goal(board, request_id), timed_out=True)
+        return FollowOutcome(await _last_read(board, goal), timed_out=True)
     return FollowOutcome(view, timed_out=False)
 
 
 async def _race(
     board: SignedIn,
-    request_id: str,
+    goal: _Goal,
     cursor: _ChatCursor | None,
     recheck_s: float,
     follower: Follower,
@@ -226,24 +287,24 @@ async def _race(
     """Watch both views while re-reading the goal until it ends; stop the views then."""
     moved = asyncio.Event()
     async with asyncio.TaskGroup() as group:
-        watchers = [group.create_task(_watch_push(board, request_id, moved))]
+        watchers = [group.create_task(_watch_push(board, goal.request_id, moved))]
         if cursor is not None:
             watchers.append(group.create_task(_relay_chat(board, cursor, follower, moved)))
         try:
-            return await _until_done(board, request_id, recheck_s, moved)
+            return await _until_done(board, goal, recheck_s, moved)
         finally:
             for watcher in watchers:
                 watcher.cancel()
 
 
 async def _until_done(
-    board: SignedIn, request_id: str, recheck_s: float, moved: asyncio.Event
+    board: SignedIn, goal: _Goal, recheck_s: float, moved: asyncio.Event
 ) -> GoalView:
     """Re-read the goal whenever a view says it moved, and at least every ``recheck_s``."""
     while True:
         # Cleared before the read, so a push that lands during it wakes the next wait at once.
         moved.clear()
-        view = await _read_goal(board, request_id)
+        view = await _read_goal(board, goal)
         if view.finished_at is not None or view.refused:
             return view
         try:
@@ -295,6 +356,8 @@ async def _catch_up(board: SignedIn, cursor: _ChatCursor, follower: Follower) ->
                     return
     except TimeoutError:
         return  # The goal's end is already known; a slow chat is not worth holding it for.
+    except EntranceUnreachableError:
+        return  # The Hive went away after the follow's end was read: nothing more to relay.
     except LandingRefusedError as refusal:
         # The view already said this device may not read the chat; nothing more to relay.
         if refusal.body.error != CAPABILITY_CODE:
@@ -340,9 +403,19 @@ async def _next[ModelT: BaseModel](view: View, model: type[ModelT]) -> ModelT | 
         return None
 
 
-async def _read_goal(board: SignedIn, request_id: str) -> GoalView:
-    """Read the goal request's state (never its text)."""
-    return await board.call("GET", f"/v1/goals/{request_id}", None, GoalView)
+async def _read_goal(board: SignedIn, goal: _Goal) -> GoalView:
+    """Read the goal request's state (never its text), and keep it as the last one read."""
+    view = await board.call("GET", f"/v1/goals/{goal.request_id}", None, GoalView)
+    goal.last = view
+    return view
+
+
+async def _last_read(board: SignedIn, goal: _Goal) -> GoalView:
+    """Read where the goal stands once the timeout ended the follow, or say the Hive went."""
+    try:
+        return await _read_goal(board, goal)
+    except EntranceUnreachableError as gone:
+        raise HiveStoppedError(goal.request_id, goal.last, shut_down=False) from gone
 
 
 async def _newest_seq(board: SignedIn) -> int | None:
@@ -357,9 +430,30 @@ async def _newest_seq(board: SignedIn) -> int | None:
     return page.newest_seq or 0
 
 
-def _first_failure(group: BaseExceptionGroup[BaseException]) -> BaseException:
-    """The first leaf failure inside ``group`` (nested groups unwrapped)."""
-    first = group.exceptions[0]
-    if isinstance(first, BaseExceptionGroup):
-        return _first_failure(first)
-    return first
+def _ended_by(group: BaseExceptionGroup[BaseException], goal: _Goal) -> BaseException:
+    """What ended a follow: the first refusal among the failures, else the Hive going away."""
+    failures = _leaves(group)
+    refusals = [failure for failure in failures if not _went_away(failure)]
+    if refusals:
+        return refusals[0]
+    # Every failure is the Hive going: a close code says it shut down, no code that it dropped.
+    said = any(isinstance(f, ViewClosedError) and f.close_code is not None for f in failures)
+    return HiveStoppedError(goal.request_id, goal.last, shut_down=said)
+
+
+def _went_away(failure: BaseException) -> bool:
+    """Whether ``failure`` is the Hive going away (a close it sent, a drop, nothing listening)."""
+    if isinstance(failure, ViewClosedError):
+        return failure.went_away
+    return isinstance(failure, EntranceUnreachableError)
+
+
+def _leaves(group: BaseExceptionGroup[BaseException]) -> list[BaseException]:
+    """Every leaf failure inside ``group``, nested groups unwrapped, in order."""
+    leaves: list[BaseException] = []
+    for failure in group.exceptions:
+        if isinstance(failure, BaseExceptionGroup):
+            leaves.extend(_leaves(failure))
+        else:
+            leaves.append(failure)
+    return leaves

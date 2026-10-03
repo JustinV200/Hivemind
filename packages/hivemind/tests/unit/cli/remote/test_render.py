@@ -12,13 +12,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from hivemind.cell import HoneyClearance
-from hivemind.cli.remote import FollowOutcome
-from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line
+from hivemind.cli.remote import FollowOutcome, HiveStoppedError
+from hivemind.cli.remote.render import chat_lines, inbox_lines, outcome_line, stopped_line
 from hivemind.entrance.models import AlarmView, ChatLine, GoalView, InboxView, QuestionView
 from hivemind.queen import ChatAuthor, ChatKind, GoalRequestState, GoalSource
 
 _AT = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
 _TASK = "task_01J8Z3Q4X5Y6Z7A8B9C0D1E2F3"
+_REQUEST = "goalreq_01J8Z3Q4X5Y6Z7A8B9C0D1E2F3"
 _ESCAPE = "\x1b[2J"  # A terminal control sequence a hostile string might carry.
 
 
@@ -39,7 +40,7 @@ def _line(kind: ChatKind, text: str, ref: str | None = None) -> ChatLine:
 def _view(state: GoalRequestState, *, refused: bool = False, done: bool = False) -> GoalView:
     """A goal request's view in ``state``."""
     return GoalView(
-        id="goalreq_01J8Z3Q4X5Y6Z7A8B9C0D1E2F3",
+        id=_REQUEST,
         state=state,
         goal_id=_TASK if state is GoalRequestState.PLANNED else None,
         budget_usd=None,
@@ -91,6 +92,18 @@ def test_the_outcome_names_a_finish_a_refusal_and_a_goal_still_running() -> None
     assert f"finished at 2026-09-24T12:00:00+00:00 (goal {_TASK})" in finished
     assert "was refused" in refused
     assert "still RECEIVED (goal not planned); the Hive goes on with it." in running
+
+
+def test_a_hive_that_stopped_mid_goal_is_said_to_have_stopped_never_to_have_refused() -> None:
+    shut = stopped_line(HiveStoppedError(_REQUEST, _view(GoalRequestState.PLANNED), True))
+    dropped = stopped_line(HiveStoppedError(_REQUEST, None, False))
+
+    assert shut.startswith(f"goal request {_REQUEST} was still PLANNED (goal {_TASK}) when ")
+    assert "the Hive stopped (its Entrance shut down)" in shut
+    assert "the Hive stopped answering (the connection to it dropped)" in dropped
+    assert "was submitted when" in dropped
+    assert all("not cancelled" in line for line in (shut, dropped))
+    assert all("refused" not in line for line in (shut, dropped))
 
 
 def test_the_inbox_lists_questions_with_options_then_alarms_escaped() -> None:

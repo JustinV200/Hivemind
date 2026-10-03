@@ -2,9 +2,11 @@
 
 ``hive serve``'s own composition runs the Hive Stand; a second terminal whose config directory is
 the test's own ("the laptop") enrols, is approved at the Stand, runs a goal and reads its inbox,
-all through ``CliRunner`` as a person would type them. A laptop that can reach no enrolment
-listener enrols ``--offline``: it makes its key and certificate request, sends nothing, and says
-what the operator runs; its profile waits for its certificate, and ``set-url`` moves it.
+all through ``CliRunner`` as a person would type them. A Stand that shuts down while the laptop
+follows a goal is said to have stopped (exit 3), never to have refused it. A laptop that can reach
+no enrolment listener enrols ``--offline``: it makes its key and certificate request, sends
+nothing, and says what the operator runs; its profile waits for its certificate, and ``set-url``
+moves it.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/remote/commands.py (codingrules section 3).
@@ -15,6 +17,7 @@ Key invariants:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from builders.entrance.auth import PASSWORD
@@ -29,9 +32,14 @@ from builders.entrance.stand import (
     stand_manifest,
 )
 
+from hivemind.brood_chamber import TaskFilter, TaskStatus
+from hivemind.cli.remote.commands import EXIT_HIVE_STOPPED
 from hivemind.entrance.models import InboxView
+from hivemind.entrance.runtime import HiveEntrance
 
 _STDIN = f"{PASSWORD}\n"
+_FOLLOW_S = 30.0  # Generous: the Drone asks within a second of the goal being planned.
+_LAPTOP_VIEWS = 2  # A follow's chat and push views, each one socket at the Entrance.
 
 
 async def _enrol(stand: Stand, laptop: Terminal) -> str:
@@ -95,6 +103,45 @@ async def test_run_remote_follows_a_goal_to_its_end_and_exits_0(tmp_path: Path) 
     assert " finished at " in ran.output
     assert as_json.exit_code == 0, as_json.output
     assert json_of(as_json)["finished_at"] is not None
+
+
+async def test_run_remote_says_the_hive_stopped_when_hive_serve_shuts_down_mid_goal(
+    tmp_path: Path,
+) -> None:
+    # The whole-system run: the laptop's follower called the Stand's own shutdown "refused".
+    path = stand_manifest(tmp_path / "stand")
+    await set_password(path)
+    laptop = laptop_terminal(tmp_path / "laptop")
+
+    async with serving_stand(path, goal_responder("Which season?")) as (stand, entrance):
+        device_id = await _enrol(stand, laptop)
+        await stand.entrance("approve", device_id, "--spend-cap", "20", "--interactive", "--yes")
+        following = asyncio.ensure_future(
+            laptop.hive(
+                *("run", "--remote", "write a haiku", "--password-stdin", "--timeout", "60"),
+                stdin=_STDIN,
+            )
+        )
+        # The Drone waits on the human, and the laptop's two views are open: the goal is mid-way,
+        # and followed, when the Stand stops under it.
+        await _until_following(entrance)
+    ran = await following
+
+    assert ran.exit_code == EXIT_HIVE_STOPPED, ran.output
+    assert "the Hive stopped (its Entrance shut down)" in ran.output
+    assert "refused" not in ran.output
+
+
+async def _until_following(entrance: HiveEntrance) -> None:
+    """Wait until a task is blocked on the human and the laptop's chat and push views are open."""
+    services = entrance.services
+    async with asyncio.timeout(_FOLLOW_S):
+        while True:
+            tasks = await services.hive.chamber.list(TaskFilter())
+            blocked = any(task.status is TaskStatus.BLOCKED for task in tasks)
+            if blocked and services.streams.sockets.count() >= _LAPTOP_VIEWS:
+                return
+            await asyncio.sleep(0.05)
 
 
 async def test_inbox_remote_reads_the_inbox_and_acknowledges_as_the_device(

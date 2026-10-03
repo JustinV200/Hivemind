@@ -32,7 +32,8 @@ Public API:
       device's mutual-TLS client certificate (certificate).
     - DeviceKey, Credential, OutgoingRequest, Stamp, sign, enrol_signature, login_signature,
       request_headers, first_frame: the signatures (signing).
-    - View, ViewClosedError, open_view, FELL_BEHIND, FORBIDDEN, SESSION_ENDED: live views (stream).
+    - View, ViewClosedError, open_view, FELL_BEHIND, FORBIDDEN, SESSION_ENDED, GOING_AWAY,
+      SERVICE_RESTART: live views, and the codes they close with (stream).
     - EntranceAddress, entrance_address, open_http: where the Entrance is and its TLS
       (transport).
     - read_password, read_new_password, PROMPT, NEW_PROMPT, CURRENT_PROMPT: the password
@@ -99,6 +100,8 @@ from hivemind.cli.landing.signing import (
 from hivemind.cli.landing.stream import (
     FELL_BEHIND,
     FORBIDDEN,
+    GOING_AWAY,
+    SERVICE_RESTART,
     SESSION_ENDED,
     View,
     ViewClosedError,
@@ -113,11 +116,13 @@ __all__ = [
     "CURRENT_PROMPT",
     "FELL_BEHIND",
     "FORBIDDEN",
+    "GOING_AWAY",
     "MAX_SHOWN_CHARS",
     "NEW_PROMPT",
     "PASSWORD_STDIN",
     "PROMPT",
     "RATE_CODE",
+    "SERVICE_RESTART",
     "SESSION_ENDED",
     "STEP_UP_CODE",
     "CarriedOption",

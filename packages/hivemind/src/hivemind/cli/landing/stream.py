@@ -9,7 +9,9 @@ same origin and TLS as the device's HTTP client, and never through an environmen
 that frame, and yields a ``View`` whose ``next`` reads one frame parsed as the view's model. A
 socket the Entrance closes says why with a code (``hivemind.entrance.streams.CloseReason``), which
 ``ViewClosedError`` carries, so a follower can tell "fell behind, reconnect from the cursor" from
-"session ended" from "this device may not read this view".
+"session ended" from "this device may not read this view", and all of those from the Hive going
+away (``went_away``: the Entrance's own shutdown, its server's, or a connection that dropped with
+no close frame at all), which refuses nothing.
 
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.landing``. Used by ``hivemind.cli.remote``'s
@@ -49,12 +51,19 @@ FRAME_TIMEOUT_S = 30.0  # The longest one read waits when its caller gave no bou
 FELL_BEHIND = 4409  # CloseReason.FELL_BEHIND: reconnect from the cursor.
 FORBIDDEN = 4403  # CloseReason.FORBIDDEN: the device lacks the view's capability.
 SESSION_ENDED = 4410  # CloseReason.SESSION_ENDED: logout, expiry, lock or revocation.
+GOING_AWAY = 1001  # CloseReason.SHUTTING_DOWN: the Entrance, and the Hive with it, is stopping.
+SERVICE_RESTART = 1012  # The Entrance's web server itself going down under a view.
+# A view the Hive went away from, rather than one closed on this device: either shutdown's
+# code, or no close frame at all (the connection dropped).
+_WENT_AWAY: frozenset[int | None] = frozenset({GOING_AWAY, SERVICE_RESTART, None})
 
 __all__ = [
     "FELL_BEHIND",
     "FORBIDDEN",
     "FRAME_TIMEOUT_S",
+    "GOING_AWAY",
     "OPEN_TIMEOUT_S",
+    "SERVICE_RESTART",
     "SESSION_ENDED",
     "View",
     "ViewClosedError",
@@ -80,6 +89,16 @@ class ViewClosedError(LandingError):
         said = f": {reason}" if reason else ""
         super().__init__(f"The Entrance closed {target} (code {close_code}{said}).")
         self.close_code = close_code
+
+    @property
+    def went_away(self) -> bool:
+        """Whether the Hive went away (it shut down, or the connection dropped), not a refusal.
+
+        Returns:
+            True for the Entrance's own shutdown (1001), its web server's (1012), or no close
+            frame at all; False for every close the Entrance makes about this device or view.
+        """
+        return self.close_code in _WENT_AWAY
 
 
 class View:
