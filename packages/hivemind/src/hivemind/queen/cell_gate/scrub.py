@@ -232,6 +232,8 @@ async def _order_and_wait(
     # Registered before the send, so an answer can never arrive ahead of its own wait.
     answer = acks.expect(order.id, link.cell.id)
     try:
+        # Handed to the link's own send buffer, never awaited on the far side; a link already
+        # closed fails the scrub at once rather than waiting out the bound for nothing.
         if not await link.send(order):
             return "its link closed before the scrub order could be sent"
         released = await _answer_within(answer, clock, timeout_s)
