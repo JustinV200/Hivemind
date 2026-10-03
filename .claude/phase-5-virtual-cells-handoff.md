@@ -241,9 +241,9 @@ persistent Queen key of open item 5), Night Veil on Docker (needs systemd), QEMU
    after the second pause; shutdown destroyed the Cell and left no container, volume or network.
    The failure path too: a Cell built from the pre-scrub code answers uncorrelated, so the scrub
    timed out after 10 s, `cell.scrub_failed` was recorded and the Cell was destroyed, never paused.
-   Seen, not changed: the Queen's autopilot has no rule for `cell.lease_released`, so an answer no
-   scrub claims (an operator's `hive cells release`, or that pre-scrub image's uncorrelated one)
-   still reaches her tick as an unknown kind and wakes an awake episode.
+   Followed up the same day: the Queen's autopilot now has a rule for `cell.lease_released` that
+   no scrub claims (Clustering's release order, or a pre-scrub image's uncorrelated answer):
+   `RECORD` when the lease was restored, `NEEDS_JUDGEMENT` only when it left residual paths.
 9. **`night-veil-ubuntu` under Docker**: needs systemd; today's Docker hardening
    (`cap_drop ALL`, read-only root) forbids it. Either a Night-Veil-specific container profile
    or QEMU only.

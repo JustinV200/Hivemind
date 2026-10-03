@@ -15,7 +15,8 @@ awaits a model. Nothing under this package may import hivemind.llm.
   10.6c: a policy row naming `QUARANTINE` maps to `QUARANTINE_BEE` (carried out by
   `hivemind.queen.quarantine.order_quarantine`), and a Warden's `TaskProgress` at stage PAUSED
   about a task not yet terminal maps to `PAUSE_TASK` (`hivemind.queen.quarantine.hold_task`); every
-  other `TaskProgress` stays `RECORD`.
+  other `TaskProgress` stays `RECORD`. A Warden's `LeaseReleased` that no Overwinter scrub
+  claimed is `RECORD` when its lease was restored and `NEEDS_JUDGEMENT` when it left residual paths.
 - `effort_for` (`effort.py`): the `Effort` an awake episode gets, by `InboxKind` -- alarms `HIGH`,
   questions `MEDIUM`, everything else `LOW`; a table, not a chain of branches.
 - `ForageAutopilotOutcome`, `ForageRequestSignal`, `decide_forage_request` (`forage.py`, roadmap

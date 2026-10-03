@@ -13,7 +13,9 @@ way `hivemind.wardens.autopilot.table._decide_alarm` does for a Warden, but capp
 first, since the Queen is the last supervisor before the human and must never retry or rebind
 forever; a Warden's `TaskProgress` at stage `PAUSED` (its task held by a quarantine, roadmap step
 10.6c) is `PAUSE_TASK`, and any other stage `RECORD`; a `Question` is `BLOCK_ON_QUESTION`; an
-`Answer` is `ROUTE_ANSWER`; a human's chat
+`Answer` is `ROUTE_ANSWER`; a Warden's `LeaseReleased` that no Overwinter scrub claimed (it answers
+Clustering's release order, or comes from a Cell image older than the scrub) is `RECORD` when the
+lease was left as found and `NEEDS_JUDGEMENT` when it reports residual paths; a human's chat
 message (`waggle.messages.control.HumanMessage`, roadmap step 10.5) is `NEEDS_JUDGEMENT` by an
 explicit rule, since free text has no deterministic answer (ADR-0040); anything this table has
 never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
@@ -43,6 +45,9 @@ Key invariants:
     - A SUCCEEDED `TaskResult` whose `scout_report.feasible` is False always resolves to
       `FAIL_TASK`, never `RETRY_TASK`: an infeasible Scout is not a transient failure worth
       retrying, and `attempts`/`limit` play no part in that one decision.
+    - A `LeaseReleased` whose lease was not restored is never only recorded: a Cell not left as
+      found is the one release report that needs a decision (codingrules: Real Cells are borrowed
+      and left exactly as found).
     - A current FAILED `TaskResult` carrying `ResultCause.CELL_RUNS_NO_COMMANDS` resolves to
       `REQUEUE_TASK` only while its task does not yet need commands (ADR-0060), so a task is
       re-placed for its commands at most once; after that it retries or fails as usual.
@@ -68,6 +73,7 @@ from hivemind.queen.autopilot.actions import QueenAction
 from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
+from waggle.messages.cell import LeaseReleased
 from waggle.messages.cell.status import CellHeartbeat
 from waggle.messages.control import HumanMessage
 from waggle.messages.forage import CapacityReport
@@ -142,6 +148,8 @@ def decide(
         return QueenAction.BLOCK_ON_QUESTION
     if isinstance(payload, Answer):
         return QueenAction.ROUTE_ANSWER
+    if isinstance(payload, LeaseReleased):
+        return _decide_report(payload)
     if isinstance(payload, _ROUTINE):
         return QueenAction.RECORD
     if isinstance(payload, HumanMessage):
@@ -149,6 +157,19 @@ def decide(
         return QueenAction.NEEDS_JUDGEMENT
     # A kind this table has never seen: hand off to queen.awake rather than silently dropping it.
     return QueenAction.NEEDS_JUDGEMENT
+
+
+def _decide_report(payload: LeaseReleased) -> QueenAction:
+    """Note a lease release that asks for no decision, unless its Cell was not left as found.
+
+    A LeaseReleased that reaches this table answers an order nobody
+    waits on (an Overwinter scrub claims its own answer on the link, hivemind.queen.cell_gate.
+    scrub): restored, it is already on the trail as the Warden's cell.released; with residual paths
+    the Cell was not left as found, and that is a decision, not a record.
+    """
+    if not payload.is_restored:
+        return QueenAction.NEEDS_JUDGEMENT
+    return QueenAction.RECORD
 
 
 def _decide_task_result(

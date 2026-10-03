@@ -27,11 +27,13 @@ from waggle.ids import (
     new_alarm_id,
     new_cell_id,
     new_device_id,
+    new_lease_id,
     new_task_id,
     new_warden_id,
     new_worker_id,
 )
 from waggle.messages import AlarmSeverity
+from waggle.messages.cell import LeaseReleased, ReleaseCause
 from waggle.messages.cell.status import CellHeartbeat, CellMode
 from waggle.messages.control import HumanMessage
 from waggle.messages.labels import HoneyClearance
@@ -465,3 +467,33 @@ def test_a_human_message_always_needs_judgement() -> None:
     policy = EscalationPolicy(rules=(), default=PolicyAction.RETRY)
 
     assert decide(item, None, 0, policy, 3) is QueenAction.NEEDS_JUDGEMENT
+
+
+def _lease_released(clock: FakeClock, *, restored: bool) -> LeaseReleased:
+    """A Warden's answer to a RELEASE_LEASE order, restored or with one residual path."""
+    return LeaseReleased(
+        lease_id=new_lease_id(clock),
+        cell_id=new_cell_id(clock),
+        holder=new_warden_id(clock),
+        cause=ReleaseCause.COMPLETED,
+        is_restored=restored,
+        killed_processes=0,
+        residual_paths=() if restored else ("/var/lib/hivemind/scratch/lease_x",),
+        reason="released by Clustering",
+    )
+
+
+def test_an_unclaimed_lease_released_left_as_found_is_recorded() -> None:
+    """Clustering's release answer is a fact on the trail already; it wakes no model."""
+    clock = FakeClock()
+    item = make_inbox_item(clock=clock, payload=_lease_released(clock, restored=True))
+
+    assert decide(item, None, 0, _no_rules_policy(), _DEFAULT_LIMIT) is QueenAction.RECORD
+
+
+def test_a_lease_released_with_residual_paths_needs_judgement() -> None:
+    """A Cell not left as found is the one release report that is a decision, not a record."""
+    clock = FakeClock()
+    item = make_inbox_item(clock=clock, payload=_lease_released(clock, restored=False))
+
+    assert decide(item, None, 0, _no_rules_policy(), _DEFAULT_LIMIT) is QueenAction.NEEDS_JUDGEMENT
