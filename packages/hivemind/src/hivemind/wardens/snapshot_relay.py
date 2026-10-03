@@ -15,15 +15,16 @@ Queen link is down degrades the same way a Real Cell always has.
 `waggle.transport.base.Transport`'s own concurrency model is "one task sends and one task receives
 at a time" on a given transport, and the Warden's own tick loop is already that one receiving task
 for `queen_link` (`hivemind.wardens.warden.Warden._queen_iter`); `snapshot`/`rollback` therefore
-never call `.receive()` themselves. Instead each call appends a fresh `asyncio.Future` to a small
-per-kind queue before sending its request, and `handle_reply` -- called by the Warden's own tick
+never call `.receive()` themselves. Instead each call registers a fresh `asyncio.Future` under its
+request envelope's own id before sending it, and `handle_reply` -- called by the Warden's own tick
 (`hivemind.wardens.ticks.control.handle_snapshot_reply`) once it sees a `CellSnapshotReply`/
-`CellRollbackReply` arrive on `queen_link` -- resolves the oldest pending future of the matching
-kind. This is FIFO-per-kind, not per-request-id matching (documented simplification: neither reply
-carries an id of its own beyond `cell_id`, and `hivemind.supervision.attendant.InboxItem` does not
-carry an envelope's `correlation_id`; ordering within one connection, which `Transport`'s own
-contract guarantees, is what makes FIFO correct for the ordinary case of one relay request in
-flight per kind at a time). A snapshot or rollback freezes the whole Cell while the Queen's backend
+`CellRollbackReply` arrive on `queen_link` -- resolves the one ask whose request that reply's
+envelope names in `correlation_id` (Waggle spec section 3: a reply's `correlation_id` is its
+request's id; the Queen's listener sets it, `hivemind.queen.cell_gate.listener`), carried to it
+on `hivemind.supervision.attendant.InboxItem.correlation_id`. Matching by id, not by arrival
+order (phase 5 open item 7), keeps two proposals in flight from one Warden at once (two sub-bees,
+each with an irreversible proposal) from taking each other's snapshot when the Queen's backend
+answers them out of order. A snapshot or rollback freezes the whole Cell while the Queen's backend
 works (`docker commit` pauses the container; a QMP `savevm` stops the VM), this Warden included,
 so its Heartbeats stop for as long as that takes -- 27 s for a 1 GiB change on the development
 host, more than half a Virtual Cell's 45 s window. Before each request the relay therefore calls
@@ -44,9 +45,13 @@ Key invariants:
     - A timeout, a dropped/closed link, or a reply whose own `error`/`ok=False` field reports
       failure all raise `SnapshotUnsupportedError`, never anything else -- the one exception the
       Capping gate's REVERSE_DIFF fallback recognises (ADR-0018).
-    - `handle_reply` is a no-op, not an error, when no matching future is pending (a reply for a
-      request this instance's own timeout already gave up on): the Waggle spec's own "unmatched
-      reply is dropped at debug level" rule (spec section 3).
+    - A reply resolves only the ask whose request envelope its `correlation_id` names, and only
+      when it is that ask's own kind; `handle_reply` is a no-op, not an error, for any other (no
+      or an unknown correlation id, the other kind, or an ask this instance's own timeout already
+      gave up on): the Waggle spec's own "unmatched reply is dropped at debug level" rule
+      (spec section 3).
+    - Every ask's entry is registered before its request is sent and removed on every way out,
+      so no reply can arrive ahead of its ask and no finished ask keeps an entry.
     - With an announcer bound, every request is preceded on the link by the announcement of the
       freeze it may cause, never followed by it.
 
@@ -64,7 +69,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -73,7 +77,7 @@ from hivemind.common.logging import get_logger
 from hivemind.wardens.links import send_guarded
 from waggle.clock import Clock
 from waggle.envelope import Hop, wrap
-from waggle.ids import CellId
+from waggle.ids import CellId, MessageId
 from waggle.messages.cell.snapshot import (
     CellRollbackReply,
     CellRollbackRequest,
@@ -107,9 +111,10 @@ log = get_logger(__name__)
 class RelaySnapshotter:
     """The Snapshotter a Virtual Cell's own Warden hands its CappingGate; relayed to the Queen.
 
-    Owns its own small mutable state in place (codingrules section 8.5, documented): two FIFO
-    queues of pending replies, one per kind, drained by `handle_reply`, and the announcer its
-    Warden binds once (`announce_freezes`), None until then.
+    Owns its own small mutable state in place (codingrules section 8.5, documented): the asks
+    still waiting for a reply, one table per kind keyed by each request envelope's own id,
+    resolved by `handle_reply`, and the announcer its Warden binds once (`announce_freezes`),
+    None until then.
     """
 
     def __init__(
@@ -138,8 +143,8 @@ class RelaySnapshotter:
         self._hop = hop
         self._clock = clock
         self._timeout_s = timeout_s
-        self._pending_snapshot: deque[asyncio.Future[CellSnapshotReply]] = deque()
-        self._pending_rollback: deque[asyncio.Future[CellRollbackReply]] = deque()
+        self._pending_snapshot: dict[MessageId, asyncio.Future[CellSnapshotReply]] = {}
+        self._pending_rollback: dict[MessageId, asyncio.Future[CellRollbackReply]] = {}
         self._announce: FreezeAnnouncer | None = None
 
     def announce_freezes(self, announce: FreezeAnnouncer) -> None:
@@ -168,23 +173,26 @@ class RelaySnapshotter:
         if not reply.ok:
             raise SnapshotUnsupportedError(cell.id)
 
-    def handle_reply(self, payload: _Reply) -> bool:
-        """Resolve the oldest pending ask of `payload`'s own kind, if one is waiting.
+    def handle_reply(self, payload: _Reply, correlation_id: str | None) -> bool:
+        """Resolve the ask whose request `correlation_id` names, if it waits for this kind.
 
         Called by the Warden's own tick (`hivemind.wardens.ticks.control.handle_snapshot_reply`)
         for every `CellSnapshotReply`/`CellRollbackReply` it drains off `queen_link`.
 
         Args:
             payload: The reply just received.
+            correlation_id: Its envelope's own `correlation_id`: the id of the request it answers.
 
         Returns:
             Whether a pending ask was resolved; False means a stale or unmatched reply, dropped
             at debug level (Waggle spec section 3's own "unmatched reply" rule).
         """
-        if isinstance(payload, CellSnapshotReply):
-            resolved = _resolve(self._pending_snapshot, payload)
+        if correlation_id is None:
+            resolved = False  # A reply that names no request answers none of them.
+        elif isinstance(payload, CellSnapshotReply):
+            resolved = _resolve(self._pending_snapshot, MessageId(correlation_id), payload)
         else:
-            resolved = _resolve(self._pending_rollback, payload)
+            resolved = _resolve(self._pending_rollback, MessageId(correlation_id), payload)
         if not resolved:
             log.debug("snapshot_relay.unmatched_reply", cell_id=self._cell_id)
         return resolved
@@ -192,16 +200,20 @@ class RelaySnapshotter:
     async def _ask(
         self,
         request: CellSnapshotRequest | CellRollbackRequest,
-        queue: deque[asyncio.Future[_R]],
+        pending: dict[MessageId, asyncio.Future[_R]],
     ) -> _R:
-        """Send `request` and await the reply `handle_reply` delivers, or time out."""
+        """Send `request` and await the reply `handle_reply` delivers for it, or time out."""
         future: asyncio.Future[_R] = asyncio.get_running_loop().create_future()
-        queue.append(future)
+        request_id: MessageId | None = None
         try:
             if self._announce is not None:
                 # Ahead of the request on the same ordered link: the Cell may freeze right after.
                 await self._announce(self._timeout_s)
             envelope = wrap(request, self._hop, clock=self._clock)
+            # Registered under the request's own id before it is sent, so its reply, which names
+            # that id, can never arrive ahead of the ask waiting for it.
+            request_id = envelope.id
+            pending[request_id] = future
             if not await send_guarded(self._queen_link, envelope):
                 # Phase-7 handoff item 8: a closed or dropped queen link is exactly what this
                 # class already turns a timed-out or refused reply into, so a request that never
@@ -212,17 +224,16 @@ class RelaySnapshotter:
         except TimeoutError as exc:
             raise SnapshotUnsupportedError(self._cell_id) from exc
         finally:
-            if not future.done() and future in queue:
-                queue.remove(future)
+            if request_id is not None:
+                pending.pop(request_id, None)
 
 
 def _resolve[T: (CellSnapshotReply, CellRollbackReply)](
-    queue: deque[asyncio.Future[T]], payload: T
+    pending: dict[MessageId, asyncio.Future[T]], request_id: MessageId, payload: T
 ) -> bool:
-    """Resolve the oldest not-yet-done future in `queue` with `payload`; False if none pending."""
-    while queue:
-        future = queue.popleft()
-        if not future.done():
-            future.set_result(payload)
-            return True
-    return False
+    """Resolve the ask registered under `request_id` with `payload`; False if none waits."""
+    future = pending.pop(request_id, None)
+    if future is None or future.done():
+        return False
+    future.set_result(payload)
+    return True

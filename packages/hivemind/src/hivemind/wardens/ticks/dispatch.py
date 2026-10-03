@@ -214,7 +214,7 @@ async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> N
         # Same reasoning: hivemind.queen.forage.hosting already recorded forage.plan_written.
         control.handle_plan_written(warden, payload)
     elif isinstance(payload, CellSnapshotReply | CellRollbackReply):
-        # Roadmap step 5.10's own follow-up gap: resolve this Warden's own RelaySnapshotter,
-        # never a trail write of its own (the Capping gate's own proposal handling records
-        # whatever it does with the snapshot/rollback outcome).
-        control.handle_snapshot_reply(warden, payload)
+        # Roadmap step 5.10's own follow-up gap: resolve the one ask of this Warden's own
+        # RelaySnapshotter the reply's envelope names, never a trail write of its own (the Capping
+        # gate's own proposal handling records whatever it does with the outcome).
+        control.handle_snapshot_reply(warden, item, payload)

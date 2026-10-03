@@ -8,7 +8,9 @@ Key invariants:
 
 A snapshot freezes the whole Cell, its Warden included, so the relay announces the freeze before
 each request (a Heartbeat declaring its own timeout as the Warden's interval): the Queen then never
-reads the Hive's own freeze as the Warden gone silent.
+reads the Hive's own freeze as the Warden gone silent. A reply resolves only the ask whose request
+its envelope names in `correlation_id` (phase 5 open item 7), so every reply below is handed over
+with the id of the request envelope it answers, as the Warden's tick hands it over.
 
 See Also:
     - hivemind.wardens.snapshot_relay for the module under test.
@@ -52,6 +54,11 @@ def _build_relay(
     return relay, queen_end
 
 
+async def _next_request(queen_end: MemoryTransport) -> Envelope:
+    """Read the next request envelope the relay sent, bounded so a broken relay fails fast."""
+    return await asyncio.wait_for(anext(queen_end.receive()), timeout=5.0)
+
+
 def _snapshot_request(envelope: Envelope) -> CellSnapshotRequest:
     """Narrow one received Envelope's payload to CellSnapshotRequest, for typed attribute access."""
     payload = envelope.payload
@@ -71,10 +78,11 @@ async def test_snapshot_returns_the_snapshot_id_from_a_matching_reply() -> None:
     relay, queen_end = _build_relay(clock)
     cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
     task = asyncio.ensure_future(relay.snapshot(cell))
-    request = _snapshot_request(await anext(queen_end.receive()))
+    envelope = await _next_request(queen_end)
+    request = _snapshot_request(envelope)
 
     reply = CellSnapshotReply(cell_id=request.cell_id, snapshot_id="snap_1", error=None)
-    relay.handle_reply(reply)
+    relay.handle_reply(reply, envelope.id)
 
     assert await asyncio.wait_for(task, timeout=5.0) == SnapshotId("snap_1")
 
@@ -84,10 +92,12 @@ async def test_snapshot_raises_unsupported_when_the_reply_carries_an_error() -> 
     relay, queen_end = _build_relay(clock)
     cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
     task = asyncio.ensure_future(relay.snapshot(cell))
-    request = _snapshot_request(await anext(queen_end.receive()))
+    envelope = await _next_request(queen_end)
+    request = _snapshot_request(envelope)
 
     relay.handle_reply(
-        CellSnapshotReply(cell_id=request.cell_id, snapshot_id=None, error="no backend")
+        CellSnapshotReply(cell_id=request.cell_id, snapshot_id=None, error="no backend"),
+        envelope.id,
     )
 
     with pytest.raises(SnapshotUnsupportedError):
@@ -119,9 +129,10 @@ async def test_rollback_resolves_ok_true_on_a_matching_reply() -> None:
     relay, queen_end = _build_relay(clock)
     cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
     task = asyncio.ensure_future(relay.rollback(cell, SnapshotId("snap_1")))
-    request = _rollback_request(await anext(queen_end.receive()))
+    envelope = await _next_request(queen_end)
+    request = _rollback_request(envelope)
 
-    relay.handle_reply(CellRollbackReply(cell_id=request.cell_id, ok=True, error=None))
+    relay.handle_reply(CellRollbackReply(cell_id=request.cell_id, ok=True, error=None), envelope.id)
 
     await asyncio.wait_for(task, timeout=5.0)  # Must not raise.
 
@@ -131,10 +142,12 @@ async def test_rollback_raises_unsupported_when_the_reply_is_not_ok() -> None:
     relay, queen_end = _build_relay(clock)
     cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
     task = asyncio.ensure_future(relay.rollback(cell, SnapshotId("snap_1")))
-    request = _rollback_request(await anext(queen_end.receive()))
+    envelope = await _next_request(queen_end)
+    request = _rollback_request(envelope)
 
     relay.handle_reply(
-        CellRollbackReply(cell_id=request.cell_id, ok=False, error="unknown snapshot")
+        CellRollbackReply(cell_id=request.cell_id, ok=False, error="unknown snapshot"),
+        envelope.id,
     )
 
     with pytest.raises(SnapshotUnsupportedError):
@@ -143,31 +156,82 @@ async def test_rollback_raises_unsupported_when_the_reply_is_not_ok() -> None:
 
 async def test_handle_reply_returns_false_for_an_unmatched_reply() -> None:
     clock = FakeClock()
-    relay, _queen_end = _build_relay(clock)
+    relay, queen_end = _build_relay(clock)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    task = asyncio.ensure_future(relay.snapshot(cell))
+    envelope = await _next_request(queen_end)
+    reply = CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_1", error=None)
 
-    matched = relay.handle_reply(
-        CellSnapshotReply(cell_id=new_cell_id(clock), snapshot_id="snap_1", error=None)
-    )
+    # No correlation at all, then one naming a request this relay never sent.
+    uncorrelated = relay.handle_reply(reply, None)
+    unknown = relay.handle_reply(reply, "msg_not_a_request_of_this_relay")
 
-    assert matched is False
+    assert (uncorrelated, unknown) == (False, False)
+    assert not task.done()  # The real ask still waits for its own reply.
+    assert relay.handle_reply(reply, envelope.id) is True
+    assert await asyncio.wait_for(task, timeout=5.0) == SnapshotId("snap_1")
 
 
-async def test_snapshot_and_rollback_replies_are_matched_fifo_per_kind() -> None:
-    """Two concurrent snapshot() asks are resolved in the order their replies arrive."""
+async def test_two_interleaved_asks_answered_out_of_order_each_get_their_own_reply() -> None:
+    """Phase 5 open item 7: the second reply to arrive answers the first request, and vice versa.
+
+    Two proposals in flight from one Warden at once; the Queen's backend finishes the second
+    snapshot first. Matched by arrival order, the first ask took the second's snapshot.
+    """
     clock = FakeClock()
     relay, queen_end = _build_relay(clock)
     cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
     first = asyncio.ensure_future(relay.snapshot(cell))
-    await anext(queen_end.receive())
+    first_request = await _next_request(queen_end)
     second = asyncio.ensure_future(relay.snapshot(cell))
-    request_two = _snapshot_request(await anext(queen_end.receive()))
+    second_request = await _next_request(queen_end)
 
-    relay.handle_reply(CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_first", error=None))
-    relay.handle_reply(CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_second", error=None))
+    relay.handle_reply(
+        CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_second", error=None),
+        second_request.id,
+    )
+    relay.handle_reply(
+        CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_first", error=None),
+        first_request.id,
+    )
 
     assert await asyncio.wait_for(first, timeout=5.0) == SnapshotId("snap_first")
     assert await asyncio.wait_for(second, timeout=5.0) == SnapshotId("snap_second")
-    assert request_two.cell_id == cell.id
+
+
+async def test_a_reply_of_the_other_kind_never_resolves_an_ask() -> None:
+    """A rollback reply naming a snapshot request's envelope answers nothing."""
+    clock = FakeClock()
+    relay, queen_end = _build_relay(clock)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    task = asyncio.ensure_future(relay.snapshot(cell))
+    envelope = await _next_request(queen_end)
+
+    resolved = relay.handle_reply(
+        CellRollbackReply(cell_id=cell.id, ok=True, error=None), envelope.id
+    )
+
+    assert resolved is False
+    assert relay.handle_reply(
+        CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_1", error=None), envelope.id
+    )
+    assert await asyncio.wait_for(task, timeout=5.0) == SnapshotId("snap_1")
+
+
+async def test_a_reply_after_its_ask_timed_out_is_dropped() -> None:
+    clock = FakeClock()
+    relay, queen_end = _build_relay(clock, timeout_s=0.01)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    task = asyncio.ensure_future(relay.snapshot(cell))
+    envelope = await _next_request(queen_end)
+    with pytest.raises(SnapshotUnsupportedError):
+        await asyncio.wait_for(task, timeout=5.0)  # The real (wall-clock) timeout fires.
+
+    late = relay.handle_reply(
+        CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_late", error=None), envelope.id
+    )
+
+    assert late is False
 
 
 async def test_a_request_is_announced_as_a_freeze_of_up_to_the_relays_timeout() -> None:
@@ -181,8 +245,9 @@ async def test_a_request_is_announced_as_a_freeze_of_up_to_the_relays_timeout() 
     relay.announce_freezes(announce)
     cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
     task = asyncio.ensure_future(relay.rollback(cell, SnapshotId("snap_1")))
-    request = _rollback_request(await anext(queen_end.receive()))
-    relay.handle_reply(CellRollbackReply(cell_id=request.cell_id, ok=True, error=None))
+    envelope = await _next_request(queen_end)
+    request = _rollback_request(envelope)
+    relay.handle_reply(CellRollbackReply(cell_id=request.cell_id, ok=True, error=None), envelope.id)
 
     await asyncio.wait_for(task, timeout=5.0)
     assert announced == [30.0]
@@ -197,7 +262,10 @@ async def test_a_wardens_snapshot_is_preceded_by_a_heartbeat_declaring_the_freez
 
     task = asyncio.ensure_future(relay.snapshot(cell))
     await queen.pump_until(lambda: bool(queen.heartbeats), limit=1)  # The very first envelope.
-    relay.handle_reply(CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_1", error=None))
+    request = await queen.wait_for_envelope(CellSnapshotRequest)
+    relay.handle_reply(
+        CellSnapshotReply(cell_id=cell.id, snapshot_id="snap_1", error=None), request.id
+    )
 
     assert await asyncio.wait_for(task, timeout=5.0) == SnapshotId("snap_1")
     assert queen.heartbeats[0].interval_s == 30.0  # So its window at the Queen is 90 s, not 15 s.

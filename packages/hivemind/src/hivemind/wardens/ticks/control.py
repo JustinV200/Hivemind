@@ -349,7 +349,9 @@ async def _send_lease_released(
     await send_guarded(warden._deps.queen_link, envelope)
 
 
-def handle_snapshot_reply(warden: Warden, payload: CellSnapshotReply | CellRollbackReply) -> None:
+def handle_snapshot_reply(
+    warden: Warden, item: InboxItem, payload: CellSnapshotReply | CellRollbackReply
+) -> None:
     """Resolve this Warden's own RelaySnapshotter with a CellSnapshotReply/CellRollbackReply.
 
     A no-op, not an error, when `WardenDeps.snapshotter` is not a RelaySnapshotter (every Real
@@ -358,11 +360,13 @@ def handle_snapshot_reply(warden: Warden, payload: CellSnapshotReply | CellRollb
 
     Args:
         warden: The owning Warden (read directly; see the module docstring).
+        item: The InboxItem the reply came in; its `correlation_id` names the request it answers,
+            which is the one ask the relay resolves (phase 5 open item 7).
         payload: The Queen's own reply.
     """
     snapshotter = warden._deps.snapshotter
     if isinstance(snapshotter, RelaySnapshotter):
-        snapshotter.handle_reply(payload)
+        snapshotter.handle_reply(payload, item.correlation_id)
 
 
 async def handle_source_evict(warden: Warden, payload: SourceEvict) -> None:

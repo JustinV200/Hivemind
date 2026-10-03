@@ -18,7 +18,8 @@ pair, `send`s an order (`TaskAssign`/`GrantIssued`/`TaskCancel`/`Intervene`) or 
 pending `Question`, and sorts every report the Warden sends back into `heartbeats`/`results`/
 `alarms`/`questions`/`forage_requests`/`lease_released`/`progress`/`nectar`/`wax_proposed`, and
 keeps whole the envelope of each `swarm.nuc_promoted` reply (`nuc_replies`), since what matters
-about one is the order it answers.
+about one is the order it answers, and every envelope in `envelopes` too, for a test that reads
+an envelope's own ids (`wait_for_envelope`).
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -297,8 +298,8 @@ class QueenEnd:
     """Wrap the Queen side of a Warden's own MemoryTransport pair: send orders, collect reports.
 
     Owns its own mutable state in place (codingrules section 8.5): `heartbeats`, `results`,
-    `alarms`, `questions`, `forage_requests`, `lease_released`, `progress`, `nectar` and
-    `wax_proposed` grow as envelopes are pumped off the transport.
+    `alarms`, `questions`, `forage_requests`, `lease_released`, `progress`, `nectar`,
+    `wax_proposed` and `envelopes` grow as envelopes are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -325,6 +326,7 @@ class QueenEnd:
         self.nectar: list[NectarDeposit] = []  # Roadmap step 11.10: a Patrol's summary chunks.
         self.wax_proposed: list[CellWaxProposed] = []  # Roadmap step 11.10: a Patrol's note.
         self.nuc_replies: list[Envelope] = []  # Roadmap step 11.8: a promotion's reply, whole.
+        self.envelopes: list[Envelope] = []  # Every envelope pumped, whole, in arrival order.
         # Which bucket each payload type lands in, so `_sort` is one lookup and not a branch each.
         self._buckets: tuple[tuple[type[WaggleMessage], list[Any]], ...] = (
             (Heartbeat, self.heartbeats),
@@ -365,7 +367,7 @@ class QueenEnd:
 
     async def send(
         self, payload: WaggleMessage, *, correlation_id: MessageId | None = None
-    ) -> None:
+    ) -> Envelope:
         """Wrap `payload` and send it to the Warden.
 
         Args:
@@ -373,9 +375,13 @@ class QueenEnd:
                 request or event this end originates.
             correlation_id: Passed through to `waggle.envelope.wrap`; None unless `payload`'s own
                 kind requires one.
+
+        Returns:
+            The envelope sent, so a test can match the Warden's answer to its id.
         """
         envelope = wrap(payload, self._hop, clock=self._clock, correlation_id=correlation_id)
         await self._transport.send(envelope)
+        return envelope
 
     async def answer(
         self,
@@ -452,12 +458,29 @@ class QueenEnd:
         await self.pump_until(lambda: bool(self.lease_released), limit=limit)
         return self.lease_released[-1]
 
+    async def wait_for_envelope(
+        self, kind: type[WaggleMessage], limit: int = DEFAULT_PUMP_LIMIT
+    ) -> Envelope:
+        """Pump until an envelope carrying a `kind` payload has arrived, and return the latest.
+
+        Args:
+            kind: The payload class to wait for (a `LeaseReleased`, a `CellSnapshotRequest`...).
+            limit: The most envelopes to read before giving up.
+        """
+        await self.pump_until(lambda: bool(self._of_kind(kind)), limit=limit)
+        return self._of_kind(kind)[-1]
+
+    def _of_kind(self, kind: type[WaggleMessage]) -> list[Envelope]:
+        """Every envelope pumped so far whose payload is a `kind`, in arrival order."""
+        return [envelope for envelope in self.envelopes if isinstance(envelope.payload, kind)]
+
     async def close(self) -> None:
         """Close this end of the transport, so the Warden's own receive() ends cleanly."""
         await self._transport.close()
 
     def _sort(self, envelope: Envelope) -> None:
-        """Append `envelope`'s payload to the matching bucket; unrecognised kinds are ignored."""
+        """Keep `envelope`, and append its payload to the matching bucket, if it has one."""
+        self.envelopes.append(envelope)
         payload = envelope.payload
         if isinstance(payload, Question):
             self._question_envelope_ids[payload.question_id] = envelope.id

@@ -57,7 +57,10 @@ Warden never provisions Cells itself.
   `Snapshotter`, relayed to the Queen, who alone can reach the backend. A snapshot freezes the
   whole Cell, this Warden included, so each request is announced first: one Heartbeat declaring
   the relay's own timeout as the Warden's interval (`ticks.heartbeat.announce_freeze`, bound when
-  the Warden is built), and the Queen judges the frozen Warden by that longer window.
+  the Warden is built), and the Queen judges the frozen Warden by that longer window. A reply
+  resolves only the ask whose request its envelope's `correlation_id` names (carried on
+  `InboxItem.correlation_id`), so two proposals in flight at once never take each other's
+  snapshot when the Queen answers them out of order.
 - `AcceptanceReport`, `run_acceptance` (`acceptance.py`): the Warden-side half of a task's
   acceptance criteria (roadmap 3.18) -- run on the Warden's own session, never the sub-bee's.
   A command criterion runs only where the Warden's Cell may run commands (ADR-0060, through
