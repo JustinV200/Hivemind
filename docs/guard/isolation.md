@@ -141,8 +141,7 @@ most half a second each, every `[llm.providers]` `base_url` that names the Hive 
 `virtual_cells.provider_reachable_through_isolation` warning for each one that answers, naming
 the provider, the port and the fix. For LM Studio, Ollama or llama-server that means setting the
 server's bind address to the docker0 address (for example `172.17.0.1`; `ip -4 addr show docker0`
-prints it) instead of "all interfaces" / `0.0.0.0`. On Docker Desktop the gateway lives inside
-Docker's VM, so the probe cannot see it and stays quiet. A Night Veil
+prints it) instead of "all interfaces" / `0.0.0.0`. A Night Veil
 (VPN_TOR) Cell is never dual-homed, since its link rides Tor over its egress, so its egress is not
 cut (`unsupported`), and neither is a Cell provisioned before the control subnet was set. Under
 `network_policy = "none"` a Cell's own network is `internal`, so the control network is its only
@@ -154,6 +153,16 @@ gateway's listener answers throughout, a stand-in for another Cell on the contro
 does, heartbeats keep arriving with no re-attach, the Cell's own Warden labels its store, the lift
 restores both, a resume from the tainted Handoff is refused inside the Cell, and the container is
 gone at teardown.
+
+**Docker Desktop (Windows, macOS).** Desktop keeps every Docker network inside its own Linux VM,
+so a control network's gateway is never an address of the host a Hive Stand runs on there, and
+the Queen's listener cannot bind it. `hive run` and `hive serve` refuse such a control subnet as
+soon as the network exists (a `ConfigurationError` naming the network to remove); without one, a
+Docker Cell's egress cannot be cut, and the isolation's Alarm says so ("Its network is NOT cut").
+The cut itself works on Desktop's engine: the whole-system run of 2026-10-03 ran a Linux Hive
+Stand inside that VM (a container with host networking and the daemon's socket), and after the cut
+the Cell's DNS, the internet, `host.docker.internal` and docker0 all failed with `OSError(101)`
+while the link stayed up, so Desktop honours `internal` here.
 
 ### QEMU: what a cut would need
 

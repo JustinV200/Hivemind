@@ -357,8 +357,10 @@ class VirtualCellsSection(BaseModel):
         "Hive's internal control network: every Docker Cell whose link does not ride Tor joins it "
         "beside its own network, its Waggle link rides it, and so isolation can cut the Cell's "
         "egress and keep the link (hivemind.hive.backends.docker.network). listen_host must be "
-        "its first host, the gateway, and advertise_url, if set, must name it too. None: no "
-        "control network, and a Docker Cell's egress cannot be cut.",
+        "its first host, the gateway, and advertise_url, if set, must name it too. It needs the "
+        "Docker Engine on the Hive Stand itself: Docker Desktop keeps its networks in its own VM, "
+        "where the gateway is no address of the host (refused at start). None: no control "
+        "network, and a Docker Cell's egress cannot be cut.",
     )
 
     @property

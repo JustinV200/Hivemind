@@ -26,6 +26,7 @@ from structlog.testing import capture_logs
 from hivemind.cli.compose import virtual_cell_backends
 from hivemind.cli.compose.virtual_cell_backends import RegistryContext
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
+from hivemind.common.errors import ConfigurationError
 from hivemind.hive.backends.docker.backend import DockerCellBackend
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.manifest import HiveManifest, load_manifest
@@ -38,8 +39,14 @@ from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
 from waggle.signing import Ed25519Signer
 
-_SUBNET = "10.213.7.0/24"
-_GATEWAY = "10.213.7.1"
+# A private subnet whose gateway this host has (loopback), standing in for the address the real
+# daemon's bridge gives the host; `require_local_gateway` binds it.
+_SUBNET = "127.0.0.0/29"
+_GATEWAY = "127.0.0.1"
+# The benchmarking range (private, and never a host's own address): a gateway Docker Desktop's VM
+# would have and this host would not.
+_FOREIGN_SUBNET = "198.18.7.0/24"
+_FOREIGN_GATEWAY = "198.18.7.1"
 
 
 def _parts(tmp_path: Path, **fields: object) -> VirtualCellsParts:
@@ -70,6 +77,24 @@ async def test_prepare_makes_the_control_network_on_the_client_the_backend_then_
     [control] = client.ensure_network_calls
     assert (control.subnet, control.gateway, control.internal) == (_SUBNET, _GATEWAY, True)
     assert backend.capabilities.can_cut_egress
+
+
+async def test_a_control_gateway_this_host_lacks_is_refused_naming_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A real `hive serve` on Windows: Docker Desktop made the network in its own VM, and the
+    # listener then failed with a bare "could not bind on any address".
+    monkeypatch.setattr(virtual_cell_backends, "SdkDockerClient", FakeDockerClient)
+    parts = _parts(
+        tmp_path, backend="docker", control_subnet=_FOREIGN_SUBNET, listen_host=_FOREIGN_GATEWAY
+    )
+
+    with pytest.raises(ConfigurationError) as refused:
+        await parts.prepare()
+
+    message = str(refused.value)
+    assert _FOREIGN_GATEWAY in message and "Docker Desktop" in message
+    assert "docker network rm hivemind-" in message and "-control" in message
 
 
 async def test_without_a_control_subnet_there_is_nothing_to_prepare(

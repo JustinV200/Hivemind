@@ -13,8 +13,10 @@ starts `CellListener` -- see its own docstring. Roadmap step 10.6a: with `[virtu
 control_subnet` set, the Docker backend gets the Hive's control network and dual-homes every Cell
 on it, and `prepare_backend` makes (or reuses) that network before the listener binds its gateway;
 the backend and the preparation share one Docker client (`RegistryContext.docker`). Once that
-network exists, `warn_exposed_providers` logs every host-side model server that answers on its
-gateway: bound to every interface, it stays reachable from a Cell whose egress is cut.
+network exists, `require_local_gateway` refuses it unless its gateway is an address of this host
+(never so on Docker Desktop, whose networks live in its own VM), and `warn_exposed_providers` logs
+every host-side model server that answers on its gateway: bound to every interface, it stays
+reachable from a Cell whose egress is cut.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
@@ -28,8 +30,8 @@ Fits into the Hive:
     SdkDockerClient), `hivemind.hive.backends.fake` (FakeCellBackend), `hivemind.hive.backends.
     qemu` (ProcessQemuRunner, QemuBackendConfig, QemuCellBackend, USER_NET_HOST_ALIAS),
     `hivemind.manifest` (HiveManifest), `hivemind.manifest.schema.placement`
-    (VirtualCellsSection), `hivemind.queen.cell_gate` (CellListener, QueenReadinessGate) and
-    waggle only.
+    (VirtualCellsSection), `hivemind.queen.cell_gate` (CellListener, QueenReadinessGate), the
+    standard library's socket (one bind of the control gateway) and waggle only.
 
 Key invariants:
     - `_build_registry` registers exactly one backend, `ctx.section.backend`'s own selected name
@@ -50,6 +52,7 @@ See Also:
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
@@ -96,6 +99,7 @@ __all__ = [
     "docker_gateway_url",
     "night_veil_socks_proxy_url",
     "prepare_backend",
+    "require_local_gateway",
     "warn_exposed_providers",
 ]
 
@@ -142,12 +146,43 @@ async def prepare_backend(ctx: RegistryContext) -> None:
     Raises:
         hivemind.hive.CellEgressError: The daemon refused the network, or one of its name exists
             that is not the planned internal network.
+        ConfigurationError: The network exists, but its gateway is not an address of this host.
     """
     control = _docker_control(ctx)
     if control is not None:
         await ensure_control(ctx.docker.get(), control)
+        require_local_gateway(control)
         # The gateway exists on the host only now: probe it for model servers isolation can't cut.
         await warn_exposed_providers(ctx.manifest, control.gateway)
+
+
+def require_local_gateway(control: ControlNetwork) -> None:
+    """Refuse a control network whose gateway is not an address of this host.
+
+    The Queen's listener binds the gateway, which is the host's own address only where the Docker
+    daemon's bridges are the host's. Docker Desktop (Windows, macOS) keeps them in its own Linux
+    VM, as does any remote daemon, so the listener could never bind there: a real `hive serve` on
+    Windows failed with a bare "could not bind on any address", the network left behind.
+
+    Args:
+        control: The Hive's control network, already made or reused.
+
+    Raises:
+        ConfigurationError: Binding the gateway failed; names the network to remove.
+    """
+    try:
+        # Bound and closed at once: the same bind the listener makes next, on a port of the OS's.
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((control.gateway, 0))
+    except OSError as exc:
+        raise ConfigurationError(
+            f"[virtual_cells] control_subnet: the control gateway {control.gateway} is not an "
+            f"address of this host ({exc.strerror}), so the Queen's listener cannot bind it. The "
+            "Docker daemon's networks live elsewhere (Docker Desktop's own VM, or a remote "
+            "daemon); a control network needs the Docker Engine on the Hive Stand itself. Unset "
+            "control_subnet (isolation then cannot cut a Docker Cell's egress) and remove the "
+            f"network: docker network rm {control.name}"
+        ) from exc
 
 
 async def warn_exposed_providers(manifest: HiveManifest, gateway: str) -> None:
