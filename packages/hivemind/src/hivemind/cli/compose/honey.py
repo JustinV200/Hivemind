@@ -23,6 +23,9 @@ Fits into the Hive:
 Key invariants:
     - Never raises for a missing or broken binding: an unusable `EMBEDDER`, `RIPENER` or `JUDGE`
       becomes None, logged once with its reason, and the store works without it (ADR-0036).
+    - The Ripener carries one `EmbedBackoff` for the Hive's life: an EMBEDDER that resolves but
+      cannot answer (no embeddings route, a server down) is tried at a growing interval and
+      said to fail once, never on every ripening pass.
     - `[honey.lowering] enabled = false` builds no judge at all (the JUDGE slot is not even
       resolved), so no clearance judge is ever called on that Hive (ADR-0038).
     - A judge that is built on the RIPENER's own model is logged once as
@@ -48,6 +51,7 @@ from hivemind.common.logging import get_logger
 from hivemind.forage import AccuracyBar, ModelSlot, Tempo
 from hivemind.honey_store import (
     ClearanceJudge,
+    EmbedBackoff,
     HoneyIdentity,
     HoneyRetriever,
     HoneyStore,
@@ -185,11 +189,20 @@ def resolve_judge(registry: ProviderRegistry, lowering: HoneyLoweringSection) ->
 
 
 def _build_ripener(base: RipenerDeps, registry: ProviderRegistry, fanner: Fanner) -> Ripener:
-    """Give `base` its RIPENER binding and a background lane for every summary and embed call."""
+    """Give `base` its RIPENER binding, a background lane and the embedder's one backoff."""
     # Background work: a LOW-accuracy lane never queues ahead of a bee's own call for a seat.
     lane = fanner.lane(Tempo(accuracy=AccuracyBar.LOW))
+    # One backoff for the Hive's life: an embedder that cannot answer is tried at a growing
+    # interval and said to fail once, never on every pass (a warning every 30 s, before).
+    backoff = EmbedBackoff(base.clock)
     return Ripener(
-        replace(base, ripener=resolve_ripener(registry), call_gate=lane, embed_gate=lane)
+        replace(
+            base,
+            ripener=resolve_ripener(registry),
+            call_gate=lane,
+            embed_gate=lane,
+            embed_backoff=backoff,
+        )
     )
 
 

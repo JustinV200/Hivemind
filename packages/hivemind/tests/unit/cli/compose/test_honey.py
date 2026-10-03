@@ -198,3 +198,48 @@ def test_build_honey_access_with_lowering_switched_off_builds_no_judge(tmp_path:
 
     assert access.judge is None
     assert access.lowering.enabled is False
+
+
+def test_the_ripener_rests_an_embedder_that_cannot_answer_between_passes(
+    tmp_path: Path,
+) -> None:
+    # The whole-system run: an embedder with no route warned on every pass, every 30 s. The
+    # Hive's Ripener now carries one backoff: the failure is said once, and the next pass,
+    # before its retry is due, makes no call at all.
+    clock = FakeClock()
+    manifest = load_manifest(fake_manifest(tmp_path, clock=clock))
+    db = manifest.resolve_path(manifest.hive.db)
+    forage_map = build_forage_map(manifest, clock)
+    registry = build_provider_registry(manifest, {}, clock, forage_map, None)
+    fanner = build_fanner(manifest, forage_map, open_trail(db), clock)
+    access = build_honey_access(manifest, open_honey_store(db), registry, fanner, clock)
+    embedder = resolve_embedder(registry)  # The Ripener's own: the registry keeps one per model.
+    assert embedder is not None and isinstance(embedder.provider, FakeEmbedding)
+    embedder.provider.set_available(False)
+    asyncio.run(access.intake.submit(_finding(clock)))
+
+    with capture_logs() as logs:
+        first = asyncio.run(access.ripener.run_pass())
+        second = asyncio.run(access.ripener.run_pass())
+
+    assert first.ripen.ripened == 1 and first.ripen.embedded == 0  # Stored, found by full text.
+    assert second.reembedded == 0
+    failed = [log for log in logs if log["event"] == "honey_store.embed_failed"]
+    assert len(failed) == 1
+
+
+def _finding(clock: FakeClock) -> NectarSubmission:
+    """A plain finding for the Ripener to ripen: text, C1, from a Virtual Cell."""
+    return NectarSubmission(
+        kind=NectarKind.FINDING,
+        origin=NectarOrigin.TASK_OUTCOME,
+        media_type="text/plain",
+        title="A verified outcome",
+        content=b"The widget config lives at /etc/widgets.toml.",
+        task_id=None,
+        cell_id=new_cell_id(clock),
+        observed_at=clock.now(),
+        declared=None,
+        from_borrowed_cell=False,
+        tier=CombShieldLevel.MEADOW,
+    )
