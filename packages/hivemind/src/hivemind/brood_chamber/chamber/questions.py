@@ -11,14 +11,17 @@ the private `_resolve_question` helper.
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Mixed into `BroodChamber`
     (`hivemind.brood_chamber.chamber`); not imported anywhere else. Calls into
-    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.questions`,
-    `hivemind.brood_chamber.task.state` and `hivemind.cell` (HoneyClearance) only.
+    `hivemind.brood_chamber.chamber.base`, `hivemind.brood_chamber.errors`,
+    `hivemind.brood_chamber.questions`, `hivemind.brood_chamber.task.state` and `hivemind.cell`
+    (HoneyClearance) only.
 
 Key invariants:
     - `ask`'s question text and `withdraw`'s reason never appear in the TaskEvent payload each
       writes, only the question's id and (for `ask`) who asked (codingrules section 12).
     - `answer`/`withdraw` always move the task back to RUNNING and clear `pending_question_id`,
-      whichever of the two ways the Question was resolved.
+      whichever of the two ways the Question was resolved, and only a task still blocked on that
+      very question: any other raises InvalidTransitionError and changes nothing, so a late
+      answer never revives a task that ended while its question stood.
 
 See Also:
     - hivemind.brood_chamber.questions for Question, Answer, QuestionStatus and
@@ -34,6 +37,7 @@ from collections.abc import Mapping, Sequence
 from pydantic import JsonValue
 
 from hivemind.brood_chamber.chamber.base import _ChamberBase
+from hivemind.brood_chamber.errors import InvalidTransitionError
 from hivemind.brood_chamber.questions import (
     Answer,
     Question,
@@ -137,6 +141,10 @@ class _QuestionsMixin(_ChamberBase):
         question = await self._store.get_question(question_id)
         assert_question_transition(question.status, new_status, question_id=question.id)
         task = await self._store.get_task(question.task_id)
+        if task.pending_question_id != question.id:
+            # Only the task blocked on this very question resumes through it: one cancelled or
+            # finished while it stood (a row from before `_cancel` withdrew it) stays as it ended.
+            raise InvalidTransitionError(task.status, TaskStatus.RUNNING, subject_id=task.id)
         now = self._clock.now()
         new_question = question.model_copy(update={"status": new_status, "answer": answer})
         new_task = task.model_copy(

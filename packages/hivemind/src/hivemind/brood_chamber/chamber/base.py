@@ -8,7 +8,8 @@ what and when) it writes. `_ChamberBase` is the private base every mixin in this
 the `TaskStore`, `Clock` and `ChamberIdentity` every method needs, and the private helpers
 (`_build_event`, `_write`, `_transition`) that turn "apply these field updates and write a matching
 event" into one call, so no mixin repeats the `TaskEvent(...)` construction by hand; `_cancel` is
-the one cancellation both `outcomes.py` and `night_veil.py` write.
+the one cancellation both `outcomes.py` and `night_veil.py` write, and the one place a task
+cancelled while BLOCKED has its open question withdrawn with it.
 
 `_build_event` is also where a Night Veil task's events are cut to the skeleton (codingrules
 section 12: "task state transitions carrying nothing beyond the task id"). A task is Night Veil
@@ -24,8 +25,9 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Inherited by every other module in this
     package; nothing outside `hivemind.brood_chamber.chamber` imports it directly (the package's
     `__init__.py` is the public face).
-    Calls into `hivemind.brood_chamber.task.state` (assert_transition), `hivemind.cell`
-    (CombShieldLevel) and `hivemind.pheromone` (TaskEvent, skeleton_event) only.
+    Calls into `hivemind.brood_chamber.task.state` (assert_transition),
+    `hivemind.brood_chamber.questions` (QuestionStatus), `hivemind.cell` (CombShieldLevel) and
+    `hivemind.pheromone` (TaskEvent, skeleton_event) only.
 
 Key invariants:
     - `_transition` never writes a `Task` whose `status` a caller has not already had
@@ -33,6 +35,8 @@ Key invariants:
     - Every `TaskEvent` `_build_event` builds is stamped with this chamber's own `identity` and a
       freshly minted id; no caller builds a `TaskEvent` by hand.
     - A Night Veil task's event, before or after the write it records, carries no payload.
+    - No task ends CANCELLED with a question still ASKED: `_cancel` withdraws it in the same store
+      write, so a late answer can never move a cancelled task back to RUNNING.
 
 See Also:
     - hivemind.brood_chamber.chamber for BroodChamber, the class every mixin here composes into.
@@ -47,6 +51,8 @@ from datetime import datetime
 
 from pydantic import JsonValue
 
+from hivemind.brood_chamber.errors import QuestionNotFoundError
+from hivemind.brood_chamber.questions import Question, QuestionStatus
 from hivemind.brood_chamber.store.protocol import TaskStore
 from hivemind.brood_chamber.task.model import Task, TaskOutcome
 from hivemind.brood_chamber.task.state import TaskStatus, assert_transition
@@ -169,17 +175,41 @@ class _ChamberBase:
         outcome = TaskOutcome(status=TaskStatus.CANCELLED, summary=reason)
         payload: dict[str, JsonValue] = {"reason": reason, "from_status": task.status.value}
         # A cancelled task is never placed, nor still blocked on a question (BLOCKED -> CANCELLED).
-        return await self._transition(
-            task,
-            TaskStatus.CANCELLED,
-            "task.cancelled",
-            payload,
-            outcome=outcome,
-            warden_id=None,
-            cell_id=None,
-            bound_tier=None,
-            pending_question_id=None,
+        updates: dict[str, object] = {
+            "outcome": outcome,
+            "warden_id": None,
+            "cell_id": None,
+            "bound_tier": None,
+            "pending_question_id": None,
+        }
+        question = await self._open_question(task)
+        if question is None:
+            return await self._transition(
+                task, TaskStatus.CANCELLED, "task.cancelled", payload, **updates
+            )
+        # Its open question ends with it, in the same store write: left ASKED, a late answer would
+        # move a CANCELLED task back to RUNNING (questions._resolve_question now refuses that too).
+        assert_transition(task.status, TaskStatus.CANCELLED, task_id=task.id)
+        now = self._clock.now()
+        new_task = task.model_copy(
+            update={"status": TaskStatus.CANCELLED, "updated_at": now, **updates}
         )
+        event = self._build_event(
+            task, "task.cancelled", {**payload, "question_id": question.id}, now, after=new_task
+        )
+        withdrawn = question.model_copy(update={"status": QuestionStatus.WITHDRAWN})
+        await self._store.update_question(new_task, withdrawn, event)
+        return new_task
+
+    async def _open_question(self, task: Task) -> Question | None:
+        """Return the question `task` is blocked on while it is still ASKED, else None."""
+        if task.pending_question_id is None:
+            return None
+        try:
+            question = await self._store.get_question(task.pending_question_id)
+        except QuestionNotFoundError:
+            return None  # No row to withdraw: nothing a late answer could resolve either.
+        return question if question.status is QuestionStatus.ASKED else None
 
 
 def _is_night_veil(task: Task) -> bool:

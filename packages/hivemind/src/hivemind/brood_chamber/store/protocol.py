@@ -229,9 +229,11 @@ class TaskStore(Protocol):
 
         Used when a question is answered or withdrawn: the task moves back to RUNNING, the
         question's `status` (and, for an answer, `answer`) changes, and one event is recorded.
+        Also used when a task is cancelled while BLOCKED: the task ends CANCELLED and its open
+        question is withdrawn in the same write.
 
         Args:
-            task: The task's new value, already moved back to RUNNING.
+            task: The task's new value, already moved back to RUNNING (or to CANCELLED).
             question: The question's new value.
             event: The event describing the transition.
 

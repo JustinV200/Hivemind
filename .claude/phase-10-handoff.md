@@ -558,10 +558,13 @@ The host was Windows 11 with Docker Desktop 4.91 (WSL 2, engine 29.8).
     revocation, so an operator cannot drop an interrupted `hive run`'s goal from the CLI.
   - `hive run` takes no serve lock, so beside a running `hive serve` two Queens dispatch from one
     Brood Chamber. The new give-back touches only its own Queen's Wardens.
-  - The Night Veil purge cancels a BLOCKED task without withdrawing its question
-    (`end_night_veil` calls `_cancel`). The question stays ASKED, and an answer to it would move
-    the CANCELLED task back to RUNNING, since `_resolve_question` checks only the question's own
-    edge.
+  - ~~The Night Veil purge cancels a BLOCKED task without withdrawing its question~~ **Fixed the
+    same day, for every cancellation, not only the purge:** `_cancel` (chamber base) withdraws a
+    still-ASKED question in the same store write as the cancellation (`task.cancelled` names it as
+    `question_id`), and `_resolve_question` refuses (InvalidTransitionError) to resume any task
+    not blocked on that very question, so a row from before the fix cannot be revived either.
+    Device notices are still closed by Queen-level code (`human_channel.question_closed`); the
+    purge has no such call, which matters only once Night Veil placement opens (phase 5 item 3).
   - A view still opening when `hive serve` stops finds nothing listening. The follower then
     says the connection dropped, not that the Entrance shut down, and exits 3 either way.
 - **Cleanup.** No Cell, laptop or Stand container is left, and no hivemind network or volume of

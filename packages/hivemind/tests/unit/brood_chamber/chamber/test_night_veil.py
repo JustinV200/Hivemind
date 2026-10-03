@@ -20,10 +20,12 @@ See Also:
 from __future__ import annotations
 
 import pytest
-from builders.tasks import make_task
+from builders.tasks import make_answer, make_task
 
 import hivemind.brood_chamber.chamber.night_veil as night_veil_module
 from hivemind.brood_chamber.chamber import BroodChamber, ChamberIdentity
+from hivemind.brood_chamber.errors import InvalidTransitionError
+from hivemind.brood_chamber.questions import QuestionStatus
 from hivemind.brood_chamber.store import SCRUBBED_TEXT
 from hivemind.brood_chamber.store.memory import MemoryTaskStore
 from hivemind.brood_chamber.task.model import Task
@@ -31,7 +33,7 @@ from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.pheromone import TaskEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from waggle.clock import FakeClock
-from waggle.ids import CellId, new_cell_id, new_event_id, new_hive_id, new_node_id
+from waggle.ids import CellId, new_cell_id, new_event_id, new_hive_id, new_node_id, new_worker_id
 
 
 def _chamber(clock: FakeClock) -> tuple[BroodChamber, MemoryTaskStore]:
@@ -116,3 +118,19 @@ async def test_end_night_veil_cancels_the_cells_live_tasks_and_reduces_them() ->
     assert (await chamber.get(finished.id)).spec.title == SCRUBBED_TEXT
     assert reduced == 3  # The two cancelled and the one already finished; questions have none.
     assert await chamber.get(elsewhere.id) == elsewhere  # Another Cell's task is untouched.
+
+
+async def test_ending_a_night_veil_cell_withdraws_a_blocked_tasks_question() -> None:
+    """A task cancelled with its Cell takes its open question along: no late answer revives it."""
+    clock = FakeClock()
+    chamber, store = _chamber(clock)
+    cell = new_cell_id(clock)
+    running = await _placed(store, clock, TaskStatus.RUNNING, cell)
+    question = await chamber.ask(running.id, new_worker_id(clock), "which?")
+
+    await chamber.end_night_veil(cell, frozenset())
+
+    assert (await store.get_question(question.id)).status is QuestionStatus.WITHDRAWN
+    with pytest.raises(InvalidTransitionError):
+        await chamber.answer(question.id, make_answer(clock=clock))
+    assert (await chamber.get(running.id)).status is TaskStatus.CANCELLED

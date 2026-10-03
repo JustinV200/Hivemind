@@ -25,7 +25,7 @@ from hivemind.brood_chamber.chamber import BroodChamber, ChamberIdentity
 from hivemind.brood_chamber.errors import InvalidTransitionError
 from hivemind.brood_chamber.questions import QuestionStatus
 from hivemind.brood_chamber.store.memory import MemoryTaskStore
-from hivemind.brood_chamber.task.model import Task
+from hivemind.brood_chamber.task.model import Task, TaskOutcome
 from hivemind.brood_chamber.task.state import TaskStatus
 from hivemind.pheromone import PheromoneEvent, TaskEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -144,3 +144,67 @@ async def test_withdraw_moves_blocked_task_back_to_running() -> None:
 
     assert withdrawn.status is TaskStatus.RUNNING
     assert withdrawn.pending_question_id is None
+
+
+async def test_cancelling_a_blocked_task_withdraws_its_question_in_the_same_write() -> None:
+    clock = FakeClock()
+    chamber, store, trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+    question = await chamber.ask(task.id, new_worker_id(clock), "which?")
+
+    cancelled = await chamber.cancel(task.id, "the goal was withdrawn")
+
+    assert (cancelled.status, cancelled.pending_question_id) == (TaskStatus.CANCELLED, None)
+    assert (await store.get_question(question.id)).status is QuestionStatus.WITHDRAWN
+    last = (await _events_for(trail, task.id))[-1]
+    assert last.kind == "task.cancelled"
+    assert last.payload["question_id"] == question.id
+    assert last.payload["from_status"] == TaskStatus.BLOCKED.value
+
+
+async def test_a_late_answer_never_moves_a_cancelled_task_back_to_running() -> None:
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+    question = await chamber.ask(task.id, new_worker_id(clock), "which?")
+    await chamber.cancel(task.id, "the goal was withdrawn")
+
+    with pytest.raises(InvalidTransitionError):
+        await chamber.answer(question.id, make_answer(clock=clock))
+
+    assert (await store.get_task(task.id)).status is TaskStatus.CANCELLED
+
+
+async def test_an_answer_to_a_question_its_task_no_longer_waits_on_changes_nothing() -> None:
+    """A row from before cancellations withdrew questions: the answer is refused, not applied."""
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+    question = await chamber.ask(task.id, new_worker_id(clock), "which?")
+    ended = (await store.get_task(task.id)).model_copy(
+        update={
+            "status": TaskStatus.CANCELLED,
+            "outcome": TaskOutcome(status=TaskStatus.CANCELLED, summary="cancelled before the fix"),
+            "pending_question_id": None,
+            "warden_id": None,
+            "cell_id": None,
+            "bound_tier": None,
+        }
+    )
+    event = TaskEvent(
+        id=new_event_id(clock),
+        hive_id=new_hive_id(clock),
+        node_id=new_node_id(clock),
+        at=clock.now(),
+        actor="system",
+        kind="task.cancelled",
+        subject_id=task.id,
+        payload={},
+    )
+    await store.update_task(ended, event)
+
+    with pytest.raises(InvalidTransitionError):
+        await chamber.answer(question.id, make_answer(clock=clock))
+
+    assert (await store.get_task(task.id)).status is TaskStatus.CANCELLED
+    assert (await store.get_question(question.id)).status is QuestionStatus.ASKED
