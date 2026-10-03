@@ -515,13 +515,55 @@ The host was Windows 11 with Docker Desktop 4.91 (WSL 2, engine 29.8).
   - `0b8c1d55`: a `control_subnet` whose gateway the host lacks is refused with a clear
     `ConfigurationError`. The docs had claimed Desktop worked.
   - `8d9b9449`: `hive trail tail -n` above 10000 printed a traceback; it is now a usage error.
-- **Seen, not changed:**
-  - A goal whose `hive run` was interrupted stays BLOCKED in the Brood Chamber. Its question
-    waits, but its Cell is gone.
-  - Tasks paused by an isolation stay PAUSED after the lift, by design.
-  - `honey_store.embed_failed` warns every 30 s, because the scripted server has no embeddings
-    route.
-  - The laptop's follower calls a serve shutdown "refused".
+- **Seen, not changed by the run.** Three of the four notes were closed afterwards on
+  `worktree-agent-a3a961c6f2cc828bb`. Each has unit tests; the first also has an e2e
+  (`tests/e2e/test_interrupted_run.py`), and the third a real `hive serve` stopped under a
+  laptop's `hive run --remote`:
+  - Closed (`282efbcc`, `25ff33dd`, `16605a00`, `99a768d2`): a goal whose `hive run` was
+    interrupted stayed BLOCKED in the Brood Chamber, its question waiting while its Cell was gone.
+    - `run_hive`'s teardown now ends with `hivemind.queen.requeue_unfinished`, once every Cell is
+      gone. Each task still ASSIGNED, RUNNING or BLOCKED on a Warden this Queen placed work on
+      goes back to PENDING as a new attempt, a BLOCKED one's question withdrawn first. The next
+      start places it afresh and its bee asks again.
+    - A task on a Night Veil Cell is cancelled instead, and a PAUSED one keeps its hold.
+      `hive serve` shares the teardown.
+    - PENDING, not a cancelled goal, because that is how the Hive already treats interrupted
+      work: the stranded-ASSIGNED unassign, a goal request left PLANNING, Requeening's plan
+      (13.1), and a follow whose timeout never ends the goal.
+    - `hive run` now says, on a timeout or Ctrl+C, that the goal is not cancelled.
+  - Tasks paused by an isolation stay PAUSED after the lift, by design. Still so.
+  - Closed (`09b8a805`, `63b90d18`, `035854bc`): `honey_store.embed_failed` warned every 30 s
+    against a server with no embeddings route.
+    - The Ripener carries an `EmbedBackoff`. Retries double from 30 s to a 15-minute cap and
+      start over on success.
+    - The first failure is said in full, and a later one only on a new cause or at the cap.
+    - A provider with no embeddings (404, 405, 501 or "not supported") is said once, naming the
+      `[llm.slots]` binding to fix.
+    - The openai_compat client now reads a 501 as a `ProviderRequestError`, which is how
+      llama.cpp answers without `--embeddings`.
+    - Proved on a real Hive over the scripted model server: one goal, then 100 s of 5-second
+      ripening passes. The log held one `honey_store.embedder_unsupported` line naming
+      `[llm.slots.embedder]`, and no `embed_failed` at all.
+  - Closed (`145ec76f`): the laptop's follower called a serve shutdown "refused".
+    - A follow the Hive leaves now ends with `HiveStoppedError`: a close with 1001 or 1012, a
+      drop with no close frame, or nothing listening for a read.
+    - `hive run --remote` says the Hive stopped and where the goal stood, then exits 3.
+    - 4401, 4410 and every HTTP refusal are still refusals.
+- **Seen while closing them, not changed:**
+  - A PAUSED task bound to a Cell the stop retired keeps its binding. `resume_paused` needs its
+    Warden attached, so after a restart such a task cannot resume until Requeening (13.1).
+  - A crash, with no teardown, still leaves tasks on Cells that are gone. That is also
+    Requeening's (13.1).
+  - No local command cancels a goal. `ChatDoor.cancel_goal` is reached only through a device
+    revocation, so an operator cannot drop an interrupted `hive run`'s goal from the CLI.
+  - `hive run` takes no serve lock, so beside a running `hive serve` two Queens dispatch from one
+    Brood Chamber. The new give-back touches only its own Queen's Wardens.
+  - The Night Veil purge cancels a BLOCKED task without withdrawing its question
+    (`end_night_veil` calls `_cancel`). The question stays ASKED, and an answer to it would move
+    the CANCELLED task back to RUNNING, since `_resolve_question` checks only the question's own
+    edge.
+  - A view still opening when `hive serve` stops finds nothing listening. The follower then
+    says the connection dropped, not that the Entrance shut down, and exits 3 either way.
 - **Cleanup.** No Cell, laptop or Stand container is left, and no hivemind network or volume of
   the run's. The image the run built was removed. No `hive` or model-server process remains.
 
@@ -576,6 +618,13 @@ The host was Windows 11 with Docker Desktop 4.91 (WSL 2, engine 29.8).
 **Earlier in the session:**
 - The handoff's known issues 1 to 7.
 - The codingrules 8.11 placement of view models.
+
+**The whole-system run's notes, closed afterwards (see "Real runs done"):**
+- An interrupted or timed-out `hive run`, or a stopped `hive serve`, left its tasks BLOCKED,
+  ASSIGNED or RUNNING on Cells that were gone.
+- `honey_store.embed_failed` warned every 30 s, for as long as the Hive ran, against a provider
+  with no embeddings route.
+- The laptop's follower called a `hive serve` shutdown "refused".
 
 ## Final report owed to the user
 
