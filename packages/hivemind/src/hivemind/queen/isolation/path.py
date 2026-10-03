@@ -18,7 +18,8 @@ escalation policy and the human's lever at the Hive Entrance all end here, in th
 8. The Cell's memory is tainted from the first evidence on, caused by that event: the Hive's own
    tables here, and the store a Virtual Cell's Warden keeps inside the Cell by its order
    (`CellTaintOrder`, which the Warden carries out with the same setter).
-9. The human is told by a CRITICAL SECURITY Alarm, pushed to every device.
+9. The human is told by a CRITICAL SECURITY Alarm, pushed to every device, which says whether the
+   Cell's network was cut.
 
 The lease and its scratch are kept intact for forensics: nothing here releases, tears down or
 overwinters the Cell. Only the human lifts an isolation (`hivemind.queen.isolation.lift`). For a
@@ -103,7 +104,7 @@ async def isolate_cell(site: IsolationSite, order: IsolationOrder) -> IsolationO
     tainted = await taint_cell(deps, link, reason, event_id, suspect_at)
     alert = SecurityAlert(
         severity=AlarmSeverity.CRITICAL,
-        detail=_detail(order),
+        detail=_detail(order, outcome.egress),
         cell_id=order.cell_id,
         event_id=event_id,
         report_id=order.report_id,  # One Alarm per report: its first showing is this one.
@@ -150,11 +151,28 @@ async def _cut_egress(site: IsolationSite, cell_id: CellId) -> EgressOutcome:
     return await egress.cut(cell_id)
 
 
-def _detail(order: IsolationOrder) -> str:
-    """The human's Alarm sentence: who isolated which Cell, and on which report (ids only)."""
+def _detail(order: IsolationOrder, egress: EgressOutcome) -> str:
+    """The human's Alarm sentences: who isolated which Cell, on which report, and its network."""
     answering = f" on Guard report {order.report_id}" if order.report_id else ""
     return (
         f"Cell {order.cell_id} isolated by the {order.ordered_by.value}{answering}: its bees are "
         "paused, its grant revoked, nothing is placed there and its memory is tainted from the "
-        "first cited event. Only you can lift it."
+        f"first cited event. {_EGRESS_SENTENCES.get(egress, '')}Only you can lift it."
     )
+
+
+# What the Alarm says of the Cell's network. An isolation whose cut did not happen must say so: the
+# human otherwise reads "isolated" as contained (a real run on Windows, whose Docker Desktop allows
+# no control network, isolated a Cell that could still reach the internet and the model server).
+_EGRESS_SENTENCES = {
+    EgressOutcome.CUT: "Its network is cut to its link with the Queen. ",
+    EgressOutcome.UNSUPPORTED: (
+        "Its network is NOT cut: its backend cannot cut it, so it still reaches whatever its "
+        "network policy allows. "
+    ),
+    EgressOutcome.FAILED: (
+        "Its network is NOT cut: the cut failed, so it may still reach whatever its network "
+        "policy allows. "
+    ),
+    EgressOutcome.UNTRACKED: "Its network is left as it was: a Real Cell is never reconfigured. ",
+}

@@ -82,7 +82,9 @@ human's lever. In order:
    Hive's label cannot reach. An order lost to a closed link is sent again whenever the Warden
    attaches while the isolation stands; the setter is idempotent. See
    [tainted memory](tainted-memory.md).
-9. A CRITICAL SECURITY Alarm tells the human.
+9. A CRITICAL SECURITY Alarm tells the human. It says whether the Cell's network was cut: an
+   `unsupported` or `failed` cut reads "Its network is NOT cut", since such a Cell still reaches
+   whatever its network policy allows.
 
 Nothing on the path releases, tears down or overwinters the Cell. Its lease and scratch are kept
 for forensics.

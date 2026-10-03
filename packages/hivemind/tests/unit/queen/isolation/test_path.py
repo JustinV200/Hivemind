@@ -57,7 +57,7 @@ from hivemind.queen.isolation import (
 )
 from hivemind.supervision import AlarmKind, AlarmSeverity
 from waggle.clock import FakeClock
-from waggle.ids import new_cell_id, new_event_id
+from waggle.ids import CellId, new_cell_id, new_event_id
 from waggle.messages.supervision import InterventionAction
 
 _NO_WAIT = GuardDeps(pause_timeout_s=0.0)  # A FakeClock never advances by itself: never wait.
@@ -134,6 +134,35 @@ async def test_cell_isolated_cites_the_report_and_every_steps_result() -> None:
     assert (alarm.kind, alarm.severity) == (AlarmKind.SECURITY, AlarmSeverity.CRITICAL)
     assert (alarm.context.cell_id, alarm.context.event_id) == (cell.id, event.id)
     assert report.id in alarm.detail
+    assert "Its network is cut to its link with the Queen." in alarm.detail
+    await warden_end.close()
+
+
+class _CannotCut:
+    """An egress seam whose backend cannot cut this Cell (Docker without a control network)."""
+
+    async def cut(self, _cell_id: CellId) -> EgressOutcome:
+        return EgressOutcome.UNSUPPORTED
+
+    async def restore(self, _cell_id: CellId) -> EgressOutcome:
+        return EgressOutcome.UNSUPPORTED
+
+
+async def test_the_alarm_says_when_the_isolated_cells_network_is_not_cut() -> None:
+    # A real run on Windows (Docker Desktop allows no control network) isolated a Cell that could
+    # still reach the internet and the model server, under an Alarm that read as contained.
+    clock = FakeClock()
+    _egress, _backend, cell = await tracked_virtual_cell(clock)
+    guard = GuardDeps(egress=_CannotCut(), pause_timeout_s=0.0)
+    deps, link, warden_end = make_queen_deps(clock, cell=cell, guard=guard)
+    site = isolation_site(deps, link)
+
+    outcome = await isolate_cell(site, queen_order(cell.id, ordered_by=Isolator.HUMAN))
+
+    assert outcome.isolated and outcome.egress is EgressOutcome.UNSUPPORTED
+    [alarm] = site.human_inbox.alarms
+    assert "Its network is NOT cut" in alarm.detail
+    assert alarm.detail.endswith("Only you can lift it.")
     await warden_end.close()
 
 
