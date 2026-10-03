@@ -119,8 +119,8 @@ async def test_unassign_then_assign_again_bumps_attempt() -> None:
 
 
 async def test_a_paused_task_can_be_taken_back_and_placed_afresh() -> None:
-    # ADR-0053: a device the Queen lost for good takes its running tasks with it. RUNNING has no
-    # edge back to PENDING, so the task is paused first, then unassigned like a lost ASSIGNED one.
+    # ADR-0053: a device the Queen lost for good takes its running tasks with it. Each is paused
+    # first (its bee stopped at a Handoff), then unassigned like a lost ASSIGNED one.
     clock = FakeClock()
     chamber, store, trail = _make_chamber(clock)
     task = await _seed(store, clock, status=TaskStatus.RUNNING)
@@ -136,13 +136,34 @@ async def test_a_paused_task_can_be_taken_back_and_placed_afresh() -> None:
     assert {"task.paused", "task.unassigned"} <= kinds
 
 
-async def test_a_running_task_cannot_be_unassigned_without_pausing_first() -> None:
+async def test_unassign_gives_a_running_task_back_unplaced_as_a_new_attempt() -> None:
+    # Its Hive stopped under it: the Cell and Warden are gone, so the next start places it afresh.
     clock = FakeClock()
-    chamber, store, _trail = _make_chamber(clock)
+    chamber, store, trail = _make_chamber(clock)
     task = await _seed(store, clock, status=TaskStatus.RUNNING)
 
+    unassigned = await chamber.unassign(task.id, reason="the Hive stopped")
+
+    assert unassigned.status is TaskStatus.PENDING
+    assert (unassigned.warden_id, unassigned.cell_id, unassigned.bound_tier) == (None, None, None)
+    assert unassigned.attempt == task.attempt + 1
+    [event] = [e for e in await _events_for(trail, task.id) if e.kind == "task.unassigned"]
+    assert event.payload == {"reason": "the Hive stopped", "from_status": "RUNNING"}
+
+
+@pytest.mark.parametrize("status", [TaskStatus.BLOCKED, TaskStatus.PENDING])
+async def test_unassign_refuses_a_task_that_holds_no_placement_to_give_back(
+    status: TaskStatus,
+) -> None:
+    # BLOCKED has its question withdrawn first; PENDING has no placement to give back.
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=status)
+
     with pytest.raises(InvalidTransitionError):
-        await chamber.unassign(task.id, reason="device lost")
+        await chamber.unassign(task.id, reason="the Hive stopped")
+
+    assert (await store.get_task(task.id)).status is status
 
 
 async def test_assign_binds_the_task_to_its_cells_tier_and_records_it() -> None:

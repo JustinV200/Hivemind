@@ -4,6 +4,8 @@ Placement (`assign`, `unassign`, `start`) moves a task between PENDING, ASSIGNED
 Warden (a Cell's supervisor) takes on and starts the task; since roadmap step 10.3b `assign` also
 binds the task to its Cell's Comb Shield tier (`Task.bound_tier`, recorded on `task.assigned`)
 and `unassign` unbinds it, so a task moved to another Cell is re-bound before it runs again.
+`unassign` gives back an ASSIGNED task whose Warden was lost before its Worker started, and a
+RUNNING one whose Hive stopped under it, taking its Cell and Warden along.
 `requeue_for_commands` (ADR-0060) moves a RUNNING task back to PENDING the same way, for a task
 whose Cell refused the commands its Worker or its acceptance runs: its needs gain `commands`, so
 its next placement lands on a Cell that runs them.
@@ -106,16 +108,15 @@ class _LifecycleMixin(_ChamberBase):
         )
 
     async def unassign(self, task_id: TaskId, reason: str) -> Task:
-        """Move a task ASSIGNED or PAUSED -> PENDING: its placement is gone and it is placed afresh.
+        """Move a placed task back to PENDING: its Warden, device or Hive went before it ended.
 
-        ASSIGNED: its Warden was lost before the Worker started. PAUSED: its Cell's device was
-        lost for good and the Queen took the task back (ADR-0053); a running task is paused first.
-        RUNNING's own edge back to PENDING is `requeue_for_commands`'s alone (ADR-0060), so it is
-        refused here.
-
+        From ASSIGNED, its Warden was lost before the Worker started: the Queen's dispatch pass
+        calls this for a task it finds stranded there (a stop or a failure between `assign` and
+        `start`; `hivemind.queen.dispatcher.ready.dispatch`). From RUNNING, the Hive that ran it
+        stopped and took its Cell and Warden along: the stop gives it back so the next start
+        places it afresh (`hivemind.queen.dispatcher.ready.unfinished`). From PAUSED, its Cell's
+        device was lost for good and the Queen took the task back (ADR-0053), pausing it first.
         Bumps `attempt` by one, so the next `assign` on this task already reflects a new attempt.
-        The Queen's dispatch pass calls this for a task it finds stranded ASSIGNED (a stop or a
-        failure between `assign` and `start`; `hivemind.queen.dispatcher.ready.dispatch`).
 
         Args:
             task_id: The task to unassign.
@@ -124,12 +125,13 @@ class _LifecycleMixin(_ChamberBase):
         Returns:
             The task, now PENDING with no placement, no tier binding (its next placement re-binds
             it to whichever Cell it lands on) and an incremented `attempt`.
+
+        Raises:
+            InvalidTransitionError: The task is not ASSIGNED, RUNNING or PAUSED (a BLOCKED task
+                has its question withdrawn first).
         """
         task = await self._store.get_task(task_id)
-        if task.status is TaskStatus.RUNNING:
-            # RUNNING -> PENDING is for re-placement only; a plain give-back pauses first.
-            raise InvalidTransitionError(task.status, TaskStatus.PENDING, subject_id=task.id)
-        payload: dict[str, JsonValue] = {"reason": reason}
+        payload: dict[str, JsonValue] = {"reason": reason, "from_status": task.status.value}
         return await self._transition(
             task,
             TaskStatus.PENDING,

@@ -97,7 +97,9 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
             TaskStatus.CANCELLED,  # a human or the Queen cancels the goal
             TaskStatus.BLOCKED,  # the Worker or Warden asked a Question
             TaskStatus.PAUSED,  # Clustering (its providers went away), or its bee quarantined
-            TaskStatus.PENDING,  # re-placed: its Cell refused the commands it needs (ADR-0060)
+            # re-placed: its Cell refused the commands it needs (ADR-0060), or its Hive stopped
+            # under it, its Cell and Warden gone with the stop
+            TaskStatus.PENDING,
         }
     ),
     TaskStatus.BLOCKED: frozenset(
