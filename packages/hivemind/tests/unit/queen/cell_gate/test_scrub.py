@@ -155,8 +155,11 @@ async def test_a_scrub_with_no_answer_in_time_fails_and_records_why() -> None:
     with pytest.raises(CellScrubError, match="did not confirm"):
         await asyncio.wait_for(task, timeout=_WAIT_S)
     assert len(await _failures(scene)) == 1
-    # Its wait is gone: an answer arriving now is not taken, and the Queen reads it as before.
-    assert scene.acks.claim(scene.cell.id, _answer(scene, order)) is False
+    # Its wait is gone, but its answer is still its own: taken and dropped if it comes now, so the
+    # Queen's tick never reads it, and never from another Cell's link.
+    other = make_cell(kind=CellKind.VIRTUAL, clock=scene.clock)
+    assert scene.acks.claim(other.id, _answer(scene, order)) is False
+    assert scene.acks.claim(scene.cell.id, _answer(scene, order)) is True
 
 
 async def test_a_scrub_whose_warden_left_scratch_behind_fails() -> None:

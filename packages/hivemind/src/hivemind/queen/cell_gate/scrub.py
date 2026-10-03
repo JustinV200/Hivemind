@@ -36,7 +36,8 @@ Key invariants:
     - A scrub returns only once the Cell's own Warden confirmed it with its scratch gone; on every
       other path it records `cell.scrub_failed` and raises `CellScrubError`.
     - The wait never outlasts `timeout_s` on the injected clock, and its entry in `ScrubAcks` is
-      forgotten on every path, so an answer that comes late finds no wait and is read as before.
+      forgotten on every path. An answer that comes after its scrub gave up is still taken, and
+      dropped: the Queen's tick never reads a scrub's answer, early or late.
     - `ScrubAcks.claim` takes an answer only from the link of the Cell its order went to.
 
 See Also:
@@ -48,6 +49,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -71,6 +73,10 @@ from waggle.messages.supervision import Intervene, InterventionAction
 # with a reused Cell: past it the scrub fails and the Cell is torn down.
 SCRUB_TIMEOUT_S = 10.0
 SCRUB_FAILED_KIND = "cell.scrub_failed"  # Why a Cell the pool would have kept was torn down.
+# Orders whose scrub gave up unanswered, remembered so an answer that still comes is dropped here
+# instead of reaching the Queen's tick, where an unrecognised kind wakes an awake episode for
+# nothing. Only a handful of scrubs can fail at once; this covers far more than that.
+_GAVE_UP_KEPT = 64
 # The order's own reason, as its Warden records and logs it.
 _SCRUB_REASON = (
     "Overwintering: stop every sub-bee and remove the finished task's scratch before this Cell "
@@ -108,12 +114,14 @@ class ScrubAcks:
 
     Owns its own mutable state in place (codingrules section 8.5): `_waits` gains an entry when a
     scrub sends its order (`expect`) and loses it when the answer is claimed or the scrub stops
-    waiting (`forget`). Touched only from the event loop's own thread, so no lock is needed.
+    waiting (`forget`); `_gave_up` keeps the last orders forgotten unanswered, so their late
+    answers are still taken. Touched only from the event loop's own thread, so no lock is needed.
     """
 
     def __init__(self) -> None:
         """Build a ScrubAcks with no scrub waiting."""
         self._waits: dict[MessageId, _Wait] = {}
+        self._gave_up: deque[tuple[MessageId, CellId]] = deque(maxlen=_GAVE_UP_KEPT)
 
     def expect(self, order_id: MessageId, cell_id: CellId) -> asyncio.Future[LeaseReleased]:
         """Register a wait for the answer to the order `order_id`, sent to `cell_id`'s Warden.
@@ -130,8 +138,14 @@ class ScrubAcks:
         return answer
 
     def forget(self, order_id: MessageId) -> None:
-        """Drop the wait for `order_id`; a no-op once it was claimed or never registered."""
-        self._waits.pop(order_id, None)
+        """Stop waiting for `order_id`'s answer; one that still comes is taken and dropped.
+
+        A no-op for a wait already claimed, or never registered.
+        """
+        wait = self._waits.pop(order_id, None)
+        if wait is not None:
+            # Given up unanswered: its answer may yet come, and is this scrub's, nobody else's.
+            self._gave_up.append((order_id, wait.cell_id))
 
     def claim(self, cell_id: CellId, envelope: Envelope) -> bool:
         """Take `envelope` if it answers a scrub order sent to `cell_id`'s Warden.
@@ -141,18 +155,22 @@ class ScrubAcks:
             envelope: One frame the Cell sent.
 
         Returns:
-            True when `envelope` was a scrub's answer and its wait now holds it, so the listener
-            queues it for nobody else; False for anything else, which the Queen reads as before.
+            True when `envelope` was a scrub's answer: its wait now holds it, or (its scrub having
+            given up) it is dropped, so the listener queues it for nobody else; False for anything
+            else, which the Queen reads as before.
         """
         payload = envelope.payload
-        if not isinstance(payload, LeaseReleased) or envelope.correlation_id is None:
+        order_id = envelope.correlation_id
+        if not isinstance(payload, LeaseReleased) or order_id is None:
             return False  # Not an answer to anything a scrub could have sent.
-        wait = self._waits.get(envelope.correlation_id)
-        if wait is None or wait.cell_id != cell_id:
-            # No scrub waits for it, or one does but sent its order to another Cell: a frame
-            # naming someone else's order is never taken as that order's answer.
-            return False
-        del self._waits[envelope.correlation_id]
+        wait = self._waits.get(order_id)
+        if wait is None:
+            # Too late for its scrub, which already gave up: taken, so the Queen's tick never
+            # reads it. Anything else names no scrub order of this Cell at all.
+            return (order_id, cell_id) in self._gave_up
+        if wait.cell_id != cell_id:
+            return False  # Names an order sent to another Cell: never taken as its answer.
+        del self._waits[order_id]
         if not wait.answer.done():
             wait.answer.set_result(payload)
         return True
