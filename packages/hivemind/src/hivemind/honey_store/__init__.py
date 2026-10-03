@@ -59,7 +59,8 @@ Public API:
     - NectarIntake, NectarSubmission, DepositSource, IntakeResult, handoff_source_key (nectar):
       the one door every deposit comes in through.
     - Ripener, RipenerDeps, PassOutcome, RipenOutcome, PruneOutcome, prune_vectors (ripening):
-      Nectar into Honey, and a superseded model's vectors dropped on request (ADR-0037).
+      Nectar into Honey, and a superseded model's vectors dropped on request (ADR-0037);
+      EmbedBackoff: a failing embedder tried at a growing interval, said once (ripening).
     - HoneyRetriever, RetrieverDeps, HoneyReader, HoneySearch, SearchOutcome (honey): hybrid
       retrieval under a reader's scope, clearance and budget.
     - LabelLowering, LoweringDeps, ReviewOutcome, LoweringProposal, LoweringId, LoweringState,
@@ -158,6 +159,7 @@ from hivemind.honey_store.nectar import (
     handoff_source_key,
 )
 from hivemind.honey_store.ripening import (
+    EmbedBackoff,
     PassOutcome,
     PruneOutcome,
     Ripener,
@@ -214,6 +216,7 @@ __all__ = [
     "DepositLengthMismatchError",
     "DepositSource",
     "DepositTimedOutError",
+    "EmbedBackoff",
     "FakeClearanceJudge",
     "FirstChunkNotAtZeroError",
     "Honey",

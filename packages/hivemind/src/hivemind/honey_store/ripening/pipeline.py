@@ -108,9 +108,10 @@ class _Prepared:
 class Ripener:
     """Turn pending Nectar into Honey and keep every live row embedded for the current model.
 
-    Holds no state between passes: everything a pass needs is in its `RipenerDeps`, and every
-    decision about what is pending is the store's, so two Ripeners on one store (the House Bee and
-    `hive honey ripen --now`) never duplicate a row (`HoneyStore.ripen` is idempotent).
+    Holds no state between passes: everything a pass needs is in its `RipenerDeps` (an embedder's
+    run of failures included, on `embed_backoff`), and every decision about what is pending is
+    the store's, so two Ripeners on one store (the House Bee and `hive honey ripen --now`) never
+    duplicate a row (`HoneyStore.ripen` is idempotent).
     """
 
     def __init__(self, deps: RipenerDeps) -> None:
@@ -221,9 +222,8 @@ class Ripener:
         if embedder is None:
             return unembedded, 0, None
         texts = [embedding_text(draft) for draft in drafts]
-        vectors = await embed_texts(
-            texts, embedder, deps.embedding_gate(), deps.ripening.embed_batch
-        )
+        gate, batch = deps.embedding_gate(), deps.ripening.embed_batch
+        vectors = await embed_texts(texts, embedder, gate, batch, deps.embed_backoff)
         # The embedder failed: store the rows anyway; embed_pending retries them, this pass and on.
         if vectors is None:
             return unembedded, 0, None

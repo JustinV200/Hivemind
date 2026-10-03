@@ -13,12 +13,20 @@ honey ripen --now` and `hive honey reembed` run the same passes on demand.
   current embedder's model, which is how a new embedder re-embeds the store progressively), and
   `run_pass()` (both). `RipenOutcome`/`PassOutcome` are their counts.
 - **`RipenerDeps`** (`deps.py`): store, identity, clock, `[honey.ripening]`, and the optional
-  RIPENER binding, call gate, EMBEDDER binding and embed gate.
+  RIPENER binding, call gate, EMBEDDER binding, embed gate and embed backoff.
 - The stages, each usable alone: `decode_text`/`normalise_text`/`chunk_text` (`chunk.py`, pure),
   `summarise` (`summarise.py`), `ripened_drafts`/`metadata_draft` (`drafts.py`, pure),
-  `embed_texts`/`embedding_text`/`embed_pending_rows` (`embed.py`),
+  `embed_texts`/`embedding_text`/`embed_pending_rows` (`embed/batches.py`),
   `drop_exact_duplicates`/`drop_near_duplicates` (`dedupe.py`) and `index_ripened`
   (`index.py`).
+- **`EmbedBackoff`** (`embed/backoff.py`): one EMBEDDER binding's run of failures, kept between
+  passes on `RipenerDeps.embed_backoff`. After a failure no embedding call is made until the next
+  try is due, the wait doubling from 30 s to a 15-minute cap and starting over at the first
+  success (`honey_store.embed_recovered`). The first failure is logged in full
+  (`honey_store.embed_failed`), a later one only when its cause changes or, at the cap, once per
+  try (`honey_store.embed_still_failing`). A provider that serves no embeddings at all (HTTP 404,
+  405 or 501, or a "not supported" error: `no_embeddings`) is said once, in plain words naming
+  the `[llm.slots]` binding to fix (`honey_store.embedder_unsupported`).
 - **`prune_vectors(deps, kept_model) -> PruneOutcome`** (`prune.py`): on the operator's own word
   only (`hive honey reembed --prune`, never the House Bee's timer), drops every embedding model's
   vectors but `kept_model`'s -- but only once every live Honey row already has one for it.
@@ -66,6 +74,9 @@ uv run --frozen pytest packages/hivemind/tests/unit/honey_store/ripening
 `test_chunk.py` property-tests the chunker with hypothesis; `test_summarise.py` scripts a
 `FakeLLMProvider` (a good reply, a malformed one, an outage); `test_pipeline.py` ripens a long
 text, a short text, a binary blob and a duplicate on a real SQLite store with `FakeEmbedding` and
-checks rows, full-text findability, vectors, deduplication and events. `test_prune.py` covers a
+checks rows, full-text findability, vectors, deduplication and events. `embed/test_backoff.py`
+walks the backoff's waits and what it says on a FakeClock, and `embed/test_batches.py` runs forty
+30-second passes against a route that is not there: six calls, one plain-words warning.
+`test_prune.py` covers a
 refusal while a row is missing a vector, a clean prune that leaves the kept model's vectors
 intact and drops the others, and the one event each outcome does or does not record.

@@ -37,6 +37,8 @@ Public API:
     - PreparedPart, ripened_drafts, metadata_draft (drafts): the HoneyDrafts a Nectar ripens into.
     - embed_texts, embedding_text, embed_pending_rows, is_zero_vector (embed): vectors in
       batches.
+    - EmbedBackoff, EmbedFailure, no_embeddings (embed): when a failing embedder is tried again,
+      and what its failures say.
     - NearDuplicateCheck, drop_exact_duplicates, drop_near_duplicates (dedupe): duplicate parts.
     - RipenedNectar, IndexResult, index_ripened (index): one Nectar's rows, vectors and events.
     - prune_vectors, PruneOutcome (prune): drop a superseded model's vectors on request
@@ -52,10 +54,13 @@ from hivemind.honey_store.ripening.dedupe import (
 from hivemind.honey_store.ripening.deps import RipenerDeps
 from hivemind.honey_store.ripening.drafts import PreparedPart, metadata_draft, ripened_drafts
 from hivemind.honey_store.ripening.embed import (
+    EmbedBackoff,
+    EmbedFailure,
     embed_pending_rows,
     embed_texts,
     embedding_text,
     is_zero_vector,
+    no_embeddings,
 )
 from hivemind.honey_store.ripening.index import IndexResult, RipenedNectar, index_ripened
 from hivemind.honey_store.ripening.pipeline import PassOutcome, Ripener, RipenOutcome
@@ -68,6 +73,8 @@ from hivemind.honey_store.ripening.summarise import (
 )
 
 __all__ = [
+    "EmbedBackoff",
+    "EmbedFailure",
     "IndexResult",
     "NearDuplicateCheck",
     "PassOutcome",
@@ -91,6 +98,7 @@ __all__ = [
     "index_ripened",
     "is_zero_vector",
     "metadata_draft",
+    "no_embeddings",
     "normalise_text",
     "prune_vectors",
     "ripened_drafts",

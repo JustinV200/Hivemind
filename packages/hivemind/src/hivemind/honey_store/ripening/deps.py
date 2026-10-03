@@ -20,6 +20,8 @@ Key invariants:
       finds them). Neither is ever an error.
     - A None gate means the unmetered direct gate; production wiring passes the Fanner's lanes so
       every ripening call is metered like any other model call (ADR-0036).
+    - The value is frozen, but `embed_backoff` is a mutable collaborator shared by every pass
+      built from it: the one piece of ripening state kept between passes.
 
 See Also:
     - hivemind.honey_store.ripening.pipeline for Ripener, the one consumer that runs a whole pass.
@@ -30,12 +32,17 @@ See Also:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from hivemind.honey_store.identity import HoneyIdentity
 from hivemind.honey_store.store import HoneyStore
 from hivemind.llm import BoundEmbedder, BoundModel, CallGate, DirectEmbedGate, EmbedGate
 from hivemind.manifest import HoneyRipeningSection
 from waggle.clock import Clock
+
+if TYPE_CHECKING:
+    # Only for the annotation: the embed package imports this module, so a real import cycles.
+    from hivemind.honey_store.ripening.embed.backoff import EmbedBackoff
 
 __all__ = ["RipenerDeps"]
 
@@ -53,6 +60,9 @@ class RipenerDeps:
         call_gate: How each summary call is made (the Fanner's lane); None calls directly.
         embedder: The EMBEDDER binding; None leaves every row without a vector for now.
         embed_gate: How each embedding call is made (the Fanner's lane); None calls directly.
+        embed_backoff: The embedder's run of failures, kept across passes: no call while it
+            rests, and each failure said by its policy; None calls every time and says every
+            failure (a one-off pass with no run to keep).
     """
 
     store: HoneyStore
@@ -63,6 +73,7 @@ class RipenerDeps:
     call_gate: CallGate | None = None
     embedder: BoundEmbedder | None = None
     embed_gate: EmbedGate | None = None
+    embed_backoff: EmbedBackoff | None = None
 
     def embedding_gate(self) -> EmbedGate:
         """Return the gate every embedding call goes through.

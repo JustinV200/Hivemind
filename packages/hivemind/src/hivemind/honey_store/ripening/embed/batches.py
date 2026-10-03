@@ -6,16 +6,19 @@ module is the embedding half of ripening. `embed_texts` sends texts in batches n
 manifest's `embed_batch` or the provider's own `max_batch`, each call under a timeout, and returns
 one vector per text in order -- or None when any batch fails, times out, or comes back from a
 model other than the binding's own, because a partial or mixed set of vectors is worse than none
-(rows without a vector stay pending and full-text search still finds them, ADR-0036).
-`embedding_text` says what text stands for a row, and `embed_pending_rows` is the per-pass
-re-embed: live rows with no vector yet for the current model, oldest first, bounded per pass.
+(rows without a vector stay pending and full-text search still finds them, ADR-0036). Handed the
+Hive's `EmbedBackoff`, it makes no call while a failing embedder's next try is not yet due, and
+leaves to it what each failure says, so a binding that cannot answer is neither called nor
+reported on every pass. `embedding_text` says what text stands for a row, and
+`embed_pending_rows` is the per-pass re-embed: live rows with no vector yet for the current
+model, oldest first, bounded per pass.
 
 Fits into the Hive:
-    Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.ripening`.
-    Called by `hivemind.honey_store.ripening.dedupe` (vectors for a Nectar's fresh drafts) and by
-    `hivemind.honey_store.ripening.pipeline.Ripener.embed_pending`. Calls into `hivemind.llm`
-    (EmbeddingRequest, the embed gate, LLMError) and `hivemind.honey_store` (store, identity,
-    models) only.
+    Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.ripening.
+    embed`. Called by `hivemind.honey_store.ripening.dedupe` (vectors for a Nectar's fresh drafts)
+    and by `hivemind.honey_store.ripening.pipeline.Ripener.embed_pending`. Calls into
+    `hivemind.llm` (EmbeddingRequest, the embed gate, LLMError), `hivemind.honey_store` (store,
+    identity, models) and this package's `backoff` only.
 
 Key invariants:
     - Every vector returned or stored came from `bound.model` (the response's own model is
@@ -25,12 +28,15 @@ Key invariants:
       row is skipped and counted, and stays pending.
     - Nothing here raises for a provider failure: every `LLMError` and every call's own timeout
       ends in None (or zero rows re-embedded).
+    - With a backoff, no call is made while it is not ready, and every outcome of a call that was
+      made reaches it: a failure as `failed`, a whole set of vectors as `succeeded`.
 
 See Also:
     - docs/adr/0036-embedding-provider-and-reembedding-policy.md for "every vector names its model"
       and the progressive re-embed this module's `embed_pending_rows` performs.
     - hivemind.llm.embedding for EmbeddingRequest, EmbeddingResponse, BoundEmbedder and EmbedGate.
     - hivemind.honey_store.store.protocol for set_vectors and pending_vectors.
+    - hivemind.honey_store.ripening.embed.backoff for when a failing embedder is tried again.
 """
 
 from __future__ import annotations
@@ -42,6 +48,7 @@ from hivemind.common.logging import get_logger
 from hivemind.honey_store.identity import honey_event
 from hivemind.honey_store.models import Honey, HoneyDraft, HoneyPart
 from hivemind.honey_store.ripening.deps import RipenerDeps
+from hivemind.honey_store.ripening.embed.backoff import MISMATCH, EmbedBackoff, EmbedFailure
 from hivemind.llm import MAX_EMBED_TEXTS, BoundEmbedder, EmbeddingRequest, EmbedGate, LLMError
 
 EMBED_BATCH_TIMEOUT_S = 60.0  # One batch of chunks on a local CPU server; a pass never hangs on it.
@@ -59,7 +66,11 @@ log = get_logger(__name__)
 
 
 async def embed_texts(
-    texts: Sequence[str], bound: BoundEmbedder, gate: EmbedGate, batch: int
+    texts: Sequence[str],
+    bound: BoundEmbedder,
+    gate: EmbedGate,
+    batch: int,
+    backoff: EmbedBackoff | None = None,
 ) -> tuple[tuple[float, ...], ...] | None:
     """Embed `texts` on `bound` in batches, preserving order; None when any batch fails.
 
@@ -68,33 +79,25 @@ async def embed_texts(
         bound: The EMBEDDER binding; every vector must come back tagged with `bound.model`.
         gate: How each call is made (the Fanner's lane in production).
         batch: `[honey.ripening] embed_batch`; the provider's `max_batch` wins when lower.
+        backoff: The Hive's backoff for this binding: no call while it rests, and every outcome
+            told to it; None calls every time and says every failure (a one-off caller).
 
     Returns:
-        One vector per text, in order; None after an `LLMError`, a timeout, a reply from another
-        model or a reply with the wrong number of vectors.
+        One vector per text, in order; None while `backoff` rests, or after an `LLMError`, a
+        timeout, a reply from another model or a reply with the wrong number of vectors.
     """
+    if not texts:
+        return ()  # Nothing to embed: no call, and nothing for a backoff to learn.
+    if backoff is not None and not backoff.ready():
+        return None  # A failing embedder rests until its next try is due (EmbedBackoff).
     size = max(1, min(batch, bound.provider.capabilities.max_batch, MAX_EMBED_TEXTS))
-    vectors: list[tuple[float, ...]] = []
-    # One request per slice of `size` texts; the first failure abandons the whole set.
-    for offset in range(0, len(texts), size):
-        piece = tuple(texts[offset : offset + size])
-        try:
-            # External await: one embedding call, well under a second on a local server; a stuck
-            # one is abandoned at EMBED_BATCH_TIMEOUT_S and the texts stay unembedded.
-            async with asyncio.timeout(EMBED_BATCH_TIMEOUT_S):
-                response = await gate.embed(bound, EmbeddingRequest(texts=piece))
-        except (LLMError, TimeoutError) as error:
-            log.warning(
-                "honey_store.embed_failed", binding=bound.binding, error=type(error).__name__
-            )
-            return None
-        # Vectors from another model are not comparable with the store's (ADR-0036), and a short
-        # reply cannot be matched back to its texts: both are treated as a failed batch.
-        if response.model != bound.model or len(response.vectors) != len(piece):
-            log.warning("honey_store.embed_mismatch", binding=bound.binding, texts=len(piece))
-            return None
-        vectors.extend(response.vectors)
-    return tuple(vectors)
+    result = await _embed_in_batches(texts, bound, gate, size)
+    if isinstance(result, EmbedFailure):
+        _failed(bound, backoff, result)
+        return None
+    if backoff is not None:
+        backoff.succeeded(bound)
+    return result
 
 
 def embedding_text(item: HoneyDraft | Honey) -> str:
@@ -143,7 +146,8 @@ async def embed_pending_rows(deps: RipenerDeps) -> int:
     if not rows:
         return 0
     texts = [embedding_text(row) for row in rows]
-    vectors = await embed_texts(texts, embedder, deps.embedding_gate(), deps.ripening.embed_batch)
+    gate, batch = deps.embedding_gate(), deps.ripening.embed_batch
+    vectors = await embed_texts(texts, embedder, gate, batch, deps.embed_backoff)
     if vectors is None:
         return 0
     pairs = [
@@ -164,3 +168,37 @@ async def embed_pending_rows(deps: RipenerDeps) -> int:
     )
     # One transaction for every vector and the pass's one reembedded event; local SQLite.
     return await deps.store.set_vectors(pairs, embedder.model, event)
+
+
+async def _embed_in_batches(
+    texts: Sequence[str], bound: BoundEmbedder, gate: EmbedGate, size: int
+) -> tuple[tuple[float, ...], ...] | EmbedFailure:
+    """Make one call per slice of `size` texts; the first failure abandons the whole set."""
+    vectors: list[tuple[float, ...]] = []
+    for offset in range(0, len(texts), size):
+        piece = tuple(texts[offset : offset + size])
+        try:
+            # External await: one embedding call, well under a second on a local server; a stuck
+            # one is abandoned at EMBED_BATCH_TIMEOUT_S and the texts stay unembedded.
+            async with asyncio.timeout(EMBED_BATCH_TIMEOUT_S):
+                response = await gate.embed(bound, EmbeddingRequest(texts=piece))
+        except LLMError as error:
+            return EmbedFailure.of(error)
+        except TimeoutError:
+            detail = f"No answer within {EMBED_BATCH_TIMEOUT_S:g}s."
+            return EmbedFailure(cause="timeout", detail=detail)
+        # Vectors from another model are not comparable with the store's (ADR-0036), and a short
+        # reply cannot be matched back to its texts: both are treated as a failed batch.
+        if response.model != bound.model or len(response.vectors) != len(piece):
+            return MISMATCH
+        vectors.extend(response.vectors)
+    return tuple(vectors)
+
+
+def _failed(bound: BoundEmbedder, backoff: EmbedBackoff | None, failure: EmbedFailure) -> None:
+    """Hand a failure to the backoff, or, with none wired, say it as it happens."""
+    if backoff is not None:
+        backoff.failed(bound, failure)
+        return
+    # A one-off caller (a test, a direct call) has no run of failures to spare: say each one.
+    log.warning("honey_store.embed_failed", binding=bound.binding, error=failure.cause)

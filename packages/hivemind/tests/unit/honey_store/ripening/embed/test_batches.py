@@ -1,14 +1,14 @@
-"""Tests for hivemind.honey_store.ripening.embed: batched embedding and the per-pass re-embed.
+"""Tests for hivemind.honey_store.ripening.embed.batches: batches, backoff and the re-embed.
 
 Fits into the Hive:
-    Mirrors src/hivemind/honey_store/ripening/embed.py (codingrules section 3). Vectors come from
-    FakeEmbedding, whose model id is always the binding's own, as the registry wires it.
+    Mirrors src/hivemind/honey_store/ripening/embed/batches.py (codingrules section 3). Vectors
+    come from FakeEmbedding, whose model id is always the binding's own, as the registry wires it.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.honey_store.ripening.embed for the module under test.
+    - hivemind.honey_store.ripening.embed.batches for the module under test.
 """
 
 from __future__ import annotations
@@ -27,10 +27,13 @@ from builders.honey import (
     open_test_honey_store_with_trail,
 )
 from builders.llm import make_bound_embedder
+from structlog.testing import capture_logs
 
 from hivemind.honey_store.identity import honey_event
 from hivemind.honey_store.models import Honey, HoneyPart
 from hivemind.honey_store.ripening.embed import (
+    FIRST_RETRY_S,
+    EmbedBackoff,
     embed_pending_rows,
     embed_texts,
     embedding_text,
@@ -44,6 +47,9 @@ from hivemind.llm import (
     EmbeddingRequest,
     EmbeddingResponse,
     FakeEmbedding,
+    LLMError,
+    ProviderRequestError,
+    ProviderUnavailableError,
     Usage,
 )
 from hivemind.pheromone import TrailQuery
@@ -51,7 +57,7 @@ from waggle.clock import FakeClock
 
 _MODEL = "test-embed"  # A neutral model id; the fake reports it back as its own.
 # The module itself, for monkeypatching its timeout (see test_summarise.py for why not getattr).
-_EMBED_MODULE = importlib.import_module("hivemind.honey_store.ripening.embed")
+_EMBED_MODULE = importlib.import_module("hivemind.honey_store.ripening.embed.batches")
 
 
 def _embedder(max_batch: int = 256, model: str = _MODEL) -> tuple[BoundEmbedder, FakeEmbedding]:
@@ -84,6 +90,22 @@ class _StuckGate:
         """Wait forever; only the caller's own timeout ends this call."""
         await asyncio.Event().wait()
         raise AssertionError("unreachable: the event is never set")
+
+
+class _FailingGate:
+    """An EmbedGate that raises `error` until it is cleared, counting every call that reached it."""
+
+    def __init__(self, error: LLMError | None) -> None:
+        """Fail every call with `error`; None answers through the provider itself."""
+        self.error = error
+        self.calls = 0
+
+    async def embed(self, bound: BoundEmbedder, request: EmbeddingRequest) -> EmbeddingResponse:
+        """Count the call, then fail it or answer it."""
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return await DirectEmbedGate().embed(bound, request)
 
 
 def _zero_first(request: EmbeddingRequest) -> EmbeddingResponse:
@@ -150,6 +172,25 @@ async def test_embed_texts_gives_none_when_a_batch_times_out(
     bound, _ = _embedder()
 
     assert await embed_texts(["a"], bound, _StuckGate(), batch=32) is None
+
+
+async def test_embed_texts_makes_no_call_while_its_backoff_rests() -> None:
+    clock = FakeClock()
+    bound, _provider = _embedder()
+    gate = _FailingGate(ProviderUnavailableError("embeds", "connection refused"))
+    backoff = EmbedBackoff(clock)
+
+    failed = await embed_texts(["a"], bound, gate, 32, backoff)
+    resting = await embed_texts(["a"], bound, gate, 32, backoff)
+    calls_while_resting = gate.calls
+    clock.advance(FIRST_RETRY_S)
+    gate.error = None
+    vectors = await embed_texts(["a"], bound, gate, 32, backoff)
+
+    assert failed is None and resting is None
+    assert calls_while_resting == 1  # The second set never left: its backoff was resting.
+    assert vectors is not None and gate.calls == 2
+    assert backoff.failures == 0  # The success started the waits over.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -251,3 +292,29 @@ async def test_embed_pending_rows_skips_and_counts_a_zero_vector(tmp_path: Path)
     assert len(await store.pending_vectors(_MODEL, 10)) == 1
     (event,) = await trail.query(TrailQuery(kind="honey.reembedded"))
     assert event.payload == {"rows": 1, "skipped": 1, "model": _MODEL}
+
+
+async def test_twenty_minutes_of_passes_on_a_route_that_is_not_there_say_so_once(
+    tmp_path: Path,
+) -> None:
+    # The whole-system run's model server had no embeddings route: a warning every 30 s, forever.
+    clock = FakeClock()
+    store, _trail = await open_test_honey_store_with_trail(tmp_path, clock)
+    await _ripened_rows(store, clock, 2)
+    bound, _ = _embedder()
+    gate = _FailingGate(ProviderRequestError("embeds", 404, detail="Not Found"))
+    backoff = EmbedBackoff(clock)
+    deps = make_ripener_deps(store, clock, embedder=bound, embed_gate=gate, embed_backoff=backoff)
+
+    with capture_logs() as logs:
+        # Forty passes, one every 30 s, as the House Bee's loop runs them.
+        for _ in range(40):
+            assert await embed_pending_rows(deps) == 0
+            clock.advance(30.0)
+
+    warned = [entry for entry in logs if entry["log_level"] == "warning"]
+    assert [entry["event"] for entry in warned] == ["honey_store.embedder_unsupported"]
+    assert f"[llm.slots.{bound.binding}]" in warned[0]["advice"]
+    # Tried at 0, 30, 90, 210, 450 and 930 s: each wait doubles, up to its 15-minute cap.
+    assert gate.calls == 6
+    assert len(await store.pending_vectors(_MODEL, 10)) == 2  # Still found by full text.

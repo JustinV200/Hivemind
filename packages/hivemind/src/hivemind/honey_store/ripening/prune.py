@@ -6,9 +6,9 @@ changes: `hive honey reembed --prune` (a later dispatch) calls it after draining
 backlog for the bound `EMBEDDER`, and it deletes every other model's vectors, but only when every
 live Honey row already has one for the kept model -- otherwise it refuses and changes nothing.
 This module holds no pipeline stage of its own: it is a thin wrapper around `HoneyStore.
-prune_vectors`, which does the atomic check-and-delete, kept beside `embed.py` because both are
-about the same table, `honey_vectors`, from the two opposite directions (filling it in, versus
-clearing it out).
+prune_vectors`, which does the atomic check-and-delete, kept beside the `embed` package because
+both are about the same table, `honey_vectors`, from the two opposite directions (filling it in,
+versus clearing it out).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.honey_store.ripening`.
