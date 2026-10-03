@@ -91,7 +91,9 @@ typer layer that calls into a subsystem's public API and never contains logic of
   Warden as an `asyncio.TaskGroup`; on exit it stops both cooperatively (their own `stop()`) and
   awaits their `run()` tasks before the TaskGroup block itself ends, so an exception from the
   caller's own `async with` body can never have the TaskGroup cancel a tick still in flight, then
-  closes the link; `run_goal
+  closes the link, and last, with every Cell gone, gives each task the stop caught on one back to
+  PENDING (`hivemind.queen.requeue_unfinished`, a BLOCKED one's question withdrawn) so the next
+  start places it afresh; `run_goal
   (hive, goal, *, clearance, timeout_s, on_event=None) -> GoalReport` submits a goal and polls
   until every task is terminal or `timeout_s` elapses, calling `hivemind.queen.
   sync_answers_from_chamber` and streaming trail events to `on_event` each poll. Split into
@@ -141,7 +143,8 @@ typer layer that calls into a subsystem's public API and never contains logic of
   they arrive (unless `--json`; a Night Veil goal's are its skeleton alone), every
   `forage.denied` with its cause (`deferred: waiting for free_cores (fails after 300s)` for a task
   left waiting for room, `denied: seats` for one refused), then a one-line summary; exits 0 on
-  success, 1 when the goal failed, 2 on a timeout or a bad manifest. The streamed view begins at
+  success, 1 when the goal failed, 2 on a timeout or a bad manifest. A timeout or Ctrl+C says the
+  goal is not cancelled: its unfinished tasks run again when the Hive next starts. The streamed view begins at
   the goal's own
   submission, never earlier (a store that already holds other runs does not replay them), and
   with `[hive_stand] keep_scratch = true` (development only) the last line names the lease

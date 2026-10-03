@@ -7,13 +7,17 @@ and the Warden -- and the House Bee's ripening loop, when the Hive has a Honey S
 phase 7), and the Swarm gate, which runs a Warden for each device that is up -- as background
 tasks for as long as the `async with` block is open, and tears everything down -- releasing every
 lease, "left as found" -- on exit.
+Last of all, a task the stop caught on one of those Cells (an interrupted or timed-out `hive run`,
+a `hive serve` shut down) is given back to PENDING, its question withdrawn, so the next start
+places it afresh (`hivemind.queen.requeue_unfinished`): no task outlives the stop bound to a Cell
+that is gone.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Called by
     `hivemind.cli.run`, `hivemind.cli.compose.entrance` and every end-to-end test. Calls into
-    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive), `hivemind.queen.attach`
-    (detach_warden, to unwind a failed start) and the Queen, Warden, House Bee and Swarm gate a
-    Hive holds only.
+    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive), `hivemind.queen`
+    (requeue_unfinished), `hivemind.queen.attach` (detach_warden, to unwind a failed start) and the
+    Queen, Warden, House Bee and Swarm gate a Hive holds only.
 
 Key invariants:
     - The House Bee's ripening loop starts after the Queen and stops before her, so she never
@@ -34,6 +38,9 @@ Key invariants:
       propagating out of the caller's `async with run_hive(hive):` body would reach the TaskGroup
       while a tick might still be in flight, and the TaskGroup would cancel it itself rather than
       let the cooperative `stop()` finish.
+    - The unfinished tasks are given back only after every Cell is gone (the lease released,
+      every Virtual Cell retired): a Night Veil Cell's own purge has ended its tasks by then, and
+      no Warden of this Hive is left to report on one.
 
 See Also:
     - .claude/codingrules.md section 11 for the `asyncio.TaskGroup`/structured-concurrency rule
@@ -50,6 +57,7 @@ from contextlib import asynccontextmanager
 from hivemind.cli.compose.guard import close_guard_bee
 from hivemind.cli.compose.hive.build import Hive
 from hivemind.common.tasks import run_to_end
+from hivemind.queen import requeue_unfinished
 from hivemind.queen.attach import detach_warden
 
 __all__ = ["run_hive"]
@@ -98,7 +106,7 @@ async def _tear_down(
     ripening_task: asyncio.Task[None] | None,
     swarm_task: asyncio.Task[None] | None,
 ) -> None:
-    """Stop the ripening loop, the swarm, the Queen and the Warden, await both loops, close up."""
+    """Stop the ripening loop, the swarm, the Queen and the Warden, close up, give back tasks."""
     # Before the Queen (module docstring's "Key invariants").
     await _stop_ripening(hive, ripening_task)
     await _stop_swarm(hive, swarm_task)
@@ -112,6 +120,10 @@ async def _tear_down(
     await hive.warden.stop()
     await asyncio.gather(*loops)
     await _close_links(hive)
+    # Last, with every Cell gone: a task the stop caught on one can only run again from PENDING
+    # (a stop is no decision about its goal, so nothing is cancelled for it), and its question is
+    # withdrawn for its fresh bee to ask again. Local Brood Chamber writes only.
+    await requeue_unfinished(hive.queen_deps)
 
 
 async def _close_links(hive: Hive) -> None:

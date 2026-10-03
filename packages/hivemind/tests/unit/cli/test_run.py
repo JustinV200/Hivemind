@@ -232,6 +232,26 @@ def test_run_command_exits_2_on_timeout(tmp_path: Path, monkeypatch: pytest.Monk
     result = runner.invoke(app, ["run", _GOAL, "--manifest", str(manifest_path), "--timeout", "0"])
 
     assert result.exit_code == 2, result.output
+    # The stop gave the goal's unfinished task back for the next start, and the operator is told.
+    assert result.output.splitlines()[-1].endswith(run_module.NOT_CANCELLED)
+
+
+def test_an_interrupted_run_says_its_goal_is_not_cancelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path = fake_manifest(tmp_path)
+    _patch_build_hive(monkeypatch, _PLAN)
+
+    async def interrupted(*_args: object) -> None:
+        """Stand in for the run as Ctrl+C ends it: asyncio.run raises KeyboardInterrupt."""
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(run_module, "_run", interrupted)
+
+    result = runner.invoke(app, ["run", _GOAL, "--manifest", str(manifest_path)])
+
+    assert result.exit_code == 130, result.output  # Typer's own end for Ctrl+C, as before.
+    assert f"hive run interrupted; the goal {run_module.NOT_CANCELLED}" in result.output
 
 
 def test_run_help_says_how_hive_stand_honey_reaches_a_c1_goal() -> None:

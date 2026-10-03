@@ -22,7 +22,10 @@ a request the Queen refuses (a Night Veil goal that asks where its Cell is, say)
 refusal, not a failure. Without it, the goal is submitted directly, exactly as before. Roadmap
 step 10.8: with `--remote [--profile P] [--password-stdin]` (three more context-carried options)
 no Hive is built here at all; the goal goes to a remote Hive through its Entrance, as the device
-`hive remote enrol` enrolled, and is followed there (`hivemind.cli.remote.remote_run`).
+`hive remote enrol` enrolled, and is followed there (`hivemind.cli.remote.remote_run`). A run
+that ends before its goal does (the timeout, or Ctrl+C) says the goal is not cancelled: the stop
+gives its unfinished tasks back (`hivemind.queen.requeue_unfinished`), and the next `hive run` or
+`hive serve` on this Hive places them again.
 
 `--clearance` is the goal's own HoneyClearance (data-sensitivity label), C1 by default: an ordinary
 goal never reads personal data unasked. Everything learned on the Hive Stand (the machine the
@@ -43,7 +46,8 @@ Key invariants:
     - `run_command` never lets a raw `ManifestError`, `LLMError` or any other exception escape as
       a traceback: `hivemind.cli.stores.load_manifest_or_exit` handles a bad manifest (exit 2);
       any other failure during the run itself is this module's own final `except Exception` at
-      the top of the command body (codingrules section 10's third allowed broad catch site).
+      the top of the command body, in `_run_or_exit` (codingrules section 10's third allowed
+      broad catch site).
     - The process exit code is 0 only when `GoalReport.succeeded` is True, 2 when
       `GoalReport.timed_out` is True (or a requested goal was still unplanned at the timeout),
       and 1 for every other failure (an unsucceeded, not-timed-out goal, a refused request, or an
@@ -92,6 +96,7 @@ from waggle.clock import SystemClock
 __all__ = [
     "DEFAULT_CLEARANCE",
     "DEFAULT_TIMEOUT_S",
+    "NOT_CANCELLED",
     "ClearanceOption",
     "RunCommand",
     "TimeoutOption",
@@ -105,6 +110,12 @@ __all__ = [
 
 DEFAULT_TIMEOUT_S = 120.0  # Two minutes: generous for a multi-step goal against a hosted model.
 DEFAULT_CLEARANCE = "C1"  # codingrules 8.9's own default label for ordinary, non-personal work.
+# What a run that ends before its goal (a timeout, Ctrl+C) leaves: the stop gives the goal's
+# unfinished tasks back (hivemind.queen.requeue_unfinished), so a later start runs them.
+NOT_CANCELLED = (
+    "is not cancelled: its unfinished tasks run again when this Hive next starts "
+    "(hive run or hive serve)."
+)
 
 # The trail kinds worth a line as `hive run` streams a goal: queen decisions, Warden/Worker
 # lifecycle, Capping's own QA-gate cycle, and terminal task/Alarm events (roadmap step 3.21), plus
@@ -275,14 +286,7 @@ def run_command(
     # their own asyncio.run internally, so calling build_hive from inside the asyncio.run below
     # would raise "asyncio.run() cannot be called from a running event loop".
     hive = build_hive(loaded, environ=os.environ, clock=SystemClock())
-    try:
-        result = asyncio.run(_run(hive, goal, options))
-    except Exception as exc:
-        # SAFETY: the command body's own broad catch (codingrules section 10's third allowed
-        # site): a run that fails for any reason still ends in one clean stderr line and exit 1,
-        # never a traceback dumped on an operator's terminal.
-        typer.echo(f"hive run failed: {describe_failure(exc)}", err=True)
-        raise typer.Exit(code=1) from exc
+    result = _run_or_exit(hive, goal, options)
     if isinstance(result, GoalNotPlannedError):
         _exit_unplanned(result)
     report = result
@@ -290,6 +294,8 @@ def run_command(
     if loaded.hive_stand.keep_scratch and not options.as_json:
         _print_kept_scratch(loaded.resolve_path(loaded.hive_stand.scratch_root))
     if report.timed_out:
+        if not options.as_json:
+            typer.echo(f"goal {report.goal_id} {NOT_CANCELLED}")
         raise typer.Exit(code=2)
     raise typer.Exit(code=0 if report.succeeded else 1)
 
@@ -311,6 +317,29 @@ def _run_remote(ctx: typer.Context, goal: str, options: _RunOptions) -> NoReturn
             from_stdin=carried_flag(ctx, PASSWORD_STDIN),
         )
     )
+
+
+def _run_or_exit(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | GoalNotPlannedError:
+    """Run the goal in its own event loop; a failure ends the command with one stderr line.
+
+    Raises:
+        typer.Exit: 1, after one stderr line, for any failure of the run itself.
+        KeyboardInterrupt: Ctrl+C, once the teardown has run and the operator has been told the
+            goal is not cancelled.
+    """
+    try:
+        return asyncio.run(_run(hive, goal, options))
+    except KeyboardInterrupt:
+        # Ctrl+C: run_hive's teardown already ran whole. Say where the goal stands, then end the
+        # way an interrupted command always has.
+        typer.echo(f"hive run interrupted; the goal {NOT_CANCELLED}", err=True)
+        raise
+    except Exception as exc:
+        # SAFETY: the command body's own broad catch (codingrules section 10's third allowed
+        # site; split out of `run_command` for its length only): a run that fails for any reason
+        # still ends in one clean stderr line and exit 1, never a traceback on a terminal.
+        typer.echo(f"hive run failed: {describe_failure(exc)}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def describe_failure(exc: BaseException) -> str:
