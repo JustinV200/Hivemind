@@ -22,6 +22,8 @@ Key invariants:
       there, not per-call here.
     - A 5xx or a connection failure both become `ProviderUnavailableError`: from a caller's
       perspective both mean "try again later, possibly on a fallback", so they share a type.
+      501 Not Implemented is the exception: the server lacks the feature asked for, which no
+      wait changes, so it is a `ProviderRequestError` carrying the server's own error type.
     - `stream_sse`'s error path fully reads the response body (`aread()`) before mapping it, since
       an unread streaming response has no `.json()`/`.text` available yet.
     - A client built with no context window (the transcription adapter's: audio has none) never
@@ -65,6 +67,7 @@ CONTEXT_OVERFLOW_MARKERS = (
     "too many tokens",
     "context_length_exceeded",
 )
+NOT_IMPLEMENTED = 501  # The server lacks what was asked: a request error, never an outage.
 # Connection-level httpx exceptions that mean "the server never answered", as distinct from an
 # HTTP status the server did send; both end up as ProviderUnavailableError, but only these are
 # caught here (an httpx.HTTPStatusError never happens because this client never calls
@@ -267,7 +270,9 @@ class OpenAICompatClient:
         """
         if response.status_code < 400:
             return
-        if response.status_code >= 500:
+        # 501 is the one 5xx no wait cures: the server lacks the feature (llama.cpp answers an
+        # embeddings call this way when started without --embeddings), so it is the request's.
+        if response.status_code >= 500 and response.status_code != NOT_IMPLEMENTED:
             raise ProviderUnavailableError(self._provider, f"HTTP {response.status_code}")
         if response.status_code == 429:
             raise RateLimitedError(self._provider, retry_after_s=_parse_retry_after(response))

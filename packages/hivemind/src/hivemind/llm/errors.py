@@ -204,6 +204,8 @@ class ProviderRequestError(LLMError):
     Everything else in the 4xx family (401, 403, 404, a plain 400 that is not about context
     length, 413, 422, ...) lands here, because the request was rejected on its own terms and
     retrying it unchanged will not help -- unlike a rate limit (wait) or an outage (try later).
+    A 501 Not Implemented lands here too: the server lacks the feature asked for (llama.cpp's
+    embeddings route, started without --embeddings), which no wait changes either.
     An OpenAI-compatible server's own probe-time model refusal (`OpenAICompatProvider.probe`,
     hivemind.llm.providers.openai_compat) also raises this, synthesizing a 404-shaped status
     since no real HTTP response is involved. A later dispatch's Anthropic adapter raises the same

@@ -154,6 +154,25 @@ async def test_5xx_raises_provider_unavailable() -> None:
         await client.get_json("/models")
 
 
+async def test_501_is_the_servers_refusal_of_a_feature_it_lacks_not_an_outage() -> None:
+    # llama.cpp's own answer to an embeddings call when started without --embeddings.
+    body = {
+        "error": {
+            "code": 501,
+            "message": "This server does not support embeddings. Start it with `--embeddings`",
+            "type": "not_supported_error",
+        }
+    }
+    client = _make_client(_json_response(501, body))
+
+    with pytest.raises(ProviderRequestError) as excinfo:
+        await client.post_json("/embeddings", {"model": "m", "input": ["a"]})
+
+    assert excinfo.value.status_code == 501
+    assert excinfo.value.error_type == "not_supported_error"
+    assert "does not support embeddings" in str(excinfo.value)
+
+
 async def test_429_raises_rate_limited_with_retry_after_header() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

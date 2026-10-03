@@ -82,7 +82,9 @@ run labelled with the call id that returned it.
 `client.py` maps every `httpx` failure to a typed `hivemind.llm.errors.LLMError`: a connection
 failure or a 5xx becomes `ProviderUnavailableError`; a 429 becomes `RateLimitedError` (with
 `retry_after_s` from the `Retry-After` header, when present); a 400 whose message mentions context
-length becomes `ContextTooLongError`; every other 4xx becomes `ProviderRequestError`. `health()`
+length becomes `ContextTooLongError`; every other 4xx, and a 501 (the server lacks the feature,
+as llama.cpp answers an embeddings call without `--embeddings`: no wait cures it), becomes
+`ProviderRequestError` with the server's own error type. `health()`
 talks to `httpx` directly (bypassing that mapping) so it can tell a 5xx (`DEGRADED`) apart from a
 connection failure or a 401 (`DOWN`).
 
