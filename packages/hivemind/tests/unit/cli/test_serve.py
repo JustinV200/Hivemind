@@ -1,5 +1,8 @@
 """Test hivemind.cli.serve: `hive serve` exits cleanly with the reason when it cannot serve.
 
+Also that a stop signal only ends the serve's wait (`stop_on_signals`), on a loop that takes
+signal handlers and on one that does not (Windows'), so its shutdown always runs whole.
+
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped. Runs the real command through
     `typer.testing.CliRunner`, the way an operator's shell would.
@@ -10,8 +13,11 @@ Key invariants:
 
 from __future__ import annotations
 
+import asyncio
 import re
+import signal
 import socket
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -20,10 +26,11 @@ from builders.cli import fake_manifest
 from typer.testing import CliRunner
 
 from hivemind.cli.app import app
-from hivemind.cli.serve import _announce
+from hivemind.cli.serve import _announce, stop_on_signals
 from hivemind.entrance.runtime import HiveEntrance
 
 runner = CliRunner()
+_SIGNAL_WAIT_S = 5.0  # A raised signal reaches its handler on the loop's next turn.
 
 
 def _manifest(tmp_path: Path, entrance: str) -> Path:
@@ -101,3 +108,50 @@ def test_an_exposed_entrance_with_no_remote_socket_is_announced_as_reduced(
     _announce(cast(HiveEntrance, _Entrance(_Listeners(remote_port=None, exposed=True))))
 
     assert "reduced to loopback" in capsys.readouterr().out
+
+
+class _NoSignalLoop:
+    """A running loop as Windows' looks to `stop_on_signals`: it takes no signal handlers."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
+    def add_signal_handler(self, *_args: object) -> None:
+        raise NotImplementedError
+
+    def call_soon_threadsafe(self, callback: Callable[[], object]) -> asyncio.Handle:
+        return self._loop.call_soon_threadsafe(callback)
+
+
+async def _interrupted(loop: asyncio.AbstractEventLoop) -> tuple[bool, int]:
+    """Raise SIGINT inside `stop_on_signals`; return whether it stopped, and the task's cancels."""
+    stop = asyncio.Event()
+    with stop_on_signals(loop, stop):
+        # Never raised under the test runner's own handler: that would end the whole session.
+        assert signal.getsignal(signal.SIGINT) is not signal.default_int_handler
+        signal.raise_signal(signal.SIGINT)
+        async with asyncio.timeout(_SIGNAL_WAIT_S):
+            await stop.wait()
+    task = asyncio.current_task()
+    assert task is not None
+    return stop.is_set(), task.cancelling()
+
+
+async def test_ctrl_c_on_a_loop_without_signal_handlers_stops_the_serve_without_cancelling_it() -> (
+    None
+):
+    # A real `hive serve` on Windows: asyncio.run's Ctrl+C cancelled the serve, the shutdown's
+    # first reap re-raised it, and the Queen never retired her Docker Cell.
+    before = signal.getsignal(signal.SIGINT)
+    loop = cast(asyncio.AbstractEventLoop, _NoSignalLoop(asyncio.get_running_loop()))
+
+    stopped, cancelling = await _interrupted(loop)
+
+    assert stopped and cancelling == 0
+    assert signal.getsignal(signal.SIGINT) is before  # The previous handler is back.
+
+
+async def test_ctrl_c_stops_the_serve_without_cancelling_it_on_this_platform_s_own_loop() -> None:
+    stopped, cancelling = await _interrupted(asyncio.get_running_loop())
+
+    assert stopped and cancelling == 0
