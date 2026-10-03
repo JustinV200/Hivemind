@@ -72,7 +72,7 @@ every assignment goes to a Warden, over Waggle.
   `allow_hive_stand = false`, then fit, then Forage) and ranked (a `CAUTION` note behind a clean
   candidate, a dormant Cell before a fresh provision), only then honouring `prefer`. See
   `queen/placement/README.md` for the full module map.
-- `dispatch_ready`, `redispatch`, `resume_paused`, `requeue_for_commands` (`dispatcher/`, a
+- `dispatch_ready`, `redispatch`, `resume_paused`, `requeue_for_commands`, `requeue_unfinished` (`dispatcher/`, a
   package since roadmap step 5.7): place, grant and assign every ready task, never to a Worker directly. `dispatcher.snapshot`
   builds the pure `Inventory`/`ForageView` `queen.placement.decide` reads (the one place this
   dispatch awaits `deps.memory.list_wax`); `dispatcher.acquire.resolve_link` turns whatever
@@ -125,7 +125,12 @@ every assignment goes to a Warden, over Waggle.
   the shutdown retires what is left), and placement offers a Cell being released to no task. A
   task a pass finds ASSIGNED was stranded between `chamber.assign` and `chamber.start` (a stop or
   a failure; nothing was sent to its Warden yet), so every pass first gives it back to PENDING
-  through `chamber.unassign` and places it afresh as a new attempt. Placement reads each attached Cell's live capacity less the grants
+  through `chamber.unassign` and places it afresh as a new attempt. A stopping Hive does the same
+  for everything it leaves on its own Cells: `requeue_unfinished` (`dispatcher.ready.unfinished`),
+  awaited by `run_hive` once every Cell is gone, gives each task still ASSIGNED, RUNNING or
+  BLOCKED on a Warden this Queen placed work on (`DispatchBook.placed_on`) back to PENDING, a
+  BLOCKED one's question withdrawn first, so the next start places it afresh; a task on a Night
+  Veil Cell is cancelled instead (teardown-only), and a PAUSED one keeps its hold. Placement reads each attached Cell's live capacity less the grants
   in force on it, and each backend's headroom less the Cells being provisioned on it; every pass
   first returns an ended task's grants to the pool (`queen.forage.grants.release_finished`,
   `forage.revoked` with cause RELEASED). The dispatcher's lock, waits and lane live in one

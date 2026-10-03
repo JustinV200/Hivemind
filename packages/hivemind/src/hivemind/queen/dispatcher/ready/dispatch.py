@@ -70,7 +70,9 @@ finds ASSIGNED was stranded there: the Queen stopped, or the pass failed, betwee
 and its Warden never heard of it. Every pass gives such a task back to PENDING through
 `chamber.unassign` (the Brood Chamber's ASSIGNED -> PENDING edge, which had no production caller
 until now; phase-7 handoff, section 8 item 5), so it is placed afresh as a new attempt rather than
-left ASSIGNED for good, with its goal never finishing.
+left ASSIGNED for good, with its goal never finishing. Every Warden a task is placed on is noted
+in `DispatchBook.placed_on` first, so a stopping Hive gives back exactly the tasks it left on its
+own Cells (`hivemind.queen.dispatcher.ready.unfinished`).
 
 Roadmap steps 10.3a-c add the tiers: a Night Veil task meets the tier's floors at the placement
 point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a final
@@ -394,6 +396,9 @@ async def _unassign_stranded(deps: QueenDeps, tasks: tuple[Task, ...]) -> tuple[
 
 async def _start_on(deps: QueenDeps, task: Task, link: WardenLink) -> None:
     """Move `task` PENDING -> ASSIGNED -> RUNNING on `link`'s Cell, and record `queen.assigned`."""
+    # Hers from before the first write: a stop gives back whatever is still placed on it, even a
+    # task this very pass leaves stranded between the two writes (ready.unfinished).
+    deps.dispatch.placed_on.add(link.warden_id)
     # Roadmap step 10.3b: the task is bound to its Cell's tier with the assignment, so every later
     # check for it (a rebind, a grant revision, an egress change) reads the tier it runs under.
     await deps.chamber.assign(

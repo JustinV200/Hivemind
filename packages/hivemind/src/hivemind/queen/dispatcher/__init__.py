@@ -54,6 +54,7 @@ See Also:
 Public API:
     - dispatch_ready, redispatch, resume_paused: place, grant and (re-)assign a task (ready).
     - requeue_for_commands: re-place a task whose Cell refused its commands (ready, ADR-0060).
+    - requeue_unfinished: give back every task a stopping Hive leaves on its own Cells (ready).
     - consult_for_assignment, consult_for_plan, screen_for_plan, record_consulted, Consultation,
       ASSIGN_STAGE, PLAN_STAGE: the Queen's Honey pre-check and the planner's consultation (honey).
     - stop_provisions: await every Virtual Cell still being acquired as the Queen stops
@@ -76,6 +77,7 @@ from hivemind.queen.dispatcher.ready import (
     dispatch_ready,
     redispatch,
     requeue_for_commands,
+    requeue_unfinished,
     resume_paused,
 )
 from hivemind.queen.dispatcher.releases import drain_releases, start_release, stop_releases
@@ -91,6 +93,7 @@ __all__ = [
     "record_consulted",
     "redispatch",
     "requeue_for_commands",
+    "requeue_unfinished",
     "resume_paused",
     "screen_for_plan",
     "start_release",

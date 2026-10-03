@@ -78,6 +78,8 @@ Public API (roadmap step 3.20):
       (cluster).
     - resume_paused: the dispatcher-path entry point a Clustering resume goes through so no work
       is redone (dispatcher).
+    - requeue_unfinished: what a stopping Hive gives back once its Cells are gone, every task
+      still placed on one PENDING again, its question withdrawn (dispatcher).
     - Roadmap step 10.5 (ADR-0040), the human end: GoalRequest, GoalRequestState, GoalSource,
       GoalRequestStore, GoalRequestQuery, InMemoryGoalRequestStore, SqliteGoalRequestStore (the
       durable goal requests `Queen.request_goal` commits and her own tick plans; intake);
@@ -136,7 +138,7 @@ from hivemind.queen.cluster import (
     run_cluster_tick,
 )
 from hivemind.queen.deps import MemoryBudget, PlanningLane, QueenDeps, WardenLink
-from hivemind.queen.dispatcher import dispatch_ready, resume_paused
+from hivemind.queen.dispatcher import dispatch_ready, requeue_unfinished, resume_paused
 from hivemind.queen.errors import QueenError, UnknownWardenError, WardenSpawnRefusedError
 from hivemind.queen.forage import ForageLedger
 from hivemind.queen.goal_submission import GoalTerms, plan_goal_graph, submit_goal
@@ -273,6 +275,7 @@ __all__ = [
     "plan_goal_graph",
     "queen_attendant",
     "record_event",
+    "requeue_unfinished",
     "resume",
     "resume_paused",
     "run_cluster_tick",

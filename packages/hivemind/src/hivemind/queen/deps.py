@@ -710,6 +710,11 @@ class DispatchBook:
             nor places on one, and the Queen does not fail its tasks (`HeldCells`); the swarm gate
             holds and releases them.
         resumes: Where each re-placed task resumes from at its next placement (`ResumeHints`).
+        placed_on: Every Warden she has placed a task on, recorded before the placement is
+            written: what a stop gives back is what is still placed on one of these
+            (`hivemind.queen.dispatcher.ready.unfinished`), never another Queen's work on the
+            same Brood Chamber. Grows by one id per Warden (the Hive Stand's, one per Virtual
+            Cell), and is never pruned: a task can outlive its Warden's link.
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -720,6 +725,7 @@ class DispatchBook:
     backoff: ProvisionBackoff = field(default_factory=ProvisionBackoff)
     held: HeldCells = field(default_factory=HeldCells)
     resumes: ResumeHints = field(default_factory=ResumeHints)
+    placed_on: set[WardenId] = field(default_factory=set)
 
 
 def _set_event() -> asyncio.Event:
