@@ -89,6 +89,19 @@ def test_tail_prints_one_line_per_event_oldest_first(tmp_path: Path) -> None:
     assert fields[1] == "task.submitted"
 
 
+def test_tail_refuses_a_count_past_the_trails_query_bound_as_a_usage_error(
+    tmp_path: Path,
+) -> None:
+    # A real run asked for `-n 20000` and got a pydantic traceback instead of a usage error.
+    _node_id, db = _submit_sample(tmp_path)
+
+    result = runner.invoke(app, ["trail", "tail", "--db", str(db), "-n", "20000"])
+
+    assert result.exit_code == 2
+    assert "-n" in result.output and "10000" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_export_then_merge_round_trips_into_a_second_database(tmp_path: Path) -> None:
     node_id, db = _submit_sample(tmp_path)
     segment_file = tmp_path / "segment.json"

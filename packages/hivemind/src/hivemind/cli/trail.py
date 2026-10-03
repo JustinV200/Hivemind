@@ -46,6 +46,7 @@ from hivemind.cli.stores import (
 )
 from hivemind.pheromone import (
     DEFAULT_POLL_INTERVAL_S,
+    MAX_QUERY_LIMIT,
     PheromoneEvent,
     PheromoneTrail,
     TrailQuery,
@@ -67,7 +68,14 @@ def tail_command(
     manifest: ManifestOption = DEFAULT_MANIFEST,
     db: DbOption = None,
     n: Annotated[
-        int, typer.Option("-n", help="How many recent events to print without --follow.")
+        int,
+        # Bounded as a trail query is: past it, a read once died in a validation traceback.
+        typer.Option(
+            "-n",
+            min=1,
+            max=MAX_QUERY_LIMIT,
+            help="How many recent events to print without --follow.",
+        ),
     ] = DEFAULT_TAIL_COUNT,
     follow_flag: Annotated[
         bool, typer.Option("--follow", help="Keep printing new events until Ctrl-C.")
