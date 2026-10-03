@@ -31,18 +31,21 @@ and `has_block_wax` both default False, since neither Capping nor a second Cell 
 at this call site yet; `single_use` defaults False, since `TaskNeeds.disposable` is not threaded
 this far either) and lets the real policy decide; a backend that turns out not to support pause
 after all (`BackendCapabilityError`, from `lifecycle.overwinter`'s own `backend.pause` call) falls
-back to teardown rather than failing the release.
+back to teardown rather than failing the release, and so does a scrub the Cell's own Warden never
+confirmed (`CellScrubError`, from `scrub` inside `lifecycle.overwinter`, already
+`cell.scrub_failed` on the trail, `hivemind.queen.cell_gate.scrub`): ADR-0029 pauses a Cell only
+once every sub-bee is stopped and its scratch removed, so a Cell is never kept dirty.
 
 **Graceful teardown (this dispatch's own fix, a real Docker run's own defect):** every path that
 ends in `lifecycle.teardown` now calls the injected `quiesce` first -- a FAILED task's own Cell, a
-SUCCEEDED task whose `decide_release` came back TEARDOWN, and the `BackendCapabilityError` fallback
-from a pause that turned out unsupported. `hivemind.queen.cell_gate.quiesce.make_quiesce` builds the
-real one: it asks the Cell's own Warden to stop gracefully and waits (bounded) for it to actually
-detach, so `hivemind.wardens.warden.Warden.stop`'s own final trail sync has a real chance to land on
-the Queen's trail before `backend.destroy` kills the container out from under it (that module's own
-docstring has the full defect and fix). The overwinter branch never calls `quiesce`: a Cell being
-paused, not destroyed, must keep its Warden running so the pause can later resume it (`quiesce`'s
-own module docstring names this as a deliberate, documented gap, not an oversight).
+SUCCEEDED task whose `decide_release` came back TEARDOWN, and the fallback from a pause that turned
+out unsupported or a scrub never confirmed. `hivemind.queen.cell_gate.quiesce.make_quiesce` builds
+the real one: it asks the Cell's own Warden to stop gracefully and waits (bounded) for it to
+actually detach, so `hivemind.wardens.warden.Warden.stop`'s own final trail sync has a real chance
+to land on the Queen's trail before `backend.destroy` kills the container out from under it (that
+module's own docstring has the full defect and fix). The overwinter branch never calls `quiesce`:
+a Cell being paused, not destroyed, must keep its Warden running so the pause can later resume it;
+its scrub (`hivemind.queen.cell_gate.scrub`) ships its trail instead, before the pause.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`. Built by
@@ -52,17 +55,18 @@ Fits into the Hive:
     `hivemind.queen.ticks.results.complete_task` (and, in a later pass, `fail_task`/`retry_task`,
     left out of this dispatch's own minimal edit -- see that module's own docstring) and by
     `hivemind.queen.dispatcher.provisions.release_cell` for a Cell left behind. Calls into
-    `hivemind.brood_chamber` (TaskOutcome, TaskStatus), `hivemind.hive` (BackendCapabilityError),
-    `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.overwinter` (OverwinterDecision,
-    ReleaseOutcome, Scrubber) and waggle only.
+    `hivemind.brood_chamber` (TaskOutcome, TaskStatus), `hivemind.hive` (BackendCapabilityError,
+    CellScrubError), `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.overwinter`
+    (OverwinterDecision, ReleaseOutcome, Scrubber) and waggle only.
 
 Key invariants:
     - The built callable is a true no-op (returns immediately) for any `cell_id`
       `lifecycle.status_of` does not recognise: this is what keys the whole seam off "the lifecycle
       knows this Cell", never `cell.kind` (module docstring, codingrules section 8.7).
     - A FAILED task's own Cell is always torn down, never offered to `decide_release`.
-    - `lifecycle.overwinter`'s own `BackendCapabilityError` never propagates out of the built
-      callable: it falls back to `lifecycle.teardown` instead.
+    - `lifecycle.overwinter`'s own `BackendCapabilityError`, and the scrub's `CellScrubError`,
+      never propagate out of the built callable: both fall back to `lifecycle.teardown` instead,
+      so a Cell that is not paused clean is never left RELEASED either.
     - `quiesce` runs before every `lifecycle.teardown` call and never before `lifecycle.overwinter`
       (module docstring's own "Graceful teardown").
 
@@ -70,6 +74,7 @@ See Also:
     - .claude/roadmap.md step 5.9 for the release-then-decide edge this module wires up.
     - docs/adr/0029-overwintering-policy.md for the ReleaseOutcome shape this module builds.
     - hivemind.queen.cell_gate.quiesce for make_quiesce, the real `quiesce` implementation.
+    - hivemind.queen.cell_gate.scrub for make_scrub, the real `scrub` implementation.
     - hivemind.queen.ticks.results for complete_task, and hivemind.queen.dispatcher.provisions
       for release_cell, this module's two callers.
     - hivemind.queen.cell_gate.provider for LifecycleVirtualCellProvider, built alongside this.
@@ -80,7 +85,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from hivemind.brood_chamber import TaskOutcome, TaskStatus
-from hivemind.hive import BackendCapabilityError
+from hivemind.hive import BackendCapabilityError, CellScrubError
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.overwinter import OverwinterDecision, ReleaseOutcome, Scrubber
@@ -129,7 +134,9 @@ def make_on_task_finished(
     Args:
         lifecycle: Told about every finished task's own Cell, via `release`/`overwinter`/
             `teardown`.
-        scrub: Passed straight through to `lifecycle.overwinter`, for a Cell that is kept dormant.
+        scrub: Passed straight through to `lifecycle.overwinter`, for a Cell that is kept dormant;
+            `hivemind.queen.cell_gate.scrub.make_scrub` builds the real one. A `CellScrubError`
+            from it tears the Cell down instead.
         quiesce: Awaited before every `lifecycle.teardown` call this builds, never before
             `lifecycle.overwinter` (module docstring's own "Graceful teardown"). `None` (the
             default, every pre-this-dispatch test) is a true no-op;
@@ -162,15 +169,24 @@ def make_on_task_finished(
             await quiesce_fn(cell_id)
             await lifecycle.teardown(cell_id)
             return
-        try:
-            # No quiesce_fn here: this Cell is being paused, not destroyed, so its Warden must
-            # stay running for the pause to later resume it (module docstring's own key invariant).
-            await lifecycle.overwinter(cell_id, scrub=scrub)
-        except BackendCapabilityError:
-            await quiesce_fn(cell_id)
-            await lifecycle.teardown(cell_id)
+        await _overwinter_or_tear_down(lifecycle, cell_id, scrub, quiesce_fn)
 
     return _on_task_finished
+
+
+async def _overwinter_or_tear_down(
+    lifecycle: CellLifecycle, cell_id: CellId, scrub: Scrubber, quiesce: Quiesce
+) -> None:
+    """Keep a released `cell_id` dormant, or tear it down when it cannot be paused clean."""
+    try:
+        # No quiesce here: this Cell is being paused, not destroyed, so its Warden must stay
+        # running for the pause to later resume it (module docstring's own key invariant).
+        await lifecycle.overwinter(cell_id, scrub=scrub)
+    except (BackendCapabilityError, CellScrubError):
+        # Not paused: the backend cannot, or the Cell's own Warden never confirmed it clean
+        # (already cell.scrub_failed). Either way it is still RELEASED, and goes (ADR-0029).
+        await quiesce(cell_id)
+        await lifecycle.teardown(cell_id)
 
 
 async def _no_op_quiesce(cell_id: CellId) -> None:

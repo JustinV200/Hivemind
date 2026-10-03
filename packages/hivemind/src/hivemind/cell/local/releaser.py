@@ -14,7 +14,10 @@ write to the same path, in either order -- never produces two Leaving rows or a 
 `kill_process_tree`, the one piece of process-killing logic both this releaser and
 `hivemind.cell.local.session.LocalProcessSession`'s own watchdog and `close()` share, since "kill
 the process group led by this pid" is the same operation whether it happens because a command
-went over its quota or because the whole lease is being released.
+went over its quota or because the whole lease is being released; and `remove_scratch`, the one
+way a lease's scratch directory is removed, shared with `hivemind.cell.in_cell.
+InCellLeaseReleaser` for the same reason (a Virtual Cell kept for reuse must not keep a finished
+task's files either, phase 5 open item 8).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction), inside `hivemind.cell.local` (the Hive Stand). Implements
@@ -91,7 +94,13 @@ _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # The least access that may read an
 _STILL_ACTIVE = 259  # The exit code Windows reports for a process that has not exited.
 _ERROR_ACCESS_DENIED = 5  # OpenProcess failed because the process is not ours to query.
 
-__all__ = ["KILL_GRACE_S", "HiveStandLeaseReleaser", "kill_process_tree", "process_group_alive"]
+__all__ = [
+    "KILL_GRACE_S",
+    "HiveStandLeaseReleaser",
+    "kill_process_tree",
+    "process_group_alive",
+    "remove_scratch",
+]
 
 
 class HiveStandLeaseReleaser:
@@ -144,7 +153,7 @@ class HiveStandLeaseReleaser:
         await self._record_leavings(lease, outcome.left)
         # Kept on purpose counts as not removed: the report never claims a restore it skipped.
         scratch_removed = not self._keep_scratch and await asyncio.to_thread(
-            _remove_scratch, lease.scratch_root
+            remove_scratch, lease.scratch_root
         )
         residual = outcome.residual
         if not scratch_removed:
@@ -437,8 +446,12 @@ def _restore(path: Path, prior: bytes | None) -> bool:
     return True
 
 
-def _remove_scratch(scratch_root: Path) -> bool:
+def remove_scratch(scratch_root: Path) -> bool:
     """Remove `scratch_root` wholesale, if it exists, retrying briefly past a lingering lock.
+
+    Blocking (`shutil.rmtree`, and a short sleep between attempts): every caller runs it under
+    `asyncio.to_thread`, as `HiveStandLeaseReleaser` and `hivemind.cell.in_cell.
+    InCellLeaseReleaser` both do.
 
     Args:
         scratch_root: The lease's own scratch directory.

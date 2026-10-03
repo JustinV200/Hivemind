@@ -28,12 +28,17 @@ retire_sub_bee`, the one path that frees a bee's slot for the next assignment. A
 next stop hers to resume, so it withdraws any Handoff this Warden had ordered itself
 (`SubBee.handoff_ordered`); the Warden's own Handoff lever (`send_intervention`) sets that mark,
 the same one its context check sets, so a fresh bee resumes the task once the bee stops.
+`handle_release_lease` is also the Overwintering scrub (phase 5 open item 8): before the pool
+pauses a Virtual Cell for reuse, the Queen orders the Cell's own Warden to release its lease
+(`hivemind.queen.cell_gate.scrub`) and pauses the Cell only once this Warden's `LeaseReleased`,
+naming her order's envelope in `correlation_id`, says its scratch is gone.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
     assign`'s own module docstring for why). Calls into `hivemind.wardens.ticks.alarms`
-    (rebind_sub_bee, retire_sub_bee), `hivemind.wardens.state` (clustering_update),
+    (rebind_sub_bee, retire_sub_bee), `hivemind.wardens.ticks.trail_ship`
+    (ship_trail_before_result), `hivemind.wardens.state` (clustering_update),
     `hivemind.wardens.snapshot_relay` (RelaySnapshotter), `hivemind.supervision` (Cancel,
     Intervention), `hivemind.supervision.attendant` (InboxItem) and waggle only.
 
@@ -51,6 +56,8 @@ Key invariants:
       skipped that step, not something this Warden should guess at.
     - No sub-bee leaves this module still holding its slot: `handle_release_lease` and a cancel
       of an ended bee both retire through `retire_sub_bee`.
+    - `handle_release_lease` answers only once the lease is released, its session closed and this
+      Cell's trail shipped, and its `LeaseReleased` always names the order it answers.
 
 See Also:
     - .claude/roadmap.md step 3.19's own dispatch map for the FORWARD_CONTROL rule.
@@ -77,8 +84,9 @@ from hivemind.wardens.links import send_guarded
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.state import clustering_update
 from hivemind.wardens.ticks.alarms import rebind_sub_bee, retire_sub_bee
+from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import Hop, wrap
-from waggle.ids import TaskId, WorkerId
+from waggle.ids import MessageId, TaskId, WorkerId
 from waggle.messages.cell import LeaseReleased, ReleaseCause
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, PlanWritten, SourceEvict, SourceRemovalCause
@@ -288,7 +296,7 @@ def handle_plan_written(warden: Warden, payload: PlanWritten) -> None:
     )
 
 
-async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
+async def handle_release_lease(warden: Warden, item: InboxItem, payload: Intervene) -> None:
     """Carry out a Queen-sent Intervene(RELEASE_LEASE): stop every sub-bee, release the lease.
 
     Roadmap step 5.13's own missing lever (`hivemind.queen.cluster.tick.run_release_tick`):
@@ -302,8 +310,15 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
     idempotent, and a Warden already lease-less (WATCH since `start()` was refused) simply has
     nothing to release or report.
 
+    It is also the Overwintering scrub (module docstring): the lease's release kills what it
+    started and removes its scratch, and its session closes with it (the next assignment opens a
+    fresh lease and session, `hivemind.wardens.ticks.assign`). The answer goes out last, after
+    this Cell's trail segment, because the Queen may pause the Cell the moment she reads it.
+
     Args:
         warden: The owning Warden (read and written directly; see the module docstring).
+        item: The InboxItem the order came in; its id is the order's envelope id, which the
+            answer names so the Queen can tell it apart from any other.
         payload: The Queen's own Intervene(RELEASE_LEASE); only `.reason` is read.
     """
     for sub_bee in tuple(warden._sub_bees.values()):
@@ -325,13 +340,25 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
         # never opened.
     report = await lease.release()
     warden._lease = None
-    await _send_lease_released(warden, lease, report, payload.reason)
+    # The session worked on behalf of the lease just released: it closes with it, so nothing it
+    # started outlives the lease and nothing runs again in a scratch directory that is gone.
+    session, warden._session = warden._session, None
+    if session is not None:
+        await session.close()
+    # Ahead of the answer on the same ordered link, as before a TaskResult: a Cell paused the
+    # moment the Queen reads it would otherwise keep its cell.released inside (ticks.trail_ship).
+    await ship_trail_before_result(warden)
+    await _send_lease_released(warden, lease, report, payload.reason, MessageId(item.id))
 
 
 async def _send_lease_released(
-    warden: Warden, lease: RealCellLease, report: LeaseReleaseReport, reason: str
+    warden: Warden,
+    lease: RealCellLease,
+    report: LeaseReleaseReport,
+    reason: str,
+    answers: MessageId,
 ) -> None:
-    """Send `cell.lease_released` to the Queen for `lease`'s own outcome."""
+    """Send `cell.lease_released` to the Queen for `lease`'s own outcome, answering `answers`."""
     message = LeaseReleased(
         lease_id=lease.id,
         cell_id=lease.cell_id,
@@ -344,8 +371,10 @@ async def _send_lease_released(
     )
     # The lease is already released (module docstring); an unreachable Queen only misses this
     # report, matching hivemind.queen.cluster.tick._handle_release_order's own "this tick can do
-    # no more" rule for the same message in the other direction.
-    envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock)
+    # no more" rule for the same message in the other direction. A scrub waiting on it then times
+    # out and tears the Cell down, never pausing it (hivemind.queen.cell_gate.scrub). The id of
+    # the order it answers rides in correlation_id, as an event's antecedent may (spec section 3).
+    envelope = wrap(message, warden._deps.hop, clock=warden._deps.clock, correlation_id=answers)
     await send_guarded(warden._deps.queen_link, envelope)
 
 

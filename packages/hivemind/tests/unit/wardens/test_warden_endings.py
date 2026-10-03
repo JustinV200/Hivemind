@@ -32,12 +32,14 @@ from builders.workers import ScriptedWorker, make_assignment
 
 from hivemind.supervision import Cancel
 from hivemind.wardens.spawn.sub_bee import SubBee
+from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.ids import TaskId
+from waggle.messages.cell.leases import LeaseReleased
 from waggle.messages.cell.status import ReleaseCause
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.task import TaskAssign, TaskCancel, WorkerRole
@@ -202,6 +204,40 @@ async def test_releasing_the_lease_frees_every_slot() -> None:
     assert released.cause is ReleaseCause.COMPLETED
     assert _running(scene.warden) == set()
     assert scene.warden._sub_bee_slots.in_use == 0
+    await _stop(scene)
+
+
+async def test_a_released_warden_takes_its_next_task_on_a_fresh_lease() -> None:
+    """Phase 5 open item 8: a scrubbed Cell's Warden, resumed, leases afresh for its next task.
+
+    The Overwintering scrub is this release; the answer names the order, and the next assignment
+    (a dormant Cell's next task) runs on a lease of its own, never the released one.
+    """
+    first = make_assignment()
+    scene = await _start(first)
+    released_lease = scene.warden.lease
+    assert released_lease is not None
+    release = Intervene(
+        action=InterventionAction.RELEASE_LEASE,
+        subject=None,
+        task_id=None,
+        slot=None,
+        binding=None,
+        alarm_id=None,
+        reason="Overwintering: scrub before the pause.",
+    )
+
+    order = await scene.queen.send(release)
+    answer = await scene.queen.wait_for_envelope(LeaseReleased)
+    await settle(lambda: scene.warden.state is WardenState.WATCH)
+    second = make_assignment(clock=scene.clock, grant_id=first.grant_id)
+    await scene.queen.send(second)
+    await settle(lambda: _running(scene.warden) == {second.task_id})
+
+    assert answer.correlation_id == order.id
+    lease = scene.warden.lease
+    assert lease is not None
+    assert lease.id != released_lease.id
     await _stop(scene)
 
 

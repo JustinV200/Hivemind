@@ -4,7 +4,8 @@ The `CellSession` contract itself (exec, put_file/get_file/delete_file, close) i
 `packages/hivemind/tests/contracts/test_cell_session_contract.py`'s `"in_cell"` harness; this
 module tests what makes `InCellSession`/`InCellLeaseReleaser` different from
 `LocalProcessSession`/`HiveStandLeaseReleaser`: no scratch quota watchdog, and release() never
-restores a path or removes scratch because the whole Virtual Cell is disposable.
+restores a path outside scratch, because the Virtual Cell is the Hive's own, while still removing
+the lease's scratch, because an Overwintered Cell is reused (phase 5 open item 8).
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises `hivemind.cell.in_cell.InCellSession`
@@ -29,6 +30,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from builders.cells import make_real_cell_lease
 
 from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
@@ -40,17 +42,22 @@ _WAIT_TIMEOUT_S = 5.0  # Generous bound for a process this test starts to regist
 _LONG_SLEEP_S = 60.0  # Long enough that it is still running when release() reaches for it.
 
 
-async def test_release_never_removes_scratch_or_restores_a_path(tmp_path: Path) -> None:
+async def test_release_removes_scratch_but_never_restores_a_path_outside_it(
+    tmp_path: Path,
+) -> None:
     # A Capping-approved outside-scratch write would normally record a RestoreRecord
     # (RealCellLease.note_restore_path); InCellLeaseReleaser must skip it entirely, because
-    # nothing outside this disposable Cell could ever read the restored file back.
-    outside = tmp_path.parent / "outside-in-cell-test"
-    outside.mkdir(exist_ok=True)
+    # nothing outside this Cell, which the Hive owns, could ever read the restored file back.
+    outside = tmp_path / "outside-in-cell-test"
+    outside.mkdir()
     target = outside / "touched.txt"
     target.write_text("original")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "goal-one.txt").write_text("the last task's work")
     clock = SystemClock()
     lease = make_real_cell_lease(
-        tmp_path, clock=clock, releaser=InCellLeaseReleaser(clock), allowed_paths=(outside,)
+        scratch, clock=clock, releaser=InCellLeaseReleaser(clock), allowed_paths=(outside,)
     )
     await lease.open()
     lease.note_restore_path(target, prior=b"original")
@@ -60,10 +67,25 @@ async def test_release_never_removes_scratch_or_restores_a_path(tmp_path: Path) 
 
     assert report.is_restored is True
     assert report.residual_paths == ()
-    # Scratch itself is left in place; InCellLeaseReleaser never removes it, and the touched
-    # path outside scratch is never restored: destroy is the cleanup, not this.
-    assert lease.scratch_root.exists()
+    # Phase 5 open item 8: an Overwintered Cell is reused, so its scratch goes on release; the
+    # touched path outside scratch is never restored: destroying the Cell is that cleanup.
+    assert not scratch.exists()
     assert target.read_text() == "overwritten"
+
+
+async def test_release_names_scratch_it_could_not_remove_and_claims_no_restore(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full or read-only disk: the report must say so, so the Queen never pauses the Cell."""
+    monkeypatch.setattr("hivemind.cell.in_cell.remove_scratch", lambda _scratch_root: False)
+    clock = SystemClock()
+    lease = make_real_cell_lease(tmp_path, clock=clock, releaser=InCellLeaseReleaser(clock))
+    await lease.open()
+
+    report = await lease.release()
+
+    assert report.is_restored is False
+    assert report.residual_paths == (tmp_path,)
 
 
 async def test_release_kills_a_still_running_process_the_session_started(tmp_path: Path) -> None:

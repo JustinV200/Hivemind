@@ -9,9 +9,12 @@ commands as ordinary local subprocesses of this same process, and `put_file`/`ge
 `delete_file` touch a directory inside the Cell directly -- there is no network hop and no other
 tenant to isolate from. `InCellLeaseReleaser` is this session's own `LeaseReleaser`
 (`hivemind.cell.lease.RealCellLease.release()`'s injected side effect): unlike the Hive Stand's
-`HiveStandLeaseReleaser`, it never restores a path or removes scratch, because there is nothing to
-leave "as found" -- the whole Cell is disposable and the Undertaker destroys it once this Warden
-reports done, so *destroy* is the cleanup, not `release()`.
+`HiveStandLeaseReleaser`, it never restores a path outside scratch, because there is no borrowed
+host to leave "as found" -- the Cell is the Hive's own, and destroying it is that cleanup. It does
+kill what the lease started and remove the lease's scratch directory (phase 5 open item 8): a Cell
+the Overwintering pool keeps for reuse is paused only once its Warden's release says its scratch
+is gone (`hivemind.queen.cell_gate.scrub`), so the next task it serves never finds this one's
+files.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction), inside the `cell` package -- a single-module sibling of
@@ -21,16 +24,18 @@ Fits into the Hive:
     under `hivemind.cell.**`, not only `hivemind.cell.local`. Reuses `hivemind.cell.local.process`'s
     shared child-process machinery rather than duplicating it (the roadmap step's own instruction)
     and `hivemind.cell.local.releaser.kill_process_tree` for `close()`'s own cleanup, the same
-    helper `HiveStandLeaseReleaser` uses. Constructed by
-    `hivemind.wardens.spawn.in_cell.InCellSpawnSource.open_session`.
+    helper `HiveStandLeaseReleaser` uses, and `remove_scratch` for the lease's scratch directory.
+    Constructed by `hivemind.wardens.spawn.in_cell.InCellSpawnSource.open_session`.
 
 Key invariants:
-    - THE key invariant (roadmap step 5.5): a Virtual Cell is disposable. `InCellSession` and
-      `InCellLeaseReleaser` never restore a path and never remove scratch on close or release --
-      there is no borrowed host to leave as found, because the whole Cell is destroyed by the
-      Undertaker once its Warden reports done (codingrules section 8.7's "Owned versus leased").
-      `InCellLeaseReleaser.release()` only kills survivor processes, the one piece of hygiene worth
-      doing before a container exits on its own.
+    - THE key invariant (roadmap step 5.5): a Virtual Cell is owned, not borrowed.
+      `InCellSession` and `InCellLeaseReleaser` never restore a path outside scratch on close or
+      release -- there is no borrowed host to leave as found, and the Undertaker destroys the
+      whole Cell when it is done with it (codingrules section 8.7's "Owned versus leased").
+    - `InCellLeaseReleaser.release()` kills survivor processes and removes the lease's scratch
+      directory, so an Overwintered Cell wakes for its next task with no earlier task's files; its
+      report is restored exactly when that directory is gone, and names it as the one residual
+      path when it is not.
     - No scratch quota watchdog: a Virtual Cell's disk is already capped at the container level by
       its `VirtualCellSpec` (a `hive` concern, out of this module's reach), not by a second,
       per-command budget this session would otherwise have to re-enforce.
@@ -63,7 +68,7 @@ from hivemind.cell.errors import SessionClosedError
 from hivemind.cell.lease import LeaseReleaseReport, RealCellLease
 from hivemind.cell.local.background import BackgroundContext, BackgroundTable
 from hivemind.cell.local.process import ProcessContext, run_child_process
-from hivemind.cell.local.releaser import kill_process_tree
+from hivemind.cell.local.releaser import kill_process_tree, remove_scratch
 from hivemind.cell.session import (
     BackgroundProcess,
     BackgroundSpec,
@@ -237,14 +242,14 @@ class InCellSession:
 
 
 class InCellLeaseReleaser:
-    """Kill survivor processes and report success: no restore, no scratch removal.
+    """Kill survivor processes and remove the lease's scratch directory; never restore a path.
 
-    The Virtual Cell this lease is scoped to is disposable (module docstring's key invariant):
-    once this Warden reports done, the Undertaker destroys the whole Cell, so there is no borrowed
-    host to leave as found and nothing this releaser could restore would ever outlive the Cell
-    anyway. Killing survivors is still worth doing -- a well-behaved process stops what it started
-    before its container exits, the same hygiene `close()` performs -- but replaying restore
-    records or removing the scratch directory would be work with no observer left to see it.
+    The Virtual Cell this lease is scoped to is the Hive's own (module docstring's key invariant):
+    there is no borrowed host to leave as found, and nothing this releaser could restore outside
+    scratch would outlive the Cell's own teardown, so restore records are never replayed. Scratch
+    is another matter: an Overwintered Cell is paused with what its last lease left and resumed
+    for another task (ADR-0029), so the lease's own directory goes on every release, exactly as on
+    the Hive Stand -- the scrub the Queen orders before she pauses a Cell is this release.
     """
 
     def __init__(self, clock: Clock) -> None:
@@ -257,21 +262,27 @@ class InCellLeaseReleaser:
         self._clock = clock
 
     async def release(self, lease: RealCellLease) -> LeaseReleaseReport:
-        """Kill every process `lease` started; never restore a path or remove scratch.
+        """Kill every process `lease` started, then remove its scratch; never restore a path.
 
         Args:
             lease: The lease being released, already transitioned to RELEASING.
 
         Returns:
-            A report with `is_restored=True` and no residual paths: there is nothing to restore
-            (this module's own key invariant), so the disposable Cell always counts as "left as
-            found" the moment its survivors are gone.
+            A report restored exactly when the scratch directory is gone, with no residual path;
+            otherwise not restored, naming that directory as its one residual path, so the Queen
+            never pauses the Cell for reuse (`hivemind.queen.cell_gate.scrub`).
         """
         killed = 0
         for pid in lease.started_pids:
             if await kill_process_tree(pid, self._clock):
                 killed += 1
-        return LeaseReleaseReport(killed_processes=killed, residual_paths=(), is_restored=True)
+        # Survivors first, so nothing still writes into the directory as it goes; blocking work,
+        # off the event loop, retried briefly past a handle a just-killed process still holds.
+        removed = await asyncio.to_thread(remove_scratch, lease.scratch_root)
+        residual = () if removed else (lease.scratch_root,)
+        return LeaseReleaseReport(
+            killed_processes=killed, residual_paths=residual, is_restored=removed
+        )
 
 
 def _is_outside_scratch(scratch_dir: Path, resolved: Path) -> bool:

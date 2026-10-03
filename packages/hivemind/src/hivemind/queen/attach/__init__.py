@@ -32,7 +32,8 @@ Public API:
     - attach_warden, detach_warden, detach_if_current, current_link, knows_warden, warden_state:
       admit a Warden, remove it, remove it only while a given link is still its own, read its
       link, whether the Queen has had it before, and the state it last reported (admit).
-    - serve_warden, ProvedLink, LinkHooks, LinkServices, SnapshotRequestHandler: serve a gate's
+    - serve_warden, ProvedLink, LinkHooks, LinkServices, SnapshotRequestHandler, AnswerClaims:
+      serve a gate's
       proved connection after its handshake (serve).
     - FanoutTransport, FANOUT_QUEUE_SIZE: the one-reader wrapper around a connection (fanout).
     - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
@@ -58,6 +59,7 @@ from hivemind.queen.attach.refusals import (
     refusal_error,
 )
 from hivemind.queen.attach.serve import (
+    AnswerClaims,
     LinkHooks,
     LinkServices,
     ProvedLink,
@@ -70,6 +72,7 @@ __all__ = [
     "FANOUT_QUEUE_SIZE",
     "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
+    "AnswerClaims",
     "FanoutTransport",
     "LinkHooks",
     "LinkRefusals",

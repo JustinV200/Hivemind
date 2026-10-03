@@ -54,6 +54,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from hivemind.cell import Cell
@@ -67,7 +68,7 @@ from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import SignatureError
-from waggle.ids import NodeId, WardenId
+from waggle.ids import CellId, NodeId, WardenId
 from waggle.messages.base import WaggleMessage
 from waggle.messages.cell.snapshot import (
     CellRollbackReply,
@@ -82,7 +83,14 @@ from waggle.transport.base import Transport
 if TYPE_CHECKING:
     from hivemind.queen.queen import Queen
 
-__all__ = ["LinkHooks", "LinkServices", "ProvedLink", "SnapshotRequestHandler", "serve_warden"]
+__all__ = [
+    "AnswerClaims",
+    "LinkHooks",
+    "LinkServices",
+    "ProvedLink",
+    "SnapshotRequestHandler",
+    "serve_warden",
+]
 
 
 class SnapshotRequestHandler(Protocol):
@@ -102,6 +110,22 @@ class SnapshotRequestHandler(Protocol):
         ...
 
 
+class AnswerClaims(Protocol):
+    """Takes a frame a Queen-side wait registered for, before the Queen's own reader sees it.
+
+    A structural Protocol, like `SnapshotRequestHandler`: `hivemind.queen.cell_gate.scrub.
+    ScrubAcks` (the Overwintering scrub's answers) is the one production implementation.
+    """
+
+    def claim(self, cell_id: CellId, envelope: Envelope) -> bool:
+        """Take `envelope`, sent on `cell_id`'s own link, if a wait registered for it.
+
+        Returns:
+            True once taken, so the fan-out queues it for nobody else; False otherwise.
+        """
+        ...
+
+
 @dataclass(slots=True)
 class LinkServices:
     """What the Queen offers a remote Warden's link besides her tick: answers and a receiver.
@@ -117,12 +141,15 @@ class LinkServices:
         recorder: Where a link's refusals are recorded; None records nothing, and refuses the same.
         snapshots: Answers snapshot relay requests; None leaves them unanswered.
         trail: Merges trail segment chunks; None leaves them unmerged.
+        claims: Takes the frames a Queen-side wait registered for (`AnswerClaims`); None takes
+            none.
     """
 
     clock: Clock
     recorder: TrailRecorder | None = None
     snapshots: SnapshotRequestHandler | None = None
     trail: TrailSegmentReceiver | None = None
+    claims: AnswerClaims | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +226,10 @@ async def serve_warden(
     refusals = LinkRefusals(services.recorder, proved.cell.id, proved.node_id)
     answers = _Answers(services, proved, refusals)
     _expect_replay(queen, ready.warden_id, hooks)  # Before the fan-out: its pump starts reading.
-    fanout = FanoutTransport(proved.transport, answers, proved.frames)
+    # The Cell the handshake proved, never one a frame names: only its own answer counts.
+    fanout = FanoutTransport(
+        proved.transport, answers, proved.frames, partial(_claimed, services, proved.cell.id)
+    )
     link = WardenLink(
         warden_id=ready.warden_id,
         cell=proved.cell,
@@ -310,3 +340,10 @@ class _Answers:
             reply, self._proved.hop, clock=self._services.clock, correlation_id=request.id
         )
         await send_guarded(self._proved.transport, envelope)
+
+
+def _claimed(services: LinkServices, cell_id: CellId, envelope: Envelope) -> bool:
+    """Whether a Queen-side wait took `envelope`, sent on `cell_id`'s link (`AnswerClaims`)."""
+    # Read on every frame, so claims bound after the link attached still reach it.
+    claims = services.claims
+    return claims is not None and claims.claim(cell_id, envelope)

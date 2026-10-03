@@ -72,12 +72,17 @@ Key invariants:
       recorded as a guard event naming the node (`.refusals.transport_refusals`); a duplicate
       shortly after a Cell's Warden attached is the expected outbox replay of a reconnection and
       is dropped silently.
+    - A frame a Queen-side wait registered for (`AnswerClaims`: an Overwintering scrub's
+      `LeaseReleased`, `hivemind.queen.cell_gate.scrub`) is handed to that wait on the fan-out's
+      pump, with the Cell its link proved, and never queued for the Queen's reader: her tick never
+      reads it, so it never wakes an awake episode. Any other frame reaches her exactly as before.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
       direction and per-Cell signing key this module verifies against.
     - hivemind.queen.attach for the shared attach path, the fan-out and the link refusals.
     - hivemind.queen.cell_gate.gate for QueenReadinessGate, this module's own collaborator.
+    - hivemind.queen.cell_gate.scrub for ScrubAcks, the answers `AnswerClaims` takes.
     - waggle.transport.websocket_server for WebSocketServer, the listener this module wraps.
 """
 
@@ -94,6 +99,7 @@ from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach import (
     FANOUT_QUEUE_SIZE,
+    AnswerClaims,
     LinkHooks,
     LinkServices,
     ProvedLink,
@@ -121,7 +127,13 @@ from waggle.signing import Ed25519Signer
 from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_server import DEFAULT_HOST, OS_ASSIGNED_PORT, WebSocketServer
 
-__all__ = ["FANOUT_QUEUE_SIZE", "CellListener", "CellListenerDeps", "SnapshotRequestHandler"]
+__all__ = [
+    "FANOUT_QUEUE_SIZE",
+    "AnswerClaims",
+    "CellListener",
+    "CellListenerDeps",
+    "SnapshotRequestHandler",
+]
 
 # A placeholder ForageCapacity for a Cell that has reported CellReady/CellHeartbeat but no
 # forage.capacity_report (CapacityReport), e.g. a stubbed connection in a unit test. Zero-capacity
@@ -221,6 +233,15 @@ class CellListener:
             receiver: Built over the Queen's own Pheromone Trail.
         """
         self._services.trail = receiver
+
+    def bind_answer_claims(self, claims: AnswerClaims) -> None:
+        """Hand every frame `claims` takes to its waiting Queen-side caller from now on.
+
+        Args:
+            claims: Shared with whatever registers the waits (the composition root hands the
+                same `hivemind.queen.cell_gate.scrub.ScrubAcks` to `make_scrub`).
+        """
+        self._services.claims = claims
 
     async def start(self, queen: Queen) -> None:
         """Bind the listener and begin accepting connections, attaching each to `queen`.

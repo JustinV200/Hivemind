@@ -135,6 +135,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("cell.provision_failed", _OUTCOME),
     ("cell.evicted", _RETURN),
     ("cell.orphans_swept", _OBSERVATION),
+    ("cell.scrub_failed", _OUTCOME),  # How an Overwintering, authorised as a release, ended.
     ("task.unassigned", _LIFECYCLE),
     ("task.started", _LIFECYCLE),
     ("task.progressed", _OBSERVATION),

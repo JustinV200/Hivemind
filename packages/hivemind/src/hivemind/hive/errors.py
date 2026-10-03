@@ -20,7 +20,9 @@ capabilities" (roadmap step 5.2's contract suite) -- the same capability-refusal
 by name, added because `CellBackend.pause`/`resume` (also step 5.2) need a typed way to refuse.
 `CellEgressError` (roadmap step 10.6a) is a backend that could not cut or restore a running Cell's
 egress, or make the network the cut relies on; `hivemind.hive.egress.LifecycleEgress` records it
-as a failed cut, never a crash.
+as a failed cut, never a crash. `CellScrubError` (phase 5 open item 8) is an Overwintering scrub
+that could not be confirmed: the Cell's own Warden never said its bees were stopped and its scratch
+gone, so the Cell is torn down rather than paused dirty (ADR-0029).
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Raised by every other module in this
@@ -58,6 +60,7 @@ __all__ = [
     "CellDestroyError",
     "CellEgressError",
     "CellProvisionError",
+    "CellScrubError",
     "HiveError",
     "InvalidCellTransitionError",
     "UnknownBackendError",
@@ -150,6 +153,29 @@ class CellEgressError(HiveError):
         )
         self.backend_name = backend_name
         self.subject = subject
+        self.reason = reason
+
+
+class CellScrubError(HiveError):
+    """Raise when a Virtual Cell could not be confirmed scrubbed before the pool pauses it.
+
+    ADR-0029 pauses a Cell for reuse only once every sub-bee is stopped and its scratch removed.
+    The `hivemind.hive.overwinter.Scrubber` raises this when that cannot be confirmed (its Warden
+    is not attached, never answers in time, or answers that scratch was left behind), so
+    `OverwinterPool.admit` admits nothing and the caller tears the Cell down instead.
+    """
+
+    code: ClassVar[str] = "hivemind.hive.cell_scrub_failed"
+
+    def __init__(self, cell_id: str, reason: str) -> None:
+        """Build the error for a Virtual Cell whose scrub could not be confirmed.
+
+        Args:
+            cell_id: The `CellId` the Overwintering pool was about to keep.
+            reason: Why the scrub is not confirmed, folded into the message.
+        """
+        super().__init__(f"Cell {cell_id!r} could not be scrubbed for Overwintering: {reason}.")
+        self.cell_id = cell_id
         self.reason = reason
 
 

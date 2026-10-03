@@ -4,8 +4,9 @@ Fits into the Hive:
     Mirrors src/hivemind/wardens/ticks/control.py (codingrules section 3). `forward_control` and
     `handle_ceilings_set`/`handle_plan_written` are already exercised end to end through
     `hivemind.wardens.warden.Warden`'s own tick (test_warden_forwarding.py); this module covers
-    `handle_stop` (roadmap step 5.3 / ADR-0027) and `send_intervention`, `Warden.intervene`'s own
-    delegate, neither of which had a dedicated test yet.
+    `handle_stop` (roadmap step 5.3 / ADR-0027), `send_intervention`, `Warden.intervene`'s own
+    delegate, `handle_release_lease` (roadmap step 5.13, and the Overwintering scrub's Warden half,
+    phase 5 open item 8) and `handle_snapshot_reply` (open item 7).
 
 Key invariants:
     - None: this module holds tests only.
@@ -41,6 +42,7 @@ from hivemind.wardens.ticks.control import (
     send_intervention,
 )
 from hivemind.wardens.ticks.dispatch import act
+from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from hivemind.wardens.warden import Warden
 from waggle.clock import FakeClock
 from waggle.envelope import Hop, wrap
@@ -53,13 +55,14 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.base import WaggleMessage
-from waggle.messages.cell.leases import CellTeardownRequest
+from waggle.messages.cell.leases import CellTeardownRequest, LeaseReleased
 from waggle.messages.cell.snapshot import CellSnapshotReply, CellSnapshotRequest
 from waggle.messages.cell.status import ReleaseCause
 from waggle.messages.control.protocol import Shutdown
 from waggle.messages.forage import SourceEvict, SourceRemovalCause
 from waggle.messages.labels import Urgency
 from waggle.messages.supervision import Intervene, InterventionAction
+from waggle.messages.swarm import TrailSegmentSync
 
 _CLOCK = FakeClock()
 
@@ -112,21 +115,78 @@ async def test_send_intervention_raises_for_an_unknown_sub_bee() -> None:
     await warden.stop()
 
 
-async def test_handle_release_lease_releases_the_lease_and_reports_it() -> None:
-    """Roadmap step 5.13: the Warden releases its own lease and tells the Queen so."""
+def _ordered(intervene: Intervene) -> InboxItem:
+    """Wrap the Queen's `intervene` as the InboxItem the Warden's tick drains it as."""
+    hop = Hop(
+        sender=new_hive_id(_CLOCK), recipient=new_warden_id(_CLOCK), node_id=new_node_id(_CLOCK)
+    )
+    return to_inbox_item(wrap(intervene, hop, clock=_CLOCK), "queen")
+
+
+async def test_handle_release_lease_releases_the_lease_and_answers_the_order() -> None:
+    """Roadmap step 5.13: the Warden releases its own lease and tells the Queen, naming her order.
+
+    Phase 5 open item 8: the answer's envelope names the order's in `correlation_id`, which is
+    how the Overwintering scrub tells its own answer from any other.
+    """
     deps, queen_end, warden_id = make_warden_deps()
     warden = Warden(warden_id, deps)
     await warden.start()
     lease = warden.lease
     assert lease is not None
     lease_id = lease.id
+    order = _release_lease_intervene("operator asked")
+    item = _ordered(order)
 
-    await handle_release_lease(warden, _release_lease_intervene("operator asked"))
+    await handle_release_lease(warden, item, order)
 
     assert warden.lease is None
-    released = await queen_end.wait_for_lease_released()
+    answer = await queen_end.wait_for_envelope(LeaseReleased)
+    released = answer.payload
+    assert isinstance(released, LeaseReleased)
     assert released.lease_id == lease_id
     assert released.reason == "operator asked"
+    assert answer.correlation_id == item.id
+
+
+async def test_handle_release_lease_closes_the_released_leases_session() -> None:
+    """The session worked for the lease: nothing it started outlives it, and none is reused."""
+    deps, _queen_end, warden_id = make_warden_deps()
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    session = warden._session
+    assert session is not None and session.is_open
+    order = _release_lease_intervene()
+
+    await handle_release_lease(warden, _ordered(order), order)
+
+    assert warden._session is None
+    assert not session.is_open
+
+
+async def test_handle_release_lease_ships_the_cells_trail_before_it_answers() -> None:
+    """The Queen may pause the Cell on the answer: its trail, cell.released included, goes first."""
+    deps, queen_end, warden_id = make_warden_deps()
+    sync = WaggleTrailSync(
+        TrailSyncDeps(
+            trail=deps.trail,
+            transport=deps.queen_link,
+            node_id=deps.identity.node_id,
+            cell_id=new_cell_id(_CLOCK),
+            warden_id=warden_id,
+            hive_id=new_hive_id(_CLOCK),
+            clock=deps.clock,
+        )
+    )
+    warden = Warden(warden_id, dataclasses.replace(deps, trail_sync=sync))
+    await warden.start()
+    order = _release_lease_intervene()
+
+    await handle_release_lease(warden, _ordered(order), order)
+
+    await queen_end.wait_for_envelope(LeaseReleased)
+    sent = [type(envelope.payload) for envelope in queen_end.envelopes]
+    assert TrailSegmentSync in sent[: sent.index(LeaseReleased)]
 
 
 async def test_handle_release_lease_is_idempotent_with_no_lease_held() -> None:
@@ -136,8 +196,9 @@ async def test_handle_release_lease_is_idempotent_with_no_lease_held() -> None:
     await warden.start()
     assert warden.lease is None
     assert warden.state is WardenState.WATCH
+    order = _release_lease_intervene()
 
-    await handle_release_lease(warden, _release_lease_intervene())  # Must not raise.
+    await handle_release_lease(warden, _ordered(order), order)  # Must not raise.
 
     assert warden.lease is None
     assert queen_end.lease_released == []
@@ -275,7 +336,8 @@ async def test_handle_release_lease_stops_the_model_servers_with_the_lease() -> 
     warden, _deps, queen_end, forage_map, _door = make_hosting_warden()
     await warden.start()
 
-    await handle_release_lease(warden, _release_lease_intervene())
+    order = _release_lease_intervene()
+    await handle_release_lease(warden, _ordered(order), order)
 
     assert forage_map.sources() == ()
     assert warden._models is not None and warden._models.running == {}

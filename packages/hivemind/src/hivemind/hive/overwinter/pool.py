@@ -61,15 +61,17 @@ from datetime import datetime, timedelta
 
 from hivemind.cell import Cell, CombShieldLevel
 from hivemind.hive.cell_state import VirtualCellStatus, assert_dormant_allowed, assert_transition
-from hivemind.hive.errors import InvalidCellTransitionError
+from hivemind.hive.errors import CellScrubError, InvalidCellTransitionError
 from hivemind.hive.models import VirtualCellSpec
 from hivemind.hive.overwinter.policy import OverwinterConfig, PoolView
 from waggle.clock import Clock
 from waggle.ids import CellId
 
-# What `admit` calls before recording a Cell dormant: stop every sub-bee, remove scratch. Owned by
-# whichever composition root wires the pool (the lifecycle, ultimately), since only it holds a
-# session on the Cell being admitted -- the pool itself never opens one (module docstring).
+# What `admit` calls before recording a Cell dormant: stop every sub-bee, remove scratch. Built by
+# the composition root, since only the Queen reaches the Cell's own Warden, which does the work
+# (hivemind.queen.cell_gate.scrub) -- the pool itself never touches a Cell (module docstring). It
+# raises hivemind.hive.errors.CellScrubError when it cannot confirm both, and `admit` then admits
+# nothing: a Cell is never paused dirty (ADR-0029).
 Scrubber = Callable[[Cell], Awaitable[None]]
 
 __all__ = ["DormantCell", "OverwinterPool", "PooledCandidate", "Scrubber"]
@@ -168,14 +170,16 @@ class OverwinterPool:
         Raises:
             hivemind.hive.errors.InvalidCellTransitionError: `cell.comb_shield` is NIGHT_VEIL
                 (ADR-0029: Night Veil Cells are excluded from the pool outright).
+            hivemind.hive.errors.CellScrubError: `scrub` could not confirm the Cell clean;
+                nothing is recorded dormant, and the caller tears the Cell down instead.
         """
         # Both checks run before the one side effect this method still performs (scrub): a
         # NIGHT_VEIL Cell or an abstractly-illegal edge must never even touch a sub-bee on its
         # way to failing.
         assert_dormant_allowed(cell.comb_shield, cell_id=cell.id)
         assert_transition(VirtualCellStatus.RELEASED, VirtualCellStatus.DORMANT, cell_id=cell.id)
-        # External await: stops sub-bees and clears scratch over the Cell's own session; bounded
-        # by whatever timeout the injected Scrubber's own caller (the lifecycle) already applies.
+        # External await: the Cell's own Warden stops its sub-bees and clears scratch, bounded by
+        # the Scrubber's own timeout; a CellScrubError leaves before anything is recorded here.
         await scrub(cell)
         now = self._clock.now()
         dormant_until = now + timedelta(seconds=self._config.max_dormant_s)
@@ -304,8 +308,9 @@ async def _admit_idle_batch(
     is only the batch entry point `OverwinterPool.admit_all_idle` delegates to (kept as a module
     function, not a method, so that method's own docstring stays short enough for codingrules
     5.1's class-length limit). A NIGHT_VEIL Cell passed in by mistake (the caller's own filtering
-    should already exclude one) is skipped rather than raised through, since Clustering's own
-    pause sweeps many Cells in one pass and one bad entry should not abort the rest. The caller is
+    should already exclude one), or one whose scrub could not be confirmed, is skipped rather than
+    raised through, since Clustering's own pause sweeps many Cells in one pass and one bad entry
+    should not abort the rest. The caller is
     still responsible for pausing each admitted Cell on its own backend, the same as `admit`'s own
     one caller (`hivemind.hive.lifecycle.CellLifecycle.overwinter`).
 
@@ -315,14 +320,17 @@ async def _admit_idle_batch(
         scrub: The same Scrubber every `admit` call in this batch uses.
 
     Returns:
-        The ids actually admitted, in `idle`'s own order; an id skipped for being NIGHT_VEIL is
-        simply absent (the caller's own Undertaker call handles it as an ordinary teardown).
+        The ids actually admitted, in `idle`'s own order; an id skipped for being NIGHT_VEIL or
+        unscrubbed is simply absent (the caller's own Undertaker call handles it as an ordinary
+        teardown).
     """
     admitted: list[CellId] = []
     for cell, spec in idle:
         try:
             await pool.admit(cell, spec, scrub=scrub)
-        except InvalidCellTransitionError:
-            continue  # NIGHT_VEIL (or an already-moved Cell): leave it for teardown instead.
+        except (InvalidCellTransitionError, CellScrubError):
+            # NIGHT_VEIL, an already-moved Cell, or one its Warden never confirmed clean: never
+            # kept dormant, so it is left for teardown instead.
+            continue
         admitted.append(cell.id)
     return tuple(admitted)

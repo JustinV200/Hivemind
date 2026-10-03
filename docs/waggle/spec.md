@@ -119,7 +119,7 @@ Registered correlations for events (the `replies_to` column of the catalogue):
 | `task.progress`, `task.result` | `task.assign` | Always |
 | `session.output`, `session.exit` | `session.exec` | Always; or the request or transfer they end |
 | `cell.lease_opened` | `cell.request` | Always when answering a request |
-| `cell.lease_released` | `cell.teardown_request` | Always when answering a request |
+| `cell.lease_released` | `cell.teardown_request`, or the `supervision.intervene` (`RELEASE_LEASE`) it answers | Always when answering one |
 | `tool.promoted` | `tool.request` | When a request exists |
 | `capping.check_result` | `capping.proposal_submitted` | Always |
 | `capping.postcondition_result` | `capping.proposal_submitted` | When it belongs to a proposal |
@@ -894,7 +894,11 @@ Family enums and value models:
     total characters at most 8000 (validator).
 - `InterventionAction`: `COMPACT`, `CHECKPOINT`, `HANDOFF`, `REBIND`, `TAKEOVER`, `CANCEL`,
   `RELEASE_LEASE` (PROTOCOL_MINOR 5: Queen -> Warden only, stop every sub-bee and release the
-  recipient's own lease, idempotently, then report `LeaseReleased`; `subject` is always None),
+  recipient's own lease, idempotently, then report `LeaseReleased`, whose envelope names the
+  order's in `correlation_id`; `subject` is always None. The Queen also sends it as the
+  Overwintering scrub, before she pauses a Virtual Cell for reuse, and pauses the Cell only once
+  that answer arrives within her bound with `is_restored` true, its scratch gone; otherwise the
+  Cell is destroyed. A Warden holding no lease has nothing to release and answers nothing),
   `QUARANTINE` (PROTOCOL_MINOR 9, roadmap step 10.6c: Queen -> Warden only; the Warden carries it
   out on the sub-bee `subject` or `task_id` names, and never relays it to a Worker: it checkpoints
   the bee, stops and kills it, revokes its slice of the grant, taints the bee's memory from

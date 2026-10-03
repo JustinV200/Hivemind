@@ -81,8 +81,8 @@ Fits into the Hive:
     what the fail-closed `_fail_closed_night_veil_probe` below returns), `hivemind.hive.propolis`
     (PropolisProbe, likewise for `_fail_closed_propolis_probe`), `hivemind.manifest` (HiveManifest),
     `hivemind.pheromone` (PheromoneTrail, TrailRecorder), `hivemind.queen.cell_gate`
-    (CellListener, CellListenerDeps, LifecycleVirtualCellProvider, QueenReadinessGate,
-    make_on_task_finished, make_quiesce), `hivemind.queen.dispatcher.snapshot` (the two
+    (CellListener, CellListenerDeps, LifecycleVirtualCellProvider, QueenReadinessGate, ScrubAcks,
+    make_on_task_finished, make_quiesce, make_scrub), `hivemind.queen.dispatcher.snapshot` (the two
     hive-to-queen candidate converters), `hivemind.queen.placement` (VirtualBackendCandidate) and
     waggle only.
 
@@ -106,6 +106,15 @@ Fits into the Hive:
     (`attach_night_veil`, which opens, purges and sweeps), the provider binds a Night Veil task
     into it, and the segment receiver keeps a Night Veil Cell's shipped segment out of the trail.
     `VirtualCellsParts.night_veil` carries it to the Queen's deps and to an Absconding.
+
+    **The Overwintering scrub (phase 5 open item 8):** `make_on_task_finished` is handed the real
+    `hivemind.queen.cell_gate.scrub.make_scrub`, closed over the same late-bound
+    `provider.queen` `make_quiesce` reads. The Queen has no `CellSession` to a Virtual Cell, only
+    her Waggle link to its Warden, so the scrub is an `Intervene(RELEASE_LEASE)` order over that
+    link; the `ScrubAcks` its waits register in is bound to the listener, which hands each answer
+    over on the Cell's own pump. A scrub that is not confirmed is `cell.scrub_failed`, recorded
+    through the same Night Veil boundary as every other Virtual Cell record, and the Cell is torn
+    down instead of paused.
 
     **Attestation probe wiring (roadmap step 5.7b, ADR-0057):** `LifecycleVirtualCellProvider`
     takes a `hivemind.hive.attestation.CellAttestation`, which attests a freshly provisioned
@@ -170,6 +179,7 @@ from hivemind.hive import (
     OverwinterConfig,
     OverwinterPool,
     OverwinterSettings,
+    Scrubber,
     VirtualCellSpec,
 )
 from hivemind.hive.attestation import CellAttestation
@@ -185,9 +195,11 @@ from hivemind.queen.cell_gate import (
     GateSegmentKeys,
     LifecycleVirtualCellProvider,
     QueenReadinessGate,
+    ScrubAcks,
     make_on_cell_granted,
     make_on_task_finished,
     make_quiesce,
+    make_scrub,
 )
 from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.deps import (
@@ -287,6 +299,7 @@ def build_virtual_cells(
     provider = _build_provider(manifest, lifecycle, gate, night_veil.veiled, clock)
     # No Queen yet: only a getter over the provider's late-bound one reaches her at teardown.
     quiesce = make_quiesce(lambda: provider.queen, clock)
+    scrub = _build_scrub(manifest, listener, provider, night_veil.veiled, clock)
     return VirtualCellsParts(
         registry=registry,
         gate=gate,
@@ -295,7 +308,7 @@ def build_virtual_cells(
         provider=provider,
         virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
         dormant_cell_source=_dormant_cell_source(lifecycle),
-        on_task_finished=make_on_task_finished(lifecycle, _null_scrub, quiesce),
+        on_task_finished=make_on_task_finished(lifecycle, scrub, quiesce),
         on_cell_granted=make_on_cell_granted(lifecycle),
         retire_all=make_retire_all(lifecycle, quiesce),
         night_veil=night_veil,
@@ -386,6 +399,28 @@ def _build_provider(
         recorder, _fail_closed_night_veil_probe, _fail_closed_propolis_probe
     )
     return LifecycleVirtualCellProvider(lifecycle, gate, attestation, night_veil=trail.segments)
+
+
+def _build_scrub(
+    manifest: HiveManifest,
+    listener: CellListener,
+    provider: LifecycleVirtualCellProvider,
+    trail: VeiledTrail,
+    clock: Clock,
+) -> Scrubber:
+    """Build the Overwintering scrub: an order to the Cell's own Warden, its answer awaited.
+
+    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1). The listener
+    hands each answer to its wait on the Cell's own pump, so the `ScrubAcks` both share is bound
+    here; the Queen is read late through `provider.queen`, as `make_quiesce`'s getter does.
+    """
+    acks = ScrubAcks()
+    listener.bind_answer_claims(acks)
+    # cell.scrub_failed is the Queen's own record, made through the same Night Veil boundary.
+    recorder = TrailRecorder(
+        trail=trail, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
+    )
+    return make_scrub(lambda: provider.queen, acks, clock, recorder)
 
 
 def _attach_snapshot(
@@ -522,11 +557,11 @@ def _fail_closed_night_veil_probe(cell: Cell) -> NightVeilProbe:
 
     Roadmap step 5.7b's own gap (module docstring's "Night Veil probe wiring"): a real
     `hive.night_veil.SessionNightVeilProbe` needs a live `hivemind.cell.CellSession` for the Cell
-    being attested, and nothing here can build one from a bare `hivemind.cell.Cell` yet -- the
-    same missing seam `_null_scrub` below documents for Overwintering's own scrub step. Raising
-    here, rather than quietly handing back a `FakeNightVeilProbe`, means a NIGHT_VEIL placement
-    fails loudly and immediately instead of "passing" an attestation that checked nothing real
-    (codingrules 14.4: fakes are for tests, never a silent production default).
+    being attested, and nothing here can build one from a bare `hivemind.cell.Cell` yet (the
+    Overwintering scrub needs none: it is an order to the Cell's own Warden, `_build_scrub`).
+    Raising here, rather than quietly handing back a `FakeNightVeilProbe`, means a NIGHT_VEIL
+    placement fails loudly and immediately instead of "passing" an attestation that checked
+    nothing real (codingrules 14.4: fakes are for tests, never a silent production default).
 
     Raises:
         NotImplementedError: Always; `LifecycleVirtualCellProvider._attest_or_teardown` catches
@@ -557,15 +592,3 @@ def _fail_closed_propolis_probe(cell: Cell) -> PropolisProbe:
         "path exists from the Queen to a Virtual Cell (the gap Night Veil's attestation has too). "
         "Wire a SessionPropolisProbe factory here once one does."
     )
-
-
-async def _null_scrub(cell: object) -> None:
-    """The Scrubber `make_on_task_finished` uses: no in-Cell session exists yet to scrub.
-
-    Documented simplification (this dispatch's own report): a real scrub would stop every
-    sub-bee and clear scratch over a live `hivemind.cell.CellSession` on the Cell being
-    overwintered; that session-opening seam is a later step (the real in-Cell Warden this whole
-    branch's own report names as still stubbed). A Cell admitted to the pool without ever being
-    scrubbed is still paused correctly -- the pool's own bookkeeping and the backend's own pause
-    do not depend on this -- so this is safe, only incomplete.
-    """

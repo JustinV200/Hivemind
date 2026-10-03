@@ -17,11 +17,13 @@ from builders.cells import make_identity
 from builders.forage import make_capacity
 
 from hivemind.brood_chamber import TaskOutcome, TaskStatus
+from hivemind.cell import Cell, CombShieldLevel
+from hivemind.hive import CellScrubError
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.fake import FakeCellBackend
 from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.lifecycle import CellLifecycle, OverwinterSettings
-from hivemind.hive.models import VirtualCellSpec
+from hivemind.hive.models import NIGHT_VEIL_IMAGE, NetworkPolicy, VirtualCellSpec
 from hivemind.hive.overwinter.policy import OverwinterConfig
 from hivemind.hive.overwinter.pool import OverwinterPool
 from hivemind.hive.registry import BackendRegistry
@@ -171,6 +173,71 @@ async def test_on_task_finished_never_quiesces_before_overwintering() -> None:
     assert calls == []
     assert lifecycle.status_of(cell_id) is VirtualCellStatus.DORMANT
     assert backend.pause_calls == [cell_id]
+
+
+async def test_on_task_finished_scrubs_the_cell_before_its_backend_pauses_it() -> None:
+    """ADR-0029: every sub-bee stopped and scratch removed, then the pause (open item 8)."""
+    lifecycle, backend = _build_lifecycle(with_pool=True)
+    cell_id = await _granted_cell(lifecycle)
+    paused_when_scrubbed: list[list[CellId]] = []
+
+    async def _scrub(cell: Cell) -> None:
+        paused_when_scrubbed.append(list(backend.pause_calls))
+
+    on_task_finished = make_on_task_finished(lifecycle, _scrub)
+
+    await on_task_finished(cell_id, _outcome(TaskStatus.SUCCEEDED))
+
+    assert paused_when_scrubbed == [[]]  # Scrubbed once, while nothing was paused yet.
+    assert backend.pause_calls == [cell_id]
+    assert lifecycle.status_of(cell_id) is VirtualCellStatus.DORMANT
+
+
+async def test_on_task_finished_tears_down_a_cell_whose_scrub_was_not_confirmed() -> None:
+    """Never pause a dirty Cell: an unconfirmed scrub tears it down, quiesced first."""
+    lifecycle, backend = _build_lifecycle(with_pool=True)
+    cell_id = await _granted_cell(lifecycle)
+    quiesced: list[CellId] = []
+
+    async def _failing_scrub(cell: Cell) -> None:
+        raise CellScrubError(cell.id, "its Warden did not confirm the scrub within 10s")
+
+    async def _quiesce(quiesced_cell_id: CellId) -> None:
+        quiesced.append(quiesced_cell_id)
+
+    on_task_finished = make_on_task_finished(lifecycle, _failing_scrub, _quiesce)
+
+    await on_task_finished(cell_id, _outcome(TaskStatus.SUCCEEDED))  # Must not raise.
+
+    assert backend.pause_calls == []
+    assert backend.destroy_calls == [cell_id]
+    assert quiesced == [cell_id]
+    assert lifecycle.status_of(cell_id) is None
+
+
+async def test_on_task_finished_never_scrubs_or_pauses_a_night_veil_cell() -> None:
+    """A Night Veil Cell is never Overwintered, so it is never scrubbed for reuse either."""
+    lifecycle, backend = _build_lifecycle(with_pool=True)
+    spec = _spec(
+        image=NIGHT_VEIL_IMAGE,
+        comb_shield=CombShieldLevel.NIGHT_VEIL,
+        network_policy=NetworkPolicy.VPN_TOR,
+    )
+    cell = await lifecycle.provision(spec, "fake")
+    await lifecycle.mark_ready(cell.id)
+    await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
+    scrubbed: list[CellId] = []
+
+    async def _scrub(scrubbed_cell: Cell) -> None:
+        scrubbed.append(scrubbed_cell.id)
+
+    on_task_finished = make_on_task_finished(lifecycle, _scrub)
+
+    await on_task_finished(cell.id, _outcome(TaskStatus.SUCCEEDED))
+
+    assert scrubbed == []
+    assert backend.pause_calls == []
+    assert backend.destroy_calls == [cell.id]
 
 
 async def test_on_cell_granted_walks_ready_to_granted_once_and_ignores_a_regrant() -> None:

@@ -173,3 +173,27 @@ async def test_a_parked_pump_is_reaped_at_once_when_its_handler_is_cancelled() -
     await asyncio.wait_for(asyncio.gather(fanout.pump_task, return_exceptions=True), timeout=5.0)
 
     assert fanout.pump_task.cancelled()
+
+
+async def test_a_frame_a_queen_side_wait_takes_never_reaches_her_reader() -> None:
+    # Phase 5 open item 8: a scrub's answer is handed to the scrub waiting for it on the pump, so
+    # the Queen's tick never reads it; every frame no wait takes reaches her as before, in order.
+    queen_end, cell_end = MemoryTransport.pair(Codec(), Codec())
+    offered: list[str] = []
+
+    def claim_the_first(envelope: Envelope) -> bool:
+        offered.append(envelope.id)
+        return len(offered) == 1
+
+    fanout = FanoutTransport(queen_end, _never_dispatched, claim=claim_the_first)
+    sent = await _cell_sends(cell_end, 3)
+
+    stream = fanout.receive()
+    received = [await anext(stream), await anext(stream)]
+
+    assert [envelope.id for envelope in received] == sent[1:]
+    assert offered == sent  # Every frame is offered once; only the first was taken.
+    await cell_end.close()
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    await asyncio.wait_for(fanout.pump_task, timeout=5.0)

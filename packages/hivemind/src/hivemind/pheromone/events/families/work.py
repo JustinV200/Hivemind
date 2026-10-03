@@ -109,6 +109,9 @@ class CellEvent(PheromoneEvent):
             # cell.destroyed, which is meant for a normal CellBackend.destroy call.
             "cell.evicted",
             "cell.orphans_swept",
+            # Phase 5 open item 8: a Cell the Overwintering pool would have kept was torn down,
+            # because its own Warden never confirmed it scrubbed (hivemind.queen.cell_gate.scrub).
+            "cell.scrub_failed",
             # Roadmap step 6.4 (ADR-0031): the Exoskeleton attached to and detached from a Cell
             # for one task; neither ever carries a frame, a recording or typed text.
             "cell.exoskeleton_attached",

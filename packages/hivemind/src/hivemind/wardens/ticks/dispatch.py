@@ -147,10 +147,10 @@ async def _queen_order(warden: Warden, action: WardenAction, item: InboxItem) ->
         # the Warden's `_run_tick` returns straight after this and `run()` ends on its next check.
         await control.handle_stop(warden, payload)
     elif action is WardenAction.RELEASE_LEASE and isinstance(payload, Intervene):
-        # Roadmap step 5.13: the Queen's own narrower order. Unlike STOP, this Warden keeps
-        # running afterwards; `assign.settle_after_tick` (still called by the tick) settles it
-        # back to WATCH on its own once `_sub_bees` is empty.
-        await control.handle_release_lease(warden, payload)
+        # Roadmap step 5.13: the Queen's own narrower order, and her Overwintering scrub. Unlike
+        # STOP, this Warden keeps running afterwards; `assign.settle_after_tick` (still called by
+        # the tick) settles it back to WATCH on its own once `_sub_bees` is empty.
+        await control.handle_release_lease(warden, item, payload)
     elif action is WardenAction.EVICT_SOURCE and isinstance(payload, SourceEvict):
         # Roadmap step 8.3: the Queen reclaiming seats she exported; the handler gives them back
         # only for a source this Warden hosts and exported, and ignores the order otherwise.

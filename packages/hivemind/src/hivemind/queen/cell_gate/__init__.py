@@ -46,6 +46,11 @@ Public API:
     - make_quiesce: builds the real `quiesce` callable make_on_task_finished calls before tearing a
       Cell down, so its Warden's final trail sync has a chance to land first
       (hivemind.queen.cell_gate.quiesce).
+    - make_scrub, ScrubAcks, SCRUB_TIMEOUT_S, SCRUB_FAILED_KIND: the Overwintering scrub, ordered
+      over the Queen's link to the Cell's own Warden before the pool pauses the Cell, and the
+      answers it waits on (hivemind.queen.cell_gate.scrub, phase 5 open item 8).
+    - AnswerClaims: the seam the listener hands those answers through, before the Queen's own
+      reader sees them (hivemind.queen.cell_gate.listener).
     - make_retire_all, RetireAll: builds the callable `run_hive` awaits at shutdown to tear down
       every Virtual Cell this process still tracks, dormant ones included
       (hivemind.queen.cell_gate.shutdown).
@@ -70,7 +75,12 @@ from hivemind.queen.cell_gate.handshake import (
     GateVerifier,
     HandshakeRefusals,
 )
-from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps, SnapshotRequestHandler
+from hivemind.queen.cell_gate.listener import (
+    AnswerClaims,
+    CellListener,
+    CellListenerDeps,
+    SnapshotRequestHandler,
+)
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.cell_gate.quiesce import make_quiesce
 from hivemind.queen.cell_gate.refusals import (
@@ -84,6 +94,7 @@ from hivemind.queen.cell_gate.refusals import (
     transport_refusals,
 )
 from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
+from hivemind.queen.cell_gate.scrub import SCRUB_FAILED_KIND, SCRUB_TIMEOUT_S, ScrubAcks, make_scrub
 from hivemind.queen.cell_gate.segment_keys import GateSegmentKeys
 from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
@@ -91,8 +102,11 @@ from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
     "HANDSHAKE_REFUSED_KIND",
+    "SCRUB_FAILED_KIND",
+    "SCRUB_TIMEOUT_S",
     "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
+    "AnswerClaims",
     "CellListener",
     "CellListenerDeps",
     "CellSnapshotHandler",
@@ -103,12 +117,14 @@ __all__ = [
     "LinkRefusals",
     "QueenReadinessGate",
     "RetireAll",
+    "ScrubAcks",
     "SegmentRefusal",
     "SnapshotRequestHandler",
     "make_on_cell_granted",
     "make_on_task_finished",
     "make_quiesce",
     "make_retire_all",
+    "make_scrub",
     "refusal_error",
     "transport_options",
     "transport_refusals",

@@ -446,6 +446,10 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         self._script = script
         self.container_tasks: dict[CellId, asyncio.Task[None]] = {}
         self.providers: dict[CellId, FakeLLMProvider] = {}
+        # Each running container's own scratch root on this host, where its Warden's every lease
+        # makes its scratch directory: what a test looks inside, as an operator would look inside
+        # a Docker Cell's scratch volume (phase 5 open item 8's scrub).
+        self.scratch_roots: dict[CellId, Path] = {}
         # Set on the first provision() call, from whatever event loop actually owns the running
         # Hive (`_stop_container`'s own docstring: a *different* loop -- `hive cells abscond`
         # through CliRunner, driven via `asyncio.to_thread` in a scenario that reuses this same
@@ -496,9 +500,11 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         # Linux CI cannot create it), so each one gets its own temporary scratch root instead.
         scratch_root = tempfile.mkdtemp(prefix=f"hivemind-{cell_id}-")
         environ = {**bootstrap.environment(), "HIVEMIND_SCRATCH_ROOT": scratch_root}
+        self.scratch_roots[cell_id] = Path(scratch_root)
         try:
             await run_in_cell_warden(environ, SystemClock(), on_deps_built=_on_deps_built)
         finally:
+            self.scratch_roots.pop(cell_id, None)
             shutil.rmtree(scratch_root, ignore_errors=True)
 
     async def destroy(self, cell_id: CellId) -> None:

@@ -23,7 +23,7 @@ from builders.cells import make_cell, make_identity
 from builders.forage import make_capacity
 
 from hivemind.cell import Cell, CellKind, CombShieldLevel
-from hivemind.hive.errors import InvalidCellTransitionError
+from hivemind.hive.errors import CellScrubError, InvalidCellTransitionError
 from hivemind.hive.models import VirtualCellSpec
 from hivemind.hive.overwinter.policy import OverwinterConfig
 from hivemind.hive.overwinter.pool import OverwinterPool
@@ -99,6 +99,35 @@ async def test_admit_refuses_a_night_veil_cell() -> None:
 
     # Refused before any effect: never scrubbed (module docstring's own ordering).
     assert scrub.scrubbed == []
+
+
+async def _unconfirmed_scrub(cell: Cell) -> None:
+    """A Scrubber whose Cell's Warden never confirmed it clean (phase 5 open item 8)."""
+    raise CellScrubError(cell.id, "its Warden did not confirm the scrub within 10s")
+
+
+async def test_admit_admits_nothing_when_the_scrub_is_not_confirmed() -> None:
+    """Never a dirty Cell in the pool: the caller tears it down instead (ADR-0029)."""
+    clock = FakeClock()
+    pool = _make_pool(clock)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock, comb_shield=CombShieldLevel.MEADOW)
+
+    with pytest.raises(CellScrubError):
+        await pool.admit(cell, _spec(), scrub=_unconfirmed_scrub)
+
+    assert pool.view().total == 0
+    assert pool.dormant_candidates() == ()
+
+
+async def test_admit_all_idle_skips_a_cell_whose_scrub_is_not_confirmed() -> None:
+    clock = FakeClock()
+    pool = _make_pool(clock)
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock, comb_shield=CombShieldLevel.MEADOW)
+
+    admitted = await pool.admit_all_idle([(cell, _spec())], scrub=_unconfirmed_scrub)
+
+    assert admitted == ()
+    assert pool.view().total == 0
 
 
 async def test_claim_returns_none_when_nothing_matches() -> None:

@@ -40,9 +40,10 @@ make_on_task_finished` only calls the callable this factory builds on a path tha
 heading to `lifecycle.teardown` (module docstring there): a Cell about to be paused, not destroyed,
 must keep its Warden running so the pause can later resume it, and a `CellTeardownRequest`/
 `Shutdown` would end that Warden for good, which `overwinter()` never wants. That Cell's own
-locally-recorded events are still at risk of the same loss this module closes for teardown --
-named honestly as a follow-up, not solved here: the fix is a new waggle message ("flush your trail
-now, but keep running"), which does not exist yet and is out of this dispatch's scope.
+locally-recorded events reach the Queen another way: its Warden ships them before every
+`TaskResult` (`hivemind.wardens.ticks.trail_ship`) and again before it answers the scrub the Queen
+orders ahead of the pause (`hivemind.queen.cell_gate.scrub`, `Intervene(RELEASE_LEASE)`), and the
+Warden keeps running through both.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`. Built by

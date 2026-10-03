@@ -88,6 +88,7 @@ class FanoutTransport:
         real: Transport,
         dispatch: Callable[[Envelope], Awaitable[None]],
         frames: AsyncIterator[Envelope] | None = None,
+        claim: Callable[[Envelope], bool] | None = None,
     ) -> None:
         """Wrap `real`, starting `pump` at once so nothing else may ever read its frames.
 
@@ -97,9 +98,13 @@ class FanoutTransport:
                 this specific connection by its gate.
             frames: The frame iterator to read, when the gate already holds one that has read the
                 connection's handshake; None reads `real.receive()` afresh.
+            claim: Takes a frame a Queen-side wait registered for (an Overwintering scrub's
+                answer, `hivemind.queen.cell_gate.scrub`), on the pump's own task; a frame it
+                takes is never queued for the Queen. None claims nothing.
         """
         self._real = real
         self._dispatch = dispatch
+        self._claim = claim
         self._frames = frames if frames is not None else real.receive()
         self._queue: asyncio.Queue[Envelope | object] = asyncio.Queue()
         # One credit per envelope that may wait unread (module docstring: the bound lives here,
@@ -168,9 +173,10 @@ class FanoutTransport:
                 if isinstance(envelope.payload, INLINE_KINDS):
                     # Answered right here, inline: these kinds are never for the Queen's dispatch.
                     await self._dispatch(envelope)
-                else:
-                    # Parks while FANOUT_QUEUE_SIZE wait unread, the socket left unread with it:
-                    # a Queen that is not reading backs the Warden's own sends up (backpressure).
+                elif self._claim is None or not self._claim(envelope):
+                    # Not an answer a Queen-side wait took (which goes no further). Parks while
+                    # FANOUT_QUEUE_SIZE wait unread, the socket left unread with it: a Queen that
+                    # is not reading backs the Warden's own sends up (backpressure).
                     await self._room.acquire()
                     self._queue.put_nowait(envelope)
         except (ConnectionLostError, CodecError, SignatureError, TransportClosedError) as exc:

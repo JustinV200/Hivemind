@@ -14,8 +14,11 @@ the next task with the same image starts in seconds; Night Veil Cells are never 
   room in total, disk budget) is its own small function in `_RULES`, walked in order; the first
   veto wins.
 - `pool.py` -- `OverwinterPool(clock, config)`: bookkeeping and selection only. `admit(cell, spec,
-  *, scrub)` scrubs (an injected `Scrubber`) and records a released Cell dormant, but does not
-  pause it; `claim(image)`/`claim_by_id(cell_id)` select and remove a dormant entry, but do not
+  *, scrub)` scrubs (an injected `Scrubber`: in a running Hive the Cell's own Warden releases its
+  lease, stopping every sub-bee and removing scratch, `hivemind.queen.cell_gate.scrub`) and
+  records a released Cell dormant, but does not pause it; a scrub that cannot be confirmed raises
+  `CellScrubError` and nothing is recorded, so the caller tears the Cell down instead;
+  `claim(image)`/`claim_by_id(cell_id)` select and remove a dormant entry, but do not
   resume it; `evict_expired(now)` returns the ids past their own `dormant_until`, but does not
   destroy them; `view()` reports occupancy for `decide_release`'s own `PoolView`;
   `dormant_candidates()` reports every dormant Cell as a `PooledCandidate` -- not
