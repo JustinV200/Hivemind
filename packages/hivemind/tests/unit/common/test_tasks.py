@@ -6,11 +6,12 @@ Mirrors src/hivemind/common/tasks.py (codingrules section 3: tests/unit mirrors 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 
-from hivemind.common.tasks import reap
+from hivemind.common.tasks import reap, run_to_end
 
 
 async def test_reap_cancels_a_pending_waiter_and_leaves_it_done() -> None:
@@ -134,6 +135,69 @@ async def test_reap_keeps_a_second_cancel_of_a_task_already_cleaning_up() -> Non
         await asyncio.wait_for(task, timeout=2.0)
 
     assert cleaned == []
+
+
+async def _cancelled_with_teardown(teardown: Callable[[], Awaitable[None]]) -> None:
+    """Start a body that runs `teardown` in its `finally`, cancel it, and await the cancellation."""
+    started = asyncio.Event()
+
+    async def body() -> None:
+        try:
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            await teardown()
+
+    task = asyncio.ensure_future(body())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def _reap_then_note(finished: list[str]) -> None:
+    """A teardown in miniature: reap a waiter, then note that it got past the reap."""
+    await reap(asyncio.ensure_future(asyncio.Event().wait()))
+    finished.append("past the reap")
+
+
+async def test_run_to_end_finishes_a_teardown_inside_a_cancelled_task() -> None:
+    finished: list[str] = []
+
+    await _cancelled_with_teardown(lambda: run_to_end(_reap_then_note(finished)))
+
+    assert finished == ["past the reap"]
+
+
+async def test_run_to_end_lets_the_work_end_before_its_caller_is_cancelled() -> None:
+    release = asyncio.Event()
+    finished: list[str] = []
+
+    async def work() -> None:
+        await release.wait()
+        finished.append("ended")
+
+    caller = asyncio.ensure_future(run_to_end(work()))
+    await asyncio.sleep(0)
+    caller.cancel()
+    await asyncio.sleep(0)
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(caller, timeout=2.0)
+    assert finished == ["ended"]
+
+
+async def test_run_to_end_returns_the_works_result_and_raises_its_failure() -> None:
+    async def answer() -> int:
+        return 42
+
+    async def fail() -> None:
+        raise RuntimeError("boom")
+
+    assert await run_to_end(answer()) == 42
+    with pytest.raises(RuntimeError, match="boom"):
+        await run_to_end(fail())
 
 
 def _slow_to_cancel(inner: asyncio.Future[Any]) -> asyncio.Task[None]:

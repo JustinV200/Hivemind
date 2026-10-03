@@ -28,10 +28,12 @@ Key invariants:
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
       their `run()` tasks, closes the Guard Bee, the Virtual side, the Queen<->Warden link and
       then every model provider's connections, in that order, whether its `async with` block
-      exits cleanly or raises. Awaiting both tasks before its own `asyncio.TaskGroup` block ends
-      is a shutdown-hygiene fix: without it, an exception propagating out of the caller's `async
-      with run_hive(hive):` body would reach the TaskGroup while a tick might still be in flight,
-      and the TaskGroup would cancel it itself rather than let the cooperative `stop()` finish.
+      exits cleanly, raises or is cancelled (the teardown runs as a task of its own, so a
+      cancelled caller cannot cut it short). Awaiting both tasks before its own
+      `asyncio.TaskGroup` block ends is a shutdown-hygiene fix: without it, an exception
+      propagating out of the caller's `async with run_hive(hive):` body would reach the TaskGroup
+      while a tick might still be in flight, and the TaskGroup would cancel it itself rather than
+      let the cooperative `stop()` finish.
 
 See Also:
     - .claude/codingrules.md section 11 for the `asyncio.TaskGroup`/structured-concurrency rule
@@ -47,6 +49,7 @@ from contextlib import asynccontextmanager
 
 from hivemind.cli.compose.guard import close_guard_bee
 from hivemind.cli.compose.hive.build import Hive
+from hivemind.common.tasks import run_to_end
 from hivemind.queen.attach import detach_warden
 
 __all__ = ["run_hive"]
@@ -83,19 +86,32 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
         try:
             yield
         finally:
-            # Before the Queen (module docstring's "Key invariants").
-            await _stop_ripening(hive, ripening_task)
-            await _stop_swarm(hive, swarm_task)
-            # Stop the Queen first (codingrules section 8.8: she holds no session, nothing to
-            # release), then the Warden, which releases its lease -- "left as found" -- before its
-            # own run() loop is allowed to end; both are cooperative signals (their own stop()),
-            # never a cancel, and awaited to completion right here -- before this TaskGroup's own
-            # __aexit__ runs -- so a caller's exception propagating through this block can never
-            # have the TaskGroup itself cancel a tick still in flight (this dispatch's own rule 4).
-            await hive.queen.stop()
-            await hive.warden.stop()
-            await asyncio.gather(queen_task, warden_task)
-            await _close_links(hive)
+            # A task of its own (`run_to_end`): a caller cancelled (asyncio.run cancels its main
+            # task on Ctrl+C), or cancelled again while this runs, still gets the whole teardown,
+            # so no Virtual Cell is left running and no lease unreleased.
+            await run_to_end(_tear_down(hive, (queen_task, warden_task), ripening_task, swarm_task))
+
+
+async def _tear_down(
+    hive: Hive,
+    loops: tuple[asyncio.Task[None], asyncio.Task[None]],
+    ripening_task: asyncio.Task[None] | None,
+    swarm_task: asyncio.Task[None] | None,
+) -> None:
+    """Stop the ripening loop, the swarm, the Queen and the Warden, await both loops, close up."""
+    # Before the Queen (module docstring's "Key invariants").
+    await _stop_ripening(hive, ripening_task)
+    await _stop_swarm(hive, swarm_task)
+    # Stop the Queen first (codingrules section 8.8: she holds no session, nothing to release),
+    # then the Warden, which releases its lease -- "left as found" -- before its own run() loop is
+    # allowed to end; both are cooperative signals (their own stop()), never a cancel, and awaited
+    # to completion here -- before run_hive's TaskGroup's own __aexit__ runs -- so a caller's
+    # exception propagating through its block can never have the TaskGroup itself cancel a tick
+    # still in flight (this dispatch's own rule 4).
+    await hive.queen.stop()
+    await hive.warden.stop()
+    await asyncio.gather(*loops)
+    await _close_links(hive)
 
 
 async def _close_links(hive: Hive) -> None:

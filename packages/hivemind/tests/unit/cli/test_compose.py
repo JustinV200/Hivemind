@@ -440,6 +440,30 @@ async def test_run_hive_leaves_no_pending_tasks_when_the_caller_raises(
     assert after == before
 
 
+async def test_run_hive_tears_down_whole_when_the_caller_is_cancelled(
+    plain_hive: tuple[Hive, FakeClock],
+) -> None:
+    # A real `hive run` stopped with Ctrl+C (asyncio.run cancels its main task) cut this teardown
+    # short at its first reap: the Warden kept its lease and the Docker Cell kept running.
+    hive, _clock = plain_hive
+    before = asyncio.all_tasks() - {asyncio.current_task()}
+    running = asyncio.Event()
+
+    async def caller() -> None:
+        async with run_hive(hive):
+            running.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.ensure_future(caller())
+    await asyncio.wait_for(running.wait(), timeout=10.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=10.0)
+
+    assert hive.warden.state is WardenState.STOPPED  # Its lease released: left as found.
+    assert asyncio.all_tasks() - {asyncio.current_task()} == before
+
+
 async def test_run_goal_completes_the_three_haiku_goal_in_the_required_trail_order(
     tmp_path: Path, three_haiku_hive: tuple[Hive, FakeClock]
 ) -> None:

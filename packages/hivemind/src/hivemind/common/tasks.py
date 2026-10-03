@@ -12,6 +12,8 @@ is gone. :func:`reaping` is the same guarantee for one tick's own throwaway wait
 `asyncio.wait` inside the block: it reaps on the way out whether the block finished normally or
 the tick itself was cancelled from outside, which a bare call after the race misses entirely (a
 cancellation raised out of the `asyncio.wait` line never reaches the line after it).
+:func:`run_to_end` is the other side of that rule: a teardown that must finish even though the
+task running it was cancelled (so its reaps would re-raise) runs as a task of its own.
 
 Fits into the Hive:
     Layer 0 (primitives; imports nothing internal). Called by the Queen, every Warden, every
@@ -30,6 +32,8 @@ Key invariants:
       else -- callers that need every one attempted regardless call ``reap`` themselves in a loop.
     - ``reaping`` reaps its own task in a ``finally``, so it runs even when the ``with`` block
       raises -- ``CancelledError`` included -- and always re-raises whatever the block raised.
+    - ``run_to_end`` never returns before its work has ended, and never swallows a cancellation
+      of its caller: one that arrives while it waits is raised once the work is done.
 
 See Also:
     - .claude/codingrules.md section 11 for the async rules every loop follows.
@@ -40,10 +44,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Coroutine, Iterable
 from typing import Any
 
-__all__ = ["reap", "reap_all", "reaping"]
+__all__ = ["reap", "reap_all", "reaping", "run_to_end"]
 
 
 async def reap(task: asyncio.Future[Any]) -> None:
@@ -77,6 +81,36 @@ async def reap(task: asyncio.Future[Any]) -> None:
         # it would abandon the cleanup it started at the first waiter, leaving the rest undone.
         if current is not None and current.cancelling() > asked:
             raise
+
+
+async def run_to_end[ResultT](work: Coroutine[Any, Any, ResultT]) -> ResultT:
+    """Run `work` as a task of its own and wait for its end, even from a cancelled task.
+
+    A teardown in a ``finally`` runs inside the task being cancelled, whose ``cancelling()`` count
+    stays raised for the rest of it, so the teardown's first :func:`reap` re-raises the
+    cancellation and everything after it is skipped (a real ``hive run`` stopped with Ctrl+C left
+    its Docker Cell running that way). Run here, the work is a task nobody cancelled. A
+    cancellation that reaches the caller while it waits is held until the work ends, then raised.
+
+    Args:
+        work: What must run to its end, typically a teardown.
+
+    Returns:
+        What `work` returned.
+
+    Raises:
+        Exception: Whatever `work` raised.
+        asyncio.CancelledError: The caller was cancelled while waiting, once `work` has ended.
+    """
+    task = asyncio.ensure_future(work)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        if not task.done():
+            # Cancelled while waiting: the work still ends (asyncio.wait never cancels what it
+            # waits for), and then the cancellation goes on.
+            await asyncio.wait({task})
+        raise
 
 
 async def reap_all(tasks: Iterable[asyncio.Future[Any]]) -> None:
