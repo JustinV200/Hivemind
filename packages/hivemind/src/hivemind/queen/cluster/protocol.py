@@ -205,7 +205,6 @@ async def _pause_affected(
             # anything else is left exactly as it is rather than raising.
             continue
         await _send_handoff_intervene(deps, link, task_id, reason)
-        await _send_task_pause(deps, link, task_id, reason)
         # The trail must read checkpoint -> PAUSED (docs/adr/0024's own exit criterion): give the
         # affected bee's own cooperative tool loop a bounded number of scheduling turns to notice
         # the HANDOFF and write its checkpoint before this moves the task to PAUSED, rather than
@@ -213,6 +212,12 @@ async def _pause_affected(
         # gone) is still paused regardless -- resume then falls back to no Handoff (docs/adr/0024:
         # "a bee whose Handoff cannot be read resumes from the task's last acceptance state").
         await _wait_for_checkpoint(deps, task_id)
+        # Only now the pause: a Worker the runtime has paused sits at its pause wait and cannot
+        # hand off (PAUSED has no edge to HANDING_OFF), so a pause sent beside the HANDOFF kept a
+        # real Drone, one that was in a model call when both arrived, from ever checkpointing.
+        # Found by the phase 8 offline e2e (a Drone on a real socket); a scripted Worker that
+        # checkpoints before the pause is handled is unaffected.
+        await _send_task_pause(deps, link, task_id, reason)
         await deps.chamber.pause(task_id, reason)
         task_ids.append(task_id)
     return tuple(task_ids)

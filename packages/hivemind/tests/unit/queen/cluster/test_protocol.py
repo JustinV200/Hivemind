@@ -13,6 +13,9 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+
+import pytest
 from builders.forage import make_source
 from builders.memory import make_handoff
 from builders.queen import make_queen_deps, plan_responder
@@ -25,9 +28,12 @@ from hivemind.llm import FakeLLMProvider
 from hivemind.memory import write_checkpoint
 from hivemind.memory.context import MemoryContext
 from hivemind.pheromone.trail import TrailQuery
+from hivemind.queen.cluster import protocol
 from hivemind.queen.cluster.protocol import cluster, resume
+from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.queen import Queen
 from hivemind.queen.state import ClusterState
+from waggle.ids import TaskId
 from waggle.messages.supervision import InterventionAction
 
 _OTHER_PROVIDER = "other"  # Bound to a second task's grant; proves an unrelated bee is untouched.
@@ -82,6 +88,38 @@ async def test_cluster_pauses_the_affected_task_and_records_queen_clustered() ->
     assert len(clustered_events) == 1
     assert clustered_events[0].payload["task_ids"] == [goal_id]
     assert state.clustered_providers == frozenset({"fake"})
+
+
+async def test_cluster_sends_the_task_pause_only_once_the_checkpoint_has_landed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A paused Worker cannot hand off, so the pause must wait for the Handoff it asked for."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    # Records, at the moment each TaskPause is sent, whether the Handoff is already in Bee Bread.
+    handoff_present_at_pause: list[bool] = []
+    send_task_pause = protocol._send_task_pause
+
+    async def spy(deps_: QueenDeps, link_: WardenLink, task_id: TaskId, reason: str) -> None:
+        handoff_present_at_pause.append(await protocol._latest_handoff(deps_, task_id) is not None)
+        await send_task_pause(deps_, link_, task_id, reason)
+
+    monkeypatch.setattr(protocol, "_send_task_pause", spy)
+    clustering = asyncio.ensure_future(
+        cluster("fake", "provider_down", deps, ClusterState(), queen.wardens)
+    )
+
+    await warden_end.wait_for_intervene()  # The HANDOFF is out; the Queen waits on the checkpoint.
+    ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+    await write_checkpoint(make_handoff(), goal_id, ctx)
+    outcome = await clustering
+
+    assert outcome.affected_task_ids == (goal_id,)
+    assert handoff_present_at_pause == [True]
 
 
 async def test_cluster_leaves_leases_and_grants_untouched() -> None:
