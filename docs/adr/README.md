@@ -206,3 +206,13 @@ ADRs that exist today, in numeric order:
   Queen isolates a Cell, keeping its Waggle link; quarantine is one intervention; taint is one label
   that nothing assembles until a judge clears it; the injection signal comes from one deterministic
   scanner over shipped pattern data.
+- `0044-local-model-serving-via-openai-compatible-api.md`: one OpenAI-compatible adapter serves
+  Ollama, vLLM, llama.cpp and LM Studio; Ollama management exists only behind a native-API probe;
+  `[llm.servers]` declares what a Cell's Warden may host, reported to the Queen as
+  `forage.source_added`, `source_removed` and `source_evict`; local cost is amortised seat-hours
+  with estimated usage flagged; prompt overlays apply at the provider door, chosen by the manifest.
+- `0045-provider-routing-forage-aware-fallbacks-and-offline-mode.md`: routing is a pure function in
+  `llm/routing/` that reorders the slot's own fallback chain and never invents a binding; floors
+  come from `[llm.floors]` and tempo only raises them; shortfalls become `llm.fallback` events and
+  a `ForageRequest`; measured grades live in the ledger and override hand-set ones; offline mode is
+  proven with a loopback server and a socket guard.

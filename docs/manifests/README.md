@@ -6,7 +6,7 @@ capacity, its escalation policy and memory budgets, and its security posture. It
 `hivemind.manifest.HiveManifest` (pydantic) by `hivemind.manifest.load_manifest`; nothing above
 `hivemind.manifest` ever sees the raw TOML dict (codingrules section 9).
 
-## The three example manifests
+## The example manifests
 
 Every file here is loaded in a test (`packages/hivemind/tests/unit/manifest/test_loader.py`), so
 none of them can silently drift from the schema. That test also resolves each one's `[supervision]`
@@ -28,6 +28,15 @@ take the schema's repo-root-relative default.
   every provider's `base_url` must be loopback under `offline = true`, checked with
   `waggle.is_loopback_host`, or the manifest fails to load. Its capability overrides show a weak
   local model's honest shape: no native tool calls, no schema-enforced output, JSON mode only.
+- **`offline.toml`** -- a Hive with no external network (roadmap step 8.6, ADR-0045), the file the
+  phase 8 exit criteria run against. `[llm] offline = true`; one `openai_compat` provider on a
+  loopback `base_url` serves every chat slot; the embedder runs on an in-process
+  `sentence_transformers` provider and the transcriber on an in-process `whisper_local` one, neither
+  of which names a `base_url`; each model has a `[forage.map]` entry with no `cost` (self-hosted
+  is free per token) and its `vram_bytes_required`. It binds the Judge to a larger model than the
+  Ripener's, for the reason in ADR-0038 and `docs/runbooks/moving-a-slot-to-local.md`. Where
+  `local.toml` is the smallest offline file, this is the complete one. The two in-process models
+  must already be in the local cache before the Hive goes dark: offline mode never downloads them.
 - **`full.toml`** -- every section and every field the schema supports, one comment per field.
   Kept honest by a test that round-trips it through `model_dump`/`model_validate`, `[entrance]`
   (roadmap phase 10, ADR-0041) and `[guard]` (ADR-0039) included.

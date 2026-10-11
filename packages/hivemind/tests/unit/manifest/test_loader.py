@@ -28,7 +28,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 _MANIFESTS_DIR = _REPO_ROOT / "docs" / "manifests"
 
 
-@pytest.mark.parametrize("filename", ["minimal.toml", "local.toml", "full.toml"])
+@pytest.mark.parametrize("filename", ["minimal.toml", "local.toml", "offline.toml", "full.toml"])
 def test_load_manifest_reads_every_example(filename: str) -> None:
     manifest = load_manifest(_MANIFESTS_DIR / filename)
 
@@ -36,7 +36,7 @@ def test_load_manifest_reads_every_example(filename: str) -> None:
     assert manifest.hive.id.startswith("hive_")
 
 
-@pytest.mark.parametrize("filename", ["minimal.toml", "local.toml", "full.toml"])
+@pytest.mark.parametrize("filename", ["minimal.toml", "local.toml", "offline.toml", "full.toml"])
 def test_every_example_manifests_supervision_data_actually_loads(filename: str) -> None:
     # Loading an example only proves it matches the schema. `policy_file` and `capping_tiers_file`
     # are the two manifest paths that must reach a real table before a Hive can start (`db` and

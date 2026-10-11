@@ -1,0 +1,167 @@
+# Offline Hive Manifest: a Hive with no external network (roadmap step 8.6, ADR-0045).
+#
+# Every model call is answered on this machine: chat by one OpenAI-compatible server on loopback
+# (Ollama, vLLM, llama.cpp or LM Studio; ADR-0044), embeddings by sentence-transformers in the
+# Hive's own process, speech by Whisper in the Hive's own process. `[llm] offline = true` makes
+# the manifest refuse to load if any provider could reach further than that, and phase 8's
+# end-to-end job proves it by failing any socket connect to a non-loopback address.
+#
+# Compare local.toml, which is the smallest offline file (one provider, no in-process kinds, one
+# model for everything). This one is the shape the phase 8 exit criteria run against: every
+# slot bound, every model on the Forage map with its VRAM, and the Ripener and the Judge kept on
+# different models, as phase 7's real runs showed they must be.
+
+[hive]
+id = "hive_01M221E3NHQRBXPHPY5P4K3CAQ"
+node_id = "node_01M221E3NH935FQM767BXFFZTK"
+name = "Offline Hive"
+
+[llm]
+# Refuses any provider that is hosted (empty base_url) or whose host is not loopback. The two
+# in-process providers below are exempt because they name no base_url at all: they open no
+# connection. HIVEMIND_LLM_OFFLINE=true can force this on, but nothing can force it off.
+offline = true
+
+# The one chat server, on loopback. Replace the port with the one your server listens on.
+[llm.providers.local]
+kind = "openai_compat"
+base_url = "http://127.0.0.1:11434/v1"
+# A local server is slow to load a model on first use; allow for it.
+timeout_s = 300.0
+# Concurrent requests the server is run with (for Ollama, OLLAMA_NUM_PARALLEL). Set it to what
+# the server really allows: the Fanner queues anything beyond it.
+seats = 2
+
+# A weak local model's honest shape: no native tool-call protocol, no schema enforcement, JSON
+# mode only, no vision, no reasoning-effort knob, a small context window. The degradation ladders
+# (codingrules 8.6) fall back to the prompted rungs for every one of these, so a weaker model
+# gets the same interface with more retries. Correct these to what your model really does; an
+# over-claimed capability costs more retries than an under-claimed one.
+[llm.providers.local.capabilities]
+native_tool_calls = false
+schema_output = false
+json_mode = true
+vision = false
+streaming = true
+reasoning_control = false
+context_window = 8192
+system_role = true
+parallel_tool_calls = false
+token_counting = false
+
+# Embeddings in process (hivemind[embeddings] extra). Local by construction, so no base_url, and
+# it serves only the embedder slot: the manifest refuses to bind it to a chat slot.
+[llm.providers.embedded]
+kind = "sentence_transformers"
+# One model loaded once; embedding calls are short and are batched by the adapter.
+seats = 1
+
+[llm.providers.embedded.embedding]
+# Load from the local cache only. Offline mode forces this on whatever the file says; it is
+# written out so the file reads true on its own. Fetch the model once, while online, before
+# the Hive goes dark (see docs/runbooks/moving-a-slot-to-local.md).
+local_files_only = true
+# "cpu" keeps the GPU for chat models; "cuda" is faster if VRAM allows. Unset: the library chooses.
+device = "cpu"
+
+# Speech in process (hivemind[whisper] extra). Local by construction, so no base_url, and it
+# hears one clip at a time, so one seat.
+[llm.providers.hearing]
+kind = "whisper_local"
+seats = 1
+timeout_s = 300.0
+
+# The Queen, the Judge and the Warden get the larger model: they decide, plan and clear labels.
+[llm.slots.queen]
+provider = "local"
+model = "qwen2.5:7b"
+
+# The Judge clears what the Ripener proposes (ADR-0038), so it must not share the Ripener's
+# model: phase 7's real runs saw a 3B judge reject every lowering, a harmless build log
+# included, while a 7B one decided each probe correctly. Keep this binding on the larger model.
+[llm.slots.judge]
+provider = "local"
+model = "qwen2.5:7b"
+
+[llm.slots.warden]
+provider = "local"
+model = "qwen2.5:7b"
+
+# The routine, high-volume slots take the small model; a 3B ripened Honey well in phase 7.
+[llm.slots.attendant]
+provider = "local"
+model = "qwen2.5:3b"
+
+[llm.slots.ripener]
+provider = "local"
+model = "qwen2.5:3b"
+
+[llm.slots.worker]
+provider = "local"
+model = "qwen2.5:3b"
+
+[llm.slots.scaffolder]
+provider = "local"
+model = "qwen2.5:3b"
+
+# A small embedding model in process (384 dimensions). Changing it re-embeds the Honey Store
+# progressively (ADR-0036); vectors from different models are never compared.
+[llm.slots.embedder]
+provider = "embedded"
+model = "all-MiniLM-L6-v2"
+
+# Whisper in process. "small" runs on a CPU; use a larger size with a GPU. The eval harness
+# (roadmap step 8.5) measures word error rate and latency so this choice stops being a guess.
+[llm.slots.transcriber]
+provider = "hearing"
+model = "small"
+
+# The Forage map: one entry per model. Grades are hand-set guesses on a scale of 1 (weakest) to
+# 5 (strongest); `hive llm eval --update-map` (roadmap step 8.5) replaces them with measured ones.
+# `cost` is left unset on all four: self-hosted models are free per token. To amortise the
+# hardware instead, set cost.cost_per_seat_hour_usd (roadmap step 8.8). `vram_bytes_required` is
+# what the Queen checks against a Cell's free VRAM before she plans to load the model there.
+[forage.map.local_small]
+provider = "local"
+model = "qwen2.5:3b"
+grade = 2
+context_window = 8192
+capabilities = ["json_mode"]
+seats = 2
+# About 2.5 GiB for a 4-bit 3B model.
+vram_bytes_required = 2684354560
+
+[forage.map.local_large]
+provider = "local"
+model = "qwen2.5:7b"
+grade = 3
+context_window = 8192
+capabilities = ["json_mode"]
+seats = 2
+# About 5 GiB for a 4-bit 7B model.
+vram_bytes_required = 5368709120
+
+[forage.map.local_embed]
+provider = "embedded"
+model = "all-MiniLM-L6-v2"
+grade = 2
+# The model truncates longer input; the Honey Store chunks to fit.
+context_window = 256
+seats = 1
+# Small enough to share a GPU; on device = "cpu" it takes none.
+vram_bytes_required = 268435456
+
+[forage.map.local_whisper]
+provider = "hearing"
+model = "small"
+grade = 2
+# Required of every source; a transcriber never reads it (audio is bounded in seconds instead).
+context_window = 448
+seats = 1
+# About 1 GiB for the "small" size on a GPU.
+vram_bytes_required = 1073741824
+
+[forage.roles.drone]
+cpu_cores = 1.0
+memory_bytes = 536870912
+token_rate_per_minute = 8000
