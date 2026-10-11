@@ -42,7 +42,8 @@ Public API:
     - Supervision (supervision): Heartbeat,
       AlarmRaised, AlarmResolved, Inspect, InspectReply, Intervene, Question, Answer.
     - Forage (forage): CapacityReport, GrantIssued, GrantRevoked, ForageRequest,
-      ForageReply, HostingDecided, CeilingsSet, PlanWritten.
+      ForageReply, HostingDecided, CeilingsSet, PlanWritten, SourceAdded, SourceRemoved,
+      SourceEvict.
     - Cell (cell): CellReady, CellHeartbeat, CellTeardownRequest,
       CellRequest, LeaseOpened, LeaseReleased, CellWaxProposed, CellWaxWritten, CellWaxCleared,
       CellSnapshotRequest, CellSnapshotReply, CellRollbackRequest, CellRollbackReply,
@@ -105,6 +106,9 @@ from waggle.messages.forage import (
     GrantRevoked,
     HostingDecided,
     PlanWritten,
+    SourceAdded,
+    SourceEvict,
+    SourceRemoved,
 )
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.labels import (
@@ -249,6 +253,9 @@ __all__ = [
     "SessionPutFile",
     "SessionStdin",
     "Shutdown",
+    "SourceAdded",
+    "SourceEvict",
+    "SourceRemoved",
     "TaskAssign",
     "TaskCancel",
     "TaskPause",

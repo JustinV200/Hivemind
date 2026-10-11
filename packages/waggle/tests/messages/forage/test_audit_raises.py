@@ -61,7 +61,7 @@ def _grant(**changes: object) -> GrantIssued:
 
 
 def test_the_protocol_is_at_minor_eight() -> None:
-    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.10", 10)
+    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.11", 11)
 
 
 def test_a_grant_carrying_raises_round_trips(

@@ -1,4 +1,4 @@
-"""Tests for the forage family's messages (waggle.messages.forage.grants and hosting): all eight.
+"""Tests for the forage family messages: all eleven (grants, hosting and sources modules).
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Holds EXAMPLES, one valid instance of every
@@ -8,7 +8,7 @@ Fits into the Hive:
     names. The family's value models and enums are tested in test_values.py.
 
 Key invariants:
-    - EXAMPLES holds exactly one instance of each of the eight forage message classes.
+    - EXAMPLES holds exactly one instance of each of the eleven forage message classes.
 
 See Also:
     - waggle.messages.forage.grants and waggle.messages.forage.hosting for the modules under test.
@@ -51,6 +51,12 @@ from waggle.messages.forage.hosting import (
     HostingDecided,
     PlanWritten,
 )
+from waggle.messages.forage.sources import (
+    SourceAdded,
+    SourceEvict,
+    SourceRemovalCause,
+    SourceRemoved,
+)
 from waggle.messages.forage.values import (
     AllowedBinding,
     Effort,
@@ -81,6 +87,9 @@ FORAGE_CLASSES: tuple[type[WaggleMessage], ...] = (
     HostingDecided,
     CeilingsSet,
     PlanWritten,
+    SourceAdded,
+    SourceRemoved,
+    SourceEvict,
 )
 
 # The value models the examples are built from: one hosted source, one local source on CELL_ID.
@@ -200,6 +209,30 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         slots=(SlotPlan(slot="PLANNER", chain=SourceChain(primary=HOSTED, fallbacks=())),),
         default=SourceChain(primary=LOCAL, fallbacks=(HOSTED,)),
         reason="Local first, hosted fallback.",
+    ),
+    SourceAdded(
+        cell_id=CELL_ID,
+        server_id="nuc_server",
+        source=LOCAL,
+        grade=2,
+        context_window=8_192,
+        seats_total=4,
+        vram_bytes=5 * GIB,
+        capabilities=("tools",),
+        reason="Within the loadable allowlist and the VRAM ceiling.",
+    ),
+    SourceRemoved(
+        cell_id=CELL_ID,
+        server_id="nuc_server",
+        source=LOCAL,
+        cause=SourceRemovalCause.UNLOADED,
+        reason="No bee used it for an hour.",
+    ),
+    SourceEvict(
+        cell_id=CELL_ID,
+        source=LOCAL,
+        seats_to_reclaim=2,
+        reason="A CRITICAL task needs the exported seats.",
     ),
 )
 

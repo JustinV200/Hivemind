@@ -21,7 +21,7 @@ This specification covers:
 - the envelope every message travels in (section 2) and the three message shapes (section 3);
 - how the protocol is versioned (section 4), framed and bounded (section 5) and signed (section 6);
 - the error message and its stable code table (section 7);
-- the complete message catalogue, ten families and seventy-one kinds (section 8);
+- the complete message catalogue, ten families and seventy-four kinds (section 8);
 - the transports (section 9), the offline outbox (section 10) and conformance (section 11);
 - the design questions the catalogue settled and why (section 12).
 
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.10"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.11"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -146,7 +146,7 @@ First-hop identity (receiver rule): a payload field that names the sender (`prop
 `asked_by`, `device_id`, `warden_id`, `worker_id`, `requester`, `origin` and `holder` on the
 hop that creates the message) must equal the envelope `sender`; a relaying bee preserves it.
 Kinds only the Queen sends (`forage.grant_issued`, `forage.grant_revoked`,
-`forage.hosting_decided`, `forage.ceilings_set`, `forage.plan_written`, `swarm.nuc_promote`,
+`forage.hosting_decided`, `forage.ceilings_set`, `forage.plan_written`, `forage.source_evict`, `swarm.nuc_promote`,
 `control.cluster`, `control.wake`, `control.shutdown`, `control.mask_override` and
 `control.queen_moved`) are accepted only from a `hive` sender, and a receiver drops a frame
 whose `recipient` is not its own address or one it relays for. The guard (the policy engine,
@@ -219,6 +219,14 @@ validates every message a newer one sends it, as long as the sender honours the 
     names, from the instant she names, caused by her `cell.isolated` event), which her own label
     on the Hive's tables cannot reach; the Warden then refuses to resume a bee from a Handoff so
     labelled.
+
+- **1.11** (roadmap step 8.3, ADR-0044): `forage.source_added` (`SourceAdded`),
+  `forage.source_removed` (`SourceRemoved`, with the new enum `SourceRemovalCause`) and
+  `forage.source_evict` (`SourceEvict`). A Warden that starts a model server on its own Cell and
+  loads a source within its ceilings tells the Queen with `source_added` (and with `source_removed`
+  when the source goes), so she enters it in her Forage map and seat ledger; the Queen may order
+  `source_evict` only to reclaim seats she exported. All three are new kinds, so a peer below
+  minor 11 must not be sent them (section 4's rule).
 
 ## 5. Wire format and size limit
 
@@ -426,6 +434,9 @@ Warden).
 | `forage.hosting_decided` | `HostingDecided` | event | none | Queen -> Warden | Record where a Cell's bees get their models. |
 | `forage.ceilings_set` | `CeilingsSet` | event | none | Queen -> Warden | Set or change a Warden's local-pool ceilings. |
 | `forage.plan_written` | `PlanWritten` | event | none | Queen -> Warden | Write a Cell's hosting plan. |
+| `forage.source_added` | `SourceAdded` | event | none | Warden -> Queen | Announce a model source as loaded on a Cell's server. |
+| `forage.source_removed` | `SourceRemoved` | event | none | Warden -> Queen | Announce a model source as gone from a Cell's server. |
+| `forage.source_evict` | `SourceEvict` | event | none | Queen -> Warden | Order a Warden to give back seats the Queen exported. |
 | `cell.ready` | `CellReady` | event | none | Warden -> Queen | Announce a Cell as probed, attested and ready. |
 | `cell.heartbeat` | `CellHeartbeat` | event | none | Warden -> Queen | Report a Cell's mode, leases and shield state. |
 | `cell.teardown_request` | `CellTeardownRequest` | request | none | Warden -> Queen, Queen -> Pollen Packet or Warden | Ask to release a lease or retire a Cell. |
@@ -969,6 +980,8 @@ Family enums and value models:
   - `rate` (`float`): the raised sampled-audit rate. Above 0, at most 1.
   - `until` (`datetime`): when the raise lapses; a receiver ignores one already past (receiver
     rule).
+- `SourceRemovalCause` (`PROTOCOL_MINOR` 11): `UNLOADED`, `SERVER_STOPPED`, `SERVER_DIED`,
+  `EVICTED`, `LEASE_RELEASED`. Why a source left a Cell's model server.
 - `RevocationCause`: `EXPIRED`, `HOLDER_OFFLINE`, `RECLAIMED`, `RELEASED`, `STING_CUT`.
 - `ForageRequestKind`: `SHARED_SEATS`, `SPEND`, `BINDING`, `SUB_BEES`.
 - `ForageDelta`: the delta wanted or granted; one model serves both so a partial grant has the
@@ -1108,6 +1121,55 @@ a default chain for slots not named, with the reason.
 - `slots` (`tuple[SlotPlan, ...]`): per named slot, its chain. Max 16, slot names unique.
 - `default` (`SourceChain`): the chain for any slot not named.
 - `reason` (`str`): why this plan.
+
+#### SourceAdded
+
+`PROTOCOL_MINOR` 11. A Warden announces a model source it loaded on a model server on its own
+Cell, within the ceilings the Queen set (autonomous: loading is reported, not requested). The
+Queen enters the source in her Forage map with `host_cell_id` set to `cell_id` and adds its seats
+to her ledger. Warden -> Queen, an event; the Queen does not reply.
+
+- `cell_id` (`CellId`): the Cell whose server now serves the source.
+- `server_id` (`str`): the manifest key (`[llm.servers]`) of the model server, as
+  `ModelServerReport.server_id`; no URL crosses the wire. Max 128.
+- `source` (`SourceRef`): the source that was loaded.
+- `grade` (`int`): the hand-set grade, 1 to 5, the Warden read from its manifest entry; never a
+  measurement.
+- `context_window` (`int`): the model's window, in tokens. Greater than 0.
+- `seats_total` (`int`): concurrent requests the server allows for it. At least 0.
+- `vram_bytes` (`int`): VRAM the loaded model occupies. At least 0.
+- `capabilities` (`tuple[str, ...]`): the source's capability flags, as the manifest names them.
+  Max 16, each max 32.
+- `reason` (`str`): why it was loaded, within which ceilings.
+
+#### SourceRemoved
+
+`PROTOCOL_MINOR` 11. A Warden announces that a source is gone from its Cell's model server; the
+Queen drops it from her Forage map and releases the seats she had reserved on it. Warden ->
+Queen, an event.
+
+- `cell_id` (`CellId`): the Cell whose server served the source.
+- `server_id` (`str`): the manifest key of the model server. Max 128.
+- `source` (`SourceRef`): the source that was removed.
+- `cause` (`SourceRemovalCause`): which event removed it.
+- `reason` (`str`): why, in the Warden's words.
+
+#### SourceEvict
+
+`PROTOCOL_MINOR` 11. The Queen orders a Warden to give back seats on one of its sources. Queen ->
+Warden, an event (the catalogue has no order shape; `cell.taint_order` and the `control.*` orders
+are events too), accepted only from a `hive` sender.
+
+- `cell_id` (`CellId`): the Cell whose server serves the source.
+- `source` (`SourceRef`): the source to evict.
+- `seats_to_reclaim` (`int`): seats the Queen needs back. Greater than 0.
+- `reason` (`str`): why the Queen needs the seats back.
+
+Receiver rule: a Warden evicts only when the named source is one whose seats it exported
+(`Ceilings.exportable_seats`, section 8.4's `CeilingsReport`); for any other source it ignores
+the order and sends nothing, so the `forage.source_removed` (cause `EVICTED`) that follows a real
+eviction never arrives. The Queen sends the order only to reclaim seats she exported
+(codingrules 8.10), never to unload a model the Warden loaded for its own bees.
 
 ### 8.5 cell (`messages/cell/`)
 

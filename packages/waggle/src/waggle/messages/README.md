@@ -34,18 +34,23 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   (`CellTaintOrder`), the Queen's order to an isolated Cell's Warden to taint the memory store it
   keeps inside the Cell: the Cell, the `cell.isolated` event as the cause, `suspect_at`, and the
   bees and tasks it covers (bounded; at least one, by validator).
+- Waggle 1.11 (roadmap step 8.3, ADR-0044): `forage/sources.py` adds `forage.source_added`
+  (`SourceAdded`) and `forage.source_removed` (`SourceRemoved`, with `SourceRemovalCause`), a
+  Warden's report of a model source it loaded or lost on its own Cell, and `forage.source_evict`
+  (`SourceEvict`), the Queen's order to give back seats she exported (a Warden ignores it for any
+  other source).
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
   3): `task/` (`assignment.py`, `reports.py`, `needs.py`, `recon.py`); `supervision/` (`oversight.py`, `telemetry.py`,
   `alarms.py`, `questions.py`); `forage/` (`grants.py`, `values.py`, `capacity.py`,
-  `hosting.py`); `cell/` (`status.py`, `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`,
+  `hosting.py`, `sources.py`); `cell/` (`status.py`, `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`,
   `output.py`, `files.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
   `call.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `gui.py`, `verdict.py`); `swarm/`
   (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`). Enums that only one
   family uses live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all
-  seventy-one kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
+  seventy-four kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
   `all_kinds`. Message classes never carry their own kind.
 
 Rules every family follows: every id field uses a base.py alias; every `reason` is bounded by

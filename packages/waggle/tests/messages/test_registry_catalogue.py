@@ -1,4 +1,4 @@
-"""Tests for the full Waggle catalogue: seventy kinds, one example of each, the package face.
+"""Tests for the full Waggle catalogue: seventy-four kinds, one example of each, the package face.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins the registry's kind order to the spec's
@@ -77,6 +77,9 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "forage.hosting_decided",
     "forage.ceilings_set",
     "forage.plan_written",
+    "forage.source_added",
+    "forage.source_removed",
+    "forage.source_evict",
     "cell.ready",
     "cell.heartbeat",
     "cell.teardown_request",
@@ -169,7 +172,7 @@ ALL_EXAMPLES: tuple[WaggleMessage, ...] = tuple(
 
 
 def test_all_kinds_lists_the_catalogue_kinds_in_table_order() -> None:
-    assert len(CATALOGUE_KINDS) == 71
+    assert len(CATALOGUE_KINDS) == 74
     assert all_kinds() == CATALOGUE_KINDS
 
 

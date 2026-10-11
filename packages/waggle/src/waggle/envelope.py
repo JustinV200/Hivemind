@@ -57,9 +57,9 @@ from waggle.messages.base import (
 from waggle.messages.registry import kind_for, spec_for
 from waggle.ulid import ULID_LENGTH, decode_ulid
 
-PROTOCOL_VERSION = "1.10"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
+PROTOCOL_VERSION = "1.11"  # What wrap() stamps: PROTOCOL_MAJOR.PROTOCOL_MINOR as the wire string.
 PROTOCOL_MAJOR = 1  # A receiver rejects any other major; breaking changes bump it.
-PROTOCOL_MINOR = 10  # Additive changes bump it; any minor of a known major is accepted. Bumped to
+PROTOCOL_MINOR = 11  # Additive changes bump it; any minor of a known major is accepted. Bumped to
 # 1 for AlarmKind.QUOTA_EXCEEDED (roadmap step 3.11, docs/waggle/spec.md section 4); 2 for
 # Intervene.binding, a new optional field (the phase-3 fix-forward dispatch's own fix 3c); 3 for
 # TaskAssign.leaves, a new optional field (roadmap step 5.0b, "the plan declares what stays"); 4
@@ -80,7 +80,9 @@ PROTOCOL_MINOR = 10  # Additive changes bump it; any minor of a known major is a
 # Capping tier's audit rate reaches every Warden, a Virtual Cell's in-Cell one included, on the
 # grant it holds), and cell.taint_order (roadmap step 10.6a, ADR-0043: the Queen orders an
 # isolated Cell's Warden to taint the memory store it keeps inside the Cell, which her own label
-# cannot reach).
+# cannot reach); 11 for forage.source_added, forage.source_removed and forage.source_evict
+# (roadmap step 8.3, ADR-0044: a Warden reports a model source it loaded or lost on its own Cell,
+# and the Queen orders seats she exported back).
 VERSION_PATTERN = r"^\d+\.\d+$"  # "<major>.<minor>", both plain decimal integers.
 # The id kinds that may address a bee: the Queen (hive), a Warden, a Worker, or a device carrying
 # a Pollen Packet. Every other kind names a thing, not something that can send or receive.
