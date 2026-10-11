@@ -149,6 +149,32 @@ everything else 2), routing will skip the local binding and use the hosted fallb
 evidence saying this slot should stay hosted. A transcriber is graded by word error rate and
 latency, so use the report to pick the Whisper size.
 
+## How the offline proof runs
+
+`docs/manifests/offline.toml` is proven two ways, and neither needs you to do anything.
+
+On every push, `packages/hivemind/tests/e2e/offline/` derives a manifest from that file, changing
+only what a machine with no model server forces (the chat server's address becomes a scripted
+OpenAI-compatible server on a free loopback port, the in-process embedder and Whisper become
+`openai_compat` rows on it, every model id becomes a scripted one) and keeping `offline = true`,
+the slot wiring and the Forage map. It then runs the haiku goal on the Hive Stand (in process and
+through `hive run`) and in a Virtual Cell, ripening with RIPENER and EMBEDDER on the server, a goal
+spoken as an audio clip, a provider outage and wake, and the browser Forager with and without
+vision, each under a guard that replaces `socket.socket.connect`, `connect_ex` and
+`socket.create_connection`: a connect to any address off `127.0.0.0/8` and `::1` fails the test with
+the address, and each case also asserts every `llm.call` on the trail names a provider that runs on
+this machine. One case compares a checksum of `packages/*/src/**/*.py` before and after the goal
+runs under the offline manifest and under the fake provider's, which is the check above, run by a
+test.
+
+Nightly, and by hand from the Actions tab, the `local_llm` job in
+`.github/workflows/integration.yml` runs the same claims against Ollama installed on the runner
+(`packages/hivemind/tests/evals/offline/`, plus the other `local_llm` tests), then `hive llm eval`
+with `--update-map`, and uploads `docs/evals/`. To run it on your own machine, start your server and
+set `HIVEMIND_LIVE_LLM=1`, `HIVEMIND_LOCAL_LLM_BASE_URL`, `HIVEMIND_LOCAL_LARGE_MODEL` and
+`HIVEMIND_LOCAL_SMALL_MODEL`; the tests skip cleanly when they are unset. The guard covers sockets
+the test process opens; a child process such as the browser's is outside it.
+
 ## Moving a slot back
 
 Edit the slot's `provider`, `model` and `fallback` back. Nothing else needs to change. Leave the

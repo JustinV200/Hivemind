@@ -12,6 +12,12 @@
 # How it fits: roadmap step 0.4, the workflow named alongside ci.yml. No integration test exists
 # until phase 2 (see the pytest step below for how that's handled); this workflow is wired up now
 # so nothing else needs to touch CI again when the first one lands.
+#
+# The second job, `local_llm` (roadmap phase 8), runs the tests that need a real local model server:
+# it installs Ollama on the runner, pulls two chat models of different sizes and an embedding model
+# (named in the job's env, the one place a model id may appear), and runs every `local_llm` test
+# against it, then `hive llm eval` over the offline manifest to refresh docs/evals/. Like the job
+# above it has no push trigger: it is manual or nightly only, and costs real minutes on a CPU runner.
 name: Integration
 
 on:
@@ -88,3 +94,109 @@ jobs:
       # night as any other image's.
       - name: Build images/night-veil-ubuntu:dev
         run: docker build -f images/night-veil-ubuntu/Dockerfile -t hivemind/night-veil-ubuntu:dev .
+
+  # roadmap phase 8: the offline proof and the evaluation harness on a real local model (ADR-0044,
+  # ADR-0045). The scripted e2e suite proves the wiring on every run; this proves a real model
+  # behind the same sockets, and writes the Claude-versus-local table the exit criteria ask for.
+  local_llm:
+    name: local_llm
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      # The models this job pulls, by the names the server knows them: a larger one for the Queen,
+      # the Judge and the Warden, a smaller for the routine slots, and an embedding model the server
+      # serves. Model ids live here and nowhere in Python (scripts/check_no_model_ids.py). Changing
+      # one is a one-line edit; nothing else in the job names a model.
+      HIVEMIND_LOCAL_LARGE_MODEL: qwen2.5:3b
+      HIVEMIND_LOCAL_SMALL_MODEL: qwen2.5:1.5b
+      HIVEMIND_LOCAL_EMBED_MODEL: nomic-embed-text
+      # Whisper runs in this process (the whisper extra): a size name, cached below, loaded offline.
+      HIVEMIND_LOCAL_WHISPER_MODEL: small
+      # The gate every local_llm test reads, and the server they talk to (Ollama's OpenAI-compatible
+      # endpoint, on loopback: the offline proof's socket guard allows nothing else).
+      HIVEMIND_LIVE_LLM: "1"
+      HIVEMIND_LOCAL_LLM_BASE_URL: http://127.0.0.1:11434/v1
+      # Where the evaluation harness writes its report; uploaded as an artifact below.
+      HIVEMIND_EVAL_REPORT_DIR: docs/evals
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      # browser: Playwright for the Forager scenario; whisper: in-process transcription for the
+      # spoken goal. Not embeddings: the embedder is served by Ollama here, which keeps a deep
+      # learning framework off the runner.
+      - run: uv sync --frozen --all-groups --extra browser --extra whisper
+      - name: Install the browser and a text-to-speech voice
+        run: |
+          uv run --frozen playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends espeak-ng
+      # Ollama's installer also registers a service; stop it and run the server by hand with the
+      # settings offline.toml's `seats = 2` assumes, so the job owns the process it talks to.
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl stop ollama || true
+          OLLAMA_NUM_PARALLEL=2 OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_KEEP_ALIVE=60m \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:11434/api/version && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:11434/api/version
+      - name: Pull the models
+        run: |
+          ollama pull "$HIVEMIND_LOCAL_LARGE_MODEL"
+          ollama pull "$HIVEMIND_LOCAL_SMALL_MODEL"
+          ollama pull "$HIVEMIND_LOCAL_EMBED_MODEL"
+      # Whisper is fetched now, while the runner still has a network: offline mode loads it from
+      # the local cache only. The clip is a synthetic voice saying a goal, generated here, never a
+      # recording of a person.
+      - name: Fetch Whisper and make a spoken goal
+        run: |
+          uv run --frozen python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['HIVEMIND_LOCAL_WHISPER_MODEL'])"
+          espeak-ng -w "$RUNNER_TEMP/goal.wav" "Write a haiku about bees."
+          echo "HIVEMIND_LOCAL_SPEECH_CLIP=$RUNNER_TEMP/goal.wav" >> "$GITHUB_ENV"
+      # Every local_llm test: the ripening, clearance judge, evaluation harness, provider contract
+      # and handoff evals, and tests/evals/offline (the haiku goal, the spoken goal and the Forager
+      # on a real model, all under the no-egress socket guard). The variables name which model plays
+      # which role for the tests that predate the shared ones.
+      - name: pytest -m local_llm
+        env:
+          HIVEMIND_LOCAL_QUEEN_MODEL: ${{ env.HIVEMIND_LOCAL_LARGE_MODEL }}
+          HIVEMIND_LOCAL_JUDGE_MODEL: ${{ env.HIVEMIND_LOCAL_LARGE_MODEL }}
+          HIVEMIND_LOCAL_WORKER_MODEL: ${{ env.HIVEMIND_LOCAL_SMALL_MODEL }}
+          HIVEMIND_LOCAL_RIPENER_MODEL: ${{ env.HIVEMIND_LOCAL_SMALL_MODEL }}
+          HIVEMIND_LIVE_LLM_MODEL: ${{ env.HIVEMIND_LOCAL_SMALL_MODEL }}
+        run: uv run --frozen pytest -m local_llm packages/hivemind/tests -q
+      # `hive llm eval` has no base-URL override, so the offline manifest is derived for this
+      # runner's models first (tests/e2e/offline/live.py, the same derivation the tests use), then
+      # the harness grades the manifest's bindings and writes its measured grades to the ledger.
+      - name: Derive the offline manifest for these models
+        if: ${{ !cancelled() }}  # The report is wanted even when a test above failed.
+        run: |
+          PYTHONPATH=packages/hivemind/tests uv run --frozen python - <<'PY'
+          import os
+          import pathlib
+
+          from e2e.offline.live import live_offline_manifest
+
+          directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "offline-hive"
+          _manifest, path = live_offline_manifest(directory, os.environ)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"OFFLINE_MANIFEST={path}\n")
+          PY
+      - name: hive llm eval
+        if: ${{ !cancelled() }}
+        run: |
+          uv run --frozen hive llm eval --manifest "$OFFLINE_MANIFEST" \
+            --report-dir docs/evals --update-map
+      - name: Upload docs/evals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-evals
+          path: docs/evals/
+          if-no-files-found: warn

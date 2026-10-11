@@ -134,3 +134,32 @@ HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 `HIVEMIND_LOCAL_QUEEN_MODEL` and `HIVEMIND_LOCAL_WORKER_MODEL` replace the two scored slots' model
 ids; `HIVEMIND_EVAL_REPORT_DIR` also writes the report there. Unset, it skips cleanly and nothing
 about it runs in CI.
+
+## `offline/`: roadmap steps 8.6 and 8.7, offline mode on a real model
+
+The scripted counterpart is `tests/e2e/offline/` (it runs in CI on every push); these are the same
+claims with a real model behind the socket, derived from `docs/manifests/offline.toml`
+(`tests/e2e/offline/live.py`) and run under the same no-egress socket guard, so a connect to
+anything but loopback fails the test. Quality is not asserted (`hive llm eval` grades that): each
+case asserts that the goal reached a verdict without timing out, that every `llm.call` named a
+provider that runs on this machine, and its own claim.
+
+- `test_the_haiku_goal_runs_offline_on_a_real_local_model` -- the Queen, Drone and Judge on the
+  real server.
+- `test_a_spoken_goal_is_heard_by_in_process_whisper_and_runs` -- a WAV clip transcribed by
+  `whisper_local` (the `hivemind[whisper]` extra, a model already cached) and run as the goal; skips
+  without `HIVEMIND_LOCAL_SPEECH_CLIP` or the extra.
+- `test_the_forager_reads_the_page_by_its_accessibility_tree_on_a_real_local_model` -- the real
+  model as WORKER, with the offline file's `vision = false`, logging in to the fixture site; a
+  scripted loopback server plans and judges so the plan is exact.
+
+```bash
+HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+  HIVEMIND_LOCAL_LARGE_MODEL=<queen/judge/warden model> HIVEMIND_LOCAL_SMALL_MODEL=<the rest> \
+  uv run pytest -m local_llm packages/hivemind/tests/evals/offline
+```
+
+`HIVEMIND_LOCAL_WHISPER_MODEL` replaces the Whisper size, `HIVEMIND_LOCAL_EMBED_MODEL` serves the
+embedder from the chat server instead of in process, and `HIVEMIND_LOCAL_GOAL_TIMEOUT_S` (default
+900) bounds each goal. They skip cleanly when unset, and `.github/workflows/integration.yml`'s
+`local_llm` job runs them nightly on an Ollama it installs on the runner.

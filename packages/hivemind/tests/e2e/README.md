@@ -57,6 +57,60 @@ exist to catch problems that only show up when every layer runs at once.
   Queen's (payload `reporter`); the haiku goal succeeds and every `llm.call` names provider
   `local` (a Drone's among them); and once `run_hive` exits the pid is dead, the source is off the
   map and `forage.source_removed` (cause `LEASE_RELEASED`) is recorded.
+- `offline/` (the offline proof, roadmap step 8.6 and 8.7, ADR-0045) -- phase 8's exit criteria run
+  against `docs/manifests/offline.toml` itself: every case derives its manifest from that file
+  (`offline/manifest.py`; only what a machine with no model server and no Whisper weights forces is
+  changed, and `[llm] offline = true`, the Hive ids, the slot wiring and the `[forage.map]` grades
+  stay), serves a scripted OpenAI-compatible model on a free loopback port, and runs under a
+  no-egress guard (`offline/guard.py`: `socket.socket.connect`, `connect_ex` and
+  `socket.create_connection` raise `AssertionError("egress to <addr>")` for any address off
+  loopback and record every connect; each case ends by asserting nothing was refused and that at
+  least one loopback connect happened, so the guard was live). Each case also asserts that every
+  `llm.call` on the trail names a provider the registry's `runs_locally` accepts. The guard sees the
+  test process's sockets; a child process (the Chromium of case 7) is outside it. The rig package:
+  `offline/__init__.py` (the face), `conftest.py` (the `egress` fixture), `guard.py`, `manifest.py`
+  (derivation and a small TOML writer), `live.py` (the same derivation for a real server, from the
+  `HIVEMIND_LOCAL_*` environment, for `tests/evals/offline/`), `reads.py` (trail reads and the
+  every-call-local judgement), `rig.py` (run a goal in process or through `hive run`), `cells.py`
+  (the container-spawning fake backend with the in-Cell Warden's own provider registry kept) and
+  `source.py` (the `src/` checksum and `git status --porcelain`). The cases:
+    - `offline/test_offline_haiku.py` -- the three-haiku goal on the Hive Stand, in process through
+      `run_goal` and through `hive run` (`CliRunner`, the trail read from the database afterwards).
+    - `offline/test_offline_virtual_cell.py` -- the same goal placed in a Virtual Cell
+      (`[virtual_cells] backend = "fake"`, `prefer = "virtual"`): the Drone's `worker.spawned` and
+      `llm.call` events come from the Cell's own node, still on the loopback provider.
+    - `offline/test_offline_ripening.py` -- one finding deposited and one ripening pass with RIPENER
+      and EMBEDDER on the scripted server (`/v1/chat/completions` for the summary,
+      `/v1/embeddings` for deterministic hashed bag-of-words vectors): the SUMMARY row names the
+      scripted ripener model, every row is embedded, a paraphrased question finds it with vectors
+      in the ranking.
+    - `offline/test_offline_spoken_goal.py` -- a WAV clip with a planted byte run is transcribed
+      through the Fanner's transcription gate by an `openai_compat` TRANSCRIBER on the scripted
+      server's `/v1/audio/transcriptions`; the words are run as the goal; one `llm.call` on
+      TRANSCRIBER carries the clip's audio seconds and the audio is on no trail payload.
+    - `offline/test_offline_clustering.py` -- a real outage (the server answers 503 while switched
+      off) mid-goal: the Drone's second reply is parked in flight, `hive cluster` is ordered, the
+      Drone checkpoints at its next call, the task pauses (`memory.checkpoint` before
+      `task.paused`), the server returns and `hive wake` resumes it from the Handoff, each file
+      written once.
+    - `offline/test_offline_src_unchanged.py` -- "a checksum of `src/` is identical between the two
+      configurations", read as: the sha256 over every `packages/*/src/**/*.py` is the same before
+      and after the haiku goal runs under the offline manifest and under `builders.cli.
+      fake_manifest`'s fake provider, and `git status --porcelain` over those paths reads the same
+      before and after (empty on a clean checkout, which is how CI runs it).
+    - `offline/test_offline_vision.py` -- roadmap 8.7: the phase 6 browser-only login on the Hive
+      Stand with a real Chromium and the scripted server as WORKER, twice, differing only in the
+      provider's `vision` capability. Without it `browser_snapshot` (the accessibility tree) is
+      offered and used, `browser_screenshot`/`see` are never offered or called, and no request
+      carried an image part; with it a screenshot is offered, called and comes back as an image
+      part. The server records only the shape of each request.
+    - `offline/test_offline_guard.py` and `offline/test_offline_manifest.py` -- the proof's own
+      tests: the guard refuses a remote address through all three entry points and lets loopback
+      through; the derived manifest keeps what `offline.toml` promises.
+  The real-model counterparts of these cases are `local_llm`-gated, in `tests/evals/offline/`.
+  `scripted_openai.py` grew for this suite (an embeddings route, a ripener script, `Scenario.steps`
+  and `plan_json`, and `Switches`: an outage, one parked call, and a recorder of request shapes
+  only); its manifest template is `scripted_manifest.toml.tmpl`.
 - `test_zero_grant.py` (`@pytest.mark.e2e`) -- `.claude/phase-4-handoff.md` section 4.2 item 1: a
   manifest whose `[forage.reserve]` claims every seat `[forage.map]` offers (patched onto a
   `builders.cli.fake_manifest` manifest through `tests.e2e.kernel_helpers.

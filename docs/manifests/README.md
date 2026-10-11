@@ -37,6 +37,15 @@ take the schema's repo-root-relative default.
   Ripener's, for the reason in ADR-0038 and `docs/runbooks/moving-a-slot-to-local.md`. Where
   `local.toml` is the smallest offline file, this is the complete one. The two in-process models
   must already be in the local cache before the Hive goes dark: offline mode never downloads them.
+  The end-to-end suite `packages/hivemind/tests/e2e/offline/` proves it rather than assuming it:
+  each case loads this file, points the chat provider at a scripted OpenAI-compatible server on
+  loopback (turning the two in-process providers into `openai_compat` rows on the same server, and
+  every model id into a scripted one, because the container the suite runs in has no weights),
+  keeps `offline = true`, the ids, the slot wiring and the `[forage.map]` grades, runs the phase 8
+  scenarios under a guard that fails any socket connect to a non-loopback address, and asserts
+  every `llm.call` on the trail names a provider that runs locally. A `local_llm` job runs the same
+  claims against a real server (`packages/hivemind/tests/evals/offline/`), so an edit to this file
+  reaches both.
 - **`full.toml`** -- every section and every field the schema supports, one comment per field.
   Kept honest by a test that round-trips it through `model_dump`/`model_validate`, `[entrance]`
   (roadmap phase 10, ADR-0041) and `[guard]` (ADR-0039) included.

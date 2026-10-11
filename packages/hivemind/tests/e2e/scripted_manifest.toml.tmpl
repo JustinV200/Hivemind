@@ -1,0 +1,51 @@
+[hive]
+id = "{hive_id}"
+node_id = "{node_id}"
+name = "Scripted Hive"
+db = "{db}"
+
+[queen]
+tick_interval_s = 0.05
+heartbeat_interval_s = 0.5
+
+[hive_stand]
+enabled = true
+scratch_root = "{scratch}"
+
+[hive_stand.capacity]
+cores = {cores}
+
+[llm.providers.scripted]
+kind = "openai_compat"
+base_url = "{base_url}"
+timeout_s = 30.0
+seats = 4
+
+[llm.providers.scripted.capabilities]
+native_tool_calls = true
+schema_output = false
+json_mode = true
+vision = false
+streaming = true
+reasoning_control = false
+context_window = 32768
+system_role = true
+parallel_tool_calls = true
+token_counting = false
+
+{slots}
+[forage.map.scripted_local]
+provider = "scripted"
+model = "scripted-worker"
+grade = 3
+context_window = 32768
+seats = 4
+
+[forage.roles.drone]
+cpu_cores = 0.5
+memory_bytes = 268435456
+token_rate_per_minute = 20000
+
+[supervision]
+heartbeat_interval_s = 0.5
+heartbeat_miss_limit = 6

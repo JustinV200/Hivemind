@@ -15,6 +15,14 @@ test planted in the clip's samples when the scenario maps one (`heard`), so one 
 and then an answer. The same app runs inside a test's own event loop (`serve`) or as its own
 process (`python scripted_openai.py --port N`).
 
+The offline proof (roadmap 8.6, `tests/e2e/offline/`) widens the same server without changing its
+invariants: `/v1/embeddings` answers deterministic hashed bag-of-words vectors (a paraphrase that
+shares words with a finding lands near it), the ripener's model name (`...ripener`) gets a
+scripted structured summary, `Scenario.steps` scripts any tool round by round (skipping a write
+the prompt's Handoff says is already done, and a tool the request did not offer), and `Switches`
+is the in-process control panel: an outage that answers 503, a hold that parks one Drone call, and
+a recorder that keeps only the shape of each chat request (never a body).
+
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 10 exit-criteria
     runs under tests/e2e. Calls into starlette and uvicorn only, as a server, never the Hive.
@@ -22,7 +30,9 @@ Fits into the Hive:
 Key invariants:
     - Every answer is a pure function of the request and the scenario: nothing is remembered
       between calls, exactly like a stateless model server.
-    - Never records or prints a request body: a scenario may carry C2-shaped test words.
+    - Never records or prints a request body: a scenario may carry C2-shaped test words. The
+      recorder keeps a model name, tool names, one boolean for "an image part was present" and the
+      tool names (with a write's path) the script issued, and nothing else.
     - Every manifest `write_manifest` writes pins the Hive Stand's cores, so the grant a goal gets
       never depends on how busy the machine running the tests is.
 
@@ -35,7 +45,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import math
+import re
 import socket
 import threading
 import time
@@ -64,7 +77,7 @@ _API_ROOT = "/v1"
 _HIVE_STAND_CORES = 64
 
 # Every ModelSlot's manifest key, and the scripted model each is bound to (the routing key).
-_SLOT_MODELS = {
+SLOT_MODELS = {
     "queen": "scripted-queen",
     "attendant": "scripted-queen",
     "warden": "scripted-queen",
@@ -76,62 +89,90 @@ _SLOT_MODELS = {
     "transcriber": "scripted-ears",
 }
 
-# The manifest `write_manifest` fills in: short cadences, the Hive Stand enabled, and one
-# openai_compat provider (the scripted server) that every slot is bound to.
-_MANIFEST = """[hive]
-id = "{hive_id}"
-node_id = "{node_id}"
-name = "Scripted Hive"
-db = "{db}"
+# The manifest `write_manifest` fills in (short cadences, the Hive Stand enabled, and one
+# openai_compat provider, the scripted server, that every slot is bound to): a template file
+# beside this one, so the script stays small enough to read. Read when a manifest is written,
+# never at import.
+_MANIFEST_TEMPLATE = Path(__file__).with_name("scripted_manifest.toml.tmpl")
 
-[queen]
-tick_interval_s = 0.05
-heartbeat_interval_s = 0.5
+# The embedding width: small enough to be cheap, wide enough that distinct words rarely collide.
+EMBEDDING_DIMENSIONS = 64
+_WORD = re.compile(r"[a-z0-9]+")  # What counts as a word when hashing a text into a vector.
+_REDO = re.compile(r"Do not redo writing to (\S+?);")  # A Handoff's line for a landed write.
+_TOOL_BLOCK = re.compile(r"```tool\n(.*?)\n```", re.S)  # A prompted tool call in an answer.
+_RESULT_MARK = "Result for "  # How a prompted tool protocol echoes a tool result (user text).
+_IMAGE_PART_TYPES = frozenset(
+    {"image_url", "image", "input_image"}
+)  # A content part holding pixels.
+HOLD_MAX_S = 60.0  # A parked call is released by its test; this bound is a hang, not a timing.
+_SUMMARY = {
+    "title": "Widget staging service restart",
+    "summary": "How to restart the widget staging service after editing its settings file.",
+    "key_facts": ["Restart the staging widget service after editing the settings."],
+    "clearance": "C1",
+    "clearance_reason": "A service's restart steps; nothing about a person.",
+}
 
-[hive_stand]
-enabled = true
-scratch_root = "{scratch}"
+__all__ = [
+    "EMBEDDING_DIMENSIONS",
+    "SLOT_MODELS",
+    "RequestShape",
+    "Scenario",
+    "Step",
+    "Switches",
+    "build_app",
+    "free_port",
+    "serve",
+    "serve_in_thread",
+    "write_manifest",
+]
 
-[hive_stand.capacity]
-cores = {cores}
 
-[llm.providers.scripted]
-kind = "openai_compat"
-base_url = "{base_url}"
-timeout_s = 30.0
-seats = 4
+@dataclass(frozen=True)
+class Step:
+    """One tool call a scripted Drone makes in its own round.
 
-[llm.providers.scripted.capabilities]
-native_tool_calls = true
-schema_output = false
-json_mode = true
-vision = false
-streaming = true
-reasoning_control = false
-context_window = 32768
-system_role = true
-parallel_tool_calls = true
-token_counting = false
+    Attributes:
+        tool: The tool's name.
+        arguments: Its arguments.
+        only_if_offered: Make the call only when the request offered this tool, as a model that
+            looks at its tools would (a screenshot only when the binding can see).
+    """
 
-{slots}
-[forage.map.scripted_local]
-provider = "scripted"
-model = "scripted-worker"
-grade = 3
-context_window = 32768
-seats = 4
+    tool: str
+    arguments: Mapping[str, object] = field(default_factory=dict)
+    only_if_offered: bool = False
 
-[forage.roles.drone]
-cpu_cores = 0.5
-memory_bytes = 268435456
-token_rate_per_minute = 20000
 
-[supervision]
-heartbeat_interval_s = 0.5
-heartbeat_miss_limit = 6
-"""
+@dataclass(frozen=True)
+class RequestShape:
+    """What the recorder keeps of one chat request: its shape, never a word of its content."""
 
-__all__ = ["Scenario", "build_app", "free_port", "serve", "serve_in_thread", "write_manifest"]
+    model: str  # The routing key the manifest bound.
+    tools: tuple[str, ...]  # The tool names the request offered.
+    has_image_part: bool  # Whether any message carried an image part.
+    issued: tuple[str, ...]  # The tool calls the script answered with ("name" or "name:path").
+    rounds: int  # How many tool rounds the conversation already held.
+
+
+@dataclass
+class Switches:
+    """The in-process controls a test shares with the running server, and its request recorder.
+
+    Attributes:
+        outage: While set, every route answers 503, as a model server that has gone away does.
+        hold_at: When set to N, the next Drone call whose conversation holds N tool results parks
+            (`arrived` is set) until `release` is set; the hold then clears itself.
+        arrived: Set when a call parks.
+        release: Set by the test to let the parked call answer.
+        shapes: One RequestShape per chat request, in arrival order.
+    """
+
+    outage: threading.Event = field(default_factory=threading.Event)
+    hold_at: int | None = None
+    arrived: threading.Event = field(default_factory=threading.Event)
+    release: threading.Event = field(default_factory=threading.Event)
+    shapes: list[RequestShape] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -150,6 +191,12 @@ class Scenario:
             empty tuple writes nothing, so the root task's acceptance check fails.
         command: When set, the Drone runs this argv on every round and never finishes: a Cell
             kept busy for as long as a scenario needs it (the Docker egress proof, 10.6a).
+        steps: When set, the Drone makes these calls one per round instead (see `Step`); a
+            `write_file` the prompt's Handoff says already landed is skipped, so a resumed
+            attempt carries on where the checkpointed one stopped.
+        plan_json: When set, the planner answers this plan whole, whatever the goal.
+        ripener: The structured summary the ripener's model (a name ending `ripener`) answers.
+        switches: The in-process controls and recorder (`Switches`); not part of equality.
     """
 
     files: tuple[str, ...] = ("done.txt",)
@@ -160,6 +207,10 @@ class Scenario:
     writes: tuple[str, ...] | None = None
     heard: tuple[tuple[bytes, str], ...] = ()
     command: tuple[str, ...] | None = None
+    steps: tuple[Step, ...] | None = None
+    plan_json: Mapping[str, object] | None = None
+    ripener: Mapping[str, object] = field(default_factory=lambda: dict(_SUMMARY))
+    switches: Switches = field(default_factory=Switches, compare=False)
 
     def words_for(self, upload: bytes) -> str:
         """What the transcriber hears in an upload: the first marker's words, or `transcript`."""
@@ -167,6 +218,8 @@ class Scenario:
 
     def plan(self, goal: str) -> dict[str, object]:
         """The plan the planner answers for `goal`: one root task, plus any extra tasks."""
+        if self.plan_json is not None:
+            return dict(self.plan_json)
         root = {
             "key": "root",
             "title": "Do the work",
@@ -184,21 +237,28 @@ class Scenario:
 
 def build_app(scenario: Scenario) -> Starlette:
     """Build the scripted OpenAI-compatible application for `scenario`."""
+    switches = scenario.switches
 
     async def models(_request: Request) -> Response:
         names = ("scripted-queen", "scripted-worker", "scripted-judge", "scripted-ears")
-        return JSONResponse(
+        return _unless_down(switches) or JSONResponse(
             {"object": "list", "data": [{"id": n, "object": "model"} for n in names]}
         )
 
     async def chat(request: Request) -> Response:
+        if (down := _unless_down(switches)) is not None:
+            return down
         body = await request.json()
+        await _maybe_park(switches, body)
         message = _answer(scenario, body)
+        switches.shapes.append(_shape_of(body, message))
         if body.get("stream"):
             return StreamingResponse(_sse(body, message), media_type="text/event-stream")
         return JSONResponse(_completion(body, message))
 
     async def transcribe(request: Request) -> Response:
+        if (down := _unless_down(switches)) is not None:
+            return down
         # The multipart body is read whole, only to pick the scripted words; nothing keeps it.
         words = scenario.words_for(await request.body())
         segment = {"id": 0, "start": 0.0, "end": 1.0, "text": words}
@@ -206,12 +266,62 @@ def build_app(scenario: Scenario) -> Starlette:
             {"text": words, "language": "en", "duration": 1.0, "segments": [segment]}
         )
 
+    async def embed(request: Request) -> Response:
+        if (down := _unless_down(switches)) is not None:
+            return down
+        return JSONResponse(_embeddings(await request.json()))
+
     routes = [
         Route(f"{_API_ROOT}/models", models, methods=["GET"]),
         Route(f"{_API_ROOT}/chat/completions", chat, methods=["POST"]),
         Route(f"{_API_ROOT}/audio/transcriptions", transcribe, methods=["POST"]),
+        Route(f"{_API_ROOT}/embeddings", embed, methods=["POST"]),
     ]
     return Starlette(routes=routes)
+
+
+def _unless_down(switches: Switches) -> Response | None:
+    """A 503 while the test has the outage switched on, else None (serve as usual)."""
+    if not switches.outage.is_set():
+        return None
+    return JSONResponse({"error": {"message": "scripted outage"}}, status_code=503)
+
+
+async def _maybe_park(switches: Switches, body: Mapping[str, object]) -> None:
+    """Park one Drone call until the test releases it, when `hold_at` asks for exactly this one."""
+    if switches.hold_at is None or not str(body.get("model", "")).endswith("worker"):
+        return
+    if _rounds_done(_messages(body)) != switches.hold_at:
+        return
+    switches.hold_at = None  # One parked call; the next ones answer at once.
+    switches.arrived.set()
+    # A worker thread waits, so this server's own loop keeps answering (the Queen's calls, health).
+    await asyncio.to_thread(switches.release.wait, HOLD_MAX_S)
+
+
+def _embeddings(body: Mapping[str, object]) -> dict[str, object]:
+    """Embed each input as a hashed bag of words: texts sharing words land near each other."""
+    raw = body.get("input")
+    texts = (
+        [raw] if isinstance(raw, str) else [str(i) for i in raw] if isinstance(raw, list) else []
+    )
+    data = [
+        {"object": "embedding", "index": index, "embedding": _vector(text)}
+        for index, text in enumerate(texts)
+    ]
+    tokens = sum(len(_WORD.findall(text.lower())) for text in texts)
+    usage = {"prompt_tokens": tokens, "total_tokens": tokens}
+    return {"object": "list", "data": data, "model": body.get("model", ""), "usage": usage}
+
+
+def _vector(text: str) -> list[float]:
+    """One unit vector: each word adds one to the dimension its hash picks."""
+    counts = [0.0] * EMBEDDING_DIMENSIONS
+    for word in _WORD.findall(text.lower()):
+        digest = hashlib.blake2b(word.encode(), digest_size=4).digest()
+        counts[int.from_bytes(digest, "big") % EMBEDDING_DIMENSIONS] += 1.0
+    norm = math.sqrt(sum(value * value for value in counts)) or 1.0
+    return [value / norm for value in counts]
 
 
 def free_port() -> int:
@@ -284,9 +394,9 @@ def write_manifest(directory: Path, base_url: str, hive_ids: tuple[str, str]) ->
     (directory / "scratch").mkdir(parents=True, exist_ok=True)
     slots = "\n".join(
         f'[llm.slots.{slot}]\nprovider = "scripted"\nmodel = "{model}"\n'
-        for slot, model in _SLOT_MODELS.items()
+        for slot, model in SLOT_MODELS.items()
     )
-    text = _MANIFEST.format(
+    text = _MANIFEST_TEMPLATE.read_text(encoding="utf-8").format(
         hive_id=hive_ids[0],
         node_id=hive_ids[1],
         db=(directory / "data" / "hive.sqlite3").as_posix(),
@@ -313,6 +423,8 @@ def _answer(scenario: Scenario, body: Mapping[str, object]) -> dict[str, object]
     text = "\n".join(_text_of(message) for message in messages)
     if model.endswith("judge"):
         return _content({"outcome": "APPROVE", "reasons": [], "notes": ""})
+    if model.endswith("ripener"):
+        return _content(dict(scenario.ripener))
     if model.endswith("queen"):
         return _queen(scenario, text)
     return _worker(scenario, body, messages)
@@ -335,13 +447,15 @@ def _worker(
     scenario: Scenario, body: Mapping[str, object], messages: list[Mapping[str, object]]
 ) -> dict[str, object]:
     """Run the Drone's rounds: ask first when scripted to, then write every file, then stop."""
-    results = [message for message in messages if message.get("role") == "tool"]
+    done = _rounds_done(messages)
     calls: list[tuple[str, dict[str, object]]] = []
-    if scenario.command is not None:
+    if scenario.steps is not None:
+        calls = _step_calls(scenario.steps, body, messages, done)
+    elif scenario.command is not None:
         calls = [("run_command", {"argv": list(scenario.command)})]  # Busy, round after round.
-    elif scenario.question is not None and not results:
+    elif scenario.question is not None and done == 0:
         calls = [("ask", {"text": scenario.question})]
-    elif len(results) == (1 if scenario.question is not None else 0):
+    elif done == (1 if scenario.question is not None else 0):
         written = scenario.files if scenario.writes is None else scenario.writes
         calls = [("write_file", {"path": name, "content": "bees hum"}) for name in written]
     if not calls:
@@ -364,6 +478,75 @@ def _worker(
         for name, arguments in calls
     )
     return {"role": "assistant", "content": blocks}
+
+
+def _rounds_done(messages: list[Mapping[str, object]]) -> int:
+    """How many tool rounds this conversation holds: native results, or a prompted echo's."""
+    native = sum(1 for message in messages if message.get("role") == "tool")
+    return native or sum(
+        _text_of(m).count(_RESULT_MARK) for m in messages if m.get("role") == "user"
+    )
+
+
+def _step_calls(
+    steps: tuple[Step, ...],
+    body: Mapping[str, object],
+    messages: list[Mapping[str, object]],
+    done: int,
+) -> list[tuple[str, dict[str, object]]]:
+    """The one call round `done` makes: the steps in order, less those this request rules out."""
+    offered = _offered(body)
+    landed = set(_REDO.findall("\n".join(_text_of(message) for message in messages)))
+    live = [
+        step
+        for step in steps
+        if (offered is None or not step.only_if_offered or step.tool in offered)
+        and not (step.tool == "write_file" and step.arguments.get("path") in landed)
+    ]
+    return [(live[done].tool, dict(live[done].arguments))] if done < len(live) else []
+
+
+def _offered(body: Mapping[str, object]) -> set[str] | None:
+    """The tool names a request offered natively, or None when it offered none (prompted)."""
+    tools = body.get("tools")
+    if not isinstance(tools, list):
+        return None
+    functions = (tool.get("function") for tool in tools if isinstance(tool, Mapping))
+    return {str(f.get("name")) for f in functions if isinstance(f, Mapping)}
+
+
+def _shape_of(body: Mapping[str, object], message: Mapping[str, object]) -> RequestShape:
+    """The recorder's row for one answered request: names and one boolean, never content."""
+    return RequestShape(
+        model=str(body.get("model", "")),
+        tools=tuple(sorted(_offered(body) or ())),
+        has_image_part=any(_has_image(m) for m in _messages(body)),
+        issued=tuple(_issued(message)),
+        rounds=_rounds_done(_messages(body)),
+    )
+
+
+def _issued(message: Mapping[str, object]) -> Iterator[str]:
+    """The calls an answer makes, native or prompted, as "name" or "name:path"."""
+    native = message.get("tool_calls")
+    calls = [
+        (call["function"]["name"], json.loads(call["function"]["arguments"]))
+        for call in (native if isinstance(native, list) else [])
+    ]
+    for block in _TOOL_BLOCK.findall(str(message.get("content") or "")):
+        parsed = json.loads(block)
+        calls.append((parsed["name"], parsed["arguments"]))
+    for name, arguments in calls:
+        path = arguments.get("path")
+        yield f"{name}:{path}" if path else str(name)
+
+
+def _has_image(message: Mapping[str, object]) -> bool:
+    """Whether one message carries an image part (pixels), whatever else it holds."""
+    content = message.get("content")
+    return isinstance(content, list) and any(
+        isinstance(part, Mapping) and part.get("type") in _IMAGE_PART_TYPES for part in content
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -111,6 +111,7 @@ __all__ = [
     "grant_hive_stand_full_access",
     "login_container_script",
     "login_plan",
+    "login_tool_calls",
     "login_worker_turn",
     "payloads_text",
     "read_recording",
@@ -249,6 +250,15 @@ def _login_calls(
     if wrong_click:
         calls.append(_wrong_click_call(login_url))
     return tuple(calls)
+
+
+def login_tool_calls(origin: str) -> tuple[tuple[str, str, dict[str, object]], ...]:
+    """Return the (call_id, tool, arguments) triples of one clean login attempt, in order.
+
+    For a scenario that scripts the login on another model server than `FakeLLMProvider` (the
+    offline proof's scripted OpenAI-compatible one); the same calls `login_worker_turn` sends.
+    """
+    return _login_calls(origin, wrong_click=False)
 
 
 def login_worker_turn(origin: str, *, wrong_click: bool = False) -> WorkerTurn:
