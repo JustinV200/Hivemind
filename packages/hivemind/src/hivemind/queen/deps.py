@@ -114,6 +114,7 @@ from hivemind.guard import Enforcer
 from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.honey_store.access import HoneyAccess
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
+from hivemind.llm.routing import RoutingRules
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen.chat import ChatLog, HumanChannel, NullHumanChannel
@@ -780,3 +781,4 @@ class QueenDeps:
     guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
     guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0043).
     honey: HoneyAccess | None = None  # Roadmap phase 7: None keeps every hand-built one working.
+    routing_rules: RoutingRules | None = None  # Roadmap 8.1: [llm.floors] for hosting plans.

@@ -107,6 +107,11 @@ base_url = "http://127.0.0.1:11434/v1"
 timeout_s = 60.0
 seats = 2
 # requests_per_minute and tokens_per_minute omitted: a local server has no such rate limit.
+# A prompt overlay (roadmap 8.4): the name of a directory under hivemind/llm/prompts/overlays/
+# whose files are appended to the shipped prompts this provider is sent, so a weak local model's
+# tweaks never touch the shared prompt. "small_local" ships with HiveMind; omit it for a model
+# that needs none.
+prompt_overlay = "small_local"
 
 [llm.providers.local.capabilities]
 # A weak local model's honest shape: no native tool calls, no schema enforcement, JSON mode

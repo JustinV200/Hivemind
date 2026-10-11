@@ -137,3 +137,13 @@ def test_cell_providers_carries_an_in_process_embedding_provider(tmp_path: Path)
 
     local = next(p for p in providers if p.name == "local")
     assert local.kind == "sentence_transformers"
+
+
+def test_cell_providers_carries_the_prompt_overlay_into_the_cell(tmp_path: Path) -> None:
+    # Roadmap 8.4: a Virtual Cell's own registry applies the same overlay the Hive Stand's does.
+    manifest = _with_local_provider(tmp_path, prompt_overlay="small_local")
+
+    providers = cell_providers(manifest, None)
+
+    local = next(p for p in providers if p.name == "local")
+    assert local.prompt_overlay == "small_local"

@@ -451,6 +451,7 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         bindings=slot_bindings(manifest),
         call_gate=parts.fanner.lane(Tempo()),
         map=forage_map,
+        routing_rules=routing_rules(manifest),  # Roadmap step 8.1: the plan's per-slot floors.
         budgets=_goal_budgets(forage),
         heartbeat_interval_s=supervision.heartbeat_interval_s,
         heartbeat_miss_limit=supervision.heartbeat_miss_limit,

@@ -572,6 +572,7 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
             embedding_batch_size=spec.embedding.batch_size,
             embedding_device=spec.embedding.device,
             embedding_local_files_only=spec.embedding.local_files_only or manifest.llm.offline,
+            prompt_overlay=spec.prompt_overlay,  # Roadmap 8.4: applied at the provider door.
         )
         for name, spec in manifest.llm.providers.items()
     }

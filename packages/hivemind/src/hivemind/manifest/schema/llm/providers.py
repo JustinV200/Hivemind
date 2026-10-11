@@ -248,6 +248,14 @@ class ProviderSpec(BaseModel):
         description="Options that apply only when this provider is asked to embed (roadmap 7.1); "
         "ignored by a provider no [llm.slots] row ever binds to the EMBEDDER slot.",
     )
+    prompt_overlay: ManifestKey | None = Field(
+        default=None,
+        description="The name of a directory under hivemind/llm/prompts/overlays/ whose files are "
+        "appended to every shipped prompt this provider is sent (roadmap 8.4, ADR-0044): the one "
+        "place a weaker or quirkier model's tweaks live, so the shared prompts stay portable. "
+        "None (the default) sends every prompt as shipped. The name is checked when the provider "
+        "is built, since the manifest cannot see the overlays the llm package ships.",
+    )
 
     @model_validator(mode="after")
     def _in_process_kinds_name_no_base_url(self) -> ProviderSpec:

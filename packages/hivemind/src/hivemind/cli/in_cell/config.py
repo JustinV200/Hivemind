@@ -503,6 +503,8 @@ def _provider_config(row: dict[str, object]) -> tuple[str, ProviderConfig]:
             api_key_env=str(api_key_env) if api_key_env else None,
             capability_overrides=dict(capabilities),
             default_model=cast(str | None, row.get("default_model")),
+            # Roadmap 8.4: absent in a row written before overlays existed, so None by default.
+            prompt_overlay=cast(str | None, row.get("prompt_overlay")),
         )
         return str(row["name"]), config
     except KeyError as exc:

@@ -163,6 +163,7 @@ def test_environment_renders_providers_and_slots_as_a_json_round_trip() -> None:
             "api_key_env": "HIVEMIND_LOCAL_API_KEY",
             "requests_per_minute": 60,
             "tokens_per_minute": None,
+            "prompt_overlay": None,  # Roadmap 8.4: carried so the Cell applies the same overlay.
         }
     ]
     assert slots == [

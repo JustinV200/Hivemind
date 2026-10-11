@@ -333,3 +333,18 @@ def test_build_registry_constructs_a_provider_lazily_and_never_probes_it_unasked
     # construction alone never reaches health()'s own network probe.
     bound = registry.bound(ModelSlot.QUEEN)
     assert bound.provider.name == "anthropic"
+
+
+def test_provider_configs_passes_a_providers_prompt_overlay_through() -> None:
+    # Roadmap 8.4: the manifest knob reaches the registry, which applies it at the provider door.
+    manifest = load_manifest(_MANIFESTS_DIR / "local.toml")
+    providers = dict(manifest.llm.providers)
+    providers["local"] = providers["local"].model_copy(update={"prompt_overlay": "small_local"})
+    overlaid = manifest.model_copy(
+        update={"llm": manifest.llm.model_copy(update={"providers": providers})}
+    )
+
+    configs = provider_configs(overlaid)
+
+    assert configs["local"].prompt_overlay == "small_local"
+    assert provider_configs(manifest)["local"].prompt_overlay is None

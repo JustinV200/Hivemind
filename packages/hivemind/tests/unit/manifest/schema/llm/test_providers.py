@@ -108,3 +108,13 @@ def test_provider_spec_accepts_whisper_local_with_no_base_url() -> None:
 def test_provider_spec_refuses_a_base_url_on_an_in_process_kind() -> None:
     with pytest.raises(ValidationError, match="runs in process"):
         ProviderSpec(kind="whisper_local", base_url="http://127.0.0.1:9000/v1")
+
+
+def test_provider_spec_carries_a_prompt_overlay_name_and_rejects_a_path() -> None:
+    # Roadmap 8.4: the overlay is named like any manifest key, so it can never escape overlays/.
+    assert ProviderSpec(kind="anthropic").prompt_overlay is None
+    assert (
+        ProviderSpec(kind="anthropic", prompt_overlay="small_local").prompt_overlay == "small_local"
+    )
+    with pytest.raises(ValidationError):
+        ProviderSpec(kind="anthropic", prompt_overlay="../escape")

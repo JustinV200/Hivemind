@@ -208,6 +208,17 @@ def test_build_runtime_config_parses_providers_and_slots_json() -> None:
     assert local.capability_overrides == {"vision": False}
     assert len(config.slots) == 1
     assert config.slots[0].key == "warden"
+    assert local.prompt_overlay is None  # Roadmap 8.4: absent in the row, so none applied.
+
+
+def test_build_runtime_config_reads_a_providers_prompt_overlay_row_field() -> None:
+    rows = json.loads(_PROVIDERS_JSON)
+    rows[0]["prompt_overlay"] = "small_local"
+    environ = _full_environ(HIVEMIND_PROVIDERS=json.dumps(rows), HIVEMIND_SLOTS=_SLOTS_JSON)
+
+    config = build_runtime_config(read_in_cell_env(environ), FakeClock())
+
+    assert config.providers["local"].prompt_overlay == "small_local"
     assert config.slots[0].provider == "local"
     assert config.slots[0].effort == Effort.MEDIUM
 

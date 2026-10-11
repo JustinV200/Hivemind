@@ -21,7 +21,10 @@ from builders.queen import make_queen_deps
 from hivemind.cell import Cell
 from hivemind.forage import ForageMap, GoalBudgets, HostingPlan, ModelSource, RoyalReserve
 from hivemind.forage.models.capacity import GpuInfo
-from hivemind.forage.models.sources import Abundance
+from hivemind.forage.models.sources import Abundance, ModelCost
+from hivemind.forage.slots import ModelSlot
+from hivemind.llm.routing import RoutingRules
+from hivemind.llm.routing.rules import default_floors
 from hivemind.pheromone import ForageEvent, TrailQuery
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.forage.hosting import write_hosting_plan
@@ -240,3 +243,46 @@ async def test_a_measured_grade_overrules_the_hand_set_grade_in_the_plan() -> No
     primary, fallbacks = _worker_chain(plan)
     assert primary == "src_sound"
     assert "src_overrated" not in (primary, *fallbacks)
+
+
+async def test_a_slot_floor_from_llm_floors_admits_a_source_below_the_normal_floor() -> None:
+    """Roadmap step 8.1: the plan admits what the slot's own floor admits, not one NORMAL floor."""
+    clock = FakeClock()
+    cell = _cell(clock, can_host_model=False)
+    weak = make_source(
+        source_id="src_weak", provider="fake", model=_WORKER_MODEL, host_cell_id=None, grade=1
+    )
+    strong = make_source(
+        source_id="src_strong",
+        provider="fake",
+        model=_WORKER_MODEL,
+        host_cell_id=None,
+        grade=3,
+        cost=ModelCost(cost_per_million_input_usd=1.0),
+    )
+    deps = _with_map(await _deps_with_shared_headroom(clock, cell), (weak, strong), clock)
+
+    # Without rules the NORMAL floor (2) excludes the grade-1 source from the WORKER plan.
+    assert _worker_chain(await write_hosting_plan(cell, deps)) == ("src_strong", ())
+
+    # With a WORKER floor of 1 the free weak source is admitted and, being free, ranks first.
+    floors = {**default_floors(), ModelSlot.WORKER: 1}
+    ruled = dataclasses.replace(deps, routing_rules=RoutingRules(floors=floors))
+    assert _worker_chain(await write_hosting_plan(cell, ruled)) == ("src_weak", ("src_strong",))
+
+
+async def test_a_floor_above_every_candidate_degrades_to_the_best_on_offer() -> None:
+    """A strict floor never leaves a slot unplanned: it is capped at the strongest candidate."""
+    clock = FakeClock()
+    cell = _cell(clock, can_host_model=False)
+    middling = make_source(
+        source_id="src_mid", provider="fake", model=_WORKER_MODEL, host_cell_id=None, grade=3
+    )
+    deps = _with_map(await _deps_with_shared_headroom(clock, cell), (middling,), clock)
+    floors = {**default_floors(), ModelSlot.WORKER: 5}
+
+    plan = await write_hosting_plan(
+        cell, dataclasses.replace(deps, routing_rules=RoutingRules(floors=floors))
+    )
+
+    assert _worker_chain(plan) == ("src_mid", ())

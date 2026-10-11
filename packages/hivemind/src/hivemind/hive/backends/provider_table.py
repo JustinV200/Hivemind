@@ -88,6 +88,8 @@ class CellProviderSpec:
     api_key_env: str = ""
     requests_per_minute: int | None = None  # [llm.providers.<name>] rate limit; None: unmetered.
     tokens_per_minute: int | None = None  # Its token-rate limit; None: not metered that way.
+    # Roadmap 8.4: the prompt overlay the Cell's own registry applies at this provider's door.
+    prompt_overlay: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

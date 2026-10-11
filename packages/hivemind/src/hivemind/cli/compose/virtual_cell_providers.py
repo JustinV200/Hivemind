@@ -128,6 +128,7 @@ def _cell_provider(
         api_key_env=_provider_api_key_env(name, spec),
         requests_per_minute=spec.requests_per_minute,
         tokens_per_minute=spec.tokens_per_minute,
+        prompt_overlay=config.prompt_overlay,  # Roadmap 8.4: the same overlay inside the Cell.
     )
 
 

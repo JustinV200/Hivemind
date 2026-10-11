@@ -56,6 +56,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -137,6 +138,7 @@ async def write_hosting_plan(
         seat_headroom=deps.ledger.headroom().shared_seats,
         spend_cap_usd=deps.budgets.spend_cap_usd,
         revision=revision,
+        floors=deps.routing_rules.floors if deps.routing_rules is not None else None,
     )
     plan, _reason = _decide_plan(cell, inputs)
     await deps.ledger.decisions.record_plan(plan)
@@ -174,6 +176,9 @@ class _PlanInputs:
     seat_headroom: int
     spend_cap_usd: float
     revision: int
+    # Roadmap step 8.1: each slot's own grade floor (`[llm.floors]`, through
+    # `QueenDeps.routing_rules`); None keeps the NORMAL floor for every slot, as before phase 8.
+    floors: Mapping[ModelSlot, int] | None = None
 
 
 def _decide_plan(cell: Cell, inputs: _PlanInputs) -> tuple[HostingPlan, PlanReason]:
@@ -188,7 +193,11 @@ def _decide_plan(cell: Cell, inputs: _PlanInputs) -> tuple[HostingPlan, PlanReas
         The plan, and the `PlanReason` that explains it.
     """
     slot_plans = _build_slot_plans(cell, inputs)
-    default_chain = _build_chain(_rank(list(inputs.sources), cell, inputs), inputs.sources)
+    # The default chain serves a slot the plan does not name, so it keeps the ordinary floor.
+    default_floor = grade_floor(_DEFAULT_TEMPO.accuracy)
+    default_chain = _build_chain(
+        _rank(list(inputs.sources), cell, inputs, default_floor), inputs.sources
+    )
     local_count = sum(1 for s in inputs.sources if s.spec.host_cell_id == cell.id)
     reason = PlanReason(
         local_sources_available=local_count,
@@ -219,7 +228,7 @@ def _build_slot_plans(cell: Cell, inputs: _PlanInputs) -> list[SlotPlan]:
     slot_plans: list[SlotPlan] = []
     for slot in _slots_in(inputs.bindings):
         candidates = _candidates_for_slot(slot, inputs.bindings, inputs.sources)
-        ranked = _rank(candidates, cell, inputs)
+        ranked = _rank(candidates, cell, inputs, _floor_for(inputs, slot, candidates))
         if not ranked:
             continue
         slot_plans.append(SlotPlan(slot=slot, chain=_build_chain(ranked, inputs.sources)))
@@ -269,10 +278,30 @@ def _candidates_for_slot(
     return candidates
 
 
-def _rank(candidates: list[ModelSource], cell: Cell, inputs: _PlanInputs) -> list[ModelSource]:
+def _floor_for(inputs: _PlanInputs, slot: ModelSlot, candidates: list[ModelSource]) -> int:
+    """Return the grade floor `slot`'s candidates must clear: its own `[llm.floors]` row or NORMAL.
+
+    Roadmap step 8.1: the plan admits what routing admits, so a slot whose operator set a low
+    floor (the Attendant's, a Worker slot an operator wants on a small local model) is planned on
+    the sources routing may choose, and a slot with a high floor is not planned on a weak one.
+    Like `hivemind.llm.routing`'s own decision, a floor above every candidate's grade is capped at
+    the best grade on offer, so a strict floor degrades to the strongest source rather than
+    leaving the slot with no plan at all.
+    """
+    floor = grade_floor(_DEFAULT_TEMPO.accuracy)
+    if inputs.floors is not None and slot in inputs.floors:
+        floor = inputs.floors[slot]
+    best = max((s.effective_grade for s in candidates), default=floor)
+    return min(floor, best)
+
+
+def _rank(
+    candidates: list[ModelSource], cell: Cell, inputs: _PlanInputs, floor: int
+) -> list[ModelSource]:
     """Rank candidates local-first, then by grade/distance/VRAM/seat fit, then by cost.
 
-    The grade compared is `ModelSource.effective_grade`: a measured grade replaces a hand-set one.
+    The grade compared is `ModelSource.effective_grade`: a measured grade replaces a hand-set one,
+    and `floor` is the slot's own (`_floor_for`), not one shared NORMAL floor.
 
     A source is excluded outright when its declared VRAM requirement does not fit the Cell's own
     free VRAM (only checked for a source local to this Cell -- a shared source's VRAM is the
@@ -285,7 +314,6 @@ def _rank(candidates: list[ModelSource], cell: Cell, inputs: _PlanInputs) -> lis
     but always sorts behind one that is not.
     """
     free_vram = sum(gpu.vram_free_bytes for gpu in cell.capacity.host.gpus)
-    floor = grade_floor(_DEFAULT_TEMPO.accuracy)
     eligible = [
         s
         for s in candidates
