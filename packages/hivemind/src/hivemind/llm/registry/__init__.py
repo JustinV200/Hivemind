@@ -5,8 +5,9 @@ live provider, and the production lookup `hivemind.llm.slots.resolve` walks a `M
 It became a package when roadmap steps 6.5a (the transcriber) and 7.1 (the embedder) each added a
 door beside the chat one: `config` (the provider row, the kind sets and the offline and secret
 rules every door shares), `chat` (the chat factory table and capability overrides),
-`transcription` (the transcriber door), `embedding` (the embedder door) and `provider_registry`
-(`ProviderRegistry` itself, which owns all three doors). This face re-exports every public name,
+`transcription` (the transcriber door), `embedding` (the embedder door), `overlay` (the wrapper
+that applies a prompt overlay, roadmap 8.4) and `provider_registry` (`ProviderRegistry` itself,
+which owns all three doors). This face re-exports every public name,
 so a caller never needs to know which module defines one.
 
 Fits into the Hive:
@@ -39,6 +40,7 @@ from hivemind.llm.registry.config import (
     runs_locally,
 )
 from hivemind.llm.registry.embedding import EmbeddingFactory, default_embedding_factories
+from hivemind.llm.registry.overlay import OverlayingProvider
 from hivemind.llm.registry.provider_registry import (
     PROVIDER_CLOSE_TIMEOUT_S,
     ProviderRegistry,
@@ -58,6 +60,7 @@ __all__ = [
     "RUNS_IN_PROCESS_KINDS",
     "EmbeddingFactory",
     "MissingDefaultModelError",
+    "OverlayingProvider",
     "ProviderConfig",
     "ProviderFactory",
     "ProviderKind",

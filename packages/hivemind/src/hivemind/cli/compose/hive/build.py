@@ -170,9 +170,10 @@ def build_hive(
     """
     # Codingrules 12: every writer below records through the Night Veil boundary, one per Hive.
     hive_stores = _veiled_stores(manifest, stores, clock)
-    forage_map = build_forage_map(manifest, clock)
-    # Roadmap step 4.8: built before build_fanner, whose LedgerRecorder books each llm.call live.
+    # Steps 4.8 and 8.5: the ledger comes first, for the Fanner's recorder and because the grades
+    # `hive llm eval --update-map` measured replace the manifest's hand-set ones on the map.
     ledger = build_ledger(manifest, manifest.forage.reserve)
+    forage_map = build_forage_map(manifest, clock, ledger.measured.grades())
     registry = build_provider_registry(manifest, environ, clock, forage_map, responders)
     fanner = build_fanner(manifest, forage_map, hive_stores.trail, clock, ledger)
     source = build_hive_stand_source(manifest, hive_stores.trail, clock, hive_stores.leavings)

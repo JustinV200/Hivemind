@@ -34,6 +34,7 @@ from hivemind.cli.stores import (
     provider_configs,
     resolve_db,
     routing_rules,
+    server_configs,
     slot_bindings,
 )
 from hivemind.common.migrations import applied_versions, apply_migrations, load_migrations
@@ -140,16 +141,19 @@ def test_open_ledger_returns_a_ready_sqlite_ledger_store_on_a_fresh_file(tmp_pat
     assert asyncio.run(store.list_grants()) == ()
 
 
-def test_open_ledger_applies_both_migrations_on_a_fresh_file(tmp_path: Path) -> None:
+def test_open_ledger_applies_every_migration_on_a_fresh_file(tmp_path: Path) -> None:
     db = tmp_path / "hive.sqlite3"
 
     open_ledger(db)
 
     connection = connect(db)
-    assert applied_versions(connection, LEDGER_SUBSYSTEM) == (1, 2)
+    # 0003 (roadmap step 8.5) adds the measured-grades table `hive llm eval --update-map` fills.
+    assert applied_versions(connection, LEDGER_SUBSYSTEM) == (1, 2, 3)
 
 
-def test_open_ledger_applies_0002_on_a_db_that_already_has_0001(tmp_path: Path) -> None:
+def test_open_ledger_applies_the_later_migrations_on_a_db_that_already_has_0001(
+    tmp_path: Path,
+) -> None:
     db = tmp_path / "hive.sqlite3"
     connection = connect(db)
     # Apply only migration 1 by hand, simulating a database created before 0002 existed.
@@ -161,7 +165,7 @@ def test_open_ledger_applies_0002_on_a_db_that_already_has_0001(tmp_path: Path) 
     open_ledger(db)  # A fresh open, mirroring how a real CLI command reopens the file.
 
     reopened = connect(db)
-    assert applied_versions(reopened, LEDGER_SUBSYSTEM) == (1, 2)
+    assert applied_versions(reopened, LEDGER_SUBSYSTEM) == (1, 2, 3)
 
 
 def test_open_cluster_orders_returns_a_ready_sqlite_order_store_on_a_fresh_file(
@@ -217,6 +221,27 @@ def test_provider_configs_derives_default_model_even_for_a_non_openai_compat_pro
     configs = provider_configs(manifest)
 
     assert configs["anthropic"].default_model == manifest.llm.slots["queen"].model
+
+
+def test_server_configs_turns_each_llm_server_into_the_wardens_decoupled_config() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    configs = server_configs(manifest)
+
+    spec = manifest.llm.servers["local"]
+    config = configs["local"]
+    assert (config.server_id, config.provider, config.port) == ("local", "local", spec.port)
+    assert config.argv == spec.argv
+    assert config.startup_timeout_s == spec.startup_timeout_s
+    assert config.provider_config == provider_configs(manifest)["local"]
+    # Each listed [forage.map] row, as a source no Cell hosts yet: the Warden fills in its Cell.
+    assert [source.source_id for source in config.sources] == list(spec.sources)
+    assert all(source.spec.host_cell_id is None for source in config.sources)
+    assert config.sources[0].abundance.seats_free == manifest.forage.map[spec.sources[0]].seats
+
+
+def test_server_configs_is_empty_when_no_server_is_declared() -> None:
+    assert server_configs(load_manifest(_MANIFESTS_DIR / "minimal.toml")) == {}
 
 
 def test_build_forage_map_has_one_source_per_forage_map_entry() -> None:

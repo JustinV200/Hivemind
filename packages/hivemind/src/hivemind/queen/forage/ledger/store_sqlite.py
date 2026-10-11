@@ -17,6 +17,10 @@ the transitions that matter (granted, denied, revoked, expired) as its own, sepa
 way `hivemind.queen.dispatcher.ready.assign.record_forage_granted` already does for a task-dispatch
 grant.
 
+Migrations 0002 (roadmap step 4.8) and 0003 (step 8.5) add four small tables and the
+`forage_ledger_measured_grades` table (the grade `hive llm eval --update-map` measured per Forage
+map source: `source_id`, `grade`, `measured_at`, `evidence`), each an upsert keyed by its id.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage
     sub-package. Constructed by a composition root once a database file is available. Calls into
@@ -43,11 +47,12 @@ from __future__ import annotations
 import asyncio
 import importlib.resources
 import sqlite3
+from datetime import datetime
 
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
-from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport, MeasuredGrade
 from waggle.clock import Clock
 from waggle.ids import CellId, GrantId, TaskId, WardenId
 
@@ -107,6 +112,15 @@ _UPSERT_CEILINGS_SQL = (
     "ON CONFLICT (warden_id) DO UPDATE SET body = excluded.body"
 )
 _SELECT_CEILINGS_SQL = "SELECT warden_id, body FROM forage_ledger_ceilings"
+# Roadmap step 8.5: the evaluation harness's measured grade per source, one row each.
+_UPSERT_MEASURED_GRADE_SQL = (
+    "INSERT INTO forage_ledger_measured_grades (source_id, grade, measured_at, evidence) "
+    "VALUES (?, ?, ?, ?) ON CONFLICT (source_id) DO UPDATE SET grade = excluded.grade, "
+    "measured_at = excluded.measured_at, evidence = excluded.evidence"
+)
+_SELECT_MEASURED_GRADES_SQL = (
+    "SELECT source_id, grade, measured_at, evidence FROM forage_ledger_measured_grades"
+)
 # The Night Veil teardown's deletes: the Cell's own rows, then each Warden's, then each grant's.
 _FORGET_CELL_SQL = (
     "DELETE FROM forage_ledger_capacities WHERE cell_id = ?",
@@ -305,6 +319,33 @@ class SqliteLedgerStore:
             (WardenId(row["warden_id"]), Ceilings.model_validate_json(row["body"])) for row in rows
         )
 
+    async def put_measured_grade(
+        self, source_id: str, grade: int, measured_at: datetime, evidence: str
+    ) -> None:
+        """Upsert a source's measured grade; see `LedgerStore.put_measured_grade`."""
+        # Validated before the write so a grade outside 1 to 5 never reaches the table.
+        row = MeasuredGrade(
+            source_id=source_id, grade=grade, measured_at=measured_at, evidence=evidence
+        )
+        async with self._lock:
+            await self._thread.run(_upsert_measured_grade, self._connection, row)
+
+    async def list_measured_grades(self) -> tuple[MeasuredGrade, ...]:
+        """Return every stored measured grade; see `LedgerStore.list_measured_grades`."""
+        async with self._lock:
+            rows = await self._thread.run(
+                lambda: self._connection.execute(_SELECT_MEASURED_GRADES_SQL).fetchall()
+            )
+        return tuple(
+            MeasuredGrade(
+                source_id=row["source_id"],
+                grade=row["grade"],
+                measured_at=datetime.fromisoformat(row["measured_at"]),
+                evidence=row["evidence"],
+            )
+            for row in rows
+        )
+
     async def forget(self, rows: CellRows) -> int:
         """Delete every row `rows` names, in one transaction; see `LedgerStore.forget`."""
         async with self._lock:
@@ -341,6 +382,15 @@ def _put_reserve(connection: sqlite3.Connection, body: str) -> None:
     """Upsert the single reserve row, inside its own transaction."""
     with transaction(connection):
         connection.execute(_UPSERT_RESERVE_SQL, (body,))
+
+
+def _upsert_measured_grade(connection: sqlite3.Connection, row: MeasuredGrade) -> None:
+    """Upsert one measured grade in its own transaction; the timestamp is stored as ISO text."""
+    with transaction(connection):
+        connection.execute(
+            _UPSERT_MEASURED_GRADE_SQL,
+            (row.source_id, row.grade, row.measured_at.isoformat(), row.evidence),
+        )
 
 
 def _upsert_int(connection: sqlite3.Connection, sql: str, key: str, value: int) -> None:

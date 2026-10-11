@@ -163,6 +163,10 @@ class ProviderConfig:
     embedding_batch_size: int | None = None  # None lets an embedding factory's own default decide.
     embedding_device: str | None = None  # None lets the in-process library choose a device.
     embedding_local_files_only: bool = False  # Never reach a model hub to load an embedder.
+    # Roadmap 8.4 (ADR-0044): the name of a directory under hivemind/llm/prompts/overlays/ whose
+    # text the registry appends to this provider's system prompts; None applies nothing. A name
+    # that ships no directory fails when the provider is built, not on its first call.
+    prompt_overlay: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

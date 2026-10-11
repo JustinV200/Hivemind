@@ -98,3 +98,39 @@ signal to re-run and look at the reasons, not proof either way.
 On 2026-09-24, against the same llama.cpp server, qwen2.5-7B-Instruct (Q4_K_M) passed all six
 cases. qwen2.5-3B-Instruct (Q4_K_M) rejected everything, so it failed both texts it must approve,
 the build log included. Bind the judge to a different, stronger model than the Ripener.
+
+## `routing/`: roadmap step 8.5, the evaluation harness
+
+`hive llm eval` (`hivemind.cli.llm.eval`) runs a fixed goal set against the manifest's bindings and
+grades decomposition, `TaskNeeds`, tool-call validity, ladder rung, Alarm rate, handoff-resume,
+steps, cost and wall time, then maps the scores to measured grades (docs/evals/README.md explains
+every column and the mapping).
+
+`test_eval_harness.py` runs the whole pipeline on the fake provider (fast, runs in CI): a real Hive
+per goal over a `builders.cli.fake_manifest`, scripted by `builders.evals.ScriptedEval` so each of
+the four goals behaves. It asserts that every goal passes and exercises the behaviour it measures
+(the question asked and answered, the checkpoint resumed), that the report is written as markdown
+and JSON with a column for every grader, that `--update-map` writes grades through the Hive's own
+ledger which the *next* Hive's Forage map applies (`effective_grade` changes while the manifest's
+`grade` does not), that a Drone doing nothing fails its goal and earns a lower grade, and that the
+TRANSCRIBER is graded on a fixture clip set. The clips are generated tones graded through
+`FakeTranscription`, which proves the grader; real clips are the operator's to supply.
+
+```bash
+uv run pytest packages/hivemind/tests/evals/routing -m "not live_llm and not local_llm"
+```
+
+`test_eval_harness_local.py` is the `local_llm` variant, gated like the honey evals: it runs the
+harness against `docs/manifests/local.toml` pointed at a real server, and passes when every goal
+reached a verdict without crashing (whether a small model passes the goals is the result, not the
+assertion).
+
+```bash
+HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+  uv run pytest -m local_llm packages/hivemind/tests/evals/routing
+```
+
+`HIVEMIND_LOCAL_EVAL_GOALS` (comma-separated, default `haiku`) picks the goals;
+`HIVEMIND_LOCAL_QUEEN_MODEL` and `HIVEMIND_LOCAL_WORKER_MODEL` replace the two scored slots' model
+ids; `HIVEMIND_EVAL_REPORT_DIR` also writes the report there. Unset, it skips cleanly and nothing
+about it runs in CI.

@@ -32,8 +32,8 @@ Key invariants:
       matching `hivemind.memory.store.protocol.MemoryStore.remove_pin`'s own contract; so is
       `forget`, the Night Veil teardown's delete of one Cell's rows across five tables.
     - `get_reserve`/`list_capacities`/`list_local_reports`/`list_grants`/`list_seat_capacities`/
-      `list_spend_by_goal`/`list_hosting_plans`/`list_ceilings` never raise for an empty store;
-      they return the store's own defaults or empty collections.
+      `list_spend_by_goal`/`list_hosting_plans`/`list_ceilings`/`list_measured_grades` never raise
+      for an empty store; they return the store's own defaults or empty collections.
 
 See Also:
     - .claude/codingrules.md Appendix C, "Capacity, grants, hosting decisions, snapshots" row, for
@@ -44,10 +44,11 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
-from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport, MeasuredGrade
 from waggle.ids import CellId, GrantId, TaskId, WardenId
 
 __all__ = ["LedgerStore"]
@@ -168,6 +169,23 @@ class LedgerStore(Protocol):
 
     async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
         """Return every stored `(holder, ceilings)` pair, in no particular order."""
+        ...
+
+    async def put_measured_grade(
+        self, source_id: str, grade: int, measured_at: datetime, evidence: str
+    ) -> None:
+        """Upsert the grade the evaluation harness measured for a Forage map source (step 8.5).
+
+        Args:
+            source_id: The `[forage.map.<source_id>]` key that was measured.
+            grade: The measured grade, 1 to 5.
+            measured_at: When the measurement was taken (timezone-aware).
+            evidence: A short plain-text summary of the run behind the grade.
+        """
+        ...
+
+    async def list_measured_grades(self) -> tuple[MeasuredGrade, ...]:
+        """Return every stored measured grade, in no particular order."""
         ...
 
     async def forget(self, rows: CellRows) -> int:

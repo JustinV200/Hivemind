@@ -61,6 +61,12 @@ typer layer that calls into a subsystem's public API and never contains logic of
   generic `/models` ids for any other server), `pull MODEL` downloads one with progress,
   `keep-alive MODEL --seconds N` holds one in memory; Ollama is detected by probing its native API,
   and the providers table's health column then ends `(ollama <version>)`.
+  `hive llm eval --manifest hive.toml [--goals a,b] [--update-map] [--report-dir DIR] [--fixtures
+  DIR]` (`cli/llm/eval/`, roadmap step 8.5) runs a fixed goal set against the manifest's bindings,
+  each on its own fresh Hive, grades every run on nine columns, and writes `<date>.md` and
+  `<date>.json` under `--report-dir` (default `docs/evals`); `--update-map` writes the measured
+  grades through the Hive's ledger so the next Hive routes on them, `--fixtures` also grades the
+  TRANSCRIBER by word error rate. See docs/evals/README.md.
 - `capping.py` -- `hive capping queue [--manifest] [--db] [--json]` (every Capping proposal whose
   latest `capping.*` event is not terminal, newest latest-event first: proposal id, task id, tier,
   state, age) and `hive capping show PROPOSAL_ID [--manifest] [--db] [--json]` (that proposal's

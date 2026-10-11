@@ -144,6 +144,26 @@ def test_report_local_pool_is_reported_never_granted() -> None:
     assert ledger.headroom().sub_bees == 0
 
 
+def test_local_report_for_returns_the_latest_report_or_none() -> None:
+    # Roadmap step 8.3: the Queen reads seats_exported from it before ordering an eviction.
+    ledger = ForageLedger()
+    clock = FakeClock()
+    warden_id = new_warden_id(clock)
+    report = LocalPoolReport(
+        warden_id=warden_id,
+        cell_id=new_cell_id(clock),
+        sub_bees_active=0,
+        model_vram_bytes=0,
+        model_disk_bytes=0,
+        seats_exported=2,
+    )
+
+    assert ledger.local_report_for(warden_id) is None
+    asyncio.run(ledger.report_local_pool(report))
+
+    assert ledger.local_report_for(warden_id) == report
+
+
 async def test_restore_rebuilds_every_table_from_the_store() -> None:
     store = InMemoryLedgerStore()
     clock = FakeClock()

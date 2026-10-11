@@ -25,8 +25,10 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from hivemind.forage import Ceilings, ForageCapacity, ForageGrant, HostingPlan, RoyalReserve
-from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport
+from hivemind.queen.forage.ledger.model import CellRows, LocalPoolReport, MeasuredGrade
 from waggle.ids import CellId, GrantId, TaskId, WardenId
 
 __all__ = ["InMemoryLedgerStore"]
@@ -46,6 +48,8 @@ class InMemoryLedgerStore:
         self._spend_by_goal: dict[TaskId, float] = {}
         self._hosting_plans: dict[CellId, HostingPlan] = {}
         self._ceilings: dict[WardenId, Ceilings] = {}
+        # Roadmap step 8.5: the evaluation harness's measured grade per Forage map source.
+        self._measured_grades: dict[str, MeasuredGrade] = {}
 
     async def put_capacity(self, cell_id: CellId, capacity: ForageCapacity) -> None:
         """Upsert `cell_id`'s latest reported capacity; see `LedgerStore.put_capacity`."""
@@ -114,6 +118,19 @@ class InMemoryLedgerStore:
     async def list_ceilings(self) -> tuple[tuple[WardenId, Ceilings], ...]:
         """Return every stored ceilings pair; see `LedgerStore.list_ceilings`."""
         return tuple(self._ceilings.items())
+
+    async def put_measured_grade(
+        self, source_id: str, grade: int, measured_at: datetime, evidence: str
+    ) -> None:
+        """Upsert a source's measured grade; see `LedgerStore.put_measured_grade`."""
+        # Built through the model so an out-of-range grade fails here exactly as it does on read.
+        self._measured_grades[source_id] = MeasuredGrade(
+            source_id=source_id, grade=grade, measured_at=measured_at, evidence=evidence
+        )
+
+    async def list_measured_grades(self) -> tuple[MeasuredGrade, ...]:
+        """Return every stored measured grade; see `LedgerStore.list_measured_grades`."""
+        return tuple(self._measured_grades.values())
 
     async def forget(self, rows: CellRows) -> int:
         """Delete every row `rows` names; see `LedgerStore.forget`."""

@@ -12,7 +12,9 @@ See Also:
 
 from __future__ import annotations
 
+import pytest
 from builders.forage import make_capacity, make_grant, make_reserve
+from pydantic import ValidationError
 
 from hivemind.forage.grant_state import GrantState
 from hivemind.queen.forage.ledger import InMemoryLedgerStore, LocalPoolReport
@@ -76,3 +78,27 @@ async def test_reserve_is_none_until_put_then_returns_the_latest() -> None:
     restored = await store.get_reserve()
     assert restored is not None
     assert restored.seats == 7
+
+
+async def test_measured_grades_are_empty_until_put_and_upsert_by_source_id() -> None:
+    store = InMemoryLedgerStore()
+    clock = FakeClock()
+    assert await store.list_measured_grades() == ()
+
+    await store.put_measured_grade("fast-local", 2, clock.now(), "first run")
+    await store.put_measured_grade("fast-local", 4, clock.now(), "second run")
+    await store.put_measured_grade("big-hosted", 5, clock.now(), "other")
+
+    rows = {row.source_id: row for row in await store.list_measured_grades()}
+    assert {key: row.grade for key, row in rows.items()} == {"fast-local": 4, "big-hosted": 5}
+    assert rows["fast-local"].evidence == "second run"
+
+
+@pytest.mark.parametrize("grade", [0, 6, -1])
+async def test_put_measured_grade_refuses_a_grade_outside_one_to_five(grade: int) -> None:
+    store = InMemoryLedgerStore()
+
+    with pytest.raises(ValidationError):
+        await store.put_measured_grade("fast-local", grade, FakeClock().now(), "bad")
+
+    assert await store.list_measured_grades() == ()

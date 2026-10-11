@@ -1,15 +1,16 @@
 """Define `hive llm`'s commands: inspect configured providers and slots, and send a test call.
 
 Three commands (plus `models`, `pull` and `keep-alive` registered from `local.py`, roadmap step
-8.2), each a thin typer layer over `hivemind.llm.registry.ProviderRegistry`
-(`hivemind.cli.stores.build_registry`): `providers` lists every `[llm.providers.<name>]` row with
-its declared shape and a live health probe; `slots` lists every `hivemind.forage.slots.ModelSlot`
-resolved to its current binding, price and fallback chain; `test` resolves one slot and sends a
-single small completion through it, the way `hivemind.llm.ladders.gate.DirectCallGate` would, to
-prove a binding actually answers before a real goal depends on it -- except for `EMBEDDER`
-(roadmap step 7.1), which has no completion to send: `test` embeds one short text through
-`ProviderRegistry.embedder()` instead, the way `hivemind.llm.embedding.gate.DirectEmbedGate`
-would, and prints the model, its vector dimension and the latency in place of usage and a reply.
+8.2, and `eval` from the `eval/` package, roadmap step 8.5), each a thin typer layer over
+`hivemind.llm.registry.ProviderRegistry` (`hivemind.cli.stores.build_registry`): `providers` lists
+every `[llm.providers.<name>]` row with its declared shape and a live health probe; `slots` lists
+every `hivemind.forage.slots.ModelSlot` resolved to its current binding, price and fallback chain;
+`test` resolves one slot and sends a single small completion through it, the way
+`hivemind.llm.ladders.gate.DirectCallGate` would, to prove a binding actually answers before a
+real goal depends on it -- except for `EMBEDDER` (roadmap step 7.1), which has no completion to
+send: `test` embeds one short text through `ProviderRegistry.embedder()` instead, the way
+`hivemind.llm.embedding.gate.DirectEmbedGate` would, and prints the model, its vector dimension and
+the latency in place of usage and a reply.
 No rule about what a provider or a slot binding *is* lives here; every one of those lives in
 `hivemind.llm` and `hivemind.forage`
 (codingrules section 2's CLI row: "commands call into subsystem APIs, never contain logic"). This
@@ -54,6 +55,7 @@ from typing import Annotated
 
 import typer
 
+from hivemind.cli.llm.eval import register_eval_command
 from hivemind.cli.llm.local import deps_from_context, register_local_commands
 from hivemind.cli.llm.rows import ProviderRow, SlotRow, provider_rows, slot_row_for
 from hivemind.cli.stores import (
@@ -85,6 +87,8 @@ __all__ = ["app"]
 # `models`, `pull` and `keep-alive` live in `local.py` (a different concern: managing a local
 # server, not inspecting configuration) and attach to this same group.
 register_local_commands(app)
+# `eval` is the evaluation harness (roadmap step 8.5), a package of its own.
+register_eval_command(app)
 
 # A short, neutral prompt: enough for a provider to prove it answers, cheap enough to run against
 # a hosted API without worrying about spend (codingrules section 8.6's model-id rule keeps this

@@ -1367,7 +1367,8 @@ prompt overlays, `hive llm eval`.
 - [x] **8.2 Local server management.** `llm/providers/ollama/manage.py` (optional): list, pull,
   `keep_alive`, health. `hive llm models|pull|keep-alive` and `hive llm providers` use it today;
   `hive doctor` (step 14.2) will. Generic health probe covers vLLM and llama.cpp.
-- [ ] **8.3 Model server on a Cell.** `wardens/local_pool/hosting.py` (it needs the Cell's
+- [ ] **8.3 Model server on a Cell.** `wardens/local_pool/hosting/` (a package: `host`, `launch`,
+  `sources`, `report`, `config`, `door`; the manifest declares each server in `[llm.servers]`; it needs the Cell's
   `CellSession`, so it lives with the Warden that owns the Cell, not in `forage`): start and stop
   an OpenAI-compatible server on a Cell that reports `can_host_model` (through its session), register
   it as a provider with a loopback-only or Cell-local base URL, add its models to the Forage map
@@ -1381,7 +1382,7 @@ prompt overlays, `hive llm eval`.
 - [ ] **8.4 Prompt portability pass.** Run every prompt snapshot and the phase 3 scenarios against
   at least two local models of different sizes; add overlays under `llm/prompts/overlays/<provider>/`
   where needed, each with a header saying why.
-- [ ] **8.5 Evaluation harness.** `tests/evals/` with a fixed goal set and graders (decomposition
+- [x] **8.5 Evaluation harness.** `tests/evals/` with a fixed goal set and graders (decomposition
   validity, `TaskNeeds` correctness, tool-call validity rate, ladder rung reached, Alarm rate,
   handoff-resume success, step count, cost, wall time), run by `hive llm eval`, writing
   `docs/evals/<date>.md`. `JUDGE` may itself be local. With `--update-map` the harness writes

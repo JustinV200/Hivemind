@@ -74,6 +74,10 @@ on the `TRANSCRIBER` slot). No vendor SDK is imported here or anywhere else outs
   as_overrides()`-shaped mapping. `default_factories()` covers every chat kind (`"fake"`,
   `"openai_compat"`, `"anthropic"`); `PENDING_KINDS` names any kind neither factory table covers
   (none today; see roadmap step 6.5a below for the transcription table).
+  `ProviderConfig.prompt_overlay` (roadmap step 8.4) names a prompt overlay directory
+  (`hivemind.llm.prompts`); when set, `provider(name)` returns the built provider wrapped in
+  `OverlayingProvider`, which forwards everything and appends the overlay's text to each system
+  prompt, and an unknown overlay name raises `OverlayNotFoundError` at that construction.
 
 ## Public API (roadmap step 3.5)
 

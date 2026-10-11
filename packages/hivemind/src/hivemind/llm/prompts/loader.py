@@ -21,8 +21,8 @@ Fits into the Hive:
     Layer 1 (foundational services), inside hivemind.llm. Called by hivemind.memory.assemble (a
     parallel roadmap step) once it turns durable state into these labelled sections, and by every
     awake episode (queen/awake, wardens/awake) and the Drone's tool loop, which pass the resulting
-    text as an LLMRequest's `system` field. Calls into hivemind.common only, per this package's
-    import restriction; it never imports hivemind.forage or hivemind.llm's own sibling modules.
+    text as an LLMRequest's `system` field. Calls into hivemind.common only; per-model additions
+    are `hivemind.llm.prompts.overlay`'s business, not this module's.
 
 Key invariants:
     - Every PromptName maps to exactly one `<name>.md` file shipped inside this package; a missing

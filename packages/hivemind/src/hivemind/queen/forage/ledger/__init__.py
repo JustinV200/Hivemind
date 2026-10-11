@@ -7,14 +7,16 @@ reads and writes: every Cell's latest `ForageCapacity`, every Warden's own
 three sub-books `ForageLedger` composes rather than reimplements: `SeatBook` (`seats.py`, a shared
 source's declared seat capacity and live in-flight usage), `SpendBook` (`spend.py`, spend recorded
 per goal and its headroom against a cap) and `DecisionBook` (`decisions.py`, each Cell's written
-`HostingPlan` and each Warden's set `Ceilings`); `LedgerRecorder` (`recorder.py`) is the Fanner
-(the seat meter every model call passes through)-facing feed for `SeatBook` and per-grant/per-goal
-spend, implementing `hivemind.llm.fanner.LlmEventRecorder` without this package ever importing
-`hivemind.llm` (queen may import llm; the reverse never happens -- see that module's own docstring
-for the layering this keeps clean). `LedgerStore` (`store_protocol.py`) is the persistence seam
-Appendix C's "Forage ledger (SQLite) | Yes" row asks for, with `InMemoryLedgerStore`
-(`store_memory.py`) for tests and a Queen with no database file yet, and `SqliteLedgerStore`
-(`store_sqlite.py`) as the durable implementation.
+`HostingPlan` and each Warden's set `Ceilings`). `MeasuredGradeBook` (`measured.py`, roadmap
+step 8.5) holds the grades `hive llm eval --update-map` measured per Forage map source, which
+`build_hive` applies over the manifest's hand-set ones. `LedgerRecorder` (`recorder.py`) is the
+Fanner (the seat meter every model call passes through)-facing feed for `SeatBook` and
+per-grant/per-goal spend, implementing `hivemind.llm.fanner.LlmEventRecorder` without this
+package ever importing `hivemind.llm` (queen may import llm; the reverse never happens -- see
+that module's own docstring for the layering this keeps clean). `LedgerStore` (`store_protocol.py`)
+is the persistence seam Appendix C's "Forage ledger (SQLite) | Yes" row asks for, with
+`InMemoryLedgerStore` (`store_memory.py`) for tests and a Queen with no database file yet, and
+`SqliteLedgerStore` (`store_sqlite.py`) as the durable implementation.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.forage`.
@@ -40,7 +42,9 @@ See Also:
 
 Public API:
     - ForageLedger, cell_rows: the live book, and which of its rows are one Cell's (book).
-    - Headroom, LocalPoolReport, CellRows: the ledger's own small value types (model).
+    - Headroom, LocalPoolReport, CellRows, MeasuredGrade: the ledger's own small value types
+      (model).
+    - MeasuredGradeBook: roadmap step 8.5's measured grade per Forage map source (measured).
     - SeatBook, SpendBook, DecisionBook: roadmap step 4.8's three sub-books (seats, spend,
       decisions).
     - LedgerRecorder: the Fanner-facing LlmEventRecorder implementation (recorder).
@@ -51,7 +55,13 @@ Public API:
 
 from hivemind.queen.forage.ledger.book import ForageLedger, cell_rows
 from hivemind.queen.forage.ledger.decisions import DecisionBook
-from hivemind.queen.forage.ledger.model import CellRows, Headroom, LocalPoolReport
+from hivemind.queen.forage.ledger.measured import MeasuredGradeBook
+from hivemind.queen.forage.ledger.model import (
+    CellRows,
+    Headroom,
+    LocalPoolReport,
+    MeasuredGrade,
+)
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
 from hivemind.queen.forage.ledger.seats import SeatBook
 from hivemind.queen.forage.ledger.spend import SpendBook
@@ -68,6 +78,8 @@ __all__ = [
     "LedgerRecorder",
     "LedgerStore",
     "LocalPoolReport",
+    "MeasuredGrade",
+    "MeasuredGradeBook",
     "SeatBook",
     "SpendBook",
     "SqliteLedgerStore",

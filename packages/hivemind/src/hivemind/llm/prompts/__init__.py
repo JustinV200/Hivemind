@@ -9,7 +9,8 @@ Fits into the Hive:
     Layer 1 (foundational services), inside hivemind.llm. Called by hivemind.memory.assemble (a
     parallel roadmap step) once it turns durable state into labelled sections, and by every awake
     episode (queen/awake, wardens/awake) and the Drone's tool loop, which pass the assembled text
-    as an LLMRequest's `system` field. Calls into hivemind.common only.
+    as an LLMRequest's `system` field. Calls into hivemind.common, and hivemind.llm.models for the
+    overlay rewrite.
 
 Key invariants:
     - Every PromptName maps to exactly one `<name>.md` file shipped inside this package; a missing
@@ -30,6 +31,8 @@ Public API:
     - render: assemble a prompt body plus its labelled sections in stable-prefix order.
     - FENCE_OPEN, FENCE_CLOSE, neutralise_fences: the section delimiter, and how untrusted text
       wrapped in one is kept from closing it early (roadmap step 10.6b).
+    - Overlay, load_overlay, apply_overlay, OverlayNotFoundError: a per-model addendum to the
+      shared prompts, chosen by the manifest and applied at the provider door (roadmap step 8.4).
 """
 
 from hivemind.llm.prompts.loader import (
@@ -41,12 +44,17 @@ from hivemind.llm.prompts.loader import (
     neutralise_fences,
     render,
 )
+from hivemind.llm.prompts.overlay import Overlay, OverlayNotFoundError, apply_overlay, load_overlay
 
 __all__ = [
     "FENCE_CLOSE",
     "FENCE_OPEN",
+    "Overlay",
+    "OverlayNotFoundError",
     "PromptName",
     "SectionLabel",
+    "apply_overlay",
+    "load_overlay",
     "load_prompt",
     "neutralise_fences",
     "render",

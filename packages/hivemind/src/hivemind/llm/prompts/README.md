@@ -15,10 +15,34 @@ hot state and the triggering event as labelled, delimited sections.
   schema or tool protocol and appends its own fenced-output preamble on top of the rendered
   prompt; a prompt only names, in plain language, the fields its decision conceptually needs.
 - A provider-specific tweak never goes into a shared prompt file. A wire-format detail goes into
-  that provider's own `mapping.py`; prompt text that genuinely needs to differ per provider goes
-  into a per-provider overlay file under `llm/prompts/overlays/<provider>/<name>.md`. Overlays are
-  not built this step — `load_prompt` always returns this package's own shared file for now; a
-  later step wires overlay lookup in ahead of the shared file, on top of this same loader.
+  that provider's own `mapping.py`; prompt text that genuinely needs to differ for one kind of
+  model goes into an overlay directory (below), never into the shared file.
+
+## Overlays (roadmap step 8.4, ADR-0044)
+
+An overlay is a directory `overlays/<overlay>/` of markdown files that a weak or unusual model
+needs on top of the shared prompts. It is named by the manifest, not by the provider's kind or the
+model's id (two servers behind the one OpenAI-compatible adapter can need different overlays):
+`[llm.providers.<name>] prompt_overlay = "small_local"`. `ProviderRegistry.provider` wraps the
+provider it builds in `OverlayingProvider` (`hivemind.llm.registry.overlay`) when the row names
+one, so the text is applied once, at the provider door, to every request that provider sees; no
+call site knows an overlay exists, and an unknown overlay name fails when the provider is built.
+
+- `_system.md` is appended, after a blank line, to every system prompt.
+- `<prompt_name>.md` (a `PromptName` value, e.g. `drone_system.md`) is added only to a system
+  prompt that starts with that prompt's shipped body, directly after the body and before the
+  labelled state sections, so the static prefix stays contiguous for provider caching.
+- Every overlay file opens with an HTML comment saying which model shape it is for and why
+  (codingrules 8.6); the loader strips it, so the model never reads it. The same portability rules
+  as the shared prompts apply: plain markdown, no vendor tags, no model ids.
+- `load_overlay(name)` reads one through `importlib.resources` into a frozen `Overlay`;
+  `apply_overlay(overlay, request)` is the pure rewrite. A stray file that is neither `_system.md`
+  nor a `PromptName` is refused as a typo.
+
+Shipped: `small_local` (terse answers, one tool call per turn, JSON only when asked, no preamble)
+for small instruction-tuned models served locally, with a reminder for `drone_system` and for
+`decompose_goal`. Whether an overlay helps is measured, not assumed: run `hive llm eval` with and
+without it and compare the reports.
 
 ## Labelling rule (codingrules 15, content reaching a prompt is data, not instructions)
 
@@ -61,7 +85,8 @@ text can always tell durable state and retrieved content apart from an instructi
 ## How to test this
 
 ```bash
-uv run --frozen pytest packages/hivemind/tests/unit/llm/prompts
+uv run --frozen pytest packages/hivemind/tests/unit/llm/prompts \
+  packages/hivemind/tests/unit/llm/registry/test_overlay.py
 ```
 
 A snapshot test compares each prompt's rendered output, for a fixed sample of sections, against a

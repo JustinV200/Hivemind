@@ -56,6 +56,7 @@ from hivemind.forage.slots import ModelSlot
 from hivemind.llm.capabilities import ProviderHealth
 from hivemind.llm.embedding import BoundEmbedder
 from hivemind.llm.errors import LLMError, UnknownProviderError
+from hivemind.llm.prompts.overlay import load_overlay
 from hivemind.llm.provider import LLMProvider
 from hivemind.llm.registry.chat import ProviderFactory
 from hivemind.llm.registry.config import (
@@ -70,6 +71,7 @@ from hivemind.llm.registry.embedding import (
     EmbeddingFactory,
     default_embedding_factories,
 )
+from hivemind.llm.registry.overlay import OverlayingProvider
 from hivemind.llm.registry.transcription import (
     TranscriberDoor,
     TranscriptionFactory,
@@ -173,6 +175,10 @@ class ProviderRegistry:
         _check_offline(name, config, self._offline)
         api_key = _resolve_api_key(name, config.api_key_env, self._deps.environ)
         instance = factory(name, config, api_key, self._deps.clock)
+        # The overlay is applied here, the one place a chat provider is built, so every caller of
+        # `bound` and `bound_for_key` sees it and none has to know it exists (ADR-0044).
+        if config.prompt_overlay is not None:
+            instance = OverlayingProvider(instance, load_overlay(config.prompt_overlay))
         self._cache[name] = instance
         return instance
 

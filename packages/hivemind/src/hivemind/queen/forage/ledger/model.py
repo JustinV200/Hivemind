@@ -45,11 +45,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from waggle.ids import CellId, GrantId, WardenId
 
-__all__ = ["CellRows", "Headroom", "LocalPoolReport"]
+__all__ = ["CellRows", "Headroom", "LocalPoolReport", "MeasuredGrade"]
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -78,6 +78,23 @@ class LocalPoolReport(BaseModel):
     seats_exported: Annotated[int, Field(ge=0)] = Field(
         description="Seats on the Cell's own servers lent to the shared pool."
     )
+
+
+class MeasuredGrade(BaseModel):
+    """The grade the evaluation harness measured for one Forage map source (roadmap step 8.5).
+
+    Crosses the ledger boundary as one row of `forage_ledger_measured_grades`; the Forage map
+    reads `grade` as `ModelSourceSpec.measured_grade`, which replaces the manifest's hand-set one.
+    """
+
+    model_config = _MODEL_CONFIG
+
+    source_id: str = Field(min_length=1, description="The `[forage.map.<source_id>]` key measured.")
+    grade: Annotated[int, Field(ge=1, le=5)] = Field(
+        description="The measured grade, 1 (weakest) to 5 (strongest)."
+    )
+    measured_at: AwareDatetime = Field(description="When the harness took this measurement (UTC).")
+    evidence: str = Field(description="A short plain-text summary of the run behind the grade.")
 
 
 @dataclass(frozen=True, slots=True)

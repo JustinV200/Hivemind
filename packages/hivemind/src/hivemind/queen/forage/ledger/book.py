@@ -62,6 +62,7 @@ from collections.abc import Iterable, Mapping
 from hivemind.forage import ForageCapacity, ForageGrant, RoyalReserve
 from hivemind.forage.grant_state import is_terminal
 from hivemind.queen.forage.ledger.decisions import DecisionBook
+from hivemind.queen.forage.ledger.measured import MeasuredGradeBook
 from hivemind.queen.forage.ledger.model import CellRows, Headroom, LocalPoolReport
 from hivemind.queen.forage.ledger.seats import SeatBook
 from hivemind.queen.forage.ledger.spend import SpendBook
@@ -75,13 +76,9 @@ __all__ = ["ForageLedger", "cell_rows"]
 class ForageLedger:
     """The Queen's live book of Forage: capacities, local reports, live grants, the reserve.
 
-    Owns its own mutable state in place (codingrules section 8.5): `_capacities`,
-    `_local_reports` and `_grants` change on every report and every grant edge, and `seats`,
-    `spend` and `decisions` (roadmap step 4.8's three sub-books) change the same way through their
-    own locks. Guarded by one `asyncio.Lock` around every mutation of this class's own three
-    tables, matching `ForageMap`'s own "reads are lock-free, writes are not" split (every read
-    method here is a synchronous dict lookup or comprehension, safe under the GIL the same way
-    `ForageMap.sources()` is).
+    Owns its mutable state in place (codingrules section 8.5): the three tables here, and the four
+    sub-books (`seats`, `spend`, `decisions`, `measured`) behind their own locks. Reads are
+    lock-free synchronous lookups, matching `ForageMap`'s "reads lock-free, writes not" split.
     """
 
     def __init__(
@@ -90,22 +87,21 @@ class ForageLedger:
         """Build a ledger with no reports and no live grants yet.
 
         Args:
-            reserve: The Royal Reserve every headroom computation subtracts first; a default
-                `RoyalReserve()` (its own manifest-sensible defaults) when omitted.
-            store: Where every mutation is written through; None keeps this ledger in-memory only
-                (a test, or a Queen with no database file yet). Shared with every sub-book, so one
-                store backs the whole ledger.
+            reserve: The Royal Reserve every headroom computation subtracts first; default
+                `RoyalReserve()` when omitted.
+            store: Where every mutation is written through, shared with every sub-book; None keeps
+                the ledger in memory only.
         """
         self._reserve = reserve if reserve is not None else RoyalReserve()
         self._store = store
         self._capacities: dict[CellId, ForageCapacity] = {}
         self._local_reports: dict[WardenId, LocalPoolReport] = {}
         self._grants: dict[GrantId, ForageGrant] = {}
-        # Roadmap step 4.8's own three sub-books; see the module docstring for why each is its
-        # own small class rather than more state and methods on ForageLedger itself.
+        # The sub-books (steps 4.8 and 8.5): see the module docstring for why each is its own class.
         self.seats = SeatBook(store)
         self.spend = SpendBook(store)
         self.decisions = DecisionBook(store)
+        self.measured = MeasuredGradeBook(store)
         self._lock = asyncio.Lock()
 
     @property
@@ -116,10 +112,8 @@ class ForageLedger:
     async def set_reserve(self, reserve: RoyalReserve) -> None:
         """Replace the Royal Reserve every headroom computation subtracts, and persist it.
 
-        The composition root calls this whenever the manifest's own `[forage.reserve]` is the
-        source of truth for a fresh reserve (normally once, at construction time, alongside
-        `__init__`'s own `reserve` argument); `restore` only ever reads back a reserve this call
-        already wrote.
+        The composition root calls this when the manifest's `[forage.reserve]` is the source of
+        truth for a fresh reserve; `restore` only reads back a reserve this call already wrote.
 
         Args:
             reserve: The reserve to use from now on.
@@ -151,6 +145,14 @@ class ForageLedger:
             self._local_reports[report.warden_id] = report
             if self._store is not None:
                 await self._store.put_local_report(report)
+
+    def local_report_for(self, warden_id: WardenId) -> LocalPoolReport | None:
+        """Return `warden_id`'s latest local-pool report, or None if it has sent none (roadmap 8.3).
+
+        The Queen reads `seats_exported` from it before ordering an eviction: she may reclaim only
+        seats the Warden lent to the shared pool.
+        """
+        return self._local_reports.get(warden_id)
 
     async def record_grant(self, grant: ForageGrant) -> None:
         """Upsert `grant`, or drop it the moment its own state is terminal (REVOKED).
@@ -253,10 +255,9 @@ class ForageLedger:
         """Rebuild every in-memory table from `self._store`; a no-op when no store was given.
 
         Called once at Queen start (Appendix C: "Reconciled against fresh capacity reports on
-        Requeening" -- capacities are naturally superseded by the next report each Cell sends;
-        this call restores what a crash would otherwise lose in the meantime, chiefly the live
-        grants a Warden is already spending against). Each of the three roadmap step 4.8 sub-books
-        restores itself the same way.
+        Requeening"): capacities are superseded by the next report each Cell sends, so this
+        restores what a crash would otherwise lose, chiefly the live grants a Warden is spending
+        against. Every sub-book restores itself the same way.
         """
         if self._store is not None:
             async with self._lock:
@@ -271,6 +272,7 @@ class ForageLedger:
         await self.seats.restore()
         await self.spend.restore()
         await self.decisions.restore()
+        await self.measured.restore()
 
 
 def cell_rows(
