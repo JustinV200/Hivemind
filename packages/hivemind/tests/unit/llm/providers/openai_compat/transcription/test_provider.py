@@ -148,3 +148,13 @@ async def test_health_is_down_when_nothing_answers() -> None:
         raise httpx.ConnectError("refused")
 
     assert (await _provider(handler).health()).state is HealthState.DOWN
+
+
+async def test_aclose_closes_the_http_client_the_adapter_owns() -> None:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    provider = OpenAICompatTranscription("p", _config(), http, FakeClock())
+
+    await provider.aclose()
+    await provider.aclose()  # Idempotent: the registry may close a provider it already closed.
+
+    assert http.is_closed

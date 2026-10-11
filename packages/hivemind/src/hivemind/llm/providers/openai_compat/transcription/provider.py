@@ -21,6 +21,9 @@ Key invariants:
       one `Authorization` header; it never reaches a repr, a log or an error (codingrules 13).
     - `transcribe` refuses what `check_request` rules out before any bytes are uploaded.
     - `health()` never raises: every failure becomes a reading.
+    - `aclose` closes the HTTP client's connection pool and is idempotent: the registry finds a
+      closable provider structurally, so without it the pool outlived the Hive (found 2026-10-11 by
+      the phase 8 offline e2e, whose spoken-goal case left an open socket behind).
 
 See Also:
     - docs/adr/0033-transcription-provider-whisper-first.md for the decision this implements.
@@ -192,6 +195,11 @@ class OpenAICompatTranscription:
             )
         state, detail = _health_from_status(response.status_code)
         return ProviderHealth(state=state, detail=detail, checked_at=self._clock.now())
+
+    async def aclose(self) -> None:
+        """Close this adapter's HTTP client; see `OpenAICompatProvider.aclose` for why."""
+        # Local, milliseconds: closes idle pooled sockets; no request is in flight at shutdown.
+        await self._http.aclose()
 
 
 def _health_from_status(status: int) -> tuple[HealthState, str]:
