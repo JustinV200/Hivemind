@@ -87,7 +87,15 @@ Warden never provisions Cells itself.
 - `wardens.inbox`: `to_inbox_item`, `warden_attendant` -- the Warden's own Attendant.
 - `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
   codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter
-  against a grant.
+  against a grant -- and, roadmap step 8.3, `wardens.local_pool.hosting`: `ModelServerHost`, which
+  starts the OpenAI-compatible model servers `WardenDeps.servers` (`[llm.servers]`) declares on a
+  Cell that reports `can_host_model`, offers their sources to the Hive within the Queen's
+  ceilings (`forage.source_added`) and stops them before the lease is released. `Warden.start()`
+  builds the host once it holds its lease, `Warden.stop()` and `handle_release_lease` stop it, the
+  heartbeat tick sweeps for a server that died, and a Queen-sent `forage.source_evict` (autopilot
+  `WardenAction.EVICT_SOURCE`, `ticks.control.handle_source_evict`) withdraws a source only when
+  this Warden exported its seats. `WardenDeps` gained `servers`, `register_provider` and
+  `unregister_provider` for it.
 - `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat`, `honey` --
   one of `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size
   limits -- and `dispatch`, whose `act` hands each decided `WardenAction` to the one that does it

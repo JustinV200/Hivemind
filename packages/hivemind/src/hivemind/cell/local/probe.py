@@ -31,7 +31,9 @@ Key invariants:
       Both are always False on Windows, where the Exoskeleton is the browser alone.
     - `real_display_allowed` is exactly `HiveStandConfig.real_display_allowed`, the operator's
       own opt-in, never inferred from a display being present (codingrules section 15).
-    - `can_host_model` is always False: local model hosting lands in a later phase.
+    - `can_host_model` is exactly `HiveStandConfig.can_host_model` (roadmap step 8.3): False unless
+      the operator declared a model server for this machine, because a probe cannot know whether
+      a server program is installed; the platform shims below always report False.
 
 See Also:
     - .claude/roadmap.md step 3.11 for "probe.py (platform, arch, cores, memory, GPU, display,
@@ -135,11 +137,14 @@ def probe_host(config: HiveStandConfig) -> ProbeResult:
     max_sub_bees = config.max_sub_bees if config.max_sub_bees is not None else DEFAULT_MAX_SUB_BEES
     capacity = ForageCapacity(
         host=host,
-        local_seats=(),  # v0: the Hive Stand hosts no model server (can_host_model=False above).
+        local_seats=(),  # A hosted server's seats arrive as forage.source_added, not in this probe.
         max_sub_bees=max_sub_bees,
     )
     capabilities = _probe_capabilities().model_copy(
-        update={"real_display_allowed": config.real_display_allowed}
+        update={
+            "real_display_allowed": config.real_display_allowed,
+            "can_host_model": config.can_host_model,
+        }
     )
     return ProbeResult(capabilities=capabilities, capacity=capacity)
 
@@ -226,7 +231,7 @@ def _capabilities_posix() -> CellCapabilities:
         has_browser=any(shutil.which(name) for name in _POSIX_BROWSERS)
         or _has_playwright_chromium(),
         can_start_display=system == "Linux" and _can_start_x11_display(),
-        can_host_model=False,  # v0: local model hosting is a later phase.
+        can_host_model=False,  # Set from HiveStandConfig.can_host_model by probe_host.
         network_scopes=(),
     )
 
@@ -296,7 +301,7 @@ def _capabilities_windows() -> CellCapabilities:
         has_audio=True,
         has_browser=True,
         can_start_display=False,
-        can_host_model=False,
+        can_host_model=False,  # Set from HiveStandConfig.can_host_model by probe_host.
         network_scopes=(),
     )
 

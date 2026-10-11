@@ -30,7 +30,7 @@ Public API:
     - Identity and lifecycle (core): HiveSection, QueenSection, HiveStandSection,
       HiveStandCapacityOverrides, BroodChamberSection, PheromoneSection.
     - LLM (llm): LlmSection, ProviderKind, ProviderSpec, CapabilityOverrides, SlotBinding,
-      MANIFEST_KEY_PATTERN.
+      ServerSpec, MANIFEST_KEY_PATTERN.
     - Forage (forage): ForageSection.
     - Guard policy overrides (security.guard): GuardSection, GuardRoleSection,
       DEFAULT_DIRE_PATTERNS.
@@ -76,6 +76,7 @@ from hivemind.manifest.schema.llm import (
     LlmSection,
     ProviderKind,
     ProviderSpec,
+    ServerSpec,
     SlotBinding,
 )
 from hivemind.manifest.schema.manifest import HiveManifest
@@ -133,6 +134,7 @@ __all__ = [
     "ProviderSpec",
     "QueenSection",
     "SecuritySection",
+    "ServerSpec",
     "SlotBinding",
     "SupervisionSection",
     "TierProfile",

@@ -7,7 +7,8 @@ the step after that decision: it routes the action and its item to the handler i
 that does the work -- spawn (`assign`), acceptance (`results`), an Alarm's levers (`alarms`), the
 relays between the Queen and a sub-bee (`questions`, `control`, and `honey` for the Honey Store's
 traffic, roadmap step 7.8), the routine records (`heartbeat`, `control`, and `assign` for a grant
-or its revocation) and the Queen's two orders that end or narrow this Warden (`control`). It lived
+or its revocation) and the Queen's orders that end or narrow this Warden, or reclaim a model
+server's seats (`control`). It lived
 in `hivemind.wardens.warden` as `_act`; it moved here, unchanged in behaviour, so that module stays
 within codingrules 5.1's size limit as the table grows, the same reason every other tick handler
 lives in this package. Roadmap phase 10's isolation orders (a quarantine, a memory taint) and the
@@ -41,7 +42,7 @@ from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.ticks import alarms, assign, control, heartbeat, honey, questions, results
 from waggle.ids import MessageId
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
-from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
+from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten, SourceEvict
 from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Intervene, Question
 from waggle.messages.task import (
     TaskAssign,
@@ -110,6 +111,10 @@ async def act(
         # running afterwards; `assign.settle_after_tick` (still called by the tick) settles it
         # back to WATCH on its own once `_sub_bees` is empty.
         await control.handle_release_lease(warden, payload)
+    elif action is WardenAction.EVICT_SOURCE and isinstance(payload, SourceEvict):
+        # Roadmap step 8.3: the Queen reclaiming seats she exported; the handler gives them back
+        # only for a source this Warden hosts and exported, and ignores the order otherwise.
+        await control.handle_source_evict(warden, payload)
 
 
 async def _relay(

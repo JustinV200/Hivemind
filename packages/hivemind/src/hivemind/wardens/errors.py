@@ -57,6 +57,7 @@ __all__ = [
     "BindingRefusedError",
     "InvalidWardenTransitionError",
     "LocalPoolExhaustedError",
+    "UnknownServerError",
     "UnknownSubBeeError",
     "WardenError",
 ]
@@ -126,6 +127,26 @@ class UnknownSubBeeError(NotFoundError):
         """
         super().__init__(f"Warden supervises no sub-bee {worker_id}.")
         self.worker_id = worker_id
+
+
+class UnknownServerError(NotFoundError):
+    """Raise when a caller names a model server the manifest's ``[llm.servers]`` does not declare.
+
+    Raised by `hivemind.wardens.local_pool.hosting.ModelServerHost.start` (roadmap step 8.3): a
+    Warden hosts only servers its `WardenDeps.servers` lists, so an unknown id is a caller's bug,
+    not a server that failed to start.
+    """
+
+    code: ClassVar[str] = "hivemind.wardens.unknown_server"
+
+    def __init__(self, server_id: str) -> None:
+        """Build the error for a server id `WardenDeps.servers` does not hold.
+
+        Args:
+            server_id: The `[llm.servers]` key a caller passed.
+        """
+        super().__init__(f"No model server {server_id!r} is declared in [llm.servers].")
+        self.server_id = server_id
 
 
 class LocalPoolExhaustedError(WardenError):

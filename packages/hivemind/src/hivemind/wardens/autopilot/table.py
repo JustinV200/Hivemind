@@ -18,7 +18,8 @@ order that releases the lease but leaves this Warden running, decided ahead of t
 QUARANTINE` row maps to `QUARANTINE` too, and to `ESCALATE` when the Alarm names no sub-bee this
 Warden still supervises; a `CellSnapshotReply`/`CellRollbackReply` (roadmap step 5.10's own
 follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`; a Queen-sent
-`CellTaintOrder` (roadmap step 10.6a) maps to `TAINT_MEMORY`; the Honey Store's traffic (roadmap
+`CellTaintOrder` (roadmap step 10.6a) maps to `TAINT_MEMORY`; a Queen-sent `SourceEvict` (roadmap
+step 8.3) maps to `EVICT_SOURCE`; the Honey Store's traffic (roadmap
 step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.error` whose
 `failed_kind` is `honey.nectar_deposit` -- maps to `FORWARD_HONEY`, which
 `hivemind.wardens.ticks.honey` relays or logs; every other recognised kind maps to a fixed
@@ -64,7 +65,7 @@ from waggle.messages.cell import CellTaintOrder
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.control.protocol import ErrorMessage, Shutdown
-from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten
+from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten, SourceEvict
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.registry import kind_for
 from waggle.messages.supervision import (
@@ -209,6 +210,10 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
     if isinstance(payload, CellTaintOrder):
         # Roadmap step 10.6a: the Queen isolated this Cell; labelling is never a judgement call.
         return WardenAction.TAINT_MEMORY
+    if isinstance(payload, SourceEvict):
+        # Roadmap step 8.3: reclaiming seats she exported is a rule (the handler checks the source
+        # is this Warden's own and exported), never a judgement call.
+        return WardenAction.EVICT_SOURCE
     return _decide_honey(payload)
 
 

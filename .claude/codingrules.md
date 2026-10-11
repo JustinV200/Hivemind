@@ -158,7 +158,7 @@ HiveMind/
 │   │   │   ├── exoskeleton/      # compound_eye/, antennae/, buzz/, browser/, attach.py, recorder.py (flight recorder), tactics/ (mouse_like_human)
 │   │   │   ├── royal_jelly/      # Royal Jelly Lab + Comb Registry: spec/, scaffold/, quarantine_comb/, registry/ (hive + cell scopes), promotion/
 │   │   │   ├── workers/          # Worker runtime + roles/ (forager.py, scout.py, ...) + tools/ + tactics/ (write_like_human)
-│   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/ (allocation and hosting.py: model servers on the Warden's Cell), requests, offline/, watch/
+│   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/ (allocation and hosting/: model servers on the Warden's Cell), requests, offline/, watch/
 │   │   │   ├── queen/            # inbox/, autopilot/, awake/, planner/, placement/, forage/ (shared pool, ceilings, hosting plans), dispatcher, cluster/, requeening/, supersedure/ (moving the Hive Stand)
 │   │   │   ├── entrance/         # Hive Entrance: two listeners (loopback, remote), routes/ (versioned), enrol/ (device invites; approval on loopback only), auth/ (device key + password, sessions, step-up), push/ (webhooks, web push), expose.py (vpn, lan, tunnel), reducer.py (Entrance Reducer), landing_board.py (OpenAPI contract), human inbox
 │   │   │   ├── observation/      # Observation Hive read side: views/ (pydantic read models), api.py, metrics. The front end is packages/observation-web/.
@@ -969,7 +969,7 @@ ceilings the Queen set once.**
   disconnected because everything it needs is in its local pool. Promoting a device to a Nuc is a
   Queen decision based on the device's Forage and the Hive Stand's pressure: the Warden moves
   first by Handoff and resume, `pollen/bootstrap/` installs the runtime, then the Warden starts a
-  model server through `wardens/local_pool/hosting.py` within the ceilings. Starting a server
+  model server through `wardens/local_pool/hosting/` within the ceilings. Starting a server
   needs the Cell's `CellSession`, which is why that code lives with the Warden and not in
   `forage`.
 

@@ -45,6 +45,18 @@ exist to catch problems that only show up when every layer runs at once.
   Scripted through `tests.e2e.kernel_helpers.HaikuScript` over one `hivemind.llm.fake.
   FakeLLMProvider`, against a real Hive Stand lease and real SQLite (never `pump_until_done`'s own
   `FakeClock`, unlike `tests.unit.cli.test_compose`'s in-process counterpart of scenario (a)).
+- `test_model_server_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 8.3 (ADR-0044) over
+  real sockets and a real process: the manifest declares `[llm.providers.local]` (`openai_compat`,
+  loopback, a free port) and `[llm.servers.local]`, whose argv is `sys.executable` plus
+  `tests/e2e/scripted_openai.py --port {port}` (composed in the test; no server program name is in
+  `src`), with every slot bound to `local`. `build_hive` composes the Hive Stand's Warden with the
+  server table (the Hive Stand then reports `can_host_model`); `run_hive` starts it. Asserts: the
+  Warden started the server after it held its lease and its pid is alive; the provider's own
+  health probe is HEALTHY; the live Forage map holds the source with the Hive Stand's Cell as
+  `host_cell_id`; `forage.source_added` is on the trail from both the Warden's side and the
+  Queen's (payload `reporter`); the haiku goal succeeds and every `llm.call` names provider
+  `local` (a Drone's among them); and once `run_hive` exits the pid is dead, the source is off the
+  map and `forage.source_removed` (cause `LEASE_RELEASED`) is recorded.
 - `test_zero_grant.py` (`@pytest.mark.e2e`) -- `.claude/phase-4-handoff.md` section 4.2 item 1: a
   manifest whose `[forage.reserve]` claims every seat `[forage.map]` offers (patched onto a
   `builders.cli.fake_manifest` manifest through `tests.e2e.kernel_helpers.

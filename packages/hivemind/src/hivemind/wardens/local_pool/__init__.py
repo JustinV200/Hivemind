@@ -3,10 +3,11 @@
 A Warden's local pool (codingrules section 8.10) is everything physically on its own Cell; roadmap
 step 3.19 populates only the sub-bee-slot half of it (`SubBeeSlots`), a bare counter against
 `GrantIssued.max_sub_bees` the Warden never asks the Queen to check for it. Allocating a Nuc's own
-model-server resources (VRAM, disk, seats) is `hosting.py`, a later roadmap phase (8). Named
-`SubBeeSlots`, not `LocalPool` (roadmap step 4.7's rename): codingrules 6.1 gives `LocalPool` to
-`hivemind.forage` (a Cell's cores, memory, disk, VRAM and seats); this package's own counter is a
-narrower thing.
+model-server resources (VRAM, disk, seats) is the `hosting` sub-package (roadmap step 8.3,
+ADR-0044): `hosting.ModelServerHost` starts, offers and stops the servers the manifest declares.
+Named `SubBeeSlots`, not `LocalPool` (roadmap step 4.7's rename): codingrules 6.1 gives
+`LocalPool` to `hivemind.forage` (a Cell's cores, memory, disk, VRAM and seats); this package's own
+counter is a narrower thing.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package.
@@ -23,10 +24,12 @@ See Also:
     - .claude/codingrules.md section 6.1 for the LocalPool/SubBeeSlots naming split this rename
       follows.
     - .claude/roadmap.md phase 3 step 3.19 for the work that first populated this package; phase 4
-      step 4.7 for the rename; phase 8 for the model-server half (`hosting.py`).
+      step 4.7 for the rename; step 8.3 for the model-server half (`hosting/`).
 
 Public API (roadmap steps 3.19, 4.7):
     - SubBeeSlots: a bare sub-bee-slot counter against a grant's max_sub_bees (sub_bee_slots).
+    - hosting (a sub-package, import from `hivemind.wardens.local_pool.hosting`): ModelServerHost,
+      ServerConfig and the rest of the model-server half (roadmap step 8.3).
 """
 
 from hivemind.wardens.local_pool.sub_bee_slots import SubBeeSlots

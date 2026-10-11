@@ -79,6 +79,25 @@ def test_forage_event_kinds_include_ceilings_set() -> None:
     assert "forage.ceilings_set" in ForageEvent.KINDS
 
 
+def test_forage_event_kinds_include_the_model_source_kinds() -> None:
+    # Roadmap step 8.3 (ADR-0044): a Warden's server loaded a source, lost one, or the Queen
+    # evicted one to reclaim the seats she exported.
+    assert {"forage.source_added", "forage.source_removed", "forage.source_evicted"} <= (
+        ForageEvent.KINDS
+    )
+
+
+def test_a_source_added_event_is_a_valid_forage_event_about_a_cell() -> None:
+    clock = FakeClock()
+    kwargs = _base_kwargs(clock)
+    kwargs["subject_id"] = new_id(IdKind.CELL, clock)
+    kwargs["payload"] = {"server_id": "box", "source_id": "small", "seats_total": 2}
+
+    event = ForageEvent(kind="forage.source_added", **kwargs)
+
+    assert event.payload["seats_total"] == 2
+
+
 def test_memory_event_kinds_include_the_phase_3_14_additions() -> None:
     # roadmap step 3.14 (memory v0): added alongside the store that first needs them.
     assert {"memory.episode", "memory.note", "memory.pinned"} <= MemoryEvent.KINDS

@@ -85,7 +85,9 @@ from hivemind.cli.stores import (
     open_ledger,
     open_memory,
     open_trail,
+    provider_configs,
     routing_rules,
+    server_configs,
     slot_bindings,
 )
 from hivemind.exoskeleton.recorder import InMemoryRecordingStore, RecordingStore
@@ -113,6 +115,7 @@ from hivemind.supervision import load_policy, load_warden_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer, WardenDeps
+from hivemind.wardens.local_pool.hosting import provider_door
 from hivemind.workers.roles import worker_for
 from waggle.clock import Clock, SystemClock
 from waggle.messages.task import WorkerRole
@@ -246,6 +249,9 @@ def build_hive_stand_source(
         leases it once `hivemind.cli.compose.hive.run_hive` starts the Hive).
     """
     config = HiveStandConfig.from_section(manifest.hive_stand, _manifest_dir(manifest))
+    # Roadmap step 8.3: the Hive Stand reports `can_host_model` exactly when the operator declared
+    # a model server in `[llm.servers]`; no probe can tell whether such a program is installed.
+    config = config.model_copy(update={"can_host_model": bool(manifest.llm.servers)})
     identity = CellIdentity(hive_id=manifest.hive.id, node_id=manifest.hive.node_id, actor="system")
     return HiveStandSource(config, identity, trail, clock, leavings)
 
@@ -353,13 +359,21 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
 
 
 def _routed(deps: WardenDeps, parts: HiveParts) -> WardenDeps:
-    """Give `deps` the live map and the manifest's routing rules (roadmap step 8.1).
+    """Give `deps` the live map, the routing rules (8.1) and the model servers it may host (8.3).
 
     Split from `build_warden_deps` only to keep that function within codingrules 5.1's limit:
-    the map is the Fanner's own, so routing and metering read the same live figures.
+    the map is the Fanner's own, so routing and metering read the same live figures, and a hosted
+    server's sources are added to that very map. The provider door is closed over this Hive's one
+    registry, so a started server's provider is the instance every other call resolves too.
     """
+    register, unregister = provider_door(parts.registry, provider_configs(parts.manifest))
     return dataclasses.replace(
-        deps, map=parts.fanner.deps.map, routing_rules=routing_rules(parts.manifest)
+        deps,
+        map=parts.fanner.deps.map,
+        routing_rules=routing_rules(parts.manifest),
+        servers=server_configs(parts.manifest),
+        register_provider=register,
+        unregister_provider=unregister,
     )
 
 

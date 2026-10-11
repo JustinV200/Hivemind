@@ -37,7 +37,7 @@ from waggle.messages import AlarmSeverity
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.status import ReleaseCause
 from waggle.messages.control.protocol import ErrorMessage, Shutdown
-from waggle.messages.forage import GrantIssued
+from waggle.messages.forage import GrantIssued, SourceEvict, SourceRef
 from waggle.messages.honey import HoneyResponse
 from waggle.messages.labels import AccuracyBar, Postcondition, PostconditionKind, Tempo, Urgency
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
@@ -323,3 +323,20 @@ def test_decide_logs_a_refused_deposit_but_leaves_any_other_error_to_judgement()
     assert decide(_item(refused), None, make_policy()) is WardenAction.FORWARD_HONEY
     assert decide(_item(other), None, make_policy()) is WardenAction.NEEDS_JUDGEMENT
     assert decide(_item(_error(None)), None, make_policy()) is WardenAction.NEEDS_JUDGEMENT
+
+
+def test_decide_maps_a_source_evict_to_evict_source() -> None:
+    # Roadmap step 8.3: reclaiming exported seats is a rule the handler applies, not a judgement.
+    clock = FakeClock()
+    order = SourceEvict(
+        cell_id=new_cell_id(clock),
+        source=SourceRef(
+            source_id="local_small", provider="local", model="m", host_cell_id=new_cell_id(clock)
+        ),
+        seats_to_reclaim=1,
+        reason="The Queen needs the seats back.",
+    )
+
+    action = decide(make_inbox_item(payload=order, principal="queen"), None, make_policy())
+
+    assert action is WardenAction.EVICT_SOURCE

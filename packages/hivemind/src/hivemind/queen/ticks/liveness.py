@@ -32,7 +32,9 @@ its own Warden went offline or simply stopped renewing it -- returns to the pool
 ticks.wax.handle_wax_item` for a `waggle.messages.cell.CellWaxProposed` (roadmap step 4.2a), the
 same "ahead of `decide`, so a within-cap case needs no awake episode" shape as its ForageRequest
 neighbour, and, just before it, `hivemind.queen.ticks.honey.handle_honey_item` for a
-`NectarDeposit` or `HoneyQuery` (roadmap step 7.8: the Honey Store's routine traffic). Roadmap
+`NectarDeposit` or `HoneyQuery` (roadmap step 7.8: the Honey Store's routine traffic), and
+`hivemind.queen.ticks.sources.handle_source_item` for a Warden's `SourceAdded`/`SourceRemoved`
+(roadmap step 8.3: a model source loaded on, or gone from, its Cell). Roadmap
 step 4.6 adds one more move to the same Heartbeat handling: `handle_heartbeat_item` now also
 checks the sending Warden's own reported `ContextTelemetry` against `hivemind.queen.ticks.context.
 intervention_for`, and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight
@@ -61,7 +63,8 @@ Fits into the Hive:
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.forage.grants`
     (renew_grants_for_warden, sweep_expired), `hivemind.queen.human_inbox` (HumanInbox),
     `hivemind.queen.ticks.honey` (handle_honey_item), `hivemind.queen.ticks.wax`
-    (handle_wax_item), `hivemind.supervision` (Alarm, AlarmKind, AlarmSeverity, AlarmState) and
+    (handle_wax_item), `hivemind.queen.ticks.sources`
+    (handle_source_item), `hivemind.supervision` (Alarm, AlarmKind, AlarmSeverity, AlarmState) and
     waggle only.
 
 Key invariants:
@@ -112,6 +115,7 @@ from hivemind.queen.inbox import Pulse
 from hivemind.queen.ticks import context as context_tick
 from hivemind.queen.ticks import forage as forage_tick
 from hivemind.queen.ticks import honey as honey_tick
+from hivemind.queen.ticks import sources as sources_tick
 from hivemind.queen.ticks import wax as wax_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
 from hivemind.supervision.attendant import InboxItem
@@ -213,7 +217,9 @@ async def handle_infrastructure_item(
     last_heartbeat: MutableMapping[WardenId, Heartbeat],
     liveness: MutableMapping[WardenId, WardenLiveness],
 ) -> bool:
-    """Handle a Heartbeat, ForageRequest, Honey or CellWaxProposed item; report whether it did.
+    """Handle a Heartbeat, ForageRequest, Honey, source report or CellWaxProposed item.
+
+    Reports whether it did.
 
     The payload kinds `hivemind.queen.autopilot.table.decide` must never see fall to its own
     `NEEDS_JUDGEMENT` (an unrecognised payload) -- a routine Heartbeat is not a judgement call,
@@ -244,6 +250,8 @@ async def handle_infrastructure_item(
         return True
     if await honey_tick.handle_honey_item(deps, wardens, item):
         return True  # Roadmap step 7.8: a Nectar deposit chunk or a Honey query, answered here.
+    if await sources_tick.handle_source_item(deps, wardens, item):
+        return True  # Roadmap step 8.3: a Warden's model source added to, or gone from, its Cell.
     return await wax_tick.handle_wax_item(deps, wardens, item)
 
 

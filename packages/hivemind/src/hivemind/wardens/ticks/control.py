@@ -16,6 +16,9 @@ primitive a sub-bee's own locally-decided REBIND uses once it has picked a targe
 (roadmap step 5.3 / ADR-0027) is the fourth control lever, and the only one that is not a relay:
 a Queen-sent `Shutdown` or `CellTeardownRequest` maps to `WardenAction.STOP` and ends this Warden
 through its own `stop()`, rather than falling through to an awake episode as both used to.
+`handle_source_evict` (roadmap step 8.3, ADR-0044) is the fifth: a Queen-sent `SourceEvict`
+withdraws the named model source when this Warden hosts it and its ceilings let it export seats
+(so the Queen reclaims only seats she exported), and is ignored, logged, otherwise.
 A cancel (`TaskCancel`, or an `Intervene(CANCEL)` lever) also marks the bee's row `cancelled`, so
 whatever terminal state it reports next ends the row (`SubBee.has_ended`), and a row that has
 already ended (a FAILED bee an escalation left waiting on the Queen) is retired at once, as every
@@ -77,7 +80,7 @@ from waggle.envelope import Hop, wrap
 from waggle.ids import WorkerId
 from waggle.messages.cell import LeaseReleased, ReleaseCause
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
-from waggle.messages.forage import CeilingsSet, PlanWritten
+from waggle.messages.forage import CeilingsSet, PlanWritten, SourceEvict, SourceRemovalCause
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.task import TaskCancel, TaskPause, TaskResume
 
@@ -285,6 +288,10 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
         # (cancel-and-reap only as a bounded fallback), its receive task reaped before its link
         # closes (codingrules section 11), its row dropped and its slot freed.
         await retire_sub_bee(warden, sub_bee)
+    # Roadmap step 8.3: a model server dies with the lease that started it, so the Hive must stop
+    # seeing its sources now, not when the dead process is next noticed.
+    if warden._models is not None:
+        await warden._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
     lease = warden._lease
     if lease is None:
         return  # Nothing held (already released, or never leased one): idempotent, nothing to
@@ -330,3 +337,28 @@ def handle_snapshot_reply(warden: Warden, payload: CellSnapshotReply | CellRollb
     snapshotter = warden._deps.snapshotter
     if isinstance(snapshotter, RelaySnapshotter):
         snapshotter.handle_reply(payload)
+
+
+async def handle_source_evict(warden: Warden, payload: SourceEvict) -> None:
+    """Give back seats the Queen exported: withdraw the named source, when it is this Warden's own.
+
+    Roadmap step 8.3 (codingrules section 8.10): "the Queen may later evict a local model only to
+    reclaim seats she has exported". So this Warden obeys only when all of these hold: it hosts the
+    named source on its own Cell, and the ceilings the Queen set let it export seats
+    (`Ceilings.exportable_seats > 0`). Anything else (a source on another Cell, one this Warden
+    never loaded, a Warden with no ceilings) is ignored: the order is logged and nothing changes,
+    because evicting what was never exported would take a model the operator's own work uses.
+    After a real eviction `forage.source_removed` (cause EVICTED) is sent by the host itself.
+
+    Args:
+        warden: The owning Warden (read directly; see the module docstring).
+        payload: The Queen's own SourceEvict.
+    """
+    host, ceilings, cell = warden._models, warden._ceilings, warden._cell
+    exported = ceilings is not None and ceilings.exportable_seats > 0
+    ours = cell is not None and payload.cell_id == cell.id
+    if host is None or not exported or not ours:
+        _LOG.info("warden.source_evict_ignored", source_id=payload.source.source_id)
+        return
+    if not await host.unload(payload.source.source_id, SourceRemovalCause.EVICTED):
+        _LOG.info("warden.source_evict_ignored", source_id=payload.source.source_id)

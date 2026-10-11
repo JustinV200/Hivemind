@@ -9,7 +9,7 @@ Key invariants:
 
 See Also:
     - hivemind.llm.routing.rules for the module under test.
-    - hivemind.manifest.schema.floors for the manifest-side defaults this must equal.
+    - hivemind.manifest.schema.llm.floors for the manifest-side defaults this must equal.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import pytest
 
 from hivemind.forage import ModelSlot
 from hivemind.llm.routing import RoutingRules, default_floors
-from hivemind.manifest.schema.floors import complete_floors
+from hivemind.manifest.schema.llm.floors import complete_floors
 
 
 def test_default_floors_gives_every_slot_a_floor_from_one_to_five() -> None:

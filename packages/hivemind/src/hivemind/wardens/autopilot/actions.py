@@ -19,6 +19,8 @@ leaves this Warden running; `QUARANTINE` (roadmap step 10.6c) quarantines one su
 `hivemind.wardens.quarantine`, on a Queen-sent `Intervene(QUARANTINE)` or this Warden's own policy
 row for a sub-bee's Alarm; `TAINT_MEMORY` (roadmap step 10.6a) runs the isolation setter over this
 Warden's own memory store on a Queen-sent `CellTaintOrder` (`hivemind.wardens.isolation`);
+`EVICT_SOURCE` (roadmap step 8.3) hands a Queen-sent `SourceEvict` to the handler that gives back
+the seats she exported, or ignores the order for a source that is not this Warden's to give;
 `NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.wardens.awake` instead.
 
 Fits into the Hive:
@@ -66,4 +68,6 @@ class WardenAction(Enum):
     # Intervene(QUARANTINE), or this Warden's own policy row for a sub-bee's Alarm. Step 10.6c.
     TAINT_MEMORY = "TAINT_MEMORY"  # A Queen-sent CellTaintOrder: label this Cell's own store
     # tainted, as the isolation's order says (hivemind.wardens.isolation). Roadmap step 10.6a.
+    EVICT_SOURCE = "EVICT_SOURCE"  # A Queen-sent SourceEvict: give back seats she exported, if
+    # the named source is this Warden's own (hivemind.wardens.ticks.control). Roadmap step 8.3.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to wardens.awake.

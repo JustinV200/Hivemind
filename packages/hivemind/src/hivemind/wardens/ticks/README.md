@@ -41,6 +41,10 @@ every decided action to one of these; none of them is a general-purpose module o
   that has already ended retires it at once, and `RELEASE_LEASE` retires every sub-bee. A Queen
   pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any Handoff the
   Warden had ordered itself; the Warden's own Handoff lever marks the bee for a successor.
+  `handle_source_evict` (roadmap step 8.3) gives back seats the Queen exported: it withdraws the
+  named model source only when this Warden hosts it and its ceilings let it export seats, and
+  ignores the order (logged) otherwise; `RELEASE_LEASE` also stops any model server the Warden
+  started, since it would die with the lease.
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
   Heartbeat says it has ended with nothing more to send, or starting its successor when the
   Warden's own context check had ordered it to hand off), watch for a stall,

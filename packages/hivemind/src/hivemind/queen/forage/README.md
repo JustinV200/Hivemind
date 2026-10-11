@@ -40,6 +40,17 @@ handling, hosting plans and Ceilings per Warden.
   `LedgerStore.forget` in one store transaction; `hivemind.cli.compose.night_veil` hands both to
   the purge as its ledger side channel and member source, and the purge records only their count.
   A goal's running spend (keyed by the goal, the human's) is kept.
+- **`evict`** (roadmap step 8.3, ADR-0044): `evict_source(deps, warden, source_id, seats)` -- the
+  Queen's one order to a Warden's model server, sent only to take back seats she exported: nothing
+  goes out unless the ledger's last `LocalPoolReport` for that Warden shows `seats_exported > 0`,
+  the map knows the source and it is hosted on that Warden's own Cell. It asks for no more than was
+  exported, records `forage.source_evicted`, and the Warden (which checks the same rule against its
+  own ceilings) answers with `forage.source_removed` (cause `EVICTED`). The other direction -- a
+  Warden telling the Queen a source was loaded or lost -- is `hivemind.queen.ticks.sources`: it
+  puts the source on her map with the Warden's Cell as host, sets the ledger's seat capacity
+  (`ledger.seats.set_capacity`, zero on removal) and records `forage.source_added`/
+  `forage.source_removed`. `ForageLedger.local_report_for(warden_id)` reads a Warden's latest
+  report.
 - **`grants`**: `activate`, `revise`, `renew_grants_for_warden`, `revoke`, `sweep_expired` -- a
   grant's own lease, every edge through `hivemind.forage.grant_state.assert_transition`. `activate`
   moves a freshly issued grant (`hivemind.forage.allocate.grant` always starts one at `ISSUED`)

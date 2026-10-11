@@ -32,7 +32,8 @@ Fits into the Hive:
     composition root and `hive honey` call `open_honey_store` (roadmap phase 7). Calls into
     `hivemind.brood_chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`,
     `hivemind.exoskeleton.recorder`, `hivemind.honey_store`, `hivemind.pheromone`,
-    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
+    `hivemind.forage`, `hivemind.llm`, `hivemind.manifest`, `hivemind.queen.forage.ledger` and
+    `hivemind.wardens.local_pool.hosting` (ServerConfig, built by `server_configs`).
 
 Key invariants:
     - `open_chamber` always applies the Pheromone Trail's migrations on its own connection before
@@ -81,6 +82,7 @@ Public API:
     - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings,
       open_honey_store: the store composition functions; open_goal_requests and open_chat_log
       (roadmap step 10.5) open the Queen's own goal-request table and chat log the same way.
+    - server_configs: `[llm.servers]` as the Warden's decoupled ServerConfigs (roadmap step 8.3).
     - build_registry, slot_bindings, provider_configs, build_forage_map, routing_rules: the
       manifest-to-llm conversion functions (build_forage_map applies the ledger's measured grades;
       routing_rules builds the floors, offline flag and spend cap routing reads, roadmap 8.1);
@@ -129,6 +131,7 @@ from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.forage.ledger import SqliteLedgerStore
 from hivemind.queen.guard_requests import SqliteGuardRequestStore
 from hivemind.queen.intake import SqliteGoalRequestStore
+from hivemind.wardens.local_pool.hosting import ServerConfig
 from waggle.clock import Clock, SystemClock
 
 # Shared so `hive tasks`, `hive trail` and `hive capping` declare `--db` with the exact same flag
@@ -572,6 +575,46 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
         )
         for name, spec in manifest.llm.providers.items()
     }
+
+
+def server_configs(manifest: HiveManifest) -> Mapping[str, ServerConfig]:
+    """Convert `manifest`'s `[llm.servers]` table into the Warden's own ServerConfigs (step 8.3).
+
+    A Warden may not import `hivemind.manifest`, so this is the one place a `ServerSpec` becomes
+    the decoupled `ServerConfig` it reads: the provider's already-built `ProviderConfig`, and each
+    listed `[forage.map]` row as a `ModelSource` (its `host_cell_id` left `None`: the Warden fills
+    in its own Cell when it starts the server).
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; its cross-table
+            checks already guarantee every provider and source named exists.
+
+    Returns:
+        One ServerConfig per `[llm.servers.<server_id>]` row, keyed by its server id.
+    """
+    providers = provider_configs(manifest)
+    return {
+        server_id: ServerConfig(
+            server_id=server_id,
+            provider=spec.provider,
+            provider_config=providers[spec.provider],
+            argv=spec.argv,
+            port=spec.port,
+            health_path=spec.health_path,
+            startup_timeout_s=spec.startup_timeout_s,
+            sources=tuple(
+                _unhosted(source_id, manifest.forage.map[source_id]) for source_id in spec.sources
+            ),
+            keep_alive_s=spec.keep_alive_s,
+            load_on_start=spec.load_on_start,
+        )
+        for server_id, spec in manifest.llm.servers.items()
+    }
+
+
+def _unhosted(source_id: str, spec: ModelSourceSpec) -> ModelSource:
+    """Return the map row for `source_id` as a ModelSource no Cell hosts yet."""
+    return ModelSource(source_id=source_id, spec=spec, abundance=Abundance(seats_free=spec.seats))
 
 
 def build_forage_map(

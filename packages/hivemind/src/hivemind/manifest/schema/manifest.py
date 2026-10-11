@@ -39,6 +39,8 @@ Key invariants:
     - Every `[forage.map.<source_id>].provider` names a key in `llm.providers`; nothing else about
       the two sections is cross-checked (a slot's model need not appear anywhere on the map: the
       map and the slot table are two independent ways of naming what a call may use).
+    - Every `[llm.servers.<server_id>].sources` entry names a `[forage.map]` row served by that
+      server's own provider (roadmap step 8.3).
 
 See Also:
     - .claude/roadmap.md step 3.1 for the full section list this module gathers.
@@ -66,7 +68,7 @@ from hivemind.manifest.schema.core import (
 from hivemind.manifest.schema.entrance import EntranceSection
 from hivemind.manifest.schema.exoskeleton import ExoskeletonSection
 from hivemind.manifest.schema.forage import ForageSection
-from hivemind.manifest.schema.llm import LlmSection
+from hivemind.manifest.schema.llm import LlmSection, check_server_sources
 from hivemind.manifest.schema.placement import PlacementSection, VirtualCellsSection
 from hivemind.manifest.schema.security.guard import GuardSection
 from hivemind.manifest.schema.security.tiers import HoneySection, SecuritySection
@@ -182,4 +184,11 @@ class HiveManifest(BaseModel):
                     f"[forage.map.{source_id}] names provider {spec.provider!r}, which has no "
                     f"[llm.providers.{spec.provider}] entry."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _llm_server_sources_are_declared(self) -> HiveManifest:
+        """Reject an [llm.servers] source with no [forage.map] entry of the server's provider."""
+        # Only this root sees both [llm] and [forage], so the cross-table rule lives here.
+        check_server_sources(self.llm.servers, self.forage.map)
         return self

@@ -10,7 +10,9 @@ within headroom by autopilot, contested by awake). Roadmap step 4.8 adds `hostin
 (`write_hosting_plan`, a Cell's `HostingPlan` from the map and ledger) and `ceilings`
 (`set_ceilings`/`change_ceilings`, a Warden's local-pool bounds), and extends the ledger with
 shared-seat, per-goal-spend, hosting-plan and ceilings tables `requests` now reads for its
-SHARED_SEATS and SPEND checks.
+SHARED_SEATS and SPEND checks. Roadmap step 8.3 adds `evict` (`evict_source`, the Queen's one order
+to a Warden's model server, only to reclaim seats she exported); the Warden's reports of what its
+server loaded are handled in `hivemind.queen.ticks.sources`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
@@ -40,9 +42,11 @@ Public API (roadmap steps 4.7-4.8):
     - NightVeilPlanError, night_veil_local_only, restrict_to_local: Night Veil's local-only hosting
       plan checks (roadmap step 5.7a; night_veil).
     - set_ceilings, change_ceilings: a Warden's local-pool bounds (ceilings).
+    - evict_source: take back seats she exported from a Warden's model server (evict; roadmap 8.3).
 """
 
 from hivemind.queen.forage.ceilings import change_ceilings, set_ceilings
+from hivemind.queen.forage.evict import evict_source
 from hivemind.queen.forage.grants import (
     activate,
     release_finished,
@@ -93,6 +97,7 @@ __all__ = [
     "activate",
     "apply_ledger_migrations",
     "change_ceilings",
+    "evict_source",
     "grant_wanted",
     "handle_forage_request_for_kind",
     "night_veil_local_only",

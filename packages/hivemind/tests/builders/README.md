@@ -30,6 +30,16 @@ working (or deliberately broken) desktop Cell would; `drive`: run a coroutine th
 `FakeClock`, advancing it one poll interval at a time; `StubLauncher`: a `BrowserLauncher` that
 starts a fake browser process through the session.
 
+## `hosting.py` (roadmap step 8.3, a model server on a Cell)
+
+`make_hosting_rig`: a `ModelServerHost` over fakes -- a Cell that reports `can_host_model`, a
+`FakeSession` (`script_start` decides whether the server "starts"), a `FakeLLMProvider` whose
+`set_outage` decides whether its health probe passes, a live `ForageMap` and a `RegistryDoor`
+recording every register and unregister; `make_hosting_warden`: a whole not-yet-started `Warden`
+over the same; `make_server_config` and `vram_source`: a `ServerConfig` and a source with a VRAM
+need; `drive`: run a coroutine that waits on a `FakeClock` (a health wait), advancing it as it
+sleeps.
+
 ## `gui.py` (roadmap step 6.5, the gate's GUI seam)
 
 `ScriptedSurface`: a `GuiSurface` whose steps apply, postconditions hold, restores succeed and

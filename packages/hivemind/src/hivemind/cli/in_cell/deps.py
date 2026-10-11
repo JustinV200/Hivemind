@@ -87,6 +87,7 @@ from hivemind.supervision.capping import deterministic_checks, judge_checks, loa
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.local_pool.hosting import provider_door
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
@@ -170,19 +171,30 @@ def build_in_cell_warden_deps(
         missed_heartbeats_before_stalled=DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED,
         lane_for_grant=lane_for_grant(fanner),  # One lane per sub-bee's grant and goal.
     )
-    deps = _with_queen_relays(_routed(deps, config, fanner), config, queen_link, trail, clock)
-    return _equipped(deps, registry, fanner, clock)
+    deps = _with_queen_relays(deps, config, queen_link, trail, clock)
+    return _equipped(deps, config, registry, fanner, clock)
 
 
-def _routed(deps: WardenDeps, config: InCellRuntimeConfig, fanner: Fanner) -> WardenDeps:
-    """Give `deps` this Cell's routing inputs (roadmap step 8.1).
+def _routed(
+    deps: WardenDeps, config: InCellRuntimeConfig, fanner: Fanner, registry: ProviderRegistry
+) -> WardenDeps:
+    """Give `deps` this Cell's routing inputs (8.1) and its provider door (8.3).
 
     A Virtual Cell carries no `[llm.floors]` of its own (`HIVEMIND_SLOTS` ships the rows, not the
     floors), so its routing runs on the shipped floors with the Hive's own offline flag; its map
-    is the Fanner's, so routing and metering read the same live figures.
+    is the Fanner's, so routing and metering read the same live figures. It carries no
+    `[llm.servers]` either (`InCellRuntimeConfig` has no such field), so `servers` stays empty and
+    this Warden hosts nothing; the door is wired all the same, so a later config that ships a
+    server table needs no change here.
     """
+    register, unregister = provider_door(registry, config.providers)
     return dataclasses.replace(
-        deps, map=fanner.deps.map, routing_rules=RoutingRules(offline=config.llm_offline)
+        deps,
+        map=fanner.deps.map,
+        routing_rules=RoutingRules(offline=config.llm_offline),
+        servers={},
+        register_provider=register,
+        unregister_provider=unregister,
     )
 
 
@@ -205,11 +217,16 @@ def _with_queen_relays(
 
 
 def _equipped(
-    deps: WardenDeps, registry: ProviderRegistry, fanner: Fanner, clock: Clock
+    deps: WardenDeps,
+    config: InCellRuntimeConfig,
+    registry: ProviderRegistry,
+    fanner: Fanner,
+    clock: Clock,
 ) -> WardenDeps:
-    """Give this Warden its Exoskeleton wiring and, when the slot table binds one, its judge."""
+    """Give this Warden its routing and provider door, its Exoskeleton wiring and its judge."""
     # Roadmap steps 6.4-6.6: the Exoskeleton's screen, launcher, recorder and ears (module docs).
-    return in_cell_exoskeleton(registry, clock).apply(_with_judge(deps, registry, fanner))
+    judged = _with_judge(_routed(deps, config, fanner, registry), registry, fanner)
+    return in_cell_exoskeleton(registry, clock).apply(judged)
 
 
 def _with_judge(deps: WardenDeps, registry: ProviderRegistry, fanner: Fanner) -> WardenDeps:

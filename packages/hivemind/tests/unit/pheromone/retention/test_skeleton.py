@@ -162,6 +162,9 @@ def test_every_task_event_carries_nothing_beyond_the_task_id(kind: str) -> None:
         "queen.decided",
         "forage.ceilings_set",
         "forage.revoked",
+        "forage.source_added",  # Roadmap step 8.3: dies with a Night Veil Cell.
+        "forage.source_removed",
+        "forage.source_evicted",
         "capping.proposed",
         "capping.capped",
         "capping.rolled_back",

@@ -28,7 +28,8 @@ Key invariants:
     - Every `WardenState` change goes through `hivemind.wardens.state.assert_transition` and is
       followed, in the same call, by its own `warden.*` trail event (codingrules section 12).
     - `stop()` always stops every sub-bee, releases the lease and records `warden.stopped`,
-      regardless of which state it was called from.
+      regardless of which state it was called from; a model server it started (roadmap step 8.3)
+      is stopped, and its sources withdrawn from the Queen's view, before the lease is released.
     - `stop()` sets `waggle.loop.TickLoop`'s own stop flag first, before anything else (this
       dispatch's own shutdown-hygiene fix, superseding this class's own earlier "flag last"
       choice): a tick still concurrently in flight then returns via its own throwaway stop_task
@@ -61,7 +62,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from pydantic import JsonValue
@@ -83,6 +84,7 @@ from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.isolation import admit_resume, taint_own_memory
 from hivemind.wardens.local_pool import SubBeeSlots
+from hivemind.wardens.local_pool.hosting import HostedCell, ModelServerHost, RunningServer
 from hivemind.wardens.quarantine import QuarantineRecord, admit_respawn, carry_out, quarantine_child
 from hivemind.wardens.spawn import SubBee
 from hivemind.wardens.state import WardenState
@@ -91,7 +93,7 @@ from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, 
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
 from waggle.loop import TickLoop
 from waggle.messages.cell import CellTaintOrder
-from waggle.messages.forage import GrantIssued
+from waggle.messages.forage import GrantIssued, SourceRemovalCause
 from waggle.messages.supervision import CompactView, ContextTelemetry
 from waggle.messages.task import TaskAssign
 
@@ -146,6 +148,9 @@ class Warden(TickLoop):
         # Roadmap 4.8: the Queen's own CeilingsSet/PlanWritten (ticks.control), None until sent.
         self._ceilings: Ceilings | None = None
         self._hosting_plan: HostingPlan | None = None
+        # Roadmap step 8.3: the model servers this Warden hosts on its Cell; None until `start()`
+        # holds a lease and the manifest declares at least one (`_host_models`).
+        self._models: ModelServerHost | None = None
         # Roadmap step 10.6c: every task a quarantine holds, until a judge-cleared respawn lifts it
         # (hivemind.wardens.quarantine.gate); this Warden's half of the task's PAUSED state.
         self._quarantined: dict[TaskId, QuarantineRecord] = {}
@@ -164,6 +169,11 @@ class Warden(TickLoop):
         return self._lease
 
     @property
+    def hosted_servers(self) -> Mapping[str, RunningServer]:
+        """The model servers this Warden currently runs on its Cell, by server id (roadmap 8.3)."""
+        return self._models.running if self._models is not None else {}
+
+    @property
     def sub_bees(self) -> tuple[SubBee, ...]:
         """Every sub-bee this Warden currently supervises."""
         return tuple(self._sub_bees.values())
@@ -177,6 +187,8 @@ class Warden(TickLoop):
         allow this Warden's `lease_capability` (`hivemind.wardens.ticks.lease.open_lease`).
         """
         await ticks.lease.open_lease(self)
+        # Only once the lease is held (roadmap step 8.3): a server runs on the Cell it leased.
+        await _host_models(self)
 
     async def stop(self) -> None:  # type: ignore[override]
         """End the loop first, then stop this Warden's heartbeats, every sub-bee and its lease.
@@ -206,6 +218,10 @@ class Warden(TickLoop):
         # returns, so none is ever destroyed pending once the event loop closes (rules 1-3).
         await reap_all(self._receive_tasks.values())
         self._receive_tasks.clear()
+        # Before the lease is released (left as found, codingrules section 8.7): nothing this
+        # Warden started on the Cell may outlive the lease, and the Queen hears each source go.
+        if self._models is not None:
+            await self._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
         if self._lease is not None:
             await self._lease.release()
         self._state = WardenState.STOPPED
@@ -297,6 +313,9 @@ async def _run_tick(warden: Warden) -> None:
         # trips it early. Each stalled Alarm takes the path a wire Alarm takes, policy and all.
         for stalled in await ticks.heartbeat.raise_stalled_alarms(warden):
             await _handle_item(warden, stalled)
+        # Roadmap step 8.3: a model server that exited on its own is withdrawn from the Hive.
+        if warden._models is not None:
+            await warden._models.sweep()
         # On the same cadence, and for the same reason the staleness check shares it: one timer,
         # not two. A Warden with no `trail_sync` (the Hive Stand's own) does nothing here.
         await _sync_trail(warden)
@@ -422,6 +441,20 @@ async def _act(
             await ticks.dispatch.act(warden, action, item, sub_bee, binding)
     else:
         await ticks.dispatch.act(warden, action, item, sub_bee, binding)
+
+
+async def _host_models(warden: Warden) -> None:
+    """Start the model servers `[llm.servers]` declares, once this Warden holds its Cell.
+
+    A Warden with no lease (WATCH) or no declared server hosts nothing; a Cell that cannot host a
+    model declines inside `ModelServerHost` (logged once) rather than failing `start()`.
+    """
+    cell, session = warden._cell, warden._session
+    if warden._lease is None or cell is None or session is None or not warden._deps.servers:
+        return
+    place = HostedCell(cell=cell, session=session, ceilings_of=lambda: warden._ceilings)
+    warden._models = ModelServerHost(warden._deps, warden._warden_id, place)
+    await warden._models.start_all()
 
 
 async def _sync_trail(warden: Warden) -> None:

@@ -110,3 +110,46 @@ def test_run_hive_ripens_beside_the_queen_and_stops_the_loop_on_exit(tmp_path: P
 
     assert pending == 0  # Ripened by the loop, not by anything this test called.
     assert leftover == set()  # The loop, the Queen and the Warden all stopped and were reaped.
+
+
+_SERVER_TABLES = """
+[llm.providers.local]
+kind = "openai_compat"
+base_url = "http://127.0.0.1:18080/v1"
+
+[llm.servers.box]
+provider = "local"
+argv = ["scripted-server", "--port", "{port}"]
+port = 18080
+sources = ["local_small"]
+
+[forage.map.local_small]
+provider = "local"
+model = "small-model"
+grade = 2
+context_window = 4096
+"""
+
+
+def test_a_manifest_that_declares_a_model_server_gives_the_hive_stand_warden_the_means_to_host_it(
+    tmp_path: Path,
+) -> None:
+    # Roadmap step 8.3: the servers, the provider door and the capability all follow [llm.servers].
+    path = fake_manifest(tmp_path)
+    path.write_text(path.read_text(encoding="utf-8") + _SERVER_TABLES, encoding="utf-8")
+    hive = build_hive(load_manifest(path, {}), environ={}, clock=SystemClock())
+
+    deps = hive.warden._deps
+    assert set(deps.servers) == {"box"}
+    assert deps.servers["box"].sources[0].source_id == "local_small"
+    assert deps.register_provider is not None and deps.unregister_provider is not None
+    assert hive.warden_link.cell.capabilities.can_host_model is True
+
+
+def test_a_manifest_with_no_model_server_leaves_the_hive_stand_unable_to_host_one(
+    tmp_path: Path,
+) -> None:
+    hive = _default_hive(tmp_path)
+
+    assert hive.warden._deps.servers == {}
+    assert hive.warden_link.cell.capabilities.can_host_model is False

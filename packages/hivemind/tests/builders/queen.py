@@ -97,6 +97,7 @@ from waggle.messages.forage import (
     GrantIssued,
     GrantRevoked,
     PlanWritten,
+    SourceEvict,
 )
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume
@@ -406,6 +407,7 @@ class WardenEnd:
         self.task_resumes: list[TaskResume] = []  # Roadmap step 4.9 (Clustering).
         self.task_cancels: list[TaskCancel] = []  # Roadmap step 10.5: a revocation's cancel.
         self.grant_revokes: list[GrantRevoked] = []  # Roadmap step 10.6a (isolation).
+        self.source_evicts: list[SourceEvict] = []  # Roadmap step 8.3: seats she reclaims.
         self.taint_orders: list[CellTaintOrder] = []  # Roadmap step 10.6a: the in-Cell taint.
         # One short label per envelope, in arrival order, so a test can assert relative ordering
         # (e.g. a GrantIssued always arriving before the TaskAssign it precedes) without needing
@@ -552,6 +554,9 @@ class WardenEnd:
         elif isinstance(payload, GrantRevoked):
             self.grant_revokes.append(payload)
             self.received_kinds.append("grant_revoked")
+        elif isinstance(payload, SourceEvict):
+            self.source_evicts.append(payload)
+            self.received_kinds.append("source_evict")
         else:
             return False
         return True

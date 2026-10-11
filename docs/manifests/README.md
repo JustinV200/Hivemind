@@ -56,6 +56,20 @@ recommend (`large-v3-turbo` with a GPU, `small` on a CPU) stand until the eval h
 them. `[llm.providers.<name>.capabilities] audio` says whether a chat provider takes audio parts
 directly; every shipped chat adapter but the fake leaves it off.
 
+## `[llm.servers]` (roadmap step 8.3)
+
+`[llm.servers.<server_id>]` declares a model server a Cell's Warden may start on its own Cell
+(`docs/adr/0044-local-model-serving-via-openai-compatible-api.md`): `provider` (the
+`[llm.providers]` row it answers as, which must be `openai_compat` on a loopback `base_url` whose
+port equals the server's `port`), `argv` (the command, with the literal `{port}` and `{scratch}`
+substituted; the program name lives here and nowhere in code), `port`, `health_path`,
+`startup_timeout_s`, `sources` (the `[forage.map]` entries it may load, each served by that same
+provider), `keep_alive_s` and `load_on_start`. A Cell that reports `can_host_model` starts the
+server once it holds its lease, waits for the provider's health probe, and adds each source to the
+live Forage map within the Queen's ceilings, telling her with `forage.source_added`; stopping the
+Warden stops the server and removes the sources (`forage.source_removed`). The Hive Stand reports
+`can_host_model` exactly when `[llm.servers]` is non-empty. `full.toml` shows one annotated server.
+
 ## `[placement]` and `[virtual_cells]` (roadmap step 5.7)
 
 `[placement]` (`prefer`, `allow_hive_stand`, `[placement.roles.<role>]` overrides) and

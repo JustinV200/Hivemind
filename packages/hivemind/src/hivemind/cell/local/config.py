@@ -93,6 +93,14 @@ class HiveStandConfig(BaseModel):
         "own running display; reported as CellCapabilities.real_display_allowed.",
     )
 
+    can_host_model: bool = Field(
+        default=False,
+        description="Roadmap step 8.3: whether this machine reports `can_host_model`, so its "
+        "Warden may start a model server on it. False unless the operator declared at least one "
+        "[llm.servers] row for it (the composition root sets it; the manifest section has no "
+        "such field), because the probe cannot know whether a server program is installed.",
+    )
+
     @classmethod
     def from_section(cls, section: HiveStandSection, manifest_dir: Path) -> HiveStandConfig:
         """Build a HiveStandConfig from the manifest's `[hive_stand]` section.

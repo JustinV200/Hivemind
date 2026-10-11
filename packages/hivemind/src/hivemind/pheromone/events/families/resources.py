@@ -13,7 +13,13 @@ Vocabulary (family -> kind -> when it is recorded):
         request was refused); revoked (a standing grant was pulled back); expired (a grant's
         expires_at passed unrenewed); hosting_decided (a HostingPlan was chosen for a Cell);
         plan_written (the chosen HostingPlan was recorded with its reason); ceilings_set (the
-        Queen set or changed a Warden's Ceilings, roadmap step 4.8).
+        Queen set or changed a Warden's Ceilings, roadmap step 4.8); source_added (a Warden loaded
+        a model on its Cell's server, or the Queen learned of it: carries the Cell, server and
+        source ids and the seats; not in the Night Veil skeleton, so it dies with that Cell);
+        source_removed (a source left a server, with the cause; the same two recorders; also
+        written alone, with `loaded = false`, for a server that never became healthy; not in the
+        Night Veil skeleton); source_evicted (the Queen ordered a Warden to give back seats she
+        exported; not in the Night Veil skeleton). Roadmap step 8.3, ADR-0044.
     memory: checkpoint (a Handoff was written); handoff (control resumed from a Handoff, the other
         half of a checkpoint); reset (a threshold reset ran); compacted (a summary replaced older
         source records); wax_proposed (Cell Wax was proposed); wax_written (the Queen wrote it);
@@ -96,6 +102,14 @@ class ForageEvent(PheromoneEvent):
             "forage.hosting_decided",
             "forage.plan_written",
             "forage.ceilings_set",
+            # Roadmap step 8.3 (ADR-0044), none in the Night Veil skeleton (codingrules section 12
+            # names the survivors and these are not among them): a Cell's model source became
+            # servable (recorded by its Warden and again by the Queen who learned of it), went
+            # away, or was evicted by the Queen to reclaim seats she exported. A Night Veil Cell's
+            # rows go to its own segment and die with the Cell.
+            "forage.source_added",
+            "forage.source_removed",
+            "forage.source_evicted",
         }
     )
 

@@ -107,3 +107,11 @@ def test_comb_shield_defaults_to_meadow() -> None:
     )
 
     assert config.comb_shield is CombShieldLevel.MEADOW
+
+
+def test_from_section_never_claims_model_hosting_for_the_machine(tmp_path: Path) -> None:
+    # Roadmap step 8.3: the manifest section has no such field; the composition root sets it from
+    # [llm.servers], so a config built from the section alone says no.
+    config = HiveStandConfig.from_section(HiveStandSection(), tmp_path)
+
+    assert config.can_host_model is False

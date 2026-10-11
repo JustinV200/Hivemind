@@ -21,9 +21,11 @@ import dataclasses
 
 import pytest
 from builders.cells import make_cell
-from builders.wardens import make_warden_deps
+from builders.hosting import make_hosting_warden
+from builders.wardens import QueenEnd, make_warden_deps
 
 from hivemind.cell import CellKind
+from hivemind.forage import Ceilings
 from hivemind.supervision import Cancel
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
@@ -31,6 +33,7 @@ from hivemind.wardens.state import WardenState
 from hivemind.wardens.ticks.control import (
     handle_release_lease,
     handle_snapshot_reply,
+    handle_source_evict,
     handle_stop,
     send_intervention,
 )
@@ -41,6 +44,7 @@ from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellSnapshotReply
 from waggle.messages.cell.status import ReleaseCause
 from waggle.messages.control.protocol import Shutdown
+from waggle.messages.forage import SourceEvict, SourceRemovalCause
 from waggle.messages.labels import Urgency
 from waggle.messages.supervision import Intervene, InterventionAction
 
@@ -151,3 +155,108 @@ async def test_handle_snapshot_reply_resolves_a_relay_snapshotters_pending_ask()
     )
 
     assert await asyncio.wait_for(ask_task, timeout=5.0) == "snap_new"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# handle_source_evict (roadmap step 8.3): the Queen reclaims seats she exported
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _ceilings(exportable_seats: int) -> Ceilings:
+    return Ceilings(
+        max_sub_bees=2,
+        model_vram_bytes=0,
+        model_disk_bytes=0,
+        loadable_sources=(),
+        exportable_seats=exportable_seats,
+    )
+
+
+async def _hosting_warden(
+    exportable_seats: int | None,
+) -> tuple[Warden, SourceEvict, QueenEnd]:
+    """A started hosting Warden with the given ceilings, and an eviction of its `small` source."""
+    warden, _deps, queen_end, forage_map, _door = make_hosting_warden()
+    await warden.start()
+    if exportable_seats is not None:
+        warden._ceilings = _ceilings(exportable_seats)
+    assert warden._cell is not None
+    source = next(s for s in forage_map.sources() if s.source_id == "small")
+    order = SourceEvict(
+        cell_id=warden._cell.id,
+        source=source.source_ref(),
+        seats_to_reclaim=1,
+        reason="The Queen needs the seats.",
+    )
+    return warden, order, queen_end
+
+
+async def test_handle_source_evict_withdraws_a_source_whose_seats_were_exported() -> None:
+    warden, order, _queen_end = await _hosting_warden(exportable_seats=2)
+
+    await handle_source_evict(warden, order)
+
+    assert warden._models is not None and warden._models.server_of("small") is None
+    assert warden._models.server_of("large") == "box"
+    await warden.stop()
+
+
+async def test_handle_source_evict_reports_the_removal_as_evicted() -> None:
+    warden, order, queen_end = await _hosting_warden(exportable_seats=2)
+
+    await handle_source_evict(warden, order)
+
+    await queen_end.pump_until(lambda: bool(queen_end.source_removed))
+    assert queen_end.source_removed[0].cause is SourceRemovalCause.EVICTED
+    assert queen_end.source_removed[0].source.source_id == "small"
+    await warden.stop()
+
+
+async def test_handle_source_evict_ignores_an_order_when_the_queen_set_no_ceilings() -> None:
+    warden, order, _queen_end = await _hosting_warden(exportable_seats=None)
+
+    await handle_source_evict(warden, order)
+
+    assert warden._models is not None and warden._models.server_of("small") == "box"
+    await warden.stop()
+
+
+async def test_handle_source_evict_ignores_an_order_when_no_seats_were_exported() -> None:
+    warden, order, _queen_end = await _hosting_warden(exportable_seats=0)
+
+    await handle_source_evict(warden, order)
+
+    assert warden._models is not None and warden._models.server_of("small") == "box"
+    await warden.stop()
+
+
+async def test_handle_source_evict_ignores_an_order_naming_another_cell() -> None:
+    warden, order, _queen_end = await _hosting_warden(exportable_seats=2)
+    elsewhere = order.model_copy(update={"cell_id": new_cell_id(_CLOCK)})
+
+    await handle_source_evict(warden, elsewhere)
+
+    assert warden._models is not None and warden._models.server_of("small") == "box"
+    await warden.stop()
+
+
+async def test_handle_source_evict_ignores_a_source_this_warden_never_loaded() -> None:
+    warden, order, _queen_end = await _hosting_warden(exportable_seats=2)
+    stranger = order.source.model_copy(update={"source_id": "stranger"})
+
+    await handle_source_evict(warden, order.model_copy(update={"source": stranger}))
+
+    assert warden._models is not None and set(warden._models.running) == {"box"}
+    await warden.stop()
+
+
+async def test_handle_release_lease_stops_the_model_servers_with_the_lease() -> None:
+    warden, _deps, queen_end, forage_map, _door = make_hosting_warden()
+    await warden.start()
+
+    await handle_release_lease(warden, _release_lease_intervene())
+
+    assert forage_map.sources() == ()
+    assert warden._models is not None and warden._models.running == {}
+    await queen_end.pump_until(lambda: len(queen_end.source_removed) == 2)
+    assert {m.cause for m in queen_end.source_removed} == {SourceRemovalCause.LEASE_RELEASED}

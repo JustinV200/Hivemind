@@ -12,7 +12,8 @@ enums rather than the hivemind-side mirrors those two packages own.
   the 300-line file limit): `HiveManifest`, the root model, plus every section --
   `HiveSection`, `QueenSection`, `HiveStandSection` + `HiveStandCapacityOverrides`,
   `BroodChamberSection`, `PheromoneSection` (`schema.core`); `LlmSection`, `ProviderKind`,
-  `ProviderSpec`, `CapabilityOverrides`, `SlotBinding` (`schema.llm`); `ForageSection`
+  `ProviderSpec`, `CapabilityOverrides`, `SlotBinding`, `ServerSpec` (`schema.llm`, a sub-package:
+  `providers`, `section`, `floors`, `servers`); `ForageSection`
   (`schema.forage`, embedding `hivemind.forage`'s `RoleFootprint`, `ModelSourceSpec` and
   `RoyalReserve` directly); `SupervisionSection`, `MemorySection` (`schema.supervision`);
   `SecuritySection` + `TierProfile`, `HoneySection` + `HoneyClearanceSection` + `ClearanceMatrix`
@@ -38,16 +39,22 @@ member's `manifest_key` must be bound directly (not merely reachable through som
 fallback); and `[llm] offline = true` refuses any provider whose `base_url` is empty (hosted) or
 whose host is not loopback (`waggle.is_loopback_host`).
 
-`[llm.floors]` (roadmap step 8.1, `schema/floors.py`) maps a slot's lowercase name to its minimum
+`[llm.floors]` (roadmap step 8.1, `schema/llm/floors.py`) maps a slot's lowercase name to its minimum
 model grade, 1 to 5; a key that is not a `ModelSlot`'s manifest key is rejected, and
 `LlmSection.grade_floors()` returns a floor for every slot with the shipped defaults (queen 5,
 attendant, ripener, embedder and transcriber 1, others 2) filling any the table omits.
 
+`[llm.servers.<server_id>]` (roadmap step 8.3, `schema/llm/servers.py`) declares a model server a
+Cell's Warden may start: `LlmSection` requires its provider to exist, to be `openai_compat` and to
+sit on a loopback `base_url` carrying the server's own port. `argv` may name only the placeholders
+`{port}` and `{scratch}`.
+
 ### Cross-section checks (`HiveManifest`)
 
-Only one: every `[forage.map.<source_id>].provider` must name a declared `[llm.providers.*]`
-entry. A slot's model need not appear anywhere on the Forage map; the map and the slot table are
-two independent ways of naming what a call may use.
+Two: every `[forage.map.<source_id>].provider` must name a declared `[llm.providers.*]` entry, and
+every `[llm.servers.<server_id>].sources` entry must name a `[forage.map]` row served by that
+server's own provider. A slot's model need not appear anywhere on the Forage map; the map and the
+slot table are two independent ways of naming what a call may use.
 
 ### `[hive_stand] keep_root` (roadmap step 5.0e)
 

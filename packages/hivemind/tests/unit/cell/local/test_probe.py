@@ -111,8 +111,17 @@ def test_probe_host_real_display_allowed_is_the_operators_opt_in_alone(tmp_path:
     assert probe_host(allowed).capabilities.real_display_allowed is True
 
 
-def test_probe_host_model_hosting_is_false_until_its_phase(tmp_path: Path) -> None:
-    assert probe_host(make_hive_stand_config(tmp_path)).capabilities.can_host_model is False
+def test_probe_host_model_hosting_is_false_unless_the_operator_declared_a_server(
+    tmp_path: Path,
+) -> None:
+    # Roadmap step 8.3: a probe cannot know whether a server program is installed, so the
+    # capability follows HiveStandConfig.can_host_model, which the composition root sets from
+    # [llm.servers].
+    declined = make_hive_stand_config(tmp_path)
+    declared = declined.model_copy(update={"can_host_model": True})
+
+    assert probe_host(declined).capabilities.can_host_model is False
+    assert probe_host(declared).capabilities.can_host_model is True
 
 
 def test_refresh_live_keeps_static_totals_and_only_recomputes_live_figures(

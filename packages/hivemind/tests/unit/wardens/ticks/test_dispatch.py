@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import pytest
 from builders.honey_wire import WireEnd, make_honey_query
+from builders.hosting import make_hosting_warden
 from builders.supervision import make_inbox_item
 from builders.wardens import make_warden_deps
 
+from hivemind.forage import Ceilings
 from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.ticks.dispatch import act
 from hivemind.wardens.warden import Warden
@@ -27,7 +29,7 @@ from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Hop
 from waggle.ids import new_cell_id, new_grant_id, new_hive_id, new_warden_id
-from waggle.messages.forage import GrantIssued
+from waggle.messages.forage import GrantIssued, SourceEvict
 from waggle.transport.memory import MemoryTransport
 
 
@@ -92,3 +94,36 @@ async def test_an_action_whose_payload_does_not_fit_does_nothing() -> None:
 
     assert warden._grants == {}
     assert warden._pending == {}
+
+
+async def test_an_evict_source_action_reaches_the_evict_handler() -> None:
+    """Roadmap step 8.3: a Queen-sent SourceEvict withdraws a source whose seats were exported."""
+    warden, _deps, queen_end, forage_map, _door = make_hosting_warden()
+    await warden.start()
+    warden._ceilings = Ceilings(
+        max_sub_bees=2,
+        model_vram_bytes=0,
+        model_disk_bytes=0,
+        loadable_sources=(),
+        exportable_seats=1,
+    )
+    assert warden._cell is not None
+    source = next(s for s in forage_map.sources() if s.source_id == "small")
+    order = SourceEvict(
+        cell_id=warden._cell.id,
+        source=source.source_ref(),
+        seats_to_reclaim=1,
+        reason="The Queen needs the seats back.",
+    )
+
+    await act(
+        warden,
+        WardenAction.EVICT_SOURCE,
+        make_inbox_item(payload=order, principal="queen"),
+        None,
+        None,
+    )
+
+    assert [s.source_id for s in forage_map.sources()] == ["large"]
+    await queen_end.pump_until(lambda: bool(queen_end.source_removed))
+    await warden.stop()

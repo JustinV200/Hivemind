@@ -71,7 +71,7 @@ from waggle.envelope import Envelope, Hop, wrap
 from waggle.ids import HiveId, MessageId, NodeId, WardenId, new_hive_id, new_node_id, new_warden_id
 from waggle.messages.base import WaggleMessage
 from waggle.messages.cell.leases import LeaseReleased
-from waggle.messages.forage import ForageRequest
+from waggle.messages.forage import ForageRequest, SourceAdded, SourceRemoved
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmRaised, Answer, AnswerSource, Heartbeat, Question
 from waggle.messages.task import TaskProgress, TaskResult, WorkerRole
@@ -315,6 +315,8 @@ class QueenEnd:
         self.forage_requests: list[ForageRequest] = []
         self.lease_released: list[LeaseReleased] = []  # Roadmap step 5.13: cell.lease_released.
         self.progress: list[TaskProgress] = []  # Roadmap step 10.6c: a quarantined task held.
+        self.source_added: list[SourceAdded] = []  # Roadmap step 8.3: a model source loaded.
+        self.source_removed: list[SourceRemoved] = []  # Roadmap step 8.3: one gone, with cause.
         # supervision.answer is a reply: its envelope must carry the correlation_id of the
         # Question envelope it answers, tracked here so `answer` can supply it.
         self._question_envelope_ids: dict[MessageId, MessageId] = {}
@@ -450,3 +452,7 @@ class QueenEnd:
             self.lease_released.append(payload)
         elif isinstance(payload, TaskProgress):
             self.progress.append(payload)
+        elif isinstance(payload, SourceAdded):
+            self.source_added.append(payload)
+        elif isinstance(payload, SourceRemoved):
+            self.source_removed.append(payload)

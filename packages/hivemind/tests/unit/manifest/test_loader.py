@@ -64,6 +64,16 @@ def test_load_manifest_local_toml_is_offline() -> None:
     assert manifest.llm.offline is True
 
 
+def test_full_toml_declares_one_model_server_a_warden_may_host() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    server = manifest.llm.servers["local"]
+
+    assert server.provider == "local"
+    assert server.sources == ("local_llama",)
+    assert "{port}" in server.argv
+
+
 def test_full_toml_round_trips_through_model_dump_and_re_validation() -> None:
     manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
 

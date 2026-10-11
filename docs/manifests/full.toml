@@ -226,6 +226,34 @@ effort = "LOW"
 judge = 4
 worker = 3
 
+[llm.servers.local]
+# A model server a Cell's Warden may start on its own Cell (roadmap step 8.3, ADR-0044). The
+# table key is the server id the Warden reports to the Queen. Only a Cell that reports
+# can_host_model starts one; the Hive Stand reports it exactly when this table is non-empty.
+# The provider row this server answers as: openai_compat, on a loopback base_url carrying `port`.
+provider = "local"
+# The command that starts the server; the program name lives here, never in code. The literal
+# {port} and {scratch} are replaced with `port` and the session's scratch directory; any other
+# braced word is refused at load time. Never run through a shell.
+argv = ["llama-server", "--port", "{port}", "--model", "{scratch}/weights/llama-8b.gguf"]
+# The loopback port the server listens on; it must equal the port in [llm.providers.local].
+port = 11434
+# The path, below base_url, that answers once the server is ready. The OpenAI-compatible adapter
+# probes /models, so a server whose readiness lives elsewhere must also serve /models.
+health_path = "/models"
+# Seconds the Warden waits for the health probe to pass before it stops the process and reports the
+# server dead (cause SERVER_DIED).
+startup_timeout_s = 120.0
+# The [forage.map] sources this server may load; each must be served by provider = "local". The
+# Warden adds each to the live map (with its own Cell as host) only within the Queen's ceilings
+# (loadable_sources and model_vram_bytes) and reports it with forage.source_added.
+sources = ["local_llama"]
+# How long a loaded model stays resident when idle, for a server that unloads on its own; unset
+# leaves the server's own default.
+keep_alive_s = 300.0
+# Start it as soon as the Warden holds its Cell; false leaves it for an explicit start.
+load_on_start = true
+
 [forage]
 # Seconds before an unrenewed grant expires.
 grant_ttl_s = 300.0

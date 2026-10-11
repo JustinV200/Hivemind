@@ -47,6 +47,13 @@ class stay within codingrules 5.1's size limits.
   searched as the asking bee (a Worker's task, goal, Cell and itself; a Warden's Cell and itself)
   under its task's clearance and its Cell's Comb Shield tier. With no Honey Store wired
   (`QueenDeps.honey is None`) a query is answered empty with that reason and a deposit is refused.
+- `sources.handle_source_item` (roadmap step 8.3): the fourth entry point
+  `handle_infrastructure_item` reaches ahead of `decide`, for a Warden's `SourceAdded`/
+  `SourceRemoved`. An added source goes on the Queen's Forage map with the Warden's Cell as host
+  (keeping the manifest row's prices and any measured grade when the map already lists it) and its
+  seats into the ledger (`ledger.seats.set_capacity`); a removal drops it and zeroes its seats.
+  Each is recorded as `forage.source_added`/`forage.source_removed`. A report about a Cell that is
+  not the sender's own is refused. The one order the other way is `queen.forage.evict`.
 - `wax.handle_wax_item`, `.handle_wax_proposed` (roadmap step 4.2a): the other entry point
   `handle_infrastructure_item` reaches ahead of `decide`, for a `CellWaxProposed`. Records the
   proposal (`hivemind.memory.cell_wax.propose_wax`), judges it with
