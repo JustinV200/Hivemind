@@ -1348,9 +1348,14 @@ prompt overlays, `hive llm eval`.
 
 ### Steps
 
-- [ ] **8.1 Routing policy.** `llm/routing.py`: pure `choose_binding(slot, tempo,
-  required_capabilities, forage, hosting, manifest) -> BoundModel` (it takes `Tempo` and the
-  capability flags, not `TaskNeeds`, so `llm` stays below `cell`) honouring fallback chains,
+- [x] **8.1 Routing policy.** `llm/routing/` (a package; built 2026-10-11, ADR-0045): pure
+  `choose_binding(RoutingInputs) -> RoutingDecision`, the inputs being the slot, its `Tempo`, the
+  capability flags it needs (not `TaskNeeds`, so `llm` stays below `cell`), the Forage map's
+  sources, the Cell's hosting plan, the `[llm.slots]` rows and `RoutingRules` (`[llm.floors]`,
+  `offline`, the spend cap, a raised floor); the decision names the key to bind first, the whole
+  chain reordered behind it, the effort, the reason, what was passed over and why, and a seat
+  shortfall. It honours fallback chains (it reorders the slot's own chain, never invents a
+  binding),
   required capabilities, Forage
   headroom, model location relative to the bee, cost caps, `offline`, and the task's tempo. It
   reads the Forage map: tempo's accuracy bar sets a minimum grade, its latency budget a maximum
@@ -1363,11 +1368,19 @@ prompt overlays, `hive llm eval`.
   Cell has local sources, then the chain, with the Fanner's spill-over rule (3.12a) deciding when
   to move along it at call time. Fallbacks are `llm.fallback` events; a fallback that needs more
   Forage becomes a `ForageRequest`. The eval harness (8.5) reports quality and latency per tempo
-  so the mapping is tuned from measurements, not guesses.
+  so the mapping is tuned from measurements, not guesses. As built: the Warden routes in
+  `wardens/spawn/route.py` before the Guard authorises the routed key, binds the sub-bee along
+  the routed order with the routed effort on its first link, records `llm.fallback` when the
+  slot's own key was passed over, files one `SHARED_SEATS` request on a shortfall without holding
+  the spawn, and its own rebind on an escalated Alarm routes again with the floor raised by the
+  attempt; the Queen's hosting plan reads the same floors. Proved on the Hive Stand by
+  `tests/e2e/test_routing_on_hive_stand.py` (CRITICAL lands on the grade-4 fallback with one
+  `llm.fallback`; LOW stays on the grade-2 primary). A handoff successor and a Queen-ordered
+  REBIND still bind a plain key's manifest chain.
 - [x] **8.2 Local server management.** `llm/providers/ollama/manage.py` (optional): list, pull,
   `keep_alive`, health. `hive llm models|pull|keep-alive` and `hive llm providers` use it today;
   `hive doctor` (step 14.2) will. Generic health probe covers vLLM and llama.cpp.
-- [ ] **8.3 Model server on a Cell.** `wardens/local_pool/hosting/` (a package: `host`, `launch`,
+- [x] **8.3 Model server on a Cell.** `wardens/local_pool/hosting/` (a package: `host`, `launch`,
   `sources`, `report`, `config`, `door`; the manifest declares each server in `[llm.servers]`; it needs the Cell's
   `CellSession`, so it lives with the Warden that owns the Cell, not in `forage`): start and stop
   an OpenAI-compatible server on a Cell that reports `can_host_model` (through its session), register
@@ -1378,10 +1391,23 @@ prompt overlays, `hive llm eval`.
   unloads models on it autonomously
   within its ceilings and allowlist, reporting each as `forage.source_added` / `removed`; the
   Queen may evict a model only to reclaim seats she has exported. This is what local sources in a
-  hosting plan and Nucs (phase 11) build on.
+  hosting plan and Nucs (phase 11) build on. As built (2026-10-11, ADR-0044): distance is
+  measured by the Fanner on the first call rather than at registration; the Basket does not exist
+  yet, so weights are the server's own concern until 9.2a; the Hive Stand reports
+  `can_host_model` exactly when the manifest declares a server; both the Warden and the Queen
+  record `forage.source_added`/`removed` (a `reporter` field tells them apart). Proved on the
+  Hive Stand with the scripted OpenAI-compatible server as the server process
+  (`tests/e2e/test_model_server_on_hive_stand.py`): started through the lease, healthy, on the
+  map with the Stand as host, every call of a haiku goal on it, gone with the lease.
 - [ ] **8.4 Prompt portability pass.** Run every prompt snapshot and the phase 3 scenarios against
   at least two local models of different sizes; add overlays under `llm/prompts/overlays/<provider>/`
-  where needed, each with a header saying why.
+  where needed, each with a header saying why. **Mechanism built 2026-10-11** (ADR-0044): overlays
+  are directories under `llm/prompts/overlays/<name>/` applied at the provider door by
+  `OverlayingProvider` when `[llm.providers.<name>] prompt_overlay` names one, so the shared
+  prompts stay portable and no call site knows; `small_local` ships. The pass itself (two real
+  local models of different sizes) needs a model server this container cannot reach; it is the
+  operator's to run with the `local_llm` job and `hive llm eval`, adding overlays where a model
+  needs them.
 - [x] **8.5 Evaluation harness.** `tests/evals/` with a fixed goal set and graders (decomposition
   validity, `TaskNeeds` correctness, tool-call validity rate, ladder rung reached, Alarm rate,
   handoff-resume success, step count, cost, wall time), run by `hive llm eval`, writing
@@ -1390,14 +1416,26 @@ prompt overlays, `hive llm eval`.
   replaced by evidence and routing's grade floors are grounded in the Hive's own results.
   `TRANSCRIBER` is graded by word error rate and latency on a fixture clip set, so the default
   Whisper size is chosen from measurements.
-- [ ] **8.6 Offline mode end to end.** `docs/manifests/offline.toml`; a `local_llm` e2e job runs
+- [x] **8.6 Offline mode end to end.** `docs/manifests/offline.toml`; a `local_llm` e2e job runs
   the haiku goal on the Hive Stand and in a Virtual Cell, the ripening scenario, a spoken goal
   transcribed on the in-process Whisper, and a Clustering round trip, with no network egress.
-- [ ] **8.7 Local vision.** The Forager scenario with a local vision model in `WORKER`, or the
-  accessibility-tree path where none is available.
+  As built (2026-10-11): `tests/e2e/offline/` runs every scenario in CI's e2e job over the
+  scripted OpenAI-compatible server on loopback, each manifest derived from `offline.toml`, under
+  a socket guard that fails any connect to a non-loopback address, asserting every `llm.call`
+  names a provider that runs locally; the real-model halves (Ollama at two sizes, in-process
+  Whisper) are `tests/evals/offline/`, run by the `local_llm` job in `integration.yml` on demand
+  and nightly, never on push. The scripted runs found and fixed three defects no fake had shown:
+  the Clustering pause raced the Handoff, the health probe crashed on an in-process embedder, and
+  the transcriber never closed its connections.
+- [x] **8.7 Local vision.** The Forager scenario with a local vision model in `WORKER`, or the
+  accessibility-tree path where none is available. As built: `tests/e2e/offline/
+  test_offline_vision.py` logs in with a real Chromium on a provider declared without vision,
+  through `browser_snapshot` alone (no screenshot tool offered, no image part sent), and with
+  vision through screenshots, so the capability is the switch; a real local vision model is the
+  `local_llm` job's (`tests/evals/offline/test_offline_local.py`).
 - [x] **8.8 Cost and token accounting for local models.** Zero or amortised prices in the
   manifest; usage from the response or a documented estimate; both uniform on the trail.
-- [ ] **8.9 Runbook.** `docs/runbooks/moving-a-slot-to-local.md`.
+- [x] **8.9 Runbook.** `docs/runbooks/moving-a-slot-to-local.md`.
 
 ### Exit criteria
 
@@ -1407,10 +1445,27 @@ prompt overlays, `hive llm eval`.
 - Switching any slot between providers changes only the manifest; a checksum of `src/` is
   identical between the two configurations in the e2e job.
 
+**Met 2026-10-11 for bullets 1 and 3, with the scripted loopback server standing in for the local
+model** (branch `ccr-0235b6d7-okyhmn`; the record is `.claude/phase-8-handoff.md`). This container
+reaches no model hub, so every `local_llm` case skipped here and the real-model proof is the
+`local_llm` job's. Bullet 1: `tests/e2e/offline/` runs the haiku goal (Hive Stand and Virtual
+Cell), ripening, the browser Forager login and a Clustering round trip with manifests derived from
+`offline.toml`, under a no-egress socket guard, every `llm.call` on the loopback provider. Bullet
+3: a sha256 over every `packages/*/src/**/*.py` is identical across the offline and the
+fake-provider runs. **Bullet 2 is not met**: `hive llm eval` writes `docs/evals/<date>.md` and
+`--update-map` writes measured grades (proved on the fake provider and on the scripted server, where
+it wrote `scripted_local` grade 4), but the table comparing Claude and two local models across
+every slot needs a hosted key and a model server; the `local_llm` job produces the local columns
+and the runbook names the hosted run. Where the steps differ from their text: routing returns a
+`RoutingDecision` over the slot's own chain rather than a `BoundModel` (ADR-0045); the Hive Stand
+reports `can_host_model` exactly when `[llm.servers]` is declared; overlays are keyed by a
+manifest-chosen name (`prompt_overlay`), not by provider; measured grades live in the Queen's
+ledger, not in the manifest.
+
 ### ADRs to write
 
-- `local-model-serving-via-openai-compatible-api.md`.
-- `provider-routing-forage-aware-fallbacks-and-offline-mode.md`.
+- `local-model-serving-via-openai-compatible-api.md` (written: `docs/adr/0044-*`).
+- `provider-routing-forage-aware-fallbacks-and-offline-mode.md` (written: `docs/adr/0045-*`).
 
 ---
 
