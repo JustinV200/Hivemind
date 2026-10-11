@@ -329,3 +329,56 @@ def test_a_cyclic_chain_never_hangs() -> None:
 
     assert slot_for_binding("b", rows) is ModelSlot.WORKER
     assert slot_for_binding("elsewhere", rows) is None
+
+
+async def test_add_source_makes_a_new_source_visible_to_every_read() -> None:
+    forage_map = ForageMap([], clock=FakeClock())
+    source = make_source(source_id="src_new", provider="acme", model="acme-model")
+
+    await forage_map.add_source(source)
+
+    assert forage_map.get("src_new") == source
+    assert forage_map.find("acme", "acme-model") == source
+    assert forage_map.sources() == (source,)
+
+
+async def test_add_source_with_a_repeated_id_replaces_the_whole_entry() -> None:
+    old = make_source(source_id="src_1", grade=2)
+    forage_map = ForageMap([old], clock=FakeClock())
+    await forage_map.observe("src_1", latency_s=0.2, tokens_per_s=40.0)
+
+    await forage_map.add_source(make_source(source_id="src_1", grade=4))
+
+    replaced = forage_map.get("src_1")
+    assert replaced.spec.grade == 4
+    assert replaced.distance is None  # The fresher report carries no stale measurement.
+    assert len(forage_map.sources()) == 1
+
+
+async def test_remove_source_reports_whether_the_source_was_there() -> None:
+    forage_map = ForageMap([make_source(source_id="src_1")], clock=FakeClock())
+
+    assert await forage_map.remove_source("src_1") is True
+    assert await forage_map.remove_source("src_1") is False
+    assert forage_map.sources() == ()
+    with pytest.raises(UnknownSourceError):
+        forage_map.get("src_1")
+
+
+async def test_add_and_remove_serialise_with_the_other_writers() -> None:
+    forage_map = ForageMap([make_source(source_id="src_0")], clock=FakeClock())
+
+    # Interleaved writers on different ids must all land: none may be lost to a race.
+    await asyncio.gather(
+        *(forage_map.add_source(make_source(source_id=f"src_{n}")) for n in range(1, 6)),
+        forage_map.observe("src_0", latency_s=0.1, tokens_per_s=10.0),
+        forage_map.remove_source("src_3"),
+    )
+
+    assert {s.source_id for s in forage_map.sources()} == {
+        "src_0",
+        "src_1",
+        "src_2",
+        "src_4",
+        "src_5",
+    }

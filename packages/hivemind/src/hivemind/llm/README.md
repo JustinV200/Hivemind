@@ -142,6 +142,15 @@ fan their wings to regulate the hive's airflow.
   to the next binding if one exists. With no fallback left it either proceeds on the current
   binding regardless (a static spill reason) or re-raises (a `RateLimitedError` that already
   happened): the Fanner never invents a call, but it cannot un-happen a real failure either.
+- **Pricing (roadmap step 8.8)**: adapters never price a call (`Usage.cost_usd` is None from
+  them); `FannerLane` prices every completed call in one place, `hivemind.llm.fanner.pricing.
+  price_usage`: `input_tokens x cost_per_million_input_usd / 1e6 + output_tokens x
+  cost_per_million_output_usd / 1e6 + latency_s / 3600 x the source's cost_per_seat_hour_usd`
+  (which amortises a local server). A binding with a `None` price is unpriced; one priced at 0.0
+  is free. The response a caller gets carries the priced `Usage`, and the `llm.call` event's
+  `usage` gains `priced` (false: `cost_usd` 0.0 only means unknown) and `estimated` (true: the
+  server returned no usage and an adapter guessed tokens from characters,
+  `CHARS_PER_TOKEN_ESTIMATE`).
 - **`RateLimit`**: a provider's `requests_per_minute`/`tokens_per_minute` ceiling, straight from
   its manifest row; both `None` means unlimited. Roadmap step 4.7a:
   `ProviderRateLimiter.observe_snapshot` prefers a call's own reported `RateLimitSnapshot` figures
@@ -250,6 +259,46 @@ shape as the chat boundary above, but its own package because it needed several 
   both mirrored in `hivemind.manifest.schema.llm`, kept in sync by a dedicated test.
 - **`hive llm test embedder`**: embeds one short text through the resolved slot and prints the
   model, its vector dimension and the latency, in place of a completion's usage and reply.
+
+## Routing policy (roadmap step 8.1, the pure half)
+
+`hivemind.llm.routing` picks which binding of a slot's manifest fallback chain a bee calls first.
+It is one pure function, `choose_binding(inputs: RoutingInputs) -> RoutingDecision`: no I/O, no
+clock, no lock. It never invents a binding; it reorders the chain, chosen first, then the rest in
+rank order. `choose_binding`, `RoutingInputs`, `RoutingRules` and `RoutingDecision` are re-exported
+from `hivemind.llm`; `RoutingReason`, `PassedOver`, `PassOverCause`, `ForageShortfall`,
+`default_floors`, `choose_effort` and `TIGHT_BUDGET_S` come from `hivemind.llm.routing`.
+
+- **`RoutingInputs`**: `slot`, `tempo`, `required_capabilities` (names from
+  `ModelSourceSpec.capabilities`), `sources` (a `ForageMap.sources()` snapshot), `bindings` (the
+  forage-side `[llm.slots]` rows), `rules`, `cell_id` (the Cell the bee runs on), `hosting` (that
+  Cell's `HostingPlan` or None) and `local_providers` (the `[llm.providers]` names that serve from
+  inside the Hive). `RoutingInputs.from_map` snapshots a live map.
+- **`RoutingRules`**: `floors` (a grade floor per slot, from `[llm.floors]` through
+  `LlmSection.grade_floors()`; `default_floors()` is the shipped table: queen 5, attendant,
+  ripener, embedder and transcriber 1, every other slot 2), `offline`, `spend_cap_usd` and
+  `raised_floor` (a rebind on escalation sets it with `raise_floor`). `hivemind.cli.stores.
+  routing_rules(manifest)` builds it.
+- **Eligibility** (`eligibility.py`): a binding is eligible when its provider is inside the Hive
+  (offline only), it has every required capability, its `effective_grade` reaches the floor, it is
+  free when the spend cap is zero, and its measured latency fits the latency budget. The floor is
+  the slot's standing floor raised by a HIGH or CRITICAL accuracy bar and by `raised_floor`, never
+  lowered by tempo, and capped at the best `effective_grade` on the map (so the Queen's 5 works on
+  a Hive whose best model is a 4). A binding the map does not know stays eligible but ranks after
+  every known one (the rule `static_spill_reason` already uses).
+- **Ranking**: known to Forage, then a free seat, then position in the Cell's hosting plan chain
+  for the slot (primary first), then local to the bee's Cell, then cheapest, then closest, then
+  manifest order. With nothing eligible it chooses the slot's own primary and `reason.fell_back` is
+  true: routing never refuses.
+- **`RoutingDecision`**: `key`, `order` (a permutation of the chain, chosen first), `effort`,
+  `reason` (a `RoutingReason` with `render()`), `passed_over` (`PassedOver(key, cause)` for every
+  binding not chosen that was ineligible or demoted) and `forage_shortfall` (`ForageShortfall(
+  source_id, seats_wanted)` when the chosen source has no free seat, so a caller can file a
+  `ForageRequest`).
+- **Effort** (`choose_effort`): a LOW accuracy bar gives LOW; CRITICAL gives HIGH; otherwise a
+  latency budget under `TIGHT_BUDGET_S` (10 s) gives LOW; otherwise the chosen row's own effort.
+
+The Warden and Queen integration (spawn, `llm.fallback` events, `ForageRequest`) is a later step.
 
 ## Closing providers at shutdown
 

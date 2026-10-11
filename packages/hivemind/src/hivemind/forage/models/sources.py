@@ -5,11 +5,14 @@ serve a model, wherever it lives. Each entry is a `ModelSource`, split into a st
 live half, because the static half is what an operator writes once in the Hive Manifest's
 `[forage.map.<source_id>]` section (a `ModelSourceSpec`) while the live half changes on every
 measurement. `ModelSourceSpec` names the model, its provider, its hand-set `grade` from 1 (weakest)
-to 5 (strongest) later replaced by a measured score, its context window, its cost (`ModelCost`),
-its capability flags and how many seats it offers. The live half is `Distance` (measured latency
-and tokens per second from a given Cell -- a unit of compute a Worker runs in -- since a model on
-the Hive Stand, the machine the Queen runs on, is farther from a remote device than one on the
-device itself) and `Abundance` (free seats, or rate-limit headroom for a hosted provider).
+to 5 (strongest) and the `measured_grade` the Hive's own evaluation harness (`hive llm eval
+--update-map`) writes over it, its context window, its cost (`ModelCost`), its capability flags
+and how many seats it offers. `ModelSource.effective_grade` is the one number every strength
+comparison reads (measured when there is one, hand-set otherwise). The live half is `Distance`
+(measured latency and tokens per second from a given Cell -- a unit of compute a Worker runs in --
+since a model on the Hive Stand, the machine the Queen runs on, is farther from a remote device
+than one on the device itself) and `Abundance` (free seats, or rate-limit headroom for a hosted
+provider).
 Grade and distance set a floor and a ceiling a task's tempo (how fast it must be done and how right
 it must be) must clear before routing may pick a source; abundance says whether one is actually
 free right now.
@@ -22,9 +25,12 @@ Fits into the Hive:
     `waggle.messages.base` only, for the shared bounds and the wire `SourceRef` this module builds.
 
 Key invariants:
-    - ModelSourceSpec.grade is between MIN_MODEL_GRADE and MAX_MODEL_GRADE (1 to 5), the same
-      bounds `waggle.messages.forage.values` names for the wire form, imported rather than
-      repeated so the two can never drift apart.
+    - ModelSourceSpec.grade and ModelSourceSpec.measured_grade are each between MIN_MODEL_GRADE
+      and MAX_MODEL_GRADE (1 to 5), the same bounds `waggle.messages.forage.values` names for the
+      wire form, imported rather than repeated so the two can never drift apart.
+    - ModelSource.effective_grade is `measured_grade` when it is set and `grade` otherwise; no
+      caller reads `spec.grade` as a strength (allocation, spill, hosting plans and routing all
+      read this property), so a measurement replaces a guess everywhere at once.
     - ModelCost's four rates default to 0.0 and are never negative, so a manifest entry that
       leaves a rate unset is free rather than invalid.
     - ModelSource.source_ref() never reads its own `distance` or `abundance`: a SourceRef is the
@@ -133,6 +139,12 @@ class ModelSourceSpec(BaseModel):
         description="Hand-set strength from 1 (weakest) to 5 (strongest); later replaced by a "
         "measured score from the Hive's own evaluation runs (codingrules section 8.10)."
     )
+    measured_grade: _Grade | None = Field(
+        default=None,
+        description="Strength from 1 to 5 measured by the Hive's own evaluation harness (`hive "
+        "llm eval --update-map`); when set it replaces the hand-set `grade` everywhere a "
+        "strength is compared. None until a run has measured this source.",
+    )
     context_window: Annotated[int, Field(gt=0)] = Field(
         description="The model's context window, in tokens. Strictly positive."
     )
@@ -231,6 +243,18 @@ class ModelSource(BaseModel):
         description="Measured latency and speed from a Cell; None before the first measurement.",
     )
     abundance: Abundance = Field(description="Live free-capacity figures.")
+
+    @property
+    def effective_grade(self) -> int:
+        """Return the strength to compare: the measured grade when there is one, else the hand-set.
+
+        Returns:
+            `spec.measured_grade` when the evaluation harness has measured this source, otherwise
+            `spec.grade`; always from 1 to 5.
+        """
+        # `is not None` rather than truthiness: 1 is a legal measured grade and must still win.
+        measured = self.spec.measured_grade
+        return measured if measured is not None else self.spec.grade
 
     def source_ref(self) -> SourceRef:
         """Build the wire `SourceRef` other Forage models embed when they cross Waggle.

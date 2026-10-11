@@ -95,6 +95,11 @@ Public API (roadmap step 6.5a, ADR-0033: the transcription boundary, `hivemind.l
       TranscriptionFactory, default_transcription_factories) from `hivemind.llm.registry` itself.
     - `ProviderCapabilities.audio`: whether a chat provider takes audio directly; when False,
       audio goes through `ModelSlot.TRANSCRIBER` instead.
+Public API (roadmap step 8.1, the pure half):
+    - Routing (`hivemind.llm.routing`): choose_binding, RoutingInputs, RoutingRules,
+      RoutingDecision are re-exported here; RoutingReason, PassedOver, PassOverCause,
+      ForageShortfall, default_floors, choose_effort and TIGHT_BUDGET_S are imported from
+      `hivemind.llm.routing` itself (this file is at its size limit).
 Public API (roadmap step 7.1, ADR-0036):
     - The embedding boundary (`hivemind.llm.embedding`): EmbeddingRequest, EmbeddingResponse,
       MAX_EMBED_TEXTS, EmbeddingCapabilities, EmbeddingProvider, FakeEmbedding,
@@ -224,6 +229,7 @@ from hivemind.llm.registry import (
     apply_overrides,
     default_factories,
 )
+from hivemind.llm.routing import RoutingDecision, RoutingInputs, RoutingRules, choose_binding
 from hivemind.llm.slots import (
     BoundModel,
     ProviderLookup,
@@ -282,7 +288,6 @@ __all__ = [
     "MAX_PCM_BYTES",
     "MAX_RAW_PREVIEW_CHARS",
     "MAX_TOOL_ROUNDS_DEFAULT",
-    "MAX_TRANSCRIPT_CHARS",
     "NATIVE_SCHEMA_RETRIES",
     "NONE_CONTEXT_WINDOW_DEFAULT",
     "PCM_SAMPLE_WIDTH_BYTES",
@@ -357,6 +362,9 @@ __all__ = [
     "RegistryDeps",
     "Responder",
     "Role",
+    "RoutingDecision",
+    "RoutingInputs",
+    "RoutingRules",
     "Rung",
     "SectionLabel",
     "SpillReason",
@@ -385,6 +393,7 @@ __all__ = [
     "WavHeader",
     "apply_overrides",
     "check_request",
+    "choose_binding",
     "collect_clip",
     "complete_structured",
     "default_factories",

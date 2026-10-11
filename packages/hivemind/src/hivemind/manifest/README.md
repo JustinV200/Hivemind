@@ -38,6 +38,11 @@ member's `manifest_key` must be bound directly (not merely reachable through som
 fallback); and `[llm] offline = true` refuses any provider whose `base_url` is empty (hosted) or
 whose host is not loopback (`waggle.is_loopback_host`).
 
+`[llm.floors]` (roadmap step 8.1, `schema/floors.py`) maps a slot's lowercase name to its minimum
+model grade, 1 to 5; a key that is not a `ModelSlot`'s manifest key is rejected, and
+`LlmSection.grade_floors()` returns a floor for every slot with the shipped defaults (queen 5,
+attendant, ripener, embedder and transcriber 1, others 2) filling any the table omits.
+
 ### Cross-section checks (`HiveManifest`)
 
 Only one: every `[forage.map.<source_id>].provider` must name a declared `[llm.providers.*]`

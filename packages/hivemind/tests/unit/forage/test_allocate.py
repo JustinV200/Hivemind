@@ -190,6 +190,23 @@ def test_grant_excludes_a_source_below_the_grade_floor() -> None:
     assert result.seats == ()
 
 
+def test_grant_reads_the_measured_grade_over_the_hand_set_one() -> None:
+    # Hand-set 5 would clear CRITICAL's floor; the harness measured 1, which does not.
+    source = make_source(source_id="src_overrated", grade=MAX_MODEL_GRADE, measured_grade=1)
+    forage_map = ForageMap([source], clock=FakeClock())
+    inputs = _inputs(map=forage_map, tempo=Tempo(accuracy=AccuracyBar.CRITICAL))
+
+    assert grant(inputs).allowed == ()
+
+
+def test_grant_admits_a_source_whose_measured_grade_beats_its_hand_set_one() -> None:
+    source = make_source(source_id="src_underrated", grade=MIN_MODEL_GRADE, measured_grade=5)
+    forage_map = ForageMap([source], clock=FakeClock())
+    inputs = _inputs(map=forage_map, tempo=Tempo(accuracy=AccuracyBar.CRITICAL))
+
+    assert [b.source_id for b in grant(inputs).allowed] == ["src_underrated"]
+
+
 def test_grant_excludes_a_source_whose_cost_exceeds_the_spend_cap() -> None:
     expensive = make_source(source_id="src_expensive", cost=ModelCost(cost_per_seat_hour_usd=50.0))
     forage_map = ForageMap([expensive], clock=FakeClock())

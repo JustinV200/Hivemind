@@ -272,6 +272,8 @@ def _candidates_for_slot(
 def _rank(candidates: list[ModelSource], cell: Cell, inputs: _PlanInputs) -> list[ModelSource]:
     """Rank candidates local-first, then by grade/distance/VRAM/seat fit, then by cost.
 
+    The grade compared is `ModelSource.effective_grade`: a measured grade replaces a hand-set one.
+
     A source is excluded outright when its declared VRAM requirement does not fit the Cell's own
     free VRAM (only checked for a source local to this Cell -- a shared source's VRAM is the
     remote Cell's own concern), when its cost is non-zero and the goal-level spend cap is zero, or
@@ -287,7 +289,7 @@ def _rank(candidates: list[ModelSource], cell: Cell, inputs: _PlanInputs) -> lis
     eligible = [
         s
         for s in candidates
-        if _fits_vram(s, cell, free_vram) and s.spec.grade >= floor and _fits_cost(s, inputs)
+        if _fits_vram(s, cell, free_vram) and s.effective_grade >= floor and _fits_cost(s, inputs)
     ]
     if not eligible:
         return []

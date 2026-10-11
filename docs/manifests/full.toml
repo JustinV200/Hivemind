@@ -214,6 +214,18 @@ provider = "speech"
 model = "whisper-large-v3"
 effort = "LOW"
 
+[llm.floors]
+# The weakest Forage-map grade (1 weakest, 5 strongest) each slot may be routed to, keyed by the
+# slot's lowercase name. A slot left out keeps its default: queen 5 (routing caps it at the
+# strongest grade actually on the map, so a Hive whose best model is a 4 still runs), attendant,
+# ripener, embedder and transcriber 1, every other slot 2. A task's tempo can raise a floor (a
+# HIGH or CRITICAL accuracy bar) and a rebind on escalation can raise it for one bee; nothing
+# ever lowers it. A grade is the hand-set `grade` of a [forage.map] entry until `hive llm eval
+# --update-map` writes a `measured_grade` over it. Here the judge must be a strong model and the
+# worker a solid one; the rest keep their defaults.
+judge = 4
+worker = 3
+
 [forage]
 # Seconds before an unrenewed grant expires.
 grant_ttl_s = 300.0

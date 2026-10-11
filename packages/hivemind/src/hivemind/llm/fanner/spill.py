@@ -2,9 +2,11 @@
 
 Spill-over (codingrules section 8.10) is the Fanner moving a call from its current binding to the
 next one in `hivemind.llm.slots.BoundModel.fallback`. Codingrules names three cases -- the current
-source's grade is below the calling tempo's floor, the model it names is not loaded there, or
-queueing for its seat has already eaten too much of the tempo's latency budget -- and roadmap step
-4.7a adds a fourth, checked first: the source is currently throttled, after a hosted provider
+source's effective grade (`ModelSource.effective_grade`: measured when the evaluation harness has
+measured it, else hand-set) is below the calling tempo's floor, the model it names is not loaded
+there, or queueing for its seat has already eaten too much of the tempo's latency budget -- and
+roadmap step 4.7a
+adds a fourth, checked first: the source is currently throttled, after a hosted provider
 rate-limited a call on it (`hivemind.forage.map.ForageMap.throttle`). This module holds the pure,
 synchronous half of that decision -- given a source (or none) and a tempo, which reason (if any)
 applies -- so `hivemind.llm.fanner.lane.FannerLane.complete` reads as a short walk of these checks
@@ -84,7 +86,7 @@ def static_spill_reason(source: ModelSource | None, tempo: Tempo) -> SpillReason
         # ForageMap already resolved an expired throttle before handing this source back
         # (ForageMap._effective), so a non-None value here means the mask is still in force.
         return SpillReason.THROTTLED
-    if source.spec.grade < grade_floor(tempo.accuracy):
+    if source.effective_grade < grade_floor(tempo.accuracy):
         return SpillReason.GRADE_BELOW_FLOOR
     if source.spec.seats == _UNLOADED_SEATS:
         return SpillReason.MODEL_NOT_LOADED

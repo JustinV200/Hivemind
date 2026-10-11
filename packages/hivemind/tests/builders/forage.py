@@ -54,6 +54,7 @@ _SPEC_FIELD_NAMES = frozenset(
         "provider",
         "model",
         "grade",
+        "measured_grade",  # Roadmap step 8.1.
         "context_window",
         "cost",
         "capabilities",

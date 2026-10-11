@@ -29,6 +29,17 @@ a slot's own key is that slot, and a named binding (such as `local_worker`) is t
 `ModelSlot` order, whose fallback chain reaches it; None when no chain does. The Warden's
 `slot_binding` point checks `llm:<slot>` for the slot a binding key resolves to.
 
+## Roadmap step 8.1
+
+`ModelSourceSpec.measured_grade` (1 to 5, default None) is the grade the evaluation harness
+(`hive llm eval --update-map`) measured; `ModelSource.effective_grade` is the measured grade when
+there is one and the hand-set `grade` otherwise. Every strength comparison reads
+`effective_grade` (`allocate`'s grade floor, `llm.fanner.spill`, the Queen's hosting plans and
+`llm.routing`); nothing reads `spec.grade` as a strength. `cli.stores.build_forage_map(manifest,
+clock, measured_grades)` applies measured grades over the manifest's. `ForageMap.add_source(source)`
+and `remove_source(source_id) -> bool` change the catalogue at run time under the map's lock (a
+repeated id replaces the entry; removing an unknown id returns False).
+
 ## Public API (roadmap step 3.12)
 
 Eleven frozen pydantic models, one per Forage concept in codingrules section 6.1's table, split

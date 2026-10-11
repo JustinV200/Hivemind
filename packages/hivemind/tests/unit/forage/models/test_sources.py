@@ -202,3 +202,20 @@ def test_model_source_source_ref_carries_the_static_identity_only() -> None:
     assert ref == SourceRef(
         source_id="src_1", provider="acme", model="acme-model", host_cell_id=None
     )
+
+
+def test_effective_grade_is_the_hand_set_grade_until_a_measurement_exists() -> None:
+    assert make_source(grade=3).effective_grade == 3
+
+
+def test_effective_grade_prefers_the_measured_grade_even_when_it_is_lower() -> None:
+    source = make_source(grade=5, measured_grade=1)
+
+    assert source.effective_grade == 1  # 1 is a real measurement, not "unset".
+
+
+def test_measured_grade_defaults_to_none_and_is_bounded_like_grade() -> None:
+    assert make_source().spec.measured_grade is None
+    for bad in (MIN_MODEL_GRADE - 1, MAX_MODEL_GRADE + 1):
+        with pytest.raises(ValidationError):
+            make_source(measured_grade=bad)

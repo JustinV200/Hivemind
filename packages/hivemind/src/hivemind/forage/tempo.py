@@ -155,6 +155,6 @@ def grade_floor(bar: AccuracyBar) -> int:
 
     Returns:
         A grade from 1 to 5 (`GRADE_FLOORS`); `hivemind.forage.allocate.grant` keeps only map
-        sources whose `ModelSourceSpec.grade` is at least this floor.
+        sources whose `ModelSource.effective_grade` is at least this floor.
     """
     return GRADE_FLOORS[bar]

@@ -218,3 +218,25 @@ async def test_write_hosting_plan_increments_revision_on_a_second_call() -> None
     second = await write_hosting_plan(cell, deps)
 
     assert second.revision == 1
+
+
+async def test_a_measured_grade_overrules_the_hand_set_grade_in_the_plan() -> None:
+    clock = FakeClock()
+    cell = _cell(clock, can_host_model=False)
+    # The hand-set 5 would lead on closeness, but the harness measured it at 1: below the floor.
+    overrated = make_source(
+        source_id="src_overrated",
+        provider="fake",
+        model=_WORKER_MODEL,
+        grade=5,
+        measured_grade=1,
+        host_cell_id=cell.id,
+    )
+    sound = make_source(source_id="src_sound", provider="fake", model=_WORKER_MODEL, grade=3)
+    deps = _with_map(await _deps_with_shared_headroom(clock, cell), (overrated, sound), clock)
+
+    plan = await write_hosting_plan(cell, deps)
+
+    primary, fallbacks = _worker_chain(plan)
+    assert primary == "src_sound"
+    assert "src_overrated" not in (primary, *fallbacks)

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 import typer
+from pydantic import ValidationError
 
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, TaskFilter
 from hivemind.cli.stores import (
@@ -32,6 +33,7 @@ from hivemind.cli.stores import (
     open_trail,
     provider_configs,
     resolve_db,
+    routing_rules,
     slot_bindings,
 )
 from hivemind.common.migrations import applied_versions, apply_migrations, load_migrations
@@ -233,6 +235,45 @@ def test_build_forage_map_seeds_abundance_from_the_sources_own_seat_count() -> N
     source = forage_map.get("anthropic_opus")
     assert source.abundance.seats_free == source.spec.seats
     assert source.distance is None  # Never measured yet.
+
+
+def test_build_forage_map_applies_measured_grades_over_the_manifests_hand_set_ones() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "minimal.toml")
+    hand_set = build_forage_map(manifest, FakeClock()).get("anthropic_opus").spec.grade
+
+    forage_map = build_forage_map(manifest, FakeClock(), {"anthropic_opus": 1, "gone": 5})
+
+    source = forage_map.get("anthropic_opus")
+    assert (source.spec.grade, source.spec.measured_grade) == (hand_set, 1)
+    assert source.effective_grade == 1
+    assert "gone" not in {s.source_id for s in forage_map.sources()}  # Unknown ids are ignored.
+
+
+def test_build_forage_map_leaves_unmeasured_sources_on_their_hand_set_grade() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    forage_map = build_forage_map(manifest, FakeClock(), {})
+
+    assert all(s.spec.measured_grade is None for s in forage_map.sources())
+
+
+def test_build_forage_map_rejects_a_measured_grade_outside_one_to_five() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "minimal.toml")
+
+    with pytest.raises(ValidationError):
+        build_forage_map(manifest, FakeClock(), {"anthropic_opus": 9})
+
+
+def test_routing_rules_carry_the_manifests_floors_offline_flag_and_spend_cap() -> None:
+    manifest = load_manifest(_MANIFESTS_DIR / "full.toml")
+
+    rules = routing_rules(manifest)
+
+    assert dict(rules.floors) == dict(manifest.llm.grade_floors())
+    assert rules.floors[ModelSlot.JUDGE] == 4  # docs/manifests/full.toml's own [llm.floors].
+    assert rules.offline is manifest.llm.offline
+    assert rules.spend_cap_usd == manifest.forage.spend_cap_per_goal_usd
+    assert rules.raised_floor == 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────

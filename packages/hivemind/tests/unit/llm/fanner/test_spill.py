@@ -54,6 +54,16 @@ def test_static_spill_reason_flags_grade_below_the_tempo_floor() -> None:
     assert static_spill_reason(source, tempo) is SpillReason.GRADE_BELOW_FLOOR
 
 
+def test_static_spill_reason_reads_the_measured_grade_over_the_hand_set_one() -> None:
+    tempo = Tempo(accuracy=AccuracyBar.CRITICAL)  # grade_floor(CRITICAL) == 4
+
+    overrated = make_source(grade=5, measured_grade=1)
+    underrated = make_source(grade=1, measured_grade=5)
+
+    assert static_spill_reason(overrated, tempo) is SpillReason.GRADE_BELOW_FLOOR
+    assert static_spill_reason(underrated, tempo) is None
+
+
 def test_static_spill_reason_flags_a_source_with_zero_seats_as_not_loaded() -> None:
     source = make_source(grade=5, seats=0)
     tempo = Tempo(accuracy=AccuracyBar.LOW)

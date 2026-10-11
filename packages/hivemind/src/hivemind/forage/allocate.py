@@ -4,7 +4,8 @@
 a plain `ForageGrant` out, no I/O, and the same inputs always produce the same grant. It computes
 `max_sub_bees` as the minimum of the Cell's own cap, free memory over the role's footprint memory,
 free cores over its cpu, reachable model seats, and the goal's remaining bee cap (roadmap step
-3.12); `allowed` bindings are the Forage map sources whose grade clears the task's tempo floor
+3.12); `allowed` bindings are the Forage map sources whose effective grade (the measured grade
+when the evaluation harness has one, else the hand-set one) clears the task's tempo floor
 (`hivemind.forage.tempo.grade_floor`), whose cost fits the spend budget and, when
 `GrantInputs.reachable_source_ids` narrows the map, whose id is in that set (roadmap step 4.7:
 "reachability under the Cell's network policy and hosting decision" -- computed by the caller, a
@@ -52,9 +53,9 @@ Key invariants:
       `inputs.budgets.max_sub_bees - inputs.goal_sub_bees_used`, or what the Cell's free memory
       allows once `inputs.reserve.memory_bytes` is subtracted (property-tested with hypothesis),
       under every Tempo v1 can draw.
-    - Every AllowedBinding grant() returns names a source whose grade is at least
-      `grade_floor(inputs.tempo.accuracy)` and, when `inputs.reachable_source_ids` is not None,
-      whose id is a member of it.
+    - Every AllowedBinding grant() returns names a source whose `effective_grade` is at
+      least `grade_floor(inputs.tempo.accuracy)` and, when `inputs.reachable_source_ids` is not
+      None, whose id is a member of it.
     - `grant(inputs).max_sub_bees == sub_bee_limits(inputs).max_sub_bees` for every input: both
       read one computation (`_limits`), so a caller's reading of why a grant is zero is always
       about the grant it actually got.
@@ -445,7 +446,7 @@ def _sources_within(
     return tuple(
         source
         for source in forage_map.sources()
-        if source.spec.grade >= floor
+        if source.effective_grade >= floor
         and source.spec.cost.cost_per_seat_hour_usd <= remaining_spend
         # None means "no narrowing": every source the two checks above already allow is reachable
         # (v0's own behaviour, unchanged when a caller never supplies inputs.reachable_source_ids).

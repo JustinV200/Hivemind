@@ -28,12 +28,15 @@ embedder's own fallback chain -- so a manifest can never accidentally send a Wor
 to a provider that cannot answer them. ``ProviderKind``, ``EMBEDDING_ONLY_KINDS`` and
 ``IN_PROCESS_KINDS`` mirror ``hivemind.llm.registry``'s own copies member-for-member (that module
 cannot import this one, for the same Layer 1 sibling reason above); a dedicated test keeps the two
-sides in sync.
+sides in sync. Roadmap step 8.1 adds ``[llm.floors]`` (``LlmSection.floors``): each slot's
+minimum model grade, which routing reads through ``grade_floors()`` (the table completed with the
+shipped defaults; ``hivemind.manifest.schema.floors`` holds the checks and the defaults).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
     ``hivemind.manifest.schema.manifest.HiveManifest``. Calls into ``hivemind.forage`` (for
-    ``ModelSlot`` and ``Effort``, never ``hivemind.llm``) and ``waggle`` only.
+    ``ModelSlot`` and ``Effort``, never ``hivemind.llm``), ``hivemind.manifest.schema.floors``
+    and ``waggle`` only.
 
 Key invariants:
     - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
@@ -66,12 +69,14 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.forage import Effort, ModelSlot
+from hivemind.manifest.schema.floors import FloorGrade, complete_floors, reject_unknown_floor_keys
 from waggle.messages.forage.values import MAX_MODEL_CHARS, MAX_PROVIDER_CHARS
 from waggle.uris import is_loopback_host
 
@@ -344,6 +349,21 @@ class LlmSection(BaseModel):
         description="Every model-slot binding, keyed by a lowercase ModelSlot name or a named "
         "binding used only as a fallback target.",
     )
+    floors: dict[_ManifestKey, FloorGrade] = Field(
+        default_factory=dict,
+        description="[llm.floors]: each slot's minimum model grade, 1 to 5, keyed by the slot's "
+        "lowercase name. A slot left out keeps its default (grade_floors).",
+    )
+
+    def grade_floors(self) -> Mapping[ModelSlot, int]:
+        """Return every slot's grade floor: this table's value, else the shipped default."""
+        return complete_floors(self.floors)
+
+    @model_validator(mode="after")
+    def _every_floor_names_a_model_slot(self) -> LlmSection:
+        """Reject an [llm.floors] key that is not a ModelSlot's manifest key."""
+        reject_unknown_floor_keys(self.floors)
+        return self
 
     @model_validator(mode="after")
     def _every_binding_names_a_declared_provider(self) -> LlmSection:

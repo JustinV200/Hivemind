@@ -81,9 +81,11 @@ Public API:
     - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings,
       open_honey_store: the store composition functions; open_goal_requests and open_chat_log
       (roadmap step 10.5) open the Queen's own goal-request table and chat log the same way.
-    - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
-      conversion functions; build_provider_registry is build_registry over a shared ForageMap,
-      optionally scripting every `"fake"` provider (the Hive's composition root's own form).
+    - build_registry, slot_bindings, provider_configs, build_forage_map, routing_rules: the
+      manifest-to-llm conversion functions (build_forage_map applies the ledger's measured grades;
+      routing_rules builds the floors, offline flag and spend cap routing reads, roadmap 8.1);
+      build_provider_registry is build_registry over a shared ForageMap, optionally scripting
+      every `"fake"` provider (the Hive's composition root's own form).
 """
 
 from __future__ import annotations
@@ -101,7 +103,7 @@ from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStor
 from hivemind.cell.leavings import SqliteLeavingsStore
 from hivemind.common.sqlite import connect
 from hivemind.exoskeleton.recorder import SqliteRecordingStore
-from hivemind.forage import Abundance, ForageMap, ModelSource
+from hivemind.forage import Abundance, ForageMap, ModelSource, ModelSourceSpec
 from hivemind.forage.map import SlotBinding
 from hivemind.hive.snapshot import SqliteSnapshotLedger
 from hivemind.honey_store import SqliteHoneyStore
@@ -118,6 +120,7 @@ from hivemind.llm import (
     apply_overrides,
     default_factories,
 )
+from hivemind.llm.routing import RoutingRules
 from hivemind.manifest import HiveManifest, ManifestError, load_manifest
 from hivemind.memory import MemoryStore, SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
@@ -571,24 +574,69 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
     }
 
 
-def build_forage_map(manifest: HiveManifest, clock: Clock) -> ForageMap:
+def build_forage_map(
+    manifest: HiveManifest, clock: Clock, measured_grades: Mapping[str, int] | None = None
+) -> ForageMap:
     """Convert `manifest`'s `[forage.map]` table into a live ForageMap.
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
         clock: Passed through to the built ForageMap, which only reads it when a later caller
             (the Fanner) records a fresh measurement through `observe`.
+        measured_grades: Grades the evaluation harness measured (`hive llm eval --update-map`),
+            keyed by `source_id`, from the Queen's ledger. Each replaces that source's
+            `measured_grade`, and so its `effective_grade`, over the manifest's hand-set figure;
+            an id the map does not hold is ignored (the source was removed since the run). None
+            applies nothing.
 
     Returns:
         A ForageMap with one ModelSource per `[forage.map.<source_id>]` entry, each starting with
         no measured Distance and an Abundance of its own declared `seats` (see this module's Key
         invariants).
+
+    Raises:
+        pydantic.ValidationError: A measured grade is outside 1 to 5.
     """
+    measured = measured_grades or {}
     sources = (
-        ModelSource(source_id=source_id, spec=spec, abundance=Abundance(seats_free=spec.seats))
+        ModelSource(
+            source_id=source_id,
+            spec=_with_measured_grade(spec, measured.get(source_id)),
+            abundance=Abundance(seats_free=spec.seats),
+        )
         for source_id, spec in manifest.forage.map.items()
     )
     return ForageMap(sources, clock=clock)
+
+
+def _with_measured_grade(spec: ModelSourceSpec, grade: int | None) -> ModelSourceSpec:
+    """Return `spec` with `grade` as its measured grade, validated; `spec` itself when None."""
+    if grade is None:
+        return spec  # Nothing measured for this source: the manifest's own figures stand.
+    # Re-validated through the model rather than `model_copy`, which would let a grade of 0 or 9
+    # (a corrupt ledger row) onto the map and into every floor comparison.
+    return ModelSourceSpec.model_validate({**spec.model_dump(), "measured_grade": grade})
+
+
+def routing_rules(manifest: HiveManifest) -> RoutingRules:
+    """Convert `manifest` into the standing orders routing reads (roadmap step 8.1).
+
+    The queen's default floor of 5 is left as written: `choose_binding` caps a floor at the
+    strongest grade on the live Forage map at decision time, when that map is known, so this
+    function needs no map of its own.
+
+    Args:
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`.
+
+    Returns:
+        RoutingRules with `[llm.floors]` completed by the shipped defaults, `[llm] offline`, and
+        `[forage] spend_cap_per_goal_usd` as the spend cap; no raised floor (a rebind sets that).
+    """
+    return RoutingRules(
+        floors=manifest.llm.grade_floors(),
+        offline=manifest.llm.offline,
+        spend_cap_usd=manifest.forage.spend_cap_per_goal_usd,
+    )
 
 
 async def closing_registry[ResultT](
