@@ -251,6 +251,24 @@ def test_llm_usage_accepts_valid_fields() -> None:
     assert usage.cost_usd == pytest.approx(0.03)
 
 
+def test_llm_usage_reads_an_older_payload_as_measured_and_not_known_priced() -> None:
+    # A payload written before roadmap 8.8 has neither flag.
+    old = {"input_tokens": 1, "output_tokens": 1, "cached_tokens": 0, "cost_usd": 0.0}
+
+    usage = LlmUsage.model_validate(old)
+
+    assert usage.estimated is False
+    assert usage.priced is False
+
+
+def test_llm_usage_round_trips_the_estimated_and_priced_flags() -> None:
+    usage = LlmUsage(
+        input_tokens=1, output_tokens=1, cached_tokens=0, cost_usd=0.0, estimated=True, priced=True
+    )
+
+    assert LlmUsage.model_validate_json(usage.model_dump_json()) == usage
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

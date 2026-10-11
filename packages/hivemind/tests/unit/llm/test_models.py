@@ -243,6 +243,15 @@ def test_usage_zero_still_yields_an_unpriced_sum_for_an_unpriced_call() -> None:
     assert total.input_tokens == 3
 
 
+def test_usage_estimated_defaults_false_and_a_sum_is_estimated_if_either_part_is() -> None:
+    measured = Usage(input_tokens=1, output_tokens=1)
+    guessed = Usage(input_tokens=1, output_tokens=1, estimated=True)
+
+    assert measured.estimated is False
+    assert (measured + measured).estimated is False
+    assert (measured + guessed).estimated is True
+
+
 def test_usage_round_trips_through_json() -> None:
     usage = Usage(input_tokens=10, output_tokens=5, cached_tokens=1, cost_usd=0.5)
 

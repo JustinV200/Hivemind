@@ -68,6 +68,7 @@ from hivemind.llm.models import (
     ToolResultPart,
     Usage,
 )
+from hivemind.llm.providers.openai_compat.estimate import estimated_usage, response_char_count
 from hivemind.llm.providers.openai_compat.media import media_to_wire, media_turn
 
 # Effort.MEDIUM/LOW/HIGH -> the wire's own three-level `reasoning_effort` strings.
@@ -300,7 +301,11 @@ def _response_format_to_wire(
 
 
 def response_from_json(
-    payload: JsonObject, *, provider: str, rate_limit: RateLimitSnapshot | None = None
+    payload: JsonObject,
+    *,
+    provider: str,
+    rate_limit: RateLimitSnapshot | None = None,
+    prompt_chars: int = 0,
 ) -> LLMResponse:
     """Build an `LLMResponse` from a non-streaming `/chat/completions` reply.
 
@@ -311,6 +316,8 @@ def response_from_json(
         rate_limit: This call's own reported headroom (`rate_limit_from_headers`), or None for a
             streamed response (this adapter's `stream()` never reads rate-limit headers, roadmap
             step 4.7a's own scope) or when the response carried none.
+        prompt_chars: Characters of the request that produced this reply, used only to estimate
+            `Usage.input_tokens` when the reply has no `usage` block.
 
     Returns:
         The mapped LLMResponse.
@@ -332,10 +339,14 @@ def response_from_json(
         parts.append(ToolCallPart(call=_tool_call_from_wire(raw_call, provider)))
     stop_reason = _stop_reason_from_wire(choice.get("finish_reason"))
     model = payload.get("model")
+    # No usage block: estimate from characters and flag it, rather than report zero tokens.
+    usage = _usage_from_wire(payload.get("usage")) or estimated_usage(
+        prompt_chars, response_char_count(parts)
+    )
     return LLMResponse(
         parts=tuple(parts),
         stop_reason=stop_reason,
-        usage=_usage_from_wire(payload.get("usage")),
+        usage=usage,
         model=model if isinstance(model, str) else "",
         rate_limit=rate_limit,
     )
@@ -363,9 +374,17 @@ def _tool_call_from_wire(raw: JsonValue, provider: str) -> ToolCall:
     )
 
 
-def _usage_from_wire(raw: JsonValue | None) -> Usage:
-    """Map the wire's `usage` object to a `Usage`; a missing or malformed one becomes all-zero."""
+def _usage_from_wire(raw: JsonValue | None) -> Usage | None:
+    """Map the wire's `usage` object to a `Usage`, or None when the server reported none.
+
+    A `usage` that is absent, not an object, or carries neither token count is "no usage": the
+    caller estimates from characters (`estimate.estimated_usage`) instead of trusting zeros.
+    """
     raw_dict = _as_dict(raw)
+    if not isinstance(raw_dict.get("prompt_tokens"), int) and not isinstance(
+        raw_dict.get("completion_tokens"), int
+    ):
+        return None
     details = _as_dict(raw_dict.get("prompt_tokens_details"))
     cached = details.get("cached_tokens", 0)
     input_tokens = raw_dict.get("prompt_tokens", 0)
@@ -425,9 +444,13 @@ class StreamState:
     """
 
     provider: str
+    prompt_chars: int = (
+        0  # The request's characters, for estimating usage if the server sends none.
+    )
     _pieces: dict[int, _PartialToolCall] = field(default_factory=dict)
     _pending_stop_reason: StopReason | None = field(default=None)
     _stop_reason_flushed: bool = field(default=False)
+    _output_chars: int = field(default=0)  # Streamed characters so far, for the same estimate.
 
     def absorb(self, chunk: JsonObject) -> tuple[LLMChunk, ...]:
         """Fold one parsed SSE `data:` object in and return the LLMChunks it completes."""
@@ -435,16 +458,17 @@ class StreamState:
         if not choices:
             # A trailing usage-only chunk: empty `choices`, `usage` present (stream_options.
             # include_usage's last line). This is the normal place the final chunk is emitted.
-            usage = chunk.get("usage")
+            usage = _usage_from_wire(chunk.get("usage"))
             if usage is None:
-                return ()
+                return ()  # No usable usage: `finalize` estimates it once the stream ends.
             self._stop_reason_flushed = True
-            return (LLMChunk(usage=_usage_from_wire(usage), stop_reason=self._pending_stop_reason),)
+            return (LLMChunk(usage=usage, stop_reason=self._pending_stop_reason),)
         choice = _as_dict(choices[0])
         delta = _as_dict(choice.get("delta"))
         out: list[LLMChunk] = []
         text = delta.get("content")
         if isinstance(text, str) and text:
+            self._output_chars += len(text)
             out.append(LLMChunk(text=text))
         for piece in _as_list(delta.get("tool_calls")):
             self._absorb_tool_call_piece(piece)
@@ -456,10 +480,16 @@ class StreamState:
         return tuple(out)
 
     def finalize(self) -> LLMChunk | None:
-        """Return a trailing final chunk if the stream ended with no usage-only chunk for it."""
+        """Return a trailing final chunk if the stream ended with no usage-only chunk for it.
+
+        The chunk carries estimated usage (characters / `CHARS_PER_TOKEN_ESTIMATE`, flagged
+        `estimated=True`): a server that ignores `stream_options.include_usage` must not read as
+        zero tokens.
+        """
         if self._pending_stop_reason is None or self._stop_reason_flushed:
             return None
-        return LLMChunk(stop_reason=self._pending_stop_reason)
+        usage = estimated_usage(self.prompt_chars, self._output_chars)
+        return LLMChunk(usage=usage, stop_reason=self._pending_stop_reason)
 
     def _absorb_tool_call_piece(self, piece: JsonValue) -> None:
         """Merge one `delta.tool_calls[*]` wire entry into its accumulating `_PartialToolCall`."""
@@ -474,9 +504,11 @@ class StreamState:
         name = function.get("name")
         if isinstance(name, str) and name:
             partial.name = name
+            self._output_chars += len(name)
         arguments_piece = function.get("arguments")
         if isinstance(arguments_piece, str):
             partial.arguments_json += arguments_piece
+            self._output_chars += len(arguments_piece)
 
     def _drain_finished_tool_calls(self) -> tuple[LLMChunk, ...]:
         """Emit one LLMChunk per accumulated tool call, in index order, and clear the buffer."""

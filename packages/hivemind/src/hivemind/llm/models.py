@@ -30,7 +30,8 @@ Key invariants:
     - An image's or an audio clip's bytes never appear in a ``repr`` (codingrules section 12:
       never log screenshots), so a request logged by accident leaks only its shape.
     - ``Usage.__add__`` is cost-aware: the sum's ``cost_usd`` is ``None`` whenever either addend's
-      is ``None``, since an unpriced call can never be folded into a priced total.
+      is ``None``, since an unpriced call can never be folded into a priced total; its
+      ``estimated`` is the OR of both, since a total is only as exact as its least exact part.
     - ``LLMRequest.messages`` is one outgoing request's turns, never a growing transcript
       (codingrules section 8.8); ``scripts/check_no_transcripts.py`` allowlists this file by name
       for exactly that reason.
@@ -263,7 +264,14 @@ class Usage(BaseModel):
     cost_usd: Annotated[float, Field(ge=0)] | None = Field(
         default=None,
         description="What this call cost in US dollars, or None when the manifest lists no "
-        "price for the model that served it.",
+        "price for the model that served it. Adapters leave it None: the Fanner lane prices "
+        "the call (tokens x per-million prices + latency x per-seat-hour), in one place.",
+    )
+    estimated: bool = Field(
+        default=False,
+        description="True when the provider returned no usage block and the adapter estimated "
+        "the token counts from characters (CHARS_PER_TOKEN_ESTIMATE chars per token); False "
+        "when the counts are the server's own.",
     )
 
     @classmethod
@@ -285,7 +293,8 @@ class Usage(BaseModel):
         Returns:
             A new Usage with summed token counts. ``cost_usd`` is the sum of both costs when
             both are known, otherwise None: an unpriced call can never be folded into a priced
-            running total without silently understating it.
+            running total without silently understating it. ``estimated`` is True when either
+            addend's counts were estimated, so a total never claims more certainty than its parts.
         """
         if not isinstance(other, Usage):
             return NotImplemented
@@ -299,6 +308,7 @@ class Usage(BaseModel):
             output_tokens=self.output_tokens + other.output_tokens,
             cached_tokens=self.cached_tokens + other.cached_tokens,
             cost_usd=cost,
+            estimated=self.estimated or other.estimated,
         )
 
 

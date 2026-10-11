@@ -1,6 +1,7 @@
 """Define `hive llm`'s commands: inspect configured providers and slots, and send a test call.
 
-Three commands, each a thin typer layer over `hivemind.llm.registry.ProviderRegistry`
+Three commands (plus `models`, `pull` and `keep-alive` registered from `local.py`, roadmap step
+8.2), each a thin typer layer over `hivemind.llm.registry.ProviderRegistry`
 (`hivemind.cli.stores.build_registry`): `providers` lists every `[llm.providers.<name>]` row with
 its declared shape and a live health probe; `slots` lists every `hivemind.forage.slots.ModelSlot`
 resolved to its current binding, price and fallback chain; `test` resolves one slot and sends a
@@ -53,6 +54,7 @@ from typing import Annotated
 
 import typer
 
+from hivemind.cli.llm.local import deps_from_context, register_local_commands
 from hivemind.cli.llm.rows import ProviderRow, SlotRow, provider_rows, slot_row_for
 from hivemind.cli.stores import (
     DEFAULT_MANIFEST,
@@ -79,6 +81,10 @@ from waggle.clock import SystemClock
 app = typer.Typer(name="llm", help="Inspect the Hive's model providers and slots, or test one.")
 
 __all__ = ["app"]
+
+# `models`, `pull` and `keep-alive` live in `local.py` (a different concern: managing a local
+# server, not inspecting configuration) and attach to this same group.
+register_local_commands(app)
 
 # A short, neutral prompt: enough for a provider to prove it answers, cheap enough to run against
 # a hosted API without worrying about spend (codingrules section 8.6's model-id rule keeps this
@@ -125,12 +131,15 @@ class _EmbedTestResult:
 
 @app.command("providers")
 def providers_command(
-    manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False
+    ctx: typer.Context, manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False
 ) -> None:
     """List every configured provider: kind, base URL, seats, API key presence and health."""
     loaded = load_manifest_or_exit(manifest)
     registry = build_registry(loaded, os.environ, SystemClock())
-    rows = asyncio.run(closing_registry(registry, provider_rows(loaded, registry)))
+    # The health column also says `ollama` for a server that answers Ollama's native API
+    # (roadmap 8.2); the opener is the same seam the model-management commands use.
+    opener = deps_from_context(ctx).open_manager
+    rows = asyncio.run(closing_registry(registry, provider_rows(loaded, registry, opener)))
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return

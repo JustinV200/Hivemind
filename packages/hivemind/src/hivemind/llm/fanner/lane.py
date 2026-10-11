@@ -18,7 +18,9 @@ below the calling tempo's floor, or the model is not loaded there --
 (`hivemind.llm.fanner.seats.SeatMeter`, ordered by tempo); if that queueing itself ate too much of
 the tempo's latency budget (`hivemind.llm.fanner.spill.queue_wait_exceeded`), it also spills. Every
 spill is recorded as an `llm.spill` event; every completed call is recorded as an `llm.call` event,
-carrying the normalised `Usage` and the measured latency, and (when the source is known) updates
+carrying the normalised `Usage` priced by `hivemind.llm.fanner.pricing` (tokens x per-million
+prices plus latency x the source's per-seat-hour rate, with `priced` and `estimated` flags) and the
+measured latency, and (when the source is known) updates
 the Forage map's `distance` and `abundance` so the next call's routing sees fresh figures. With no
 fallback left, `FannerLane.complete` proceeds on the current binding regardless: the Fanner never
 refuses a call (codingrules section 8.10); a ladder's own retry and fallback logic, and the
@@ -29,8 +31,8 @@ Fits into the Hive:
     ladder and, once wired at the composition root, every awake episode and Worker tool loop that
     makes a model call. Calls into `hivemind.forage` (the map, `ModelSource` and `Tempo`),
     `hivemind.llm`'s own boundary (`BoundModel`, `LLMRequest`, `LLMResponse`) and this package's
-    sibling modules (`seats`, `limiter`, `spill`, `recorder`) only; no vendor SDK and no provider
-    code beyond the `LLMProvider` protocol.
+    sibling modules (`seats`, `limiter`, `spill`, `recorder`, `pricing`) only; no vendor SDK and
+    no provider code beyond the `LLMProvider` protocol.
 
 Key invariants:
     - `Fanner` meters per provider (`BoundModel.provider.name`, the manifest
@@ -78,6 +80,7 @@ from hivemind.llm.embedding.models import EmbeddingRequest, EmbeddingResponse
 from hivemind.llm.errors import RateLimitedError
 from hivemind.llm.fanner.embed import embed_through_fanner
 from hivemind.llm.fanner.limiter import ProviderRateLimiter, RateLimit, estimate_tokens
+from hivemind.llm.fanner.pricing import PricedUsage, price_response
 from hivemind.llm.fanner.recorder import LlmEventRecorder
 from hivemind.llm.fanner.seats import SeatMeter
 from hivemind.llm.fanner.spill import SpillReason, queue_wait_exceeded, static_spill_reason
@@ -370,21 +373,19 @@ class FannerLane:
         latency_s = self._fanner.deps.clock.monotonic() - start_s
         actual_tokens = response.usage.input_tokens + response.usage.output_tokens
         attempt.rate_limiter.observe_actual_tokens(attempt.estimated_tokens, actual_tokens)
-        await self._record_success(attempt, response, latency_s)
-        return response
+        return await self._record_success(attempt, response, latency_s)
 
     async def _record_success(
         self, attempt: _Attempt, response: LLMResponse, latency_s: float
-    ) -> None:
-        """Update the Forage map (when the source is known) and record the llm.call event.
+    ) -> LLMResponse:
+        """Price the call, update the Forage map (if the source is known), record llm.call.
 
-        Roadmap step 4.7a: `response.rate_limit`, when the provider reported one, both corrects
-        `attempt.rate_limiter`'s own guess (`ProviderRateLimiter.observe_snapshot`) and is written
-        onto the map's Abundance alongside the free-seat figure, so a hosted source's real
-        pressure reaches routing on the very next call; a `None` snapshot (every local server)
-        leaves the limiter untouched and writes `None` onto both of the map's rate fields, never
-        an invented number.
+        Roadmap 4.7a: a reported `response.rate_limit` corrects the limiter's guess and is written
+        onto the map's Abundance with the free-seat figure; `None` (every local server) writes
+        `None` there, never an invented number. Roadmap 8.8: the one place a call is priced; the
+        returned response carries the priced `Usage`, as does the trail.
         """
+        response, priced = price_response(attempt.bound, attempt.source, response, latency_s)
         snapshot = response.rate_limit
         if snapshot is not None:
             attempt.rate_limiter.observe_snapshot(snapshot)
@@ -398,10 +399,11 @@ class FannerLane:
                 requests_per_minute_left=snapshot.requests_remaining if snapshot else None,
                 tokens_per_minute_left=snapshot.tokens_remaining if snapshot else None,
             )
-        payload = _call_payload(attempt.bound, response, latency_s, self._grant_id, self._goal_id)
+        payload = _call_payload(attempt.bound, priced, latency_s, self._grant_id, self._goal_id)
         await self._fanner.deps.recorder.record(
             kind=LLM_CALL_KIND, subject_id=new_event_id(self._fanner.deps.clock), payload=payload
         )
+        return response
 
     async def _spill(self, current: BoundModel, target: BoundModel, reason: SpillReason) -> None:
         """Record an llm.spill event for moving from `current` to `target` because of `reason`."""
@@ -437,7 +439,7 @@ class FannerLane:
 
 def _call_payload(
     current: BoundModel,
-    response: LLMResponse,
+    priced: PricedUsage,
     latency_s: float,
     grant_id: str | None,
     goal_id: str | None,
@@ -451,7 +453,7 @@ def _call_payload(
     missing key exactly like an explicit `None`, so this is purely about keeping an ordinary
     trail payload free of two keys that never carry information.
     """
-    usage = response.usage
+    usage = priced.usage
     payload: JsonObject = {
         "slot": current.slot.value,
         "provider": current.provider.name,
@@ -460,8 +462,11 @@ def _call_payload(
             "output_tokens": usage.output_tokens,
             "cached_tokens": usage.cached_tokens,
             # LlmUsage.cost_usd is never None (unlike llm.models.Usage.cost_usd): an unpriced
-            # call costs 0 on the trail, mirroring LlmUsage's own docstring ("0 if unpriced").
+            # call costs 0 on the trail, mirroring LlmUsage's own docstring ("0 if unpriced"),
+            # and `priced` tells that apart from a free call that really cost 0.0.
             "cost_usd": usage.cost_usd if usage.cost_usd is not None else 0.0,
+            "estimated": usage.estimated,
+            "priced": priced.priced,
         },
         "latency_s": latency_s,
     }

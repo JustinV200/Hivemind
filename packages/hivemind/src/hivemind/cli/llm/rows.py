@@ -42,9 +42,12 @@ from hivemind.llm import (
     TranscriptionUnsupportedError,
     UnknownProviderError,
 )
-from hivemind.manifest import HiveManifest, provider_api_key
+from hivemind.llm.providers.ollama import ManagerOpener, OllamaManager
+from hivemind.manifest import HiveManifest, ProviderSpec, provider_api_key
 
-__all__ = ["ProviderRow", "SlotRow", "provider_rows", "slot_row_for"]
+OPENAI_COMPAT_KIND = "openai_compat"  # The one manifest kind that speaks to a model server.
+
+__all__ = ["OPENAI_COMPAT_KIND", "ProviderRow", "SlotRow", "provider_rows", "slot_row_for"]
 
 
 class ProviderRow(BaseModel):
@@ -82,17 +85,26 @@ class SlotRow(BaseModel):
 
 
 async def provider_rows(
-    manifest: HiveManifest, registry: ProviderRegistry
+    manifest: HiveManifest,
+    registry: ProviderRegistry,
+    open_manager: ManagerOpener = OllamaManager.open,
 ) -> tuple[ProviderRow, ...]:
-    """Build one row per configured provider, probing each one's live health in turn."""
+    """Build one row per configured provider, probing each one's live health in turn.
+
+    Args:
+        manifest: The loaded manifest.
+        registry: The registry the probes go through.
+        open_manager: How to ask whether a server is Ollama (roadmap 8.2); the default probes its
+            native API, a test passes `hivemind.llm.providers.ollama.opener(...)`.
+    """
     rows = []
     for name in registry.names():
-        rows.append(await _one_provider_row(manifest, registry, name))
+        rows.append(await _one_provider_row(manifest, registry, name, open_manager))
     return tuple(rows)
 
 
 async def _one_provider_row(
-    manifest: HiveManifest, registry: ProviderRegistry, name: str
+    manifest: HiveManifest, registry: ProviderRegistry, name: str, open_manager: ManagerOpener
 ) -> ProviderRow:
     """Build one provider's row: its manifest shape, key presence and live health."""
     spec = manifest.llm.providers[name]
@@ -103,16 +115,21 @@ async def _one_provider_row(
         base_url=spec.base_url or "(vendor default)",
         seats=spec.seats,
         has_api_key=has_key,
-        health=await _probe_health(registry, name, spec.kind),
+        health=await _probe_health(registry, name, spec, open_manager),
     )
 
 
-async def _probe_health(registry: ProviderRegistry, name: str, kind: str) -> str:
+async def _probe_health(
+    registry: ProviderRegistry, name: str, spec: ProviderSpec, open_manager: ManagerOpener
+) -> str:
     """Construct and probe one provider, or report why offline mode refused it.
 
-    `kind` is the provider's own manifest kind: a kind with no chat door is probed through the
-    one other door it serves.
+    `spec.kind` is the provider's own manifest kind: a kind with no chat door is probed through
+    the one other door it serves. A reachable server is also asked whether it is Ollama
+    (`_ollama_note`), but only after the registry built the provider, so offline mode's refusal
+    of a non-loopback server happens before any probe could leave the machine.
     """
+    kind = spec.kind
     try:
         provider = registry.provider(name)
     except OfflineViolationError:
@@ -127,7 +144,29 @@ async def _probe_health(registry: ProviderRegistry, name: str, kind: str) -> str
             return await _probe_embedder_health(registry, name)
         return await _probe_transcriber_health(registry, name)
     reading = await provider.health()
-    return f"{reading.state.value.lower()}: {reading.detail}"
+    return f"{reading.state.value.lower()}: {reading.detail}" + await _ollama_note(
+        name, spec, open_manager
+    )
+
+
+async def _ollama_note(name: str, spec: ProviderSpec, open_manager: ManagerOpener) -> str:
+    """Return ' (ollama <version>)' when the provider's server answers Ollama's native API.
+
+    Detection is by probing, never by name (ADR-0044); a provider with no `base_url` (hosted or
+    in-process) has nothing to probe, and a server that is not Ollama adds nothing to its row.
+    """
+    if spec.kind != OPENAI_COMPAT_KIND or not spec.base_url:
+        return ""
+    manager = await open_manager(name, spec.base_url, spec.timeout_s)
+    if manager is None:
+        return ""
+    try:
+        return f" (ollama {(await manager.health()).version})"
+    except LLMError:
+        # Detected a moment ago but its health call failed: still Ollama, version unknown.
+        return " (ollama)"
+    finally:
+        await manager.aclose()
 
 
 async def _probe_transcriber_health(registry: ProviderRegistry, name: str) -> str:

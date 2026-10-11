@@ -7,9 +7,10 @@ sub-package is the adapter roadmap step 3.7 asks for: `OpenAICompatConfig` (the 
 `[llm.providers.<name>]` section, of `kind = "openai_compat"`, turned into a validated value) and
 `OpenAICompatProvider` (the `hivemind.llm.provider.LLMProvider` implementation built from it).
 `mapping.py`, `media.py` (roadmap step 6.5's image and audio content parts, split out of
-`mapping.py` by size), `client.py` and `rate_limit.py` (roadmap step 4.7a's own header-parsing
-sibling to `mapping.py`), this package's other four modules, are private: neither an OpenAI wire
-field name nor an `httpx` type is meant to be seen from outside this package. Roadmap step 6.5a
+`mapping.py` by size), `client.py`, `rate_limit.py` (roadmap step 4.7a's own header-parsing
+sibling to `mapping.py`) and `estimate.py` (roadmap step 8.8's character-based token estimate for a
+server that reports no usage), this package's other five modules, are private: neither an OpenAI
+wire field name nor an `httpx` type is meant to be seen from outside this package. Roadmap step 6.5a
 adds the `transcription` sub-package: the same servers' `/audio/transcriptions` wire, as a
 `hivemind.llm.transcription.TranscriptionProvider` for `ModelSlot.TRANSCRIBER` (the model slot
 that hears), re-exported here as `OpenAICompatTranscription`/`OpenAICompatTranscriptionConfig`.

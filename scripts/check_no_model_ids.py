@@ -33,6 +33,7 @@ import argparse
 import ast
 import io
 import os
+import re
 import tokenize
 from collections.abc import Iterator, Sequence
 from pathlib import Path
@@ -50,9 +51,19 @@ PROVIDER_URL_FRAGMENTS = (
     ":11434",  # Ollama's default port.
 )
 
-# Every pattern this script looks for, lower-cased once so the scan itself can be a plain
-# case-folded substring check instead of re-lower-casing on every line.
+# Every pattern this script looks for, lower-cased once so the scan can run on a case-folded line
+# instead of re-lower-casing for every pattern.
 _ALL_PATTERNS = tuple(p.lower() for p in (*MODEL_ID_PREFIXES, *PROVIDER_URL_FRAGMENTS))
+
+# A model-id prefix only counts at the start of a word: "llama" inside "ollama" (the name of the
+# server whose management package is hivemind.llm.providers.ollama) is not a model id, while
+# "llama3", "llama-server" and "my_llama" (underscore: still a word start) are. URL fragments are
+# distinctive enough to stay plain substring checks.
+_WORD_START = r"(?<![a-z0-9])"
+_PREFIX_MATCHERS = {
+    pattern.lower(): re.compile(_WORD_START + re.escape(pattern.lower()))
+    for pattern in MODEL_ID_PREFIXES
+}
 
 # Directories never worth descending into (see scripts/check_sizes.py for the same rationale).
 SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git"})
@@ -158,12 +169,20 @@ def _check_file(path: Path) -> list[str]:
     for line_number, line in enumerate(masked_lines, start=1):
         lowered = line.lower()
         for pattern in _ALL_PATTERNS:
-            if pattern in lowered:
+            if _line_matches(pattern, lowered):
                 findings.append(
                     f"{path}:{line_number}: literal matching '{pattern}' outside "
                     "manifest/ and docs/ (codingrules 8.6)"
                 )
     return findings
+
+
+def _line_matches(pattern: str, lowered_line: str) -> bool:
+    """Return whether `pattern` occurs in `lowered_line`, a model-id prefix only at a word start."""
+    matcher = _PREFIX_MATCHERS.get(pattern)
+    if matcher is None:
+        return pattern in lowered_line  # A provider-URL fragment: a plain substring is enough.
+    return matcher.search(lowered_line) is not None
 
 
 def _mask_comments_and_docstrings(source: str, tree: ast.Module) -> list[str]:

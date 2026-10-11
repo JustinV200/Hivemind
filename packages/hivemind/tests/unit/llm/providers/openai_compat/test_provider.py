@@ -241,7 +241,9 @@ async def test_stream_finalizes_a_stop_reason_with_no_trailing_usage_chunk() -> 
     chunks = [chunk async for chunk in provider.stream(make_request())]
 
     assert chunks[-1].stop_reason == StopReason.END_TURN
-    assert chunks[-1].usage is None
+    # The server sent no usage block, so the final chunk carries a flagged estimate.
+    assert chunks[-1].usage is not None
+    assert chunks[-1].usage.estimated is True
 
 
 async def test_stream_falls_back_to_one_complete_call_when_streaming_is_false() -> None:
@@ -308,6 +310,36 @@ async def test_probe_with_a_malformed_data_field_refuses_every_model() -> None:
 
     with pytest.raises(ProviderRequestError):
         await provider.complete(make_request())
+
+
+async def test_complete_estimates_and_flags_usage_when_the_server_sends_none() -> None:
+    body = {
+        "model": "local-small",
+        "choices": [{"message": {"content": "x" * 40}, "finish_reason": "stop"}],
+    }
+    provider = _make_provider(_json_handler(200, body))
+
+    response = await provider.complete(make_request(system="s" * 8))
+
+    assert response.usage.estimated is True
+    assert response.usage.output_tokens == 10  # 40 characters at 4 per token.
+    assert response.usage.input_tokens >= 2  # At least the 8 system characters were counted.
+
+
+async def test_list_models_returns_the_served_ids_sorted_without_recording_them() -> None:
+    responses = {
+        ("GET", "/v1/models"): httpx.Response(200, json={"data": [{"id": "b-model"}, {"id": "a"}]}),
+        ("POST", CHAT_COMPLETIONS_PATH): httpx.Response(
+            200, json=json.loads(_load_fixture_text("completion.json"))
+        ),
+    }
+    provider = _make_provider(_routed(responses))
+
+    ids = await provider.list_models()
+    response = await provider.complete(make_request())  # No probe ran, so nothing is refused.
+
+    assert ids == ("a", "b-model")
+    assert response.text == "Hello there."
 
 
 async def test_probe_is_a_no_op_when_probe_models_is_false() -> None:

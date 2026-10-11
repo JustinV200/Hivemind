@@ -56,7 +56,11 @@ typer layer that calls into a subsystem's public API and never contains logic of
   as `a -> b -> c`), `hive llm test SLOT --manifest hive.toml [--prompt "..."]` (resolves SLOT,
   sends one small completion the way `hivemind.llm.ladders.gate.DirectCallGate` would, and prints
   latency, usage and the reply's first line; exits 1 with the raised `LLMError`'s own message on
-  failure).
+  failure). `hive llm models|pull|keep-alive --provider NAME` (`cli/llm/local.py`, roadmap step
+  8.2) manage a local model server: `models` lists an Ollama server's installed models (or the
+  generic `/models` ids for any other server), `pull MODEL` downloads one with progress,
+  `keep-alive MODEL --seconds N` holds one in memory; Ollama is detected by probing its native API,
+  and the providers table's health column then ends `(ollama <version>)`.
 - `capping.py` -- `hive capping queue [--manifest] [--db] [--json]` (every Capping proposal whose
   latest `capping.*` event is not terminal, newest latest-event first: proposal id, task id, tier,
   state, age) and `hive capping show PROPOSAL_ID [--manifest] [--db] [--json]` (that proposal's

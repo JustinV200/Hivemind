@@ -57,9 +57,13 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from hivemind.llm.capabilities import HealthState, ProviderCapabilities, ProviderHealth
 from hivemind.llm.errors import ProviderRequestError
-from hivemind.llm.models import JsonObject, LLMChunk, LLMRequest, LLMResponse, TextPart
+from hivemind.llm.models import JsonObject, LLMChunk, LLMRequest, LLMResponse
 from hivemind.llm.providers.openai_compat import mapping
 from hivemind.llm.providers.openai_compat.client import OpenAICompatClient
+from hivemind.llm.providers.openai_compat.estimate import (
+    CHARS_PER_TOKEN_ESTIMATE,
+    request_char_count,
+)
 from hivemind.llm.providers.openai_compat.rate_limit import rate_limit_from_headers
 from waggle.clock import Clock
 
@@ -72,7 +76,6 @@ CHAT_COMPLETIONS_PATH = "/chat/completions"
 DEFAULT_TOKEN_ESTIMATE_MARGIN = (
     1.15  # brief 3.7: "a documented margin"; 15% covers most tokenizers.
 )
-CHARS_PER_TOKEN_ESTIMATE = 4  # Same rough English-text ratio hivemind.llm.fake.count_tokens uses.
 # A model absent from the server's own /models listing is refused the same way a real 404 for an
 # unknown model id would be (most OpenAI-compatible servers do exactly that); synthesized because
 # this refusal happens before any HTTP request for the call itself is made.
@@ -208,6 +211,17 @@ class OpenAICompatProvider:
         payload = await self._client.get_json(MODELS_PATH)
         self._served_model_ids = _extract_model_ids(payload)
 
+    async def list_models(self) -> tuple[str, ...]:
+        """GET `/models` and return the served model ids, sorted (the generic listing probe).
+
+        Unlike `probe()` it records nothing and ignores `probe_models`: an operator is asking.
+
+        Raises:
+            ProviderUnavailableError, RateLimitedError, ProviderRequestError: as `probe()`.
+        """
+        payload = await self._client.get_json(MODELS_PATH)
+        return tuple(sorted(_extract_model_ids(payload)))
+
     async def complete(self, request: LLMRequest) -> LLMResponse:
         """Run `request` to completion; see `LLMProvider.complete`."""
         model = request.model or self._config.model
@@ -222,7 +236,13 @@ class OpenAICompatProvider:
         # Roadmap step 4.7a: hosted headroom is measured, not assumed. A local server (this
         # adapter's whole reason to exist) never sends these headers, so rate_limit stays None.
         rate_limit = rate_limit_from_headers(headers, self._clock.now())
-        return mapping.response_from_json(payload, provider=self._name, rate_limit=rate_limit)
+        # A reply with no usage block is estimated from characters, never read as zero tokens.
+        return mapping.response_from_json(
+            payload,
+            provider=self._name,
+            rate_limit=rate_limit,
+            prompt_chars=request_char_count(request),
+        )
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
         """Run `request`, yielding incremental chunks; see `LLMProvider.stream`."""
@@ -244,7 +264,7 @@ class OpenAICompatProvider:
         )
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
-        state = mapping.StreamState(self._name)
+        state = mapping.StreamState(self._name, prompt_chars=request_char_count(request))
         async for raw_chunk in self._client.stream_sse(CHAT_COMPLETIONS_PATH, body):
             for chunk in state.absorb(raw_chunk):
                 yield chunk
@@ -260,7 +280,7 @@ class OpenAICompatProvider:
         "has an exact tokenizer" (roadmap step 3.7: "token counting by estimate with a
         documented margin").
         """
-        total_chars = _char_count(request)
+        total_chars = request_char_count(request)
         estimate = total_chars / CHARS_PER_TOKEN_ESTIMATE * self._config.token_estimate_margin
         return math.ceil(estimate)
 
@@ -333,22 +353,6 @@ def _extract_model_ids(payload: JsonObject) -> frozenset[str]:
             if isinstance(model_id, str):
                 ids.add(model_id)
     return frozenset(ids)
-
-
-def _char_count(request: LLMRequest) -> int:
-    """Sum the character count of `request`'s system prompt, every text part and every tool.
-
-    Used only by `count_tokens`'s estimate; deliberately ignores image and tool-call/tool-result
-    content, which a real tokenizer would weigh differently and this estimate does not attempt.
-    """
-    total = len(request.system) if request.system is not None else 0
-    for message in request.messages:
-        for part in message.parts:
-            if isinstance(part, TextPart):
-                total += len(part.text)
-    for tool in request.tools:
-        total += len(tool.name) + len(tool.description) + len(str(tool.parameters))
-    return total
 
 
 def _health_from_status(status_code: int) -> tuple[HealthState, str]:

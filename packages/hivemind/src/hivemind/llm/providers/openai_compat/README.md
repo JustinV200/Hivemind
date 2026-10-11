@@ -53,6 +53,20 @@ feeds the Fanner's own `ForageMap.throttle` instead: that source's headroom read
 Forage map until the window passes, recorded as one `llm.throttled` trail event, with no code in
 this package aware that happens -- see `hivemind.llm.fanner.lane.FannerLane`.
 
+## Token usage and the estimate (roadmap step 8.8)
+
+A reply's `usage` block (`prompt_tokens`, `completion_tokens`, `prompt_tokens_details.
+cached_tokens`) becomes `Usage` as is, with `cost_usd=None`: this adapter never prices a call.
+Some servers send no `usage` at all (older llama.cpp builds, proxies, a stream whose server ignores
+`stream_options.include_usage`). Reading that as zero tokens would make a busy local model look
+idle, so `estimate.py` counts `ceil(characters / CHARS_PER_TOKEN_ESTIMATE)` (4 characters per
+token) over the request's system prompt, text parts and tool definitions for `input_tokens`, and
+over the reply's text and tool calls (name plus arguments) for `output_tokens`, and sets
+`Usage.estimated = True`. Images and audio are not counted. The estimate carries no safety margin
+(`count_tokens` adds its own for budgeting). `estimated` reaches the trail as `LlmUsage.estimated`.
+Pricing (per-million token prices and the per-seat-hour amortisation of a local source) is applied
+afterwards, once, in `hivemind.llm.fanner.pricing`.
+
 ## Images and audio (roadmap step 6.5)
 
 `media.py`, a sibling of `mapping.py` split out by size, maps an `ImagePart` to an `image_url`

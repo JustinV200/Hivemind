@@ -222,6 +222,17 @@ class LlmUsage(BaseModel):
         ge=0, description="Of input_tokens, how many were served from a provider prompt cache."
     )
     cost_usd: float = Field(ge=0, description="What this call cost in US dollars, 0 if unpriced.")
+    estimated: bool = Field(
+        default=False,
+        description="True when the provider reported no usage and the token counts were "
+        "estimated from characters. Defaults False so an older payload stays valid.",
+    )
+    priced: bool = Field(
+        default=False,
+        description="True when the manifest priced this call, so cost_usd of 0.0 means free; "
+        "False when it was unpriced and cost_usd of 0.0 only means unknown. Defaults False so "
+        "an older payload, which never said, is never read as free.",
+    )
 
 
 def _check_payload_node(node: object) -> None:

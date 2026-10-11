@@ -146,3 +146,30 @@ def test_check_no_model_ids_does_not_scan_a_file_outside_its_scope(
 
     assert exit_code == 0
     assert capsys.readouterr().out == ""
+
+
+def test_check_no_model_ids_allows_a_word_that_merely_ends_in_a_prefix(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # "ollama" contains the llama prefix mid-word; it names a server, not a model id. Built by
+    # concatenation for the reason in the module docstring.
+    word = "Ol" + "lama"
+    source = f"class {word}Manager:\n    NAME = '{word.lower()}'\n"
+    sample = _write(tmp_path, "packages/hivemind/src/hivemind/llm/providers/x/m.py", source)
+
+    exit_code = check_no_model_ids.main([str(sample)])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("literal", ["l" + "lama3", "l" + "lama-server", "my_l" + "lama"])
+def test_check_no_model_ids_still_flags_the_prefix_at_a_word_start(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], literal: str
+) -> None:
+    sample = _write(tmp_path, "packages/hivemind/src/hivemind/llm/y.py", f'NAME = "{literal}"\n')
+
+    exit_code = check_no_model_ids.main([str(sample)])
+
+    assert exit_code == 1
+    assert f"{sample}:1:" in capsys.readouterr().out

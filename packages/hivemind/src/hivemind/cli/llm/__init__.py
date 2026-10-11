@@ -2,8 +2,9 @@
 
 A package since roadmap phases 6 and 7 each taught these commands one more model door (the
 transcriber and the embedder): `commands` holds the typer group and its three commands
-(`providers`, `slots`, `test`), `rows` builds the provider and slot rows they print. This face
-exports only `app`, the group `hivemind.cli.app` attaches as `hive llm`.
+(`providers`, `slots`, `test`), `rows` builds the provider and slot rows they print, and `local`
+holds the local-server management commands (`models`, `pull`, `keep-alive`, roadmap step 8.2).
+This face exports only `app`, the group `hivemind.cli.app` attaches as `hive llm`.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.app`. Calls into this

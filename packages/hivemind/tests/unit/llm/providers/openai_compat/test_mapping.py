@@ -480,7 +480,9 @@ def test_stream_state_finalize_covers_a_server_with_no_trailing_usage_chunk() ->
 
     assert trailing is not None
     assert trailing.stop_reason == StopReason.MAX_TOKENS
-    assert trailing.usage is None
+    # No usage chunk ever came: the final chunk carries a flagged estimate, never zeros.
+    assert trailing.usage is not None
+    assert trailing.usage.estimated is True
 
 
 def test_stream_state_raises_malformed_output_for_unparseable_tool_call_arguments() -> None:

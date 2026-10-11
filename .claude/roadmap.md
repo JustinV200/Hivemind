@@ -1364,8 +1364,9 @@ prompt overlays, `hive llm eval`.
   to move along it at call time. Fallbacks are `llm.fallback` events; a fallback that needs more
   Forage becomes a `ForageRequest`. The eval harness (8.5) reports quality and latency per tempo
   so the mapping is tuned from measurements, not guesses.
-- [ ] **8.2 Local server management.** `llm/providers/ollama/manage.py` (optional): list, pull,
-  `keep_alive`, health. `hive doctor` uses it. Generic health probe covers vLLM and llama.cpp.
+- [x] **8.2 Local server management.** `llm/providers/ollama/manage.py` (optional): list, pull,
+  `keep_alive`, health. `hive llm models|pull|keep-alive` and `hive llm providers` use it today;
+  `hive doctor` (step 14.2) will. Generic health probe covers vLLM and llama.cpp.
 - [ ] **8.3 Model server on a Cell.** `wardens/local_pool/hosting.py` (it needs the Cell's
   `CellSession`, so it lives with the Warden that owns the Cell, not in `forage`): start and stop
   an OpenAI-compatible server on a Cell that reports `can_host_model` (through its session), register
@@ -1393,7 +1394,7 @@ prompt overlays, `hive llm eval`.
   transcribed on the in-process Whisper, and a Clustering round trip, with no network egress.
 - [ ] **8.7 Local vision.** The Forager scenario with a local vision model in `WORKER`, or the
   accessibility-tree path where none is available.
-- [ ] **8.8 Cost and token accounting for local models.** Zero or amortised prices in the
+- [x] **8.8 Cost and token accounting for local models.** Zero or amortised prices in the
   manifest; usage from the response or a documented estimate; both uniform on the trail.
 - [ ] **8.9 Runbook.** `docs/runbooks/moving-a-slot-to-local.md`.
 

@@ -24,7 +24,18 @@ at a model server, so that swapping a provider never touches code above llm/.
   `hivemind.llm.registry`); its own module docstring explains the lazy-import pattern that keeps
   the base install free of the dependency.
 
-Each sub-package owns exactly one `[llm.providers.<name>] kind` string. This package's own face
+- **`ollama/`** (roadmap step 8.2, ADR-0044): not a `kind`. Optional management of an Ollama
+  server over its native API -- list installed models, pull one with streamed progress, hold one in
+  memory (`keep_alive`), report health -- as `OllamaManager`, with `FakeOllamaManager` beside the
+  `ModelServerManager` Protocol. Chat with that same server still goes through `openai_compat`.
+  A server is recognised as Ollama by probing `GET /api/version` (`OllamaManager.detect`), never by
+  name, and its native base URL is the provider's `base_url` minus a trailing `/v1`; every other
+  local server (vLLM, llama.cpp, LM Studio) gets only the generic `/models` listing and health
+  probe `openai_compat` already has (`OpenAICompatProvider.list_models`). Driven by `hive llm
+  models|pull|keep-alive` and the `ollama` note on `hive llm providers`' health column. This
+  package is the one place outside `openai_compat` that imports `httpx` for a model server.
+
+Every other sub-package owns exactly one `[llm.providers.<name>] kind` string. This package's own face
 (`__init__.py`) re-exports only an adapter's `LLMProvider`/`EmbeddingProvider` implementation and
 its config type (`OpenAICompatProvider`/`OpenAICompatConfig`, `OpenAICompatEmbedding`/
 `OpenAICompatEmbeddingConfig`, `SentenceTransformersEmbedding`/`SentenceTransformersConfig`) --
