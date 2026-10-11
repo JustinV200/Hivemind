@@ -142,6 +142,12 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("forage.hosting_decided", _DECISION),
     ("forage.plan_written", _DECISION),
     ("forage.ceilings_set", _NARROWING),
+    # Roadmap step 8.3: a Warden loads within its ceilings autonomously and reports, never asks
+    # (codingrules 8.10), so a source's arrival and departure are observations; the Queen's
+    # eviction reclaims seats she exported, which narrows that Warden's pool.
+    ("forage.source_added", _OBSERVATION),
+    ("forage.source_removed", _OBSERVATION),
+    ("forage.source_evicted", _NARROWING),
     ("memory.checkpoint", _MEMORY),
     ("memory.handoff", _MEMORY),
     ("memory.reset", _MEMORY),
