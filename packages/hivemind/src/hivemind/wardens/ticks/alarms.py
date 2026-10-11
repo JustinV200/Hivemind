@@ -74,9 +74,12 @@ from hivemind.wardens.autopilot import WardenAction
 from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.spawn import (
+    BindingTarget,
+    Routed,
     WardenCellContext,
     authorize_binding,
     binding_check,
+    route_rebind,
     spawn_sub_bee,
     stop_sub_bee,
 )
@@ -136,7 +139,7 @@ async def handle_alarm_action(
 
 
 async def _respawn(
-    warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, *, binding_override: str | None
+    warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, *, binding_override: BindingTarget | None
 ) -> SubBee | None:
     """Retire `sub_bee` and start a fresh one for the same task, attempt+1, from its last Handoff.
 
@@ -152,18 +155,25 @@ async def _respawn(
 
 
 async def _rebind(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, binding: str | None) -> None:
-    """Respawn on `binding`, or the next allowed-bindings entry; escalate when none is left.
+    """Respawn on `binding`, or on a stronger routed binding; escalate when none is left.
 
     Roadmap step 10.3: the target passes the `slot_binding` point first, ordered by this Warden;
-    a refused target escalates exactly like no target at all, and nothing is retired.
+    a refused target escalates exactly like no target at all, and nothing is retired. Roadmap
+    step 8.1: with no explicit target, routing runs again with the grade floor raised by the
+    bee's attempt count, and the grant's next allowed binding is used only when routing is not
+    wired or finds nothing stronger than the binding that just failed.
     """
     grant = warden._grants.get(sub_bee.assignment.grant_id)
-    target = binding or (None if grant is None else _next_allowed_binding(sub_bee, grant))
     ctx = _cell_context(warden)
-    if target is None or grant is None or ctx is None:
+    if grant is None or ctx is None:
         await _escalate(warden, sub_bee, alarm)
         return
-    check = binding_check(ctx, sub_bee.assignment, grant, target, sub_bee.capabilities)
+    target = binding or _stronger_binding(ctx, sub_bee, grant)
+    key = target.key if isinstance(target, Routed) else target
+    if key is None:
+        await _escalate(warden, sub_bee, alarm)
+        return
+    check = binding_check(ctx, sub_bee.assignment, grant, key, sub_bee.capabilities)
     if not (await authorize_binding(warden._deps, check)).allowed:
         await _escalate(warden, sub_bee, alarm)
         return
@@ -171,6 +181,14 @@ async def _rebind(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, binding: 
     fresh = await _respawn(warden, sub_bee, alarm, binding_override=target)
     if fresh is not None:
         await _record_rebound(warden, sub_bee, fresh, warden_principal(warden._warden_id))
+
+
+def _stronger_binding(
+    ctx: WardenCellContext, sub_bee: SubBee, grant: GrantIssued
+) -> Routed | str | None:
+    """Route `sub_bee`'s task again at a raised floor; else the grant's next allowed binding."""
+    scope = ctx.route_scope(sub_bee.assignment, grant)
+    return route_rebind(scope, sub_bee.binding) or _next_allowed_binding(sub_bee, grant)
 
 
 def _next_allowed_binding(sub_bee: SubBee, grant: GrantIssued) -> str | None:
@@ -250,6 +268,7 @@ def _cell_context(warden: Warden) -> WardenCellContext | None:
         cell=warden._cell,
         lease=warden._lease,
         session=warden._session,
+        hosting=warden._hosting_plan,
     )
 
 
@@ -283,7 +302,7 @@ async def _retire_and_spawn(
     warden: Warden,
     sub_bee: SubBee,
     ctx: WardenCellContext,
-    binding: str | None,
+    binding: BindingTarget | None,
     orderer: PrincipalRef | None,
 ) -> SubBee | None:
     """Retire `sub_bee` and spawn its successor at attempt+1, from its Handoff, in its slot."""
@@ -298,7 +317,7 @@ async def _spawn_into_slot(
     warden: Warden,
     ctx: WardenCellContext,
     assignment: TaskAssign,
-    binding: str | None,
+    binding: BindingTarget | None,
     orderer: PrincipalRef | None,
 ) -> SubBee | None:
     """Spawn `assignment` into the slot its retired predecessor kept, or report it refused."""

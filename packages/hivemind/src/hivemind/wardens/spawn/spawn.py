@@ -17,7 +17,11 @@ writes every other `worker.*` kind; this is the one transition that happens befo
 the assignment by `hivemind.wardens.spawn.attenuate` (the task's Exoskeleton need, network scopes
 and goal's set all travel on it, Waggle minors 6 and 8), and before anything is started the
 binding passes the Guard's `slot_binding` point (`hivemind.wardens.spawn.binding.
-authorize_binding`); a refused binding raises `BindingRefusedError` with nothing started. The
+authorize_binding`); a refused binding raises `BindingRefusedError` with nothing started. Roadmap
+step 8.1 (ADR-0045): when this Warden has a Forage map and routing rules, the first binding is
+routed by the task's tempo and Forage (`hivemind.wardens.spawn.route`) before the Guard looks, so
+the Guard checks the routed key; the sub-bee's `BoundModel` chain follows the routed order, and a
+non-primary choice records `llm.fallback`. The
 sub-bee's own `WorkerContext` carries the Warden's `Enforcer`, which its tools call at
 `tool_invocation` and `session_outside_scratch`. Roadmap phase 6 (ADR-0031): a task that needs an
 Exoskeleton is equipped here, after its binding passed and before its runtime starts
@@ -60,6 +64,8 @@ Key invariants:
     - `worker.spawned` is recorded here, and nowhere else (`hivemind.workers.runtime` never writes
       it): the one `worker.*` trail event this package owns.
     - Nothing is started, and no id minted, for a binding the `slot_binding` point refuses.
+    - The Guard checks the key that is bound: routing runs first, and an explicit string
+      `binding_override` (a Queen-ordered rebind) is never re-routed.
     - `stop_sub_bee` never returns with `runtime_task` still pending: a cooperative stop that lands
       within `grace_s` is reaped as a clean finish, one that does not is cancelled and reaped
       instead (codingrules section 11's "never left cancelled-but-unawaited").
@@ -84,6 +90,7 @@ from hivemind.cell import AccessLevel, Cell, CellSession, RealCellLease
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.exoskeleton import ExoskeletonHandle
+from hivemind.forage import HostingPlan
 from hivemind.forage.slots import ModelSlot
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import CapabilitySet, PolicyContext, PrincipalRef, warden_principal
@@ -98,6 +105,14 @@ from hivemind.wardens.spawn.attenuate import sub_bee_capabilities
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
 from hivemind.wardens.spawn.equip import equip, gui_surface, unequip
+from hivemind.wardens.spawn.route import (
+    BindingTarget,
+    Routed,
+    RouteScope,
+    bind_routed,
+    pick_binding,
+    record_routing,
+)
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
     GrantSlice,
@@ -137,6 +152,8 @@ class WardenCellContext:
         lease: This Warden's OPEN lease on `cell`.
         session: This Warden's own open CellSession on `cell`, shared with every sub-bee it
             spawns (see the module docstring's "Key invariants" for why it is shared, not fresh).
+        hosting: The HostingPlan the Queen last sent for `cell` (`Warden._hosting_plan`), which
+            routing ranks by; None until she has sent one.
     """
 
     warden_id: WardenId
@@ -145,6 +162,11 @@ class WardenCellContext:
     cell: Cell
     lease: RealCellLease
     session: CellSession
+    hosting: HostingPlan | None = None
+
+    def route_scope(self, assignment: TaskAssign, grant: GrantIssued) -> RouteScope:
+        """Return what routing `assignment`'s sub-bee under `grant` needs from this Warden."""
+        return RouteScope(self.deps, self.cell.id, self.hosting, assignment, grant.grant_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +208,7 @@ class _SpawnPlan:
     binding_key: str
     capabilities: CapabilitySet
     write_roots: tuple[Path, ...]
+    routed: Routed | None = None  # The routing decision behind `binding_key`, when there was one.
 
 
 class _NullAsker:
@@ -208,7 +231,7 @@ async def spawn_sub_bee(
     ctx: WardenCellContext,
     assignment: TaskAssign,
     grant: GrantIssued,
-    binding_override: str | None = None,
+    binding_override: BindingTarget | None = None,
     orderer: PrincipalRef | None = None,
 ) -> SubBee:
     """Start one new sub-bee on `ctx.cell`, within `grant`, running `assignment`.
@@ -221,6 +244,8 @@ async def spawn_sub_bee(
         binding_override: A `[llm.slots]` manifest key to resolve instead of the one
             `assignment.slot` names; set by a REBIND respawn, whose target binding (a named
             binding such as `"local_worker"`) need not be any `ModelSlot`'s own manifest key.
+            A key skips routing; a `Routed` (a Warden's own routed rebind) binds along its order.
+            None routes the first binding by tempo and Forage when this Warden has a map.
         orderer: Who ordered this binding, for the `slot_binding` point: the Queen for her own
             `Intervene(REBIND)`; None (the default) is this Warden itself.
 
@@ -241,7 +266,7 @@ async def _plan_spawn(
     ctx: WardenCellContext,
     assignment: TaskAssign,
     grant: GrantIssued,
-    binding_override: str | None,
+    binding_override: BindingTarget | None,
     orderer: PrincipalRef | None,
 ) -> _SpawnPlan:
     """Compute the sub-bee's slice and binding key, and pass the `slot_binding` point for it.
@@ -252,14 +277,15 @@ async def _plan_spawn(
     capabilities, write_roots = sub_bee_capabilities(
         ctx.deps, ctx.ceiling, ctx.lease.scratch_root, assignment
     )
-    binding_key = binding_override or ModelSlot.from_wire(assignment.slot).manifest_key
+    # Routed before the Guard looks, so the Guard checks the key that will actually be bound.
+    binding_key, routed = pick_binding(ctx.route_scope(assignment, grant), binding_override)
     check = binding_check(ctx, assignment, grant, binding_key, capabilities)
     if orderer is not None:
         check = dataclasses.replace(check, orderer=orderer)
     decision = await authorize_binding(ctx.deps, check)
     if not decision.allowed:
         raise BindingRefusedError(assignment.task_id, binding_key, decision.reason)
-    return _SpawnPlan(binding_key=binding_key, capabilities=capabilities, write_roots=write_roots)
+    return _SpawnPlan(binding_key, capabilities, write_roots, routed)
 
 
 async def _start_sub_bee(
@@ -268,13 +294,15 @@ async def _start_sub_bee(
     """Bind, wire and start the planned sub-bee, send it its TaskAssign, and return its row."""
     deps = ctx.deps
     worker_id = new_worker_id(deps.clock)
-    bound = deps.rebind(plan.binding_key)
+    bound = bind_routed(deps.rebind, plan.binding_key, plan.routed)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
     _widen_lease_reachability(ctx, plan.write_roots)
     # Equipped before the role's first tool call, so a GUI tool never finds its peripherals gone.
     exoskeleton = await equip(ctx, assignment, plan.capabilities)
     surface = await gui_surface(ctx, assignment, exoskeleton)
     capping_gate = _build_capping_gate(ctx, assignment, surface)
+    if plan.routed is not None:
+        await record_routing(ctx.route_scope(assignment, grant), plan.routed, worker_id)
     recording_id = surface.recording_id if surface is not None else None
     facts = _SpawnedBeeFacts(worker_id, bound, plan.capabilities, recording_id)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)

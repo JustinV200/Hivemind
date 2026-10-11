@@ -89,6 +89,7 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
         cell=warden._cell,
         lease=warden._lease,
         session=warden._session,
+        hosting=warden._hosting_plan,
     )
     try:
         sub_bee = await spawn_sub_bee(ctx, assignment, grant)

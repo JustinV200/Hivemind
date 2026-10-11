@@ -10,7 +10,9 @@ carve a grant slice, resolve the assignment's slot to a live model, build the Ca
 back to a bounded cancel (codingrules section 11: never left cancelled-but-unawaited). Roadmap
 step 10.3 (ADR-0039) adds `attenuate` (a sub-bee's capability slice, read off its assignment: the
 goal's set and the task's network scopes narrow it) and `binding` (the `slot_binding` point every
-binding passes, first or rebound, before anything is started).
+binding passes, first or rebound, before anything is started). Roadmap step 8.1 adds `route` (the
+Warden's routing step: which binding of the slot's chain a sub-bee is bound to first, by tempo and
+Forage).
 `InCellSpawnSource` (`in_cell.py`, roadmap step 5.5) is a different kind of "spawn" decision: which
 `RealCellSource` a Warden leases its own Cell through, so a Warden already running inside a Virtual
 Cell opens an `InCellSession` on itself instead of the Hive Stand's `LocalProcessSession`, without
@@ -43,6 +45,10 @@ Public API (roadmap step 5.5):
       Warden already running inside its own Virtual Cell, chosen by injecting it as
       `WardenDeps.source` rather than by branching on `cell.kind` (in_cell).
 
+Public API (roadmap step 8.1):
+    - Routed, RouteScope, BindingTarget, route_rebind: the routing step (route); the rest of the
+      module (`pick_binding`, `bind_routed`, `record_routing`) is `spawn_sub_bee`'s own.
+
 Public API (roadmap step 10.3):
     - sub_bee_capabilities, declared_write_roots: a sub-bee's capability slice (attenuate).
     - BindingCheck, authorize_binding, binding_check: the `slot_binding` point (binding, spawn).
@@ -51,6 +57,7 @@ Public API (roadmap step 10.3):
 from hivemind.wardens.spawn.attenuate import declared_write_roots, sub_bee_capabilities
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
 from hivemind.wardens.spawn.in_cell import InCellSpawnConfig, InCellSpawnSource
+from hivemind.wardens.spawn.route import BindingTarget, Routed, RouteScope, route_rebind
 from hivemind.wardens.spawn.spawn import (
     WardenCellContext,
     binding_check,
@@ -61,13 +68,17 @@ from hivemind.wardens.spawn.sub_bee import SubBee
 
 __all__ = [
     "BindingCheck",
+    "BindingTarget",
     "InCellSpawnConfig",
     "InCellSpawnSource",
+    "RouteScope",
+    "Routed",
     "SubBee",
     "WardenCellContext",
     "authorize_binding",
     "binding_check",
     "declared_write_roots",
+    "route_rebind",
     "spawn_sub_bee",
     "stop_sub_bee",
     "sub_bee_capabilities",

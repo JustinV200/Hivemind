@@ -75,3 +75,10 @@ audio itself (`tests/e2e/test_voice_on_hive_serve.py`).
 real one over the Hive's SQLite trail: fresh `EphemeralSegments`, the `VeiledTrail` a lifecycle or
 Queen under test records through, and a `NightVeilTeardownPurge` whose recorder writes to the
 durable trail past the boundary, with no side channels (none is registered in production today).
+
+## `warden_routing.py` (roadmap step 8.1, the Warden's routing step)
+
+`routing_overrides`: the `make_warden_deps` overrides that wire a Warden for routing (a Forage map
+over the given sources, `RoutingRules`, a chain of `[llm.slots]` rows and a `rebind` that resolves
+each key through the real `hivemind.llm.slots.resolve_key`), so a spawn test gets a real
+`BoundModel` chain in manifest order to compare the routed order against.

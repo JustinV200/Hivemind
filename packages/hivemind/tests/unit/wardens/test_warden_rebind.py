@@ -19,7 +19,10 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
+from builders.routing import make_chain_source
+from builders.warden_routing import routing_overrides
 from builders.wardens import QueenEnd, make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment
 
@@ -29,7 +32,7 @@ from hivemind.wardens.spawn import SubBee
 from hivemind.wardens.warden import Warden
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
-from waggle.clock import Clock
+from waggle.clock import Clock, FakeClock
 from waggle.ids import GrantId, new_cell_id, new_warden_id
 from waggle.messages.forage import AllowedBinding, GrantIssued, SourceRef
 from waggle.messages.forage.values import Effort as WireEffort
@@ -149,3 +152,75 @@ async def test_a_queen_ordered_rebind_outside_the_grant_is_refused_and_fails_the
     assert denial.payload["principal_kind"] == "queen"
     assert denial.payload["capability"] == "llm:judge"
     assert await deps.trail.query(TrailQuery(kind="llm.rebound")) == ()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roadmap step 8.1: a Warden's own rebind routes again at a raised grade floor
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _crashing_for(crashes: int) -> Callable[[WorkerRole], ScriptedWorker]:
+    """A worker factory whose first `crashes` attempts crash and whose later ones wait forever."""
+    attempts = {"count": 0}
+
+    async def script(ctx: WorkerContext, assignment: TaskAssign, resume: object) -> WorkerOutcome:
+        attempts["count"] += 1
+        await asyncio.sleep(0)
+        if attempts["count"] <= crashes:
+            raise RuntimeError("boom")
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable: the test stops the Warden first")
+
+    return lambda role: ScriptedWorker(script, role=role)
+
+
+async def test_a_wardens_rebind_routes_to_a_stronger_binding_and_records_llm_fallback() -> None:
+    clock = FakeClock()
+    # Grades 2, 3, 5 and the shipped floor of 2: the first routing keeps the primary, and the
+    # rebind after the second crash (attempt 2) asks for grade 2 + 2 = 4, which only `strong` has.
+    sources = [
+        make_chain_source("small", grade=2),
+        make_chain_source("mid", grade=3),
+        make_chain_source("strong", grade=5),
+    ]
+    wiring = routing_overrides(clock, sources, keys=("small", "mid", "strong"))
+    deps, queen_end, warden_id = make_warden_deps(clock, worker_factory=_crashing_for(2), **wiring)
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    first = await _running(warden, queen_end, clock)
+    assert first.binding == "worker"
+
+    rebound = await _first(deps, "llm.rebound")
+    fallback = await _first(deps, "llm.fallback")
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+    assert (rebound.payload["from_binding"], rebound.payload["to_binding"]) == ("worker", "strong")
+    assert rebound.payload["ordered_by"] == "warden"
+    assert (fallback.payload["from_key"], fallback.payload["to_key"]) == ("worker", "strong")
+    assert await deps.trail.query(TrailQuery(kind="guard.denied")) == ()
+
+
+async def test_a_wardens_rebind_escalates_when_routing_finds_nothing_stronger() -> None:
+    clock = FakeClock()
+    # Every grade is 3, the map's top: the raised floor is capped there and the primary clears it,
+    # so routing picks the failed binding again and the grant names no other.
+    sources = [make_chain_source("small", grade=3), make_chain_source("strong", grade=3)]
+    deps, queen_end, warden_id = make_warden_deps(
+        clock, worker_factory=_crashing_for(10), **routing_overrides(clock, sources)
+    )
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+
+    assignment = make_assignment(clock=clock)
+    await queen_end.send(assignment)
+    await queen_end.send(_worker_grant(clock, assignment.grant_id))
+    alarm = await queen_end.wait_for_alarm()
+
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+    assert alarm.kind.value == "WORKER_CRASHED"
+    assert await deps.trail.query(TrailQuery(kind="llm.rebound")) == ()
+    assert await deps.trail.query(TrailQuery(kind="llm.fallback")) == ()

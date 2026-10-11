@@ -18,6 +18,31 @@ it needs.
 - `BindingCheck`, `authorize_binding` (`binding.py`, roadmap step 10.3): the `slot_binding` point;
   `spawn_sub_bee` raises `BindingRefusedError` when it refuses.
 
+## Routing (roadmap step 8.1, ADR-0045)
+
+- `Routed`, `RouteScope`, `route_rebind`, `BindingTarget` (`route.py`): the Warden's routing step.
+  `spawn_sub_bee` routes the sub-bee's first binding before the Guard looks: it builds
+  `hivemind.llm.routing.RoutingInputs` from the assignment (its slot, its tempo, `vision`/`audio`
+  when its Exoskeleton needs a screen, browser screenshots or sound), `WardenDeps.map`,
+  `.bindings`, `.routing_rules` and `.local_providers`, the Warden's own Cell and the hosting plan
+  the Queen last sent (`WardenCellContext.hosting`), and calls the pure `choose_binding`.
+- The Guard's `slot_binding` point checks the routed key, so a refused routed key still raises
+  `BindingRefusedError` with nothing started. An explicit string `binding_override` (a Queen-ordered
+  rebind) skips routing as before.
+- The sub-bee's `BoundModel` chain follows `decision.order`: each key is resolved with
+  `WardenDeps.rebind`, every link's own `fallback` is replaced so no manifest-order link leaks in,
+  and the routed effort is applied to the head link.
+- A choice other than the slot's own key records one `llm.fallback` (slot, provider, `from_key`,
+  `to_key`, the rendered reason, `passed_over`, task and goal id). A seat shortfall files one
+  `SHARED_SEATS` `ForageRequest` on that source and never waits for the reply: the Fanner still
+  makes the call on the chosen binding.
+- A rebind on escalation (`wardens/ticks/alarms.py`) calls `route_rebind`: the first routing's
+  grade floor plus the assignment's attempt number, so each escalation asks for a stronger model;
+  it yields nothing when the failed binding is still the best, and the caller then falls back to
+  the grant's next allowed binding or escalates.
+- With no `WardenDeps.map` or no `routing_rules` none of this runs: the slot's own key is bound
+  and nothing is recorded, exactly as before phase 8.
+
 ## How to test this
 
 ```bash
