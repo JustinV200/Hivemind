@@ -75,7 +75,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from hivemind.forage.slots import ModelSlot
-from hivemind.llm import HealthState
+from hivemind.llm import HealthState, UnknownProviderError
 from hivemind.pheromone import MAX_QUERY_LIMIT, TrailQuery
 from hivemind.queen.cluster.orders import ClusterOrder, OrderKind
 from hivemind.queen.cluster.protocol import cluster, resume
@@ -200,8 +200,15 @@ async def _probe_bound(deps: QueenDeps, state: ClusterState, wardens: Sequence[W
     for provider in _bound_providers(deps):
         if provider in state.clustered_providers or not deps.health_poller.is_due(provider, now):
             continue
-        # External await: a health probe, never a completion call (module docstring).
-        reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
+        try:
+            # External await: a health probe, never a completion call (module docstring).
+            reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
+        except UnknownProviderError:
+            # A grant lists every source its bee may spend on, an embedder's or an ear's among
+            # them, and those providers have no chat endpoint to probe (an in-process embedding
+            # kind has no chat factory at all). Nothing there to pause or resume, and the lookup's
+            # refusal must not end the Queen's tick: the shipped offline manifest hit exactly this.
+            continue
         if reading.state is not HealthState.DOWN:
             continue  # HEALTHY keeps running; DEGRADED (a 429, a 5xx) is the Fanner's to spill.
         if deps.health_poller.failed_probes(provider) < DOWN_PROBES_BEFORE_CLUSTER:

@@ -19,7 +19,7 @@ from builders.queen import WardenEnd, make_queen_deps, plan_responder
 from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import CellKind, HoneyClearance
 from hivemind.forage import GrantState, ModelSlot
-from hivemind.llm import FakeLLMProvider
+from hivemind.llm import FakeLLMProvider, UnknownProviderError
 from hivemind.pheromone import CellEvent, TrailQuery
 from hivemind.queen.cluster.health import (
     DEFAULT_HEALTHY_PROBE_INTERVAL_S,
@@ -254,6 +254,28 @@ async def test_run_cluster_tick_probes_a_healthy_bound_provider_only_at_the_stea
     assert not deps.health_poller.is_due("fake", clock.now())
     clock.advance(DEFAULT_HEALTHY_PROBE_INTERVAL_S)
     assert deps.health_poller.is_due("fake", clock.now())
+
+
+async def test_run_cluster_tick_skips_a_bound_provider_that_has_no_chat_endpoint() -> None:
+    """An embedder's or an ear's provider, on a grant's allowed list, has nothing to probe."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+
+    def lookup(name: str) -> FakeLLMProvider:
+        raise UnknownProviderError(name)  # What the registry says of a non-chat kind.
+
+    deps, link, warden_end = make_queen_deps(
+        fake_provider=provider, orders=InMemoryOrderStore(), provider_lookup=lookup
+    )
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    state = ClusterState()
+
+    await run_cluster_tick(deps, state, queen.wardens)
+
+    assert state.clustered_providers == frozenset()
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
 
 
 async def test_run_cluster_tick_never_clusters_on_a_single_down_reading() -> None:
