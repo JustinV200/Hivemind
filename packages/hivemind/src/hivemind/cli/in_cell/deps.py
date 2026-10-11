@@ -79,6 +79,7 @@ from hivemind.guard import Capability, CapabilityFamily, Enforcer, load_guard_po
 from hivemind.guard.net import ip_literal
 from hivemind.guard.policy import HiveState
 from hivemind.llm import Fanner, ProviderRegistry, UnknownProviderError, UnresolvableSlotError
+from hivemind.llm.routing import RoutingRules
 from hivemind.memory import InMemoryMemoryStore, MemoryIdentity
 from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision import load_warden_policy
@@ -169,8 +170,20 @@ def build_in_cell_warden_deps(
         missed_heartbeats_before_stalled=DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED,
         lane_for_grant=lane_for_grant(fanner),  # One lane per sub-bee's grant and goal.
     )
-    deps = _with_queen_relays(deps, config, queen_link, trail, clock)
+    deps = _with_queen_relays(_routed(deps, config, fanner), config, queen_link, trail, clock)
     return _equipped(deps, registry, fanner, clock)
+
+
+def _routed(deps: WardenDeps, config: InCellRuntimeConfig, fanner: Fanner) -> WardenDeps:
+    """Give `deps` this Cell's routing inputs (roadmap step 8.1).
+
+    A Virtual Cell carries no `[llm.floors]` of its own (`HIVEMIND_SLOTS` ships the rows, not the
+    floors), so its routing runs on the shipped floors with the Hive's own offline flag; its map
+    is the Fanner's, so routing and metering read the same live figures.
+    """
+    return dataclasses.replace(
+        deps, map=fanner.deps.map, routing_rules=RoutingRules(offline=config.llm_offline)
+    )
 
 
 def _with_queen_relays(

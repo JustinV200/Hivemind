@@ -60,12 +60,13 @@ from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
 from hivemind.exoskeleton import ExoskeletonConfig
 from hivemind.exoskeleton.browser import BrowserLauncher
 from hivemind.exoskeleton.recorder import RecordingStore
-from hivemind.forage.map import SlotBinding
+from hivemind.forage.map import ForageMap, SlotBinding
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import Capability, Enforcer
 from hivemind.guard.policy import GuardPolicy, load_guard_policy
 from hivemind.guard.scanner import ContentScanner, default_content_scanner
 from hivemind.llm.ladders.gate import CallGate, DirectCallGate
+from hivemind.llm.routing import RoutingRules
 from hivemind.llm.slots import BoundModel
 from hivemind.llm.transcription import Ears
 from hivemind.memory import MemoryIdentity, MemoryStore
@@ -227,6 +228,10 @@ class WardenDeps:
             Night Veil binding fails closed.
         taint_ledgers: The stores a quarantine taints beyond the memory tables (roadmap step
             10.6c): the Honey Store's Nectar ledger joins here in phase 7. Defaults to none.
+        map: The live Forage map routing reads before a sub-bee is bound (roadmap step 8.1)
+            and a hosted model server adds its models to (step 8.3); None binds the chain as is.
+        routing_rules: `[llm.floors]`, `offline` and the spend cap as routing reads them (8.1);
+            None binds the slot's own key with no routing decision and no `llm.fallback`.
     """
 
     source: RealCellSource
@@ -285,21 +290,18 @@ class WardenDeps:
     browser_launcher: BrowserLauncher | None = None
     recording_store: RecordingStore | None = None  # Roadmap step 6.6; None records nothing.
     ears: Ears | None = None  # Roadmap step 6.5: handed to every sub-bee's WorkerContext.
-    # Roadmap step 10.2 (the Guard policy): additive, defaulted to the shipped policy so a
-    # WardenDeps built before this dispatch keeps building; the shipped Warden and Drone defaults
-    # reproduce every capability today's access-level ceilings granted.
+    # Roadmap step 10.2: additive, defaulted to the shipped policy (every ceiling it grants today).
     guard: GuardPolicy = field(default_factory=load_guard_policy)
-    # Roadmap step 10.3: additive and defaulted to no rows, so a WardenDeps built without a slot
-    # table still builds; every composition root passes its own `[llm.slots]` rows.
+    # Roadmap step 10.3: additive, no rows by default; every composition root passes its own.
     bindings: tuple[SlotBinding, ...] = ()
-    # Roadmap step 10.6b: additive and defaulted to the shipped patterns and thresholds with an
-    # in-memory key, so a WardenDeps built without one (every test, a Virtual Cell) still scans.
+    # Roadmap step 10.6b: additive; the shipped patterns with an in-memory key by default.
     scanner: ContentScanner = field(default_factory=default_content_scanner)
-    # Roadmap step 10.3a: additive and defaulted to none, so a Night Veil binding fails closed
-    # unless the composition root states which providers run on this machine.
+    # Roadmap step 10.3a: additive, none by default, so a Night Veil binding fails closed.
     local_providers: frozenset[str] = frozenset()
-    # Roadmap step 10.6c: the phase 7 seam a quarantine's taint reaches Nectar through.
-    taint_ledgers: tuple[TaintLedger, ...] = ()
+    taint_ledgers: tuple[TaintLedger, ...] = ()  # Roadmap step 10.6c: the quarantine taint seam.
+    # Roadmap step 8.1: additive, None by default, so a pre-phase-8 caller binds the chain as is.
+    map: ForageMap | None = None
+    routing_rules: RoutingRules | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

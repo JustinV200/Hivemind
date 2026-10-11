@@ -85,6 +85,7 @@ from hivemind.cli.stores import (
     open_ledger,
     open_memory,
     open_trail,
+    routing_rules,
     slot_bindings,
 )
 from hivemind.exoskeleton.recorder import InMemoryRecordingStore, RecordingStore
@@ -348,7 +349,18 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         local_providers=local_providers(manifest),  # Roadmap step 10.3a: a binding's locality.
     )
     # Roadmap steps 6.4-6.6: screen, browser launcher, flight recorder and ears (.exoskeleton).
-    return hive_stand_exoskeleton(parts).apply(deps)
+    return hive_stand_exoskeleton(parts).apply(_routed(deps, parts))
+
+
+def _routed(deps: WardenDeps, parts: HiveParts) -> WardenDeps:
+    """Give `deps` the live map and the manifest's routing rules (roadmap step 8.1).
+
+    Split from `build_warden_deps` only to keep that function within codingrules 5.1's limit:
+    the map is the Fanner's own, so routing and metering read the same live figures.
+    """
+    return dataclasses.replace(
+        deps, map=parts.fanner.deps.map, routing_rules=routing_rules(parts.manifest)
+    )
 
 
 def _keep_root(manifest: HiveManifest) -> Path | None:

@@ -176,6 +176,32 @@ class ProviderRegistry:
         self._cache[name] = instance
         return instance
 
+    def add_provider(self, name: str, config: ProviderConfig) -> None:
+        """Register `config` under `name` at runtime, so a later `provider(name)` can build it.
+
+        Roadmap step 8.3: a Warden that starts a model server on its own Cell registers the
+        provider that server answers as, after the manifest was loaded. A name the manifest
+        already declares is replaced, and any cached instance under it is dropped so the next
+        `provider(name)` constructs one from the new config; the offline rule is still applied
+        at that construction, never skipped for a runtime row.
+
+        Args:
+            name: The `[llm.providers.<name>]` key the new provider answers to.
+            config: Its decoupled configuration, the same shape a manifest row becomes.
+        """
+        self._providers[name] = config
+        self._cache.pop(name, None)
+
+    def remove_provider(self, name: str) -> bool:
+        """Forget a runtime-registered provider; return whether `name` was known.
+
+        The dropped instance, if one was built, is not closed here: a caller that owns the
+        server behind it closes the registry's instance through `aclose` at shutdown like every
+        other, and a server stopping mid-run leaves nothing to close but an idle HTTP client.
+        """
+        self._cache.pop(name, None)
+        return self._providers.pop(name, None) is not None
+
     def bound(self, slot: ModelSlot) -> BoundModel:
         """Resolve `slot` to a BoundModel; see `hivemind.llm.slots.resolve`."""
         return resolve(slot, self._bindings, self.provider, self._deps.map)

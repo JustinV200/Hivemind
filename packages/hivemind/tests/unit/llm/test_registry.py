@@ -544,3 +544,55 @@ def test_registry_built_from_full_manifest_constructs_the_fallback_providers_own
     assert bound.provider.name == "anthropic"
     assert bound.fallback is not None
     assert bound.fallback.provider.name == "local"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# add_provider / remove_provider: the runtime door a Warden-hosted server registers through (8.3)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_add_provider_registers_a_runtime_row_the_next_provider_call_builds() -> None:
+    registry = ProviderRegistry({}, [], offline=False, deps=make_registry_deps())
+
+    registry.add_provider("hosted", make_provider_config(kind="fake"))
+
+    assert "hosted" in registry.names()
+    assert isinstance(registry.provider("hosted"), FakeLLMProvider)
+
+
+def test_add_provider_replaces_a_cached_instance_so_the_new_config_is_what_builds() -> None:
+    built: list[str] = []
+
+    def _factory(
+        name: str, config: ProviderConfig, api_key: SecretStr | None, clock: Clock
+    ) -> LLMProvider:
+        built.append(config.base_url)
+        return FakeLLMProvider(name=name)
+
+    deps = make_registry_deps(factories={"fake": _factory})
+    registry = ProviderRegistry(
+        {"local": make_provider_config(kind="fake", base_url="http://127.0.0.1:1/v1")},
+        [],
+        offline=False,
+        deps=deps,
+    )
+    registry.provider("local")  # Cached under the manifest's own row.
+
+    registry.add_provider(
+        "local", make_provider_config(kind="fake", base_url="http://127.0.0.1:2/v1")
+    )
+    registry.provider("local")
+
+    # The replacement dropped the cached instance: a second construction ran, on the new row.
+    assert built == ["http://127.0.0.1:1/v1", "http://127.0.0.1:2/v1"]
+
+
+def test_remove_provider_forgets_the_row_and_reports_whether_it_was_known() -> None:
+    registry = ProviderRegistry({}, [], offline=False, deps=make_registry_deps())
+    registry.add_provider("hosted", make_provider_config(kind="fake"))
+
+    assert registry.remove_provider("hosted") is True
+    assert registry.remove_provider("hosted") is False
+    assert "hosted" not in registry.names()
+    with pytest.raises(UnknownProviderError):
+        registry.provider("hosted")
