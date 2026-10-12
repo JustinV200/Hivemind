@@ -190,7 +190,6 @@ def _request(manifest: HiveManifest, content: bytes, said: _Description) -> Depo
         origin_bee=None,
         from_borrowed_cell=True,
         tier=tier,
-        tainted=False,
     )
 
 
