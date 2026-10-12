@@ -6,6 +6,17 @@ is visible), and `execute` checks `tool:<name>` through the Guard's Enforcer bef
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+from builders.comb_tools import (
+    FakeToolChannel,
+    RecordingRetainSink,
+    make_comb_context,
+    make_comb_package,
+    make_promoted,
+    make_warden_id,
+)
 from builders.honey_wire import FakeHoneyChannel
 from builders.llm import make_tool_call
 from builders.workers import make_assignment, make_context
@@ -13,7 +24,7 @@ from builders.workers import make_assignment, make_context
 from hivemind.guard import CapabilitySet
 from hivemind.llm import ImagePart, JsonObject, ToolDefinition
 from hivemind.pheromone import TrailQuery
-from hivemind.workers.tools.errors import ToolError
+from hivemind.workers.tools.errors import ToolError, ToolsChangedError
 from hivemind.workers.tools.registry import (
     ToolInvocation,
     ToolOutput,
@@ -179,3 +190,38 @@ def test_build_registry_offers_no_exoskeleton_tool_to_a_terminal_only_task() -> 
     names = {definition.name for definition in build_registry(ctx).definitions()}
 
     assert not names & {"see", "click", "browser_navigate", "listen", "say"}
+
+
+def test_build_registry_offers_the_phase_nine_tools_only_when_their_seams_are_wired(
+    tmp_path: Path,
+) -> None:
+    """Roadmap step 9.7: request_tool needs a channel, retain a sink, a Comb tool a bundle."""
+    bare = {d.name for d in build_registry(make_context()).definitions()}
+    wired = make_comb_context(
+        tmp_path,
+        [make_comb_package(name="disk_report")],
+        tools=FakeToolChannel(make_promoted(make_comb_package()), make_warden_id()),
+        retain_sink=RecordingRetainSink(),
+    )
+
+    offered = [d.name for d in build_registry(wired).definitions()]
+
+    assert not {"request_tool", "retain", "disk_report"} & bare
+    assert {"request_tool", "retain", "disk_report"} <= set(offered)
+    assert offered[-1] == "disk_report"  # Comb tools come after every built-in.
+
+
+async def test_a_tools_changed_error_from_a_runner_propagates_through_execute() -> None:
+    """Like a handoff request, it is a control exception: never turned into a result string."""
+
+    async def changed(invocation: ToolInvocation, arguments: JsonObject) -> str:
+        raise ToolsChangedError(3)
+
+    ctx = make_context()
+    registry = _registry(changing_tool=changed)
+
+    with pytest.raises(ToolsChangedError):
+        await registry.execute(
+            ToolInvocation(ctx=ctx, assignment=make_assignment()),
+            make_tool_call(name="changing_tool"),
+        )

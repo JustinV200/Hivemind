@@ -29,15 +29,17 @@ finished task go through `hivemind.workers.runtime.attempt.AttemptManager`, both
 keep this class inside codingrules 5.1's size limits. Roadmap step 7.8: the role's `ctx.honey` is
 this runtime's own `hivemind.workers.runtime.honey.MailboxHoneyChannel` over the same mailbox, and
 a received `HoneyResponse` is handed to the query waiting for it by the envelope's own
-`correlation_id` (`_dispatch`, module-level for the same size reason).
+`correlation_id` (`_dispatch`, module-level for the same size reason). Roadmap step 9.7: `ctx.tools`
+is likewise its own `hivemind.workers.runtime.tools.MailboxToolChannel`; a received `ToolPromoted`
+resolves the request with its tool id and a received `ErrorMessage` the request it answers.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Constructed by `hivemind.wardens.spawn` (roadmap step 3.19)
     once per sub-bee it starts, inside a `TaskGroup` it owns. Calls into `hivemind.supervision`
     (the Intervention levers and their error, never `hivemind.supervision.capping`),
     `hivemind.workers.base`, `.context`, `.errors`, `.state`, this package's own `attempt` (which
-    loads a resume Handoff, `begin_attempt`), `deps`, `honey`, `mailbox` and `reporter`, and
-    waggle.
+    loads a resume Handoff, `begin_attempt`), `deps`, `honey`, `mailbox`, `reporter` and `tools`,
+    and waggle.
 
 Key invariants:
     - Every WorkerState change and every outgoing message goes through `_reporter`
@@ -91,13 +93,17 @@ from hivemind.workers.runtime.honey import MailboxHoneyChannel
 from hivemind.workers.runtime.mailbox import Mailbox
 from hivemind.workers.runtime.reporter import Reporter
 from hivemind.workers.runtime.reports import AlarmDetails
+from hivemind.workers.runtime.tools import MailboxToolChannel
 from hivemind.workers.state import WorkerState, can_transition, is_terminal
 from waggle.envelope import Envelope
 from waggle.errors import ConnectionLostError, TransportClosedError
+from waggle.ids import WardenId
 from waggle.loop import TickLoop
+from waggle.messages import ErrorMessage
 from waggle.messages.honey import HoneyResponse
 from waggle.messages.supervision import Answer, Intervene
 from waggle.messages.task import TaskAssign, TaskCancel, TaskPause, TaskResume, TaskStage
+from waggle.messages.tool.authoring import ToolPromoted
 
 log = get_logger(__name__)
 
@@ -124,7 +130,8 @@ class WorkerRuntime(TickLoop):
             ctx: Everything the role may use; this constructor replaces `ctx.asker` with this
                 runtime's own mailbox (`hivemind.workers.context`'s module docstring explains why
                 the caller cannot wire that in beforehand) and `ctx.honey` with this runtime's
-                own Honey channel over that same mailbox (roadmap step 7.8).
+                own Honey channel (roadmap step 7.8) and `ctx.tools` with its own Tool channel
+                (roadmap step 9.7), both over that same mailbox.
             worker: The role implementation to run once assigned.
             deps: The transport, addressing, heartbeat cadence and clock this runtime is built
                 with.
@@ -135,8 +142,12 @@ class WorkerRuntime(TickLoop):
         self._mailbox = Mailbox(deps.transport, deps.hop, deps.clock, deps.heartbeat_interval_s)
         # Roadmap step 7.8: the Honey Store is reached over the same link as every other report.
         self._honey = MailboxHoneyChannel(self._mailbox, deps.clock)
-        # WorkerContext is frozen (codingrules 8.5); a fresh copy carries both real channels.
-        self._ctx = dataclasses.replace(ctx, asker=self._mailbox, honey=self._honey)
+        # Roadmap step 9.7: so is the Royal Jelly Lab; the Warden is the hop's other end.
+        self._tools = MailboxToolChannel(self._mailbox, deps.clock, WardenId(deps.hop.recipient))
+        # WorkerContext is frozen (codingrules 8.5); a fresh copy carries the real channels.
+        self._ctx = dataclasses.replace(
+            ctx, asker=self._mailbox, honey=self._honey, tools=self._tools
+        )
         self._reporter = Reporter(self._ctx, deps, self._mailbox)
         self._attempt = AttemptManager(self)
 
@@ -324,10 +335,8 @@ async def _dispatch(runtime: WorkerRuntime, envelope: Envelope) -> None:
             await runtime._handle_intervene(payload)
         elif isinstance(payload, Answer):
             runtime._mailbox.resolve_answer(payload)
-        elif isinstance(payload, HoneyResponse):
-            # Roadmap step 7.8: a response names its query only through the envelope's own
-            # correlation_id (the Warden set it to the query envelope this Worker sent).
-            runtime._honey.resolve(envelope.correlation_id, payload)
+        elif isinstance(payload, HoneyResponse | ToolPromoted | ErrorMessage):
+            _resolve_reply(runtime, envelope)
         # Anything else is not addressed to a Worker's mailbox; ignored so a peer's unrelated
         # message can never take this runtime down.
     except InvalidWorkerTransitionError as error:
@@ -336,6 +345,24 @@ async def _dispatch(runtime: WorkerRuntime, envelope: Envelope) -> None:
             worker_id=runtime._ctx.worker_id,
             error=str(error),
         )
+
+
+def _resolve_reply(runtime: WorkerRuntime, envelope: Envelope) -> None:
+    """Hand a Honey or tool reply to the channel whose request is waiting for it.
+
+    Module-level for the same size reason as `_dispatch`. A `HoneyResponse` names its query only
+    through the envelope's own `correlation_id` (the Warden set it to the query envelope this
+    Worker sent; roadmap step 7.8). A `ToolPromoted` (roadmap step 9.7) is forwarded by the Warden
+    once it has re-attenuated this Worker's bundle and is matched by its tool id; an
+    `ErrorMessage` refusing a tool request names it only through `correlation_id`.
+    """
+    payload = envelope.payload
+    if isinstance(payload, HoneyResponse):
+        runtime._honey.resolve(envelope.correlation_id, payload)
+    elif isinstance(payload, ToolPromoted):
+        runtime._tools.resolve_promoted(payload)
+    elif isinstance(payload, ErrorMessage):
+        runtime._tools.resolve_error(envelope.correlation_id, payload)
 
 
 async def _send_pending_alarms(runtime: WorkerRuntime) -> None:

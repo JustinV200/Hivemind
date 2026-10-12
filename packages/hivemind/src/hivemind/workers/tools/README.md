@@ -72,6 +72,16 @@ a strictly read-only role, so its own, much narrower registry lives beside that 
   sha256 and size, never its bytes -- with one `FILE_EXISTS` postcondition at the destination; on
   a verified apply the source is removed from scratch (a move, not a copy). `describe()`'s own
   leave-decision line tells the model plainly whether the destination will actually remain.
+- `comb/` (roadmap step 9.7, a sub-package because this directory already holds ten modules) --
+  the phase 9 Worker half. `entry.py` holds `CombToolEntry` (a Warden's reading of a registry row),
+  `PackageSource` (the resident Basket) and `CombToolBundle`, the one mutable thing a Warden may
+  change under a Worker; `invoke.py` offers each entry as a tool (`comb_specs`, called last by
+  `build_registry` so a Comb tool never shadows a built-in) and `CombToolRunner` re-validates the
+  entry, OS, arguments and capabilities before every call, verifies the package hash before
+  `loader.py` unpacks and imports it, and bounds the run and its result; `request.py` is
+  `request_tool` (offered when `ctx.tools` is set); `retain.py` is `retain` (offered when
+  `ctx.retain_sink` is set). A hash with no entry cannot be invoked
+  (`tests/unit/workers/tools/test_invoke_inert.py`).
 - `honey.py` (roadmap step 7.8) -- `recall(query, scope?)` asks the Honey Store a `HoneyQuery` as
   this Worker, for its own task, capped at its assignment's clearance and at
   `RECALL_BUDGET_FRACTION` of its model's window (at most `RECALL_MAX_TOKENS`), through

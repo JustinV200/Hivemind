@@ -48,7 +48,7 @@ from hivemind.workers.tools.exoskeleton import ACTION_TOOL_NAMES
 # proposals.cap) and leaves it behind: the only ones a Handoff's do_not_redo list names without
 # looking at the call, since nothing else a bounded-loop role offers changes anything outside the
 # model's own next turn.
-SIDE_EFFECT_TOOLS = frozenset({"write_file", "run_command", "http_request", "keep"})
+SIDE_EFFECT_TOOLS = frozenset({"write_file", "run_command", "http_request", "keep", "retain"})
 
 # hivemind.workers.tools.proposals.describe's own rendering always starts with one of these two
 # tokens for a capped tool's result: reading them is parsing a fixed, machine-produced format,
@@ -160,7 +160,7 @@ def target_for(call: ToolCall) -> str:
         The call's own path, its argv joined into one command line, or its url; the tool's own
         name when none of its arguments name a target at all.
     """
-    if call.name in ("write_file", "read_file"):
+    if call.name in ("write_file", "read_file", "retain"):
         path = call.arguments.get("path")
         return str(path) if isinstance(path, str) else "<unknown path>"
     if call.name == "run_command":

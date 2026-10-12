@@ -12,6 +12,8 @@ file to a path outside it, via a `COPY` action; `honey` (roadmap step 7.8) is `r
 through `ctx.honey` and offered only when it is set; `proposals` is the one place a tool's side
 effect turns into a Capping `Proposal` and a `GateOutcome` turns back into tool-result text; and
 `errors` is this package's own error tree, rooted at `hivemind.workers.errors.WorkerError`. Roadmap
+step 9.7 adds the `comb` sub-package (the Comb tools a Warden hands a Worker, `request_tool` and
+`retain`; a sub-package because this directory already holds ten modules). Roadmap
 step 6.5 adds the `exoskeleton` sub-package: the Worker's tools for the display, pointer and
 keyboard, browser and audio attached to its Cell, whose reads may hand the model a screenshot or a
 recording as media beside the text (`ToolOutput`) and whose actions are typed GUI proposals.
@@ -62,14 +64,35 @@ Public API (roadmap 3.16):
     - ProposalRequest, make_proposal, cap, describe, tool_output: a Proposal in, a GateOutcome
       out, rendered as text or (tool_output, roadmap step 6.5) as a whole ToolOutput that also
       says whether the action failed (hivemind.workers.tools.proposals).
-    - ToolError, UnreachablePathError: this package's own error tree
-      (hivemind.workers.tools.errors).
+    - ToolError, UnreachablePathError, PackageUnavailableError, ToolsChangedError: this package's
+      own error tree (hivemind.workers.tools.errors); ToolsChangedError is a control exception.
+    - request_tool, retain, REQUEST_TOOL_SPEC, RETAIN_SPEC, CombToolEntry, CombToolBundle,
+      PackageSource, RetainDeposit, comb_specs, comb_tool_spec: the phase 9 Worker half
+      (hivemind.workers.tools.comb, roadmap step 9.7): ask the Hive for a tool, keep an artefact
+      in the Basket, and run the Comb tools the Warden handed this Worker.
     - exoskeleton_specs: the Exoskeleton tools one Worker is offered (roadmap step 6.5,
       hivemind.workers.tools.exoskeleton, whose own face lists every tool).
 """
 
 from hivemind.workers.tools.ask import ASK_DEFINITION, ASK_SPEC, ask
-from hivemind.workers.tools.errors import ToolError, UnreachablePathError
+from hivemind.workers.tools.comb import (
+    REQUEST_TOOL_SPEC,
+    RETAIN_SPEC,
+    CombToolBundle,
+    CombToolEntry,
+    PackageSource,
+    RetainDeposit,
+    comb_specs,
+    comb_tool_spec,
+    request_tool,
+    retain,
+)
+from hivemind.workers.tools.errors import (
+    PackageUnavailableError,
+    ToolError,
+    ToolsChangedError,
+    UnreachablePathError,
+)
 from hivemind.workers.tools.exoskeleton import exoskeleton_specs
 from hivemind.workers.tools.honey import (
     RECALL_DEFINITION,
@@ -125,21 +148,31 @@ __all__ = [
     "RECALL_SPEC",
     "REMEMBER_DEFINITION",
     "REMEMBER_SPEC",
+    "REQUEST_TOOL_SPEC",
+    "RETAIN_SPEC",
     "RUN_COMMAND_DEFINITION",
     "RUN_COMMAND_SPEC",
     "WRITE_FILE_DEFINITION",
     "WRITE_FILE_SPEC",
+    "CombToolBundle",
+    "CombToolEntry",
+    "PackageSource",
+    "PackageUnavailableError",
     "ProposalRequest",
+    "RetainDeposit",
     "ToolError",
     "ToolInvocation",
     "ToolOutput",
     "ToolRegistry",
     "ToolRunner",
     "ToolSpec",
+    "ToolsChangedError",
     "UnreachablePathError",
     "ask",
     "build_registry",
     "cap",
+    "comb_specs",
+    "comb_tool_spec",
     "describe",
     "exoskeleton_specs",
     "http_request",
@@ -149,6 +182,8 @@ __all__ = [
     "recall",
     "recall_budget",
     "remember",
+    "request_tool",
+    "retain",
     "run_command",
     "tool_output",
     "write_file",

@@ -45,12 +45,16 @@ class ToolState(Enum):
 
 # The single transition table (codingrules section 9): for each state, the states it may move to.
 TRANSITIONS: Mapping[ToolState, frozenset[ToolState]] = {
-    # The scaffolder starts from the request.
-    ToolState.REQUESTED: frozenset({ToolState.SCAFFOLDED}),
+    # The scaffolder starts from the request; a request the scaffolder cannot turn into a valid
+    # package at all (no reply, a spec that widens its requester) ends here, rejected.
+    ToolState.REQUESTED: frozenset({ToolState.SCAFFOLDED, ToolState.REJECTED}),
     # A scaffolded package is sent to the Comb.
     ToolState.SCAFFOLDED: frozenset({ToolState.QUARANTINING}),
-    # A passing report promotes; a failing report rejects.
-    ToolState.QUARANTINING: frozenset({ToolState.PROMOTED, ToolState.REJECTED}),
+    # A passing report promotes; a failing report rejects; QUARANTINING -> SCAFFOLDED is the one
+    # retry with the report: one retry with the report, roadmap 9.6.
+    ToolState.QUARANTINING: frozenset(
+        {ToolState.PROMOTED, ToolState.REJECTED, ToolState.SCAFFOLDED}
+    ),
     # Only a promoted tool can be withdrawn.
     ToolState.PROMOTED: frozenset({ToolState.RETIRED}),
     # Terminal: a rejected request starts over as a new request.

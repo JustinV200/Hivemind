@@ -254,12 +254,15 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
         `http_request` always (each call authorised when it is made, `ToolRegistry.execute`),
         plus (roadmap step 6.5) every Exoskeleton tool whose peripheral is attached and whose
         result the bound model can take (`hivemind.workers.tools.exoskeleton.exoskeleton_specs`),
-        and `recall`/`remember` when `ctx.honey` is set.
+        and `recall`/`remember` when `ctx.honey` is set, `request_tool` when `ctx.tools` is set,
+        `retain` when `ctx.retain_sink` is set, and (roadmap step 9.7) one tool per entry of
+        `ctx.comb_tools` that fits this Cell, when `ctx.package_source` is set too.
     """
     # Imported here, not at module level: session/http/ask/keep/honey and the exoskeleton tools
     # each import ToolInvocation/ToolSpec from this module, so importing them back at module scope
     # would cycle.
     from hivemind.workers.tools.ask import ASK_SPEC
+    from hivemind.workers.tools.comb import REQUEST_TOOL_SPEC, RETAIN_SPEC, comb_specs
     from hivemind.workers.tools.exoskeleton import exoskeleton_specs
     from hivemind.workers.tools.honey import RECALL_SPEC, REMEMBER_SPEC
     from hivemind.workers.tools.http import HTTP_SPEC
@@ -280,4 +283,12 @@ def build_registry(ctx: WorkerContext) -> ToolRegistry:
     # `tool:remember` are checked at invocation like every other tool.
     if ctx.honey is not None:
         specs.extend((RECALL_SPEC, REMEMBER_SPEC))
+    # Roadmap step 9.7: asking the Hive for a tool needs the channel; keeping an artefact needs
+    # the Warden's sink. `tool:request` and `tool:retain` are checked at invocation.
+    if ctx.tools is not None:
+        specs.append(REQUEST_TOOL_SPEC)
+    if ctx.retain_sink is not None:
+        specs.append(RETAIN_SPEC)
+    # The Comb tools this Worker's Warden handed it, last, so a built-in name is never shadowed.
+    specs.extend(comb_specs(ctx, frozenset(spec.definition.name for spec in specs)))
     return ToolRegistry(specs)

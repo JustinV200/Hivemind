@@ -29,9 +29,11 @@ from hivemind.royal_jelly.tool_state import (
 # Appendix C's Tool row, written out independently of the table under test.
 _ALLOWED = {
     (ToolState.REQUESTED, ToolState.SCAFFOLDED),
+    (ToolState.REQUESTED, ToolState.REJECTED),
     (ToolState.SCAFFOLDED, ToolState.QUARANTINING),
     (ToolState.QUARANTINING, ToolState.PROMOTED),
     (ToolState.QUARANTINING, ToolState.REJECTED),
+    (ToolState.QUARANTINING, ToolState.SCAFFOLDED),
     (ToolState.PROMOTED, ToolState.RETIRED),
 }
 _ALL_PAIRS = list(itertools.product(ToolState, ToolState))
