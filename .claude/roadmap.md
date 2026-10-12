@@ -2173,11 +2173,20 @@ in this phase adds a new write path.
   `FleetRow` does not name the bee working the task, and a Queen-forced mask's expiry is not
   published, so the tag is drawn without it. The design's tablet expander and "N new rows"
   button are not built; the header is not sticky inside the scrolling pane.
-- [ ] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
+- [x] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own
   inbox, reachable from the fleet list and the Cell diagram. Both read the per-principal task graph
   stream from 10.5.
+  **Built 2026-10-12.** `src/views/attendant/`: seeded from `GET /v1/attendant/{principal}`,
+  each `TaskGraphFrame` for the principal's tasks folded at once (status, placement) with one
+  throttled re-read per burst for the ordering, the inbox and the Alarm counts; the graph is SVG
+  from a pure layout (longest-path layers, cycles broken at the smallest id, left to right from
+  720 px and top to bottom below) with a hidden table; beside it the ordered inbox with scores and
+  reasons (and the "reconstructed" note), recently finished and up next. Read-model fields that
+  would improve it: a Warden's `cell_id` on `AttendantView`, a subject on `InboxEntryView`, a
+  `title` and `worker_id` on `TaskNode`, a `role` on `TaskView` (so a frame can add a node) and an
+  Alarm count on `TaskGraphFrame`.
 - [ ] **12.8 Chat.** A chatbox for the human: request tasks, ask questions, answer the Queen's
   questions, resolve Alarms that reached the human, typed or spoken (a push-to-talk button using
   the browser's recorder, sent through 10.5f, with the transcript shown for confirmation when the

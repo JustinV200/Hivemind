@@ -19,7 +19,7 @@
 import type { ReactElement } from 'react';
 import { ViewTitle } from '../components';
 import { useRoute } from '../router';
-import { AttendantView } from '../views/attendant/attendant';
+import { AttendantScreen } from '../views/attendant';
 import { CappingView } from '../views/capping/capping';
 import { CellPageView } from '../views/cell';
 import { ChatView } from '../views/chat/chat';
@@ -43,7 +43,7 @@ export function Outlet(): ReactElement {
     case 'thoughts':
       return <ThoughtsView bee={route.bee} />;
     case 'attendant':
-      return <AttendantView principal={route.principal} />;
+      return <AttendantScreen principal={route.principal} />;
     case 'chat':
       return <ChatView />;
     case 'honey':
