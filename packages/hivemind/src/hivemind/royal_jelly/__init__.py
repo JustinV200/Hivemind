@@ -31,9 +31,14 @@ Public API:
     - ToolState, TRANSITIONS, can_transition, transition (tool_state): the tool state machine.
     - CombRegistry, SqliteCombRegistry, InMemoryCombRegistry, CombToolRow, ToolKey,
       PromotionOffer, RegistryChange, QueenPrincipal, WardenPrincipal (registry): the catalogue.
+    - RoyalJellyAccess (access): the composition root's bundle of registry, Basket and policy.
+    - QuarantineComb, Sandbox, SandboxCell, SandboxSubprocess, SandboxRefusedError, decide_path,
+      default_gates, GateContext, BANNED_MODULES, BANNED_NAMES (quarantine_comb): the proof a tool
+      needs before promotion.
     - RoyalJellyError and its subclasses (errors): every refusal, each with a stable code.
 """
 
+from hivemind.royal_jelly.access import RoyalJellyAccess
 from hivemind.royal_jelly.errors import (
     NeedsReviewError,
     PackageError,
@@ -48,6 +53,18 @@ from hivemind.royal_jelly.errors import (
     VersionExistsError,
     WrongCellError,
     WrongPrincipalError,
+)
+from hivemind.royal_jelly.quarantine_comb import (
+    BANNED_MODULES,
+    BANNED_NAMES,
+    GateContext,
+    QuarantineComb,
+    Sandbox,
+    SandboxCell,
+    SandboxRefusedError,
+    SandboxSubprocess,
+    decide_path,
+    default_gates,
 )
 from hivemind.royal_jelly.registry import (
     ChangeKind,
@@ -86,6 +103,8 @@ from hivemind.royal_jelly.spec import (
 from hivemind.royal_jelly.tool_state import TRANSITIONS, ToolState, can_transition, transition
 
 __all__ = [
+    "BANNED_MODULES",
+    "BANNED_NAMES",
     "GATE_ORDER",
     "MAX_PACKAGE_BYTES",
     "SPEC_FILE",
@@ -95,6 +114,7 @@ __all__ = [
     "ChangeKind",
     "CombRegistry",
     "CombToolRow",
+    "GateContext",
     "GateResult",
     "InMemoryCombRegistry",
     "NeedsReviewError",
@@ -102,6 +122,7 @@ __all__ = [
     "Principal",
     "PromotionOffer",
     "PromotionRefusedError",
+    "QuarantineComb",
     "QuarantineLimits",
     "QuarantineReport",
     "QueenPrincipal",
@@ -110,7 +131,12 @@ __all__ = [
     "ReportMismatchError",
     "ResourceUsage",
     "RollbackRefusedError",
+    "RoyalJellyAccess",
     "RoyalJellyError",
+    "Sandbox",
+    "SandboxCell",
+    "SandboxRefusedError",
+    "SandboxSubprocess",
     "SpecRejectedError",
     "SpecValidation",
     "SqliteCombRegistry",
@@ -126,6 +152,8 @@ __all__ = [
     "WrongPrincipalError",
     "apply_comb_registry_migrations",
     "can_transition",
+    "decide_path",
+    "default_gates",
     "pack",
     "required_files_present",
     "sha256_of",

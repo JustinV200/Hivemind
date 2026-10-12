@@ -25,16 +25,23 @@ See Also:
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 
-from hivemind.royal_jelly.registry import PromotionOffer
+from hivemind.cell.session import CompletedCommand
+from hivemind.royal_jelly.quarantine_comb.gates import GateContext
+from hivemind.royal_jelly.quarantine_comb.runner.report import RunnerReport
+from hivemind.royal_jelly.registry import PromotionOffer, RegistryChange
+from hivemind.royal_jelly.scaffold import ScaffoldResult, ToolRequestBrief
 from hivemind.royal_jelly.spec import (
     GATE_ORDER,
     SPEC_FILE,
     TESTS_MODULE,
     TOOL_MODULE,
     GateResult,
+    QuarantineLimits,
     QuarantineReport,
     ResourceUsage,
     ToolSpec,
@@ -43,17 +50,24 @@ from hivemind.royal_jelly.spec import (
     spec_sha256,
 )
 from waggle.clock import Clock, FakeClock
-from waggle.ids import new_cell_id, new_tool_id, new_warden_id
+from waggle.ids import CellId, new_cell_id, new_tool_id, new_warden_id
 from waggle.messages.labels import OsFamily
-from waggle.messages.tool.authoring import QuarantinePath, ToolScope
+from waggle.messages.reports import PlatformReport
+from waggle.messages.tool.authoring import QuarantinePath, ToolRequest, ToolScope
 
 __all__ = [
     "DEFAULT_SCHEMA",
+    "FakeSandboxRunner",
+    "RecordingAnnouncer",
+    "RecordingHoney",
+    "make_brief",
     "make_failing_report",
     "make_offer",
     "make_package",
     "make_package_files",
     "make_passing_report",
+    "make_platform",
+    "make_scaffold_result",
     "make_tool_spec",
 ]
 
@@ -230,3 +244,348 @@ def _report(
     }
     fields.update(overrides)
     return QuarantineReport.model_validate(fields)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Quarantine Comb builders (wave 2D): tool sources, malicious packages
+# ──────────────────────────────────────────────────────────────────────────────
+
+__all__ += [
+    "MALICIOUS_KINDS",
+    "StubSandbox",
+    "make_gate_context",
+    "make_malicious_files",
+    "make_runner_report",
+    "make_tool_files",
+]
+
+_PASSING_TEST_SOURCE = (
+    "import unittest\n\n\nclass ToolTest(unittest.TestCase):\n"
+    "    def test_truth(self):\n        self.assertTrue(True)\n"
+)
+_TOOL_HEADER = "async def run(session, arguments):\n"
+
+# Each malicious kind: the `tool.py` source it ships. The tests are the harmless default, so the
+# one thing under test is the tool; the dependency kind needs a spec, not a source, and is built
+# by the test itself (`make_tool_spec(dependencies=...)`).
+_MALICIOUS_TOOLS = {
+    "socket_import": "import socket\n\n" + _TOOL_HEADER + "    return {}\n",
+    "from_subprocess": "from subprocess import run as shell\n\n" + _TOOL_HEADER + "    return {}\n",
+    "os_system": "import os\n\n" + _TOOL_HEADER + "    os.system('true')\n    return {}\n",
+    "os_alias": "import os as o\n\n" + _TOOL_HEADER + "    o.system('true')\n    return {}\n",
+    "open_passwd": _TOOL_HEADER + "    return {'x': open('/etc/passwd').read()}\n",
+    "dunder_import": _TOOL_HEADER + "    return {'m': str(__import__('socket'))}\n",
+    "importlib": "import importlib\n\n"
+    + _TOOL_HEADER
+    + "    return {'m': str(importlib.import_module('socket'))}\n",
+    "from_asyncio_subprocess": "from asyncio import create_subprocess_exec\n\n"
+    + _TOOL_HEADER
+    + "    return {}\n",
+    "wrong_entry": "async def execute(session, arguments):\n    return {}\n",
+    "sync_entry": "def run(session, arguments):\n    return {}\n",
+    "not_stdlib": "import numpy\n\n" + _TOOL_HEADER + "    return {}\n",
+}
+MALICIOUS_KINDS = (*_MALICIOUS_TOOLS, "no_tests", "extra_file")
+
+
+def make_tool_files(
+    run_source: str, test_source: str | None = None, spec: ToolSpec | None = None
+) -> dict[str, bytes]:
+    """Return the three package files for a tool whose `tool.py` is exactly `run_source`.
+
+    Args:
+        run_source: The whole text of `tool.py`.
+        test_source: The whole text of `test_tool.py`; one passing `unittest` test when omitted.
+        spec: The spec written to `spec.json`; a fresh default spec when omitted.
+
+    Returns:
+        Path to content for `tool.py`, `test_tool.py` and `spec.json`.
+    """
+    files = make_package_files(spec)
+    files[TOOL_MODULE] = run_source.encode("utf-8")
+    files[TESTS_MODULE] = (test_source or _PASSING_TEST_SOURCE).encode("utf-8")
+    return files
+
+
+def make_malicious_files(kind: str, spec: ToolSpec | None = None) -> dict[str, bytes]:
+    """Return a package that breaks exactly one static rule.
+
+    Args:
+        kind: One of `MALICIOUS_KINDS`: a banned import in some spelling, a banned builtin, a
+            wrong entry point, a missing test class, an extra file or a package-external import.
+        spec: The spec for `spec.json`; a fresh default spec when omitted.
+
+    Returns:
+        The package files; everything but the named defect is valid.
+
+    Raises:
+        KeyError: `kind` is not one of `MALICIOUS_KINDS`.
+    """
+    if kind == "no_tests":
+        return make_tool_files(
+            "async def run(session, arguments):\n    return {}\n",
+            "import unittest\n\nVALUE = 1\n",
+            spec,
+        )
+    if kind == "extra_file":
+        return {**make_package_files(spec), "extra.py": b"VALUE = 1\n"}
+    return make_tool_files(_MALICIOUS_TOOLS[kind], None, spec)
+
+
+_PASSING_RUNNER_REPORT = {
+    "tests": {"ran": 1, "failures": []},
+    "schema": {"compiled": True, "sample_accepted": True, "extra_refused": True, "findings": []},
+    "fuzz": {"cases": 4, "clean_raises": {}, "failure": ""},
+    "usage": {"cpu_s": 0.1, "peak_rss_bytes": 1_000, "wall_s": 0.5, "output_bytes": 0},
+    "violations": [],
+    "calls": [],
+}
+
+
+def make_runner_report(**overrides: object) -> RunnerReport:
+    """Build the runner's report as if every phase passed, with any section replaced.
+
+    Args:
+        overrides: Any of `tests`, `schema`, `fuzz`, `usage`, `violations`, `calls`, as plain
+            JSON-shaped values (dicts and lists) or None for a phase that never finished.
+
+    Returns:
+        A validated `RunnerReport`.
+    """
+    return RunnerReport.model_validate({**_PASSING_RUNNER_REPORT, **overrides})
+
+
+@dataclass(slots=True)
+class StubSandbox:
+    """A Sandbox that runs nothing: it records puts and execs and plays back a scripted report.
+
+    Mutable test double (it records what the Comb did to it); production sandboxes are the two
+    real implementations. `exec` returns `result` and, when `report_json` is set, "writes" it to
+    `report.json` the way the real runner would.
+    """
+
+    report_json: bytes | None = None
+    result: CompletedCommand = field(
+        default_factory=lambda: CompletedCommand(
+            exit_code=0, stdout=b"", stderr=b"", duration_s=0.1
+        )
+    )
+    cell_id: CellId | None = None
+    interpreter: str = "python3"
+    root: Path = Path("/sandbox")
+    files: dict[str, bytes] = field(default_factory=dict)
+    execs: list[tuple[str, ...]] = field(default_factory=list)
+    cleaned: int = 0
+
+    async def put(self, relative: Path, data: bytes) -> None:
+        """Remember `data` at `relative`."""
+        self.files[relative.as_posix()] = data
+
+    async def exec(
+        self, argv: tuple[str, ...], timeout_s: float, env: Mapping[str, str] | None = None
+    ) -> CompletedCommand:
+        """Record the command; play back the scripted report and result."""
+        self.execs.append(argv)
+        if self.report_json is not None:
+            self.files["report.json"] = self.report_json
+        return self.result
+
+    async def read(self, relative: Path) -> bytes:
+        """Return the file or raise `FileNotFoundError` like a real sandbox."""
+        try:
+            return self.files[relative.as_posix()]
+        except KeyError:
+            raise FileNotFoundError(relative) from None
+
+    async def cleanup(self) -> None:
+        """Count the call."""
+        self.cleaned += 1
+
+
+def make_gate_context(
+    spec: ToolSpec | None = None,
+    runner: RunnerReport | None = None,
+    limits: QuarantineLimits | None = None,
+    files: Mapping[str, bytes] | None = None,
+) -> GateContext:
+    """Build a `GateContext` over a `StubSandbox`, for testing one gate by hand.
+
+    Args:
+        spec: The spec; a fresh default one when omitted.
+        runner: The runner's parsed report; None for the static gate.
+        limits: The limits; the defaults when omitted.
+        files: The unpacked package; the default three-file tool for `spec` when omitted.
+
+    Returns:
+        A context whose package bytes are the packed `files`.
+    """
+    spec = spec or make_tool_spec()
+    contents = dict(files) if files is not None else make_package_files(spec)
+    return GateContext(
+        spec=spec,
+        files=contents,
+        package=pack(contents),
+        sandbox=StubSandbox(),
+        limits=limits or QuarantineLimits(),
+        runner=runner,
+    )
+
+
+__all__ += [
+    "FakeSandboxRunner",
+    "RecordingAnnouncer",
+    "RecordingHoney",
+    "make_brief",
+    "make_platform",
+    "make_scaffold_result",
+    "make_tool_request",
+]
+
+
+def make_platform(**overrides: object) -> PlatformReport:
+    """Build a valid Ubuntu platform report (the sandbox image's own), with fields overridden."""
+    fields: dict[str, object] = {
+        "os": OsFamily.LINUX,
+        "distribution": "ubuntu",
+        "architecture": "x86_64",
+        "package_manager": "apt",
+        "shell": "/bin/bash",
+        "python_version": "3.12.3",
+    }
+    fields.update(overrides)
+    return PlatformReport.model_validate(fields)
+
+
+def make_brief(clock: Clock | None = None, /, **overrides: object) -> ToolRequestBrief:
+    """Build a valid HIVE-scope scaffold brief for the echo tool, with any field overridden.
+
+    Args:
+        clock: Mints the ids (positional only); a fresh FakeClock by default.
+        overrides: Any `ToolRequestBrief` field. Overriding `scope` to CELL without a `cell_id`
+            mints one.
+
+    Returns:
+        A validated brief whose capabilities are `net:example.org` and `fs:read:**`.
+    """
+    clock = clock or FakeClock()
+    fields: dict[str, object] = {
+        "tool_id": new_tool_id(clock),
+        "requested_by": new_warden_id(clock),
+        "name": "echo_tool",
+        "description": "Echo the arguments back to the caller.",
+        "required_capabilities": ("net:example.org", "fs:read:**"),
+        "platform": make_platform(),
+        "scope": ToolScope.HIVE,
+        "cell_id": None,
+        "reason": "A step of the task needs an echo.",
+    }
+    fields.update(overrides)
+    if fields["scope"] is ToolScope.CELL and fields["cell_id"] is None:
+        fields["cell_id"] = new_cell_id(clock)
+    return ToolRequestBrief.model_validate(fields)
+
+
+def make_tool_request(clock: Clock | None = None, /, **overrides: object) -> ToolRequest:
+    """Build a valid `tool.request` for the echo tool on an Ubuntu Cell, with fields overridden."""
+    clock = clock or FakeClock()
+    fields: dict[str, object] = {
+        "tool_id": new_tool_id(clock),
+        "warden_id": new_warden_id(clock),
+        "worker_id": None,
+        "task_id": None,
+        "cell_id": new_cell_id(clock),
+        "scope": ToolScope.HIVE,
+        "name": "echo_tool",
+        "description": "Echo the arguments back to the caller.",
+        "required_capabilities": ("net:example.org",),
+        "platform": make_platform(),
+        "reason": "A step of the task needs an echo.",
+    }
+    fields.update(overrides)
+    return ToolRequest.model_validate(fields)
+
+
+def make_scaffold_result(brief: ToolRequestBrief, **spec_overrides: object) -> ScaffoldResult:
+    """Build the result a scaffolder would return for `brief`: its spec, files and package.
+
+    Args:
+        brief: The brief; the spec takes its identity from it exactly as `ModelScaffolder` does.
+        spec_overrides: Any `ToolSpec` field to change (a different `version`, say).
+
+    Returns:
+        A validated result whose package really packs the three files.
+    """
+    fields: dict[str, object] = {
+        "tool_id": brief.tool_id,
+        "requested_by": brief.requested_by,
+        "name": brief.name,
+        "scope": brief.scope,
+        "cell_id": brief.cell_id,
+        "supported_os": (brief.platform.os,),
+        "required_capabilities": brief.required_capabilities[:1],
+    }
+    fields.update(spec_overrides)
+    spec = make_tool_spec(**fields)
+    files = make_package_files(spec)
+    package = pack(files)
+    digest = sha256_of(package)
+    return ScaffoldResult(spec=spec, files=files, package=package, package_sha256=digest)
+
+
+class FakeSandboxRunner:
+    """A `SandboxRunner` that answers from a script of verdicts and remembers what it was sent.
+
+    Each entry is `"pass"`, a failing gate's name (`"tests"`), or an exception to raise. The report
+    is built over the spec and package the flow actually sent, so its hashes always agree, and
+    carries the quarantine path it was asked for. The last entry repeats once the script runs out.
+    """
+
+    def __init__(self, *verdicts: str | Exception) -> None:
+        """Build the runner over its verdicts (a single `"pass"` when none are given)."""
+        self._verdicts: Sequence[str | Exception] = verdicts or ("pass",)
+        self.calls: list[tuple[ToolSpec, bytes, QuarantinePath]] = []
+
+    async def quarantine(
+        self, spec: ToolSpec, package: bytes, path: QuarantinePath
+    ) -> QuarantineReport:
+        """Record the call and return (or raise) the scripted verdict for it."""
+        self.calls.append((spec, package, path))
+        verdict = self._verdicts[min(len(self.calls), len(self._verdicts)) - 1]
+        if isinstance(verdict, Exception):
+            raise verdict
+        digest, size = sha256_of(package), len(package)
+        if verdict == "pass":
+            return make_passing_report(spec, digest, size, path=path)
+        return make_failing_report(spec, digest, size, failing_gate=verdict, path=path)
+
+
+class RecordingHoney:
+    """A `HoneyDeposit` that records what it was asked to describe, or fails on request."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        """Build the fake; `error`, when given, is raised by every deposit."""
+        self._error = error
+        self.deposits: list[tuple[ToolSpec, QuarantineReport, str]] = []
+
+    async def deposit_promotion(
+        self, spec: ToolSpec, report: QuarantineReport, package_sha256: str
+    ) -> None:
+        """Record the deposit, then raise the configured error if there is one."""
+        self.deposits.append((spec, report, package_sha256))
+        if self._error is not None:
+            raise self._error
+
+
+class RecordingAnnouncer:
+    """An `Announcer` that records each announced change, or fails on request."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        """Build the fake; `error`, when given, is raised by every announcement."""
+        self._error = error
+        self.changes: list[tuple[RegistryChange, ToolSpec]] = []
+
+    async def announce(self, change: RegistryChange, spec: ToolSpec) -> None:
+        """Record the announcement, then raise the configured error if there is one."""
+        self.changes.append((change, spec))
+        if self._error is not None:
+            raise self._error

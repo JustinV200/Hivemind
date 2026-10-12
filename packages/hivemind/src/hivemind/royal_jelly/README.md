@@ -51,11 +51,23 @@ Retire and rollback use the same scope authority, except that the Queen may also
 back a CELL-scope tool (the operator's `hive tools` commands run through her). A rollback target
 must be a PROMOTED, non-current, strictly older version whose own stored report still passes.
 
+## The Quarantine Comb
+
+`quarantine_comb/` proves a package before the registry will accept it: `QuarantineComb.run(package,
+spec, sandbox, limits, path)` unpacks it, runs the pure static gate, puts the files into a
+`Sandbox`, runs the in-sandbox runner once and lets the tests, schema, fuzz, resources and
+capabilities gates judge the runner's JSON report, stopping at the first failure. The sandbox is a
+Virtual Cell reached through its session (`SandboxCell`, which refuses a borrowed Cell) or, for
+development only, a temp directory (`SandboxSubprocess`). `decide_path` picks the sandbox route or
+the real-cell route for a target platform. The Comb records nothing on the trail; its caller does.
+See `quarantine_comb/README.md`.
+
 ## How to test this
 
 ```text
 uv run --frozen pytest -q -p no:cacheprovider packages/hivemind/tests/unit/royal_jelly \
-    packages/hivemind/tests/contracts/test_comb_registry_contract.py
+    packages/hivemind/tests/contracts/test_comb_registry_contract.py \
+    packages/hivemind/tests/contracts/test_sandbox_contract.py
 ```
 
 `tests/unit/royal_jelly/registry/test_no_bypass.py` is the no-bypass proof; the contract suite runs
