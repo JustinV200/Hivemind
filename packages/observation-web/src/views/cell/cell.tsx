@@ -1,26 +1,74 @@
 /**
- * The Cell view's placeholder: the title row and nothing else, for now.
+ * The Cell page: one Cell, live, at `#/cells/<id>`.
  *
- * This view will show one Cell's header (with the tier and mask badges), diagram, tasks, Forage,
- * Honey, Cell Wax and Capping activity. It is reached at `#/cells/<id>`. Until its own roadmap step
- * lands it renders the shared title row only, so the shell, the nav, the router and the layout can
- * be exercised on every route from the start.
+ * The page is the header (id, kind, source, tier and mask badges, access level and mode), the live
+ * diagram of the Cell (its Warden, sub-bees, session, Exoskeleton, lease or Virtual Cell status
+ * and model hosting), and the panels beside it: tasks and goals, Forage, Honey, mode and Patrol,
+ * Cell Wax, open Alarms and Capping. It is seeded by one read of the Cell's page and redrawn from
+ * the Cells and telemetry streams as frames arrive; a trail event naming the Cell re-reads the page
+ * once for the lists that have no stream. A refusal or an unknown Cell shows the error table's
+ * sentence in place of the page.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/`. Chosen by the outlet in `src/shell/` when the
- *   route is `cell`. Built out in step 12.4, to design.md section 5.2.
+ *   route is `cell`. Built to docs/observation/design.md section 5.2.
  *
  * Key invariants:
- *   - The `id` from the route is shown as the subject, so the route table can be checked before the
- *     view is built.
- *   - It makes no request and reads no slice, so it cannot go stale or write anywhere.
+ *   - Read-only: it reads the page and three streams, and writes only its own slice.
+ *   - Everything drawn comes from the generated types; no field is guessed, and a field the schema
+ *     documents as filled in a later phase says "not tracked yet".
+ *   - A page left over from another Cell is never shown: it must match the route's id.
  *
  * See Also:
- *   - docs/observation/design.md section 5.2, for what this view will hold.
+ *   - src/views/cell/README.md.
+ *   - src/views/cell/slice.ts and src/views/cell/use_cell.ts for how the page stays live.
  */
+import { useMemo } from 'react';
 import type { ReactElement } from 'react';
-import { ViewTitle } from '../../components';
+import { ErrorNotice } from '../../components';
+import { useSlice } from '../../store';
+import './cell.css';
+import { awakeSet, CellDiagram } from './diagram';
+import { CellHeader } from './header';
+import {
+  AlarmsPanel,
+  CappingPanel,
+  ForagePanel,
+  HoneyPanel,
+  ModePanel,
+  TasksPanel,
+  WaxPanel,
+} from './panels';
+import { useCellPage } from './use_cell';
 
-export function CellView(props: { id: string }): ReactElement {
-  return <ViewTitle title="Cell" subject={props.id} />;
+export function CellPageView(props: { id: string }): ReactElement {
+  const state = useCellPage(props.id);
+  const summary = useSlice('summary');
+  // Bees in an awake episode, from the summary slice, for the diagram's accent outline.
+  const awake = useMemo(() => awakeSet(summary.autopilot), [summary.autopilot]);
+  // A render between a route change and the slice opening the new Cell must not show the old one.
+  const mine = state.cellId === props.id;
+  const page = mine ? state.page : null;
+  const error = mine ? state.error : null;
+  return (
+    <>
+      <CellHeader id={props.id} page={page} />
+      {error ? <ErrorNotice error={error} /> : null}
+      {!page && !error ? <p aria-busy="true">Reading the Cell</p> : null}
+      {page ? (
+        <div className="cell-page">
+          <CellDiagram page={page} awake={awake} />
+          <div className="cell-panels">
+            <TasksPanel page={page} />
+            <ForagePanel page={page} />
+            <ModePanel page={page} />
+            <WaxPanel page={page} />
+            <AlarmsPanel page={page} />
+            <CappingPanel page={page} />
+            <HoneyPanel page={page} />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 }

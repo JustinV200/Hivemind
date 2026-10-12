@@ -2109,7 +2109,7 @@ in this phase adds a new write path.
   nothing sets yet (memory 3.14 chose never to store the prompt text; exposing sections needs a
   memory-side decision on what to persist); and a cursor on the episode stream, so a 4409
   reconnect re-subscribes without the gap until the view is re-seeded.
-- [ ] **12.4 Cell pages and diagrams.** One page per Cell with a live diagram: its Warden and
+- [x] **12.4 Cell pages and diagrams.** One page per Cell with a live diagram: its Warden and
   where it runs (Hive Stand or on the Cell), every sub-bee with role, status, what it is doing
   right now and a context gauge, the session, whether an Exoskeleton is attached, the lease or
   Virtual Cell status, the model hosting for its bees. Alongside the diagram: the Cell's current
@@ -2121,6 +2121,19 @@ in this phase adds a new write path.
   with flight-recorder playback for
   Exoskeleton actions. Redrawn from telemetry and Cell status deltas.
   `CombShieldLevel` is shown in the page header as a persistent, high-contrast badge.
+  **Built 2026-10-12.** `src/views/cell/`: seeded from `GET /v1/cells/{id}/page`, folded live
+  from `/v1/cells/stream`, `/v1/telemetry/stream` and `/v1/trail/stream` (a trail event naming
+  the Cell or its Warden re-reads the page once, a second after the first of a burst); the header
+  carries the tier pill and the mask tag at every width (`OFF` with a "not tracked yet" note while
+  `mask_state` is null); the diagram is SVG from a pure layout module, the Warden drawn inside
+  the frame when it runs on the Cell, outside on the Hive Stand, dashed when untracked, each
+  sub-bee with a role glyph, status colour, task and context gauge, plus a hidden table for
+  readers; panels for tasks and goals, the Warden's Forage, the Honey entry point
+  (`#/honey/cells/<id>`), mode and Patrol, Cell Wax, open Alarms and Capping activity. Not in
+  the schema yet, shown as "not tracked yet" or omitted: the session's kind and state, the lease
+  expiry, the Patrol's report (only its time), a recording link for Exoskeleton Capping items,
+  the bee an Alarm belongs to (the bee whose task it names is marked), and the Cell's `status`
+  on `CellFrame` (the header's status updates on re-read).
 - [ ] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
   (Hive Stand, each Nuc, each Virtual Cell backend) the cores, memory, GPU and model seats in use
   versus available, the Royal Reserve held back, and a flow from the Queen's shared pool to each

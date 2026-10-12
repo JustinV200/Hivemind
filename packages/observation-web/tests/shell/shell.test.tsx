@@ -242,11 +242,12 @@ describe('top bar and nav', () => {
 });
 
 describe('routes', () => {
-  it('draws the placeholder for a route, with its parameter', async () => {
+  it('draws the view for a route, with its parameter', async () => {
     window.location.hash = '#/cells/cell_9';
     await openShell();
-    expect(screen.getByRole('heading', { name: 'Cell' })).toBeTruthy();
-    expect(screen.getByText('cell_9')).toBeTruthy();
+    // The Cell page's own reads are unscripted here; its header still names the route's Cell.
+    expect(screen.getByRole('heading', { name: /Cell/ })).toBeTruthy();
+    expect(screen.getAllByText('cell_9').length).toBeGreaterThan(0);
   });
 
   it('draws the Fleet on an empty hash and Not found for an unknown route', async () => {

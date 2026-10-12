@@ -21,7 +21,7 @@ import { ViewTitle } from '../components';
 import { useRoute } from '../router';
 import { AttendantView } from '../views/attendant/attendant';
 import { CappingView } from '../views/capping/capping';
-import { CellView } from '../views/cell/cell';
+import { CellPageView } from '../views/cell';
 import { ChatView } from '../views/chat/chat';
 import { CostView } from '../views/cost/cost';
 import { DevicesView } from '../views/devices/devices';
@@ -37,7 +37,7 @@ export function Outlet(): ReactElement {
     case 'fleet':
       return <FleetView />;
     case 'cell':
-      return <CellView id={route.id} />;
+      return <CellPageView id={route.id} />;
     case 'forage':
       return <ForageView />;
     case 'thoughts':
