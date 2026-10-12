@@ -394,3 +394,17 @@ GATES_AT_HANDOVER
 12. **In-Cell residency ceilings** are the `[basket]` default; `Ceilings.resident_basket_disk_bytes`
     reaches a Cell only on a later grant (`resident_ceiling_bytes` applies the non-zero rule) and a
     `ResidentBasket` has a fixed ceiling, so a new one must be built when a grant changes it.
+
+13. **No Worker role holds `tool:request` in the shipped policy**, and an in-Cell Warden reads no
+    `[guard]` section, so a Worker on a Virtual Cell cannot request a tool at all; the e2e scenarios
+    grant the flag through a `[guard.roles.<role>]` overlay. Decide which roles should hold it and
+    ship the overlay to in-Cell Wardens.
+14. **`hive tools request --cell` cannot succeed**: the Queen's door takes only hive-scope requests
+    from a Warden and a cell-scope tool is built by its own Cell's Warden for a Worker. Either drop
+    the option or run the request through a stand-in sub-bee on the Hive Stand Warden.
+15. **A call to a tool that was never offered leaves no trail row**: the tool ladder refuses it
+    before the registry. Adding a `guard.denied` row for a hallucinated name would feed the Guard
+    Bee's denial rules, so it was left out; say if you want it.
+16. **Every grant now carries a SCAFFOLDER binding** (`GrantInputs.extra_slots`) so a Warden can
+    scaffold within its grant; a goal narrowed to `llm:worker` records one `guard.denied` row per
+    grant for it. Carry it only when a goal may request tools if that noise matters.

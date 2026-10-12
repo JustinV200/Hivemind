@@ -1568,6 +1568,37 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   hash; a blob deposited from a Real Cell is refused by a Night Veil Cell; a blob with no Comb
   entry cannot be invoked as a tool, and the refusal is on the trail.
 
+**Met 2026-10-12 with the dev subprocess sandbox standing in for Docker, and the Forager's
+browser faked** (branch `ccr-4e10bf6f-y9zk5g`; the record is `.claude/phase-9-handoff.md`). No
+Docker reaches this container, so every sandbox is either `[royal_jelly] sandbox = "subprocess"`
+on the Hive Stand or a `ContainerSpawningFakeCellBackend` Virtual Cell whose real in-process
+Warden runs the Comb over its `InCellSession`; only the container itself is faked.
+`tests/e2e/test_phase9_exit_criteria.py` proves bullets 1 to 3: a real Forager on the Hive Stand
+calls `request_tool` for a missing capability, the Queen scaffolds (scripted SCAFFOLDER), deposits,
+quarantines in the subprocess sandbox, promotes and announces (`tool.requested, scaffolded,
+quarantine_requested, quarantined, promoted, announced, loaded` in that order), and the same
+Forager finishes with the tool's output; a Drone on the Hive Stand asks at cell scope, its Warden
+scaffolds on the SCAFFOLDER binding in its grant, the Queen provisions a sandbox Virtual Cell for
+it, and the Warden promotes with its own principal, after which `visible_tools` lists the tool for
+that Cell only and a Worker on another Cell is never offered it; a scaffold importing `socket`,
+one calling `subprocess.run` and one reading outside its directory each fail the static gate with
+the construct named, twice, then `tool.rejected` and `control.error hive.tool.rejected`, with no
+registry row. Bullet 4 is `tests/evals/scaffold/test_scaffold_local.py`: the same scenario with
+only the SCAFFOLDER slot moved to `docs/manifests/local.toml`'s server, gated by the `local_llm`
+marker; it passed against a scripted loopback stand-in and has not run against a real model here.
+Bullet 5 is `test_phase9_exit_criteria_basket.py`: a hive-scope tool reaches a Virtual Cell that
+attaches later (`basket.offered` on the Queen's trail, `basket.received` on the Cell's, the resident
+bytes hashing to the registry's `package_sha256`); a C2 blob from the Hive Stand is refused by the
+Night Veil rig with `basket.refused` (CLEARANCE) while a C0 blob is kept; a dataset deposited and
+never promoted gives no tool, and a forged `tool.promoted` whose package is absent is refused with
+`tool.load_refused`. One reading differs from the bullet's text: a call to a tool that was never
+offered is refused by the tool ladder before any registry, so it leaves no `guard.denied` row; the
+trail refusal is `tool.load_refused`. Where the steps differ from their text: a sandbox is asked
+for with `tool.quarantine`, not `CellRequest` (ADR-0047); the Real Cell tests-gate leg of 9.3a is
+not built; no Worker role holds `tool:request` in the shipped policy (the scenarios grant it per
+manifest), and an in-Cell Warden reads no `[guard]` section, so a Worker on a Virtual Cell cannot
+request a tool yet.
+
 ### ADRs to write
 
 - `basket-inert-blobs-residency-and-transfer.md` (bytes travel, permission does not; Honey
