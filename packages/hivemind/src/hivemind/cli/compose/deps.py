@@ -507,6 +507,8 @@ def _with_virtual_cells(base: QueenDeps, virtual_cells: VirtualCellsParts | None
         dormant_cell_source=virtual_cells.dormant_cell_source,
         on_task_finished=virtual_cells.on_task_finished,
         on_cell_granted=virtual_cells.on_cell_granted,
+        sandboxes=virtual_cells.provider,  # Phase 9: the Comb's sandbox Cells, and the keys for
+        uplink_keys=virtual_cells.provider.uplink_key,  # the manifests their Wardens sign.
     )
 
 

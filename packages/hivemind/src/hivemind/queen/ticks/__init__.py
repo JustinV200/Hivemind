@@ -48,6 +48,8 @@ Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3, 7.8, 10.5, 10.6):
     - alarms, liveness, results, forage, wax, housekeeping, honey: the tick-handler modules.
       `honey` (roadmap step 7.8) answers a bee's HoneyQuery and takes a NectarDeposit chunk into
       the Honey Store, reached ahead of `decide` through `handle_infrastructure_item` like `wax`.
+    - tools (roadmap phase 9): the Royal Jelly Lab's and the Basket's Queen side: tool requests,
+      sandbox runs, promotions and blob transfers, reached through `handle_infrastructure_item`.
     - awake, human: the awake episode, and the chat and the goal requests (step 10.5).
     - guard_bee: the Guard Bee's round on the Queen's tick (step 10.6).
 """
@@ -62,6 +64,7 @@ from hivemind.queen.ticks import (
     human,
     liveness,
     results,
+    tools,
     wax,
 )
 
@@ -75,5 +78,6 @@ __all__ = [
     "human",
     "liveness",
     "results",
+    "tools",
     "wax",
 ]

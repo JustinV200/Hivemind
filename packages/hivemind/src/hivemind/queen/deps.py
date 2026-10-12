@@ -97,6 +97,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
+from hivemind.basket import Offer, TransferReceiver, TransferSender
 from hivemind.brood_chamber import BroodChamber, Task, TaskOutcome
 from hivemind.cell import Cell
 from hivemind.common.logging import get_logger
@@ -112,6 +113,7 @@ from hivemind.forage import (
 )
 from hivemind.guard import Enforcer
 from hivemind.guard.scanner import ContentScanner, default_content_scanner
+from hivemind.hive import VirtualCellSpec
 from hivemind.honey_store.access import HoneyAccess
 from hivemind.llm import BoundModel, CallGate, ProviderLookup
 from hivemind.memory import MemoryIdentity, MemoryStore
@@ -129,15 +131,16 @@ from hivemind.queen.placement import (
     VirtualBackendCandidate,
 )
 from hivemind.queen.state import ClusterState
-from hivemind.royal_jelly import RoyalJellyAccess
+from hivemind.royal_jelly import QuarantineReport, RoyalJellyAccess, ToolSpec
 from hivemind.supervision import EscalationPolicy
 from hivemind.workers.roles.guard_bee import GuardBee
 from waggle.clock import Clock
 from waggle.envelope import Envelope, Hop
 from waggle.errors import ConnectionLostError, TransportClosedError
-from waggle.ids import CellId, GrantId, NodeId, TaskId, WardenId
+from waggle.ids import CellId, GrantId, MessageId, NodeId, TaskId, ToolId, WardenId
 from waggle.messages.supervision import Heartbeat
 from waggle.messages.task import WorkerRole
+from waggle.messages.tool import ToolQuarantineReport
 from waggle.transport.base import Transport
 
 # roadmap step 3.21 (second half): QueenDeps carried no [forage.roles.*]/[forage.reserve]/
@@ -198,11 +201,16 @@ __all__ = [
     "OnCellGranted",
     "OnHeartbeat",
     "OnTaskFinished",
+    "PendingReport",
     "PlanningLane",
     "ProvisionBackoff",
     "ProvisionJob",
     "ProvisionLane",
+    "QuarantineRecord",
     "QueenDeps",
+    "SandboxCellProvider",
+    "ToolLane",
+    "UplinkKeys",
     "VirtualBackendSource",
     "VirtualCellProvider",
     "WardenLink",
@@ -237,6 +245,9 @@ OnHeartbeat = Callable[[WardenId, Heartbeat, datetime], None]
 # since only such a figure can change while a task waits (a fact about the link, never a branch
 # on the Cell's kind). The composition root sets it on the Hive Stand's own link.
 LiveCapacity = Callable[[], Awaitable[ForageCapacity]]
+# Phase 9 (ADR-0048): the raw Ed25519 public key a Warden's own node signs a Basket manifest with,
+# looked up from the key the Cell gate holds for that link's Cell; None when the link proves none.
+UplinkKeys = Callable[["WardenLink"], bytes | None]
 
 
 async def send_guarded(transport: Transport, envelope: Envelope) -> bool:
@@ -353,6 +364,97 @@ class VirtualCellProvider(Protocol):
                 headroom zeroed before giving up (ADR-0028 Consequences).
         """
         ...
+
+
+class SandboxCellProvider(Protocol):
+    """Provision and release the disposable sandbox Cell a Quarantine Comb run happens in.
+
+    Phase 9 (ADR-0047): a sandbox is the Queen's own, never handed to a requester, so it has no
+    task and no `Placement`; `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider`
+    implements this beside `VirtualCellProvider` over the same lifecycle.
+    """
+
+    async def acquire_sandbox(self, spec: VirtualCellSpec) -> WardenLink:
+        """Provision a Cell from `spec`, wait for its Warden, and return that Warden's link.
+
+        Raises:
+            hivemind.hive.CellProvisionError: The backend could not provision it or it never
+                became reachable.
+        """
+        ...
+
+    async def release_sandbox(self, cell_id: CellId) -> None:
+        """Tear the sandbox down; never raises for a Cell already gone."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class QuarantineRecord:
+    """What the Queen kept from one Quarantine Comb run, so a Warden may later promote on it.
+
+    Attributes:
+        spec: The spec the package was proved against.
+        report: The Comb's report (passed or not).
+        package_sha256: The package's hash; the Basket holds its bytes.
+        requested_by: The Warden whose request this run served.
+        cell_id: The one Cell a CELL-scope tool is for; None at HIVE scope.
+    """
+
+    spec: ToolSpec
+    report: QuarantineReport
+    package_sha256: str
+    requested_by: WardenId
+    cell_id: CellId | None
+
+
+@dataclass(frozen=True, slots=True)
+class PendingReport:
+    """A `tool.quarantine` order sent to a sandbox Warden, and the future its report resolves."""
+
+    warden_id: WardenId  # Only this Warden's reply resolves it.
+    future: asyncio.Future[ToolQuarantineReport]
+
+
+@dataclass(slots=True)
+class ToolLane:
+    """The Queen's tool work beside her tick: promotion jobs, brokered runs and Basket transfers.
+
+    A promotion flow scaffolds with a model, a Quarantine Comb run waits for a sandbox Warden and
+    a Basket shipment waits for acks; each is a job here, never an await in her tick
+    (codingrules 8.8). The tick only starts a job or resolves a future a job awaits. `Queen.stop`
+    cancels the jobs and awaits them (`hivemind.queen.ticks.tools.stop_tools`). Owns its own
+    mutable state in place (codingrules section 8.5), in memory only: a restarted Queen runs no
+    job she did not start and keeps no record she did not write.
+
+    Attributes:
+        limit: The most tool jobs in flight at once.
+        jobs: Every request or brokered run in flight, by tool id.
+        records: The spec and report of every run this Queen made, by (tool id, version).
+        pending_reports: Orders awaiting a sandbox Warden's report, by the order's envelope id.
+        transfers: Every blob shipment out, by (receiving Warden, sha256).
+        shipped: The future each shipment's job awaits, resolved True on completion.
+        receipts: Every blob upload in, by (sending Warden, sha256).
+        offers: The offer each upload in was accepted on, for its provenance at the end.
+        draining: The queued shipments (`hive basket ship`) being shipped right now, by row id.
+        sandbox_cells: The sandbox Cells in use, which an announcement skips.
+        background: Fire-and-forget jobs (announcements, shipments from `hive basket ship`).
+        last_drain_at: When the queued shipments were last looked at.
+        closed: Set as the Queen stops: no job is started afterwards.
+    """
+
+    limit: int = _DEFAULT_PROVISIONS_IN_FLIGHT
+    jobs: dict[ToolId, asyncio.Task[None]] = field(default_factory=dict)
+    records: dict[tuple[ToolId, str], QuarantineRecord] = field(default_factory=dict)
+    pending_reports: dict[MessageId, PendingReport] = field(default_factory=dict)
+    transfers: dict[tuple[WardenId, str], TransferSender] = field(default_factory=dict)
+    shipped: dict[tuple[WardenId, str], asyncio.Future[bool]] = field(default_factory=dict)
+    receipts: dict[tuple[WardenId, str], TransferReceiver] = field(default_factory=dict)
+    offers: dict[tuple[WardenId, str], Offer] = field(default_factory=dict)
+    draining: set[int] = field(default_factory=set)
+    sandbox_cells: set[CellId] = field(default_factory=set)
+    background: set[asyncio.Task[None]] = field(default_factory=set)
+    last_drain_at: datetime | None = None
+    closed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -611,10 +713,8 @@ class QueenDeps:
             regardless of what the escalation policy's own rows would otherwise decide.
         memory_budget: The `[memory]` slice an awake episode's `TokenBudget` is built from.
         scratch_root: The Hive Stand's own `[hive_stand] scratch_root`, resolved (roadmap step
-            5.0b). Read by `hivemind.queen.goal_submission.submit_goal`, which passes it to
-            `hivemind.queen.planner.PlanBrief.scratch_root` so a plan that declares a leaving
-            inside scratch is refused while planning, and by `hivemind.queen.authority` to fill
-            a Warden's `{scratch}` entries when she computes its set (roadmap step 10.3).
+            5.0b). Read by `submit_goal` (a plan declaring a leaving inside it is refused) and
+            by `hivemind.queen.authority` to fill a Warden's `{scratch}` entries (step 10.3).
         enforcer: The Guard's adapter every one of the Queen's enforcement points calls (roadmap
             step 10.3, ADR-0039): placement, grant issue, Forage requests, Warden spawn, question
             routing and Comb Shield egress. Its policy is the one every set she computes is built
@@ -663,19 +763,13 @@ class QueenDeps:
         virtual_provider: The seam `hivemind.queen.dispatcher` calls to turn a `ProvisionVirtual`/
             `ReuseDormant` Placement into a `WardenLink` (`VirtualCellProvider`, defined above).
             `None` (the default) means a Virtual Placement is a `PlacementError`.
-        virtual_backend_source: Feeds `virtual_backends` live from a running `hivemind.hive.
-            lifecycle.CellLifecycle` instead of the static tuple above, when set.
-            `hivemind.queen.dispatcher.snapshot.build_inventory` calls this (converting the
-            hive-layer candidates it returns into `queen.placement.inventory` ones) instead of
-            reading `virtual_backends` directly, whenever it is not `None` (the default).
+        virtual_backend_source: Feeds `virtual_backends` live from a running `CellLifecycle`
+            instead of the static tuple above, when set (`build_inventory` reads it first).
         dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for
             `dormant_cells`.
-        on_task_finished: Told about every finished task's own Cell (its `CellId` and
-            `TaskOutcome`) by `hivemind.queen.ticks.results.complete_task`, and about a Cell
-            acquired for a task cancelled or denied before it ran there (`hivemind.queen.
-            dispatcher.provisions.release_cell`). `None` (the default) is a no-op;
-            `hivemind.queen.cell_gate.release.make_on_task_finished` builds the real one, so a
-            Virtual Cell's release is triggered without reading `cell.kind` (codingrules 8.7).
+        on_task_finished: Told of every finished task's Cell (`CellId`, `TaskOutcome`) and of a
+            Cell acquired for a task cancelled before it ran there; `None` (the default) is a
+            no-op, and `queen.cell_gate.release.make_on_task_finished` builds the real one.
         dispatch: The dispatcher's own lock, grant waits and provisions (`DispatchBook`).
         keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
             None (the default) until the operator sets one. Read only by `hivemind.queen.
@@ -687,6 +781,9 @@ class QueenDeps:
             is refused with `control.error`, and no pre-check runs.
         royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9, built by
             `hivemind.cli.compose.royal_jelly`); None (the default) wires neither.
+        sandboxes: Provisions the Comb's sandbox Cell; None leaves only the subprocess sandbox.
+        tool_lane: Her tool jobs and Basket transfers beside the tick (`ToolLane`).
+        uplink_keys: The key a Warden's node signs a Basket manifest with; None trusts the Hive key.
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.
@@ -782,3 +879,7 @@ class QueenDeps:
     guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0043).
     honey: HoneyAccess | None = None  # Roadmap phase 7: None keeps every hand-built one working.
     royal_jelly: RoyalJellyAccess | None = None  # Roadmap phase 9: None keeps hand-built ones.
+    # Phase 9 (ADR-0047): the sandbox seam, the tool lane and the manifest-key lookup; defaulted.
+    sandboxes: SandboxCellProvider | None = None
+    tool_lane: ToolLane = field(default_factory=ToolLane)
+    uplink_keys: UplinkKeys | None = None

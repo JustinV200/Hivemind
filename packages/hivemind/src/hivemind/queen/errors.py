@@ -46,6 +46,7 @@ __all__ = [
     "CellNotIsolatedError",
     "IsolationRefusedError",
     "QueenError",
+    "SandboxUnavailableError",
     "UnknownCellError",
     "UnknownGuardReportError",
     "UnknownWardenError",
@@ -179,3 +180,25 @@ class IsolationRefusedError(PermissionDeniedError):
         """
         super().__init__(f"Cell {cell_id} was not isolated: {reason}")
         self.cell_id = cell_id
+
+
+class SandboxUnavailableError(QueenError):
+    """Raise when a Quarantine Comb run could not be given a sandbox, or the sandbox went silent.
+
+    Phase 9 (ADR-0047). It is no verdict on the tool: the Comb never ran to its end, because no
+    Virtual backend could provision a sandbox, the package could not be shipped to it, its Warden
+    never answered in time or its report was unreadable. The promotion flow records it as a
+    `tool.rejected` at the `quarantine` stage (reason `sandbox unavailable: ...`) and the Queen's
+    job answers the requester with `hive.tool.sandbox_unavailable`.
+    """
+
+    code: ClassVar[str] = "hivemind.queen.sandbox_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        """Build the error for a run that had no sandbox to happen in.
+
+        Args:
+            reason: One sentence naming what failed; ids and gate names, never a traceback.
+        """
+        super().__init__(reason)
+        self.reason = reason

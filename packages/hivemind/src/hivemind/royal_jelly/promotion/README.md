@@ -6,7 +6,10 @@ with the failing report and then reject. Every stage writes a `tool.*` trail eve
 edge goes through `royal_jelly.tool_state.transition`.
 
 - `flow.py`: `PromotionFlow`, `PromotionPorts`, `PromotionOutcome`.
-- `ports.py`: `SandboxRunner`, `HoneyDeposit`, `Announcer`, the seams the composition root fills.
+- `ports.py`: `SandboxRunner`, `HoneyDeposit`, `Announcer`, `Reviewer`, the seams the composition
+  root fills. A real-Cell-path proof at hive scope is promoted only if the `Reviewer` accepts it
+  (no reviewer: the registry's `needs_review` refusal); a runner that cannot reach its sandbox ends
+  the run as a rejection (`sandbox_unavailable`), never an exception.
 - `events.py`: `tool_event` and one builder per stage (also used by the Worker's tool invoker).
 
 ## How to test this

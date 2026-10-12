@@ -337,6 +337,9 @@ async def _stop_queen(queen: Queen) -> None:
     # Every Virtual Cell still being acquired is awaited, never cancelled, while her links are
     # still open for its Warden to attach: the Cell it makes is one the shutdown then retires.
     await stop_provisions(queen._deps)
+    # Phase 9: tool jobs are cancelled (a model call or a sandbox wait could outlast the Queen) and
+    # awaited, so a sandbox Cell a job held is released by that job's own `finally` first.
+    await ticks.tools.stop_tools(queen._deps)
     await queen._links.aclose()
     # Roadmap step 10.5: a plan still in flight is reaped too; its request stays PLANNING, which
     # the next start settles (hivemind.queen.ticks.human.intake): nothing lost or planned twice.

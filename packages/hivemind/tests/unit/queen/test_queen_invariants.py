@@ -35,8 +35,10 @@ from hivemind.queen.queen import Queen
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.task import TaskOutcome, TaskResult
 
+# The Queen promotes hive-scope tools (ADR-0046), so she holds the Comb Registry, but only through
+# the one `royal_jelly: RoyalJellyAccess` bundle: no field of her deps is typed as the registry
+# itself, and none is a Cell session (ADR-0019).
 _FORBIDDEN_NAMES = ("CellSession", "CombRegistry")
-_FORBIDDEN_MODULE_FRAGMENT = "royal_jelly"  # "Comb Registry" is hivemind.royal_jelly.registry.
 
 
 def _two_task_plan(goal: str) -> dict[str, object]:
@@ -85,7 +87,6 @@ def test_queen_deps_fields_never_type_hint_a_cell_session_or_a_comb_registry() -
             hint_text = str(hints[field.name])
             for forbidden in _FORBIDDEN_NAMES:
                 assert forbidden not in hint_text, f"{cls.__name__}.{field.name}: {hint_text}"
-            assert _FORBIDDEN_MODULE_FRAGMENT not in hint_text, f"{cls.__name__}.{field.name}"
 
 
 async def test_queen_instance_never_holds_a_cell_session_anywhere_in_her_own_state() -> None:

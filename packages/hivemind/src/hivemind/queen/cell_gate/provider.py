@@ -123,7 +123,7 @@ from typing import Protocol
 
 from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, CombShieldLevel
-from hivemind.hive import CellProvisionError
+from hivemind.hive import CellProvisionError, VirtualCellSpec
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.models import DEFAULT_READY_TIMEOUT_S
 from hivemind.hive.night_veil import NightVeilProbe, attest_cell
@@ -132,6 +132,10 @@ from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
 from waggle.ids import CellId
+from waggle.signing import public_key_from_hex
+
+# The reason a sandbox's provision carries, beside the ordinary placement reasons.
+SANDBOX = "comb sandbox"
 
 # A NIGHT_VEIL Cell's own probe factory: builds a fresh NightVeilProbe for the Cell being attested.
 # Callable rather than a bare probe instance, since a real SessionNightVeilProbe needs a live
@@ -240,6 +244,24 @@ class LifecycleVirtualCellProvider:
             await self._attest_or_teardown(cell, placement)
         await self._lifecycle.mark_ready(cell.id, link.warden_id)
         return link
+
+    async def acquire_sandbox(self, spec: VirtualCellSpec) -> WardenLink:
+        """Provision a Comb sandbox from `spec` on the one backend, like any fresh Cell."""
+        backends = self._lifecycle.virtual_backend_candidates()
+        if not backends:
+            raise CellProvisionError("none", spec.image, "no Virtual backend is registered")
+        return await self._acquire_provision(ProvisionVirtual(spec, backends[0].name, SANDBOX))
+
+    async def release_sandbox(self, cell_id: CellId) -> None:
+        """Tear a sandbox down; a failed teardown is swallowed like any best-effort one."""
+        await self._teardown_best_effort(cell_id)
+
+    def uplink_key(self, link: WardenLink) -> bytes | None:
+        """Return the valid public key the gate holds for `link`'s Cell, or None (`UplinkKeys`)."""
+        key_hex = self._gate.expected_key(link.cell.id)
+        with contextlib.suppress(ValueError):  # A malformed key verifies nothing.
+            return None if key_hex is None else public_key_from_hex(key_hex)
+        return None
 
     async def _require_provisioned_tier(
         self, cell: Cell, link: WardenLink, placement: ProvisionVirtual

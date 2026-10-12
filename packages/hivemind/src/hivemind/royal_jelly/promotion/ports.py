@@ -14,6 +14,8 @@ Fits into the Hive:
     `PromotionFlow`.
 
 Key invariants:
+    - `Reviewer.review` is asked only for a real-Cell-path report at hive scope; no reviewer means
+      the registry refuses such a promotion (`NeedsReviewError`), which the flow records.
     - `SandboxRunner.quarantine` returns a report, passed or failed; it raises only when the
       sandbox itself could not be reached or built, which the flow records as a rejection.
     - `HoneyDeposit` and `Announcer` run after the registry has promoted: a failure in either never
@@ -32,7 +34,7 @@ from hivemind.royal_jelly.registry import RegistryChange
 from hivemind.royal_jelly.spec import QuarantineReport, ToolSpec
 from waggle.messages.tool.authoring import QuarantinePath
 
-__all__ = ["Announcer", "HoneyDeposit", "SandboxRunner"]
+__all__ = ["Announcer", "HoneyDeposit", "Reviewer", "SandboxRunner"]
 
 
 class SandboxRunner(Protocol):
@@ -83,5 +85,21 @@ class Announcer(Protocol):
         Args:
             change: What the registry did; `change.row` is the new current row.
             spec: The promoted spec.
+        """
+        ...
+
+
+class Reviewer(Protocol):
+    """Give the Queen's judgement on a tool the Comb could only half prove (ADR-0047, step 9.3a)."""
+
+    async def review(self, spec: ToolSpec, report: QuarantineReport) -> bool:
+        """Say whether a hive-scope tool proved on the real-Cell path may be promoted.
+
+        Args:
+            spec: The spec that passed.
+            report: The passing report; its `path` is `REAL_CELL`.
+
+        Returns:
+            True to accept (the promotion then carries `reviewed=True`); False to decline.
         """
         ...

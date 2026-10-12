@@ -54,7 +54,12 @@ from hivemind.royal_jelly.promotion.events import (
     requested_event,
     scaffolded_event,
 )
-from hivemind.royal_jelly.promotion.ports import Announcer, HoneyDeposit, SandboxRunner
+from hivemind.royal_jelly.promotion.ports import (
+    Announcer,
+    HoneyDeposit,
+    Reviewer,
+    SandboxRunner,
+)
 from hivemind.royal_jelly.registry import CombRegistry, Principal, PromotionOffer, RegistryChange
 from hivemind.royal_jelly.scaffold import (
     Scaffolder,
@@ -68,7 +73,7 @@ from waggle.clock import Clock
 from waggle.errors import WaggleError
 from waggle.ids import ToolId
 from waggle.messages.reports import PlatformReport
-from waggle.messages.tool.authoring import QuarantinePath
+from waggle.messages.tool.authoring import QuarantinePath, ToolScope
 
 DEFAULT_MAX_RETRIES = 1  # Roadmap 9.6: one retry with the report, then give up.
 MAX_PROMOTION_REASON_CHARS = 1_000  # The registry's bound on a promotion reason.
@@ -77,11 +82,18 @@ MAX_PROMOTION_REASON_CHARS = 1_000  # The registry's bound on a promotion reason
 _SCAFFOLD_FAILURES = (SpecRejectedError, PackageError, ScaffoldFailedError)
 # What a post-promotion side effect (Honey, the announcement) may fail with without undoing it.
 _AFTER_PROMOTION_FAILURES = (HiveMindError, WaggleError, OSError, TimeoutError)
+# What a runner or a reviewer may fail with when its sandbox or model cannot be reached; neither
+# is a verdict on the tool, so each ends the run as a rejection, not a crash of the caller's job.
+_OUTSIDE_FAILURES = (HiveMindError, WaggleError, OSError, TimeoutError)
+SANDBOX_UNAVAILABLE_CODE = "sandbox_unavailable"  # The rejection code for an unreachable sandbox.
+REVIEW_DECLINED_CODE = "review_declined"  # The rejection code for a declined review.
 
 type PathDecider = Callable[[PlatformReport], QuarantinePath]
 
 __all__ = [
     "DEFAULT_MAX_RETRIES",
+    "REVIEW_DECLINED_CODE",
+    "SANDBOX_UNAVAILABLE_CODE",
     "PathDecider",
     "PromotionFlow",
     "PromotionOutcome",
@@ -109,7 +121,7 @@ def sandbox_cell_path(platform: PlatformReport) -> QuarantinePath:
 
 @dataclass(frozen=True, slots=True)
 class PromotionPorts:
-    """The five collaborators a flow calls, grouped to keep its constructor short (rules 5.1)."""
+    """The collaborators a flow calls, grouped to keep its constructor short (rules 5.1)."""
 
     scaffolder: Scaffolder  # Writes the candidate tool.
     runner: SandboxRunner  # Proves it in a sandbox and returns the report.
@@ -117,6 +129,7 @@ class PromotionPorts:
     honey: HoneyDeposit  # Describes the promotion to the Honey Store.
     announcer: Announcer  # Tells the Wardens whose Cells can use it.
     path_for: PathDecider = sandbox_cell_path  # Which quarantine route a platform takes.
+    reviewer: Reviewer | None = None  # The Queen's review of a hive-scope real-Cell-path report.
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +220,11 @@ class PromotionFlow:
             except RoyalJellyError as exc:
                 why = ("quarantine", exc.code, str(exc))
                 return await self._reject(state, brief.tool_id, why, progress)
+            except _OUTSIDE_FAILURES as exc:
+                # The sandbox could not be built or reached: no verdict exists, and the job that
+                # called this must still answer its requester, so the run ends as a rejection.
+                why = ("quarantine", SANDBOX_UNAVAILABLE_CODE, f"sandbox unavailable: {exc}")
+                return await self._reject(state, brief.tool_id, why, progress)
             progress = _Progress(progress.attempts, spec, report)
             if report.passed:
                 return await self._promote(state, scaffolded, report, (principal, reviewed))
@@ -248,6 +266,12 @@ class PromotionFlow:
         principal, reviewed = authority
         result = scaffolded.result
         spec = result.spec
+        if not reviewed and self._needs_review(spec, report):
+            reviewed = await self._review(spec, report)
+            if not reviewed:
+                progress = _Progress(scaffolded.attempt, spec, report)
+                why = ("promotion", REVIEW_DECLINED_CODE, "the Queen's review declined")
+                return await self._reject(state, spec.tool_id, why, progress)
         offer = PromotionOffer(result.package_sha256, result.package_size_bytes, reviewed)
         reason = f"Passed the Quarantine Comb on the {report.path.value} path."
         try:
@@ -263,6 +287,22 @@ class PromotionFlow:
         return PromotionOutcome(
             state=state, spec=spec, report=report, change=change, attempts=scaffolded.attempt
         )
+
+    def _needs_review(self, spec: ToolSpec, report: QuarantineReport) -> bool:
+        """Return whether a reviewer must accept this report: real-Cell path at hive scope."""
+        # No reviewer wired: not asked, so the registry's own NeedsReviewError refuses it.
+        wanted = report.path is QuarantinePath.REAL_CELL and spec.scope is ToolScope.HIVE
+        return wanted and self._ports.reviewer is not None
+
+    async def _review(self, spec: ToolSpec, report: QuarantineReport) -> bool:
+        """Ask the reviewer; a reviewer that cannot be reached declines, never accepts."""
+        assert self._ports.reviewer is not None  # noqa: S101 - `_needs_review` checked it.
+        try:
+            # External await: the Queen's awake episode, one model call; it bounds itself.
+            return await self._ports.reviewer.review(spec, report)
+        except _OUTSIDE_FAILURES as exc:
+            log.warning("royal_jelly.review_failed", tool_id=spec.tool_id, error=repr(exc))
+            return False
 
     async def _after_promotion(
         self, spec: ToolSpec, report: QuarantineReport, digest: str, change: RegistryChange

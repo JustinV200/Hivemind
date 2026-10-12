@@ -91,6 +91,7 @@ from hivemind.pheromone import PheromoneTrail, TrailQuery
 from hivemind.queen.cluster.tick import run_cluster_tick, run_release_tick
 from hivemind.queen.state import ClusterState
 from hivemind.queen.ticks.guard_bee import run_guard_bee
+from hivemind.queen.ticks.tools.transfer import drain_shipments
 from hivemind.workers.roles.house_bee import (
     GatheredOn,
     HouseBeeHoney,
@@ -140,6 +141,8 @@ async def run_housekeeping(
     # a second call rather than one more branch inside run_cluster_tick's own order drain.
     await run_release_tick(deps, wardens)
     await run_guard_bee(deps)  # Roadmap step 10.6: the Guard Bee's round, beside the House Bee's.
+    # Phase 9: blobs queued by `hive basket ship` are started as jobs here, never awaited.
+    await drain_shipments(deps, wardens)
     now = deps.clock.now()
     if deps.honey is not None:
         # Every tick, not only when a sweep is due: in memory and cheap, and it is what bounds how
