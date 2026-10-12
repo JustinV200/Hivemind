@@ -41,7 +41,8 @@ Public API:
       HoneyRipeningSection, HoneyRetrievalSection, HoneyLoweringSection (phase 7), PlacementSection,
       PlacementRoleOverride, VirtualCellsSection, VirtualCellsOverwinterSection (phase 5),
       ExoskeletonSection (phase 6), EntranceSection, EntranceExposure, GuardSection,
-      GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10).
+      GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), RoyalJellySection,
+      QuarantineLimitsSection, SandboxKind, BasketSection (phase 9).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -61,6 +62,7 @@ from hivemind.manifest.loader import load_manifest
 from hivemind.manifest.schema import (
     DEFAULT_DIRE_PATTERNS,
     MANIFEST_KEY_PATTERN,
+    BasketSection,
     BroodChamberSection,
     CapabilityOverrides,
     ClearanceMatrix,
@@ -87,7 +89,10 @@ from hivemind.manifest.schema import (
     PlacementSection,
     ProviderKind,
     ProviderSpec,
+    QuarantineLimitsSection,
     QueenSection,
+    RoyalJellySection,
+    SandboxKind,
     SecuritySection,
     SlotBinding,
     SupervisionSection,
@@ -99,6 +104,7 @@ from hivemind.manifest.schema import (
 __all__ = [
     "DEFAULT_DIRE_PATTERNS",
     "MANIFEST_KEY_PATTERN",
+    "BasketSection",
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
@@ -128,7 +134,10 @@ __all__ = [
     "PlacementSection",
     "ProviderKind",
     "ProviderSpec",
+    "QuarantineLimitsSection",
     "QueenSection",
+    "RoyalJellySection",
+    "SandboxKind",
     "SecuritySection",
     "SlotBinding",
     "SupervisionSection",

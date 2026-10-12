@@ -1,6 +1,6 @@
 """Re-export the Hive Manifest schema: every TOML section, as one frozen pydantic model tree.
 
-Fifteen documented sections is more than one module can hold under codingrules section 5.1's
+Seventeen documented sections is more than one module can hold under codingrules section 5.1's
 300-line limit, so the schema is a package: ``core`` (identity and lifecycle: ``[hive]``,
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
@@ -8,7 +8,8 @@ provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map an
 ``[security]`` and ``[honey.clearance]``, ``guard`` for ``[guard]``, the Guard policy's overrides,
 roadmap step 10.2), ``honey`` (``[honey.store]``, ``[honey.ripening]`` and ``[honey.retrieval]``,
 roadmap phase 7), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
-``exoskeleton`` (``[exoskeleton]``, roadmap step 6.6), ``entrance`` (``[entrance]``, phase 10), and
+``exoskeleton`` (``[exoskeleton]``, roadmap step 6.6), ``entrance`` (``[entrance]``, phase 10),
+``royal_jelly`` (``[royal_jelly]``, ``[royal_jelly.limits]`` and ``[basket]``, phase 9), and
 ``manifest`` (``HiveManifest``, the root that gathers all of the above). This file is the schema's
 face: a caller imports any section model from here without knowing which module defines it.
 
@@ -44,6 +45,8 @@ Public API:
     - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
       VirtualCellsSection, VirtualCellsOverwinterSection.
     - Exoskeleton (exoskeleton): ExoskeletonSection.
+    - Royal Jelly Lab and Basket (royal_jelly): RoyalJellySection, QuarantineLimitsSection,
+      SandboxKind, BasketSection.
     - Root (manifest): HiveManifest.
 """
 
@@ -85,6 +88,12 @@ from hivemind.manifest.schema.placement import (
     VirtualCellsOverwinterSection,
     VirtualCellsSection,
 )
+from hivemind.manifest.schema.royal_jelly import (
+    BasketSection,
+    QuarantineLimitsSection,
+    RoyalJellySection,
+    SandboxKind,
+)
 from hivemind.manifest.schema.security.guard import (
     DEFAULT_DIRE_PATTERNS,
     GuardRoleSection,
@@ -102,6 +111,7 @@ from hivemind.manifest.schema.supervision import MemorySection, SupervisionSecti
 __all__ = [
     "DEFAULT_DIRE_PATTERNS",
     "MANIFEST_KEY_PATTERN",
+    "BasketSection",
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
@@ -131,7 +141,10 @@ __all__ = [
     "PlacementSection",
     "ProviderKind",
     "ProviderSpec",
+    "QuarantineLimitsSection",
     "QueenSection",
+    "RoyalJellySection",
+    "SandboxKind",
     "SecuritySection",
     "SlotBinding",
     "SupervisionSection",

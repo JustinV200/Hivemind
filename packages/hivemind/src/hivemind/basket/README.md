@@ -46,7 +46,7 @@ waggle; never `honey_store` (a deposit's Honey record goes through `HoneyRecordP
   `plan`, `admit`, `is_resident`, `bytes_for` which re-hashes, `evict`).
 - **Transfer** (`transfer/`): `Offer`, `Chunk`, `Ack`, `Refuse`, `RefusalCode`, `CHUNK_BYTES`
   (256 KiB, so a base64 chunk fits `MAX_FRAME_BYTES`), `TransferSender` and `TransferReceiver`,
-  pure state machines over those values. `transfer/wire.py` (a later step) maps them to the
+  pure state machines over those values. `transfer/wire.py` maps them to the
   `basket.*` Waggle messages.
 - **Events** (`events.py`): `basket_event`, `blob_facts`, `EventStamp`. Payloads carry ids, hashes,
   sizes and labels, never bytes, titles or summaries.

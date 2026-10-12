@@ -56,6 +56,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hivemind.basket import ResidentBasket
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
 from hivemind.exoskeleton import ExoskeletonConfig
 from hivemind.exoskeleton.browser import BrowserLauncher
@@ -71,6 +72,7 @@ from hivemind.llm.transcription import Ears
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.memory.taint import TaintLedger
 from hivemind.pheromone import PheromoneTrail
+from hivemind.royal_jelly import RoyalJellyAccess
 from hivemind.supervision import EscalationPolicy
 from hivemind.supervision.capping import (
     AuditRates,
@@ -136,10 +138,8 @@ class WardenDeps:
             elapse with nothing heard before this Warden raises `AlarmKind.WORKER_STALLED`.
         judge_reviewer: The independent `JudgeReviewer` `checks[CheckKind.JUDGE]` and
             `hivemind.wardens.spawn.audited_gate.AuditingCappingGate`'s own after-the-fact
-            sampling both call (roadmap step 4.10). Additive: defaults to a `FakeJudgeReviewer`
-            with nothing scripted, so a WardenDeps built before this field existed still
-            constructs, and any tier that actually reaches for it without a real one wired in
-            fails loudly (`JudgeUnavailableError`) rather than silently approving.
+            sampling both call (roadmap step 4.10). Defaults to a `FakeJudgeReviewer` with nothing
+            scripted: a tier that reaches for it unwired fails loudly (`JudgeUnavailableError`).
         judge_rubrics: Every configured tier's rubric (`hivemind.supervision.capping.checks.
             rubrics.load_judge_rubrics`), read by `checks[CheckKind.JUDGE]` and by audit
             sampling alike. Defaults to the shipped table.
@@ -157,8 +157,7 @@ class WardenDeps:
             spawn with the assignment's own `Tempo`, so every `llm.call` a sub-bee makes
             carries its grant and goal id and its task's urgency reaches the Fanner's queue
             ordering and spill threshold (codingrules section 8.14). `call_gate` above stays
-            the Warden's own unattributed lane, used for its own awake episodes and by any
-            test that never names this field.
+            the Warden's own unattributed lane, used for its own awake episodes.
         leave_policy: The leave policy every sub-bee's `CappingGate` decides an outside-scratch
             write against (roadmap step 5.0c). Defaults to the shipped `leave-policy.toml`.
         keep_root: The manifest's `[hive_stand] keep_root` (roadmap step 5.0e), or None; threaded
@@ -169,26 +168,20 @@ class WardenDeps:
             Hive Stand (v0's only Real Cell source).
         disk_reserve_mb: The manifest's own `[hive_stand] disk_reserve_mb` (roadmap step 5.0e), a
             `keep` COPY's destination is refused against; threaded into every sub-bee's
-            `GateDeps.disk_reserve_mb` unchanged. Defaults to `DEFAULT_DISK_RESERVE_MB` (this
-            module's own mirror of `hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB`, kept
-            local rather than imported so this Layer 5 module does not reach into Layer 1 for one
-            constant), so a WardenDeps built before this dispatch keeps checking against a sane
-            figure rather than skipping the check silently.
+            `GateDeps.disk_reserve_mb` unchanged. Defaults to `DEFAULT_DISK_RESERVE_MB` (a local
+            mirror of `hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB`, so this Layer 5
+            module does not reach into Layer 1 for one constant).
         trail_sync: Ships this node's own local trail segment to the Queen on this Warden's own
             heartbeat cadence and once more from `stop()` (codingrules section 12: "a Warden that
             is offline writes to its local segment; on reconnection the segment merges into the
-            Queen's trail"). `None` -- the default, and what the Hive Stand's own composition root
-            leaves it as -- means this Warden already records into the Queen's own store, so there
-            is nothing to ship; `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.trail_sync.
-            WaggleTrailSync` in, because a Virtual Cell's store dies with the container.
+            Queen's trail"). `None` (the Hive Stand's default) means this Warden already records
+            into the Queen's own store; `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.
+            trail_sync.WaggleTrailSync` in, because a Virtual Cell's store dies with the container.
         snapshotter: Handed to every sub-bee's own `CappingGate` (`hivemind.wardens.spawn.spawn.
-            _build_capping_gate`) as `GateDeps.snapshotter`. Defaults to `NoopSnapshotter()`
-            (every Real Cell source's own answer, and the Hive Stand's own composition root's,
-            since the Hive Stand can build a real `hivemind.hive.snapshot.snapshotter_for` one
-            directly). `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.snapshot_relay.
-            RelaySnapshotter` in instead: a Virtual Cell's own Warden cannot reach the host
-            backend itself (ADR-0027), so it asks the Queen over `queen_link` (roadmap step
-            5.10's own follow-up gap).
+            _build_capping_gate`) as `GateDeps.snapshotter`. Defaults to `NoopSnapshotter()`.
+            `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.snapshot_relay.RelaySnapshotter`
+            in instead: a Virtual Cell's Warden cannot reach the host backend itself (ADR-0027),
+            so it asks the Queen over `queen_link`.
         exoskeleton_config: How `hivemind.wardens.spawn.equip` equips a sub-bee whose task needs
             an Exoskeleton: screen size, readiness budget, whether the browser keeps its sandbox.
         browser_launcher: Starts a lease's browser (the Playwright launcher in production), or
@@ -227,6 +220,10 @@ class WardenDeps:
             Night Veil binding fails closed.
         taint_ledgers: The stores a quarantine taints beyond the memory tables (roadmap step
             10.6c): the Honey Store's Nectar ledger joins here in phase 7. Defaults to none.
+        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9); only the
+            Hive Stand's Warden holds them, a Cell's Warden reaches the Basket through the Queen.
+        resident_basket: This Warden's own resident view of the Basket (ADR-0048): the Hive
+            Stand's (`RoyalJellyAccess.resident`) or, in a Cell, one over a store in its scratch.
     """
 
     source: RealCellSource
@@ -300,6 +297,9 @@ class WardenDeps:
     local_providers: frozenset[str] = frozenset()
     # Roadmap step 10.6c: the phase 7 seam a quarantine's taint reaches Nectar through.
     taint_ledgers: tuple[TaintLedger, ...] = ()
+    # Roadmap phase 9: additive, defaulted to none; each composition root fills them.
+    royal_jelly: RoyalJellyAccess | None = None
+    resident_basket: ResidentBasket | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

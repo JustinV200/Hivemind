@@ -23,9 +23,10 @@ The Exoskeleton wiring (roadmap steps 6.4-6.6) comes from
 `hivemind.cli.compose.exoskeleton.in_cell_exoskeleton`: the default screen, Chromium without its
 own sandbox (the Cell is the sandbox), a browser launcher only where the browser extra is
 installed, unmetered ears when the Cell's slot table binds a transcriber, and an in-memory
-recording store. A Virtual Cell has no database file of its own, so its flight recordings live
-with the Cell, in this process, and are gone when the Cell is torn down; shipping them to the
-Queen's store is a later step.
+recording store. The Cell's own resident Basket (roadmap phase 9) is a small store below its
+scratch root (`hivemind.cli.in_cell.basket`). A Virtual Cell has no database file of its own, so
+its flight recordings live with the Cell, in this process, and are gone when the Cell is torn
+down; shipping them to the Queen's store is a later step.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
@@ -39,8 +40,8 @@ Fits into the Hive:
     (InCellSpawnSource),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
     (worker_for), `hivemind.cli.in_cell.providers`, `hivemind.cli.in_cell.fanner`,
-    `hivemind.cli.in_cell.hive_stand`, `hivemind.cli.compose.exoskeleton` (in_cell_exoskeleton)
-    and waggle only.
+    `hivemind.cli.in_cell.hive_stand`, `hivemind.cli.in_cell.basket` (the resident Basket) and
+    `hivemind.cli.compose.exoskeleton` (in_cell_exoskeleton) and waggle only.
 
 Key invariants:
     - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
@@ -68,6 +69,7 @@ from urllib.parse import urlsplit
 
 from hivemind.cell import CellIdentity
 from hivemind.cli.compose.exoskeleton import in_cell_exoskeleton
+from hivemind.cli.in_cell.basket import build_resident_basket
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.cli.in_cell.fanner import build_in_cell_fanner, lane_for_grant
 from hivemind.cli.in_cell.hive_stand import hive_stand_names
@@ -180,14 +182,17 @@ def _with_queen_relays(
     trail: PheromoneTrail,
     clock: Clock,
 ) -> WardenDeps:
-    """Give this Warden the two things it can only do through the Queen: ship its trail, snapshot.
+    """Give this Warden the two things it can only do through the Queen (ship its trail, snapshot).
 
-    Split out of `build_in_cell_warden_deps` for its line budget (codingrules 5.1).
+    It also gets its own resident Basket (roadmap phase 9, ADR-0048), which needs no Queen at all
+    but shares this split-out step. Split out of `build_in_cell_warden_deps` for its line budget
+    (codingrules 5.1).
     """
     return dataclasses.replace(
         deps,
         trail_sync=_build_trail_sync(config, queen_link, trail, clock),
         snapshotter=_build_snapshotter(config, queen_link, _hop(config), clock),
+        resident_basket=build_resident_basket(config, clock),
     )
 
 

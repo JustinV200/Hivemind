@@ -129,6 +129,7 @@ from hivemind.queen.placement import (
     VirtualBackendCandidate,
 )
 from hivemind.queen.state import ClusterState
+from hivemind.royal_jelly import RoyalJellyAccess
 from hivemind.supervision import EscalationPolicy
 from hivemind.workers.roles.guard_bee import GuardBee
 from waggle.clock import Clock
@@ -644,9 +645,8 @@ class QueenDeps:
         provider_lookup: Resolves a `[llm.providers.<name>]` key to a live `LLMProvider`, for
             `HealthPoller.probe`; `ProviderRegistry.provider` bound to an instance in production.
             None (the default) skips health probing.
-        housekeeping: The Queen's own `last_sweep_at` bookkeeping (roadmap step 4.3's own wiring
-            step); read and advanced by `hivemind.queen.ticks.housekeeping.run_housekeeping`.
-            Defaults to a fresh `Housekeeping()` (no sweep run yet), matching every field here.
+        housekeeping: The Queen's own `last_sweep_at` bookkeeping (roadmap step 4.3); read and
+            advanced by `hivemind.queen.ticks.housekeeping.run_housekeeping`.
         sweep_interval_s: The manifest's own `[memory] sweep_interval_s`, the cadence
             `hivemind.workers.roles.house_bee.SweepSchedule` reads to decide when the next sweep
             is due. Defaults to `DEFAULT_SWEEP_INTERVAL_S`'s own value (one hour).
@@ -662,8 +662,7 @@ class QueenDeps:
             provision (`docs/adr/0029`).
         virtual_provider: The seam `hivemind.queen.dispatcher` calls to turn a `ProvisionVirtual`/
             `ReuseDormant` Placement into a `WardenLink` (`VirtualCellProvider`, defined above).
-            `None` (the default) means a Virtual Placement is a `PlacementError` instead of being
-            acquired; roadmap step 5.6 is the first to inject a real one.
+            `None` (the default) means a Virtual Placement is a `PlacementError`.
         virtual_backend_source: Feeds `virtual_backends` live from a running `hivemind.hive.
             lifecycle.CellLifecycle` instead of the static tuple above, when set.
             `hivemind.queen.dispatcher.snapshot.build_inventory` calls this (converting the
@@ -686,6 +685,8 @@ class QueenDeps:
             honey`): intake, the retriever for a bee's query and her own pre-check. None (the
             default) wires no Honey Store: a query is answered empty with that reason, a deposit
             is refused with `control.error`, and no pre-check runs.
+        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9, built by
+            `hivemind.cli.compose.royal_jelly`); None (the default) wires neither.
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.
@@ -780,3 +781,4 @@ class QueenDeps:
     guard_bee: GuardBee | None = None  # Roadmap step 10.6: additive; None runs as before.
     guard: GuardDeps = field(default_factory=GuardDeps)  # Roadmap step 10.6a (ADR-0043).
     honey: HoneyAccess | None = None  # Roadmap phase 7: None keeps every hand-built one working.
+    royal_jelly: RoyalJellyAccess | None = None  # Roadmap phase 9: None keeps hand-built ones.

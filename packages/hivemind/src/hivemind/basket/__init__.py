@@ -40,6 +40,7 @@ Public API:
     - blob_clearance, blob_floor, receiver_ceiling, may_receive: the pure label rules.
     - CHUNK_BYTES, Offer, Chunk, Ack, Refuse, RefusalCode, TransferSender, TransferReceiver: the
       transfer values and the two state machines.
+    - offer_to_wire, offer_from_wire, chunk_*, ack_*, refuse_*: the mapping to `basket.*` messages.
     - BasketError and its subclasses: the error tree.
 """
 
@@ -80,6 +81,14 @@ from hivemind.basket.transfer import (
     Refuse,
     TransferReceiver,
     TransferSender,
+    ack_from_wire,
+    ack_to_wire,
+    chunk_from_wire,
+    chunk_to_wire,
+    offer_from_wire,
+    offer_to_wire,
+    refuse_from_wire,
+    refuse_to_wire,
 )
 
 __all__ = [
@@ -114,10 +123,18 @@ __all__ = [
     "TransferError",
     "TransferReceiver",
     "TransferSender",
+    "ack_from_wire",
+    "ack_to_wire",
     "apply_basket_migrations",
     "blob_clearance",
     "blob_floor",
+    "chunk_from_wire",
+    "chunk_to_wire",
     "decide_residency",
     "may_receive",
+    "offer_from_wire",
+    "offer_to_wire",
     "receiver_ceiling",
+    "refuse_from_wire",
+    "refuse_to_wire",
 ]

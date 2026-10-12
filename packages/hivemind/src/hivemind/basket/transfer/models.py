@@ -4,13 +4,13 @@ A blob travels between two nodes in four moves: the sender makes an `Offer` (the
 for a destination Cell); the receiver answers with an `Ack` (send from `received_bytes`) or a
 `Refuse` (a by-rule `RefusalCode`); the sender then sends `Chunk`s, each answered by an `Ack`; the
 last `Ack` has `complete` set. These are the Basket's own models, not the Waggle messages:
-`transfer/wire.py` (a later step) maps them to `basket.offer`, `basket.chunk`, `basket.ack` and
+`transfer/wire.py` maps them to `basket.offer`, `basket.chunk`, `basket.ack` and
 `basket.refuse`, so the two state machines stay pure and testable without the wire. A chunk holds at
 most `CHUNK_BYTES` raw bytes so that its base64 form fits `waggle.codec.MAX_FRAME_BYTES`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.basket.transfer`.
-    Built and read by `sender` and `receiver`; mapped to the wire by `wire` (a later wave). Calls
+    Built and read by `sender` and `receiver`; mapped to the wire by `wire`. Calls
     into `hivemind.basket.models` and `manifest` and waggle ids only.
 
 Key invariants:

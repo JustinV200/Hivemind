@@ -365,10 +365,14 @@ def _revalidated(manifest: HiveManifest, *, source_path: Path | None) -> HiveMan
 
     `model_copy(update=...)` never re-runs validators, so the offline/loopback and
     slot-completeness checks would otherwise silently stop applying to an env-overridden
-    manifest; dumping and re-validating forces them to run again over the new values.
+    manifest; dumping and re-validating forces them to run again over the new values. Only the
+    fields the operator (or an override) set are dumped, so a validator that keys on "was this
+    written" (`[royal_jelly] sandbox`) sees the same answer after the round trip as before it.
     """
     try:
-        revalidated = HiveManifest.model_validate(manifest.model_dump(mode="json"))
+        revalidated = HiveManifest.model_validate(
+            manifest.model_dump(mode="json", exclude_unset=True)
+        )
     except ValidationError as exc:
         raise ManifestError(
             f"Applying environment overrides produced an invalid Hive Manifest: {exc}"

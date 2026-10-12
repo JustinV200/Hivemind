@@ -97,13 +97,28 @@ def test_the_key_lands_in_the_manifests_secrets_dir(
     assert _stored_key(tmp_path) == signer.private_key_bytes
 
 
-def test_a_hive_with_no_virtual_side_writes_no_key(
+def test_a_hive_with_no_virtual_side_hands_it_no_key_but_the_basket_still_signs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     spy = _SignerSpy()
     monkeypatch.setattr(hive_module, "build_virtual_cells", spy)
 
-    build_hive(_manifest(tmp_path, virtual=False), environ={}, clock=FakeClock())
+    hive = build_hive(_manifest(tmp_path, virtual=False), environ={}, clock=FakeClock())
 
+    # Phase 9: the Basket signs every blob with the Hive key whether or not a Virtual side exists,
+    # so the key is minted at build; it is the same key a later Virtual side would be handed.
     assert spy.signers == [None]
-    assert not (tmp_path / "secrets").exists()
+    assert hive.royal_jelly is not None
+    assert _stored_key(tmp_path) == hive.royal_jelly.signer.private_key_bytes
+
+
+def test_the_basket_signs_with_the_key_the_virtual_side_is_handed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spy = _SignerSpy()
+    monkeypatch.setattr(hive_module, "build_virtual_cells", spy)
+
+    hive = build_hive(_manifest(tmp_path, virtual=True), environ={}, clock=FakeClock())
+
+    assert hive.royal_jelly is not None and spy.signers[0] is not None
+    assert hive.royal_jelly.signer.public_key_bytes == spy.signers[0].public_key_bytes

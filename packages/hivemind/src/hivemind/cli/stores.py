@@ -29,9 +29,11 @@ Fits into the Hive:
     `hivemind.cli.compose.deps.build_queen_deps` calls `open_ledger` (roadmap step 4.8); `build_
     hive_stand_source` calls `open_leavings` (roadmap step 5.0a); `hive recordings` and
     `hivemind.cli.compose.exoskeleton` call `open_recordings` (roadmap step 6.6); the Hive's
-    composition root and `hive honey` call `open_honey_store` (roadmap phase 7). Calls into
-    `hivemind.brood_chamber`, `hivemind.cell.leavings`, `hivemind.common.sqlite`,
-    `hivemind.exoskeleton.recorder`, `hivemind.honey_store`, `hivemind.pheromone`,
+    composition root and `hive honey` call `open_honey_store` (roadmap phase 7), and the
+    composition root calls `open_comb_registry` and `open_basket_store` (roadmap phase 9). Calls
+    into `hivemind.basket`, `hivemind.royal_jelly`, `hivemind.brood_chamber`,
+    `hivemind.cell.leavings`, `hivemind.common.sqlite`, `hivemind.exoskeleton.recorder`,
+    `hivemind.honey_store`, `hivemind.pheromone`,
     `hivemind.forage`, `hivemind.llm`, `hivemind.manifest` and `hivemind.queen.forage.ledger`.
 
 Key invariants:
@@ -79,8 +81,9 @@ Public API:
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
     - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings,
-      open_honey_store: the store composition functions; open_goal_requests and open_chat_log
-      (roadmap step 10.5) open the Queen's own goal-request table and chat log the same way.
+      open_honey_store, open_comb_registry, open_basket_store: the store composition functions;
+      open_goal_requests and open_chat_log (roadmap step 10.5) open the Queen's own goal-request
+      table and chat log the same way.
     - build_registry, slot_bindings, provider_configs, build_forage_map: the manifest-to-llm
       conversion functions; build_provider_registry is build_registry over a shared ForageMap,
       optionally scripting every `"fake"` provider (the Hive's composition root's own form).
@@ -97,6 +100,8 @@ from typing import Annotated
 import typer
 from pydantic import SecretStr
 
+from hivemind.basket import SqliteBasketStore
+from hivemind.basket.models import MAX_DEPOSIT_BYTES
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, SqliteTaskStore
 from hivemind.cell.leavings import SqliteLeavingsStore
 from hivemind.common.sqlite import connect
@@ -126,6 +131,7 @@ from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.forage.ledger import SqliteLedgerStore
 from hivemind.queen.guard_requests import SqliteGuardRequestStore
 from hivemind.queen.intake import SqliteGoalRequestStore
+from hivemind.royal_jelly import SqliteCombRegistry
 from waggle.clock import Clock, SystemClock
 
 # Shared so `hive tasks`, `hive trail` and `hive capping` declare `--db` with the exact same flag
@@ -160,9 +166,11 @@ __all__ = [
     "build_registry",
     "closing_registry",
     "load_manifest_or_exit",
+    "open_basket_store",
     "open_chamber",
     "open_chat_log",
     "open_cluster_orders",
+    "open_comb_registry",
     "open_goal_requests",
     "open_guard_requests",
     "open_honey_store",
@@ -333,6 +341,54 @@ def open_honey_store(db: Path) -> SqliteHoneyStore:
         # refuses without a pheromone_events table already on this connection.
         await SqlitePheromoneTrail.create(connection, clock)
         return await SqliteHoneyStore.create(connection, clock)
+
+    return asyncio.run(_open())
+
+
+def open_comb_registry(db: Path) -> SqliteCombRegistry:
+    """Open `db` and return a ready SqliteCombRegistry, applying its migrations first.
+
+    Roadmap phase 9: the Comb Registry (the catalogue of promoted Royal Jelly tools) lives in the
+    Hive's one database. `hivemind.cli.compose` opens it for the Queen's and Wardens' deps and
+    `hive tools` reads it.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteCombRegistry whose `comb_tools` table exists and is current, on its own
+        connection.
+    """
+
+    async def _open() -> SqliteCombRegistry:
+        # No trail migration first, unlike open_honey_store: the registry keeps its history in its
+        # own rows and a promotion's trail event is recorded by the caller, not by the store.
+        return await SqliteCombRegistry.create(connect(db), SystemClock())
+
+    return asyncio.run(_open())
+
+
+def open_basket_store(
+    db: Path, root: Path, max_bytes: int = MAX_DEPOSIT_BYTES
+) -> SqliteBasketStore:
+    """Open `db` and return a ready SqliteBasketStore keeping blob bytes under `root`.
+
+    Roadmap phase 9 (ADR-0048): blob metadata lives in the Hive's database, the bytes in a
+    directory tree of their own, so a large blob never bloats the SQLite file.
+
+    Args:
+        db: The Hive's SQLite database file.
+        root: The directory the byte tree lives in; created on the first deposit.
+        max_bytes: The largest single deposit the store accepts (`[basket] max_blob_bytes`).
+
+    Returns:
+        A SqliteBasketStore whose tables exist and are current, on its own connection.
+    """
+
+    async def _open() -> SqliteBasketStore:
+        # The Basket's door returns its trail events to the caller rather than writing them, so
+        # no pheromone_events table is needed on this connection first.
+        return await SqliteBasketStore.create(connect(db), root, SystemClock(), max_bytes)
 
     return asyncio.run(_open())
 

@@ -60,6 +60,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hivemind.basket import BasketStore, ResidentBasket
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity
 from hivemind.cell import CellIdentity
 from hivemind.cell.leavings import LeavingsStore
@@ -76,9 +77,11 @@ from hivemind.cli.compose.night_veil import (
 )
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import (
+    open_basket_store,
     open_chamber,
     open_chat_log,
     open_cluster_orders,
+    open_comb_registry,
     open_goal_requests,
     open_honey_store,
     open_leavings,
@@ -108,6 +111,7 @@ from hivemind.queen.chat import ChatLog
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
 from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import PlacementPolicy
+from hivemind.royal_jelly import CombRegistry, RoyalJellyAccess
 from hivemind.supervision import load_policy, load_warden_policy
 from hivemind.supervision.capping import deterministic_checks, judge_checks, load_tiers
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
@@ -153,6 +157,11 @@ class HiveStores:
         honey: The Honey Store (roadmap phase 7), opened on the same file by
             `open_default_stores`; None for a hand-built HiveStores (a test's in-memory stores),
             which then builds and runs a Hive exactly as before phase 7.
+        comb_registry: The Comb Registry (roadmap phase 9), opened on the same file by
+            `open_default_stores`; None for a hand-built HiveStores, which then has no Royal Jelly
+            Lab or Basket (`build_royal_jelly` returns None).
+        basket: The Basket store (roadmap phase 9), opened on the same file with its byte tree
+            under `[basket] root`; None exactly as `comb_registry` is.
     """
 
     trail: PheromoneTrail
@@ -163,6 +172,8 @@ class HiveStores:
     chat: ChatLog
     recordings: RecordingStore = field(default_factory=InMemoryRecordingStore)
     honey: SqliteHoneyStore | None = None
+    comb_registry: CombRegistry | None = None
+    basket: BasketStore | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +193,9 @@ class HiveParts:
         clock: Injected time source shared by every collaborator this composes.
         enforcer: The Guard's one Enforcer (`build_enforcer`, roadmap step 10.3), shared by the
             Queen and the Hive Stand's Warden so both decide against the same policy.
+        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9), built once
+            by `build_royal_jelly` and handed to the Queen and the Hive Stand's Warden; None for
+            a Hive whose stores carry no Comb Registry or Basket.
     """
 
     manifest: HiveManifest
@@ -190,6 +204,7 @@ class HiveParts:
     stores: HiveStores
     clock: Clock
     enforcer: Enforcer
+    royal_jelly: RoyalJellyAccess | None = None
 
 
 def open_default_stores(manifest: HiveManifest) -> HiveStores:
@@ -219,7 +234,15 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         honey=open_honey_store(db),  # ADR-0035: the Honey Store lives in the Hive's one file.
         goal_requests=open_goal_requests(db),
         chat=open_chat_log(db),
+        comb_registry=open_comb_registry(db),  # ADR-0046: the Comb Registry, in the one file.
+        basket=open_basket_store(db, _basket_root(manifest, db), manifest.basket.max_blob_bytes),
     )
+
+
+def _basket_root(manifest: HiveManifest, db: Path) -> Path:
+    """Resolve `[basket] root` like every manifest path, or default to `basket/` beside the db."""
+    root = manifest.basket.root
+    return manifest.resolve_path(root) if root is not None else db.parent / "basket"
 
 
 def build_hive_stand_source(
@@ -336,11 +359,11 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         missed_heartbeats_before_stalled=supervision.heartbeat_miss_limit,
         judge_reviewer=judge_reviewer,
         judge_rubrics=judge_rubrics,
-        # Roadmap step 4.8: one Fanner lane per grant (WardenDeps.lane_for_grant's own docstring).
-        lane_for_grant=_lane_for_grant(parts),
-        # Roadmap step 5.0e: resolved the same way build_queen_deps resolves scratch_root.
-        keep_root=_keep_root(manifest),
+        lane_for_grant=_lane_for_grant(parts),  # Roadmap step 4.8: one Fanner lane per grant.
+        keep_root=_keep_root(manifest),  # Roadmap step 5.0e: like the Queen's scratch_root.
         disk_reserve_mb=manifest.hive_stand.disk_reserve_mb,
+        royal_jelly=parts.royal_jelly,  # Roadmap phase 9: the Lab's and the Basket's handles.
+        resident_basket=_resident_basket(parts),  # The Hive Stand's own resident view.
         guard=parts.enforcer.policy,  # Roadmap step 10.2: every set this Warden builds.
         enforcer=parts.enforcer,  # Roadmap step 10.3: the Guard's adapter, lease and slots.
         lease_capability=HIVE_STAND_LEASE,
@@ -349,6 +372,11 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
     )
     # Roadmap steps 6.4-6.6: screen, browser launcher, flight recorder and ears (.exoskeleton).
     return hive_stand_exoskeleton(parts).apply(deps)
+
+
+def _resident_basket(parts: HiveParts) -> ResidentBasket | None:
+    """Return the Hive Stand Warden's resident Basket view, None without a Royal Jelly access."""
+    return parts.royal_jelly.resident if parts.royal_jelly is not None else None
 
 
 def _keep_root(manifest: HiveManifest) -> Path | None:
@@ -401,7 +429,9 @@ def build_queen_deps(
     Returns:
         A QueenDeps ready for `hivemind.queen.Queen(deps)`.
     """
-    base = dataclasses.replace(_base_queen_deps(parts, forage_map, ledger), honey=honey)
+    base = dataclasses.replace(
+        _base_queen_deps(parts, forage_map, ledger), honey=honey, royal_jelly=parts.royal_jelly
+    )
     return _with_virtual_cells(base, virtual_cells)
 
 
