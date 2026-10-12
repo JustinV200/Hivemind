@@ -2130,12 +2130,21 @@ in this phase adds a new write path.
   a table: every source with grade, measured grade, distance from each Cell, abundance and cost.
   The Fanner's queues per binding with waiting requests and their tempo. Pending `ForageRequest`s
   with their reasons and the Queen's decision when it lands, and grants nearing expiry.
-- [ ] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
+- [x] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
   source, status and mode, `CombShieldLevel`, Pheromone Mask state, access level, two badges (where the Warden runs: Hive Stand or on the
   Cell; where its models come from: local, Hive Stand, hosted, or hybrid per its hosting plan),
   current task and role, open Alarms, a Cell Wax indicator showing the highest live severity, lease
   age, and links into its page, its Warden's Attendant view and its bees' thoughts. `CombShieldLevel` appears as a persistent, high-contrast badge in
   every row, and the view includes a fixed legend for Meadow, Propolis, and Night Veil.
+  **Built 2026-10-12.** `src/views/fleet/`: seeded from `GET /v1/fleet`, each `CellFrame` from
+  `/v1/cells/stream` folded into its row at once and one throttled re-read (a second after the
+  first frame of a burst, never without a frame) for the aggregate-only columns; the Real /
+  Virtual / All chips remembered per viewer; stable sorting by meaning with `aria-sort`; the tier
+  pill and mask tag first in every row and in the stacked cards below 1080 px; the legend fixed
+  above the table. The task's bee link comes from the row's `thought_principals`, since
+  `FleetRow` does not name the bee working the task, and a Queen-forced mask's expiry is not
+  published, so the tag is drawn without it. The design's tablet expander and "N new rows"
+  button are not built; the header is not sticky inside the scrolling pane.
 - [ ] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own

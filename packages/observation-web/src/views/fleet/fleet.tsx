@@ -1,25 +1,68 @@
 /**
- * The Fleet view's placeholder: the title row and nothing else, for now.
+ * The Fleet view: every Cell in one table, at `#/fleet`.
  *
- * This view will show all Cells in one table with a Real, Virtual or All filter, the tier and mask
- * badges and the legend. It is reached at `#/fleet`. Until its own roadmap step lands it renders
- * the shared title row only, so the shell, the nav, the router and the layout can be exercised on
- * every route from the start.
+ * Each row shows the Cell's kind, source, status and mode, its Comb Shield level and Pheromone
+ * Mask as badges that are never hidden, its access level, where its Warden runs and where its
+ * models come from, its current task and role, open Alarms, the highest live Cell Wax severity,
+ * its lease's age and links to its page, its Warden's Attendant view and its bees' thoughts. The
+ * legend of the three Comb Shield levels is fixed above the table. A Real / Virtual / All filter
+ * (remembered per viewer) and a click-to-sort header choose what is drawn.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/`. Chosen by the outlet in `src/shell/` when the
- *   route is `fleet`. Built out in step 12.6, to design.md section 5.1.
+ *   route is `fleet`. Seeds by `GET /v1/fleet`, stays live on `/v1/cells/stream`.
  *
  * Key invariants:
- *   - Renders only the title row until the view itself is built.
- *   - It makes no request and reads no slice, so it cannot go stale or write anywhere.
+ *   - Read-only: it reads the aggregate and one stream, and writes only its own slice.
+ *   - A refusal (no `observe`) is shown as the error table's sentence, never as an empty table.
+ *   - Everything drawn comes from the generated types.
  *
  * See Also:
- *   - docs/observation/design.md section 5.1, for what this view will hold.
+ *   - docs/observation/design.md section 5.1.
+ *   - src/views/fleet/README.md.
  */
+import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
-import { ViewTitle } from '../../components';
+import { ErrorNotice, ViewTitle } from '../../components';
+import { useViewStream } from '../../store';
+import { byKind, KindFilter, useKindFilter } from './filter';
+import './fleet.css';
+import { Legend } from './legend';
+import { FleetTable, nextSort, sortRows } from './table';
+import type { SortState } from './table';
+import type { CellFrame, FleetEvent } from './slice';
+import { useFleet } from './use_fleet';
 
-export function FleetView(): ReactElement {
-  return <ViewTitle title="Fleet" />;
+export const CELLS_STREAM = '/v1/cells/stream';
+
+// Module-level so the stream is opened once per mount, not once per render.
+const toEvent = (frame: CellFrame): FleetEvent => ({ type: 'frame', frame });
+
+const EMPTY = 'No Cells yet. A Cell appears here when the Queen provisions or borrows one.';
+
+export function FleetView(props: { rereadMs?: number }): ReactElement {
+  const state = useFleet(props.rereadMs);
+  useViewStream(CELLS_STREAM, 'fleet', toEvent);
+  const [kind, setKind] = useKindFilter();
+  const [sort, setSort] = useState<SortState | null>(null);
+
+  // The order is recomputed only when the rows, the filter or the sort change.
+  const shown = useMemo(() => sortRows(byKind(state.rows, kind), sort), [state.rows, kind, sort]);
+  return (
+    <>
+      <ViewTitle title="Fleet">
+        <KindFilter kind={kind} onChoose={setKind} />
+      </ViewTitle>
+      <Legend entries={state.legend} />
+      {state.error ? <ErrorNotice error={state.error} /> : null}
+      {!state.seeded && !state.error ? <p aria-busy="true">Reading the fleet</p> : null}
+      {state.seeded && state.rows.length === 0 ? <p>{EMPTY}</p> : null}
+      {state.rows.length > 0 && shown.length === 0 ? (
+        <p>No {kind === 'REAL' ? 'Real' : 'Virtual'} Cells right now.</p>
+      ) : null}
+      {shown.length > 0 ? (
+        <FleetTable rows={shown} sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+      ) : null}
+    </>
+  );
 }

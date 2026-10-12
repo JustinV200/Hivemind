@@ -35,11 +35,16 @@ import {
 } from './store';
 import type { AppSlices, Hive } from './store';
 import { LoginScreen } from './views/login/login';
+import { fleetSlice } from './views/fleet';
 import { thoughtsSlice } from './views/thoughts/slice';
 
 // Every slice the app holds: the shell's three, then one per view that keeps live state. The type
 // is the registry the views merge into, so a view slice left out of this table fails to compile.
-export const APP_SLICES: AppSlices = { ...SHELL_SLICES, thoughts: thoughtsSlice };
+export const APP_SLICES: AppSlices = {
+  ...SHELL_SLICES,
+  thoughts: thoughtsSlice,
+  fleet: fleetSlice,
+};
 
 function buildHive(browser: Browser): Hive {
   const store = createHiveStore(APP_SLICES);

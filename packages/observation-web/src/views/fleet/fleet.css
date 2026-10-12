@@ -1,0 +1,318 @@
+/*
+ * Fleet view styles: the filter, the fixed legend, the table and its card form.
+ *
+ * Mobile first (design.md section 2): under 1080 px the table becomes stacked cards, one per Cell,
+ * with the tier badge and the mask badge first; the headers become a wrapped row of sort buttons
+ * above the cards. From 1080 px it is a table, inside a box that scrolls on its own if the columns
+ * are wider than the pane, so the page itself never scrolls sideways. Nothing is hidden by width:
+ * the tier and mask cells have no rule that hides them at any size.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/fleet/`. Imported by `fleet.tsx`. Class names are those
+ *   rendered by `src/views/fleet/`; the badges and the status dot come from `components.css`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 4.3 and 5.1.
+ */
+
+/* Real / Virtual / All */
+.fleet-filter {
+  display: inline-flex;
+}
+
+.fleet-filter-button {
+  min-height: 36px;
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.fleet-filter-button + .fleet-filter-button {
+  margin-left: -1px;
+}
+
+.fleet-filter-button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.fleet-filter-button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.fleet-filter-button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+/* Legend: fixed above the table, never collapsed */
+.fleet-legend {
+  display: grid;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.fleet-legend h2 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.fleet-legend ul {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fleet-legend li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* The two place badges: a dashed outline marks them as neither a tier nor a mask */
+.badge-place {
+  background: var(--surface);
+  color: var(--text);
+  border-style: dashed;
+  border-radius: var(--radius);
+}
+
+.badge-place--none {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+/* Table, as cards first */
+.fleet-table,
+.fleet-table tbody,
+.fleet-table tr,
+.fleet-table th,
+.fleet-table td {
+  display: block;
+}
+
+.fleet-table {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet-table thead tr {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.fleet-sort {
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  cursor: pointer;
+}
+
+.fleet-table th[aria-sort='ascending'] .fleet-sort,
+.fleet-table th[aria-sort='descending'] .fleet-sort {
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.fleet-table tbody {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.fleet-table tbody tr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+/* The tier and the mask lead every card, then the Cell's id */
+.fleet-tier {
+  order: -3;
+}
+
+.fleet-mask {
+  order: -2;
+}
+
+.fleet-id {
+  order: -1;
+  flex-basis: 100%;
+  text-align: left;
+  font-weight: 400;
+}
+
+.fleet-table td::before,
+.fleet-table .fleet-id::before {
+  content: attr(data-label) ': ';
+  color: var(--text-muted);
+}
+
+/* A badge says its own words, so these cells carry no label of their own */
+.fleet-table .fleet-tier::before,
+.fleet-table .fleet-mask::before,
+.fleet-table .fleet-id::before {
+  content: none;
+}
+
+.fleet-name {
+  margin-left: var(--sp-2);
+  color: var(--text-muted);
+}
+
+.fleet-role,
+.fleet-status {
+  margin-left: var(--sp-1);
+}
+
+.fleet-status {
+  margin-left: 0;
+  margin-right: var(--sp-2);
+}
+
+.fleet-none {
+  color: var(--text-muted);
+}
+
+.fleet-alarms {
+  color: var(--alarm);
+  font-weight: 700;
+}
+
+.fleet-table .fleet-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  flex-basis: 100%;
+}
+
+.fleet-table .fleet-links::before {
+  content: none;
+}
+
+.fleet-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  color: var(--accent);
+}
+
+.fleet-thoughts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Tablet: two cards across */
+@media (min-width: 720px) {
+  .fleet-table tbody {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Desktop: a real table */
+@media (min-width: 1080px) {
+  .fleet-scroll {
+    overflow-x: auto;
+  }
+
+  .fleet-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .fleet-table thead {
+    display: table-header-group;
+  }
+
+  .fleet-table tbody {
+    display: table-row-group;
+  }
+
+  .fleet-table tr,
+  .fleet-table thead tr {
+    display: table-row;
+    padding: 0;
+    border: 0;
+    margin: 0;
+  }
+
+  .fleet-table th,
+  .fleet-table td {
+    display: table-cell;
+    padding: var(--sp-1) var(--sp-2);
+    vertical-align: middle;
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .fleet-table thead th {
+    background: var(--surface-2);
+  }
+
+  .fleet-table tbody tr {
+    background: transparent;
+    min-height: 32px;
+  }
+
+  .fleet-table td::before,
+  .fleet-table .fleet-id::before {
+    content: none;
+  }
+
+  .fleet-tier,
+  .fleet-mask,
+  .fleet-id {
+    order: 0;
+  }
+
+  .fleet-id {
+    font-weight: 400;
+  }
+
+  .fleet-sort {
+    min-height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    font-weight: 700;
+  }
+
+  .fleet-table .fleet-links {
+    display: table-cell;
+  }
+
+  .fleet-links a + a,
+  .fleet-links a + .fleet-thoughts {
+    margin-left: var(--sp-2);
+  }
+}

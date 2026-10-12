@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 async function openShell(
-  options: { listener?: string; needsStepUp?: boolean; seed?: boolean } = {},
+  options: { listener?: string; needsStepUp?: boolean; seed?: boolean; keepHash?: boolean } = {},
 ) {
   const fake = createFakeBrowser();
   await storeSession(fake.browser, {
@@ -40,8 +40,13 @@ async function openShell(
   });
   fake.respond('GET /v1/devices/me', 200, { name: 'Pixel 9' });
   if (options.seed !== false) fake.respond('GET /v1/summary', 200, SEED);
+  // The shell is under test, not a view: unless a test chose a route, an unknown one keeps the
+  // outlet on "not found", so the only sockets and reads are the shell's own (the default route
+  // would open the Fleet's too).
+  if (!window.location.hash && !options.keepHash) window.location.hash = '#/nowhere';
   render(<App browser={fake.browser} />);
-  await waitFor(() => expect(fake.sockets).toHaveLength(3));
+  // With the hash kept empty the default route's view opens its own stream beside the shell's.
+  await waitFor(() => expect(fake.sockets.length).toBeGreaterThanOrEqual(3));
   // The seed is a signed request, so wait for its answer before a test relies on its numbers.
   if (options.seed !== false) await screen.findByRole('group', { name: 'Bees: 5 active' });
   return fake;
@@ -245,7 +250,7 @@ describe('routes', () => {
   });
 
   it('draws the Fleet on an empty hash and Not found for an unknown route', async () => {
-    await openShell();
+    await openShell({ keepHash: true });
     expect(screen.getByRole('heading', { name: 'Fleet' })).toBeTruthy();
     await act(async () => {
       window.location.hash = '#/nowhere';
