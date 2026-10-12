@@ -84,6 +84,40 @@ export interface AudioRecorder {
   start(): Promise<ActiveRecording>;
 }
 
+// One item another app shared into the Hive, before the human has confirmed sending it. Text is a
+// string; an image or a clip is raw bytes under the media type the sharing app declared.
+export interface SharedFile {
+  bytes: Bytes;
+  mediaType: string;
+}
+
+export type SharedItem =
+  | { kind: 'text'; text: string }
+  | ({ kind: 'image' } & SharedFile)
+  | ({ kind: 'audio' } & SharedFile)
+  // Something the phone could not take (too large, unreadable); the reason is a short code.
+  | { kind: 'refused'; reason: string };
+
+// The phone's share sheet. `onShared` delivers each shared item (one that arrived before anyone
+// listened is delivered first) and returns the function that stops listening.
+export interface ShareIntake {
+  onShared(listener: (item: SharedItem) => void): () => void;
+}
+
+// The ongoing notification shown while questions wait; `clear` withdraws it.
+export interface WaitingNotifier {
+  show(count: number): Promise<void>;
+  clear(): Promise<void>;
+}
+
+// How a phone learns the Entrance's address: from an invite link opened in the app or pasted by
+// hand. `configured` is false until one address has been stored; `accept` adopts a link's origin
+// and reloads on its join screen, and resolves false for text that is not an invite link.
+export interface InviteLinks {
+  configured: boolean;
+  accept(link: string): Promise<boolean>;
+}
+
 export interface Browser {
   // The Entrance's origin, e.g. `https://hive.example.ts.net`; request paths are appended to it.
   origin: string;
@@ -101,6 +135,13 @@ export interface Browser {
   createPasskey(options: Record<string, unknown>): Promise<Record<string, unknown>>;
   // Asks permission and subscribes this browser to Web Push under the Hive's application key.
   subscribeWebPush(applicationServerKey: Bytes): Promise<WebPushSubscription>;
+  // Gives the push distributor's registration back; absent where the browser owns the subscription.
+  unsubscribeWebPush?: () => Promise<void>;
+  // Present only in the Android shell (ADR-0047): the share sheet, the waiting notification and the
+  // invite link intake. A browser carries none of them and the views that use them render nothing.
+  shareIntake?: ShareIntake;
+  waitingNotifier?: WaitingNotifier;
+  inviteLinks?: InviteLinks;
   // Absent on a device that cannot record (no microphone API); a view hides push-to-talk then.
   recorder?: AudioRecorder;
 }

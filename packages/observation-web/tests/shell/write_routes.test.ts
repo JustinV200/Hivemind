@@ -59,6 +59,7 @@ describe('write list', () => {
       '/v1/auth/*',
       '/v1/chat',
       '/v1/chat/audio',
+      '/v1/nectar/images',
       '/v1/inbox/*/answer',
       '/v1/inbox/*/acknowledge',
       '/v1/goals*',

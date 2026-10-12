@@ -30,12 +30,24 @@ import { openStream } from './socket';
 import type { StreamHandle, StreamOptions } from './socket';
 
 export { describeError, LandingBoardError } from './errors';
+export { chooseBrowser } from './platform/choose';
+export type { Choice } from './platform/choose';
 export { realBrowser } from './platform/real_browser';
 export type { DescribedError } from './errors';
 export type { DeviceDescription, Enrolled, OpenedSession, SessionClient } from './session';
 export type { StreamEnd, StreamHandle, StreamOptions, StreamState } from './socket';
-export type { Browser } from './browser';
-export type { HttpClient } from './http';
+export type {
+  AudioMediaType,
+  Browser,
+  Bytes,
+  InviteLinks,
+  ShareIntake,
+  SharedFile,
+  SharedItem,
+  WaitingNotifier,
+} from './browser';
+export type { HttpClient, ImageMediaType } from './http';
+export type { PushClient } from './push';
 
 export interface LandingBoard {
   session: SessionClient;
@@ -57,11 +69,19 @@ export function createLandingBoard(options: LandingBoardOptions): LandingBoard {
     holder,
     onUnauthorized: () => {
       // Clear the key and token first, then tell the shell, so nothing signs with a dead session.
-      void session.forget().then(options.onSessionLost);
+      void sessions.forget().then(options.onSessionLost);
     },
   });
-  const session = createSessionClient({ browser, http, holder });
+  const sessions = createSessionClient({ browser, http, holder });
   const push = createPush(browser, http);
+  // Logout withdraws this device's push subscription first, while the session can still sign.
+  const session: SessionClient = {
+    ...sessions,
+    logout: async () => {
+      await push.withdrawStored();
+      await sessions.logout();
+    },
+  };
   return {
     session,
     http,

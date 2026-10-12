@@ -940,6 +940,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/nectar/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hand the Hive an image: kept as C2 Nectar for its retention window. */
+        post: operations["deposit_v1_nectar_images_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/push/hive-key": {
         parameters: {
             query?: never;
@@ -3516,6 +3533,42 @@ export interface components {
              */
             slots: components["schemas"]["SlotHostingView"][];
         };
+        /**
+         * ImageDepositView
+         * @description An image kept as C2 Nectar: where to find it, and until when.
+         */
+        ImageDepositView: {
+            /**
+             * Deposited At
+             * Format: date-time
+             * @description When the Hive kept it.
+             */
+            deposited_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description When the retention sweep deletes it ([entrance] image_keep_hours later).
+             */
+            expires_at: string;
+            /** @description Its format: png, jpeg or webp. */
+            media_type: components["schemas"]["ImageMediaType"];
+            /**
+             * Nectar Id
+             * @description The Nectar id the image was given.
+             */
+            nectar_id: string;
+            /**
+             * Size Bytes
+             * @description The image's size in bytes.
+             */
+            size_bytes: number;
+        };
+        /**
+         * ImageMediaType
+         * @description The image formats the Hive takes; the value is the ``Content-Type`` that names it.
+         * @enum {string}
+         */
+        ImageMediaType: "image/png" | "image/jpeg" | "image/webp";
         /**
          * InboxEntryView
          * @description One item in a supervisor's ordered inbox, with the score the Attendant gave it.
@@ -9788,6 +9841,109 @@ export interface operations {
             };
             /** @description The item moved on meanwhile. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deposit_v1_nectar_images_post: {
+        parameters: {
+            query?: {
+                /** @description A few words about the image (C2); kept beside it, never echoed back. */
+                caption?: string | null;
+                /** @description The task the image concerns; absent when it concerns none. */
+                task_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/jpeg": string;
+                "image/png": string;
+                "image/webp": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageDepositView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The image is larger than [entrance] max_image_bytes. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The Content-Type is missing or not image/png, jpeg or webp. */
+            415: {
                 headers: {
                     [name: string]: unknown;
                 };

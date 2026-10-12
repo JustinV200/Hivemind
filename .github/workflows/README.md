@@ -26,3 +26,11 @@ Runs on every push to `main` and every pull request. `lint`, `types`, `imports`,
 (codingrules 14.2's Docker/SQLite/network-dependent tests) after checking a Docker daemon is
 available. No integration test exists until phase 2; pytest's exit code 5 ("no tests collected")
 is treated as success explicitly until then.
+
+## `android.yml`
+
+Runs on tags `v*` and by hand (`workflow_dispatch`), never on a push, per ADR-0047: it builds the
+web app, syncs it into the Capacitor project under `packages/observation-web/android/`, runs the
+Gradle release build with the JDK the template targets and the Android SDK action, signs with the
+release key from CI secrets, and uploads the APK as a workflow artifact for the phase 14 release.
+The per-push gate for the front end stays the `web` job in `ci.yml`.

@@ -28,6 +28,8 @@ export const WRITE_PATTERNS: readonly string[] = [
   '/v1/auth/*',
   '/v1/chat',
   '/v1/chat/audio',
+  // An image another app shared into the Hive (Android share sheet): Nectar labelled C2.
+  '/v1/nectar/images',
   '/v1/inbox/*/answer',
   '/v1/inbox/*/acknowledge',
   '/v1/goals*',

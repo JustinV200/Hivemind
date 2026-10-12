@@ -18,3 +18,8 @@
 export { ChatScreen } from './chat_screen';
 export { chatSlice } from './slice';
 export type { ChatEvent, ChatState } from './slice';
+// For the phone's share intake (src/share/), which sends through the chat's own writes.
+export { useChatActions } from './writes/use_actions';
+export type { ChatActions } from './writes/use_actions';
+export { StepUpPrompt } from './writes/step_up_prompt';
+export type { StepUp } from './writes/use_step_up';

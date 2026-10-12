@@ -11,3 +11,12 @@ package is scaffolded in roadmap step 0.1 so the toolchain (`pnpm lint`, `format
 client, the store fed by the Entrance streams, the hash router, the summary strip, the PWA worker
 and a placeholder per view. `pnpm generate` rebuilds `src/landing_board/types.ts` from
 `docs/entrance/openapi.json`, and `pnpm generate:check` (run in CI) fails if it is out of date.
+
+## Android
+
+Step 12.12 wraps the same build as an APK with Capacitor: `capacitor.config.ts` pins the WebView
+origin, `android/` is the Capacitor project (three small Kotlin plugins for passkeys, UnifiedPush and
+the share sheet), `src/landing_board/client/platform/android/` is the Android half of the platform
+seam and `src/share/` holds the phone-only screens (share confirmation, push offer, invite box).
+`android/README.md` says how to build, sign and run it; CI builds it on `v*` tags
+(`.github/workflows/android.yml`). The per-push gate is unchanged.

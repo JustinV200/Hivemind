@@ -13,6 +13,7 @@
  *
  * Key invariants:
  *   - The store and client are built once per mounted app, never per render.
+ *   - The platform is chosen before this mounts (src/main.tsx); this file never asks which it is.
  *   - A client-side 401 ends the session through the store, so the shell and its sockets go away.
  *
  * See Also:
@@ -25,6 +26,7 @@ import type { ReactElement } from 'react';
 import { createLandingBoard, realBrowser } from './landing_board/client';
 import type { Browser } from './landing_board/client';
 import { Shell } from './shell';
+import { PhoneHost } from './share';
 import {
   createHiveStore,
   HiveProvider,
@@ -96,10 +98,15 @@ function Gate(): ReactElement {
 }
 
 export default function App(props: { browser?: Browser }): ReactElement {
-  const [hive] = useState(() => buildHive(props.browser ?? realBrowser()));
+  const [{ hive, browser }] = useState(() => {
+    const chosen = props.browser ?? realBrowser();
+    return { hive: buildHive(chosen), browser: chosen };
+  });
   return (
     <HiveProvider hive={hive}>
       <Gate />
+      {/* Draws only what the platform offers (the Android shell's share sheet and invite box). */}
+      <PhoneHost browser={browser} />
     </HiveProvider>
   );
 }

@@ -15,7 +15,8 @@
  * Key invariants:
  *   - Request and response shapes come from the generated types via `call_types.ts`; there is
  *     no untyped call, so a route the document does not carry cannot be reached.
- *   - `postAudio` is the one body that is not JSON: raw clip bytes under the clip's own format.
+ *   - `postAudio` and `postImage` are the only bodies that are not JSON: raw bytes under their own
+ *     format.
  *   - The bytes hashed are the bytes sent; the target signed is the path and query as sent.
  *   - A request with no session is sent unsigned (login and the other public routes).
  *
@@ -49,11 +50,23 @@ interface Outgoing {
 
 const JSON_TYPE = 'application/json';
 const AUDIO_PATH = '/v1/chat/audio';
+// The image intake route (ADR-0047): the raw image as the body, deposited as Nectar labelled C2.
+const IMAGE_PATH = '/v1/nectar/images';
 type AudioOp = OperationOf<typeof AUDIO_PATH, 'post'>;
 // The audio route's own query (`intent`, `duration_s`, `language`), read off the document.
 export type AudioIntent = QueryOf<AudioOp>['intent'];
 // A clip shorter than this is not worth a request; the document asks for a length above zero.
 const MIN_CLIP_SECONDS = 0.01;
+
+// TODO(12.12-python): once `POST /v1/nectar/images` is in the generated types.ts, read the accepted
+// media types off the operation as `AudioMediaType` does; until then they are the three in
+// docs/entrance/openapi.json.
+export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
+
+export interface SharedImage {
+  bytes: Bytes;
+  mediaType: ImageMediaType;
+}
 
 export interface HttpClient {
   call<M extends Method, P extends PathsWith<M>>(
@@ -64,6 +77,8 @@ export interface HttpClient {
   // Sends one recorded clip as the raw body of `POST /v1/chat/audio`: the only non-JSON body. The
   // bytes hashed for the signature are the bytes sent, and `Content-Type` is the clip's own format.
   postAudio(clip: RecordedClip, intent: AudioIntent): Promise<ResponseOf<AudioOp>>;
+  // Sends one shared image as the raw body of `POST /v1/nectar/images` (needs `entrance:submit`).
+  postImage(image: SharedImage): Promise<void>;
   // The platform's recorder, carried here because this is the client's one door for audio; null on
   // a device that cannot record.
   readonly recorder: AudioRecorder | null;
@@ -163,6 +178,14 @@ export function createHttp(deps: HttpDeps): HttpClient {
         contentType: clip.mediaType,
       });
       return result as ResponseOf<AudioOp>;
+    },
+    async postImage(image) {
+      await send(deps, {
+        method: 'POST',
+        target: IMAGE_PATH,
+        body: image.bytes,
+        contentType: image.mediaType,
+      });
     },
     async call(method, path, ...init) {
       const options = (init[0] ?? {}) as {

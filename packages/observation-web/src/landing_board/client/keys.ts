@@ -17,6 +17,9 @@
  *   - A signature is WebCrypto's raw IEEE P1363 `r || s` (64 bytes), base64url with no padding;
  *     no DER conversion is wanted or done.
  *   - A stored value that fails its shape check is treated as absent, never half-trusted.
+ *   - The Entrance's base URL (Android only) and the push subscription id live beside the session
+ *     but are not cleared with it: the address is where the next login goes, and the push id is
+ *     removed by `push.ts` once the Entrance has dropped the subscription.
  *
  * See Also:
  *   - docs/entrance/landing-board.md section 5 (the binding key) and section 6 (signatures).
@@ -27,6 +30,8 @@ import { base64urlEncode } from './signing';
 
 const SESSION_RECORD = 'session';
 const DEVICE_RECORD = 'device';
+const BASE_URL_RECORD = 'base_url';
+const PUSH_RECORD = 'push_subscription';
 
 export interface BindingKey {
   privateKey: CryptoKey;
@@ -109,4 +114,29 @@ export function createHolder(): SessionHolder {
       current = session;
     },
   };
+}
+
+// The Entrance's origin as an invite link delivered it (the Android shell has no page of the
+// Entrance's own to take it from). It outlives logout: it is where the next login goes.
+export async function saveBaseUrl(store: KeyValueStore, baseUrl: string): Promise<void> {
+  await store.put(BASE_URL_RECORD, baseUrl);
+}
+
+export async function loadBaseUrl(store: KeyValueStore): Promise<string | null> {
+  const value = await store.get(BASE_URL_RECORD);
+  return typeof value === 'string' ? value : null;
+}
+
+// The id the Entrance gave this device's push subscription, kept so logout can withdraw it.
+export async function savePushSubscription(store: KeyValueStore, id: string): Promise<void> {
+  await store.put(PUSH_RECORD, id);
+}
+
+export async function loadPushSubscription(store: KeyValueStore): Promise<string | null> {
+  const value = await store.get(PUSH_RECORD);
+  return typeof value === 'string' ? value : null;
+}
+
+export async function clearPushSubscription(store: KeyValueStore): Promise<void> {
+  await store.remove(PUSH_RECORD);
 }

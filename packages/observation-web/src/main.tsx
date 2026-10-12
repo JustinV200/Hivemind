@@ -7,7 +7,9 @@
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web). Loaded by index.html's script tag. Imports the stylesheets (tokens
- *   first, as the others read them), renders App from src/app.tsx and registers the PWA worker.
+ *   first, as the others read them), chooses the platform's `Browser` (the web binding, or the
+ *   Android shell's inside the APK, ADR-0047), renders App from src/app.tsx and registers the PWA
+ *   worker on the web only.
  *
  * Key invariants:
  *   - Throws immediately if the #root element is missing, rather than silently rendering nothing,
@@ -17,9 +19,11 @@
  *   - index.html for the #root element this mounts into.
  *   - src/app.tsx for the component rendered here.
  */
+import { Capacitor } from '@capacitor/core';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './app';
+import { chooseBrowser, realBrowser } from './landing_board/client';
 import { registerServiceWorker } from './pwa/register';
 import './styles/tokens.css';
 import './styles/base.css';
@@ -33,10 +37,21 @@ if (!rootElement) {
   throw new Error('Observation Hive: #root element not found in index.html');
 }
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// ADR-0047: the platform is chosen once, here. The Android half is loaded only inside the APK, so
+// the web bundle never carries it.
+const isNative = Capacitor.isNativePlatform();
 
-registerServiceWorker();
+void chooseBrowser({
+  isNative: () => isNative,
+  web: () => realBrowser(),
+  android: async () => (await import('./landing_board/client/platform/android')).androidBrowser(),
+}).then((browser) => {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <App browser={browser} />
+    </StrictMode>,
+  );
+});
+
+// An APK carries its own bundle, so a service worker caching it would only serve stale code.
+if (!isNative) registerServiceWorker();

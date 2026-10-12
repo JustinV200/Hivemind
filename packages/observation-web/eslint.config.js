@@ -12,7 +12,8 @@
 // Key invariants:
 //   - eslint-config-prettier stays last in the array so it can turn off every conflicting
 //     stylistic rule the configs before it turned on.
-//   - node_modules, dist and the generated Landing Board types are ignored so generated and
+//   - node_modules, dist, the Android project (Kotlin, Gradle and the copied web bundle under
+//     android/app/src/main/assets) and the generated Landing Board types are ignored so generated and
 //     vendored code is never linted.
 //
 // See Also:
@@ -23,7 +24,7 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   // Generated and vendored trees are never hand-edited, so linting them is pure noise.
-  { ignores: ['dist/**', 'node_modules/**', 'src/landing_board/types.ts'] },
+  { ignores: ['dist/**', 'node_modules/**', 'android/**', 'src/landing_board/types.ts'] },
   ...tseslint.configs.recommended,
   {
     plugins: { 'react-hooks': reactHooks },

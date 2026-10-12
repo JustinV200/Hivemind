@@ -6,8 +6,9 @@
  * `landing_board/client/` because that folder is the one allowed to reach the network (ADR-0046).
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/landing_board/client/platform/`. Called once by `src/app.tsx`
- *   to build the `Browser` handed to `createLandingBoard`.
+ *   Layer 7 (observation-web), `src/landing_board/client/platform/`. Called by `src/main.tsx` (or
+ *   `src/app.tsx` when none is passed) to build the `Browser` handed to `createLandingBoard`; the
+ *   Android shell calls it with overrides.
  *
  * Key invariants:
  *   - The origin is the page's own, because the Entrance serves this build itself and a browser's
@@ -44,7 +45,8 @@ function wrapSocket(url: string): SocketLike {
   return wrapped;
 }
 
-export function realBrowser(): Browser {
+// `overrides` lets another binding (the Android shell) replace members while keeping the rest.
+export function realBrowser(overrides: Partial<Browser> = {}): Browser {
   const recorder = realRecorder();
   return {
     origin: window.location.origin,
@@ -55,11 +57,12 @@ export function realBrowser(): Browser {
     nowMs: () => Date.now(),
     setTimer: (callback, ms) => window.setTimeout(callback, ms),
     clearTimer: (id) => window.clearTimeout(id),
-    store: indexedDbStore(window.indexedDB),
+    store: overrides.store ?? indexedDbStore(window.indexedDB),
     assertPasskey: assertWithPasskey,
     createPasskey: createWithPasskey,
     subscribeWebPush,
     // A device that cannot record simply carries no recorder, so push-to-talk is hidden.
     ...(recorder ? { recorder } : {}),
+    ...overrides,
   };
 }
