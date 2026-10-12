@@ -2223,8 +2223,16 @@ in this phase adds a new write path.
   item, and a "propose a note" action that queues the note for the House Bee rather than writing
   (a Honey note, or Cell Wax when made from a Cell's folder; 7.10). Scope and clearance filtering
   match the viewer's capabilities.
-- [ ] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
+- [x] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
   save, from normalised `Usage` on the trail.
+  **Built 2026-10-12.** `src/views/cost/`: seeded from `GET /v1/cost`, each `llm.call` frame
+  with usage on `/v1/trail/stream` folded into its goal, slot and provider at once (a call with
+  no `goal_id` in its payload lands in the unattributed row, pinned last and explained) with one
+  throttled re-read per burst that replaces the figures; a totals strip, then sortable goal, slot
+  and provider tables as stacked cards at phone width; the slot gauge shows hosted calls out of
+  all calls, since `hosted_usd` equals `cost_usd` in today's model. Spend reaches a goal only once
+  the Fanner lanes carry `goal_id` (12.1's note); a per-slot hosted and local call count would
+  make the hosted share exact.
 - [ ] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
   reasons, rollbacks, sampled-audit findings and rates per tier, and a link from every item to the
   bee's thoughts and, for Exoskeleton actions, the recording.
