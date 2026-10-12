@@ -285,7 +285,7 @@ A folder tree on the left (a single list on phone) and the folder's items on the
 `/cells/<id>`, `/bees/<id>`, `/tasks/<id>`, `/bee-bread`. Every item shows its `HoneyClearance`
 (`C0`, `C1`, `C2`) and provenance. A search box searches the open folder. "Propose a note" queues
 a note for the House Bee (Cell Wax when opened from a Cell's folder) and says so; it never says
-"saved". What shows follows the viewer's scopes. Read: `/v1/honey`. There is no Honey stream: the
+"saved". What shows follows the viewer's scopes. Read: `/v1/honey/tree`, `/v1/honey/items/{id}` and `/v1/honey/search`. There is no Honey stream: the
 view reads on navigation and re-reads a folder when the trail stream shows a Honey event for it.
 
 ### 5.8 Cost (`#/cost`)

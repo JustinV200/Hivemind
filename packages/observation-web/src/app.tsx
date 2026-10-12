@@ -42,6 +42,7 @@ import { chatSlice } from './views/chat';
 import { costSlice } from './views/cost';
 import { fleetSlice } from './views/fleet';
 import { forageSlice } from './views/forage';
+import { honeySlice } from './views/honey';
 import { thoughtsSlice } from './views/thoughts/slice';
 
 // Every slice the app holds: the shell's three, then one per view that keeps live state. The type
@@ -56,6 +57,7 @@ export const APP_SLICES: AppSlices = {
   chat: chatSlice,
   cost: costSlice,
   capping: cappingSlice,
+  honey: honeySlice,
 };
 
 function buildHive(browser: Browser): Hive {

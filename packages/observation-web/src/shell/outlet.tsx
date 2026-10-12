@@ -28,7 +28,7 @@ import { DevicesView } from '../views/devices/devices';
 import { EnrolView } from '../views/enrol/enrol';
 import { FleetView } from '../views/fleet/fleet';
 import { ForageScreen } from '../views/forage';
-import { HoneyView } from '../views/honey/honey';
+import { HoneyScreen } from '../views/honey';
 import { ThoughtsView } from '../views/thoughts/thoughts_view';
 
 export function Outlet(): ReactElement {
@@ -47,7 +47,7 @@ export function Outlet(): ReactElement {
     case 'chat':
       return <ChatScreen />;
     case 'honey':
-      return <HoneyView path={route.path} />;
+      return <HoneyScreen path={route.path} />;
     case 'cost':
       return <CostScreen />;
     case 'capping':

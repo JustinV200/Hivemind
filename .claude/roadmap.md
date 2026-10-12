@@ -2216,13 +2216,25 @@ in this phase adds a new write path.
   lands on when it opens the Entrance with an invite, the passkey login, the step-up prompt, and
   the device list showing where each enrolled device last connected from. The remote build never
   renders the loopback-only screens, and the route test proves it could not use them anyway.
-- [ ] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
+- [x] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
   (7.10): the main store under `/hive`, then what each Cell and each bee can see under `/cells`
   and `/bees` (each Cell's folder includes its live Cell Wax), task folders, and Bee Bread.
   Read-only navigation, reading and search per folder, provenance and `HoneyClearance` on every
   item, and a "propose a note" action that queues the note for the House Bee rather than writing
   (a Honey note, or Cell Wax when made from a Cell's folder; 7.10). Scope and clearance filtering
   match the viewer's capabilities.
+  **Built 2026-10-12.** Python: `GET /v1/honey/tree`, `/v1/honey/items/{id}` and
+  `/v1/honey/search` over the browse facade (`entrance/routes/hive/honey.py`,
+  `entrance/reads/honey.py`, `observation/views/honey/`), each folder's scope checked as
+  `observe:honey:<scope>` through the Guard, the viewer's clearance ceiling cutting the listing,
+  a hidden item a 403 naming only the family, cursor paging; the 501 placeholder `GET /v1/honey`
+  is gone. Front end: `src/views/honey/`, breadcrumbs, folders and items with the clearance tag
+  always visible, wax severity, proposer and expiry, the reading pane, search where
+  `can_search`, a Cell folder re-read once per burst on a `honey.*` or `memory.wax_*` event
+  naming the Cell and other folders on `honey.*`; a two-viewer test proves the trees differ as
+  the scopes say and every request is a GET. **Propose a note is not built:** nothing on the
+  Landing Board carries a proposal to the House Bee (open decision 16), so the browser says so
+  in each folder and draws no control.
 - [x] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
   save, from normalised `Usage` on the trail.
   **Built 2026-10-12.** `src/views/cost/`: seeded from `GET /v1/cost`, each `llm.call` frame
@@ -2461,8 +2473,9 @@ borrowed device and revoking every grant.
    Windows and macOS Virtual Cell images; and the language for the compiled gateway for phones
    and IoT (11.7a).
 8. First cloud Virtual Cell backend (phase 5.11).
-9. Dashboard stack (phase 12): resolved to TypeScript + React + Vite with Capacitor for Android;
-   still open are the state and stream library and push delivery on Android (FCM or UnifiedPush).
+9. Dashboard stack (phase 12): resolved. TypeScript + React + Vite, one stream-fed store with
+   per-stream reducers and no state library (ADR-0046); Capacitor for Android with UnifiedPush
+   delivery over the existing Web Push channel, not FCM (ADR-0047).
 10. Packaging for `pollen` (phase 11.7).
 11. License (phase 14).
 12. VPN overlay for `expose = "vpn"`: WireGuard or Tailscale; and the tunnel client for
@@ -2472,6 +2485,12 @@ borrowed device and revoking every grant.
    optional extra (phase 6.5a; the eval harness in 8.5 settles the size).
 15. Speech synthesis for spoken replies, and whatever a glasses vendor's SDK allows beyond the
    share sheet (post-1.0).
+16. How the Observation Hive proposes a Honey note or Cell Wax for the House Bee (12.9): today
+   `hive honey propose` writes the queue row from the CLI process and nothing on the Landing
+   Board carries a proposal, so the browser shows no propose control. The options are a
+   structured intent the Queen parses out of a chat `HumanMessage`, a typed message kind in
+   Waggle handled by the Queen, or a `POST /v1/honey/notes` row through the Queen's door added
+   to codingrules 8.11's route test. Needs an ADR before the control exists.
 
 ---
 
