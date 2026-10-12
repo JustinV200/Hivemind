@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialSummary, MAX_BEES, reduceSummary, summaryCounters } from '../../src/store/summary';
 import type { SummaryEvent, SummarySlice } from '../../src/store/summary';
-import { cellFrame, episodeFrame, SEED, telemetryFrame } from '../support/frames';
+import { cellFrame, episodeFrame, SEED, SEED_STRIP, telemetryFrame } from '../support/frames';
 
 const fold = (events: SummaryEvent[], from: SummarySlice = initialSummary): SummarySlice =>
   events.reduce(reduceSummary, from);
@@ -128,7 +128,7 @@ describe('seed', () => {
 
   it('shows the seed until the streams cover it, then the streams', () => {
     let slice = fold([{ type: 'seed', counters: SEED }]);
-    expect(summaryCounters(slice)).toEqual(SEED);
+    expect(summaryCounters(slice)).toEqual(SEED_STRIP);
     // One Cell streamed of five counted: still the seed's numbers, not a partial count.
     slice = fold([{ type: 'cell', frame: cellFrame({ id: 'a' }) }], slice);
     expect(summaryCounters(slice)?.cells_active).toBe(3);

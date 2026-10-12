@@ -32,17 +32,20 @@ type CellFrame = components['schemas']['CellFrame'];
 type TelemetryFrame = components['schemas']['TelemetryFrame'];
 type EpisodeFrame = components['schemas']['EpisodeFrame'];
 
-// TODO(12.1): replace with the generated SummaryView once the document carries it.
-export interface SummaryCounters {
-  active_bees: number;
-  cells_active: number;
-  cells_inactive: number;
-  cells_real: number;
-  cells_virtual: number;
-  bees_awake: number;
-  bees_autopilot: number;
-  as_of: string;
-}
+// The seed is the document's SummaryView, read once from /v1/summary; the strip shows the eight
+// counters the streams can keep live, so a seed's other figures are read but never re-derived.
+export type SummarySeed = components['schemas']['SummaryView'];
+export type SummaryCounters = Pick<
+  SummarySeed,
+  | 'active_bees'
+  | 'cells_active'
+  | 'cells_inactive'
+  | 'cells_real'
+  | 'cells_virtual'
+  | 'bees_awake'
+  | 'bees_autopilot'
+  | 'as_of'
+>;
 
 export const MAX_BEES = 2048;
 
@@ -55,7 +58,7 @@ interface CellEntry {
 }
 
 export interface SummarySlice {
-  seed: SummaryCounters | null;
+  seed: SummarySeed | null;
   cells: Record<string, CellEntry>;
   // Bee id to its latest sample time; present only while the bee is active.
   bees: Record<string, string>;
@@ -67,7 +70,7 @@ export interface SummarySlice {
 }
 
 export type SummaryEvent =
-  | { type: 'seed'; counters: SummaryCounters }
+  | { type: 'seed'; counters: SummarySeed }
   | { type: 'cell'; frame: CellFrame }
   | { type: 'telemetry'; frame: TelemetryFrame }
   | { type: 'episode'; frame: EpisodeFrame };

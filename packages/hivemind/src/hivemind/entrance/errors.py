@@ -11,7 +11,7 @@ can react by category without knowing the Entrance. Every class carries its own 
 ``code`` (codingrules section 10), the form an error takes once it crosses the Landing Board (the
 Entrance's versioned API). Roadmap step 10.5e adds the refusals of login and sessions (one generic
 ``AuthenticationFailedError``), step-up, pending confirmations, the travel lock and the Entrance
-Reducer; the read routes add ``CellNotFoundError``.
+Reducer; the read routes add ``CellNotFoundError`` and ``PrincipalNotFoundError``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Raised by
@@ -84,6 +84,7 @@ __all__ = [
     "PasskeyRejectedError",
     "PendingNotFoundError",
     "PendingStatusConflictError",
+    "PrincipalNotFoundError",
     "ReopenRefusedError",
     "SingleOperatorError",
     "StepUpUnavailableError",
@@ -238,6 +239,23 @@ class CellNotFoundError(EntranceError, NotFoundError):
         """
         super().__init__(f"No Cell {cell_id} is attached to the Queen or tracked as Virtual.")
         self.cell_id = cell_id
+
+
+class PrincipalNotFoundError(EntranceError, NotFoundError):
+    """Raise when an Attendant view names a principal that is neither the Queen nor a Warden."""
+
+    code: ClassVar[str] = "hivemind.entrance.principal_not_found"
+
+    def __init__(self, principal: str) -> None:
+        """Build the error for a principal no Warden is attached under.
+
+        Args:
+            principal: The id that was looked up.
+        """
+        super().__init__(
+            f"No Warden {principal} is attached to the Queen, and it is not the Queen."
+        )
+        self.principal = principal
 
 
 class DeviceAlreadyExistsError(EntranceError, ConflictError):

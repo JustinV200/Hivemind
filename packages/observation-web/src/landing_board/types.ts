@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/v1/attendant/{principal}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the Attendant view for the Queen or a Warden: inbox, task graph, next. */
+        get: operations["get_attendant_v1_attendant__principal__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/challenge": {
         parameters: {
             query?: never;
@@ -89,6 +106,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/capping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the Capping queue: proposals, verdicts, rollbacks and sampled audits. */
+        get: operations["get_capping_v1_capping_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/cells": {
         parameters: {
             query?: never;
@@ -157,6 +191,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/cells/{cell_id}/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one Cell's page: bees, tasks, Forage, Cell Wax, Alarms and Capping. */
+        get: operations["get_cell_page_v1_cells__cell_id__page_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat": {
         parameters: {
             query?: never;
@@ -186,6 +237,23 @@ export interface paths {
         put?: never;
         /** Speak to the Queen: a clip heard on the transcriber, as a goal, answer or chat. */
         post: operations["speak_v1_chat_audio_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read spend per goal, slot and provider, and what a local slot would save. */
+        get: operations["get_cost_v1_cost_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -634,6 +702,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/fleet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the Fleet list: every Cell with tier, Mask state, badges, work and Alarms. */
+        get: operations["get_fleet_v1_fleet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/forage": {
         parameters: {
             query?: never;
@@ -804,6 +889,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the Hive's metrics as Prometheus text exposition (version 0.0.4). */
+        get: operations["get_metrics_v1_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/push/hive-key": {
         parameters: {
             query?: never;
@@ -872,6 +974,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the summary strip: active bees, active/inactive and Real/Virtual Cells, LLM against autopilot activity. */
+        get: operations["get_summary_v1_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/swarm": {
         parameters: {
             query?: never;
@@ -932,6 +1051,23 @@ export interface paths {
         };
         /** Read a task's own words: title, objective, criteria, summaries (C2). */
         get: operations["read_brief_v1_tasks__task_id__brief_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/thoughts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a page of a bee's episode records, and the Queen's autopilot decisions (observe:thoughts, C2). */
+        get: operations["get_thoughts_v1_thoughts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1023,6 +1159,14 @@ export interface components {
          * @enum {string}
          */
         ActionKind: "goal" | "key_change" | "capability_change" | "supersedure" | "sting_cut" | "abscond" | "reopen" | "lock_device" | "new_network" | "isolate_cell" | "lift_isolation";
+        /**
+         * AlarmSeverity
+         * @description How bad an Alarm is.
+         *
+         *     Mirrors waggle.messages.labels.AlarmSeverity member for member.
+         * @enum {string}
+         */
+        AlarmSeverity: "INFO" | "WARNING" | "CRITICAL";
         /**
          * AlarmView
          * @description An Alarm that reached the human.
@@ -1238,6 +1382,53 @@ export interface components {
             status: components["schemas"]["DeviceStatus"];
         };
         /**
+         * AttendantView
+         * @description The Attendant view for the Queen or one Warden (observe).
+         */
+        AttendantView: {
+            /**
+             * As Of
+             * Format: date-time
+             * @description When the view was built.
+             */
+            as_of: string;
+            /**
+             * Edges
+             * @description Dependencies between those tasks.
+             */
+            edges: components["schemas"]["TaskEdge"][];
+            /**
+             * Inbox
+             * @description The ordered inbox, highest score first.
+             */
+            inbox: components["schemas"]["InboxEntryView"][];
+            /**
+             * Inbox Is Reconstructed
+             * @description True: the inbox is rebuilt from durable state and scored with the Attendant's own scorer; the supervisor's in-memory tick queue is not readable.
+             */
+            inbox_is_reconstructed: boolean;
+            /**
+             * Nodes
+             * @description The tasks it is concerned with.
+             */
+            nodes: components["schemas"]["TaskNode"][];
+            /**
+             * Principal
+             * @description queen, or a Warden's id.
+             */
+            principal: string;
+            /**
+             * Recently Finished
+             * @description Newest finished first.
+             */
+            recently_finished: string[];
+            /**
+             * Up Next
+             * @description Ready or assigned tasks, oldest first.
+             */
+            up_next: string[];
+        };
+        /**
          * AudioChunkFrame
          * @description One slice of a push-to-talk recording, sent on the chat socket in order.
          */
@@ -1288,6 +1479,133 @@ export interface components {
              * @constant
              */
             type: "audio_end";
+        };
+        /**
+         * AuditRow
+         * @description One sampled audit of a proposal.
+         */
+        AuditRow: {
+            /**
+             * At
+             * Format: date-time
+             * @description When the audit was recorded.
+             */
+            at: string;
+            /**
+             * Bee Id
+             * @description The bee that proposed it; the audit's actor if the proposal is out of view.
+             */
+            bee_id: string;
+            /**
+             * Judge Error
+             * @description The sample was taken but never judged.
+             */
+            judge_error: boolean;
+            /** @description The judge's finding; null when it never ran. */
+            outcome: components["schemas"]["JudgeOutcome"] | null;
+            /**
+             * Proposal Id
+             * @description The audited proposal.
+             */
+            proposal_id: string;
+            /**
+             * Task Id
+             * @description Its task, when the proposal is in view.
+             */
+            task_id: string | null;
+            /**
+             * Tier
+             * @description Its RiskTier.
+             */
+            tier: string;
+        };
+        /**
+         * AutopilotDecisionView
+         * @description One deterministic decision of the Queen's and the rule outcome recorded for it.
+         */
+        AutopilotDecisionView: {
+            /**
+             * Action
+             * @description The action taken (REBIND, CLUSTER, RECORD ...).
+             */
+            action: string | null;
+            /**
+             * Alarm Id
+             * @description The Alarm that prompted it, if any.
+             */
+            alarm_id: string | null;
+            /**
+             * At
+             * Format: date-time
+             * @description When it was decided.
+             */
+            at: string;
+            /**
+             * Id
+             * @description The trail event's id.
+             */
+            id: string;
+            /**
+             * Kind
+             * @description The trail kind: queen.decided or alarm.handled.
+             */
+            kind: string;
+            /**
+             * Reason
+             * @description The reason code recorded with it, if any.
+             */
+            reason: string | null;
+            /**
+             * Subject Id
+             * @description What it concerned: a task, Cell, Alarm or the Hive.
+             */
+            subject_id: string;
+        };
+        /**
+         * BeeRow
+         * @description One bee on the Cell: the Warden, or a sub-bee its Heartbeat listed.
+         */
+        BeeRow: {
+            /**
+             * Context Fraction
+             * @description Used over window, 0..1, for the gauge.
+             */
+            context_fraction: number | null;
+            /**
+             * Context Tokens Used
+             * @description Tokens in its context; null unreported.
+             */
+            context_tokens_used: number | null;
+            /**
+             * Context Window
+             * @description Its bound model's context window.
+             */
+            context_window: number | null;
+            /**
+             * Id
+             * @description The Warden's or sub-bee's id.
+             */
+            id: string;
+            /**
+             * Role
+             * @description WARDEN, or the Worker role of its current task; UNKNOWN when the sub-bee has no task the Brood Chamber can name.
+             */
+            role: string;
+            /**
+             * Spend Usd
+             * @description Its spend so far, from its telemetry.
+             */
+            spend_usd: number | null;
+            /**
+             * Status
+             * @description Its Warden state or Worker state, as it reported.
+             */
+            status: string;
+            /**
+             * Task Id
+             * @description What it is doing now: its current task.
+             */
+            task_id: string | null;
         };
         /**
          * BundleView
@@ -1360,6 +1678,47 @@ export interface components {
              * @description Free memory when it reported.
              */
             memory_free_bytes: number;
+        };
+        /**
+         * CappingView
+         * @description The Hive-wide Capping queue and what came of it (observe).
+         */
+        CappingView: {
+            /**
+             * Audit Rates
+             * @description Audit coverage and findings per tier.
+             */
+            audit_rates: components["schemas"]["TierAuditRate"][];
+            /**
+             * Audits
+             * @description Sampled audits, newest first.
+             */
+            audits: components["schemas"]["AuditRow"][];
+            /**
+             * By Tier State
+             * @description Proposal counts per tier and state.
+             */
+            by_tier_state: components["schemas"]["TierStateCount"][];
+            /**
+             * Finished
+             * @description Terminal proposals, newest first.
+             */
+            finished: components["schemas"]["ProposalRow"][];
+            /**
+             * In Flight
+             * @description Proposals not yet terminal, newest first.
+             */
+            in_flight: components["schemas"]["ProposalRow"][];
+            /**
+             * Rollbacks
+             * @description Rolled-back proposals, newest first.
+             */
+            rollbacks: components["schemas"]["ProposalRow"][];
+            /**
+             * Verdicts
+             * @description Capped and rejected verdicts, newest first.
+             */
+            verdicts: components["schemas"]["VerdictRow"][];
         };
         /**
          * CellFrame
@@ -1495,6 +1854,83 @@ export interface components {
          * @enum {string}
          */
         CellMode: "ACTIVE" | "WATCH";
+        /**
+         * CellPageView
+         * @description Everything one Cell's page shows (observe); words stay behind the ids it hands out.
+         */
+        CellPageView: {
+            /**
+             * Alarms
+             * @description Its open Alarms.
+             */
+            alarms: components["schemas"]["OpenAlarmView"][];
+            /**
+             * As Of
+             * Format: date-time
+             * @description When the page was built.
+             */
+            as_of: string;
+            /**
+             * Bees
+             * @description The Warden, then each sub-bee.
+             */
+            bees: components["schemas"]["BeeRow"][];
+            /** @description Capping activity on this Cell. */
+            capping: components["schemas"]["CappingView"];
+            /** @description The Cell, with its tier and Mask state. */
+            cell: components["schemas"]["CellView"];
+            /**
+             * Exoskeleton Attached
+             * @description From the newest attach or detach on the trail; null before any was recorded.
+             */
+            exoskeleton_attached: boolean | null;
+            /** @description The Warden's Forage; null with no Warden. */
+            forage: components["schemas"]["WardenForageView"] | null;
+            /**
+             * Honey Folder
+             * @description The Honey browser folder for what the Cell can see.
+             */
+            honey_folder: string;
+            /** @description Where its bees' models come from. */
+            hosting: components["schemas"]["HostingView"];
+            /**
+             * Last Patrol At
+             * @description When its last Patrol ran; always null until roadmap phase 11 builds Patrols.
+             */
+            last_patrol_at: string | null;
+            /**
+             * Lease Age S
+             * @description Seconds since its open lease began.
+             */
+            lease_age_s: number | null;
+            /**
+             * Status
+             * @description The headline status (as the Fleet shows it).
+             */
+            status: string;
+            /**
+             * Tasks
+             * @description Its placed tasks (no words); goal_id names the goal.
+             */
+            tasks: components["schemas"]["TaskView"][];
+            /**
+             * Thought Principals
+             * @description Bees whose thoughts can be opened.
+             */
+            thought_principals: string[];
+            /** @description Its Warden; null when none is attached. */
+            warden: components["schemas"]["WardenView"] | null;
+            /**
+             * Warden Runs
+             * @description hive_stand or on_cell; null unknown.
+             */
+            warden_runs: ("hive_stand" | "on_cell") | null;
+            /**
+             * Wax
+             * @description Its Cell Wax, highest severity first.
+             */
+            wax: components["schemas"]["WaxEntryView"][];
+        };
         /**
          * CellView
          * @description One Cell, as the Fleet list and a Cell page show it (observe).
@@ -1851,6 +2287,89 @@ export interface components {
             pending_id: string;
         };
         /**
+         * CostLine
+         * @description The spend of one goal on one slot through one provider (observe).
+         */
+        CostLine: {
+            /**
+             * Cached Tokens
+             * @description Tokens served from a provider cache.
+             */
+            cached_tokens: number;
+            /**
+             * Calls
+             * @description Completed calls.
+             */
+            calls: number;
+            /**
+             * Cost Usd
+             * @description Cost in US dollars.
+             */
+            cost_usd: number;
+            /**
+             * Goal Id
+             * @description The goal it served; null when not attributable.
+             */
+            goal_id: string | null;
+            /**
+             * Input Tokens
+             * @description Tokens consumed.
+             */
+            input_tokens: number;
+            /**
+             * Output Tokens
+             * @description Tokens generated.
+             */
+            output_tokens: number;
+            /**
+             * Provider
+             * @description The provider's manifest name.
+             */
+            provider: string;
+            /**
+             * Slot
+             * @description The model slot the calls were routed to.
+             */
+            slot: string;
+        };
+        /**
+         * CostView
+         * @description Spend per goal, slot and provider (observe).
+         */
+        CostView: {
+            /**
+             * As Of
+             * Format: date-time
+             * @description When the view was built.
+             */
+            as_of: string;
+            /**
+             * Goals
+             * @description Per goal, costliest first.
+             */
+            goals: components["schemas"]["GoalCost"][];
+            /**
+             * If Local Saving Usd
+             * @description The slots' savings together.
+             */
+            if_local_saving_usd: number;
+            /**
+             * Providers
+             * @description Per provider, costliest first.
+             */
+            providers: components["schemas"]["ProviderCost"][];
+            /**
+             * Slots
+             * @description Per slot, with its local saving.
+             */
+            slots: components["schemas"]["SlotSaving"][];
+            /**
+             * Total Usd
+             * @description Every call counted.
+             */
+            total_usd: number;
+        };
+        /**
          * DeclineBody
          * @description Decline a goal request held for the human's yes.
          */
@@ -2202,6 +2721,125 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * FleetLinks
+         * @description The ids a Fleet row links through; the UI builds the routes from them.
+         */
+        FleetLinks: {
+            /**
+             * Attendant Principal
+             * @description Open its Warden's Attendant view (/v1/attendant/{id}); null with no Warden.
+             */
+            attendant_principal: string | null;
+            /**
+             * Cell Id
+             * @description Open the Cell page (/v1/cells/{id}/page).
+             */
+            cell_id: string;
+            /**
+             * Thought Principals
+             * @description The Warden and each sub-bee whose thoughts can be opened (/v1/thoughts).
+             */
+            thought_principals: string[];
+        };
+        /**
+         * FleetRow
+         * @description One Cell in the Fleet list (observe).
+         */
+        FleetRow: {
+            /** @description How much of it the Hive may touch. */
+            access_level: components["schemas"]["AccessLevel"];
+            /** @description Its security tier: always shown. */
+            comb_shield: components["schemas"]["CombShieldLevel"];
+            /**
+             * Current Task Id
+             * @description Its running task, else its first.
+             */
+            current_task_id: string | null;
+            /** @description The role working that task. */
+            current_task_role: components["schemas"]["WorkerRole"] | null;
+            /** @description The highest severity among its live Cell Wax; null with none. */
+            highest_wax_severity: components["schemas"]["WaxSeverity"] | null;
+            /**
+             * Id
+             * @description The Cell's id.
+             */
+            id: string;
+            /** @description REAL or VIRTUAL, for the Real / Virtual / All filter. */
+            kind: components["schemas"]["CellKind"];
+            /**
+             * Lease Age S
+             * @description Seconds since its open lease began.
+             */
+            lease_age_s: number | null;
+            /** @description The ids the row links through. */
+            links: components["schemas"]["FleetLinks"];
+            /**
+             * Mask State
+             * @description Pheromone Mask state; null until roadmap 6.13 tracks it.
+             */
+            mask_state: ("OFF" | "WARDEN" | "QUEEN_FORCED") | null;
+            /** @description ACTIVE or WATCH, when its Warden reported one. */
+            mode: components["schemas"]["CellMode"] | null;
+            /**
+             * Models From
+             * @description Where its bees' models come from, from its hosting plan; unknown with none.
+             * @enum {string}
+             */
+            models_from: "local" | "hive_stand" | "hosted" | "hybrid" | "unknown";
+            /**
+             * Name
+             * @description Its label, or a Virtual Cell's image.
+             */
+            name: string;
+            /**
+             * Open Alarms
+             * @description Open Alarms placed on it.
+             */
+            open_alarms: number;
+            /**
+             * Source
+             * @description What produced it: hive_stand, swarm, or a backend.
+             */
+            source: string;
+            /**
+             * Status
+             * @description Headline status: a Virtual Cell's lifecycle status, else its Warden's state, else its lease state; UNKNOWN when none is known.
+             */
+            status: string;
+            /**
+             * Warden Id
+             * @description Its Warden; null when none is attached.
+             */
+            warden_id: string | null;
+            /**
+             * Warden Runs
+             * @description Where its Warden runs: hive_stand, or on_cell (inside a Virtual Cell). Null with no Warden, and for a Swarm Cell until phase 11 tracks its runtime level.
+             */
+            warden_runs: ("hive_stand" | "on_cell") | null;
+        };
+        /**
+         * FleetView
+         * @description Every Cell, with the tier legend the view always shows (observe).
+         */
+        FleetView: {
+            /**
+             * As Of
+             * Format: date-time
+             * @description When the view was built.
+             */
+            as_of: string;
+            /**
+             * Legend
+             * @description MEADOW, PROPOLIS and NIGHT_VEIL, always.
+             */
+            legend: components["schemas"]["TierLegendEntry"][];
+            /**
+             * Rows
+             * @description Every Cell: attached Wardens' first, then Virtual.
+             */
+            rows: components["schemas"]["FleetRow"][];
+        };
+        /**
          * ForageFrame
          * @description One Forage ledger delta, as ``/v1/forage/stream`` sends it.
          */
@@ -2251,6 +2889,32 @@ export interface components {
             id: string;
             /** @description RECEIVED: the Queen plans it on her own tick. */
             state: components["schemas"]["GoalRequestState"];
+        };
+        /**
+         * GoalCost
+         * @description One goal's spend, by slot and provider.
+         */
+        GoalCost: {
+            /**
+             * Calls
+             * @description Its completed calls.
+             */
+            calls: number;
+            /**
+             * Cost Usd
+             * @description Its total cost.
+             */
+            cost_usd: number;
+            /**
+             * Goal Id
+             * @description The goal; null groups every unattributed call.
+             */
+            goal_id: string | null;
+            /**
+             * Lines
+             * @description Its spend per slot and provider.
+             */
+            lines: components["schemas"]["CostLine"][];
         };
         /**
          * GoalRequestState
@@ -2481,6 +3145,70 @@ export interface components {
          */
         HoneyClearance: "C0" | "C1" | "C2";
         /**
+         * HostingView
+         * @description Where a Cell's bees get their models: the one-word badge and the plan behind it.
+         */
+        HostingView: {
+            /**
+             * Models From
+             * @description local, hive_stand, hosted, hybrid or unknown.
+             * @enum {string}
+             */
+            models_from: "local" | "hive_stand" | "hosted" | "hybrid" | "unknown";
+            /**
+             * Plan Revision
+             * @description The plan's revision; null with no plan.
+             */
+            plan_revision: number | null;
+            /**
+             * Slots
+             * @description Each planned slot's primary source.
+             */
+            slots: components["schemas"]["SlotHostingView"][];
+        };
+        /**
+         * InboxEntryView
+         * @description One item in a supervisor's ordered inbox, with the score the Attendant gave it.
+         */
+        InboxEntryView: {
+            /**
+             * Id
+             * @description The item's id: an Alarm, a question or a chat entry.
+             */
+            id: string;
+            /** @description ALARM, QUESTION or HUMAN_MESSAGE as listed here. */
+            kind: components["schemas"]["InboxKind"];
+            /**
+             * Reasons
+             * @description The scorer's factor-by-factor reasons.
+             */
+            reasons: string[];
+            /**
+             * Received At
+             * Format: date-time
+             * @description When it began waiting.
+             */
+            received_at: string;
+            /**
+             * Score
+             * @description The Attendant's score; higher sorts first.
+             */
+            score: number;
+            /** @description An Alarm's severity; null otherwise. */
+            severity: components["schemas"]["AlarmSeverity"] | null;
+            /**
+             * Task Id
+             * @description The task it concerns, if any.
+             */
+            task_id: string | null;
+        };
+        /**
+         * InboxKind
+         * @description What kind of thing landed in a supervisor's inbox.
+         * @enum {string}
+         */
+        InboxKind: "WAGGLE_MESSAGE" | "ALARM" | "QUESTION" | "HUMAN_MESSAGE" | "TIMER" | "WATCH_OBSERVATION" | "GUARD_REQUEST";
+        /**
          * InboxView
          * @description Everything waiting on the human (C2).
          */
@@ -2565,6 +3293,16 @@ export interface components {
          */
         Isolation: "REQUIRED" | "PREFERRED" | "NONE";
         JsonValue: unknown;
+        /**
+         * JudgeOutcome
+         * @description The judge's structured decision on one proposal, mapped onto the check ladder's own shape.
+         *
+         *     `hivemind.supervision.capping.checks.judge._OUTCOME_MAP` carries the mapping onto
+         *     `waggle.messages.capping.CheckOutcome`, which has no independent APPROVE/REJECT vocabulary of
+         *     its own -- CheckOutcome is shared by every rung of the ladder, JudgeOutcome only by this one.
+         * @enum {string}
+         */
+        JudgeOutcome: "APPROVE" | "REQUEST_CHANGES" | "REJECT";
         /**
          * LeaseState
          * @description Every state a Real Cell lease can be in, from request to release.
@@ -2692,6 +3430,45 @@ export interface components {
          */
         NoticeKind: "question_waiting" | "alarm_waiting" | "reply_waiting" | "goal_completed" | "security_event" | "withdrawn";
         /**
+         * OpenAlarmView
+         * @description One Alarm that is still open, without the sentence a bee wrote about it (observe).
+         */
+        OpenAlarmView: {
+            /**
+             * Cell Id
+             * @description The Cell it is placed on through its task or its recording Warden; null when neither can be resolved.
+             */
+            cell_id: string | null;
+            /**
+             * Escalated
+             * @description It has reached the human.
+             */
+            escalated: boolean;
+            /**
+             * Id
+             * @description The Alarm's id, identical at every level.
+             */
+            id: string;
+            /**
+             * Kind
+             * @description What went wrong (WORKER_CRASHED, GRANT_EXCEEDED ...).
+             */
+            kind: string;
+            /**
+             * Raised At
+             * Format: date-time
+             * @description When its first event in the folded window happened (its raising, unless that is older than the window).
+             */
+            raised_at: string;
+            /** @description INFO, WARNING or CRITICAL. */
+            severity: components["schemas"]["AlarmSeverity"];
+            /**
+             * Task Id
+             * @description The task it concerns, if any.
+             */
+            task_id: string | null;
+        };
+        /**
          * OpenedSessionView
          * @description A new session: its bearer token, handed out this once, and how long it lives.
          */
@@ -2774,6 +3551,28 @@ export interface components {
             };
         };
         /**
+         * PendingRequestView
+         * @description A Forage request the Queen has not yet answered.
+         */
+        PendingRequestView: {
+            /**
+             * Grant Id
+             * @description The grant the request concerns.
+             */
+            grant_id: string;
+            /**
+             * Request Kind
+             * @description SHARED_SEATS, SPEND, BINDING or SUB_BEES.
+             */
+            request_kind: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             * @description When it was asked.
+             */
+            requested_at: string;
+        };
+        /**
          * PendingStatus
          * @description Every state a pending confirmation can be in; see TRANSITIONS for the moves.
          * @enum {string}
@@ -2811,6 +3610,95 @@ export interface components {
          * @enum {string}
          */
         PostconditionKind: "FILE_EXISTS" | "FILE_ABSENT" | "COMMAND_EXITS_ZERO" | "TEST_PASSES" | "HTTP_STATUS" | "ELEMENT_TEXT" | "JUDGE_RUBRIC" | "URL_MATCHES" | "REGION_CHANGED";
+        /**
+         * ProposalRow
+         * @description One proposal and the state its newest event reached (observe).
+         */
+        ProposalRow: {
+            /**
+             * Action Kind
+             * @description Once applied: the kind of action it ran.
+             */
+            action_kind: string | null;
+            /**
+             * Bee Id
+             * @description The bee that proposed it (its events' actor).
+             */
+            bee_id: string;
+            /**
+             * Cell Id
+             * @description The Cell it would act on.
+             */
+            cell_id: string | null;
+            /**
+             * Failing Check
+             * @description REJECTED: the check that failed it.
+             */
+            failing_check: string | null;
+            /**
+             * Id
+             * @description The proposal's id (the subject of its capping.* events).
+             */
+            id: string;
+            /**
+             * Proposed At
+             * Format: date-time
+             * @description When it was proposed.
+             */
+            proposed_at: string;
+            /**
+             * Rollback Method
+             * @description ROLLED_BACK: how the Cell was restored.
+             */
+            rollback_method: string | null;
+            /** @description PROPOSED ... VERIFIED, REJECTED or ROLLED_BACK. */
+            state: components["schemas"]["ProposalState"];
+            /**
+             * Task Id
+             * @description The task it serves.
+             */
+            task_id: string | null;
+            /**
+             * Tier
+             * @description Its declared RiskTier.
+             */
+            tier: string;
+            /**
+             * Updated At
+             * Format: date-time
+             * @description When its newest event happened.
+             */
+            updated_at: string;
+        };
+        /**
+         * ProposalState
+         * @description Every state a Capping proposal can be in, from being proposed to a terminal outcome.
+         *
+         *     See TRANSITIONS below for the legal moves between these; nowhere else decides that.
+         * @enum {string}
+         */
+        ProposalState: "PROPOSED" | "CHECKING" | "CAPPED" | "APPLIED" | "VERIFIED" | "REJECTED" | "ROLLED_BACK";
+        /**
+         * ProviderCost
+         * @description One provider's spend across all slots.
+         */
+        ProviderCost: {
+            /**
+             * Calls
+             * @description Completed calls.
+             */
+            calls: number;
+            /**
+             * Cost Usd
+             * @description Its total cost.
+             */
+            cost_usd: number;
+            /**
+             * Provider
+             * @description The provider's manifest name.
+             */
+            provider: string;
+        };
         /**
          * ProviderHealthView
          * @description How the Queen currently judges a provider, from her own bookkeeping.
@@ -3087,6 +3975,51 @@ export interface components {
             type: "security_event";
         };
         /**
+         * SlotHostingView
+         * @description One slot's primary source in a Cell's plan, and where that source runs.
+         */
+        SlotHostingView: {
+            /**
+             * Models From
+             * @description Where that source runs, for this Cell.
+             * @enum {string}
+             */
+            models_from: "local" | "hive_stand" | "hosted" | "hybrid" | "unknown";
+            /**
+             * Primary Source
+             * @description The Forage map source every call tries first.
+             */
+            primary_source: string;
+            /** @description The model slot. */
+            slot: components["schemas"]["ModelSlot"];
+        };
+        /**
+         * SlotSaving
+         * @description One slot's spend, and what binding it to a local model would have saved.
+         */
+        SlotSaving: {
+            /**
+             * Cost Usd
+             * @description Everything spent through it.
+             */
+            cost_usd: number;
+            /**
+             * Hosted Usd
+             * @description Spend on calls that cost money (hosted).
+             */
+            hosted_usd: number;
+            /**
+             * If Local Saving Usd
+             * @description The hosted spend that would be zero if the slot were local: an upper bound.
+             */
+            if_local_saving_usd: number;
+            /**
+             * Slot
+             * @description The model slot.
+             */
+            slot: string;
+        };
+        /**
          * SlotView
          * @description One [llm.slots] binding: a slot, or a named binding a fallback chain reaches.
          */
@@ -3220,6 +4153,78 @@ export interface components {
             id: string;
         };
         /**
+         * SummaryView
+         * @description The summary strip's counters (observe).
+         */
+        SummaryView: {
+            /**
+             * Active Bees
+             * @description Active Wardens plus active sub-bees (the Queen is not).
+             */
+            active_bees: number;
+            /**
+             * Active Sub Bees
+             * @description Sub-bees SPAWNED, RUNNING or HANDING_OFF.
+             */
+            active_sub_bees: number;
+            /**
+             * Active Wardens
+             * @description Wardens whose newest state is ACTIVE or WATCH.
+             */
+            active_wardens: number;
+            /**
+             * Activity Window S
+             * @description The window, in seconds, 'current' means.
+             */
+            activity_window_s: number;
+            /**
+             * As Of
+             * Format: date-time
+             * @description When the counters were computed.
+             */
+            as_of: string;
+            /**
+             * Bees Autopilot
+             * @description Bees with only autopilot decisions in the window.
+             */
+            bees_autopilot: number;
+            /**
+             * Bees Awake
+             * @description Bees with an awake (LLM) episode in the window.
+             */
+            bees_awake: number;
+            /**
+             * Cells Active
+             * @description Cells whose Warden reports ACTIVE.
+             */
+            cells_active: number;
+            /**
+             * Cells Inactive
+             * @description Every other Cell.
+             */
+            cells_inactive: number;
+            /**
+             * Cells Real
+             * @description Real (borrowed) Cells.
+             */
+            cells_real: number;
+            /**
+             * Cells Total
+             * @description Every Cell the Hive knows.
+             */
+            cells_total: number;
+            /**
+             * Cells Virtual
+             * @description Virtual (provisioned) Cells.
+             */
+            cells_virtual: number;
+            /**
+             * Open Alarms
+             * @description Open Alarms, all severities.
+             */
+            open_alarms: number;
+        };
+        /**
          * TaskBriefView
          * @description What a task was asked to do and what it reported, in its own words (C2).
          */
@@ -3261,6 +4266,22 @@ export interface components {
             title: string;
         };
         /**
+         * TaskEdge
+         * @description A dependency: ``after`` starts only once ``before`` has succeeded.
+         */
+        TaskEdge: {
+            /**
+             * After
+             * @description The task that waits.
+             */
+            after: string;
+            /**
+             * Before
+             * @description The task depended on.
+             */
+            before: string;
+        };
+        /**
          * TaskGraphFrame
          * @description One task that changed, in one principal's task graph (``/v1/tasks/stream``).
          */
@@ -3279,6 +4300,36 @@ export interface components {
              * @constant
              */
             type: "task";
+        };
+        /**
+         * TaskNode
+         * @description One task in the graph a principal watches.
+         */
+        TaskNode: {
+            /**
+             * Cell Id
+             * @description Its placement Cell; null while unplaced.
+             */
+            cell_id: string | null;
+            /**
+             * Open Alarms
+             * @description Open Alarms that concern it.
+             */
+            open_alarms: number;
+            /** @description The Worker role its Warden spawns for it. */
+            role: components["schemas"]["WorkerRole"];
+            /** @description Where it stands. */
+            status: components["schemas"]["TaskStatus"];
+            /**
+             * Task Id
+             * @description The task.
+             */
+            task_id: string;
+            /**
+             * Warden Id
+             * @description Its Warden; null while unplaced.
+             */
+            warden_id: string | null;
         };
         /**
          * TaskOutcomeView
@@ -3486,6 +4537,99 @@ export interface components {
             worker_state: components["schemas"]["WorkerState"] | null;
         };
         /**
+         * ThoughtsPage
+         * @description One page of a bee's thinking (observe:thoughts, C2).
+         */
+        ThoughtsPage: {
+            /**
+             * Decisions
+             * @description The Queen's recent autopilot decisions, newest first; empty for other bees.
+             */
+            decisions: components["schemas"]["AutopilotDecisionView"][];
+            /**
+             * Episodes
+             * @description Episode records, newest first.
+             */
+            episodes: components["schemas"]["EpisodeView"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= for the next page; null at end.
+             */
+            next_cursor: string | null;
+        };
+        /**
+         * TierAuditRate
+         * @description One tier's audit coverage and what the judge found.
+         */
+        TierAuditRate: {
+            /**
+             * Audited
+             * @description Sampled audits recorded.
+             */
+            audited: number;
+            /**
+             * Finished
+             * @description Proposals that reached a terminal state.
+             */
+            finished: number;
+            /**
+             * Inconclusive
+             * @description Audits the judge never scored.
+             */
+            inconclusive: number;
+            /**
+             * Rejected
+             * @description Audits whose finding was REJECT.
+             */
+            rejected: number;
+            /**
+             * Rejection Fraction
+             * @description rejected / (audited - inconclusive); null with no scored audit.
+             */
+            rejection_fraction: number | null;
+            /**
+             * Sampled Fraction
+             * @description audited / finished; null with none.
+             */
+            sampled_fraction: number | null;
+            /**
+             * Tier
+             * @description The RiskTier.
+             */
+            tier: string;
+        };
+        /**
+         * TierLegendEntry
+         * @description One Comb Shield tier and what it means, for the legend the Fleet always shows.
+         */
+        TierLegendEntry: {
+            /**
+             * Meaning
+             * @description One line on what the tier requires of a Cell.
+             */
+            meaning: string;
+            /** @description The tier. */
+            tier: components["schemas"]["CombShieldLevel"];
+        };
+        /**
+         * TierStateCount
+         * @description How many proposals of one tier sit in one state.
+         */
+        TierStateCount: {
+            /**
+             * Count
+             * @description Proposals of that tier in that state.
+             */
+            count: number;
+            /** @description The state. */
+            state: components["schemas"]["ProposalState"];
+            /**
+             * Tier
+             * @description The RiskTier.
+             */
+            tier: string;
+        };
+        /**
          * TrailCursor
          * @description Where the next page starts: pass these back as query parameters, with the same filters.
          */
@@ -3633,6 +4777,59 @@ export interface components {
             application_server_key: string;
         };
         /**
+         * VerdictRow
+         * @description The gate's word on a proposal after its checks: capped (approved) or rejected.
+         */
+        VerdictRow: {
+            /**
+             * At
+             * Format: date-time
+             * @description When the verdict was recorded.
+             */
+            at: string;
+            /**
+             * Bee Id
+             * @description The bee that proposed it.
+             */
+            bee_id: string;
+            /**
+             * Checks Run
+             * @description Checks run (CAPPED: passed; REJECTED: up to the failure).
+             */
+            checks_run: number;
+            /**
+             * Failing Check
+             * @description REJECTED: the check that failed, as a code.
+             */
+            failing_check: string | null;
+            /**
+             * Judge Error
+             * @description The judge could not answer (not 'it disagreed').
+             */
+            judge_error: boolean;
+            /**
+             * Proposal Id
+             * @description The proposal.
+             */
+            proposal_id: string;
+            /**
+             * Task Id
+             * @description Its task.
+             */
+            task_id: string | null;
+            /**
+             * Tier
+             * @description Its RiskTier.
+             */
+            tier: string;
+            /**
+             * Verdict
+             * @description Approved to apply, or refused.
+             * @enum {string}
+             */
+            verdict: "CAPPED" | "REJECTED";
+        };
+        /**
          * VirtualCellStatus
          * @description Every state a Virtual Cell can be in, from provisioning to gone.
          *
@@ -3711,6 +4908,42 @@ export interface components {
             type: "voice_refused";
         };
         /**
+         * WardenForageView
+         * @description The Forage the Cell's Warden holds: issued against used, and what it waits on.
+         */
+        WardenForageView: {
+            /**
+             * Grants
+             * @description Its live grants.
+             */
+            grants: components["schemas"]["GrantView"][];
+            /**
+             * Pending Requests
+             * @description Requests awaiting an answer.
+             */
+            pending_requests: components["schemas"]["PendingRequestView"][];
+            /**
+             * Spend Budget Usd
+             * @description Spend issued across them, in US dollars.
+             */
+            spend_budget_usd: number;
+            /**
+             * Spent Usd
+             * @description Spend charged to them.
+             */
+            spent_usd: number;
+            /**
+             * Token Budget
+             * @description Tokens issued across them.
+             */
+            token_budget: number;
+            /**
+             * Tokens Spent
+             * @description Tokens spent against them.
+             */
+            tokens_spent: number;
+        };
+        /**
          * WardenList
          * @description Every Warden attached to the Queen.
          */
@@ -3771,6 +5004,64 @@ export interface components {
             sub_bees: number;
         };
         /**
+         * WaxEntryView
+         * @description One Cell Wax note, without its text (observe).
+         */
+        WaxEntryView: {
+            /**
+             * Expires At
+             * @description When it lapses; null for standing wax.
+             */
+            expires_at: string | null;
+            /**
+             * Id
+             * @description The note's id.
+             */
+            id: string;
+            /** @description Who noticed it: a bee, a Patrol or the human. */
+            origin: components["schemas"]["WaxOrigin"];
+            /**
+             * Proposed At
+             * Format: date-time
+             * @description When it was proposed.
+             */
+            proposed_at: string;
+            /**
+             * Proposer
+             * @description The proposing bee; null for the human's.
+             */
+            proposer: string | null;
+            /** @description NOTE, CAUTION or BLOCK. */
+            severity: components["schemas"]["WaxSeverity"];
+            /** @description PROPOSED or WRITTEN. */
+            state: components["schemas"]["WaxState"];
+            /**
+             * Task Id
+             * @description The task during which it was noticed.
+             */
+            task_id: string | null;
+        };
+        /**
+         * WaxOrigin
+         * @description Who noticed the caution a Cell Wax note records.
+         * @enum {string}
+         */
+        WaxOrigin: "BEE" | "PATROL" | "HUMAN";
+        /**
+         * WaxSeverity
+         * @description How much a Cell Wax note weighs on placement; mirrors waggle's, member for member.
+         * @enum {string}
+         */
+        WaxSeverity: "NOTE" | "CAUTION" | "BLOCK";
+        /**
+         * WaxState
+         * @description Every state a Cell Wax note can be in, from proposal to its terminal outcome.
+         *
+         *     See TRANSITIONS below for the legal moves between these; nowhere else decides that.
+         * @enum {string}
+         */
+        WaxState: "PROPOSED" | "WRITTEN" | "REJECTED" | "CLEARED" | "EXPIRED";
+        /**
          * WebPushKeys
          * @description A Web Push subscription's keys, as a browser's ``PushSubscription.toJSON()`` gives them.
          *
@@ -3806,6 +5097,12 @@ export interface components {
             spend_cap_usd_per_day?: number | null;
         };
         /**
+         * WorkerRole
+         * @description Which Worker role the Warden spawns for a task; the six roles that all implement Worker.
+         * @enum {string}
+         */
+        WorkerRole: "DRONE" | "FORAGER" | "SCOUT" | "GUARD_BEE" | "UNDERTAKER" | "HOUSE_BEE";
+        /**
          * WorkerState
          * @description Where a Worker is in its life, as its heartbeat and its Warden's rows report it.
          * @enum {string}
@@ -3820,6 +5117,83 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_attendant_v1_attendant__principal__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description queen, or an attached Warden's id. */
+                principal: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendantView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     login_challenge_v1_auth_challenge_post: {
         parameters: {
             query?: never;
@@ -4200,6 +5574,80 @@ export interface operations {
             };
         };
     };
+    get_capping_v1_capping_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CappingView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_cells_v1_cells_get: {
         parameters: {
             query?: never;
@@ -4451,6 +5899,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CellLiftView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_cell_page_v1_cells__cell_id__page_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Cell's id. */
+                cell_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CellPageView"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */
@@ -4775,6 +6300,80 @@ export interface operations {
             };
             /** @description The transcriber could not hear the clip; try again shortly. */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_cost_v1_cost_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6781,6 +8380,80 @@ export interface operations {
             };
         };
     };
+    get_fleet_v1_fleet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     read_forage_v1_forage_get: {
         parameters: {
             query?: never;
@@ -7545,6 +9218,80 @@ export interface operations {
             };
         };
     };
+    get_metrics_v1_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain; version=0.0.4; charset=utf-8": string;
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     hive_key_v1_push_hive_key_get: {
         parameters: {
             query?: never;
@@ -7788,6 +9535,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VapidKeyView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_summary_v1_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryView"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */
@@ -8099,6 +9920,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskBriefView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_thoughts_v1_thoughts_get: {
+        parameters: {
+            query?: {
+                /** @description Only this bee's records (its id or role); every bee's when omitted. */
+                principal?: string | null;
+                /** @description A previous page's next_cursor: continue after the record it names. */
+                cursor?: string | null;
+                /** @description Most records. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThoughtsPage"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */

@@ -36,8 +36,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.datastructures import Default
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
@@ -221,19 +222,42 @@ def _mount(app: FastAPI, route: RouteSpec) -> None:
     own: dict[int | str, dict[str, object]] = {
         status: {"model": ErrorBody, "description": text} for status, text in route.refusals
     }
+    # A non-JSON body (the metrics text) names its response class, which the document declares.
+    response_class = route.response_class or Default(JSONResponse)
     app.add_api_route(
         route.path,
         route.endpoint,
         methods=[route.method],
         status_code=route.status_code,
         response_model=route.response_model,
+        response_class=response_class,
         dependencies=dependencies,
         summary=route.summary,
         description=_NO_DESCRIPTION,
         tags=[_resource(route.path)],
-        responses={**_REFUSALS, **own},
+        responses=_json_refusals({**_REFUSALS, **own})
+        if route.response_class
+        else {**_REFUSALS, **own},
         openapi_extra=extra,
     )
+
+
+def _json_refusals(
+    refusals: dict[int | str, dict[str, object]],
+) -> dict[int | str, dict[str, object]]:
+    """Declare refusals as JSON explicitly, for a row whose success body is not.
+
+    FastAPI documents a modelled refusal in the row's own response class; on the metrics row that
+    would call the JSON ErrorBody ``text/plain``, so each is spelled out as the JSON it is.
+    """
+    error = {"$ref": "#/components/schemas/ErrorBody"}
+    return {
+        status: {
+            "description": entry["description"],
+            "content": {"application/json": {"schema": error}},
+        }
+        for status, entry in refusals.items()
+    }
 
 
 def _raw_body(body: RawBody) -> dict[str, object]:

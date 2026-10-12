@@ -8,7 +8,8 @@ from it. Adding a resource is one module and one line in the registry. Routes ar
 authorise (the gate does it from the row), call a subsystem's public API, shape the reply; every
 write into the Hive goes through the Queen's door, and every read goes straight to the stores and
 the Queen's live tables (`gate.HiveReads`). `hive/` holds the Hive's read routes (tasks, Cells,
-Wardens, Forage, episodes, trail, LLM); `later/` holds the resources a later phase fills, each
+Wardens, Forage, episodes, trail, LLM); `screens/` holds the Observation Hive's aggregated screens
+and the Prometheus endpoint (roadmap 12.1); `later/` holds the resources a later phase fills, each
 answering 501 with the phase that builds it. `POST /v1/chat/audio` is declared with the rest of
 voice, in `hivemind.entrance.voice`, and listed in the registry beside the chat.
 
@@ -73,6 +74,14 @@ own session.
 | GET | /v1/episodes | L+R | observe:thoughts +c2 | read |
 | GET | /v1/trail | L+R | observe | read |
 | GET | /v1/llm | L+R | observe | read |
+| GET | /v1/summary | L+R | observe | read |
+| GET | /v1/fleet | L+R | observe | read |
+| GET | /v1/cells/{cell_id}/page | L+R | observe | read |
+| GET | /v1/attendant/{principal} | L+R | observe | read |
+| GET | /v1/thoughts | L+R | observe:thoughts +c2 | read |
+| GET | /v1/capping | L+R | observe | read |
+| GET | /v1/cost | L+R | observe | read |
+| GET | /v1/metrics | L+R | observe | read (`text/plain; version=0.0.4`) |
 | GET | /v1/tools | L+R | observe (501 until phase 9) | read |
 | GET | /v1/honey | L+R | observe (501 until phase 7) | read |
 | GET | /v1/swarm | L+R | observe (501 until phase 11) | read |
@@ -83,6 +92,22 @@ own session.
 names (`since` or `until`, and `skip`, the events at exactly that instant already read); an unknown
 query parameter is a 422. `GET /v1/episodes` answers the newest records first, optionally one
 bee's (`principal`), up to `limit`.
+
+The screens (`screens/`, one module per route) each join several stores into one model and answer
+ids, states and figures only; the words behind them stay behind `observe:thoughts` and C2.
+`GET /v1/summary` is the always-visible strip (active bees, active/inactive Cells, Real/Virtual,
+bees in awake episodes against autopilot). `GET /v1/fleet` is one row per Cell (the Real / Virtual /
+All filter is the client's, over `kind`) plus the fixed three-tier legend. `GET /v1/cells/{id}/page`
+is one Cell's page; it gives bee ids to open in `/v1/thoughts?principal=` rather than their goal
+lines. `GET /v1/attendant/{principal}` takes `queen` or an attached Warden's id (404 with
+`hivemind.entrance.principal_not_found` for any other well-formed id) and answers the task graph and
+an inbox rebuilt from durable state and scored with the Attendant's own scorer
+(`inbox_is_reconstructed` says so). `GET /v1/thoughts` pages episode records newest first with the
+`next_cursor` a page returns (`principal`, `cursor`, `limit` up to 200) and, for the Queen, her
+autopilot decisions; `/v1/episodes` is unchanged. `GET /v1/capping` and `GET /v1/cost` fold the
+trail's `capping.*` and `llm.call` events. `GET /v1/metrics` answers Prometheus text exposition
+format 0.0.4 (the document declares its media type); a scraper is an enrolled program holding
+`observe`.
 
 The WebSocket views (`hivemind.entrance.streams.views`, first frame within five seconds), all on
 both listeners, each fed from durable state and closed with FELL_BEHIND past its backlog; the
@@ -108,7 +133,7 @@ when it has been built, the Observation Hive's front end.
 `tests/unit/entrance/test_app.py` walks the table (every row declares its listeners and access,
 no loopback-only row is served remotely, the Observation Hive's credentials reach no mutating route
 beyond the Queen's inbox, their own session and push); `tests/unit/entrance/routes/` exercises the
-resources over a real listener (`hive/` and `later/` mirror the read routes);
+resources over a real listener (`hive/`, `screens/` and `later/` mirror the read routes);
 `tests/unit/entrance/streams/views/` opens every live view; `tests/unit/entrance/voice/` speaks
 to the audio route and the chat socket; `tests/unit/entrance/test_landing_board.py` fails when the
 committed document drifts from this table.

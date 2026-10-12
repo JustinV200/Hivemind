@@ -383,6 +383,7 @@ def _hive(queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard) -> EntranceH
         census=queen,
         telemetry=telemetry,
         llm=llm,
+        forage_map=deps.map,
     )
     return EntranceHive(
         queen=queen, reads=reads, enforcer=deps.enforcer, policy=deps.enforcer.policy

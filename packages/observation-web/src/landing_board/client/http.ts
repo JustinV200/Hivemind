@@ -13,8 +13,8 @@
  *   `session.ts`, `push.ts` and the store's feeds. The only caller of `Browser.fetch`.
  *
  * Key invariants:
- *   - Request and response shapes come from the generated types via `call_types.ts`; `callUntyped`
- *     exists only for a route the generated document does not carry yet.
+ *   - Request and response shapes come from the generated types via `call_types.ts`; there is
+ *     no untyped call, so a route the document does not carry cannot be reached.
  *   - The bytes hashed are the bytes sent; the target signed is the path and query as sent.
  *   - A request with no session is sent unsigned (login and the other public routes).
  *
@@ -51,7 +51,6 @@ export interface HttpClient {
     ...init: InitArgs<OperationOf<P, M>>
   ): Promise<ResponseOf<OperationOf<P, M>>>;
   // For a route the generated document does not carry yet; the caller names the shape it expects.
-  callUntyped<T>(method: Method, target: string): Promise<T>;
 }
 
 // Fills `{name}` placeholders from the call's params, percent-encoding each value.
@@ -150,9 +149,6 @@ export function createHttp(deps: HttpDeps): HttpClient {
       });
       // The cast is the one place the wire meets the generated type: the document is the contract.
       return result as never;
-    },
-    async callUntyped<T>(method: Method, target: string): Promise<T> {
-      return (await send(deps, { method: method.toUpperCase(), target, body: null })) as T;
     },
   };
 }

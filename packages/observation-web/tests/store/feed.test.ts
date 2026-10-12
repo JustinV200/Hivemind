@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { createLandingBoard } from '../../src/landing_board/client';
 import { HiveStore, startFeeds, summaryCounters } from '../../src/store';
 import { createFakeBrowser, flush } from '../support/fake_browser';
-import { cellFrame, SEED, telemetryFrame } from '../support/frames';
+import { cellFrame, SEED, SEED_STRIP, telemetryFrame } from '../support/frames';
 import { storeSession } from '../support/session_fixture';
 
 async function started(options: { seed?: boolean } = {}) {
@@ -47,7 +47,7 @@ describe('startFeeds', () => {
       'wss://hive.test/v1/telemetry/stream',
       'wss://hive.test/v1/episodes/stream',
     ]);
-    expect(summaryCounters(store.getSnapshot().summary)).toEqual(SEED);
+    expect(summaryCounters(store.getSnapshot().summary)).toEqual(SEED_STRIP);
     expect(store.getSnapshot().connection.streams.cells.state).toBe('connecting');
   });
 

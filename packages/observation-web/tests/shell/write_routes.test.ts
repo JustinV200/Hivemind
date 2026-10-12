@@ -111,7 +111,10 @@ describe('the wrapper enforces the list', () => {
       holder.set(await makeSession());
       const http = createHttp({ browser: fake.browser, holder, onUnauthorized: () => {} });
       fake.respond(`${route.method.toUpperCase()} ${route.path}`, 200, {});
-      const outcome = await http.callUntyped(route.method, route.path).catch((e: unknown) => e);
+      // The probe loosens the typed call so it can name a route the way the document lists it;
+      // the wrapper under test is the real one, guard and all.
+      const probe = http.call as unknown as (method: string, path: string) => Promise<unknown>;
+      const outcome = await probe(route.method, route.path).catch((e: unknown) => e);
       const label = `${route.method.toUpperCase()} ${route.template}`;
       if (REFUSED.includes(label)) {
         expect(outcome, label).toMatchObject({ code: 'hivemind.client.write_refused' });

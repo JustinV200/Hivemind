@@ -23,6 +23,6 @@ export { startFeeds } from './feed';
 export { connectionWord, refusedStreams, staleSince } from './connection';
 export type { ConnectionSlice, StreamName } from './connection';
 export { summaryCounters } from './summary';
-export type { SummaryCounters, SummarySlice } from './summary';
+export type { SummaryCounters, SummarySeed, SummarySlice } from './summary';
 export { SESSION_ENDED_NOTICE } from './session';
 export type { Listener, SessionSlice } from './session';

@@ -11,8 +11,10 @@ otherwise, for the same reason. ``RouteSpec`` is an HTTP route, ``SocketSpec`` a
 ``RouteTable`` is the one table both applications and the Landing Board's OpenAPI document are
 built from. A row that takes a raw body instead of JSON (a voice clip, roadmap step 10.5f) says
 so with ``RawBody``: its media types and its own size and time allowance, which the body limit
-applies to that row alone; a view whose client sends frames after the first names them, and the
-frames it answers them with, beside the frames it streams.
+applies to that row alone; a row whose success body is not JSON (the metrics text) names its
+``response_class``, which fixes the media type the document declares for it; a view whose client
+sends frames after the first names them, and the frames it answers them with, beside the frames it
+streams.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Rows are declared
@@ -39,6 +41,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from pydantic import BaseModel
+from starlette.responses import Response
 
 from hivemind.entrance.auth.session.models import Listener
 
@@ -171,6 +174,8 @@ class RouteSpec:
         summary: One line for the OpenAPI document.
         status_code: The success status.
         response_model: The response body's model; None for an empty body.
+        response_class: The response class of a body that is not JSON (the metrics text), which
+            fixes the media type the document declares; None for a JSON body.
         mounted_when: The manifest switch it needs, or None.
         raw_body: The raw body it takes instead of JSON, or None.
         refusals: Statuses it may answer beyond the ones every row declares, each with its
@@ -186,6 +191,7 @@ class RouteSpec:
     summary: str
     status_code: int = 200
     response_model: type[BaseModel] | None = None
+    response_class: type[Response] | None = None
     mounted_when: Switch | None = None
     raw_body: RawBody | None = None
     refusals: tuple[tuple[int, str], ...] = ()

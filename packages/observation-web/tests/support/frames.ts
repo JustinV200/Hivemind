@@ -95,6 +95,7 @@ export function episodeFrame(
   };
 }
 
+// The seed as /v1/summary answers it; SEED_STRIP is the part of it the strip shows.
 export const SEED = {
   active_bees: 5,
   cells_active: 3,
@@ -104,4 +105,20 @@ export const SEED = {
   bees_awake: 2,
   bees_autopilot: 3,
   as_of: '2026-01-01T00:00:00Z',
+  active_wardens: 1,
+  active_sub_bees: 1,
+  cells_total: 5,
+  open_alarms: 0,
+  activity_window_s: 60,
+};
+
+export const SEED_STRIP = {
+  active_bees: SEED.active_bees,
+  cells_active: SEED.cells_active,
+  cells_inactive: SEED.cells_inactive,
+  cells_real: SEED.cells_real,
+  cells_virtual: SEED.cells_virtual,
+  bees_awake: SEED.bees_awake,
+  bees_autopilot: SEED.bees_autopilot,
+  as_of: SEED.as_of,
 };

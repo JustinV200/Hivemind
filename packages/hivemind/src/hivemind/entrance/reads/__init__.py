@@ -6,7 +6,8 @@ function; what needs more lives here, shared by the read routes and the live vie
 joins each Cell's and Warden's standing from the Queen's links and pulse, the Virtual Cell
 lifecycle, the trail, the Brood Chamber, the telemetry board and the Forage ledger; ``trail``
 pages the Pheromone Trail from a cursor; ``llm`` judges each provider from the Queen's own
-bookkeeping without probing it.
+bookkeeping without probing it; ``screens`` holds the reads behind the Observation Hive's
+aggregated screens (roadmap 12.1), one module per screen.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by
@@ -24,6 +25,8 @@ Public API:
     - cell_views, cell_view, warden_views, PLACED, EVENT_LOOKBACK: the census (census).
     - read_trail, TrailRead: the paged trail (trail).
     - llm_view: the providers, their health and the slot bindings (llm).
+    - screens: read_summary, read_fleet, read_cell_page, read_attendant, read_thoughts,
+      read_capping, read_cost and read_metrics, each in its own module (a sub-package).
 """
 
 from hivemind.entrance.reads.census import (

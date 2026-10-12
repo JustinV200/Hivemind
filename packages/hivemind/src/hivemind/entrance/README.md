@@ -83,8 +83,11 @@ feed. The one feed not on the trail is telemetry: Heartbeats never reach it, so 
 root sets the Queen's `on_heartbeat` hook to a `TelemetryBoard`, which keeps each Warden's newest
 Heartbeat (the Wardens read counts its sub-bees from it) and fans every one out the same way.
 
-The view models live in `hivemind.observation.views` (codingrules 8.11), and the Entrance, which
-answers with them and publishes them in the OpenAPI document, imports them from the
+The view models live in `hivemind.observation.views` and the aggregated screens (summary, Fleet,
+Cell page, Attendant, Thoughts, Capping, Cost, and the metrics snapshot) in
+`hivemind.observation.api` and `.metrics` (codingrules 8.11). The Entrance gathers the records for
+the screens (`reads/screens/`, effectful, direct from the stores), hands them to the pure builders
+and answers with the models, publishing them in the OpenAPI document; it imports them from the
 `hivemind.observation` face only: the import-linter ranks `entrance` over `observation` and holds
 the edge to the face (ADR-0040 lists it); nothing in `observation` imports the Entrance.
 

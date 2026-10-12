@@ -39,6 +39,16 @@ from hivemind.entrance.routes.hive import (
 )
 from hivemind.entrance.routes.isolation import ROUTES as ISOLATION_ROUTES
 from hivemind.entrance.routes.later import HONEY_ROUTES, SWARM_ROUTES, TOOL_ROUTES
+from hivemind.entrance.routes.screens import (
+    ATTENDANT_ROUTES,
+    CAPPING_ROUTES,
+    CELL_PAGE_ROUTES,
+    COST_ROUTES,
+    FLEET_ROUTES,
+    METRICS_ROUTES,
+    SUMMARY_ROUTES,
+    THOUGHTS_ROUTES,
+)
 from hivemind.entrance.voice import VOICE_ROUTES
 
 __all__ = ["RESOURCE_ROUTES"]
@@ -68,4 +78,13 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     HONEY_ROUTES,
     SWARM_ROUTES,
     ISOLATION_ROUTES,  # Roadmap step 10.6a: the human's isolate and lift levers.
+    # Roadmap step 12.1: the Observation Hive's aggregated screens and the metrics endpoint.
+    SUMMARY_ROUTES,
+    FLEET_ROUTES,
+    CELL_PAGE_ROUTES,
+    ATTENDANT_ROUTES,
+    THOUGHTS_ROUTES,
+    CAPPING_ROUTES,
+    COST_ROUTES,
+    METRICS_ROUTES,
 )

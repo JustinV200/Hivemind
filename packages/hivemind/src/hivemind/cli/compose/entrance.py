@@ -352,6 +352,7 @@ def _entrance_hive(hive: Hive) -> EntranceHive:
         telemetry=hive.telemetry,
         llm=llm,
         virtual_cells=virtual.lifecycle if virtual is not None else None,
+        forage_map=deps.map,  # Where each source is hosted, for the Fleet's models badge.
     )
     return EntranceHive(
         queen=hive.queen, reads=reads, enforcer=hive.enforcer, policy=hive.enforcer.policy

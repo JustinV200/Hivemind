@@ -11,6 +11,8 @@ composition root wires to her ``on_heartbeat`` hook holds the second. ``LlmReads
 LLM view shows: the providers' names and kinds from the manifest, the slot bindings, and the
 Queen's Clustering state and health poller (read, never probed). ``VirtualCellCensus`` is the
 Virtual Cell lifecycle's live table, present only when the Hive has a Virtual side.
+``ForageMapReads`` is the Forage map's source list (``hivemind.forage.ForageMap`` satisfies it),
+which the Fleet and Cell page read to say where a Cell's models are hosted.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Built by the
@@ -34,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from hivemind.brood_chamber import BroodChamber
-from hivemind.forage import SlotBinding
+from hivemind.forage import ModelSource, SlotBinding
 from hivemind.hive import LiveVirtualCell
 from hivemind.memory import MemoryStore
 from hivemind.pheromone import PheromoneTrail
@@ -53,7 +55,7 @@ if TYPE_CHECKING:
     # Type-only: the streams package imports the gate, so a runtime import here cycles.
     from hivemind.entrance.streams.telemetry import TelemetryBoard
 
-__all__ = ["HiveCensus", "HiveReads", "LlmReads", "VirtualCellCensus"]
+__all__ = ["ForageMapReads", "HiveCensus", "HiveReads", "LlmReads", "VirtualCellCensus"]
 
 
 class HiveCensus(Protocol):
@@ -75,6 +77,14 @@ class VirtualCellCensus(Protocol):
 
     def live_cells(self) -> tuple[LiveVirtualCell, ...]:
         """Every Virtual Cell the lifecycle tracks, dormant and provisioning ones included."""
+        ...
+
+
+class ForageMapReads(Protocol):
+    """The Forage map's sources; ``hivemind.forage.ForageMap`` satisfies it as it is."""
+
+    def sources(self) -> tuple[ModelSource, ...]:
+        """Every source on the map, each with the Cell that serves it or none (hosted)."""
         ...
 
 
@@ -110,6 +120,8 @@ class HiveReads:
         telemetry: Each Warden's newest Heartbeat, fed by the Queen's ``on_heartbeat`` hook.
         llm: The providers, the slot bindings and the Queen's judgement of their health.
         virtual_cells: The Virtual Cell lifecycle's table; None for a Hive with no Virtual side.
+        forage_map: The Forage map's sources, to classify where a Cell's models are hosted; None
+            leaves every Cell's hosting ``unknown``.
     """
 
     goal_requests: GoalRequestStore
@@ -122,3 +134,4 @@ class HiveReads:
     telemetry: TelemetryBoard
     llm: LlmReads
     virtual_cells: VirtualCellCensus | None = field(default=None)
+    forage_map: ForageMapReads | None = field(default=None)

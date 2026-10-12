@@ -25,7 +25,6 @@ import type { components } from '../landing_board/types';
 import type { StreamName } from './connection';
 import type { HiveStore } from './hive_store';
 import { SESSION_ENDED_NOTICE } from './session';
-import type { SummaryCounters } from './summary';
 
 type CellFrame = components['schemas']['CellFrame'];
 type TelemetryFrame = components['schemas']['TelemetryFrame'];
@@ -43,8 +42,7 @@ async function seed(deps: FeedDeps): Promise<void> {
   const { client, store } = deps;
   // The two reads are independent, so they go out together; neither failing stops the feeds.
   const [counters, device] = await Promise.all([
-    // TODO(12.1): type this from the generated document once /v1/summary is in it.
-    client.http.callUntyped<SummaryCounters>('get', '/v1/summary').catch(() => null),
+    client.http.call('get', '/v1/summary').catch(() => null),
     client.http.call('get', '/v1/devices/me').catch(() => null),
   ]);
   if (counters) store.dispatch({ slice: 'summary', event: { type: 'seed', counters } });

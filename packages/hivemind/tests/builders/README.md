@@ -75,3 +75,14 @@ audio itself (`tests/e2e/test_voice_on_hive_serve.py`).
 real one over the Hive's SQLite trail: fresh `EphemeralSegments`, the `VeiledTrail` a lifecycle or
 Queen under test records through, and a `NightVeilTeardownPurge` whose recorder writes to the
 durable trail past the boundary, with no side channels (none is registered in production today).
+
+## `observation.py` and `entrance/screens.py` (roadmap step 12.1, the Observation Hive's screens)
+
+`observation.py` builds the inputs of the pure screen builders in `hivemind.observation`: `make_event`
+(a trail event of any kind at a chosen instant), `make_llm_call` (a completed `llm.call` with its
+usage), `make_cell_view`, `make_warden_view` and `make_sample` (one bee's telemetry), with `T0` and
+`after(seconds)` for instants. `entrance/screens.py` builds a small Hive for the Entrance's screen
+reads: `scene` (one attached Warden over the Queen's in-memory stores, with the reads the Entrance
+would have, plus `submit`, `place`, `finish`, `record` and `write_wax` to populate it through the
+real Brood Chamber, trail and memory), `heartbeat`, and the `Census`, `Lifecycle` and `StaticMap`
+stand-ins for the Queen's Warden table, the Virtual Cell lifecycle and the Forage map.

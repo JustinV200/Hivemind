@@ -2046,14 +2046,29 @@ in this phase adds a new write path.
 
 ### Steps
 
-- [ ] **12.1 Read API and metrics.** `observation/api.py`: aggregated views for every screen
+- [x] **12.1 Read API and metrics.** `observation/api.py`: aggregated views for every screen
   below, paginated trail and episode queries, all behind `observe` with `observe:thoughts` and
   `observe:honey:<scope>` for the sensitive ones. `observation/metrics.py`: Cells by kind and
   status, Wardens by location, grants and headroom, Alarms by kind and level, awake episodes per
   hour per principal, tasks by status, tool promotions, denials, tokens and cost per task per slot
   per provider; Prometheus endpoint. Add first-class counters for total active bees, active versus
   inactive Cells, Real versus Virtual Cell totals, and current LLM versus autopilot activity.
-- [ ] **12.2 Shell and live plumbing.** `packages/observation-web/` (scaffolded in 0.1):
+  **Built 2026-10-12.** `observation/api/` and `observation/metrics/` are packages (the views
+  directory was at its ten-module limit): one module per screen holding its read model and a pure
+  builder; `entrance/reads/screens/` gathers from `HiveReads` and `entrance/routes/screens/`
+  serves `GET /v1/summary`, `/v1/fleet`, `/v1/cells/{id}/page`, `/v1/attendant/{principal}`,
+  `/v1/thoughts` (`observe:thoughts`, C2, cursor-paged over the newest 2,000 records),
+  `/v1/capping`, `/v1/cost` and `/v1/metrics` (hand-written Prometheus text 0.0.4, no new
+  dependency; `RouteSpec.response_class` declares its media type). Deferred, each documented on
+  its field: `mask_state` (6.13), `last_patrol_at` and a Swarm Cell's `warden_runs` (phase 11),
+  Capping recording links (no recording store is reachable), and the live Attendant inbox (the
+  tick queues are memory-only, so it is reconstructed from open Alarms, blocked questions and
+  unhandled chat and marked `inbox_is_reconstructed`). Autopilot decisions come from
+  `queen.decided` and `alarm.handled` trail events, since autopilot leaves no episode record.
+  Cost is per goal and lands under a null goal until the Fanner lanes carry `goal_id` (12.10
+  wires that). The task-status metric reads up to 10,000 rows per status per scrape; a store
+  `count` is a cheap follow-up if scrapes are frequent.
+- [x] **12.2 Shell and live plumbing.** `packages/observation-web/` (scaffolded in 0.1):
   TypeScript (strict) + React, built with Vite and served by the Entrance as static files;
   `src/landing_board/` holds the TS types generated from `docs/entrance/openapi.json` (CI
   regenerates and fails on a diff) and the one client module (login with passkey plus password,
@@ -2064,6 +2079,18 @@ in this phase adds a new write path.
   Forage diagram are React components rendering live SVG. The shell includes
   a persistent summary strip for the core counters: active bees, active/inactive Cells,
   Real/Virtual split, and LLM/autopilot split.
+  **Built 2026-10-12** (ADR-0046, `docs/observation/design.md`). `pnpm generate` writes
+  `src/landing_board/types.ts` with `openapi-typescript` and `pnpm generate:check` runs in CI;
+  `src/landing_board/client/` is the only module touching `fetch` or `WebSocket` (non-extractable
+  P-256 binding key in IndexedDB, `hive-request-v1` and `hive-ws-v1` signing, the first-frame
+  hello, the reconnect policy by close code, Web Push, and a write guard that refuses every
+  mutating route but the Queen's inbox and the Entrance's own, asserted against the document);
+  `src/store/` folds the streams into bounded slices read with `useSyncExternalStore`; hash
+  routes with the loopback-only screens hidden off loopback; the shell, strip, tokens, badges and
+  a placeholder per view; a shell-only service worker that never caches `/v1/`. The supervision
+  tree, Cell and Forage diagrams land with their views (12.4, 12.5). Not yet: a push handler in
+  the service worker (12.12), a theme toggle, and the Entrance serving `.webmanifest` with its
+  media type (checked in the phase's exit run).
 - [ ] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
