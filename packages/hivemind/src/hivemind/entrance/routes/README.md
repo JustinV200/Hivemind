@@ -8,7 +8,7 @@ from it. Adding a resource is one module and one line in the registry. Routes ar
 authorise (the gate does it from the row), call a subsystem's public API, shape the reply; every
 write into the Hive goes through the Queen's door, and every read goes straight to the stores and
 the Queen's live tables (`gate.HiveReads`). `hive/` holds the Hive's read routes (tasks, Cells,
-Wardens, Forage, episodes, trail, LLM); `screens/` holds the Observation Hive's aggregated screens
+Wardens, Forage, episodes, trail, LLM, Honey); `screens/` holds the Observation Hive's aggregated screens
 and the Prometheus endpoint (roadmap 12.1); `later/` holds the resources a later phase fills, each
 answering 501 with the phase that builds it. `POST /v1/chat/audio` is declared with the rest of
 voice, in `hivemind.entrance.voice`, and listed in the registry beside the chat.
@@ -74,6 +74,9 @@ own session.
 | GET | /v1/episodes | L+R | observe:thoughts +c2 | read |
 | GET | /v1/trail | L+R | observe | read |
 | GET | /v1/llm | L+R | observe | read |
+| GET | /v1/honey/tree | L+R | observe + `observe:honey:<scope>` of the folder | read |
+| GET | /v1/honey/items/{item_id} | L+R | observe + `observe:honey:<scope>` of the item, label within the device's clearance | read |
+| GET | /v1/honey/search | L+R | observe + `observe:honey:<scope>` of the folder | read |
 | GET | /v1/summary | L+R | observe | read |
 | GET | /v1/fleet | L+R | observe | read |
 | GET | /v1/cells/{cell_id}/page | L+R | observe | read |
@@ -83,7 +86,6 @@ own session.
 | GET | /v1/cost | L+R | observe | read |
 | GET | /v1/metrics | L+R | observe | read (`text/plain; version=0.0.4`) |
 | GET | /v1/tools | L+R | observe (501 until phase 9) | read |
-| GET | /v1/honey | L+R | observe (501 until phase 7) | read |
 | GET | /v1/swarm | L+R | observe (501 until phase 11) | read |
 
 `GET /v1/tasks` pages by keyset (`goal_id`, `status`, `after` = the previous page's `next_after`,
@@ -92,6 +94,18 @@ own session.
 names (`since` or `until`, and `skip`, the events at exactly that instant already read); an unknown
 query parameter is a 422. `GET /v1/episodes` answers the newest records first, optionally one
 bee's (`principal`), up to `limit`.
+
+The Honey browser (`hive/honey.py`, roadmap 12.9) is three reads over `honey_store.browse`'s folder
+tree. `GET /v1/honey/tree?path=` lists a folder (`/`, `/hive`, `/cells/<id>` with its live wax under
+`/cells/<id>/wax`, `/bees/<id>`, `/tasks/<id>`, `/bee-bread`) with `cursor` and `limit`;
+`GET /v1/honey/items/{item_id}` reads one item by its id (a Honey row, a wax note or a Bee Bread
+entry) with its text; `GET /v1/honey/search?path=&q=` ranks hits within a folder. A folder's scope
+(`hive`, `cell:<id>`, `bee:<id>`, `task:<id>`) is the `observe:honey:<scope>` the device must hold,
+checked in the route because it depends on the path: a device without it gets a 403 on that folder
+and never sees it listed in its parent (the root and the index folders list only what the device
+reaches). An item is read within the device's clearance (`honey:clearance:c2` for C2, C1 without
+any rung), and a refused item answers 403 naming only `observe:honey`. Neither route nor reads can
+write: the Entrance's Honey reads (`HoneyReads`) have no method that proposes a note.
 
 The screens (`screens/`, one module per route) each join several stores into one model and answer
 ids, states and figures only; the words behind them stay behind `observe:thoughts` and C2.

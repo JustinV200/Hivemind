@@ -41,7 +41,7 @@ from hivemind.honey_store.browse import (
     WaxNote,
 )
 from hivemind.honey_store.honey import HoneyReader
-from hivemind.honey_store.models import Honey, HoneyPart
+from hivemind.honey_store.models import Honey, HoneyPart, NectarOrigin
 from hivemind.honey_store.scope import queen_read_capabilities
 from hivemind.honey_store.store import NectarAdded
 from hivemind.honey_store.store.sqlite import SqliteHoneyStore
@@ -72,6 +72,7 @@ class BrowseHive:
         scope: str = "hive",
         clearance: HoneyClearance = HoneyClearance.C1,
         chunks: tuple[str, ...] = (),
+        origin: NectarOrigin = NectarOrigin.BEE,
     ) -> tuple[Honey, ...]:
         """Deposit one Nectar filed under `scope` at `clearance`, and ripen it into Honey rows.
 
@@ -83,6 +84,7 @@ class BrowseHive:
             content=f"{body} {new_event_id(self.clock)}".encode(),
             scope=scope,
             clearance=clearance,
+            origin=origin,
         )
 
         def events(added: NectarAdded) -> tuple[HoneyEvent, ...]:

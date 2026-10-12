@@ -2,20 +2,22 @@
 
 A document is one item in the Honey browser's folder tree: a Honey row (ripened knowledge in the
 Honey Store, the Hive's cold tier), a live Cell Wax note (a Queen-written caution about one Cell)
-or a Bee Bread entry (the warm memory tier). `read_document` resolves one, and the visibility
-rules beside it decide, for every kind, whether a reader may see an item at all: the same two
-tests retrieval applies -- a `honey:read` capability whose glob matches the item's scope, and a
-label at or below the reader's clearance ceiling -- plus liveness (a Honey row neither tainted nor
-retired, a wax note not past its expiry). An item that fails any test is reported exactly as a
-missing one, so a reader cannot probe for what it may not read. A Honey row's document is a
-`HoneyDocument`: `Honey` itself plus the row's Nectar's extra sources (ADR-0037: who else deposited
-the same content, never the content), so `hive honey cat` can show them; a `HoneyDocument` is a
-`Honey`, so every existing `isinstance(document, Honey)` check still recognises it.
+or a Bee Bread entry (the warm memory tier). `read_document` resolves one by its path,
+`find_document` by its id alone, and the visibility rules beside them decide, for every kind,
+whether a reader may see an item at all: the same two tests retrieval applies -- a `honey:read`
+capability whose glob matches the item's scope, and a label at or below the reader's clearance
+ceiling -- plus liveness (a Honey row neither tainted nor retired, a wax note not past its
+expiry). An item that fails any test is reported exactly as a missing one, so a reader cannot
+probe for what it may not read. A Honey row's document is a `HoneyDocument`: `Honey` itself plus
+the row's Nectar's extra sources (ADR-0037: who else deposited the same content, never the
+content), so `hive honey cat` can show them; a `HoneyDocument` is a `Honey`, so every existing
+`isinstance(document, Honey)` check still recognises it.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package's
-    browse sub-package. Called by `hivemind.honey_store.browse.browser` (`cat`), `.folders` (the
-    wax listing, a document path given to `ls`) and `.relabel` (finding the row to relabel).
+    browse sub-package. Called by `hivemind.honey_store.browse.browser` (`cat`, `find`),
+    `.folders` (the wax listing, a document path given to `ls`) and `.relabel` (finding the row to
+    relabel).
     Calls into this package's own store, scope, models and retrieval reader, and its `paths`,
     `sources` and `errors` only.
 
@@ -46,20 +48,33 @@ from pydantic import Field
 
 from hivemind.cell import HoneyClearance
 from hivemind.honey_store.browse.errors import BrowseNotFoundError, BrowsePathError
-from hivemind.honey_store.browse.paths import CELL_SCOPE_PREFIX, BrowsePath, PathKind
+from hivemind.honey_store.browse.paths import (
+    CELL_SCOPE_PREFIX,
+    BrowsePath,
+    PathKind,
+    bee_bread_entry_path,
+    parse_path,
+    wax_note_path,
+)
 from hivemind.honey_store.browse.sources import BeeBreadNote, BrowserDeps, WaxNote
 from hivemind.honey_store.errors import HoneyNotFoundError
 from hivemind.honey_store.honey import HoneyReader
 from hivemind.honey_store.models import Honey, NectarSource
 from hivemind.honey_store.scope import HIVE_SCOPE, cell_scope, is_readable, task_scope
 from hivemind.honey_store.store import HoneyStore
-from waggle.ids import CellId, HoneyId
+from waggle.ids import CellId, HoneyId, IdKind
+
+HONEY_ID_PREFIX = f"{IdKind.HONEY.value}_"  # How a Honey row's id begins.
+WAX_ID_PREFIX = "wax_"  # How a Cell Wax note's id begins (no IdKind yet; see waggle's wax module).
 
 __all__ = [
+    "HONEY_ID_PREFIX",
+    "WAX_ID_PREFIX",
     "BrowseDocument",
     "HoneyDocument",
     "bee_bread_scope",
     "bee_bread_visible",
+    "find_document",
     "honey_visible",
     "live_wax_notes",
     "read_document",
@@ -115,6 +130,34 @@ async def read_document(
     if read is None:
         raise BrowsePathError(target.path, "it is a folder; list it with ls")
     return await read(deps, target, reader)
+
+
+async def find_document(deps: BrowserDeps, item_id: str, reader: HoneyReader) -> BrowseDocument:
+    """Return the document with this id, if `reader` may see it, wherever it lives.
+
+    The id says which kind of item it is, by the prefix every id of that kind carries: `honey_`
+    for a Honey row, `wax_` for a Cell Wax note, anything else for a Bee Bread entry (its trail
+    event id). It is resolved to the document's path and read through `read_document`, so a found
+    document is subject to exactly the visibility rules `cat` applies.
+
+    Args:
+        deps: The store and sources to read from, and the clock wax expiry is judged by.
+        item_id: A Honey row's, a Cell Wax note's or a Bee Bread entry's own id.
+        reader: Its `honey:read` capabilities and clearance ceiling.
+
+    Returns:
+        The Honey row (with its extra sources), wax note or Bee Bread entry.
+
+    Raises:
+        BrowseNotFoundError: No such document, or none this reader may see (indistinguishable).
+    """
+    path = await _path_of(deps, item_id, reader)
+    try:
+        target = parse_path(path)
+    except BrowsePathError as exc:
+        # An id that cannot sit in any path (a slash, a dot segment) names nothing.
+        raise BrowseNotFoundError(item_id) from exc
+    return await read_document(deps, target, reader)
 
 
 def honey_visible(honey: Honey, reader: HoneyReader) -> bool:
@@ -230,6 +273,25 @@ async def visible_honey(store: HoneyStore, target: BrowsePath, reader: HoneyRead
 def _allowed(scope: str, clearance: HoneyClearance, reader: HoneyReader) -> bool:
     """Apply retrieval's two tests to one item: a readable scope, a label within the ceiling."""
     return is_readable(scope, reader.capabilities) and clearance.rank <= reader.ceiling.rank
+
+
+async def _path_of(deps: BrowserDeps, item_id: str, reader: HoneyReader) -> str:
+    """Return where the item with this id lives, by the kind its prefix names."""
+    if item_id.startswith(HONEY_ID_PREFIX):
+        try:
+            # Local SQLite on the store's own thread: milliseconds. Visibility is `read_document`'s.
+            return (await deps.store.get_honey(HoneyId(item_id))).path
+        except HoneyNotFoundError as exc:
+            raise BrowseNotFoundError(item_id) from exc
+    if item_id.startswith(WAX_ID_PREFIX):
+        # A note's folder is its Cell's: the id alone does not say which, so look among live wax.
+        notes = await deps.sources.wax.live_wax(None, reader.ceiling)
+        for note in notes:
+            if note.id == item_id:
+                return wax_note_path(cell_scope(note.cell_id), note.id)
+        raise BrowseNotFoundError(item_id)
+    # Anything else can only be a Bee Bread entry: it is looked up by id wherever it is.
+    return bee_bread_entry_path(item_id)
 
 
 async def _read_honey(deps: BrowserDeps, target: BrowsePath, reader: HoneyReader) -> HoneyDocument:

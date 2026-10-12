@@ -2839,7 +2839,7 @@
           "highest_wax_severity": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/WaxSeverity"
+                "$ref": "#/components/schemas/hivemind__memory__cell_wax__model__WaxSeverity"
               },
               {
                 "type": "null"
@@ -3517,6 +3517,559 @@
         ],
         "title": "HoneyClearance",
         "type": "string"
+      },
+      "HoneyFolderEntryView": {
+        "description": "One sub-folder of a folder: where it is and what it holds.",
+        "properties": {
+          "detail": {
+            "description": "A short qualifier, e.g. how many rows it holds; may be empty.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its last path segment: hive, a Cell's id, wax.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "The sub-folder's own path; read it with /v1/honey/tree.",
+            "title": "Path",
+            "type": "string"
+          },
+          "title": {
+            "description": "What it holds, in a few words.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "title",
+          "detail"
+        ],
+        "title": "HoneyFolderEntryView",
+        "type": "object"
+      },
+      "HoneyFolderView": {
+        "description": "One folder of the Honey tree: its sub-folders and a page of its items.",
+        "properties": {
+          "can_search": {
+            "description": "Whether /v1/honey/search can search this folder.",
+            "title": "Can Search",
+            "type": "boolean"
+          },
+          "ceiling": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The most sensitive label this viewer may read; items above it are not listed."
+          },
+          "folders": {
+            "description": "Sub-folders the viewer's observe:honey capabilities reach.",
+            "items": {
+              "$ref": "#/components/schemas/HoneyFolderEntryView"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "items": {
+            "description": "One page of the folder's visible items.",
+            "items": {
+              "$ref": "#/components/schemas/HoneyItemSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as ?cursor= for the next page; null at end.",
+            "title": "Next Cursor"
+          },
+          "note": {
+            "description": "Why the listing is what it is, when not obvious; else empty.",
+            "title": "Note",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its parent folder; null for the root.",
+            "title": "Parent"
+          },
+          "path": {
+            "description": "The folder, normalised.",
+            "title": "Path",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scope the folder shows (hive, cell:<id> ...); null for the root, an index folder and /bee-bread, which gather what the viewer may see.",
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "path",
+          "parent",
+          "scope",
+          "can_search",
+          "ceiling",
+          "folders",
+          "items",
+          "next_cursor",
+          "note"
+        ],
+        "title": "HoneyFolderView",
+        "type": "object"
+      },
+      "HoneyItemKind": {
+        "description": "What one item in the Honey browser is; the vocabulary may grow (x-hive-open).",
+        "enum": [
+          "honey",
+          "note",
+          "wax",
+          "bee_bread"
+        ],
+        "title": "HoneyItemKind",
+        "type": "string",
+        "x-hive-open": true
+      },
+      "HoneyItemSummary": {
+        "description": "One item in a folder: enough to weigh it before opening it (observe:honey:<scope>).",
+        "properties": {
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The item's data-sensitivity label."
+          },
+          "detail": {
+            "description": "A short qualifier: a Honey row's part, a wax note's severity, an entry's kind.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a wax note lapses on its own; null for standing wax and other items.",
+            "title": "Expires At"
+          },
+          "id": {
+            "description": "The item's own id; open it with /v1/honey/items/{id}.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HoneyItemKind",
+            "description": "A Honey row, a human's note, a wax note or an entry."
+          },
+          "path": {
+            "description": "The item's own browser path, its place in the tree.",
+            "title": "Path",
+            "type": "string"
+          },
+          "proposer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's proposing bee; null for the human's.",
+            "title": "Proposer"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/HoneyProvenanceView",
+            "description": "Task, Cell, bee, source and when."
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scope it is filed under; decides who may read it.",
+            "title": "Scope"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/waggle__messages__cell__wax__WaxSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's weight; null for other items."
+          },
+          "size_chars": {
+            "description": "The item's text length in characters.",
+            "title": "Size Chars",
+            "type": "integer"
+          },
+          "title": {
+            "description": "A one-line label.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "kind",
+          "title",
+          "detail",
+          "scope",
+          "clearance",
+          "provenance",
+          "size_chars",
+          "severity",
+          "proposer",
+          "expires_at"
+        ],
+        "title": "HoneyItemSummary",
+        "type": "object"
+      },
+      "HoneyItemView": {
+        "description": "One item with its text (observe:honey:<scope>, and clearance within the viewer's).",
+        "properties": {
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The item's data-sensitivity label."
+          },
+          "content": {
+            "description": "The item's text: a row's body, a note's words, an entry.",
+            "title": "Content",
+            "type": "string"
+          },
+          "detail": {
+            "description": "A short qualifier: a Honey row's part, a wax note's severity, an entry's kind.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a wax note lapses on its own; null for standing wax and other items.",
+            "title": "Expires At"
+          },
+          "id": {
+            "description": "The item's own id; open it with /v1/honey/items/{id}.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HoneyItemKind",
+            "description": "A Honey row, a human's note, a wax note or an entry."
+          },
+          "path": {
+            "description": "The item's own browser path, its place in the tree.",
+            "title": "Path",
+            "type": "string"
+          },
+          "proposer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's proposing bee; null for the human's.",
+            "title": "Proposer"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/HoneyProvenanceView",
+            "description": "Task, Cell, bee, source and when."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a wax note's proposer believed it; else null.",
+            "title": "Reason"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scope it is filed under; decides who may read it.",
+            "title": "Scope"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/waggle__messages__cell__wax__WaxSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's weight; null for other items."
+          },
+          "size_chars": {
+            "description": "The item's text length in characters.",
+            "title": "Size Chars",
+            "type": "integer"
+          },
+          "sources": {
+            "description": "A Honey row's other distinctly-provenanced deposits of the same content (who else deposited it, never what); empty for other items.",
+            "items": {
+              "$ref": "#/components/schemas/HoneyProvenanceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A Honey row's gist; null for other items.",
+            "title": "Summary"
+          },
+          "title": {
+            "description": "A one-line label.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "kind",
+          "title",
+          "detail",
+          "scope",
+          "clearance",
+          "provenance",
+          "size_chars",
+          "severity",
+          "proposer",
+          "expires_at",
+          "summary",
+          "content",
+          "reason",
+          "sources"
+        ],
+        "title": "HoneyItemView",
+        "type": "object"
+      },
+      "HoneyProvenanceView": {
+        "description": "Where an item came from: its task, Cell, bee, the source it came by and when.",
+        "properties": {
+          "bee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Worker or Warden that gathered it; null if none.",
+            "title": "Bee"
+          },
+          "cell_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Cell it was gathered on; null if unknown.",
+            "title": "Cell Id"
+          },
+          "observed_at": {
+            "description": "When it was observed (a note: proposed).",
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How it came to be: a Nectar origin (BEE, HUMAN, WATCH, TASK_OUTCOME ...), a wax note's origin (BEE, PATROL, HUMAN) or BEE_BREAD; null for a search hit.",
+            "title": "Source"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it came from; null when none.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "task_id",
+          "cell_id",
+          "bee",
+          "source",
+          "observed_at"
+        ],
+        "title": "HoneyProvenanceView",
+        "type": "object"
+      },
+      "HoneySearchHit": {
+        "description": "One ranked search result (observe:honey:<scope>).",
+        "properties": {
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The row's data-sensitivity label."
+          },
+          "id": {
+            "description": "The hit's item id; open it with /v1/honey/items/{id}.",
+            "title": "Id",
+            "type": "string"
+          },
+          "path": {
+            "description": "The hit's browser path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/HoneyProvenanceView",
+            "description": "Task, Cell, bee and when."
+          },
+          "scope": {
+            "description": "The scope it was found in.",
+            "title": "Scope",
+            "type": "string"
+          },
+          "score": {
+            "description": "Relevance, 0 (no match) to 1 (perfect).",
+            "title": "Score",
+            "type": "number"
+          },
+          "snippet": {
+            "description": "The passage that matched, bounded.",
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "description": "The row's one-line title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "title",
+          "snippet",
+          "score",
+          "scope",
+          "clearance",
+          "provenance"
+        ],
+        "title": "HoneySearchHit",
+        "type": "object"
+      },
+      "HoneySearchPage": {
+        "description": "One page of a folder's search, ranked.",
+        "properties": {
+          "hits": {
+            "description": "The page's hits, best first.",
+            "items": {
+              "$ref": "#/components/schemas/HoneySearchHit"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as ?cursor= for the next page; null at end.",
+            "title": "Next Cursor"
+          },
+          "note": {
+            "description": "Why the result is what it is, when not obvious; else empty.",
+            "title": "Note",
+            "type": "string"
+          },
+          "path": {
+            "description": "The folder searched.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "hits",
+          "next_cursor",
+          "note"
+        ],
+        "title": "HoneySearchPage",
+        "type": "object"
       },
       "HostingView": {
         "description": "Where a Cell's bees get their models: the one-word badge and the plan behind it.",
@@ -6582,7 +7135,7 @@
             "title": "Proposer"
           },
           "severity": {
-            "$ref": "#/components/schemas/WaxSeverity",
+            "$ref": "#/components/schemas/hivemind__memory__cell_wax__model__WaxSeverity",
             "description": "NOTE, CAUTION or BLOCK."
           },
           "state": {
@@ -6623,16 +7176,6 @@
           "HUMAN"
         ],
         "title": "WaxOrigin",
-        "type": "string"
-      },
-      "WaxSeverity": {
-        "description": "How much a Cell Wax note weighs on placement; mirrors waggle's, member for member.",
-        "enum": [
-          "NOTE",
-          "CAUTION",
-          "BLOCK"
-        ],
-        "title": "WaxSeverity",
         "type": "string"
       },
       "WaxState": {
@@ -6729,6 +7272,26 @@
           "KILLED"
         ],
         "title": "WorkerState",
+        "type": "string"
+      },
+      "hivemind__memory__cell_wax__model__WaxSeverity": {
+        "description": "How much a Cell Wax note weighs on placement; mirrors waggle's, member for member.",
+        "enum": [
+          "NOTE",
+          "CAUTION",
+          "BLOCK"
+        ],
+        "title": "WaxSeverity",
+        "type": "string"
+      },
+      "waggle__messages__cell__wax__WaxSeverity": {
+        "description": "How much a Cell Wax note weighs on placement.",
+        "enum": [
+          "NOTE",
+          "CAUTION",
+          "BLOCK"
+        ],
+        "title": "WaxSeverity",
         "type": "string"
       }
     },
@@ -11773,10 +12336,34 @@
         ]
       }
     },
-    "/v1/honey": {
+    "/v1/honey/items/{item_id}": {
       "get": {
-        "operationId": "read_honey_v1_honey_get",
+        "operationId": "get_item_v1_honey_items__item_id__get",
+        "parameters": [
+          {
+            "description": "The item's id.",
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "description": "The item's id.",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoneyItemView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -11836,16 +12423,6 @@
               }
             },
             "description": "Too many requests from this device or address."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotBuiltView"
-                }
-              }
-            },
-            "description": "Successful Response"
           }
         },
         "security": [
@@ -11853,7 +12430,302 @@
             "HiveSession": []
           }
         ],
-        "summary": "The Honey browser over provenance: not built yet, answers 501 (phase 7).",
+        "summary": "Read one Honey item with its text: observe:honey:<scope> for the item's scope, and honey:clearance:c2 for a C2 item.",
+        "tags": [
+          "honey"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/honey/search": {
+      "get": {
+        "operationId": "get_search_v1_honey_search_get",
+        "parameters": [
+          {
+            "description": "The folder to search: / (every scope the viewer may read), an index folder or one scope's folder.",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "default": "/",
+              "description": "The folder to search: / (every scope the viewer may read), an index folder or one scope's folder.",
+              "maxLength": 512,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The words to find.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "The words to find.",
+              "maxLength": 2000,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A previous page's next_cursor: continue after it.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A previous page's next_cursor: continue after it.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Most hits.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "Most hits.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoneySearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Search one folder of the Honey tree: observe:honey:<scope> for the folder's scope, hits within the caller's clearance.",
+        "tags": [
+          "honey"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/honey/tree": {
+      "get": {
+        "operationId": "get_tree_v1_honey_tree_get",
+        "parameters": [
+          {
+            "description": "The folder to list: / by default, /hive, /cells/<id>, /cells/<id>/wax ...",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "default": "/",
+              "description": "The folder to list: / by default, /hive, /cells/<id>, /cells/<id>/wax ...",
+              "maxLength": 512,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A previous page's next_cursor: continue after it.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A previous page's next_cursor: continue after it.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Most entries.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Most entries.",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoneyFolderView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "List one folder of the Honey tree: observe:honey:<scope> for the folder's scope, items within the caller's clearance.",
         "tags": [
           "honey"
         ],

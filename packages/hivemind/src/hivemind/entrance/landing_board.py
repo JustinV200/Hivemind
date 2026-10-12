@@ -86,6 +86,7 @@ _OPEN_ENUMS: Mapping[str, str] = MappingProxyType(
         "ChannelKind": "New push channels join (the native Android channel, roadmap 12.12).",
         "ChatKind": "New kinds of chat line join the one conversation.",
         "GoalSource": "New ways a person gives the Hive a goal join.",
+        "HoneyItemKind": "New kinds of item join the Honey browser as new stores join its tree.",
         "ModelSlot": "New model slots join as new roles need a model.",
         "NoticeKind": "New notices join as the Hive learns new things to wait on.",
         "OsFamily": "New device families join the Swarm (phase 11).",

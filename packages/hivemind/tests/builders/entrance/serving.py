@@ -43,7 +43,7 @@ from hivemind.entrance.auth import SoftPasskey
 from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import CONSOLE_CAPABILITIES, DeviceStatus, EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, ListenerPlan, load_or_create_authority
-from hivemind.entrance.gate import HiveReads, LlmReads
+from hivemind.entrance.gate import HiveReads, HoneyReads, LlmReads
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.push import (
     MemorySubscriptionStore,
@@ -120,6 +120,8 @@ class RigOptions:
         web_root: The Observation Hive's build to serve as static files; None serves none.
         authority: Run the Hive's certificate authority, so approval issues client certificates
             from requests (no rig listener demands one: none of them speaks TLS).
+        honey: The Honey browser the Honey routes read through (a real one over a temp-file
+            store, see ``unit.honey_store.browse.harness``); None serves a Hive with no Honey.
     """
 
     remote: bool = False
@@ -133,6 +135,7 @@ class RigOptions:
     transcriber: TranscriptionProvider | None = None
     web_root: Path | None = None
     authority: bool = False
+    honey: HoneyReads | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,7 +301,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
         parts = EntranceParts(
             settings=_settings(deps, active),
             tables=EntranceTables(store=store, push=push_store, trail=deps.trail),
-            hive=_hive(queen, deps, telemetry),
+            hive=_hive(queen, deps, telemetry, active.honey),
             keys=await _keys(clock, deps.identity.hive_id if active.authority else None),
             clock=clock,
             http=push_http,
@@ -364,7 +367,9 @@ def _ears(transcriber: TranscriptionProvider) -> Ears:
     return Ears(gate=DirectTranscriptionGate(), bound=bound)
 
 
-def _hive(queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard) -> EntranceHive:
+def _hive(
+    queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard, honey: HoneyReads | None
+) -> EntranceHive:
     """The Hive as the Entrance sees it: the Queen's door, her stores and tables, her enforcer."""
     # Every provider the bindings name is the rig's fake one.
     llm = LlmReads(
@@ -384,6 +389,7 @@ def _hive(queen: Queen, deps: QueenDeps, telemetry: TelemetryBoard) -> EntranceH
         telemetry=telemetry,
         llm=llm,
         forage_map=deps.map,
+        honey=honey,
     )
     return EntranceHive(
         queen=queen, reads=reads, enforcer=deps.enforcer, policy=deps.enforcer.policy

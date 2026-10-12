@@ -35,10 +35,12 @@ Public API:
     - BrowserDeps, BrowseSources, LiveWaxSource, BeeBreadSource, WaxNote, BeeBreadNote
       (sources): what the browser reads through.
     - FakeLiveWaxSource, FakeBeeBreadSource (fake): in-memory sources.
-    - BrowsePath, PathKind, parse_path, ROOT_PATH, TOP_FOLDERS (paths): the path grammar.
+    - BrowsePath, PathKind, parse_path, ROOT_PATH, TOP_FOLDERS, wax_note_path,
+      bee_bread_entry_path (paths): the path grammar, and the two document paths a caller builds.
     - BrowseEntry, BrowseListing, EntryKind (listing): what `ls` returns.
-    - BrowseDocument, HoneyDocument, honey_visible (documents): what `cat` returns (a Honey row's
-      own document also carries its Nectar's extra sources, ADR-0037), and the row visibility rule.
+    - BrowseDocument, HoneyDocument, honey_visible, bee_bread_scope, find_document (documents):
+      what `cat` returns (a Honey row's own document also carries its Nectar's extra sources,
+      ADR-0037), the row visibility rule, and the scope a Bee Bread entry is filed under.
     - Page, FIRST_PAGE, DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS (folders): listing pages.
     - NoteProposal, CellWaxProposal, QueuedHoneyNote, NOTE_CLEARANCE (notes): a proposed note.
     - HoneyRelabeller, RelabelRequest, RelabelOutcome, RelabelDirection (relabel): the human's
@@ -52,7 +54,13 @@ from hivemind.honey_store.browse.browser import (
     HoneyBrowser,
     operator_reader,
 )
-from hivemind.honey_store.browse.documents import BrowseDocument, HoneyDocument, honey_visible
+from hivemind.honey_store.browse.documents import (
+    BrowseDocument,
+    HoneyDocument,
+    bee_bread_scope,
+    find_document,
+    honey_visible,
+)
 from hivemind.honey_store.browse.errors import (
     BrowseError,
     BrowseInputError,
@@ -73,7 +81,9 @@ from hivemind.honey_store.browse.paths import (
     TOP_FOLDERS,
     BrowsePath,
     PathKind,
+    bee_bread_entry_path,
     parse_path,
+    wax_note_path,
 )
 from hivemind.honey_store.browse.relabel import (
     HoneyRelabeller,
@@ -127,7 +137,11 @@ __all__ = [
     "RelabelOutcome",
     "RelabelRequest",
     "WaxNote",
+    "bee_bread_entry_path",
+    "bee_bread_scope",
+    "find_document",
     "honey_visible",
     "operator_reader",
     "parse_path",
+    "wax_note_path",
 ]

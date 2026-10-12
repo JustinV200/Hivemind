@@ -28,7 +28,10 @@ See Also:
     - .claude/roadmap.md step 12.1 for the read API and metrics.
 
 Public API:
-    - Every name ``hivemind.observation.views`` exports; its face groups them by view.
+    - Every name ``hivemind.observation.views`` exports; its face groups them by view. The Honey
+      browser's lesser models stay behind it: this face carries the five the Entrance's routes
+      declare (HoneyFolderView, HoneyItemView, HoneySearchPage, HoneyTreeQuery, HoneySearchQuery),
+      each with its own constructor, so the file stays under the size limit.
     - Every name ``hivemind.observation.api`` exports: the screens' models and builders.
     - MetricsSnapshot, MetricsInputs, metrics_snapshot, render_snapshot, METRICS_CONTENT_TYPE and
       the snapshot's count models: the metrics (``hivemind.observation.metrics``).
@@ -147,6 +150,11 @@ from hivemind.observation.views import (
     ForageView,
     GrantView,
     HeadroomView,
+    HoneyFolderView,
+    HoneyItemView,
+    HoneySearchPage,
+    HoneySearchQuery,
+    HoneyTreeQuery,
     LlmView,
     MaskStateName,
     NotBuiltView,
@@ -236,6 +244,11 @@ __all__ = [
     "GrantTotals",
     "GrantView",
     "HeadroomView",
+    "HoneyFolderView",
+    "HoneyItemView",
+    "HoneySearchPage",
+    "HoneySearchQuery",
+    "HoneyTreeQuery",
     "HostingFacts",
     "HostingView",
     "InboxEntryView",

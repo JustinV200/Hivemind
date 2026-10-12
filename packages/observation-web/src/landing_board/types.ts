@@ -804,15 +804,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/honey": {
+    "/v1/honey/items/{item_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** The Honey browser over provenance: not built yet, answers 501 (phase 7). */
-        get: operations["read_honey_v1_honey_get"];
+        /** Read one Honey item with its text: observe:honey:<scope> for the item's scope, and honey:clearance:c2 for a C2 item. */
+        get: operations["get_item_v1_honey_items__item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/honey/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search one folder of the Honey tree: observe:honey:<scope> for the folder's scope, hits within the caller's clearance. */
+        get: operations["get_search_v1_honey_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/honey/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List one folder of the Honey tree: observe:honey:<scope> for the folder's scope, items within the caller's clearance. */
+        get: operations["get_tree_v1_honey_tree_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2768,7 +2802,7 @@ export interface components {
             /** @description The role working that task. */
             current_task_role: components["schemas"]["WorkerRole"] | null;
             /** @description The highest severity among its live Cell Wax; null with none. */
-            highest_wax_severity: components["schemas"]["WaxSeverity"] | null;
+            highest_wax_severity: components["schemas"]["hivemind__memory__cell_wax__model__WaxSeverity"] | null;
             /**
              * Id
              * @description The Cell's id.
@@ -3154,6 +3188,312 @@ export interface components {
          * @enum {string}
          */
         HoneyClearance: "C0" | "C1" | "C2";
+        /**
+         * HoneyFolderEntryView
+         * @description One sub-folder of a folder: where it is and what it holds.
+         */
+        HoneyFolderEntryView: {
+            /**
+             * Detail
+             * @description A short qualifier, e.g. how many rows it holds; may be empty.
+             */
+            detail: string;
+            /**
+             * Name
+             * @description Its last path segment: hive, a Cell's id, wax.
+             */
+            name: string;
+            /**
+             * Path
+             * @description The sub-folder's own path; read it with /v1/honey/tree.
+             */
+            path: string;
+            /**
+             * Title
+             * @description What it holds, in a few words.
+             */
+            title: string;
+        };
+        /**
+         * HoneyFolderView
+         * @description One folder of the Honey tree: its sub-folders and a page of its items.
+         */
+        HoneyFolderView: {
+            /**
+             * Can Search
+             * @description Whether /v1/honey/search can search this folder.
+             */
+            can_search: boolean;
+            /** @description The most sensitive label this viewer may read; items above it are not listed. */
+            ceiling: components["schemas"]["HoneyClearance"];
+            /**
+             * Folders
+             * @description Sub-folders the viewer's observe:honey capabilities reach.
+             */
+            folders: components["schemas"]["HoneyFolderEntryView"][];
+            /**
+             * Items
+             * @description One page of the folder's visible items.
+             */
+            items: components["schemas"]["HoneyItemSummary"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= for the next page; null at end.
+             */
+            next_cursor: string | null;
+            /**
+             * Note
+             * @description Why the listing is what it is, when not obvious; else empty.
+             */
+            note: string;
+            /**
+             * Parent
+             * @description Its parent folder; null for the root.
+             */
+            parent: string | null;
+            /**
+             * Path
+             * @description The folder, normalised.
+             */
+            path: string;
+            /**
+             * Scope
+             * @description The scope the folder shows (hive, cell:<id> ...); null for the root, an index folder and /bee-bread, which gather what the viewer may see.
+             */
+            scope: string | null;
+        };
+        /**
+         * HoneyItemKind
+         * @description What one item in the Honey browser is; the vocabulary may grow (x-hive-open).
+         * @enum {string}
+         */
+        HoneyItemKind: "honey" | "note" | "wax" | "bee_bread";
+        /**
+         * HoneyItemSummary
+         * @description One item in a folder: enough to weigh it before opening it (observe:honey:<scope>).
+         */
+        HoneyItemSummary: {
+            /** @description The item's data-sensitivity label. */
+            clearance: components["schemas"]["HoneyClearance"];
+            /**
+             * Detail
+             * @description A short qualifier: a Honey row's part, a wax note's severity, an entry's kind.
+             */
+            detail: string;
+            /**
+             * Expires At
+             * @description When a wax note lapses on its own; null for standing wax and other items.
+             */
+            expires_at: string | null;
+            /**
+             * Id
+             * @description The item's own id; open it with /v1/honey/items/{id}.
+             */
+            id: string;
+            /** @description A Honey row, a human's note, a wax note or an entry. */
+            kind: components["schemas"]["HoneyItemKind"];
+            /**
+             * Path
+             * @description The item's own browser path, its place in the tree.
+             */
+            path: string;
+            /**
+             * Proposer
+             * @description A wax note's proposing bee; null for the human's.
+             */
+            proposer: string | null;
+            /** @description Task, Cell, bee, source and when. */
+            provenance: components["schemas"]["HoneyProvenanceView"];
+            /**
+             * Scope
+             * @description The scope it is filed under; decides who may read it.
+             */
+            scope: string | null;
+            /** @description A wax note's weight; null for other items. */
+            severity: components["schemas"]["waggle__messages__cell__wax__WaxSeverity"] | null;
+            /**
+             * Size Chars
+             * @description The item's text length in characters.
+             */
+            size_chars: number;
+            /**
+             * Title
+             * @description A one-line label.
+             */
+            title: string;
+        };
+        /**
+         * HoneyItemView
+         * @description One item with its text (observe:honey:<scope>, and clearance within the viewer's).
+         */
+        HoneyItemView: {
+            /** @description The item's data-sensitivity label. */
+            clearance: components["schemas"]["HoneyClearance"];
+            /**
+             * Content
+             * @description The item's text: a row's body, a note's words, an entry.
+             */
+            content: string;
+            /**
+             * Detail
+             * @description A short qualifier: a Honey row's part, a wax note's severity, an entry's kind.
+             */
+            detail: string;
+            /**
+             * Expires At
+             * @description When a wax note lapses on its own; null for standing wax and other items.
+             */
+            expires_at: string | null;
+            /**
+             * Id
+             * @description The item's own id; open it with /v1/honey/items/{id}.
+             */
+            id: string;
+            /** @description A Honey row, a human's note, a wax note or an entry. */
+            kind: components["schemas"]["HoneyItemKind"];
+            /**
+             * Path
+             * @description The item's own browser path, its place in the tree.
+             */
+            path: string;
+            /**
+             * Proposer
+             * @description A wax note's proposing bee; null for the human's.
+             */
+            proposer: string | null;
+            /** @description Task, Cell, bee, source and when. */
+            provenance: components["schemas"]["HoneyProvenanceView"];
+            /**
+             * Reason
+             * @description Why a wax note's proposer believed it; else null.
+             */
+            reason: string | null;
+            /**
+             * Scope
+             * @description The scope it is filed under; decides who may read it.
+             */
+            scope: string | null;
+            /** @description A wax note's weight; null for other items. */
+            severity: components["schemas"]["waggle__messages__cell__wax__WaxSeverity"] | null;
+            /**
+             * Size Chars
+             * @description The item's text length in characters.
+             */
+            size_chars: number;
+            /**
+             * Sources
+             * @description A Honey row's other distinctly-provenanced deposits of the same content (who else deposited it, never what); empty for other items.
+             */
+            sources: components["schemas"]["HoneyProvenanceView"][];
+            /**
+             * Summary
+             * @description A Honey row's gist; null for other items.
+             */
+            summary: string | null;
+            /**
+             * Title
+             * @description A one-line label.
+             */
+            title: string;
+        };
+        /**
+         * HoneyProvenanceView
+         * @description Where an item came from: its task, Cell, bee, the source it came by and when.
+         */
+        HoneyProvenanceView: {
+            /**
+             * Bee
+             * @description The Worker or Warden that gathered it; null if none.
+             */
+            bee: string | null;
+            /**
+             * Cell Id
+             * @description The Cell it was gathered on; null if unknown.
+             */
+            cell_id: string | null;
+            /**
+             * Observed At
+             * Format: date-time
+             * @description When it was observed (a note: proposed).
+             */
+            observed_at: string;
+            /**
+             * Source
+             * @description How it came to be: a Nectar origin (BEE, HUMAN, WATCH, TASK_OUTCOME ...), a wax note's origin (BEE, PATROL, HUMAN) or BEE_BREAD; null for a search hit.
+             */
+            source: string | null;
+            /**
+             * Task Id
+             * @description The task it came from; null when none.
+             */
+            task_id: string | null;
+        };
+        /**
+         * HoneySearchHit
+         * @description One ranked search result (observe:honey:<scope>).
+         */
+        HoneySearchHit: {
+            /** @description The row's data-sensitivity label. */
+            clearance: components["schemas"]["HoneyClearance"];
+            /**
+             * Id
+             * @description The hit's item id; open it with /v1/honey/items/{id}.
+             */
+            id: string;
+            /**
+             * Path
+             * @description The hit's browser path.
+             */
+            path: string;
+            /** @description Task, Cell, bee and when. */
+            provenance: components["schemas"]["HoneyProvenanceView"];
+            /**
+             * Scope
+             * @description The scope it was found in.
+             */
+            scope: string;
+            /**
+             * Score
+             * @description Relevance, 0 (no match) to 1 (perfect).
+             */
+            score: number;
+            /**
+             * Snippet
+             * @description The passage that matched, bounded.
+             */
+            snippet: string;
+            /**
+             * Title
+             * @description The row's one-line title.
+             */
+            title: string;
+        };
+        /**
+         * HoneySearchPage
+         * @description One page of a folder's search, ranked.
+         */
+        HoneySearchPage: {
+            /**
+             * Hits
+             * @description The page's hits, best first.
+             */
+            hits: components["schemas"]["HoneySearchHit"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= for the next page; null at end.
+             */
+            next_cursor: string | null;
+            /**
+             * Note
+             * @description Why the result is what it is, when not obvious; else empty.
+             */
+            note: string;
+            /**
+             * Path
+             * @description The folder searched.
+             */
+            path: string;
+        };
         /**
          * HostingView
          * @description Where a Cell's bees get their models: the one-word badge and the plan behind it.
@@ -5042,7 +5382,7 @@ export interface components {
              */
             proposer: string | null;
             /** @description NOTE, CAUTION or BLOCK. */
-            severity: components["schemas"]["WaxSeverity"];
+            severity: components["schemas"]["hivemind__memory__cell_wax__model__WaxSeverity"];
             /** @description PROPOSED or WRITTEN. */
             state: components["schemas"]["WaxState"];
             /**
@@ -5057,12 +5397,6 @@ export interface components {
          * @enum {string}
          */
         WaxOrigin: "BEE" | "PATROL" | "HUMAN";
-        /**
-         * WaxSeverity
-         * @description How much a Cell Wax note weighs on placement; mirrors waggle's, member for member.
-         * @enum {string}
-         */
-        WaxSeverity: "NOTE" | "CAUTION" | "BLOCK";
         /**
          * WaxState
          * @description Every state a Cell Wax note can be in, from proposal to its terminal outcome.
@@ -5118,6 +5452,18 @@ export interface components {
          * @enum {string}
          */
         WorkerState: "SPAWNED" | "RUNNING" | "HANDING_OFF" | "PAUSED" | "DONE" | "FAILED" | "KILLED";
+        /**
+         * WaxSeverity
+         * @description How much a Cell Wax note weighs on placement; mirrors waggle's, member for member.
+         * @enum {string}
+         */
+        hivemind__memory__cell_wax__model__WaxSeverity: "NOTE" | "CAUTION" | "BLOCK";
+        /**
+         * WaxSeverity
+         * @description How much a Cell Wax note weighs on placement.
+         * @enum {string}
+         */
+        waggle__messages__cell__wax__WaxSeverity: "NOTE" | "CAUTION" | "BLOCK";
     };
     responses: never;
     parameters: never;
@@ -8848,15 +9194,27 @@ export interface operations {
             };
         };
     };
-    read_honey_v1_honey_get: {
+    get_item_v1_honey_items__item_id__get: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The item's id. */
+                item_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HoneyItemView"];
+                };
+            };
             /** @description Authentication failed: log in again with the device key and password. */
             401: {
                 headers: {
@@ -8911,13 +9269,168 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    get_search_v1_honey_search_get: {
+        parameters: {
+            query: {
+                /** @description The folder to search: / (every scope the viewer may read), an index folder or one scope's folder. */
+                path?: string;
+                /** @description The words to find. */
+                q: string;
+                /** @description A previous page's next_cursor: continue after it. */
+                cursor?: string | null;
+                /** @description Most hits. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
             /** @description Successful Response */
-            501: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NotBuiltView"];
+                    "application/json": components["schemas"]["HoneySearchPage"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_tree_v1_honey_tree_get: {
+        parameters: {
+            query?: {
+                /** @description The folder to list: / by default, /hive, /cells/<id>, /cells/<id>/wax ... */
+                path?: string;
+                /** @description A previous page's next_cursor: continue after it. */
+                cursor?: string | null;
+                /** @description Most entries. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HoneyFolderView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };

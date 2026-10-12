@@ -12,7 +12,11 @@ LLM view shows: the providers' names and kinds from the manifest, the slot bindi
 Queen's Clustering state and health poller (read, never probed). ``VirtualCellCensus`` is the
 Virtual Cell lifecycle's live table, present only when the Hive has a Virtual side.
 ``ForageMapReads`` is the Forage map's source list (``hivemind.forage.ForageMap`` satisfies it),
-which the Fleet and Cell page read to say where a Cell's models are hosted.
+which the Fleet and Cell page read to say where a Cell's models are hosted. ``HoneyReads`` is the
+Honey routes' only way into the Honey Store: the Honey browser
+(``hivemind.honey_store.browse.HoneyBrowser``) satisfies it as it is, and its protocol lists,
+reads and searches but has no method that proposes a note, since the Entrance's one write is the
+Queen's inbox (codingrules 8.11).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.gate``. Built by the
@@ -38,6 +42,8 @@ from typing import TYPE_CHECKING, Protocol
 from hivemind.brood_chamber import BroodChamber
 from hivemind.forage import ModelSource, SlotBinding
 from hivemind.hive import LiveVirtualCell
+from hivemind.honey_store.browse import BrowseDocument, BrowseListing, Page
+from hivemind.honey_store.honey import HoneyReader
 from hivemind.memory import MemoryStore
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import (
@@ -50,12 +56,20 @@ from hivemind.queen import (
     WardenLiveness,
 )
 from waggle.ids import WardenId
+from waggle.messages.honey import HoneyResponse
 
 if TYPE_CHECKING:
     # Type-only: the streams package imports the gate, so a runtime import here cycles.
     from hivemind.entrance.streams.telemetry import TelemetryBoard
 
-__all__ = ["ForageMapReads", "HiveCensus", "HiveReads", "LlmReads", "VirtualCellCensus"]
+__all__ = [
+    "ForageMapReads",
+    "HiveCensus",
+    "HiveReads",
+    "HoneyReads",
+    "LlmReads",
+    "VirtualCellCensus",
+]
 
 
 class HiveCensus(Protocol):
@@ -85,6 +99,29 @@ class ForageMapReads(Protocol):
 
     def sources(self) -> tuple[ModelSource, ...]:
         """Every source on the map, each with the Cell that serves it or none (hosted)."""
+        ...
+
+
+class HoneyReads(Protocol):
+    """The Honey browser's read side; ``hivemind.honey_store.browse.HoneyBrowser`` satisfies it.
+
+    Every method filters its answer by the ``HoneyReader`` it is handed (the viewer's scopes and
+    clearance ceiling); none changes Honey. Search records the retriever's own ``honey.queried``
+    trail event, as every query does.
+    """
+
+    async def ls(self, path: str, reader: HoneyReader, page: Page) -> BrowseListing:
+        """List the folder at ``path`` as ``reader`` may see it, one page."""
+        ...
+
+    async def find(self, item_id: str, reader: HoneyReader) -> BrowseDocument:
+        """Read the one document with this id, if ``reader`` may see it."""
+        ...
+
+    async def search(
+        self, path: str, text: str, reader: HoneyReader, max_hits: int
+    ) -> HoneyResponse:
+        """Search the Honey under the folder at ``path`` as ``reader`` may see it."""
         ...
 
 
@@ -122,6 +159,8 @@ class HiveReads:
         virtual_cells: The Virtual Cell lifecycle's table; None for a Hive with no Virtual side.
         forage_map: The Forage map's sources, to classify where a Cell's models are hosted; None
             leaves every Cell's hosting ``unknown``.
+        honey: The Honey browser over the Hive's Honey Store, with a retriever for search; None
+            for a Hive that keeps no Honey Store, whose Honey routes then answer 404.
     """
 
     goal_requests: GoalRequestStore
@@ -135,3 +174,4 @@ class HiveReads:
     llm: LlmReads
     virtual_cells: VirtualCellCensus | None = field(default=None)
     forage_map: ForageMapReads | None = field(default=None)
+    honey: HoneyReads | None = field(default=None)

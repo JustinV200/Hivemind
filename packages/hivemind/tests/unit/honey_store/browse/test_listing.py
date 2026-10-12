@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,7 @@ from hivemind.honey_store.browse.listing import (
     honey_entry,
     wax_entry,
 )
+from hivemind.honey_store.scope import cell_scope, task_scope
 from waggle.ids import new_cell_id, new_task_id
 
 
@@ -114,3 +116,35 @@ def test_browse_entry_refuses_an_unknown_field() -> None:
                 "extra": 1,
             }
         )
+
+
+async def test_item_entries_carry_scope_source_size_and_wax_expiry(tmp_path: Path) -> None:
+    hive = await open_browse_hive(tmp_path)
+    cell, task = new_cell_id(hive.clock), new_task_id(hive.clock)
+    (row,) = await hive.ripen("The deploy key rotates.", scope=cell_scope(cell))
+    expiry = hive.clock.now() + timedelta(days=1)
+    note = hive.wax_note(cell, expires_at=expiry)
+    entry = hive.bee_bread_note(task_id=task, payload="make build\n")
+
+    honey, wax, bread = honey_entry(row), wax_entry(note), bee_bread_entry(entry)
+
+    assert (honey.scope, honey.source, honey.size_chars) == (
+        cell_scope(cell),
+        "BEE",
+        len(row.body),
+    )
+    assert (wax.scope, wax.source, wax.size_chars, wax.expires_at) == (
+        cell_scope(cell),
+        "BEE",
+        len(note.text),
+        expiry,
+    )
+    assert (bread.scope, bread.source, bread.size_chars) == (task_scope(task), "BEE_BREAD", 11)
+    # A folder is none of these.
+    folder = folder_entry("/hive", "Shared")
+    assert (folder.scope, folder.source, folder.size_chars, folder.expires_at) == (
+        None,
+        "",
+        0,
+        None,
+    )

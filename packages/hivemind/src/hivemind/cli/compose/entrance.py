@@ -23,7 +23,9 @@ is the Hive's without its own variables and without any provider's API key, plus
 voice door hears through), so every clip is one `llm.call` on the Hive's trail, and a slot bound to
 a provider that cannot transcribe refuses to start `hive serve` rather than failing the first
 spoken word; the transcript is scored by the Queen's own scanner, and a kept clip goes to the
-in-memory Nectar seam (the Honey Store's own intake does not take audio yet).
+in-memory Nectar seam (the Honey Store's own intake does not take audio yet). The Honey browser
+(roadmap step 12.9) is built over the Hive's own Honey Store, retriever and memory store, and
+handed to the Entrance as its read side only (`HoneyReads`: no method that proposes a note).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.serve` and by the
@@ -60,6 +62,7 @@ from hivemind.cli.entrance.serving import (
     hold_serve_lock,
     publish_serve_record,
 )
+from hivemind.cli.honey.sources import MemoryBeeBreadSource, MemoryWaxSource
 from hivemind.common.logging import get_logger
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.common.sqlite import connect
@@ -96,6 +99,7 @@ from hivemind.entrance.runtime import (
 from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.entrance.voice import InMemoryAudioNectar, VoiceRules, VoiceServices
 from hivemind.forage.tempo import AccuracyBar, Tempo
+from hivemind.honey_store.browse import BrowserDeps, BrowseSources, HoneyBrowser
 from hivemind.llm import Ears, FannerTranscriptionGate, Responder
 from hivemind.manifest import EnvOverrides, HiveManifest, read_env
 from hivemind.manifest.schema.entrance import split_host_port
@@ -353,9 +357,31 @@ def _entrance_hive(hive: Hive) -> EntranceHive:
         llm=llm,
         virtual_cells=virtual.lifecycle if virtual is not None else None,
         forage_map=deps.map,  # Where each source is hosted, for the Fleet's models badge.
+        honey=_honey_browser(hive),
     )
     return EntranceHive(
         queen=hive.queen, reads=reads, enforcer=hive.enforcer, policy=hive.enforcer.policy
+    )
+
+
+def _honey_browser(hive: Hive) -> HoneyBrowser | None:
+    """Build the Honey browser the Entrance reads Honey through; None for a Hive with no Honey."""
+    access = hive.honey
+    if access is None:
+        return None  # A hand-built Hive with no Honey Store: the Honey routes answer 404.
+    memory = hive.stores.memory
+    # Live wax and Bee Bread live in memory, not the Honey Store; the browser reads them through
+    # the same two adapters `hive honey ls` uses. The retriever is the Hive's own, so a search is
+    # metered and trailed like every other query.
+    sources = BrowseSources(wax=MemoryWaxSource(memory), bee_bread=MemoryBeeBreadSource(memory))
+    return HoneyBrowser(
+        BrowserDeps(
+            store=access.store,
+            sources=sources,
+            identity=access.identity,
+            clock=hive.clock,
+            retriever=access.retriever,
+        )
     )
 
 

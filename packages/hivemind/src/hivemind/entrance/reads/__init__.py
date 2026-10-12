@@ -6,8 +6,9 @@ function; what needs more lives here, shared by the read routes and the live vie
 joins each Cell's and Warden's standing from the Queen's links and pulse, the Virtual Cell
 lifecycle, the trail, the Brood Chamber, the telemetry board and the Forage ledger; ``trail``
 pages the Pheromone Trail from a cursor; ``llm`` judges each provider from the Queen's own
-bookkeeping without probing it; ``screens`` holds the reads behind the Observation Hive's
-aggregated screens (roadmap 12.1), one module per screen.
+bookkeeping without probing it; ``honey`` turns a device into the reader the Honey browser filters
+by and gathers a folder, an item or a search for it (roadmap 12.9); ``screens`` holds the reads
+behind the Observation Hive's aggregated screens (roadmap 12.1), one module per screen.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by
@@ -25,6 +26,8 @@ Public API:
     - cell_views, cell_view, warden_views, PLACED, EVENT_LOOKBACK: the census (census).
     - read_trail, TrailRead: the paged trail (trail).
     - llm_view: the providers, their health and the slot bindings (llm).
+    - honey_viewer, HoneyViewer, locate_folder, locate_item, scope_of, read_folder, read_item,
+      read_search, require_honey: the Honey browser's reads for one viewer (honey).
     - screens: read_summary, read_fleet, read_cell_page, read_attendant, read_thoughts,
       read_capping, read_cost and read_metrics, each in its own module (a sub-package).
 """
@@ -36,16 +39,36 @@ from hivemind.entrance.reads.census import (
     cell_views,
     warden_views,
 )
+from hivemind.entrance.reads.honey import (
+    HoneyViewer,
+    honey_viewer,
+    locate_folder,
+    locate_item,
+    read_folder,
+    read_item,
+    read_search,
+    require_honey,
+    scope_of,
+)
 from hivemind.entrance.reads.llm import llm_view
 from hivemind.entrance.reads.trail import TrailRead, read_trail
 
 __all__ = [
     "EVENT_LOOKBACK",
     "PLACED",
+    "HoneyViewer",
     "TrailRead",
     "cell_view",
     "cell_views",
+    "honey_viewer",
     "llm_view",
+    "locate_folder",
+    "locate_item",
+    "read_folder",
+    "read_item",
+    "read_search",
     "read_trail",
+    "require_honey",
+    "scope_of",
     "warden_views",
 ]

@@ -1,8 +1,8 @@
 # hivemind.observation
 
 The Observation Hive's read side, in three parts. `views/` holds the read model of each resource
-the Hive exposes (Cells, Wardens, tasks, the Forage split, thoughts, the trail, providers and slots,
-and the live views' frames), which the Hive Entrance answers its read routes and streams with and
+the Hive exposes (Cells, Wardens, tasks, the Forage split, thoughts, the trail, providers and slots, the
+Honey browser's folders, items and search hits, and the live views' frames), which the Hive Entrance answers its read routes and streams with and
 publishes in the OpenAPI document. `api/` holds the aggregated screens (roadmap 12.1): the summary
 strip, the Fleet list, a Cell page, an Attendant view, the Thoughts page, the Capping view and the
 Cost view, each a frozen model plus a pure builder over the records the Entrance gathers (open
