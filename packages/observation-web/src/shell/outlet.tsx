@@ -20,7 +20,7 @@ import type { ReactElement } from 'react';
 import { ViewTitle } from '../components';
 import { useRoute } from '../router';
 import { AttendantScreen } from '../views/attendant';
-import { CappingView } from '../views/capping/capping';
+import { CappingScreen } from '../views/capping';
 import { CellPageView } from '../views/cell';
 import { ChatScreen } from '../views/chat';
 import { CostScreen } from '../views/cost';
@@ -51,7 +51,7 @@ export function Outlet(): ReactElement {
     case 'cost':
       return <CostScreen />;
     case 'capping':
-      return <CappingView />;
+      return <CappingScreen />;
     case 'devices':
       return <DevicesView />;
     case 'enrol':

@@ -1,0 +1,288 @@
+/*
+ * Capping view styles: the filter chips, the rates strip, the tables and their phone-width cards.
+ *
+ * Mobile first (design.md section 2): everything is one column at 360 px. The rate cards wrap into
+ * as many columns as fit. Under 1080 px a table row becomes a stacked card whose cells keep their
+ * labels (from `data-label`) and the sort headers become a wrapped row of buttons above the cards,
+ * so nothing needs width and the page never scrolls sideways. A state, a verdict and a finding are
+ * a word in a tag; the tag's colour only adds to the word.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/capping/`. Imported by `capping_screen.tsx`. Class names
+ *   are those rendered by this directory and the shared `IdToken` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 4.3 and 5.9.
+ */
+.capping-section {
+  margin: var(--sp-5) 0;
+}
+
+.capping-section h2 {
+  font-size: var(--fs-lg);
+  line-height: var(--lh-heading);
+  margin: 0 0 var(--sp-3);
+}
+
+.capping-note,
+.capping-muted {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* Filter chips: toggle buttons, grouped, in the title row */
+.capping-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.capping-chip {
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.capping-chip[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.capping-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* Rates strip: one card per tier */
+.capping-rates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.capping-rate {
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.capping-rate h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-md);
+  line-height: var(--lh-heading);
+}
+
+.capping-figures {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.capping-figure {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.capping-figure dt {
+  color: var(--text-muted);
+}
+
+.capping-figure dd {
+  margin: 0;
+  text-align: right;
+}
+
+/* Tags: a word with an outline in the status colour */
+.capping-tag {
+  display: inline-block;
+  padding: 0 var(--sp-2);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.capping-tag--ok {
+  color: var(--ok);
+}
+
+.capping-tag--warn {
+  color: var(--warn);
+}
+
+.capping-tag--alarm {
+  color: var(--alarm);
+}
+
+.capping-tag--idle {
+  color: var(--idle);
+}
+
+/* Tables, as cards first */
+.capping-table,
+.capping-table tbody,
+.capping-table tr,
+.capping-table td {
+  display: block;
+}
+
+.capping-table {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.capping-table caption {
+  display: block;
+  text-align: left;
+  color: var(--text-muted);
+  padding-bottom: var(--sp-2);
+}
+
+/* The sort buttons sit in a wrapped row above the cards; plain headers have nothing to press. */
+.capping-table thead,
+.capping-table thead tr {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.capping-table th {
+  display: block;
+  font-weight: 700;
+}
+
+.capping-table th.capping-plain,
+.capping-table--plain thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.capping-sort {
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.capping-table tr {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.capping-table thead tr {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.capping-table td {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  overflow-wrap: anywhere;
+}
+
+.capping-table td::before {
+  content: attr(data-label);
+  color: var(--text-muted);
+}
+
+@media (min-width: 1080px) {
+  .capping-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .capping-table caption {
+    display: table-caption;
+  }
+
+  .capping-table thead {
+    display: table-header-group;
+    margin: 0;
+  }
+
+  .capping-table thead tr,
+  .capping-table tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .capping-table tbody {
+    display: table-row-group;
+  }
+
+  .capping-table th,
+  .capping-table td {
+    display: table-cell;
+    padding: var(--sp-1) var(--sp-2);
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: middle;
+  }
+
+  .capping-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-2);
+  }
+
+  .capping-table th.capping-plain,
+  .capping-table--plain thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+
+  .capping-table td::before {
+    content: none;
+  }
+
+  .capping-sort {
+    min-height: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    font: inherit;
+    font-weight: 700;
+    color: inherit;
+  }
+}

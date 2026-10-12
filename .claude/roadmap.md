@@ -2233,9 +2233,18 @@ in this phase adds a new write path.
   all calls, since `hosted_usd` equals `cost_usd` in today's model. Spend reaches a goal only once
   the Fanner lanes carry `goal_id` (12.1's note); a per-slot hosted and local call count would
   make the hosted share exact.
-- [ ] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
+- [x] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
   reasons, rollbacks, sampled-audit findings and rates per tier, and a link from every item to the
   bee's thoughts and, for Exoskeleton actions, the recording.
+  **Built 2026-10-12.** `src/views/capping/`: seeded from `GET /v1/capping`, each `capping.*`
+  frame on `/v1/trail/stream` folded at once (state, failing check, verdict, rollback, audit,
+  with the per-tier counts and rates moving by the server's formulas) and one throttled re-read
+  per burst; a rates strip per tier, the queue with tier and state chips, sorting with
+  `aria-sort`, bee and Cell links, the verdict rendered from its check codes, and the Exoskeleton
+  rows marked "recording not available" because `ProposalRow` carries no recording reference
+  yet; audits in their own table; stacked cards below 1080 px. Reviewer prose is deliberately not
+  on the trail, so a `reason` on `VerdictRow` and `AuditRow` is a read-model decision to make
+  before the view can show one.
 - [ ] **12.12 Android client.** `packages/observation-web/android/`: a Capacitor project wrapping
   the same React app as an APK. Native push through the channel chosen in the ADR (FCM or
   UnifiedPush) registered with 10.5b, passkeys through the Android credential manager, the
