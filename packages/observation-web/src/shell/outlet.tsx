@@ -1,0 +1,62 @@
+/**
+ * The outlet: draws the view for the current route.
+ *
+ * One view at a time fills the main area. This is the only place that maps a route name to a
+ * component, so adding a view means adding one case here and one directory under `src/views/`.
+ * An unknown route, or a loopback-only screen on a remote listener, draws "not found".
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/shell/`. Rendered by `shell.tsx` inside `<main>`.
+ *
+ * Key invariants:
+ *   - The route (and so the loopback gate) comes from `useRoute`, never recomputed here.
+ *   - Not found is plain: it does not say whether the screen exists elsewhere.
+ *
+ * See Also:
+ *   - src/router/routes.ts for the table.
+ *   - docs/observation/design.md section 5.
+ */
+import type { ReactElement } from 'react';
+import { ViewTitle } from '../components';
+import { useRoute } from '../router';
+import { AttendantView } from '../views/attendant/attendant';
+import { CappingView } from '../views/capping/capping';
+import { CellView } from '../views/cell/cell';
+import { ChatView } from '../views/chat/chat';
+import { CostView } from '../views/cost/cost';
+import { DevicesView } from '../views/devices/devices';
+import { EnrolView } from '../views/enrol/enrol';
+import { FleetView } from '../views/fleet/fleet';
+import { ForageView } from '../views/forage/forage';
+import { HoneyView } from '../views/honey/honey';
+import { ThoughtsView } from '../views/thoughts/thoughts';
+
+export function Outlet(): ReactElement {
+  const route = useRoute();
+  switch (route.name) {
+    case 'fleet':
+      return <FleetView />;
+    case 'cell':
+      return <CellView id={route.id} />;
+    case 'forage':
+      return <ForageView />;
+    case 'thoughts':
+      return <ThoughtsView bee={route.bee} />;
+    case 'attendant':
+      return <AttendantView principal={route.principal} />;
+    case 'chat':
+      return <ChatView />;
+    case 'honey':
+      return <HoneyView path={route.path} />;
+    case 'cost':
+      return <CostView />;
+    case 'capping':
+      return <CappingView />;
+    case 'devices':
+      return <DevicesView />;
+    case 'enrol':
+      return <EnrolView />;
+    case 'not_found':
+      return <ViewTitle title="Not found" />;
+  }
+}

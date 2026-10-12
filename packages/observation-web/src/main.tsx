@@ -2,12 +2,12 @@
  * Browser entry point: mounts the Observation Hive app into the DOM.
  *
  * The Observation Hive is the Hive's live read-only dashboard (see src/app.tsx). This module is
- * the one place that talks to the real DOM directly — everything else renders through React — so
- * that a future change to how the app is mounted (a router, a PWA service worker) touches only
- * this file.
+ * the one place that talks to the real DOM directly, apart from the service worker registration
+ * it triggers, so a future change to how the app is mounted touches only this file.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web). Loaded by index.html's script tag. Renders App from src/app.tsx.
+ *   Layer 7 (observation-web). Loaded by index.html's script tag. Imports the stylesheets (tokens
+ *   first, as the others read them), renders App from src/app.tsx and registers the PWA worker.
  *
  * Key invariants:
  *   - Throws immediately if the #root element is missing, rather than silently rendering nothing,
@@ -20,6 +20,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './app';
+import { registerServiceWorker } from './pwa/register';
+import './styles/tokens.css';
+import './styles/base.css';
+import './styles/shell.css';
+import './styles/components.css';
 
 // #root is declared in index.html; its absence means the HTML shell itself is broken.
 const rootElement = document.getElementById('root');
@@ -32,3 +37,5 @@ createRoot(rootElement).render(
     <App />
   </StrictMode>,
 );
+
+registerServiceWorker();

@@ -1,0 +1,165 @@
+/*
+ * Component styles for the Observation Hive: badges, status dot, gauge and notices.
+ *
+ * Tier and mask badges are told apart by shape as well as colour (design.md section 3.3): a tier
+ * is a fully rounded pill, bold; a mask is a square tag with a small square glyph, regular weight.
+ * Each is drawn with a 2px border in its own text colour, which separates a pale badge from a
+ * pale surface. The gauge fill and status dot take their colour from the status tokens.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
+ *   rendered by `src/components/`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Every badge has a text label in the markup; colour is never the only signal.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3.3, 4.1, 4.2 and 4.4.
+ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+  min-height: 22px;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  white-space: nowrap;
+  border: 2px solid currentcolor;
+}
+
+.badge-tier {
+  border-radius: var(--radius-pill);
+  padding: 0 var(--sp-3);
+  font-weight: 700;
+}
+
+.badge-mask {
+  border-radius: var(--radius-tag);
+  font-weight: 400;
+}
+
+.badge-mask::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: currentcolor;
+}
+
+.badge-tier--meadow {
+  background: var(--tier-meadow-bg);
+  color: var(--tier-meadow-fg);
+}
+
+.badge-tier--propolis {
+  background: var(--tier-propolis-bg);
+  color: var(--tier-propolis-fg);
+}
+
+.badge-tier--night-veil {
+  background: var(--tier-night-veil-bg);
+  color: var(--tier-night-veil-fg);
+}
+
+.badge-mask--off {
+  background: var(--mask-off-bg);
+  color: var(--mask-off-fg);
+}
+
+.badge-mask--warden {
+  background: var(--mask-warden-bg);
+  color: var(--mask-warden-fg);
+}
+
+.badge-mask--queen-forced {
+  background: var(--mask-queen-forced-bg);
+  color: var(--mask-queen-forced-fg);
+}
+
+.badge-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.badge-until {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* Status dot */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+
+.status-dot--ok {
+  background: var(--ok);
+}
+
+.status-dot--warn {
+  background: var(--warn);
+}
+
+.status-dot--alarm {
+  background: var(--alarm);
+}
+
+/* Gauge */
+.gauge {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.gauge-track {
+  height: 8px;
+  background: var(--border-soft);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.gauge-fill {
+  height: 100%;
+}
+
+.gauge-fill--ok {
+  background: var(--ok);
+}
+
+.gauge-fill--warn {
+  background: var(--warn);
+}
+
+.gauge-fill--alarm {
+  background: var(--alarm);
+}
+
+.gauge-text {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* Error notice */
+.notice {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+
+.notice--alarm {
+  border-left-color: var(--alarm);
+}

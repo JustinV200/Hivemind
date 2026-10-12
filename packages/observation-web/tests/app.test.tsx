@@ -1,30 +1,33 @@
 /**
- * Smoke test for the Observation Hive's placeholder app component.
+ * Smoke test for the Observation Hive app: it mounts and asks for a login first.
  *
- * This is the only test roadmap step 0.1 asks for: a proof that the front end scaffold actually
- * renders through React, jsdom and Testing Library end to end, before any real view exists.
+ * Roadmap step 0.1 asked for a proof that the scaffold renders through React, jsdom and Testing
+ * Library. With the shell in place the first thing an unauthenticated visitor sees is the login
+ * screen, so this test pins that. The shell, strip, nav and routes are covered in tests/shell/.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/app.tsx through `pnpm test` (vitest run).
  *
  * Key invariants:
- *   - Asserts on rendered text content only, never on implementation detail, so it keeps passing
- *     unchanged as App grows into the real composition root in phase 12.
+ *   - Uses the fake browser, so the app makes no real network call.
+ *   - Asserts on rendered text only, never on implementation detail.
  *
  * See Also:
  *   - src/app.tsx for the component under test.
+ *   - tests/shell/shell.test.tsx for the rest of the app's behaviour.
  */
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import App from '../src/app';
+import { createFakeBrowser } from './support/fake_browser';
 
 describe('App', () => {
-  it('renders the Hive name', () => {
-    // Render into jsdom (configured in vite.config.ts) and look up the text node by content.
-    render(<App />);
-    const heading = screen.getByText('HiveMind');
+  it('asks a visitor with no session to log in', async () => {
+    // Render into jsdom (configured in vite.config.ts); with no stored session the gate opens login.
+    render(<App browser={createFakeBrowser().browser} />);
+    const heading = await screen.findByRole('heading', { name: 'Log in to the Observation Hive' });
 
-    // getByText already throws if nothing matches; this pins the exact text too.
-    expect(heading.textContent).toBe('HiveMind');
+    // findByRole already throws if nothing matches; this pins the exact text too.
+    expect(heading.textContent).toBe('Log in to the Observation Hive');
   });
 });

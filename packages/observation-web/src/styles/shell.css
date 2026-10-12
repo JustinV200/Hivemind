@@ -1,0 +1,317 @@
+/*
+ * Shell layout for the Observation Hive: top bar, summary strip, nav, main area and login.
+ *
+ * Mobile first, as design.md section 2 sets out. Under 720px the page is one column with a
+ * bottom nav and a strip that wraps to two rows of two groups; from 720px the nav becomes a left
+ * rail of stacked icon and label; from 1080px the rail widens and labels sit beside the icons and
+ * content is capped at 1440px. The head (bar, banner, strip) is sticky, so the strip is never
+ * scrolled away or hidden by navigation.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
+ *   rendered by `src/shell/` and `src/views/login/`.
+ *
+ * Key invariants:
+ *   - Tokens only: no colour or size literal except breakpoints and one-off pixel borders.
+ *   - Nothing here makes the page wider than the viewport.
+ *   - The strip dims, never hides, when its data is stale.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 2, 6 and 7.
+ */
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+}
+
+.shell-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Top bar */
+.topbar {
+  min-height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  padding: 0 var(--gutter);
+}
+
+.topbar-brand {
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  margin-right: auto;
+}
+
+.topbar-device {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.topbar-listener {
+  font-family: var(--font-mono);
+}
+
+.banner {
+  padding: var(--sp-2) var(--gutter);
+  background: var(--surface-2);
+  border-top: 1px solid var(--warn);
+  border-bottom: 1px solid var(--warn);
+  font-size: var(--fs-sm);
+}
+
+/* Summary strip */
+.strip {
+  min-height: var(--strip-h);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-3);
+  align-content: center;
+  padding: var(--sp-2) var(--gutter);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border-soft);
+}
+
+.strip--stale .strip-group {
+  opacity: 0.55;
+}
+
+.strip-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.strip-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.strip-value {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.strip-stale {
+  grid-column: 1 / -1;
+  font-size: var(--fs-xs);
+  color: var(--warn);
+}
+
+@media (min-width: 720px) {
+  .strip {
+    grid-template-columns: repeat(4, auto) 1fr;
+    justify-content: start;
+    column-gap: var(--sp-5);
+  }
+
+  .strip-group {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--sp-2);
+  }
+
+  .strip-stale {
+    grid-column: auto;
+    justify-self: end;
+  }
+}
+
+/* Nav: bottom bar on a phone, rail from 720px */
+.nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.nav li {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.nav a,
+.nav-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--bottom-nav-h);
+  padding: var(--sp-1);
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.nav a[aria-current='page'] {
+  color: var(--accent);
+  font-weight: 700;
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.nav svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* On a phone only five items show, and the rest sit in the More panel */
+.nav-secondary {
+  display: none;
+}
+
+.nav--more-open ul {
+  flex-wrap: wrap;
+}
+
+.nav--more-open li {
+  flex: 0 0 calc(100% / 6);
+}
+
+.nav--more-open .nav-secondary {
+  display: block;
+}
+
+@media (max-width: 719px) and (orientation: landscape) {
+  .nav--hidden {
+    transform: translateY(100%);
+    transition: transform 0.2s;
+  }
+}
+
+.shell-main {
+  min-width: 0;
+  width: 100%;
+  max-width: 1440px;
+  padding: var(--gutter);
+  padding-bottom: calc(var(--bottom-nav-h) + var(--gutter));
+}
+
+.view-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+.view-subject {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 720px) {
+  .shell {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+
+  .nav {
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--strip-h));
+    align-self: start;
+    border-top: 0;
+    border-right: 1px solid var(--border);
+    height: calc(100dvh - var(--topbar-h) - var(--strip-h));
+    overflow-y: auto;
+  }
+
+  .nav ul {
+    flex-direction: column;
+  }
+
+  .nav a {
+    min-height: 56px;
+  }
+
+  .nav-more-slot {
+    display: none;
+  }
+
+  .nav-secondary {
+    display: block;
+  }
+
+  .shell-main {
+    padding-bottom: var(--gutter);
+  }
+}
+
+@media (min-width: 1080px) {
+  .nav a {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-4);
+    font-size: var(--fs-md);
+  }
+}
+
+/* Login */
+.login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+}
+
+.login-stack {
+  width: 100%;
+  max-width: 400px;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.login-card {
+  width: 100%;
+  display: grid;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.login-card label {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.login-card input {
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.login-notice {
+  color: var(--text-muted);
+}

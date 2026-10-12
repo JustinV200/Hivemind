@@ -256,6 +256,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: packages/observation-web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      # ADR-0046: src/landing_board/types.ts is generated from docs/entrance/openapi.json, so a
+      # document change committed without regenerating the types fails here, before lint.
+      - run: pnpm generate:check
       - run: pnpm lint
       - run: pnpm format
       - run: pnpm typecheck
