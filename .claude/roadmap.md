@@ -2134,7 +2134,7 @@ in this phase adds a new write path.
   expiry, the Patrol's report (only its time), a recording link for Exoskeleton Capping items,
   the bee an Alarm belongs to (the bee whose task it names is marked), and the Cell's `status`
   on `CellFrame` (the header's status updates on re-read).
-- [ ] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
+- [x] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
   (Hive Stand, each Nuc, each Virtual Cell backend) the cores, memory, GPU and model seats in use
   versus available, the Royal Reserve held back, and a flow from the Queen's shared pool to each
   Warden's grant to each sub-bee's spend, plus hosted spend against cost caps. Each Nuc and Level 1
@@ -2143,6 +2143,21 @@ in this phase adds a new write path.
   a table: every source with grade, measured grade, distance from each Cell, abundance and cost.
   The Fanner's queues per binding with waiting requests and their tempo. Pending `ForageRequest`s
   with their reasons and the Queen's decision when it lands, and grants nearing expiry.
+  **Built 2026-10-12** for what today's reads carry. `src/views/forage/`: seeded from
+  `GET /v1/forage`, `/v1/wardens` and `/v1/llm` together, folded live from `/v1/forage/stream`
+  (a `forage.capacity_reported` frame re-reads the ledger once, since the frame carries no
+  figures); the capacity diagram (pure model and layout, SVG) per host for cores, memory, GPUs,
+  local seats and sub-bee slots with the shared pool and the Royal Reserve first and
+  over-commitment marked; the flow diagram pool to Wardens to grants in seats, sub-bees, spend
+  or tokens; grants within ten minutes of expiry first and marked; requests from the stream's
+  `forage.requested`, `granted` and `denied` events with the Queen's decision; Wardens with
+  state and Heartbeat; a sortable map table; a spend gauge per Warden against its grants'
+  budgets. Schema gaps, each needing a read-model field before the view can show it: the map's
+  grade, measured grade, abundance, cost and per-Cell distance (`LlmView` has none); the
+  Fanner's queues per binding; Nuc and Level 1 local pools and ceilings (phase 11);
+  `CapacityView`'s host kind, per-host reserve, granted-but-idle, GPU and seat use; pool and
+  reserve for spend and tokens; Hive-wide cost caps; pending requests in the seed; per-sub-bee
+  spend in the Forage reads; and capacity figures on `ForageFrame`.
 - [x] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
   source, status and mode, `CombShieldLevel`, Pheromone Mask state, access level, two badges (where the Warden runs: Hive Stand or on the
   Cell; where its models come from: local, Hive Stand, hosted, or hybrid per its hosting plan),

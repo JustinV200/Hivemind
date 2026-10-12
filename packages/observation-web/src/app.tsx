@@ -37,6 +37,7 @@ import type { AppSlices, Hive } from './store';
 import { LoginScreen } from './views/login/login';
 import { cellSlice } from './views/cell';
 import { fleetSlice } from './views/fleet';
+import { forageSlice } from './views/forage';
 import { thoughtsSlice } from './views/thoughts/slice';
 
 // Every slice the app holds: the shell's three, then one per view that keeps live state. The type
@@ -46,6 +47,7 @@ export const APP_SLICES: AppSlices = {
   thoughts: thoughtsSlice,
   fleet: fleetSlice,
   cell: cellSlice,
+  forage: forageSlice,
 };
 
 function buildHive(browser: Browser): Hive {

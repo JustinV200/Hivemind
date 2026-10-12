@@ -27,7 +27,7 @@ import { CostView } from '../views/cost/cost';
 import { DevicesView } from '../views/devices/devices';
 import { EnrolView } from '../views/enrol/enrol';
 import { FleetView } from '../views/fleet/fleet';
-import { ForageView } from '../views/forage/forage';
+import { ForageScreen } from '../views/forage';
 import { HoneyView } from '../views/honey/honey';
 import { ThoughtsView } from '../views/thoughts/thoughts_view';
 
@@ -39,7 +39,7 @@ export function Outlet(): ReactElement {
     case 'cell':
       return <CellPageView id={route.id} />;
     case 'forage':
-      return <ForageView />;
+      return <ForageScreen />;
     case 'thoughts':
       return <ThoughtsView bee={route.bee} />;
     case 'attendant':
