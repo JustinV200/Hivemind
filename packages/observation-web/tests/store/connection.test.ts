@@ -7,7 +7,7 @@
  * too, including that a repeated end does not overwrite the first notice.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web tests). Exercises src/store/connection.ts and src/store/session.ts.
+ *   Layer 7 (observation-web tests). Exercises src/store/slices/connection.ts and src/store/slices/session.ts.
  *
  * Key invariants:
  *   - Times are passed in; nothing here reads a clock.
@@ -22,9 +22,13 @@ import {
   reduceConnection,
   refusedStreams,
   staleSince,
-} from '../../src/store/connection';
-import type { ConnectionEvent } from '../../src/store/connection';
-import { initialSession, reduceSession, SESSION_ENDED_NOTICE } from '../../src/store/session';
+} from '../../src/store/slices/connection';
+import type { ConnectionEvent } from '../../src/store/slices/connection';
+import {
+  initialSession,
+  reduceSession,
+  SESSION_ENDED_NOTICE,
+} from '../../src/store/slices/session';
 
 const fold = (events: ConnectionEvent[]) => events.reduce(reduceConnection, initialConnection);
 const live = (at: number): ConnectionEvent[] =>
@@ -78,6 +82,46 @@ describe('connection', () => {
     expect(connectionWord(slice)).toBe('live');
     expect(staleSince(slice)).toBeNull();
     expect(refusedStreams(slice)).toEqual(['telemetry', 'episodes']);
+  });
+});
+
+describe('view streams', () => {
+  const PATH = '/v1/episodes/stream';
+  const allLive = fold([{ type: 'reset', at: 1 }, ...live(2)]);
+
+  it('are held while open and forgotten when closed', () => {
+    const open = reduceConnection(allLive, { type: 'view', path: PATH, state: 'live', at: 3 });
+    expect(open.views[PATH]).toEqual({ state: 'live', since: 3 });
+    expect(
+      reduceConnection(open, { type: 'view', path: PATH, state: 'closed', at: 4 }).views,
+    ).toEqual({});
+    // Closing one that is not held changes nothing.
+    expect(reduceConnection(allLive, { type: 'view', path: PATH, state: 'closed', at: 4 })).toBe(
+      allLive,
+    );
+  });
+
+  it('count toward the word but never make the strip stale', () => {
+    const down = reduceConnection(allLive, {
+      type: 'view',
+      path: PATH,
+      state: 'reconnecting',
+      at: 9,
+    });
+    expect(connectionWord(down)).toBe('reconnecting');
+    expect(staleSince(down)).toBeNull();
+    const refused = reduceConnection(allLive, {
+      type: 'view',
+      path: PATH,
+      state: 'refused',
+      at: 9,
+    });
+    expect(connectionWord(refused)).toBe('live');
+  });
+
+  it('survive a reset of the shell streams', () => {
+    const open = reduceConnection(allLive, { type: 'view', path: PATH, state: 'live', at: 3 });
+    expect(reduceConnection(open, { type: 'reset', at: 5 }).views[PATH]).toBeDefined();
   });
 });
 

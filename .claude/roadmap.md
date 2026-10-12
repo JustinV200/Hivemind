@@ -2091,13 +2091,24 @@ in this phase adds a new write path.
   tree, Cell and Forage diagrams land with their views (12.4, 12.5). Not yet: a push handler in
   the service worker (12.12), a theme toggle, and the Entrance serving `.webmanifest` with its
   media type (checked in the phase's exit run).
-- [ ] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
+- [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
   provider exposes one, decision and action. The same view opens for **any bee** from the fleet
   view, with full read access to its episode records and telemetry, and a "follow" mode that
   streams new episodes as they happen. Backed by `memory/episodes.py` (3.14) and the episode stream
   (10.5). Secrets and screenshot bytes are redacted at the source, not in the UI.
+  **Built 2026-10-12.** `src/views/thoughts/`: seeded from `GET /v1/thoughts` (and
+  `GET /v1/attendant/queen` for the Queen's ordered inbox with scores), follow mode over
+  `/v1/episodes/stream` through the store's `useViewStream`, a "N new" queue when follow is off,
+  cursor paging bounded at 500 records, autopilot decisions interleaved by time, and the taint
+  label (state and source, added to `EpisodeView` for this step) beside the clearance. The store
+  became generic here (`createHiveStore(slices)`, `useSlice`, `useViewStream`; a view registers
+  its slice by declaration merging into `SliceRegistry` and one entry in `APP_SLICES`). Deferred:
+  the assembled context by section, because an episode record holds only `prompt_ref`, which
+  nothing sets yet (memory 3.14 chose never to store the prompt text; exposing sections needs a
+  memory-side decision on what to persist); and a cursor on the episode stream, so a 4409
+  reconnect re-subscribes without the gap until the view is re-seeded.
 - [ ] **12.4 Cell pages and diagrams.** One page per Cell with a live diagram: its Warden and
   where it runs (Hive Stand or on the Cell), every sub-bee with role, status, what it is doing
   right now and a context gauge, the session, whether an Exoskeleton is attached, the lease or

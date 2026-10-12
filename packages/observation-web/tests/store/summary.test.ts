@@ -6,7 +6,7 @@
  * terminal state, the seed shows until the streams cover it, and no record grows without bound.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web tests). Exercises src/store/summary.ts.
+ *   Layer 7 (observation-web tests). Exercises src/store/slices/summary.ts.
  *
  * Key invariants:
  *   - Reducers are pure: each test checks that the input slice was not changed.
@@ -15,8 +15,13 @@
  *   - docs/observation/design.md section 2 for what the strip counts.
  */
 import { describe, expect, it } from 'vitest';
-import { initialSummary, MAX_BEES, reduceSummary, summaryCounters } from '../../src/store/summary';
-import type { SummaryEvent, SummarySlice } from '../../src/store/summary';
+import {
+  initialSummary,
+  MAX_BEES,
+  reduceSummary,
+  summaryCounters,
+} from '../../src/store/slices/summary';
+import type { SummaryEvent, SummarySlice } from '../../src/store/slices/summary';
 import { cellFrame, episodeFrame, SEED, SEED_STRIP, telemetryFrame } from '../support/frames';
 
 const fold = (events: SummaryEvent[], from: SummarySlice = initialSummary): SummarySlice =>

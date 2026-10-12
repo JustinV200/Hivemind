@@ -29,7 +29,7 @@ import { EnrolView } from '../views/enrol/enrol';
 import { FleetView } from '../views/fleet/fleet';
 import { ForageView } from '../views/forage/forage';
 import { HoneyView } from '../views/honey/honey';
-import { ThoughtsView } from '../views/thoughts/thoughts';
+import { ThoughtsView } from '../views/thoughts/thoughts_view';
 
 export function Outlet(): ReactElement {
   const route = useRoute();

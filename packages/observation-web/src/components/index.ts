@@ -14,10 +14,12 @@
  */
 export { ErrorNotice } from './error_notice';
 export { Gauge } from './gauge';
+export { IdToken } from './id_token';
 export { MaskBadge } from './mask_badge';
 export type { MaskState } from './mask_badge';
 export { StatusDot } from './status_dot';
 export type { StatusWord } from './status_dot';
+export { TimeStamp } from './time_stamp';
 export { TierBadge } from './tier_badge';
 export type { CombShieldLevel } from './tier_badge';
 export { ViewTitle } from './view_title';

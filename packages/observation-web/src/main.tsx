@@ -25,6 +25,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
 import './styles/components.css';
+import './styles/thoughts.css';
 
 // #root is declared in index.html; its absence means the HTML shell itself is broken.
 const rootElement = document.getElementById('root');

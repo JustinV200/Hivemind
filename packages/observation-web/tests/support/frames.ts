@@ -82,6 +82,8 @@ export function episodeFrame(
       id: 'ep_1',
       input_tokens: null,
       is_autopilot: false,
+      taint: null,
+      taint_source: null,
       output_tokens: null,
       principal: 'queen',
       prompt_ref: null,
@@ -122,3 +124,57 @@ export const SEED_STRIP = {
   bees_autopilot: SEED.bees_autopilot,
   as_of: SEED.as_of,
 };
+
+export function episodeView(episode: Partial<Schemas['EpisodeView']> = {}): Schemas['EpisodeView'] {
+  return episodeFrame(episode).episode;
+}
+
+export function decisionView(
+  decision: Partial<Schemas['AutopilotDecisionView']> = {},
+): Schemas['AutopilotDecisionView'] {
+  return {
+    action: 'REBIND',
+    alarm_id: null,
+    at: '2026-01-01T00:00:00Z',
+    id: 'dec_1',
+    kind: 'queen.decided',
+    reason: 'lease_expired',
+    subject_id: 'cell_1',
+    ...decision,
+  };
+}
+
+export function thoughtsPage(page: Partial<Schemas['ThoughtsPage']> = {}): Schemas['ThoughtsPage'] {
+  return { decisions: [], episodes: [], next_cursor: null, ...page };
+}
+
+export function inboxEntry(
+  entry: Partial<Schemas['InboxEntryView']> = {},
+): Schemas['InboxEntryView'] {
+  return {
+    id: 'alarm_1',
+    kind: 'ALARM',
+    reasons: ['severity high'],
+    received_at: '2026-01-01T00:00:00Z',
+    score: 9.5,
+    severity: null,
+    task_id: null,
+    ...entry,
+  };
+}
+
+export function attendantView(
+  view: Partial<Schemas['AttendantView']> = {},
+): Schemas['AttendantView'] {
+  return {
+    as_of: '2026-01-01T00:00:00Z',
+    edges: [],
+    inbox: [],
+    inbox_is_reconstructed: false,
+    nodes: [],
+    principal: 'queen',
+    recently_finished: [],
+    up_next: [],
+    ...view,
+  };
+}

@@ -19,7 +19,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createLandingBoard } from '../../src/landing_board/client';
 import { hrefFor, resolveRoute, useRoute } from '../../src/router';
 import type { Route } from '../../src/router';
-import { HiveProvider, HiveStore } from '../../src/store';
+import { APP_SLICES } from '../../src/app';
+import { createHiveStore, HiveProvider } from '../../src/store';
 import { createFakeBrowser } from '../support/fake_browser';
 
 const TABLE: [string, Route][] = [
@@ -82,7 +83,7 @@ describe('useRoute', () => {
   }
 
   function mount(listener: 'loopback' | 'remote') {
-    const store = new HiveStore();
+    const store = createHiveStore(APP_SLICES);
     store.dispatch({
       slice: 'session',
       event: {

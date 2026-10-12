@@ -10,7 +10,7 @@
  * a stale seed when a bee finishes.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/store/`. Folded by `HiveStore`; fed by `feed.ts`; read by
+ *   Layer 7 (observation-web), `src/store/slices/`. Folded by `HiveStore`; fed by `feed.ts`; read by
  *   the summary strip in `src/shell/`.
  *
  * Key invariants:
@@ -26,7 +26,7 @@
  *   - docs/observation/design.md sections 2 and 4 for the strip.
  *   - docs/adr/0046-observation-hive-dashboard-stack.md for the seeded-then-live rule.
  */
-import type { components } from '../landing_board/types';
+import type { components } from '../../landing_board/types';
 
 type CellFrame = components['schemas']['CellFrame'];
 type TelemetryFrame = components['schemas']['TelemetryFrame'];

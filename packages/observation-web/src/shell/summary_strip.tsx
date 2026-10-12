@@ -18,7 +18,7 @@
  *
  * See Also:
  *   - docs/observation/design.md sections 2 and 7.
- *   - src/store/summary.ts and src/store/connection.ts for the data.
+ *   - src/store/slices/summary.ts and src/store/slices/connection.ts for the data.
  */
 import type { ReactElement } from 'react';
 import { refusedStreams, staleSince, summaryCounters, useSlice } from '../store';

@@ -1,0 +1,208 @@
+/*
+ * Thoughts view styles: episode cards, autopilot decision rows, the inbox panel and Follow.
+ *
+ * Mobile first (design.md section 2): cards stack in one column and a card's sections expand
+ * inline below their button, so nothing needs width. An autopilot decision is a slim row with a
+ * left rule and no card surface, so it reads as different from an episode at a glance; the word
+ * "Autopilot decision" is in every row, so colour is never the only signal.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
+ *   rendered by `src/views/thoughts/` and the shared `IdToken` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 5.4 and 6.
+ */
+.id-token {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.time-stamp {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.follow-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.follow-state {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.follow-new {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.thought-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0;
+}
+
+.thought {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.thought--autopilot {
+  background: var(--surface-2);
+}
+
+.thought-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.thought-tag {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+}
+
+/* Taint is a status, so it borrows the status colours: refused reads as an alarm, cleared as
+   a caution whose history is kept. The word carries the meaning; the colour only underlines it. */
+.thought-tag--tainted {
+  border-color: var(--alarm);
+  color: var(--alarm);
+  font-weight: 700;
+}
+
+.thought-tag--cleared {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.thought-trigger,
+.thought-reasoning {
+  margin: 0;
+}
+
+.thought-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.thought-pairs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0;
+}
+
+.thought-pairs dt {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.thought-pairs dd {
+  margin: 0;
+}
+
+.thought-section h4 {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.thought-section-toggle {
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.thought-section-toggle::before {
+  content: '+ ';
+}
+
+.thought-section-toggle[aria-expanded='true']::before {
+  content: '- ';
+}
+
+.thought-section-body {
+  padding: var(--sp-2) 0 0 var(--sp-3);
+  border-left: 2px solid var(--border-soft);
+}
+
+.thought-decision {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-1) var(--sp-3);
+  border-left: 4px solid var(--accent);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.thought-note,
+.inbox-note {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.inbox-panel {
+  margin-bottom: var(--sp-4);
+}
+
+.inbox-panel h2 {
+  font-size: var(--fs-lg);
+}
+
+.inbox-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+}
+
+.inbox-rank {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-score {
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-reasons {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: var(--sp-4);
+  color: var(--text-muted);
+}

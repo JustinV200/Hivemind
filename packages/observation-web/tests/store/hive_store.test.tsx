@@ -17,13 +17,14 @@
 import { act, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { createLandingBoard } from '../../src/landing_board/client';
-import { HiveProvider, HiveStore, summaryCounters, useSlice } from '../../src/store';
+import { APP_SLICES } from '../../src/app';
+import { createHiveStore, HiveProvider, summaryCounters, useSlice } from '../../src/store';
 import { cellFrame } from '../support/frames';
 import { createFakeBrowser } from '../support/fake_browser';
 
 describe('HiveStore', () => {
   it('notifies listeners only when a slice changed', () => {
-    const store = new HiveStore();
+    const store = createHiveStore(APP_SLICES);
     let calls = 0;
     store.subscribe(() => (calls += 1));
     store.dispatch({ slice: 'summary', event: { type: 'cell', frame: cellFrame({ id: 'a' }) } });
@@ -32,14 +33,14 @@ describe('HiveStore', () => {
   });
 
   it('keeps an untouched slice identical across other slices changing', () => {
-    const store = new HiveStore();
+    const store = createHiveStore(APP_SLICES);
     const before = store.getSnapshot().session;
     store.dispatch({ slice: 'connection', event: { type: 'reset', at: 1 } });
     expect(store.getSnapshot().session).toBe(before);
   });
 
   it('stops notifying after unsubscribe', () => {
-    const store = new HiveStore();
+    const store = createHiveStore(APP_SLICES);
     let calls = 0;
     const off = store.subscribe(() => (calls += 1));
     off();
@@ -56,7 +57,7 @@ describe('useSlice', () => {
   }
 
   it('re-renders a component when its slice changes, and not for another slice', () => {
-    const store = new HiveStore();
+    const store = createHiveStore(APP_SLICES);
     const client = createLandingBoard({
       browser: createFakeBrowser().browser,
       onSessionLost: () => {},

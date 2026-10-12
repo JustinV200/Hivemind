@@ -2629,6 +2629,39 @@
             "$ref": "#/components/schemas/ModelSlot",
             "description": "The model slot it ran on."
           },
+          "taint": {
+            "anyOf": [
+              {
+                "enum": [
+                  "tainted",
+                  "cleared"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its taint label: tainted (nothing assembles it), cleared (a judge cleared it; history kept), or null for an unlabelled record.",
+            "title": "Taint"
+          },
+          "taint_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "isolation",
+                  "quarantine",
+                  "guard_report"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which setter labelled it (isolation, quarantine or guard_report); null when unlabelled.",
+            "title": "Taint Source"
+          },
           "trigger_kind": {
             "description": "What kind of thing triggered it.",
             "title": "Trigger Kind",
@@ -2665,6 +2698,8 @@
           "decision",
           "action",
           "clearance",
+          "taint",
+          "taint_source",
           "input_tokens",
           "output_tokens",
           "cost_usd",

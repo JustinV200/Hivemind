@@ -17,6 +17,7 @@
  *
  * See Also:
  *   - src/store/ for the state, src/shell/ for the screens after login, src/views/login/.
+ *   - src/store/registry.ts for how a view's slice joins the table below.
  *   - tests/app.test.tsx for the app run against a fake browser.
  */
 import { useEffect, useState } from 'react';
@@ -24,12 +25,24 @@ import type { ReactElement } from 'react';
 import { createLandingBoard, realBrowser } from './landing_board/client';
 import type { Browser } from './landing_board/client';
 import { Shell } from './shell';
-import { HiveProvider, HiveStore, SESSION_ENDED_NOTICE, useHive, useSlice } from './store';
-import type { Hive } from './store';
+import {
+  createHiveStore,
+  HiveProvider,
+  SESSION_ENDED_NOTICE,
+  SHELL_SLICES,
+  useHive,
+  useSlice,
+} from './store';
+import type { AppSlices, Hive } from './store';
 import { LoginScreen } from './views/login/login';
+import { thoughtsSlice } from './views/thoughts/slice';
+
+// Every slice the app holds: the shell's three, then one per view that keeps live state. The type
+// is the registry the views merge into, so a view slice left out of this table fails to compile.
+export const APP_SLICES: AppSlices = { ...SHELL_SLICES, thoughts: thoughtsSlice };
 
 function buildHive(browser: Browser): Hive {
-  const store = new HiveStore();
+  const store = createHiveStore(APP_SLICES);
   const client = createLandingBoard({
     browser,
     onSessionLost: () =>

@@ -2674,6 +2674,16 @@ export interface components {
             /** @description The model slot it ran on. */
             slot: components["schemas"]["ModelSlot"];
             /**
+             * Taint
+             * @description Its taint label: tainted (nothing assembles it), cleared (a judge cleared it; history kept), or null for an unlabelled record.
+             */
+            taint: ("tainted" | "cleared") | null;
+            /**
+             * Taint Source
+             * @description Which setter labelled it (isolation, quarantine or guard_report); null when unlabelled.
+             */
+            taint_source: ("isolation" | "quarantine" | "guard_report") | null;
+            /**
              * Trigger Kind
              * @description What kind of thing triggered it.
              */

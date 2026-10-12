@@ -20,11 +20,12 @@
  *   - docs/adr/0046-observation-hive-dashboard-stack.md (streams and reconnect policy).
  *   - src/landing_board/client/socket.ts for the policy itself.
  */
-import type { LandingBoard, StreamEnd, StreamState } from '../landing_board/client';
+import type { LandingBoard, StreamState } from '../landing_board/client';
 import type { components } from '../landing_board/types';
-import type { StreamName } from './connection';
 import type { HiveStore } from './hive_store';
-import { SESSION_ENDED_NOTICE } from './session';
+import type { AppSlices } from './registry';
+import type { StreamName } from './slices/connection';
+import { endSessionOnClose } from './view_stream';
 
 type CellFrame = components['schemas']['CellFrame'];
 type TelemetryFrame = components['schemas']['TelemetryFrame'];
@@ -32,11 +33,9 @@ type EpisodeFrame = components['schemas']['EpisodeFrame'];
 
 export interface FeedDeps {
   client: LandingBoard;
-  store: HiveStore;
+  store: HiveStore<AppSlices>;
   nowMs: () => number;
 }
-
-const REDUCED_NOTICE = 'The Entrance was reduced to the Hive Stand. Log in again there.';
 
 async function seed(deps: FeedDeps): Promise<void> {
   const { client, store } = deps;
@@ -61,16 +60,12 @@ function open<F>(
       slice: 'connection',
       event: { type: 'stream', name, state, at: nowMs() },
     });
-  const onEnd = (end: StreamEnd): void => {
-    // 4410 and 4411 end the whole session; a refusal only marks this stream (set by onState).
-    if (end.reason === 'session_ended' || end.reason === 'reduced') {
-      const notice = end.reason === 'reduced' ? REDUCED_NOTICE : SESSION_ENDED_NOTICE;
-      // The key and token are dead; delete them so a reload does not restore a finished session.
-      void client.session.forget();
-      store.dispatch({ slice: 'session', event: { type: 'ended', notice } });
-    }
-  };
-  return client.openStream<F>({ path, onFrame: fold, onState, onEnd }).close;
+  return client.openStream<F>({
+    path,
+    onFrame: fold,
+    onState,
+    onEnd: (end) => endSessionOnClose(client, store, end),
+  }).close;
 }
 
 export function startFeeds(deps: FeedDeps): () => void {

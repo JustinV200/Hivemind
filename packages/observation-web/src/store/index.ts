@@ -14,15 +14,18 @@
  *
  * See Also:
  *   - src/store/hive_store.ts for the store and src/store/react.tsx for the hooks.
+ *   - src/store/registry.ts for how a view adds a slice.
  */
-export { HiveStore } from './hive_store';
-export type { HiveEvent, HiveState } from './hive_store';
-export { HiveProvider, useHive, useSlice } from './react';
+export { createHiveStore, HiveStore } from './hive_store';
+export type { AppSlices, SliceRegistry } from './registry';
+export type { EventFor, EventOf, Slice, SliceTable, StateOf, StateTable } from './slice';
+export { HiveProvider, useHive, useSlice, useViewStream } from './react';
 export type { Hive } from './react';
 export { startFeeds } from './feed';
-export { connectionWord, refusedStreams, staleSince } from './connection';
-export type { ConnectionSlice, StreamName } from './connection';
-export { summaryCounters } from './summary';
-export type { SummaryCounters, SummarySeed, SummarySlice } from './summary';
-export { SESSION_ENDED_NOTICE } from './session';
-export type { Listener, SessionSlice } from './session';
+export { SHELL_SLICES } from './slices';
+export { connectionWord, refusedStreams, staleSince } from './slices/connection';
+export type { ConnectionSlice, StreamName } from './slices/connection';
+export { summaryCounters } from './slices/summary';
+export type { SummaryCounters, SummarySeed, SummarySlice } from './slices/summary';
+export { SESSION_ENDED_NOTICE } from './slices/session';
+export type { Listener, SessionSlice } from './slices/session';

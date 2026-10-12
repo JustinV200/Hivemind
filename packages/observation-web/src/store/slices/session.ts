@@ -7,7 +7,7 @@
  * (a stream close with code 4410 or 4411) and the HTTP wrapper (a 401).
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/store/`. Folded by `HiveStore`; read by the shell, the router
+ *   Layer 7 (observation-web), `src/store/slices/`. Folded by `HiveStore`; read by the shell, the router
  *   and the login screen through `useSlice('session')`.
  *
  * Key invariants:
@@ -21,7 +21,7 @@
  *   - docs/observation/design.md sections 2 and 5.10.
  *   - src/landing_board/client/session.ts, where the events originate.
  */
-import type { OpenedSession } from '../landing_board/client';
+import type { OpenedSession } from '../../landing_board/client';
 
 export type Listener = 'loopback' | 'remote';
 export type SessionStatus = 'restoring' | 'none' | 'active' | 'ended';

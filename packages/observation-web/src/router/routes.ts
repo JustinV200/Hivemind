@@ -20,7 +20,7 @@
  *   - docs/observation/design.md section 5 for the route list.
  *   - docs/adr/0046-observation-hive-dashboard-stack.md for hash routing and loopback screens.
  */
-import type { Listener } from '../store/session';
+import type { Listener } from '../store';
 
 export type Route =
   | { name: 'fleet' }

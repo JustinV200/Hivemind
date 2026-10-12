@@ -8,8 +8,12 @@
  * strip says which groups it leaves without data.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/store/`. Folded by `HiveStore`; fed by `feed.ts` from each
+ *   Layer 7 (observation-web), `src/store/slices/`. Folded by `HiveStore`; fed by `feed.ts` from each
  *   stream's state callback; read by the top bar and the summary strip.
+ *
+ * A view that opens a stream of its own (the Thoughts view's follow mode) reports it here too, keyed
+ * by path, so the top bar's word covers it. A view stream is not one the strip needs, so it never
+ * makes the strip stale, and it leaves the slice when the view closes it.
  *
  * Key invariants:
  *   - Pure: the time of a change comes in with the event, never from a clock here.
@@ -20,7 +24,7 @@
  *   - docs/observation/design.md sections 2 and 4.4 for the words and the stale rule.
  *   - docs/adr/0046-observation-hive-dashboard-stack.md for the reconnect policy.
  */
-import type { StreamState } from '../landing_board/client';
+import type { StreamState } from '../../landing_board/client';
 
 export type StreamName = 'cells' | 'telemetry' | 'episodes';
 export type ConnectionWord = 'live' | 'reconnecting' | 'offline';
@@ -34,10 +38,13 @@ export interface StreamStatus {
 
 export interface ConnectionSlice {
   streams: Record<StreamName, StreamStatus>;
+  // Streams a view opened, by path; present only while the view holds them open.
+  views: Readonly<Record<string, StreamStatus>>;
 }
 
 export type ConnectionEvent =
   | { type: 'stream'; name: StreamName; state: StreamState; at: number }
+  | { type: 'view'; path: string; state: StreamState; at: number }
   | { type: 'reset'; at: number };
 
 function allIn(state: StreamState, at: number): Record<StreamName, StreamStatus> {
@@ -48,14 +55,36 @@ function allIn(state: StreamState, at: number): Record<StreamName, StreamStatus>
   };
 }
 
-export const initialConnection: ConnectionSlice = { streams: allIn('closed', 0) };
+export const initialConnection: ConnectionSlice = { streams: allIn('closed', 0), views: {} };
+
+// A closed view stream is forgotten, so an unmounted view leaves nothing for the top bar to show.
+function reduceView(
+  slice: ConnectionSlice,
+  event: Extract<ConnectionEvent, { type: 'view' }>,
+): ConnectionSlice {
+  const current = slice.views[event.path];
+  if (event.state === 'closed') {
+    if (current === undefined) return slice;
+    const kept = Object.entries(slice.views).filter(([path]) => path !== event.path);
+    return { ...slice, views: Object.fromEntries(kept) };
+  }
+  if (current?.state === event.state) return slice;
+  return {
+    ...slice,
+    views: { ...slice.views, [event.path]: { state: event.state, since: event.at } },
+  };
+}
 
 export function reduceConnection(slice: ConnectionSlice, event: ConnectionEvent): ConnectionSlice {
-  if (event.type === 'reset') return { streams: allIn('connecting', event.at) };
+  if (event.type === 'reset') return { ...slice, streams: allIn('connecting', event.at) };
+  if (event.type === 'view') return reduceView(slice, event);
   const current = slice.streams[event.name];
   // A repeat of the same state keeps its original time, so `since` means "since it became this".
   if (current.state === event.state) return slice;
-  return { streams: { ...slice.streams, [event.name]: { state: event.state, since: event.at } } };
+  return {
+    ...slice,
+    streams: { ...slice.streams, [event.name]: { state: event.state, since: event.at } },
+  };
 }
 
 function usable(slice: ConnectionSlice): StreamStatus[] {
@@ -63,7 +92,10 @@ function usable(slice: ConnectionSlice): StreamStatus[] {
 }
 
 export function connectionWord(slice: ConnectionSlice): ConnectionWord {
-  const needed = usable(slice);
+  // The word covers a view's streams as well, so a Thoughts stream that drops shows in the bar.
+  const needed = [...usable(slice), ...Object.values(slice.views)].filter(
+    (s) => s.state !== 'refused',
+  );
   if (needed.length > 0 && needed.every((s) => s.state === 'live')) return 'live';
   if (needed.some((s) => s.state === 'connecting' || s.state === 'reconnecting')) {
     return 'reconnecting';

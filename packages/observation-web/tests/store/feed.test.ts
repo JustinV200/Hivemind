@@ -17,7 +17,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createLandingBoard } from '../../src/landing_board/client';
-import { HiveStore, startFeeds, summaryCounters } from '../../src/store';
+import { APP_SLICES } from '../../src/app';
+import { createHiveStore, startFeeds, summaryCounters } from '../../src/store';
 import { createFakeBrowser, flush } from '../support/fake_browser';
 import { cellFrame, SEED, SEED_STRIP, telemetryFrame } from '../support/frames';
 import { storeSession } from '../support/session_fixture';
@@ -25,7 +26,7 @@ import { storeSession } from '../support/session_fixture';
 async function started(options: { seed?: boolean } = {}) {
   const fake = createFakeBrowser();
   await storeSession(fake.browser);
-  const store = new HiveStore();
+  const store = createHiveStore(APP_SLICES);
   const board = createLandingBoard({ browser: fake.browser, onSessionLost: () => {} });
   await board.session.restore();
   fake.respond('GET /v1/devices/me', 200, { name: 'Pixel' });
