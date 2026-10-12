@@ -1,23 +1,136 @@
-"""Provide the Royal Jelly Lab and Comb Registry: the royal_jelly package.
+"""Provide the Royal Jelly Lab and Comb Registry: how new tools are described, proven and kept.
 
-It defines how a Worker or Warden requests a brand-new tool, has it scaffolded and quarantined,
-and, once approved, promoted into the registry at hive or Cell scope.
+The Royal Jelly Lab is the Hive's tool-authoring pipeline: a bee asks for a tool that does not
+exist, the lab scaffolds it, the Quarantine Comb (the sandbox every new tool must pass) proves it,
+and the Comb Registry (the catalogue of promoted tools) records it at hive or Cell scope. This
+package face exports what exists after phase 9's first wave: the tool spec, its validation, the
+deterministic package format, the Quarantine Comb's report, the tool state machine, the error
+tree and the registry. The Comb, the scaffolder and the promotion flow join later and are not
+re-exported yet.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Called by a Worker or Warden that
-    needs a tool that does not exist yet. Calls into hivemind.cell, hivemind.guard and
-    hivemind.common.
+    needs a tool that does not exist yet, by the Queen's tick code and by `hive tools`. Calls into
+    hivemind.guard (capabilities), hivemind.common and waggle.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 9 adds its first public name.
+    - A tool is a package of files named by its SHA-256; the registry stores the hash, never the
+      bytes, and one hash names one immutable version everywhere.
+    - A tool never reaches the registry without a passing Quarantine Comb report; there is no
+      force flag.
 
 See Also:
-    - .claude/codingrules.md section 4 for the layer 3 row this package occupies.
-    - .claude/roadmap.md phase 9 for the work that first populates this package.
+    - docs/adr/0046 (tool spec, Comb Registry and scopes) for the decisions.
+    - .claude/codingrules.md section 15 ("Tools never skip the Quarantine Comb").
+    - .claude/roadmap.md phase 9 for the steps still to land (Comb, scaffolder, promotion).
 
-Public API: none yet; first populated in phase 9.
+Public API:
+    - ToolSpec, spec_sha256, validate_spec, SpecValidation (spec): the request and its checks.
+    - ToolPackage, pack, unpack, sha256_of, required_files_present (spec): the package format.
+    - QuarantineReport, GateResult, ResourceUsage, QuarantineLimits (spec): the Comb's verdict.
+    - ToolState, TRANSITIONS, can_transition, transition (tool_state): the tool state machine.
+    - CombRegistry, SqliteCombRegistry, InMemoryCombRegistry, CombToolRow, ToolKey,
+      PromotionOffer, RegistryChange, QueenPrincipal, WardenPrincipal (registry): the catalogue.
+    - RoyalJellyError and its subclasses (errors): every refusal, each with a stable code.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 9 adds the first public name.
-__all__: list[str] = []
+from hivemind.royal_jelly.errors import (
+    NeedsReviewError,
+    PackageError,
+    PromotionRefusedError,
+    ReportFailedError,
+    ReportMismatchError,
+    RollbackRefusedError,
+    RoyalJellyError,
+    SpecRejectedError,
+    ToolNotFoundError,
+    ToolTransitionError,
+    VersionExistsError,
+    WrongCellError,
+    WrongPrincipalError,
+)
+from hivemind.royal_jelly.registry import (
+    ChangeKind,
+    CombRegistry,
+    CombToolRow,
+    InMemoryCombRegistry,
+    Principal,
+    PromotionOffer,
+    QueenPrincipal,
+    RegistryChange,
+    SqliteCombRegistry,
+    ToolKey,
+    WardenPrincipal,
+    apply_comb_registry_migrations,
+)
+from hivemind.royal_jelly.spec import (
+    GATE_ORDER,
+    MAX_PACKAGE_BYTES,
+    SPEC_FILE,
+    TESTS_MODULE,
+    TOOL_MODULE,
+    GateResult,
+    QuarantineLimits,
+    QuarantineReport,
+    ResourceUsage,
+    SpecValidation,
+    ToolPackage,
+    ToolSpec,
+    pack,
+    required_files_present,
+    sha256_of,
+    spec_sha256,
+    unpack,
+    validate_spec,
+)
+from hivemind.royal_jelly.tool_state import TRANSITIONS, ToolState, can_transition, transition
+
+__all__ = [
+    "GATE_ORDER",
+    "MAX_PACKAGE_BYTES",
+    "SPEC_FILE",
+    "TESTS_MODULE",
+    "TOOL_MODULE",
+    "TRANSITIONS",
+    "ChangeKind",
+    "CombRegistry",
+    "CombToolRow",
+    "GateResult",
+    "InMemoryCombRegistry",
+    "NeedsReviewError",
+    "PackageError",
+    "Principal",
+    "PromotionOffer",
+    "PromotionRefusedError",
+    "QuarantineLimits",
+    "QuarantineReport",
+    "QueenPrincipal",
+    "RegistryChange",
+    "ReportFailedError",
+    "ReportMismatchError",
+    "ResourceUsage",
+    "RollbackRefusedError",
+    "RoyalJellyError",
+    "SpecRejectedError",
+    "SpecValidation",
+    "SqliteCombRegistry",
+    "ToolKey",
+    "ToolNotFoundError",
+    "ToolPackage",
+    "ToolSpec",
+    "ToolState",
+    "ToolTransitionError",
+    "VersionExistsError",
+    "WardenPrincipal",
+    "WrongCellError",
+    "WrongPrincipalError",
+    "apply_comb_registry_migrations",
+    "can_transition",
+    "pack",
+    "required_files_present",
+    "sha256_of",
+    "spec_sha256",
+    "transition",
+    "unpack",
+    "validate_spec",
+]

@@ -1,24 +1,72 @@
-"""Define ToolSpec, a requested tool's description: the spec package.
+"""Define ToolSpec and its companions: validation, packaging and the Quarantine Comb's report.
 
-ToolSpec is the description of a tool a bee has requested before it exists: what it should do
-and what it is allowed to touch.
+A tool starts as a `ToolSpec` (a requested tool described precisely: name, version, argument
+schema, needed capabilities, entry point, platforms, scope). `validate_spec` refuses a spec that
+asks for more than its requester holds; `pack`/`unpack` turn the tool's files into a
+deterministic archive named by its SHA-256; `QuarantineReport` is the Comb's verdict on one spec
+and one package, the evidence the Comb Registry (the catalogue of promoted tools) promotes on.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside the royal_jelly package.
-    Handles ToolSpec, the description of a requested tool before it exists. Called by
-    royal_jelly's public API on behalf of whatever calls royal_jelly itself; calls into sibling
-    packages at Layer 3 or below, never back up into royal_jelly's other sub-packages directly.
+    Called by the scaffolder, the Quarantine Comb, the promotion flow and the registry; calls into
+    `hivemind.guard` (capabilities) and waggle's authoring bounds.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 9 adds its first public name.
+    - One canonical spec hash (`spec_sha256`) and one canonical package hash (`sha256_of`), used
+      everywhere a hash names a version.
+    - A package is deterministic to pack and safe to unpack.
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under royal_jelly.
-    - .claude/roadmap.md phase 9 for the work that first populates it.
+    - docs/adr/0046 (tool spec, Comb Registry and scopes) for the decisions.
+    - hivemind.royal_jelly.registry for what consumes a spec, a report and a package hash.
 
-Public API: none yet; first populated in phase 9.
+Public API:
+    - ToolSpec, spec_sha256 (models): the request and its canonical hash.
+    - SpecValidation, validate_spec (validate): the refusals a well-formed spec can still earn.
+    - ToolPackage, pack, unpack, sha256_of, required_files_present, MAX_PACKAGE_BYTES,
+      TOOL_MODULE, TESTS_MODULE, SPEC_FILE (package): the deterministic archive.
+    - QuarantineReport, GateResult, ResourceUsage, QuarantineLimits, GATE_ORDER (report): the
+      Quarantine Comb's verdict and the budget it ran under.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 9 adds the first public name.
-__all__: list[str] = []
+from hivemind.royal_jelly.spec.models import ToolSpec, spec_sha256
+from hivemind.royal_jelly.spec.package import (
+    MAX_PACKAGE_BYTES,
+    SPEC_FILE,
+    TESTS_MODULE,
+    TOOL_MODULE,
+    ToolPackage,
+    pack,
+    required_files_present,
+    sha256_of,
+    unpack,
+)
+from hivemind.royal_jelly.spec.report import (
+    GATE_ORDER,
+    GateResult,
+    QuarantineLimits,
+    QuarantineReport,
+    ResourceUsage,
+)
+from hivemind.royal_jelly.spec.validate import SpecValidation, validate_spec
+
+__all__ = [
+    "GATE_ORDER",
+    "MAX_PACKAGE_BYTES",
+    "SPEC_FILE",
+    "TESTS_MODULE",
+    "TOOL_MODULE",
+    "GateResult",
+    "QuarantineLimits",
+    "QuarantineReport",
+    "ResourceUsage",
+    "SpecValidation",
+    "ToolPackage",
+    "ToolSpec",
+    "pack",
+    "required_files_present",
+    "sha256_of",
+    "spec_sha256",
+    "unpack",
+    "validate_spec",
+]
