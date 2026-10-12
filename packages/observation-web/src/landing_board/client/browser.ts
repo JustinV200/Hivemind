@@ -21,6 +21,7 @@
  * See Also:
  *   - docs/adr/0046-observation-hive-dashboard-stack.md for the one-client-module rule.
  */
+import type { OperationOf } from '../call_types';
 
 // Bytes backed by a plain ArrayBuffer, which is what WebCrypto and fetch accept.
 export type Bytes = Uint8Array<ArrayBuffer>;
@@ -59,6 +60,30 @@ export interface WebPushSubscription {
   keys: { p256dh: string; auth: string };
 }
 
+// The clip formats `POST /v1/chat/audio` takes, read off the generated request body so a format
+// the document drops stops compiling here.
+export type AudioMediaType = keyof OperationOf<'/v1/chat/audio', 'post'>['requestBody']['content'] &
+  string;
+
+// One finished recording: the encoded bytes, their format and how long the human spoke.
+export interface RecordedClip {
+  bytes: Bytes;
+  mediaType: AudioMediaType;
+  durationS: number;
+}
+
+// A recording in progress. `stop` resolves with the clip; `cancel` throws the audio away.
+export interface ActiveRecording {
+  stop(): Promise<RecordedClip>;
+  cancel(): void;
+}
+
+// The browser's recorder (MediaRecorder over the microphone). `start` asks for the microphone, so
+// it rejects when the human refuses; a device with no recorder simply has no `AudioRecorder`.
+export interface AudioRecorder {
+  start(): Promise<ActiveRecording>;
+}
+
 export interface Browser {
   // The Entrance's origin, e.g. `https://hive.example.ts.net`; request paths are appended to it.
   origin: string;
@@ -74,4 +99,6 @@ export interface Browser {
   assertPasskey(options: Record<string, unknown>): Promise<Record<string, unknown>>;
   // Asks permission and subscribes this browser to Web Push under the Hive's application key.
   subscribeWebPush(applicationServerKey: Bytes): Promise<WebPushSubscription>;
+  // Absent on a device that cannot record (no microphone API); a view hides push-to-talk then.
+  recorder?: AudioRecorder;
 }

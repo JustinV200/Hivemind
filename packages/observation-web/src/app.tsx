@@ -37,6 +37,7 @@ import type { AppSlices, Hive } from './store';
 import { LoginScreen } from './views/login/login';
 import { attendantSlice } from './views/attendant';
 import { cellSlice } from './views/cell';
+import { chatSlice } from './views/chat';
 import { fleetSlice } from './views/fleet';
 import { forageSlice } from './views/forage';
 import { thoughtsSlice } from './views/thoughts/slice';
@@ -50,6 +51,7 @@ export const APP_SLICES: AppSlices = {
   cell: cellSlice,
   forage: forageSlice,
   attendant: attendantSlice,
+  chat: chatSlice,
 };
 
 function buildHive(browser: Browser): Hive {

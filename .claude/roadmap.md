@@ -2187,7 +2187,7 @@ in this phase adds a new write path.
   would improve it: a Warden's `cell_id` on `AttendantView`, a subject on `InboxEntryView`, a
   `title` and `worker_id` on `TaskNode`, a `role` on `TaskView` (so a frame can add a node) and an
   Alarm count on `TaskGraphFrame`.
-- [ ] **12.8 Chat.** A chatbox for the human: request tasks, ask questions, answer the Queen's
+- [x] **12.8 Chat.** A chatbox for the human: request tasks, ask questions, answer the Queen's
   questions, resolve Alarms that reached the human, typed or spoken (a push-to-talk button using
   the browser's recorder, sent through 10.5f, with the transcript shown for confirmation when the
   message is a goal). Messages go into the Queen's inbox through the chat route (10.5) and the
@@ -2195,6 +2195,21 @@ in this phase adds a new write path.
   This is the only write path in the UI. Each message links to the tasks and episodes it produced.
   Any break-glass Absconding path in UI requires password re-auth, a typed confirmation phrase,
   and a final scope review; no one-click trigger is permitted.
+  **Built 2026-10-12.** `src/views/chat/`: seeded from `GET /v1/chat` and `GET /v1/inbox`,
+  followed over `/v1/chat/stream` resuming from the last `seq`, the inbox re-read on a question
+  or Alarm line; the conversation with the human's lines pending until they land, answer forms on
+  waiting questions and acknowledge on Alarms (posting to the two inbox routes), the composer
+  posting to `POST /v1/chat` with the step-up prompt and one retry on `step_up_required`;
+  push-to-talk through a `MediaRecorder` behind the `Browser` seam, capped at 60 s with a
+  countdown, posted as the clip's own bytes and media type by the client's new `postAudio`
+  (signed over the bytes sent), the transcript shown and a held spoken goal confirmed or
+  declined from its card. A test enumerates every request the view can issue and asserts the
+  write set is the chat, the audio route, the two inbox routes and the goal confirm and decline.
+  No break-glass control exists. Gaps: `ChatLine` and `QuestionView` carry only `task_id` (no
+  episode or goal id, so links go to the Queen's Attendant and thoughts), `max_clip_seconds` is
+  not published, the shell does not surface `PushNotice`, the stream cannot start from the seed's
+  `newest_seq` (a line in the gap before the first frame shows only through the inbox), and
+  history beyond the newest 100 lines is not paged.
 - [ ] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),
   the pending list, approve with name, capabilities, spend cap and expiry, deny, unlock, revoke,
   and the Entrance Reducer with its reopen flow. On every device: the join screen a new device

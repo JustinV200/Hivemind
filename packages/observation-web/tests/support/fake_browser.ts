@@ -18,7 +18,12 @@
  * See Also:
  *   - src/landing_board/client/browser.ts for the interface this implements.
  */
-import type { Browser, Bytes, SocketLike } from '../../src/landing_board/client/browser';
+import type {
+  AudioRecorder,
+  Browser,
+  Bytes,
+  SocketLike,
+} from '../../src/landing_board/client/browser';
 import { memoryStore } from '../../src/landing_board/client/platform/indexed_db';
 
 export interface RecordedRequest {
@@ -139,7 +144,11 @@ function scriptedFetch(requests: RecordedRequest[], routes: Map<string, Responde
   };
 }
 
-export function createFakeBrowser(startMs = 1_767_225_600_000): FakeBrowser {
+// `recorder` gives the fake a microphone; without one the browser carries none, as an old device.
+export function createFakeBrowser(
+  startMs = 1_767_225_600_000,
+  extras: { recorder?: AudioRecorder } = {},
+): FakeBrowser {
   const clock = new FakeClock(startMs);
   const requests: RecordedRequest[] = [];
   const sockets: FakeSocket[] = [];
@@ -167,6 +176,7 @@ export function createFakeBrowser(startMs = 1_767_225_600_000): FakeBrowser {
     },
     subscribeWebPush: () =>
       Promise.resolve({ endpoint: 'https://push.test/abc', keys: { p256dh: 'P', auth: 'A' } }),
+    ...(extras.recorder ? { recorder: extras.recorder } : {}),
   };
 
   return {

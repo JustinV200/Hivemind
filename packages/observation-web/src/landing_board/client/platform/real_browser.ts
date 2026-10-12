@@ -22,6 +22,7 @@
 import type { Browser, SocketLike } from '../browser';
 import { indexedDbStore } from './indexed_db';
 import { assertWithPasskey } from './passkey';
+import { realRecorder } from './recorder';
 import { subscribeWebPush } from './web_push';
 
 // Adapts a WebSocket to SocketLike so the stream wrapper never sees DOM events.
@@ -44,6 +45,7 @@ function wrapSocket(url: string): SocketLike {
 }
 
 export function realBrowser(): Browser {
+  const recorder = realRecorder();
   return {
     origin: window.location.origin,
     fetch: (url, init) => window.fetch(url, init),
@@ -56,5 +58,7 @@ export function realBrowser(): Browser {
     store: indexedDbStore(window.indexedDB),
     assertPasskey: assertWithPasskey,
     subscribeWebPush,
+    // A device that cannot record simply carries no recorder, so push-to-talk is hidden.
+    ...(recorder ? { recorder } : {}),
   };
 }

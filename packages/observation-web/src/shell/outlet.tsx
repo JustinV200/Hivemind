@@ -22,7 +22,7 @@ import { useRoute } from '../router';
 import { AttendantScreen } from '../views/attendant';
 import { CappingView } from '../views/capping/capping';
 import { CellPageView } from '../views/cell';
-import { ChatView } from '../views/chat/chat';
+import { ChatScreen } from '../views/chat';
 import { CostView } from '../views/cost/cost';
 import { DevicesView } from '../views/devices/devices';
 import { EnrolView } from '../views/enrol/enrol';
@@ -45,7 +45,7 @@ export function Outlet(): ReactElement {
     case 'attendant':
       return <AttendantScreen principal={route.principal} />;
     case 'chat':
-      return <ChatView />;
+      return <ChatScreen />;
     case 'honey':
       return <HoneyView path={route.path} />;
     case 'cost':

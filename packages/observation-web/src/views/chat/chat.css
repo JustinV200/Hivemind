@@ -1,0 +1,246 @@
+/*
+ * Chat view styles: the conversation, the docked composer, the forms under a line and the spoken card.
+ *
+ * Mobile first (design.md section 2): one column at 360 px. The Queen's lines sit on the left and the
+ * human's on the right, each a bordered card, never wider than the column. The dock (step-up prompt,
+ * spoken card, composer) sticks to the bottom of the view, above the bottom nav on a phone and at the
+ * very bottom from 720 px, where the nav is a rail. The Send button is the one filled accent button
+ * in the app; every other control is the plain `.button`.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/chat/`. Imported by `chat_screen.tsx`. Class names are
+ *   those rendered by this directory and the shared `ErrorNotice`, `IdToken` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long words and ids wrap.
+ *   - Kind and state are always words in the markup; colour only repeats them.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 5.6, 6 and 7.
+ */
+.chat {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.chat-conversation {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.chat-line {
+  display: flex;
+}
+
+.chat-line article {
+  width: min(100%, 44rem);
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.chat-line--human {
+  justify-content: flex-end;
+}
+
+.chat-line--human article {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.chat-line--pending article {
+  border-style: dashed;
+}
+
+.chat-line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.chat-line-head strong {
+  color: var(--text);
+}
+
+.chat-tag {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+.chat-tag--alarm {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+.chat-tag--question {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.chat-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
+}
+
+.chat-resolved,
+.chat-hint,
+.chat-note {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.chat-form {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.chat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.chat-grow {
+  flex: 1 1 12rem;
+}
+
+.chat-grow input,
+.chat-composer textarea,
+.chat-stepup input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.chat-waiting {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+/* The dock: sticks above the bottom nav on a phone, to the bottom of the pane from 720px. */
+.chat-dock {
+  position: sticky;
+  bottom: var(--bottom-nav-h);
+  z-index: 10;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+}
+
+.chat-composer,
+.chat-stepup,
+.chat-spoken {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.chat-stepup label,
+.chat-voice-intent {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.chat-send {
+  min-height: 44px;
+  padding: 0 var(--sp-5);
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chat-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.chat-voice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.chat-voice select {
+  min-height: 44px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.chat-hold {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.chat-hold[aria-pressed='true'] {
+  border-color: var(--alarm);
+  color: var(--alarm);
+}
+
+.chat-countdown {
+  font-variant-numeric: tabular-nums;
+  color: var(--alarm);
+}
+
+.chat-transcript {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 720px) {
+  .chat-dock {
+    bottom: 0;
+  }
+
+  .chat-send {
+    min-height: 36px;
+  }
+
+  .chat-grow input,
+  .chat-composer textarea,
+  .chat-stepup input,
+  .chat-voice select {
+    min-height: 36px;
+  }
+}

@@ -15,6 +15,7 @@
  * Key invariants:
  *   - Request and response shapes come from the generated types via `call_types.ts`; there is
  *     no untyped call, so a route the document does not carry cannot be reached.
+ *   - `postAudio` is the one body that is not JSON: raw clip bytes under the clip's own format.
  *   - The bytes hashed are the bytes sent; the target signed is the path and query as sent.
  *   - A request with no session is sent unsigned (login and the other public routes).
  *
@@ -22,8 +23,8 @@
  *   - docs/entrance/landing-board.md section 6 and section 8.
  *   - src/landing_board/client/write_guard.ts for the one write path.
  */
-import type { InitArgs, Method, OperationOf, PathsWith, ResponseOf } from '../call_types';
-import type { Browser, Bytes } from './browser';
+import type { InitArgs, Method, OperationOf, PathsWith, QueryOf, ResponseOf } from '../call_types';
+import type { AudioRecorder, Browser, Bytes, RecordedClip } from './browser';
 import { clientError, CLIENT_CODES, LandingBoardError } from './errors';
 import type { ErrorBody } from './errors';
 import type { SessionHolder } from './keys';
@@ -42,7 +43,17 @@ interface Outgoing {
   method: string;
   target: string;
   body: Bytes | null;
+  // The body's media type; JSON for every route but the audio one.
+  contentType: string;
 }
+
+const JSON_TYPE = 'application/json';
+const AUDIO_PATH = '/v1/chat/audio';
+type AudioOp = OperationOf<typeof AUDIO_PATH, 'post'>;
+// The audio route's own query (`intent`, `duration_s`, `language`), read off the document.
+export type AudioIntent = QueryOf<AudioOp>['intent'];
+// A clip shorter than this is not worth a request; the document asks for a length above zero.
+const MIN_CLIP_SECONDS = 0.01;
 
 export interface HttpClient {
   call<M extends Method, P extends PathsWith<M>>(
@@ -50,7 +61,12 @@ export interface HttpClient {
     path: P,
     ...init: InitArgs<OperationOf<P, M>>
   ): Promise<ResponseOf<OperationOf<P, M>>>;
-  // For a route the generated document does not carry yet; the caller names the shape it expects.
+  // Sends one recorded clip as the raw body of `POST /v1/chat/audio`: the only non-JSON body. The
+  // bytes hashed for the signature are the bytes sent, and `Content-Type` is the clip's own format.
+  postAudio(clip: RecordedClip, intent: AudioIntent): Promise<ResponseOf<AudioOp>>;
+  // The platform's recorder, carried here because this is the client's one door for audio; null on
+  // a device that cannot record.
+  readonly recorder: AudioRecorder | null;
 }
 
 // Fills `{name}` placeholders from the call's params, percent-encoding each value.
@@ -85,7 +101,7 @@ async function errorFrom(response: Response): Promise<LandingBoardError> {
 async function signedHeaders(deps: HttpDeps, outgoing: Outgoing): Promise<Record<string, string>> {
   const session = deps.holder.get();
   const headers: Record<string, string> = {};
-  if (outgoing.body) headers['Content-Type'] = 'application/json';
+  if (outgoing.body) headers['Content-Type'] = outgoing.contentType;
   if (!session) return headers;
   const { browser } = deps;
   const timestamp = unixSeconds(browser.nowMs());
@@ -135,6 +151,19 @@ function encodeBody(body: unknown): Bytes | null {
 
 export function createHttp(deps: HttpDeps): HttpClient {
   return {
+    recorder: deps.browser.recorder ?? null,
+    async postAudio(clip, intent) {
+      // A compressed clip must state its length; a WAV's header is read instead and ignores it.
+      const duration = Math.max(MIN_CLIP_SECONDS, Math.round(clip.durationS * 100) / 100);
+      const target = withQuery(AUDIO_PATH, { intent, duration_s: duration });
+      const result = await send(deps, {
+        method: 'POST',
+        target,
+        body: clip.bytes,
+        contentType: clip.mediaType,
+      });
+      return result as ResponseOf<AudioOp>;
+    },
     async call(method, path, ...init) {
       const options = (init[0] ?? {}) as {
         params?: Record<string, string>;
@@ -146,6 +175,7 @@ export function createHttp(deps: HttpDeps): HttpClient {
         method: method.toUpperCase(),
         target,
         body: encodeBody(options.body),
+        contentType: JSON_TYPE,
       });
       // The cast is the one place the wire meets the generated type: the document is the contract.
       return result as never;

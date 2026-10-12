@@ -34,6 +34,7 @@ export const CLIENT_CODES = {
   passkeyRequired: 'hivemind.client.passkey_required',
   writeRefused: 'hivemind.client.write_refused',
   network: 'hivemind.client.network',
+  microphone: 'hivemind.client.microphone',
 } as const;
 
 const ENTRANCE = 'hivemind.entrance.';
@@ -96,6 +97,22 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
     sentence: 'The Hive refused the request before reading it.',
     action: 'Check the address of the Hive and try again.',
   },
+  [`${ENTRANCE}clip_refused`]: {
+    sentence: 'The Hive would not take that recording.',
+    action: 'Record a shorter clip, or type instead.',
+  },
+  [`${ENTRANCE}transcription_failed`]: {
+    sentence: 'The Hive could not make out the recording.',
+    action: 'Try again in a moment, or type instead.',
+  },
+  [`${ENTRANCE}confirmation_refused`]: {
+    sentence: 'The Hive would not confirm that request.',
+    action: 'Look at what is waiting and try again.',
+  },
+  [`${ENTRANCE}method_not_allowed`]: {
+    sentence: 'The Hive does not take that kind of request there.',
+    action: 'Reload the page and try again.',
+  },
   'hivemind.conflict': {
     sentence: 'That already changed.',
     action: 'Look at the current state and try again.',
@@ -111,6 +128,10 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   [CLIENT_CODES.network]: {
     sentence: 'The Hive could not be reached.',
     action: 'Check the connection and try again.',
+  },
+  [CLIENT_CODES.microphone]: {
+    sentence: 'The microphone could not be used.',
+    action: 'Allow the microphone for this page, or type instead.',
   },
 };
 
