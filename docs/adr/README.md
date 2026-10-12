@@ -206,3 +206,11 @@ ADRs that exist today, in numeric order:
   Queen isolates a Cell, keeping its Waggle link; quarantine is one intervention; taint is one label
   that nothing assembles until a judge clears it; the injection signal comes from one deterministic
   scanner over shipped pattern data.
+- `0046-observation-hive-dashboard-stack.md`: the Observation Hive is one TypeScript and React app
+  with no UI library and types generated from the committed OpenAPI document; one client module
+  holds all network access and the browser's non-extractable signing key; one in-memory store is
+  fed only by the nine Entrance streams through per-stream reducers read with
+  `useSyncExternalStore`, with a fixed reconnect policy; hash routes, a shell-only service worker,
+  loopback-only screens gated as defence in depth, and the same build for the page, the PWA and
+  the APK. Numbers 0044 and 0045 belong to the phase 8 branch and are skipped here to avoid
+  renumbering at merge.
