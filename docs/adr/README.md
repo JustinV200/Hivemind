@@ -214,3 +214,12 @@ ADRs that exist today, in numeric order:
   loopback-only screens gated as defence in depth, and the same build for the page, the PWA and
   the APK. Numbers 0044 and 0045 belong to the phase 8 branch and are skipped here to avoid
   renumbering at merge.
+- `0047-android-client-capacitor-and-push-delivery.md`: the Android client is Capacitor over the
+  same `vite build`, with an Android implementation of the `platform` seam chosen at startup;
+  push is UnifiedPush, whose endpoint speaks Web Push and so registers as `channel: web_push` with
+  the existing channel and no Google services (FCM is not built; without a distributor the app
+  falls back to the foreground socket and an ongoing notification); passkeys go through the
+  Credential Manager against the Entrance's relying party with Digital Asset Links served at
+  `/.well-known/assetlinks.json`; the share sheet is an intake (text and audio over existing
+  routes, images through one new additive `/v1/` route as Nectar `C2`); the phone enrols like any
+  device through an App Link; the APK is built in CI on tags and releases only.
