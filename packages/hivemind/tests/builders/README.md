@@ -75,3 +75,13 @@ audio itself (`tests/e2e/test_voice_on_hive_serve.py`).
 real one over the Hive's SQLite trail: fresh `EphemeralSegments`, the `VeiledTrail` a lifecycle or
 Queen under test records through, and a `NightVeilTeardownPurge` whose recorder writes to the
 durable trail past the boundary, with no side channels (none is registered in production today).
+
+## `royal_jelly.py` (roadmap phase 9, spec and Comb Registry)
+
+`make_tool_spec(**overrides)`: a valid HIVE-scope echo `ToolSpec` (`scope=ToolScope.CELL` mints a
+Cell); `make_package_files(spec)` / `make_package(files, spec)`: the three-file tool (`tool.py`,
+`test_tool.py`, `spec.json`) as a mapping or as deterministic zip bytes;
+`make_passing_report(spec, package_sha256, size)` / `make_failing_report(..., failing_gate=)`: a
+`QuarantineReport` that passed all six gates, or stopped at one; `make_offer(spec)`: a real package, its
+passing report and the matching `PromotionOffer`. Anything a test needs invalid goes
+through `model_copy(update=...)`, which skips validation on purpose.
