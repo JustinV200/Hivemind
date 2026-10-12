@@ -59,6 +59,7 @@ from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.guard import CapabilitySet
 from hivemind.workers.runtime import WorkerRuntime
 from hivemind.workers.state import WorkerState, is_terminal
+from hivemind.workers.tools.comb import CombToolBundle
 from waggle.ids import EventId, TaskId, WorkerId
 from waggle.messages import HandoffRef
 from waggle.messages.supervision import ContextTelemetry
@@ -113,6 +114,9 @@ class SubBee:
         handoff_ordered: True once this Warden itself ordered the bee to hand off and stop (its
             context check, or its own Handoff lever); cleared when the Queen pauses the task.
             Read by `awaits_successor`.
+        comb_tools: The bundle of Comb tools this sub-bee's `WorkerContext` reads (roadmap 9.7),
+            the one thing its Warden may change under it: `hivemind.wardens.ticks.tools.install`
+            replaces its entries when a tool is promoted. None for a Warden with no Basket.
     """
 
     worker_id: WorkerId
@@ -132,6 +136,7 @@ class SubBee:
     spawned_event_id: EventId | None = field(default=None)
     cancelled: bool = field(default=False)
     handoff_ordered: bool = field(default=False)
+    comb_tools: CombToolBundle | None = field(default=None)
 
     @property
     def has_ended(self) -> bool:

@@ -80,6 +80,7 @@ from hivemind.wardens.spawn import (
     spawn_sub_bee,
     stop_sub_bee,
 )
+from hivemind.wardens.ticks.tools import comb_seams
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
 from waggle.ids import TaskId, new_alarm_id, new_event_id
@@ -250,6 +251,7 @@ def _cell_context(warden: Warden) -> WardenCellContext | None:
         cell=warden._cell,
         lease=warden._lease,
         session=warden._session,
+        comb=comb_seams(warden),  # Roadmap 9.7: a respawned bee is given the same Comb tools.
     )
 
 

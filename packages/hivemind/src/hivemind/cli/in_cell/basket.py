@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from hivemind.basket import ResidentBasket, SqliteBasketStore, apply_basket_migrations
+from hivemind.basket import BasketStore, ResidentBasket, SqliteBasketStore, apply_basket_migrations
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
 from hivemind.common.logging import get_logger
 from hivemind.common.sqlite import connect
@@ -47,7 +47,7 @@ BLOBS_DIR = "blobs"  # Bytes, laid out `<sha[:2]>/<sha>` by the store.
 
 log = get_logger(__name__)
 
-__all__ = ["build_resident_basket", "resident_ceiling_bytes"]
+__all__ = ["build_basket_parts", "build_resident_basket", "resident_ceiling_bytes"]
 
 
 def resident_ceiling_bytes(
@@ -79,6 +79,26 @@ def build_resident_basket(config: InCellRuntimeConfig, clock: Clock) -> Resident
         A ResidentBasket over a store at ``<scratch>/basket``; None (logged once) when the scratch
         root cannot be written or the database cannot be opened.
     """
+    parts = build_basket_parts(config, clock)
+    return parts[0] if parts is not None else None
+
+
+def build_basket_parts(
+    config: InCellRuntimeConfig, clock: Clock
+) -> tuple[ResidentBasket, BasketStore] | None:
+    """Open this Cell's store and its resident view: what its Warden receives and deposits into.
+
+    The Warden writes received and retained blobs to the store itself (roadmap phase 9), so it
+    needs the store as well as the resident view over it.
+
+    Args:
+        config: This process's validated runtime config; its scratch root and Cell id.
+        clock: Stamps residency rows and migrations.
+
+    Returns:
+        The resident Basket and the store behind it; None (logged once) when the scratch root
+        cannot be written or the database cannot be opened.
+    """
     spawn = config.spawn_config
     root = spawn.scratch_root / BASKET_DIR
     try:
@@ -90,4 +110,4 @@ def build_resident_basket(config: InCellRuntimeConfig, clock: Clock) -> Resident
         log.warning("in_cell.resident_basket_unavailable", reason=f"{type(exc).__name__}: {exc}")
         return None
     store = SqliteBasketStore(connection, root / BLOBS_DIR, clock)
-    return ResidentBasket(store, spawn.cell_id, resident_ceiling_bytes(None), clock)
+    return ResidentBasket(store, spawn.cell_id, resident_ceiling_bytes(None), clock), store

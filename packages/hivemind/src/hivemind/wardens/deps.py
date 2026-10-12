@@ -56,7 +56,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hivemind.basket import ResidentBasket
+from hivemind.basket import BasketStore, ResidentBasket
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
 from hivemind.exoskeleton import ExoskeletonConfig
 from hivemind.exoskeleton.browser import BrowserLauncher
@@ -92,6 +92,7 @@ from hivemind.supervision.capping.tiers import TierTable
 from hivemind.wardens.trail_sync import TrailSync
 from hivemind.workers import Worker
 from waggle.clock import Clock
+from waggle.codec import Signer, Verifier
 from waggle.envelope import Hop
 from waggle.messages.capping import CheckKind
 from waggle.messages.task import WorkerRole
@@ -171,17 +172,14 @@ class WardenDeps:
             `GateDeps.disk_reserve_mb` unchanged. Defaults to `DEFAULT_DISK_RESERVE_MB` (a local
             mirror of `hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB`, so this Layer 5
             module does not reach into Layer 1 for one constant).
-        trail_sync: Ships this node's own local trail segment to the Queen on this Warden's own
-            heartbeat cadence and once more from `stop()` (codingrules section 12: "a Warden that
-            is offline writes to its local segment; on reconnection the segment merges into the
-            Queen's trail"). `None` (the Hive Stand's default) means this Warden already records
-            into the Queen's own store; `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.
-            trail_sync.WaggleTrailSync` in, because a Virtual Cell's store dies with the container.
-        snapshotter: Handed to every sub-bee's own `CappingGate` (`hivemind.wardens.spawn.spawn.
-            _build_capping_gate`) as `GateDeps.snapshotter`. Defaults to `NoopSnapshotter()`.
-            `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.snapshot_relay.RelaySnapshotter`
-            in instead: a Virtual Cell's Warden cannot reach the host backend itself (ADR-0027),
-            so it asks the Queen over `queen_link`.
+        trail_sync: Ships this node's local trail segment to the Queen on the heartbeat cadence and
+            once more from `stop()` (codingrules section 12). `None` (the Hive Stand's default)
+            means this Warden already records into the Queen's own store; `hivemind.cli.in_cell.
+            deps` wires a `WaggleTrailSync` in, because a Virtual Cell's store dies with the Cell.
+        snapshotter: Handed to every sub-bee's `CappingGate` as `GateDeps.snapshotter`. Defaults to
+            `NoopSnapshotter()`; `hivemind.cli.in_cell.deps` wires a `RelaySnapshotter` in
+            instead: a Virtual Cell's Warden cannot reach the host backend (ADR-0027), so it asks
+            the Queen over `queen_link`.
         exoskeleton_config: How `hivemind.wardens.spawn.equip` equips a sub-bee whose task needs
             an Exoskeleton: screen size, readiness budget, whether the browser keeps its sandbox.
         browser_launcher: Starts a lease's browser (the Playwright launcher in production), or
@@ -207,23 +205,24 @@ class WardenDeps:
             the composition root that built the Cell source, never derived from a Cell's kind.
         bindings: Every `[llm.slots]` row, forage-side, so a rebind to a named binding
             (`local_worker`) resolves to the slot whose fallback chain names it before its
-            `llm:<slot>` is checked (`hivemind.forage.map.slot_for_binding`). Defaults to empty:
-            only a slot's own key then resolves, and any named binding is refused.
+            `llm:<slot>` is checked (`hivemind.forage.map.slot_for_binding`); empty by default.
         scanner: The untrusted-content scanner (roadmap step 10.6b) every sub-bee's tool results
-            pass through (`WorkerContext.scanner`): the Hive Stand's composition root builds it
-            from `[guard.untrusted_content]` and the Hive's secret store; a Virtual Cell's Warden
-            gets the shipped patterns and thresholds with a key that lives and dies with the Cell.
+            pass through (`WorkerContext.scanner`): built from `[guard.untrusted_content]` and the
+            Hive's secret store on the Hive Stand; a Virtual Cell's gets the shipped defaults.
         local_providers: The `[llm.providers]` names that serve from this Warden's own machine
             (in process, or on its loopback: `hivemind.llm.registry.runs_locally`), so a binding
             under Night Veil is local only when every provider its fallback chain can reach is
-            one of these (roadmap step 10.3a). Defaults to none: nothing is shown local, so a
-            Night Veil binding fails closed.
+            one of these (roadmap step 10.3a). Defaults to none, so Night Veil fails closed.
         taint_ledgers: The stores a quarantine taints beyond the memory tables (roadmap step
             10.6c): the Honey Store's Nectar ledger joins here in phase 7. Defaults to none.
-        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9); only the
-            Hive Stand's Warden holds them, a Cell's Warden reaches the Basket through the Queen.
-        resident_basket: This Warden's own resident view of the Basket (ADR-0048): the Hive
-            Stand's (`RoyalJellyAccess.resident`) or, in a Cell, one over a store in its scratch.
+        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9); only the Hive
+            Stand's Warden holds them, a Cell's Warden reaches the Basket through the Queen.
+        resident_basket: This Warden's own resident view of the Basket (ADR-0048): the Hive Stand's
+            (`RoyalJellyAccess.resident`) or, in a Cell, one over a store in its scratch.
+        basket_store, node_signer, node_signer_id, hive_verifier: A Cell's Warden's own blob store
+            and node keys: the signer of the manifests it deposits, the id its key is registered
+            under at the Queen, and the verifier of the manifests it receives. None on the Hive
+            Stand, whose store and Hive key are in `royal_jelly`.
     """
 
     source: RealCellSource
@@ -300,6 +299,11 @@ class WardenDeps:
     # Roadmap phase 9: additive, defaulted to none; each composition root fills them.
     royal_jelly: RoyalJellyAccess | None = None
     resident_basket: ResidentBasket | None = None
+    # Roadmap phase 9: a Cell's Warden's own blob store and keys (the Hive Stand's: `royal_jelly`).
+    basket_store: BasketStore | None = None
+    node_signer: Signer | None = None
+    node_signer_id: str | None = None
+    hive_verifier: Verifier | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

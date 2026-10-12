@@ -361,6 +361,11 @@ def test_the_in_cell_warden_is_equipped_with_the_exoskeleton_wiring(tmp_path: Pa
     assert deps.resident_basket.cell_id == config.spawn_config.cell_id
     assert (tmp_path / "basket" / "basket.sqlite").is_file()
     assert deps.royal_jelly is None  # A Cell reaches the Basket through the Queen.
+    # The Warden writes received and retained blobs itself, so it holds the store behind the
+    # resident view, and signs and verifies manifests with the keys its Queen link already has.
+    assert deps.basket_store is not None
+    assert deps.node_signer is config.signer and deps.node_signer_id == str(config.node_id)
+    assert deps.hive_verifier is config.verifier
 
 
 def test_a_cell_whose_table_binds_a_judge_gets_the_judge_rung_and_reviewer(

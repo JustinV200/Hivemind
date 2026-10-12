@@ -97,6 +97,7 @@ from hivemind.wardens.links import send_guarded
 from hivemind.wardens.spawn.attenuate import sub_bee_capabilities
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
+from hivemind.wardens.spawn.comb import CombHandles, CombSeams, make_handles
 from hivemind.wardens.spawn.equip import equip, gui_surface, unequip
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.workers import (
@@ -137,6 +138,9 @@ class WardenCellContext:
         lease: This Warden's OPEN lease on `cell`.
         session: This Warden's own open CellSession on `cell`, shared with every sub-bee it
             spawns (see the module docstring's "Key invariants" for why it is shared, not fresh).
+        comb: What this Warden offers a new sub-bee of the Comb (roadmap 9.7): the tools it holds,
+            where their bytes come from and a way to make the bee's retain sink; None when this
+            Warden holds no Basket, and the bee is then given no Comb tools.
     """
 
     warden_id: WardenId
@@ -145,6 +149,7 @@ class WardenCellContext:
     cell: Cell
     lease: RealCellLease
     session: CellSession
+    comb: CombSeams | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +178,7 @@ class _SpawnedBeeFacts:
     bound: BoundModel
     capabilities: CapabilitySet
     recording_id: str | None = None  # Where its GUI actions are recorded, named in its Alarms.
+    comb: CombHandles | None = None  # Its Comb tools, their source and its retain sink (9.7).
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,7 +282,10 @@ async def _start_sub_bee(
     surface = await gui_surface(ctx, assignment, exoskeleton)
     capping_gate = _build_capping_gate(ctx, assignment, surface)
     recording_id = surface.recording_id if surface is not None else None
-    facts = _SpawnedBeeFacts(worker_id, bound, plan.capabilities, recording_id)
+    comb = await make_handles(
+        ctx.comb, plan.capabilities, ctx.cell.id, (worker_id, assignment.task_id)
+    )
+    facts = _SpawnedBeeFacts(worker_id, bound, plan.capabilities, recording_id, comb)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
     spawned_event_id = await _record_spawned(deps, worker_id, assignment)
@@ -298,6 +307,7 @@ async def _start_sub_bee(
         capabilities=plan.capabilities,
         spawned_event_id=spawned_event_id,
         exoskeleton=exoskeleton,
+        comb_tools=comb.bundle if comb is not None else None,
     )
 
 
@@ -459,6 +469,7 @@ def _build_worker_context(
 ) -> WorkerContext:
     """Assemble the WorkerContext one sub-bee runs its role inside."""
     deps = ctx.deps
+    comb = facts.comb
     return WorkerContext(
         worker_id=facts.worker_id,
         cell=ctx.cell,
@@ -481,6 +492,9 @@ def _build_worker_context(
         ears=deps.ears,
         recording_id=facts.recording_id,
         scanner=deps.scanner,  # Roadmap 10.6b: every tool result is scanned on this node's key.
+        comb_tools=comb.bundle if comb is not None else None,  # Roadmap 9.7: the Comb's three.
+        package_source=comb.package_source if comb is not None else None,
+        retain_sink=comb.retain_sink if comb is not None else None,
     )
 
 

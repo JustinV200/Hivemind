@@ -21,7 +21,11 @@ import pytest
 from builders.basket import make_blob, make_manifest
 from structlog.testing import capture_logs
 
-from hivemind.cli.in_cell.basket import build_resident_basket, resident_ceiling_bytes
+from hivemind.cli.in_cell.basket import (
+    build_basket_parts,
+    build_resident_basket,
+    resident_ceiling_bytes,
+)
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.forage import Ceilings
 from hivemind.manifest.env import read_in_cell_env
@@ -82,6 +86,21 @@ def test_the_resident_basket_is_usable_and_keeps_bytes_under_its_blobs_directory
 
     assert asyncio.run(scenario())
     assert any((tmp_path / "scratch" / "basket" / "blobs").rglob(blob.sha256))
+
+
+def test_the_parts_hand_the_warden_the_store_behind_the_resident_view(tmp_path: Path) -> None:
+    parts = build_basket_parts(_config(tmp_path / "scratch"), FakeClock())
+    assert parts is not None
+    resident, store = parts
+    content = b"written by the Warden itself"
+    blob = make_blob(content)
+
+    async def scenario() -> bool:
+        stored, _is_new = await store.deposit(content, blob, make_manifest(blob))
+        await resident.admit(stored)
+        return await resident.is_resident(blob.sha256)
+
+    assert asyncio.run(scenario())
 
 
 def test_the_ceiling_without_a_grant_is_the_documented_default(tmp_path: Path) -> None:

@@ -43,6 +43,9 @@ Public API (roadmap step 5.5):
       Warden already running inside its own Virtual Cell, chosen by injecting it as
       `WardenDeps.source` rather than by branching on `cell.kind` (in_cell).
 
+Public API (roadmap step 9.7):
+    - CombSeams, CombHandles, make_handles, visible_entries: a sub-bee's Comb tools (comb).
+
 Public API (roadmap step 10.3):
     - sub_bee_capabilities, declared_write_roots: a sub-bee's capability slice (attenuate).
     - BindingCheck, authorize_binding, binding_check: the `slot_binding` point (binding, spawn).
@@ -50,6 +53,7 @@ Public API (roadmap step 10.3):
 
 from hivemind.wardens.spawn.attenuate import declared_write_roots, sub_bee_capabilities
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
+from hivemind.wardens.spawn.comb import CombHandles, CombSeams, make_handles, visible_entries
 from hivemind.wardens.spawn.in_cell import InCellSpawnConfig, InCellSpawnSource
 from hivemind.wardens.spawn.spawn import (
     WardenCellContext,
@@ -61,6 +65,8 @@ from hivemind.wardens.spawn.sub_bee import SubBee
 
 __all__ = [
     "BindingCheck",
+    "CombHandles",
+    "CombSeams",
     "InCellSpawnConfig",
     "InCellSpawnSource",
     "SubBee",
@@ -68,7 +74,9 @@ __all__ = [
     "authorize_binding",
     "binding_check",
     "declared_write_roots",
+    "make_handles",
     "spawn_sub_bee",
     "stop_sub_bee",
     "sub_bee_capabilities",
+    "visible_entries",
 ]

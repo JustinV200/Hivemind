@@ -93,6 +93,8 @@ async def test_the_queens_order_taints_the_handoffs_the_cell_holds_from_its_inst
     # The loader every resume goes through refuses it now, whatever the clearance asked.
     with pytest.raises(TaintedMemoryError):
         await read_handoff(scene.deps.memory, ref, HoneyClearance.C2)
+    # Roadmap phase 9: from here on a blob this Warden deposits is labelled tainted too.
+    assert scene.warden._isolated
     await stop_scene(scene)
 
 
@@ -123,6 +125,7 @@ async def test_an_order_for_another_cell_labels_nothing() -> None:
     await drain()
 
     assert await _tainted(scene) == []
+    assert not scene.warden._isolated  # An order for another Cell isolates nothing here.
     await stop_scene(scene)
 
 

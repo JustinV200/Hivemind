@@ -19,6 +19,11 @@ leaves this Warden running; `QUARANTINE` (roadmap step 10.6c) quarantines one su
 `hivemind.wardens.quarantine`, on a Queen-sent `Intervene(QUARANTINE)` or this Warden's own policy
 row for a sub-bee's Alarm; `TAINT_MEMORY` (roadmap step 10.6a) runs the isolation setter over this
 Warden's own memory store on a Queen-sent `CellTaintOrder` (`hivemind.wardens.isolation`);
+`FORWARD_TOOL` (roadmap phase 9) relays the Royal Jelly Lab's traffic -- a sub-bee's `ToolRequest`
+up, the Queen's `ToolPromoted` or `control.error` (`failed_kind` `tool.*`) down, and the report
+answering this Warden's own sandbox request -- and `RUN_QUARANTINE` runs a Queen-sent
+`ToolQuarantine` order on this Warden's own Cell; `BASKET` handles every `basket.*` payload (a
+shipment arriving, or the Queen's answers to one this Warden sent);
 `NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.wardens.awake` instead.
 
 Fits into the Hive:
@@ -66,4 +71,7 @@ class WardenAction(Enum):
     # Intervene(QUARANTINE), or this Warden's own policy row for a sub-bee's Alarm. Step 10.6c.
     TAINT_MEMORY = "TAINT_MEMORY"  # A Queen-sent CellTaintOrder: label this Cell's own store
     # tainted, as the isolation's order says (hivemind.wardens.isolation). Roadmap step 10.6a.
+    FORWARD_TOOL = "FORWARD_TOOL"  # ToolRequest up; ToolPromoted, a tool.* error or a report down.
+    RUN_QUARANTINE = "RUN_QUARANTINE"  # A Queen-sent ToolQuarantine: run the Comb on this Cell.
+    BASKET = "BASKET"  # Any basket.* payload: a shipment in, or an answer to a shipment out (9.2a).
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to wardens.awake.

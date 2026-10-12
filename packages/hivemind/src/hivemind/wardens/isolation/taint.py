@@ -67,6 +67,9 @@ async def taint_own_memory(warden: Warden, order: CellTaintOrder) -> int | None:
         )
         return None
     deps = warden._deps
+    # Roadmap phase 9: from here on a blob this Warden deposits is labelled tainted and never
+    # shipped (ticks.basket.retain.is_tainted); the memory ledgers have no read for that.
+    warden._isolated = True
     stamp = TaintStamp(
         source=TaintSource.ISOLATION, reason=order.reason, cause_event_id=order.cause_event_id
     )

@@ -53,6 +53,7 @@ from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
 from hivemind.wardens.ticks.alarms import report_refused, retire_sub_bee, send_alarm_to_queen
+from hivemind.wardens.ticks.tools import comb_seams
 from waggle.ids import TaskId, new_event_id
 from waggle.messages.forage import GrantIssued, GrantRevoked
 from waggle.messages.supervision import AlarmKind
@@ -89,6 +90,7 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
         cell=warden._cell,
         lease=warden._lease,
         session=warden._session,
+        comb=comb_seams(warden),  # Roadmap 9.7: its Comb tools, their source and a retain sink.
     )
     try:
         sub_bee = await spawn_sub_bee(ctx, assignment, grant)

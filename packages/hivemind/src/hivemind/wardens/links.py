@@ -37,13 +37,17 @@ from waggle.envelope import Envelope
 from waggle.errors import ConnectionLostError, TransportClosedError
 from waggle.transport.base import Transport
 
+# The principal a Warden gives every item that arrived on its own Queen link (a sub-bee's items
+# carry its worker id instead): the handlers that must tell the two apart compare against this.
+QUEEN_LINK = "queen"
+
 # A transport this final (a send after close) or this dead (a dropped link) is never a Warden's
 # own bug to crash a tick over; exactly these two, nothing broader (codingrules section 10).
 _LINK_GONE = (TransportClosedError, ConnectionLostError)
 
 log = get_logger(__name__)
 
-__all__ = ["send_guarded"]
+__all__ = ["QUEEN_LINK", "send_guarded"]
 
 
 async def send_guarded(transport: Transport, envelope: Envelope) -> bool:
