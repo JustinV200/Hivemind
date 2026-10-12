@@ -65,7 +65,9 @@ from waggle.messages.tool.authoring import (
 )
 from waggle.messages.tool.json_text import check_json_object_text
 
-MAX_SPEC_CHARS = 32_768  # A ToolSpec as JSON text: a 16 KiB schema escaped inside it, plus the rest.
+MAX_SPEC_CHARS = (
+    32_768  # A ToolSpec as JSON text: a 16 KiB schema escaped inside it, plus the rest.
+)
 MAX_LIMITS_CHARS = 16_384  # The QuarantineLimits as JSON text: a handful of numbers, with room.
 MAX_REPORT_CHARS = 65_536  # A QuarantineReport as JSON text: six gates and their bounded detail.
 GATE_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,63}$"  # A gate's snake_case name: static, tests, fuzz.
