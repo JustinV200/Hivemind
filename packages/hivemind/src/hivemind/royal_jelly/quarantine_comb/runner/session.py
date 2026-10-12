@@ -42,7 +42,11 @@ from hivemind.cell.session import (
 from hivemind.cell.source import CellIdentity
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.pheromone import MemoryPheromoneTrail
-from hivemind.royal_jelly.quarantine_comb.runner.report import MAX_LIST_ITEMS, SessionCall
+from hivemind.royal_jelly.quarantine_comb.runner.report import (
+    MAX_LIST_ITEMS,
+    MAX_TEXT_CHARS,
+    SessionCall,
+)
 from waggle.clock import Clock
 from waggle.ids import new_cell_id, new_hive_id, new_lease_id, new_node_id, new_warden_id
 
@@ -148,7 +152,11 @@ class RecordingSession:
         await self._inner.close()
 
     def _record(self, op: str, target: str) -> None:
-        """Count one call, keeping the table within its bound."""
+        """Count one call, keeping the table and each target within their bounds."""
+        # A fuzz input can be a path of thousands of characters (a tool that reads the path it is
+        # given makes exactly that call); the report holds a target to MAX_TEXT_CHARS, and an
+        # unbounded one would crash the runner's own report instead of being judged by the gates.
+        target = target[:MAX_TEXT_CHARS]
         key = (op, target)
         if key in self._counts or len(self._counts) < MAX_LIST_ITEMS:
             self._counts[key] = self._counts.get(key, 0) + 1

@@ -33,7 +33,7 @@ See Also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
@@ -49,7 +49,7 @@ from hivemind.guard import (
     PolicyContext,
     warden_principal,
 )
-from hivemind.llm import UnknownProviderError, UnresolvableSlotError
+from hivemind.llm import BoundModel, UnknownProviderError, UnresolvableSlotError
 from hivemind.manifest.schema.royal_jelly import DEFAULT_MAX_RETRIES, DEFAULT_SANDBOX_DISTRIBUTION
 from hivemind.royal_jelly import (
     ModelScaffolder,
@@ -201,7 +201,18 @@ async def _scaffolder(warden: Warden, sub_bee: SubBee) -> Scaffolder | None:
     gate = deps.lane_for_grant(
         grant.grant_id, assignment.goal_id, Tempo.from_wire(assignment.tempo)
     )
-    return ModelScaffolder(bound, gate, deps.clock)
+    return ModelScaffolder(_serving_scaffolder(bound), gate, deps.clock)
+
+
+def _serving_scaffolder(bound: BoundModel) -> BoundModel:
+    """Return `bound` (and its fallbacks) recorded as serving the SCAFFOLDER slot.
+
+    `deps.rebind` resolves a named binding as the WORKER slot (its one use is moving a sub-bee to
+    a stronger binding), so the scaffold request would otherwise be sent, metered and traced as a
+    WORKER call although it runs on the scaffolder's row.
+    """
+    fallback = _serving_scaffolder(bound.fallback) if bound.fallback is not None else None
+    return replace(bound, slot=ModelSlot.SCAFFOLDER, fallback=fallback)
 
 
 def _grant_of(warden: Warden, sub_bee: SubBee) -> GrantIssued | None:

@@ -525,10 +525,12 @@ for one) can land in front of the JSON a test parses, whatever logging the run c
     - `request NAME --description TEXT [--capability CAP ...] [--cell ID]`: builds the
       `ToolRequest` for the Hive Stand's platform (probed like the Hive Stand probes itself),
       checks it with `validate_spec` against the Guard policy's `operator` role (a refusal prints
-      every reason, exit 1) and hands it to a `RequestSubmitter`. Until wave 3G lands the Queen's
-      promotion flow, `in_process_submitter(manifest)` is a stub that says "the running Hive's
-      promotion flow lands in wave 3G" and exits 2; wiring it is that one function (its TODO names
-      `hivemind.queen.ticks.tools`).
+      every reason, exit 1) and hands it to a `RequestSubmitter`. `in_process_submitter(manifest)`
+      is `submit.HiveSubmitter`: it builds and runs a Hive from the manifest and gives the Queen
+      the request as the Hive Stand Warden's own, so the Royal Jelly flow runs as for a Worker's
+      request; it prints the promotion, or the refusal's code and reason (exit 1), waits at most
+      `[royal_jelly] request_timeout_s`, and refuses a `--cell` (cell-scope) request with exit 2
+      because a cell-scope tool is built by the Warden of its own Cell for a Worker.
     - `quarantine PATH [--limits-json JSON]`: PATH is a directory with `tool.py`, `test_tool.py`
       and `spec.json`, or a `.zip` package. Reads the spec, runs the Quarantine Comb in the
       subprocess sandbox (a one-line note says it is the dev loop, with no isolation), prints each

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from hivemind.cell.fake import FakeSession
 from hivemind.cell.session import BackgroundSpec, CompletedCommand, ExecSpec, run
-from hivemind.royal_jelly.quarantine_comb.runner.report import MAX_LIST_ITEMS
+from hivemind.royal_jelly.quarantine_comb.runner.report import MAX_LIST_ITEMS, MAX_TEXT_CHARS
 from hivemind.royal_jelly.quarantine_comb.runner.session import (
     RecordingSession,
     open_scratch_session,
@@ -96,6 +96,17 @@ async def test_the_table_stops_growing_at_its_bound_but_keeps_counting_known_cal
 
     assert len(session.calls()) == MAX_LIST_ITEMS
     assert _table(session)[("exec", "cmd0")] == 2
+
+
+async def test_a_target_longer_than_the_report_allows_is_recorded_cut_not_fatal() -> None:
+    session = _recording()
+    long_path = "a" * (MAX_TEXT_CHARS * 2)
+
+    await session.put_file(Path(long_path), b"data")
+
+    # The call is on the record, cut to the bound, and the report's own model accepts it.
+    (call,) = session.calls()
+    assert call.op == "put_file" and call.target == long_path[:MAX_TEXT_CHARS]
 
 
 async def test_a_real_scratch_session_runs_commands_and_files(tmp_path: Path) -> None:

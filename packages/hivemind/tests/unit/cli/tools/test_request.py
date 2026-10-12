@@ -2,9 +2,9 @@
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/tools/request.py (codingrules section 3). Drives the real typer app
-    against a real fake-provider manifest. The default submitter is the wave 3G stub, so its exit
-    is tested as it is; the seam itself is exercised by swapping `in_process_submitter` for a
-    recording submitter, which is exactly the one-function swap wave 3G will make.
+    against a real fake-provider manifest. The seam is exercised by swapping `in_process_submitter`
+    for a recording submitter; the real submitter, which builds and runs a Hive, is tested in
+    test_submit.py.
 
 Key invariants:
     - None: this module holds tests only.
@@ -66,14 +66,6 @@ class _Recorder:
 def _swap_submitter(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> None:
     """Replace the default stub with `recorder`: the one function swap the seam promises."""
     monkeypatch.setattr(request_module, "in_process_submitter", lambda _manifest: recorder)
-
-
-def test_the_default_submitter_says_wave_3g_and_exits_2(tmp_path: Path) -> None:
-    result = invoke(make_hive(tmp_path), "request", "echo_tool", "--description", "Echo it.")
-
-    assert result.exit_code == 2
-    assert "the running Hive's promotion flow lands in wave 3G" in result.stderr
-    assert "requesting echo_tool (HIVE" in result.stdout
 
 
 def test_a_valid_request_reaches_the_submitter_for_the_hive_stand(

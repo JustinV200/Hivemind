@@ -35,8 +35,10 @@ Fill every field of the reply:
 - `tool_source`: the complete `tool.py`.
 - `version`: `1.0.0` for a new tool.
 - `required_capabilities`: the capability strings the tool acts under, such as `net:example.org` or
-  `fs:read:**`. Declare only what the tool really needs, and never more than the request lists as
-  allowed; a capability outside that list gets the whole tool refused. Never declare a capability
+  `fs:read:data/*`. Declare only what the tool really needs, and never more than the request lists
+  as allowed; a capability outside that list gets the whole tool refused. Name the directory or file
+  a path scope covers: a scope that is only a wildcard (`fs:read:**`) is refused whenever the tool
+  is called, so keep the tool inside one directory and declare that. Never declare a capability
   that begins with `tool`: a tool never grants itself other tools.
 - `notes`: one or two sentences on anything the reviewer should know. May be empty.
 

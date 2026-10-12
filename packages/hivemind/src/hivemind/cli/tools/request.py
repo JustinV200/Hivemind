@@ -10,10 +10,10 @@ exit 1, with every reason. `--cell ID` makes the tool CELL scope for that Cell; 
 still this machine's, because a command line cannot see another Cell's.
 
 Submitting is a seam. `RequestSubmitter` is the one thing the command hands a valid request to;
-`in_process_submitter(manifest)` builds the default. The running Hive's promotion flow (scaffold,
-quarantine, promote) is the Queen's side of this feature and lands with wave 3G, so the default is
-a stub that says so on stderr and exits 2. Wiring it later is one function swap: return a
-submitter whose `submit` hands the request to `hivemind.queen.ticks.tools` (see the TODO below).
+`in_process_submitter(manifest)` builds the default, `HiveSubmitter` (`hivemind.cli.tools.submit`):
+it builds and runs a Hive from the manifest and hands the request to the Queen as the Hive Stand
+Warden's own, where the Royal Jelly flow (scaffold, quarantine, promote) runs as for any Worker's
+request. A test passes its scripted models through `in_process_submitter`'s `responders`.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside the CLI's `tools` command group. Mounted by
@@ -25,8 +25,8 @@ Key invariants:
     - A request that fails validation is never submitted.
     - The command submits through `RequestSubmitter` only; nothing here scaffolds, quarantines or
       promotes.
-    - The Warden id on the request is minted for the operator's door; the promotion flow decides
-      which Warden's Cell the tool is announced to, not this field.
+    - The Warden id on the request is a placeholder: the submitter replaces it with the Hive
+      Stand Warden's own, since the Queen accepts a request only from the Warden it names.
 
 See Also:
     - docs/adr/0046-tool-spec-comb-registry-and-scopes.md for validate_spec and the scopes.
@@ -35,6 +35,8 @@ See Also:
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Protocol
 
@@ -44,7 +46,6 @@ from hivemind.cell import ProbeError, hive_stand_cell_id
 from hivemind.cell.local import HiveStandConfig, probe_host
 from hivemind.cli.compose.guard import guard_policy
 from hivemind.cli.tools.context import (
-    EXIT_BAD_INPUT,
     EXIT_REFUSED,
     CellOption,
     cell_id_of,
@@ -52,7 +53,9 @@ from hivemind.cli.tools.context import (
     input_or_exit,
     run_or_exit,
 )
+from hivemind.cli.tools.submit import HiveSubmitter
 from hivemind.guard import CapabilitySet, role_set
+from hivemind.llm import Responder
 from hivemind.manifest import HiveManifest
 from hivemind.royal_jelly import SpecValidation, ToolSpec, validate_spec
 from waggle.clock import SystemClock
@@ -60,7 +63,6 @@ from waggle.ids import new_tool_id, new_warden_id
 from waggle.messages.tool.authoring import ToolPromoted, ToolRequest, ToolScope
 
 __all__ = [
-    "PENDING_MESSAGE",
     "RequestSubmitter",
     "build_request",
     "check_request",
@@ -68,7 +70,6 @@ __all__ = [
     "request_command",
 ]
 
-PENDING_MESSAGE = "the running Hive's promotion flow lands in wave 3G"
 OPERATOR_ROLE = "operator"  # The Guard policy role of the human: the root every set is cut from.
 _REASON = "Requested by the operator with `hive tools request`."
 # The request names no schema or version (the scaffolder writes both), so the check borrows the
@@ -94,30 +95,26 @@ class RequestSubmitter(Protocol):
         ...
 
 
-class _PendingSubmitter:
-    """The stand-in until wave 3G: say where the promotion flow will be, and exit 2."""
-
-    async def submit(self, request: ToolRequest) -> ToolPromoted | None:
-        """Refuse to submit: there is no running promotion flow to hand the request to yet."""
-        typer.echo(f"cannot submit {request.name}: {PENDING_MESSAGE}", err=True)
-        raise typer.Exit(code=EXIT_BAD_INPUT)
-
-
-def in_process_submitter(manifest: HiveManifest) -> RequestSubmitter:
+def in_process_submitter(
+    manifest: HiveManifest,
+    *,
+    environ: Mapping[str, str] | None = None,
+    responders: Mapping[str, Responder] | None = None,
+) -> RequestSubmitter:
     """Return the submitter `hive tools request` hands its request to.
 
-    TODO(wave 3G): return a submitter whose `submit` drives `hivemind.queen.ticks.tools` (the
-    Queen's `tool.request` entry point) over a Hive built from `manifest`, and returns the
-    `ToolPromoted` it announces. Nothing else in this module changes.
-
     Args:
-        manifest: The loaded Hive Manifest the in-process Hive would be built from.
+        manifest: The loaded Hive Manifest the Hive is built from.
+        environ: The environment provider keys are read from; this process's own when omitted
+            (the one place this command reads it, as `hive run` does).
+        responders: Scripted models installed on every `kind = "fake"` provider (tests only).
 
     Returns:
-        Today, a stub that prints `PENDING_MESSAGE` and exits 2 when asked to submit.
+        A `HiveSubmitter`: it builds and runs the Hive when asked to submit, never before.
     """
-    del manifest  # Unused until the wave 3G submitter builds a Hive from it.
-    return _PendingSubmitter()
+    return HiveSubmitter(
+        manifest, environ=environ if environ is not None else os.environ, responders=responders
+    )
 
 
 def request_command(

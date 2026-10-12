@@ -26,6 +26,7 @@ from builders.honey_wire import WireEnd
 from builders.royal_jelly import make_failing_report, make_passing_report, make_tool_request
 from builders.wardens_tools import QueenDouble, ToolRig, add_sub_bee, make_tool_rig
 
+from hivemind.forage.slots import ModelSlot
 from hivemind.llm import LLMResponse, text_response
 from hivemind.royal_jelly import ToolSpec
 from hivemind.wardens.inbox import to_inbox_item
@@ -156,6 +157,9 @@ async def test_a_hive_stand_warden_promotes_a_cell_tool_in_process_and_hands_it_
     assert [entry.name for entry in sub_bee.comb_tools.entries()] == [promoted.name]
     nectar = (await _next_of(hive_rig.queen, NectarDeposit)).payload
     assert isinstance(nectar, NectarDeposit) and nectar.worker_id is None
+    # The scaffold call is made, and so metered and traced, as the SCAFFOLDER slot (the rebind that
+    # resolves its binding names the WORKER slot).
+    assert [call.slot for call in hive_rig.provider.calls] == [ModelSlot.SCAFFOLDER]
 
 
 async def test_a_cells_warden_ships_the_package_up_and_announces_its_promotion_to_the_queen(
