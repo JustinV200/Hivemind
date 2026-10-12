@@ -356,7 +356,13 @@ The Comb's own tests start a real runner in the subprocess sandbox (about 3 s of
 importing `hivemind.royal_jelly` pulls in `hivemind.llm`); run the suite on an idle host, as the
 phase 7 handoff already warns for placement.
 
-GATES_AT_HANDOVER
+**At handover (2026-10-12, this container, commit after `c2fb427`):** ruff format, ruff check,
+mypy (2572 files), lint-imports (12 contracts kept) and the five hygiene scripts all exit 0. The
+unit and contract suite (`not integration and not e2e and not live_llm and not local_llm`) exits 0
+with the usual skips (Playwright, the X11 toolchain, one embedding contract case); coverage floors
+hold at 95.8 % total, `royal_jelly` 96.2 %, `basket` 99.8 %, `cli` 94.9 %. The e2e suite: 139
+passed, 3 skipped (phase 6's X11 and Playwright legs), 0 failed, in 197 s. The `local_llm` and
+`live_llm` cases skip here; the scaffold eval passed only against a scripted loopback stand-in.
 
 ## 9. Open items
 
