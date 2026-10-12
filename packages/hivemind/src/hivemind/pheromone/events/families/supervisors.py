@@ -1,6 +1,6 @@
 """Define the event families of the supervisors and their gates: Queen, Warden, Capping, Guard.
 
-Four of the Pheromone Trail's fourteen event families record supervision: the Queen's own kernel
+Four of the Pheromone Trail's fifteen event families record supervision: the Queen's own kernel
 and her human end (`queen`), a Warden's lifecycle (`warden`), the Capping gate's proposal state
 machine (`capping`) and every Guard decision or Hive Entrance security edge (`guard`). Each is a
 `PheromoneEvent` subclass (`hivemind.pheromone.events.base`) fixing `FAMILY` and `KINDS`.
@@ -82,8 +82,10 @@ Vocabulary (family -> kind -> when it is recorded):
         authenticated link carried it and naming a reason, never the frame: envelope_refused (a
         frame on an attached Virtual Cell's link failed its signature, and the link was closed);
         segment_refused (a trail segment it shipped was not merged: another node's or Warden's,
-        an unknown format, or bytes that do not match what it declared). The design
-        documents'
+        an unknown format, or bytes that do not match what it declared). Phase 9 adds
+        basket_integrity_failed (a Basket transfer's assembled bytes did not hash to the offered
+        digest, or the manifest signature failed: the hash, the sender and the reason, never the
+        bytes, and the temp file is deleted, ADR-0048). The design documents'
         `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
         (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
 
@@ -222,5 +224,6 @@ class GuardEvent(PheromoneEvent):
             "guard.entrance_hold_ended",
             "guard.envelope_refused",  # Roadmap step 10.6: a node-integrity refusal at the gate.
             "guard.segment_refused",
+            "guard.basket_integrity_failed",  # Phase 9 (ADR-0048): a blob failed verification.
         }
     )

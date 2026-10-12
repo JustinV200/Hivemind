@@ -106,6 +106,13 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("honey.ripened", P.HONEY_ACCESS),  # The House Bee writing Honey rows (honey:write).
     ("honey.label_lowered", P.HONEY_ACCESS),  # Readable more widely: a judge's or the human's.
     ("honey.queried", P.HONEY_ACCESS),  # A read, up to the reader's clearance and scopes.
+    # Phase 9 (the Basket, ADR-0048). A deposit is a bee's `retain` proposal, a COPY the Capping
+    # gate checked and applied, so it is authorised where any tool's effect is. A shipment and a
+    # received blob cross a Cell boundary under the receiver's clearance, taint and tier rules,
+    # which no existing point names, so they have one of their own.
+    ("basket.deposited", P.TOOL_INVOCATION),
+    ("basket.shipped", P.BASKET_TRANSFER),  # The sender released a blob to a destination Cell.
+    ("basket.received", P.BASKET_TRANSFER),  # The receiver kept a blob after its own checks.
 )
 
 # Every kind that records no action of its own, and why not.
@@ -183,6 +190,13 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("tool.promoted", _ROYAL_JELLY),
     ("tool.rejected", _ROYAL_JELLY),
     ("tool.retired", _ROYAL_JELLY),
+    ("tool.quarantine_requested", _ROYAL_JELLY),
+    ("tool.sandbox_provisioned", _ROYAL_JELLY),
+    ("tool.sandbox_released", _ROYAL_JELLY),
+    ("tool.announced", _ROYAL_JELLY),
+    ("tool.loaded", _ROYAL_JELLY),
+    ("tool.load_refused", _ROYAL_JELLY),
+    ("tool.rolled_back", _ROYAL_JELLY),
     ("capping.proposed", _PROPOSAL),
     ("capping.checked", _OBSERVATION),
     ("capping.capped", _DECISION),
@@ -220,6 +234,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("guard.entrance_hold_ended", _LIFECYCLE),
     ("guard.envelope_refused", _REFUSAL),  # A forged frame is never handled; its link is closed.
     ("guard.segment_refused", _REFUSAL),  # A segment that is not merged changes nothing.
+    ("guard.basket_integrity_failed", _REFUSAL),  # Bytes that fail verification are discarded.
     ("memory.tainted", _NARROWING),  # A tainted item only ever leaves prompts.
     ("cell.exoskeleton_detached", _LIFECYCLE),  # The end of an attach: its processes stopped.
     ("honey.nectar_deduplicated", _OUTCOME),  # A deposit met a stored one; a label only rose.
@@ -233,6 +248,13 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("honey.lowering_proposed", _PROPOSAL),  # ADR-0038: filed; nothing lowers until decided.
     ("honey.lowering_rejected", _REFUSAL),  # The judge or the human said no; the label stays.
     ("queen.honey_consulted", _DECISION),  # Her read is honey.queried; this records its use.
+    # Phase 9 (the Basket): everything around a deposit or a transfer that changes no authority.
+    ("basket.deposit_deduplicated", _OUTCOME),  # A deposit met a stored blob; nothing new kept.
+    ("basket.deposit_refused", _REFUSAL),  # The scanner or a rule said no; nothing was stored.
+    ("basket.offered", _PROPOSAL),  # Nothing moves until the receiver accepts the offer.
+    ("basket.refused", _REFUSAL),  # A blob not kept changes nothing.
+    ("basket.evicted", _NARROWING),  # Frees a resident copy: it only takes holdings away.
+    ("basket.retired", _NARROWING),  # A retired blob is never shipped or loaded again.
 )
 
 # Points whose subsystem is not built yet, with the roadmap step or phase that wires each one.
@@ -250,6 +272,9 @@ PENDING_POINTS: Mapping[P, str] = MappingProxyType(
         P.STING_CUT: "phase 13 (Sting Cut)",
         P.SUPERSEDURE: "phase 13 (Supersedure)",
         P.ABSCONDING: "phase 13 (Absconding)",
+        # Phase 9: the Basket's receiver decides clearance, taint and tier by rule from the start;
+        # step 9.2a wires that check, and the deposit and shipment events, through this point.
+        P.BASKET_TRANSFER: "step 9.2a (the Basket's transfer: the receiver's clearance check)",
     }
 )
 

@@ -1,6 +1,6 @@
 """Define HoneyEvent: the event family of the Honey Store, the Hive's cold knowledge tier.
 
-One of the Pheromone Trail's fourteen event families records the Honey Store (roadmap phase 7,
+One of the Pheromone Trail's fifteen event families records the Honey Store (roadmap phase 7,
 ADR-0035): Nectar (raw deposits) arriving, ripening into Honey (the distilled, searchable rows),
 labels moving, and queries being answered. `HoneyEvent` is a `PheromoneEvent` subclass
 (`hivemind.pheromone.events.base`) fixing `FAMILY` and `KINDS`.

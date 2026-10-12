@@ -2,17 +2,18 @@
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Holds EXAMPLES, one valid instance of every
-    tool class (the calling half included, so the registry step can load the whole family by
-    this one file path); and for ToolRequest and ToolPromoted pins construction, the JSON round
-    trip, the rejection of an extra field, at least one bound, and every validator spec section
-    8.8 names, the JSON-object check on input_schema_json included.
+    tool class (the calling and quarantine halves included, so the registry step can load the
+    whole family by this one file path); and for ToolRequest and ToolPromoted pins construction,
+    the JSON round trip, the rejection of an extra field, at least one bound, and every validator
+    spec section 8.8 names, the JSON-object check on input_schema_json included.
 
 Key invariants:
-    - EXAMPLES holds exactly one instance of each of the four tool classes.
+    - EXAMPLES holds exactly one instance of each of the seven tool classes.
 
 See Also:
     - waggle.messages.tool.authoring for the module under test.
-    - test_call.py for ToolInvoke and ToolResult, the family's other half.
+    - test_call.py for ToolInvoke and ToolResult, the family's calling half.
+    - test_quarantine.py for ToolQuarantine, ToolQuarantineReport and ToolRetired.
     - docs/waggle/spec.md section 8.8 for the fields, bounds and validators pinned here.
 """
 
@@ -41,12 +42,21 @@ from waggle.messages.tool.authoring import (
     ToolScope,
 )
 from waggle.messages.tool.call import ToolInvoke, ToolInvokePurpose, ToolOutcome, ToolResult
+from waggle.messages.tool.quarantine import ToolQuarantine, ToolQuarantineReport, ToolRetired
 
 CLOCK = FakeClock()
 NOW = CLOCK.now()
 SHA256 = "ab" * 32  # 32 digest bytes as 64 lowercase hex characters.
 DEEP_NESTING = "[" * 5_000  # Deeper than the JSON decoder's recursion limit, well under every cap.
-TOOL_CLASSES: tuple[type[WaggleMessage], ...] = (ToolRequest, ToolPromoted, ToolInvoke, ToolResult)
+TOOL_CLASSES: tuple[type[WaggleMessage], ...] = (
+    ToolRequest,
+    ToolPromoted,
+    ToolInvoke,
+    ToolResult,
+    ToolQuarantine,
+    ToolQuarantineReport,
+    ToolRetired,
+)
 # Built from a dict rather than keywords: the `shell` field name trips bandit's S604 (a
 # shell=True check) on a keyword call, and a noqa would outlive the false positive.
 PLATFORM = PlatformReport.model_validate(
@@ -115,6 +125,39 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         error_code=None,
         duration_s=0.42,
         reason="Profiled 12 columns.",
+    ),
+    ToolQuarantine(
+        tool_id=new_id(IdKind.TOOL, CLOCK),
+        name="csv_profile",
+        version="1.0.0",
+        scope=ToolScope.HIVE,
+        cell_id=None,
+        spec_json='{"name": "csv_profile", "version": "1.0.0"}',
+        package_sha256=SHA256,
+        package_size_bytes=4_096,
+        path=QuarantinePath.SANDBOX_CELL,
+        limits_json='{"cpu_s": 30, "fuzz_cases": 50}',
+        requested_by_warden=new_id(IdKind.WARDEN, CLOCK),
+        reason="The scaffold finished; prove it in the sandbox before promotion.",
+    ),
+    ToolQuarantineReport(
+        tool_id=new_id(IdKind.TOOL, CLOCK),
+        version="1.0.0",
+        passed=True,
+        path=QuarantinePath.SANDBOX_CELL,
+        sandbox_cell_id=new_id(IdKind.CELL, CLOCK),
+        failing_gate=None,
+        report_json='{"gates": [{"name": "static", "passed": true}]}',
+        reason="Every gate passed.",
+    ),
+    ToolRetired(
+        tool_id=new_id(IdKind.TOOL, CLOCK),
+        name="csv_profile",
+        version="1.0.0",
+        scope=ToolScope.HIVE,
+        cell_id=None,
+        retired_by=new_id(IdKind.HIVE, CLOCK),
+        reason="Superseded by a safer implementation.",
     ),
 )
 

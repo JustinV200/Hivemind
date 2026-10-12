@@ -1,4 +1,4 @@
-"""Provide the fourteen Pheromone event families and the JSON codec built on them.
+"""Provide the fifteen Pheromone event families and the JSON codec built on them.
 
 Every state-changing action in the Hive writes a `PheromoneEvent` (`hivemind.pheromone.events.
 base`) whose `kind` is one of the strings these modules document. Together they are the normative
@@ -8,10 +8,10 @@ is a `PheromoneEvent` subclass that fixes `FAMILY` (the prefix before the dot) a
 kind string that family accepts); the base class's validators refuse anything outside a
 subclass's own `KINDS` or `FAMILY`. The package split the vocabulary by what it records, once the
 single module reached its size limit (codingrules 5.2): `work` (cell, task, alarm, worker),
-`resources` (forage, memory, tool, swarm, llm), `supervisors` (queen, warden, capping, guard),
-`honey` (the Honey Store, roadmap phase 7), and `codec`, the registry and JSON codec that decode
-any of them by kind. Each module's docstring
-holds its own families' vocabulary: family -> kind -> when it is recorded.
+`resources` (forage, memory, tool, basket, swarm, llm), `supervisors` (queen, warden, capping,
+guard), `honey` (the Honey Store, roadmap phase 7), and `codec`, the registry and JSON codec that
+decode any of them by kind. Each module's docstring holds its own families' vocabulary: family ->
+kind -> when it is recorded.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Every layer above Layer 1 constructs one
@@ -31,8 +31,8 @@ See Also:
 
 Public API:
     - CellEvent, TaskEvent, AlarmEvent, WorkerEvent: the work and where it runs (work).
-    - ForageEvent, MemoryEvent, ToolEvent, SwarmEvent, LlmEvent, MAX_PROVIDER_CHARS: what the
-      work draws on (resources).
+    - ForageEvent, MemoryEvent, ToolEvent, BasketEvent, SwarmEvent, LlmEvent, MAX_PROVIDER_CHARS:
+      what the work draws on (resources).
     - QueenEvent, WardenEvent, CappingEvent, GuardEvent: the supervisors and their gates
       (supervisors).
     - HoneyEvent: the Honey Store's intake, ripening, labels and queries (honey).
@@ -49,6 +49,7 @@ from hivemind.pheromone.events.families.codec import (
 from hivemind.pheromone.events.families.honey import HoneyEvent
 from hivemind.pheromone.events.families.resources import (
     MAX_PROVIDER_CHARS,
+    BasketEvent,
     ForageEvent,
     LlmEvent,
     MemoryEvent,
@@ -67,6 +68,7 @@ __all__ = [
     "EVENT_FAMILIES",
     "MAX_PROVIDER_CHARS",
     "AlarmEvent",
+    "BasketEvent",
     "CappingEvent",
     "CellEvent",
     "ForageEvent",

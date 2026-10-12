@@ -26,6 +26,7 @@ from hivemind.pheromone.events.base import LlmUsage, PheromoneEvent
 from hivemind.pheromone.events.families import (
     EVENT_FAMILIES,
     AlarmEvent,
+    BasketEvent,
     CappingEvent,
     CellEvent,
     ForageEvent,
@@ -50,7 +51,7 @@ from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 
 # Every family but LlmEvent: LlmEvent's extra required-together fields need their own kwargs
-# builder, so it is tested separately below rather than parametrised alongside these twelve.
+# builder, so it is tested separately below rather than parametrised alongside the rest.
 _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -65,6 +66,7 @@ _NON_LLM_FAMILIES: tuple[type[PheromoneEvent], ...] = (
     WorkerEvent,
     GuardEvent,
     HoneyEvent,
+    BasketEvent,
 )
 _ALL_FAMILIES: tuple[type[PheromoneEvent], ...] = (*_NON_LLM_FAMILIES, LlmEvent)
 
@@ -134,7 +136,7 @@ def test_family_event_rejects_a_malformed_kind(event_cls: type[PheromoneEvent]) 
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_event_families_covers_exactly_the_fourteen_families() -> None:
+def test_event_families_covers_exactly_the_fifteen_families() -> None:
     assert set(EVENT_FAMILIES) == {
         "cell",
         "task",
@@ -150,8 +152,9 @@ def test_event_families_covers_exactly_the_fourteen_families() -> None:
         "worker",
         "honey",
         "guard",
+        "basket",
     }
-    assert len(EVENT_FAMILIES) == 14
+    assert len(EVENT_FAMILIES) == 15
 
 
 @pytest.mark.parametrize("event_cls", _ALL_FAMILIES)

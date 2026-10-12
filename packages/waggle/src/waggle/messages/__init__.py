@@ -3,7 +3,7 @@
 Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle dance); a message
 is a frozen pydantic model, one per kind, that travels as the payload of an Envelope (the outer
 wrapper every Waggle message travels in). The package holds one sub-package per family (task,
-supervision, forage, cell, session, honey, tool, capping, swarm, control), each split by
+supervision, forage, cell, session, honey, tool, capping, swarm, control, basket), each split by
 responsibility into modules behind the family's own ``__init__``, plus the shared base, labels
 and reports, the catalogue (the one kind list) and the registry that indexes it. This file
 re-exports every message class, the shared labels and reports, the two base classes and the
@@ -50,18 +50,21 @@ Public API:
     - Session (session): SessionOpen, SessionExec, SessionStdin,
       SessionOutput, SessionExit, SessionPutFile, SessionGetFile, SessionClose.
     - Honey (honey): NectarDeposit, HoneyQuery, HoneyResponse.
-    - Tool (tool): ToolRequest, ToolPromoted, ToolInvoke, ToolResult.
+    - Tool (tool): ToolRequest, ToolPromoted, ToolInvoke, ToolResult, ToolQuarantine,
+      ToolQuarantineReport, ToolRetired.
     - Capping (capping): ProposalSubmitted, CheckResult, Verdict,
       PostconditionResult, RollbackDone.
     - Swarm (swarm): EnrolRequest, EnrolAccept, DeviceHeartbeat, NucPromote,
       NucPromoted, TrailSegmentSync.
     - Control (control): Ping, Pong, ErrorMessage, Shutdown, Cluster, Wake,
       HumanMessage, MaskOverride, QueenMoved.
+    - Basket (basket): BasketOffer, BasketChunk, BasketAck, BasketRefuse.
     - Registry (registry): MessageSpec, MESSAGE_SPECS, spec_for, model_for, kind_for,
       all_kinds.
 """
 
 from waggle.messages.base import MessageShape, WaggleMessage
+from waggle.messages.basket import BasketAck, BasketChunk, BasketOffer, BasketRefuse
 from waggle.messages.capping import (
     CheckResult,
     PostconditionResult,
@@ -171,7 +174,15 @@ from waggle.messages.task import (
     TaskResult,
     TaskResume,
 )
-from waggle.messages.tool import ToolInvoke, ToolPromoted, ToolRequest, ToolResult
+from waggle.messages.tool import (
+    ToolInvoke,
+    ToolPromoted,
+    ToolQuarantine,
+    ToolQuarantineReport,
+    ToolRequest,
+    ToolResult,
+    ToolRetired,
+)
 
 __all__ = [
     "MESSAGE_SPECS",
@@ -181,6 +192,10 @@ __all__ = [
     "AlarmResolved",
     "AlarmSeverity",
     "Answer",
+    "BasketAck",
+    "BasketChunk",
+    "BasketOffer",
+    "BasketRefuse",
     "CapacityReport",
     "CeilingsSet",
     "CellCapabilitiesReport",
@@ -258,8 +273,11 @@ __all__ = [
     "Tempo",
     "ToolInvoke",
     "ToolPromoted",
+    "ToolQuarantine",
+    "ToolQuarantineReport",
     "ToolRequest",
     "ToolResult",
+    "ToolRetired",
     "TrailSegmentSync",
     "Urgency",
     "Verdict",

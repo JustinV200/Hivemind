@@ -34,6 +34,12 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   (`CellTaintOrder`), the Queen's order to an isolated Cell's Warden to taint the memory store it
   keeps inside the Cell: the Cell, the `cell.isolated` event as the cause, `suspect_at`, and the
   bees and tasks it covers (bounded; at least one, by validator).
+- Waggle 1.11 is phase 8's `forage.source_added`/`source_removed`/`source_evict`, on branch
+  `ccr-0235b6d7-okyhmn`; the number is reserved here and nothing in this tree uses it.
+- Waggle 1.12 (phase 9, ADR-0046 to ADR-0048): `basket/` is a new family (`basket.offer`,
+  `basket.chunk`, `basket.ack`, `basket.refuse`: a content-addressed blob offered, streamed in
+  chunks of at most 256 KiB and acknowledged or refused with a stable code), and
+  `tool/quarantine.py` adds `tool.quarantine`, `tool.quarantine_report` and `tool.retired`.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
@@ -41,11 +47,11 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   `alarms.py`, `questions.py`); `forage/` (`grants.py`, `values.py`, `capacity.py`,
   `hosting.py`); `cell/` (`status.py`, `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`,
   `output.py`, `files.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
-  `call.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `gui.py`, `verdict.py`); `swarm/`
-  (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`). Enums that only one
+  `call.py`, `quarantine.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `gui.py`, `verdict.py`); `swarm/`
+  (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`); `basket/` (`offer.py`, `chunk.py`). Enums that only one
   family uses live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all
-  seventy-one kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
+  seventy-eight kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
   `all_kinds`. Message classes never carry their own kind.
 
 Rules every family follows: every id field uses a base.py alias; every `reason` is bounded by

@@ -34,6 +34,7 @@ _VALID_SPECS = [
     "tool:read_file",
     "tool:*",
     "tool:request",
+    "tool:quarantine_on_real",
     "tool:scope:cell",
     "tool:request:x",
     "fs:read:**",
@@ -94,6 +95,9 @@ def test_str_then_parse_round_trips(spec: str) -> None:
     [
         ("tool:request", CapabilityFamily.TOOL_REQUEST, ""),  # Its own flag, not a tool.
         ("tool:scope:cell", CapabilityFamily.TOOL_SCOPE, "cell"),  # Its own family.
+        # Phase 9: its own flag, not a tool named quarantine_on_real; a flag matches exactly only.
+        ("tool:quarantine_on_real", CapabilityFamily.TOOL_QUARANTINE_ON_REAL, ""),
+        ("tool:quarantine_on_real:x", CapabilityFamily.TOOL, "quarantine_on_real:x"),
         ("tool:request:x", CapabilityFamily.TOOL, "request:x"),  # A flag matches exactly only.
         ("observe:honey:hive", CapabilityFamily.OBSERVE_HONEY, "hive"),  # Never read as observe.
         ("observe", CapabilityFamily.OBSERVE, ""),
@@ -155,6 +159,9 @@ def test_a_flag_family_is_built_without_a_scope() -> None:
         (CapabilityFamily.NET, ""),  # A scoped family with none.
         (CapabilityFamily.TOOL, "request"),  # Reserved: it would read back as tool:request.
         (CapabilityFamily.TOOL, "scope:cell"),  # Reserved: it would read back as tool:scope.
+        # Reserved: it would read back as the tool:quarantine_on_real flag.
+        (CapabilityFamily.TOOL, "quarantine_on_real"),
+        (CapabilityFamily.TOOL_QUARANTINE_ON_REAL, "x"),  # A flag takes no scope.
         (CapabilityFamily.LLM, "nonsense"),
         (CapabilityFamily.SPEND, "-1"),
     ],
@@ -203,6 +210,8 @@ def test_capability_json_with_an_invalid_scope_is_refused() -> None:
 def test_matches_requires_the_same_family() -> None:
     assert Capability.parse("fs:read:**").matches(Capability.parse("fs:write:/x")) is False
     assert Capability.parse("tool:*").matches(Capability.parse("tool:request")) is False
+    # Phase 9: a holder of every tool still cannot run candidate tests on a Real Cell.
+    assert Capability.parse("tool:*").matches(Capability.parse("tool:quarantine_on_real")) is False
     assert Capability.parse("observe").matches(Capability.parse("observe:thoughts")) is False
 
 
@@ -339,3 +348,32 @@ def test_honey_read_globs_a_honey_store_scope(
     held = Capability.parse(held_spec)
 
     assert held.matches(Capability.parse(needed_spec)) is expected
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# tool:quarantine_on_real (roadmap step 9.3a, ADR-0047)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_quarantine_on_real_parses_to_its_own_flag_family() -> None:
+    capability = Capability.parse("tool:quarantine_on_real")
+
+    assert capability.family is CapabilityFamily.TOOL_QUARANTINE_ON_REAL
+    assert capability.family.scope_kind is ScopeKind.FLAG
+    assert capability.scope == ""
+    assert str(capability) == "tool:quarantine_on_real"
+
+
+def test_quarantine_on_real_with_a_scope_is_never_the_flag() -> None:
+    # A flag matches its exact string only: with a scope appended the text falls through to the
+    # `tool` family as a tool named "quarantine_on_real:x", which no tool name pattern allows, so
+    # it can never be read as holding the flag.
+    capability = Capability.parse("tool:quarantine_on_real:x")
+
+    assert capability.family is CapabilityFamily.TOOL
+    assert capability.matches(Capability.parse("tool:quarantine_on_real")) is False
+
+
+def test_the_flag_family_itself_takes_no_scope() -> None:
+    with pytest.raises(ValidationError, match="takes no scope"):
+        Capability(family=CapabilityFamily.TOOL_QUARANTINE_ON_REAL, scope="x")

@@ -31,6 +31,9 @@ allow = [
     "tool:*",
     "tool:scope:*",
     "tool:request",
+    # Phase 9 (roadmap step 9.3a, ADR-0047): the two roots may run a candidate tool's tests on a
+    # Real Cell; no Warden, Worker or device role holds it, so nothing below them can.
+    "tool:quarantine_on_real",
     "fs:read:**",
     "fs:write:**",
     "exec:*",
@@ -83,6 +86,9 @@ allow = [
     "tool:*",
     "tool:scope:*",
     "tool:request",
+    # Phase 9 (roadmap step 9.3a, ADR-0047): the two roots may run a candidate tool's tests on a
+    # Real Cell; no Warden, Worker or device role holds it, so nothing below them can.
+    "tool:quarantine_on_real",
     "fs:read:**",
     "fs:write:**",
     "exec:*",

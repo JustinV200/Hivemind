@@ -149,6 +149,7 @@ HiveMind/
 │   │   │   ├── forage/           # Capacity as data: HostCapacity, Seat, RoleFootprint, grants, requests, map.py (Forage map), pure allocation, slots.py (ModelSlot), tempo.py (Tempo). Imports nothing from llm.
 │   │   │   ├── brood_chamber/    # Task graph, task state machine, persistence. task/ (model, state, graph), store/ (protocol, memory, sqlite, migrations), chamber/ (facade)
 │   │   │   ├── honey_store/      # Cold tier: nectar/ intake, ripening/ pipeline, honey/ retrieval, browse/, lowering/ (judge-reviewed label lowering), schema/
+│   │   │   ├── basket/           # Basket: content-addressed, signed blobs; store/, residency.py, transfer/, deposits.py
 │   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread, cell_wax.py (Queen-written per-Cell cautions)
 │   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state), defaults/ (the shipped policy and tier TOMLs, read through importlib.resources)
 │   │   │   ├── guard/            # Policy engine, capabilities.py (CapabilitySet, built in phase 3), access.py (what each AccessLevel allows), permission checks. The security enums live in cell/tiers.py.
@@ -248,7 +249,7 @@ Layer 6  queen                                                        (the kerne
 Layer 5  wardens                                                      (per-Cell supervisors; spawn and supervise Workers)
 Layer 4  workers                                                      (roles that do the work)
 Layer 3  hive, swarm, exoskeleton, royal_jelly                        (sources of Cells, and capabilities handed down)
-Layer 2  cell, brood_chamber, honey_store, memory, supervision, guard (the Cell abstraction, state, memory, policy)
+Layer 2  cell, brood_chamber, honey_store, basket, memory, supervision, guard (the Cell abstraction, state, memory, policy)
 Layer 1  llm, manifest                                               (foundational services: models, configuration)
          pheromone, forage                                            (the audit sink; capacity as data)
 Layer 0  common                                                       (primitives; imports nothing internal)
@@ -299,9 +300,16 @@ Layer 0  common                                                       (primitive
   autopilot rules can name a slot or read a tempo without touching `hivemind.llm`.
 - `cell` is the home of everything a task or a policy needs to say about a Cell: `TaskNeeds`, the
   three security enums (`AccessLevel`, `CombShieldLevel`, `HoneyClearance`) and the `Snapshotter`
-  protocol. `guard`, `hive`, `honey_store` and `supervision` import them from there; nothing at
+  protocol. `guard`, `hive`, `honey_store`, `basket` and `supervision` import them from there; nothing at
   Layer 2 or below imports `guard` for an enum.
-- Within Layer 2, `guard` sits below `brood_chamber`, `honey_store`, `memory` and `supervision`
+- `basket` is the Layer 2 store of content-addressed, signed blobs (ADR-0048). It never imports
+  `honey_store`: the Honey record every deposit writes goes through a port the composition root
+  fills, and the clearance floor it applies is restated in `basket`, with a test that cites the
+  Honey Store's, so two Layer 2 siblings stay independent. `memory` and `llm` never import
+  `basket`, so `memory.assemble` cannot list it and a blob can only reach a prompt as the Honey
+  record that describes it; `lint-imports` enforces that as its own contract.
+- Within Layer 2, `guard` sits below `brood_chamber`, `honey_store`, `basket`, `memory` and
+  `supervision`
   and above `cell`: the Capping gate checks every proposal against a `CapabilitySet`, so
   `supervision.capping` imports `guard` (ADR-0018), while `guard` reads `cell` only for the
   enums `guard.access` maps capabilities onto and never reads a policy back.
@@ -594,6 +602,7 @@ Mandatory protocols (each gets its own ADR when first implemented):
 | `EmbeddingProvider` | `hivemind/llm/embedding.py` | `OpenAICompatEmbedding` (Ollama, vLLM, hosted), `SentenceTransformersEmbedding` (in-process), `FakeEmbedding` |
 | `TranscriptionProvider` | `hivemind/llm/transcription.py` | `WhisperLocalTranscription` (faster-whisper in-process, optional extra, GPU when present), `OpenAICompatTranscription` (any server or hosted API speaking `/v1/audio/transcriptions`), `FakeTranscription` |
 | `TaskStore` | `hivemind/brood_chamber/store/protocol.py` | SQLite, in-memory (tests) |
+| `BasketStore` | `hivemind/basket/store/protocol.py` | SQLite + blob directory |
 | `Worker` | `hivemind/workers/base.py` | one per role |
 | `DeviceExecutor` | `pollen/executors/base.py` | shell, files, per-OS |
 | `PheromoneTrail` | `hivemind/pheromone/trail/protocol.py` | SQLite, in-memory (tests) |
@@ -1793,6 +1802,7 @@ transaction as the state change.
 | Swarm node | Swarm, `swarm/node_state.py` | `INVITED → ENROLLING → ONLINE ↔ UNREACHABLE`; `ONLINE → PROMOTING → NUC`; `NUC → DEMOTING → ONLINE`; any → `REVOKED` | Access level is an attribute, not a state. |
 | Forage grant | Queen, `forage/grant_state.py` | `ISSUED → ACTIVE → REVOKED`; `ACTIVE → EXHAUSTED → ACTIVE` (top-up); `EXHAUSTED → REVOKED` (holder lost while spent) | Growing or shrinking keeps it `ACTIVE`; each change is an event. |
 | Tool | Royal Jelly, `royal_jelly/tool_state.py` | `REQUESTED → SCAFFOLDED → QUARANTINING → PROMOTED / REJECTED`; `PROMOTED → RETIRED` | Scope (`hive` or `cell`) is an attribute set at promotion. |
+| Blob | Basket, `basket/models.py` | `PRESENT → RETIRED` | content-addressed; a retired blob is never shipped or loaded |
 | Provider health | LLM, `llm/capabilities.py` | `HEALTHY ↔ DEGRADED ↔ DOWN` | In memory, re-probed on start; `DOWN` with no fallback triggers Clustering. |
 | Queen mode | Queen, `queen/state.py` | `REQUEENING → RUNNING`; `RUNNING ↔ CLUSTERED` (per provider set); `CLUSTERED → SUPERSEDING → SUPERSEDED` (the old Queen, 8.16); `SUPERSEDING → CLUSTERED` (rollback) | Per event, `RUNNING` is autopilot then awake; mode is not a transcript. A new Queen starts in `REQUEENING` from the copied stores. |
 | Knowledge tier | Memory and Honey Store | `HOT → BEE_BREAD → HONEY`; `NECTAR → HONEY` | A pipeline, not a strict machine; demotion is a House Bee duty. |
@@ -1821,6 +1831,7 @@ Where state lives, and what survives a Queen crash:
 | Virtual Cell status | Backend labels plus a Hive table | Backend is truth | Reconciled from the backend on start. |
 | Swarm nodes, access levels | Swarm registry (SQLite) | Yes | Heartbeats re-establish reachability. |
 | Tools and reports | Comb Registry (SQLite plus package dir) | Yes | Read directly. |
+| Blobs, their residency and shipments | Basket (SQLite plus blob directory) | Yes | Read directly; a Cell's resident copies live in its own volume and survive Overwintering. |
 | Proposals and verdicts | Capping table plus trail | Yes | In-flight proposals are re-checked, never auto-applied, after a restart. |
 | Provider health | In memory | No | Re-probed on start. |
 | A bee's in-flight reasoning | Its process, and its last Handoff | Via the Handoff | Resume from the Handoff on the same or another slot or host. |

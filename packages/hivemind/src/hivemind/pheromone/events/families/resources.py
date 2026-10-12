@@ -1,11 +1,11 @@
-"""Define the event families of what the Hive draws on: Forage, memory, tools, devices, models.
+"""Define the event families of what the Hive draws on: Forage, memory, tools, blobs, models.
 
-Five of the Pheromone Trail's fourteen event families record the resources the work draws on:
+Six of the Pheromone Trail's fifteen event families record the resources the work draws on:
 capacity and its grants (`forage`), the memory tiers and Cell Wax (`memory`), the Royal Jelly
-tool lifecycle (`tool`), the Swarm's enrolled devices (`swarm`) and every model call or routing
-decision (`llm`). Each is a `PheromoneEvent` subclass (`hivemind.pheromone.events.base`) fixing
-`FAMILY` and `KINDS`; `LlmEvent` alone carries three extra fields (`slot`, `provider`, `usage`),
-required together exactly on `llm.call`.
+tool lifecycle (`tool`), the Basket's content-addressed blobs (`basket`), the Swarm's enrolled
+devices (`swarm`) and every model call or routing decision (`llm`). Each is a `PheromoneEvent`
+subclass (`hivemind.pheromone.events.base`) fixing `FAMILY` and `KINDS`; `LlmEvent` alone carries
+three extra fields (`slot`, `provider`, `usage`), required together exactly on `llm.call`.
 
 Vocabulary (family -> kind -> when it is recorded):
     forage: capacity_reported (a Cell reported ForageCapacity at provision or on change);
@@ -32,7 +32,25 @@ Vocabulary (family -> kind -> when it is recorded):
     tool: requested (a Worker asked for a tool the Comb Registry does not yet have); scaffolded
         (Royal Jelly generated a draft implementation); quarantined (a QuarantineReport was
         produced, pass or fail); promoted (CombRegistry.promote admitted it); rejected (promotion
-        was refused); retired (a promoted tool was withdrawn from the registry).
+        was refused); retired (a promoted tool was withdrawn from the registry). Phase 9 adds the
+        stages around a promotion, each recorded where it happens (ADR-0046, ADR-0047):
+        quarantine_requested (a `tool.quarantine` was sent or accepted, naming the package by
+        hash); sandbox_provisioned (the Queen made a sandbox Cell for one Comb run);
+        sandbox_released (that sandbox was torn down after its report); announced (a
+        `tool.promoted` was sent to one Warden whose Cell can run it); loaded (a Worker's bundle
+        gained a Comb tool after its Warden re-attenuated it); load_refused (a Warden or Worker
+        declined to load a promoted tool: hash mismatch, OS, capability or a blob with no entry);
+        rolled_back (an earlier version was made current again, the row's own report its evidence).
+    basket: deposited (a blob was kept in the Basket under its hash, after a Capping-checked
+        retain proposal applied or an operator's deposit; carries the hash, size, kind, clearance
+        and origin); deposit_deduplicated (a deposit met a blob already stored by that hash and
+        returned it); deposit_refused (the scanner flagged a text-like blob, or it broke a size or
+        label rule, and nothing was stored); offered (a `basket.offer` was sent for one blob and
+        one destination Cell); received (a blob arrived whole, its hash and signature verified,
+        and became resident); refused (an offer or a transfer was refused, either way round,
+        with its `BasketRefusal` code); evicted (residency freed a resident copy to make room, or
+        absconding removed it); retired (a blob was marked RETIRED: never shipped or loaded
+        again); shipped (the last chunk of a shipment was acknowledged complete).
     swarm: invited (a device invite was minted); enrolled (a device completed enrolment); promoted
         (a Real Cell was colonized or became a Nuc); demoted (a Nuc lost its model server, or a
         colonized Cell was demoted); revoked (a device's enrolment was revoked); command_sent (a
@@ -47,8 +65,8 @@ Vocabulary (family -> kind -> when it is recorded):
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.pheromone.events.
-    families`. Constructed by the Queen's Forage ledger, the memory tiers, Royal Jelly, the Swarm
-    and the Fanner; decoded by `hivemind.pheromone.events.families.codec`. Calls into
+    families`. Constructed by the Queen's Forage ledger, the memory tiers, Royal Jelly, the Basket,
+    the Swarm and the Fanner; decoded by `hivemind.pheromone.events.families.codec`. Calls into
     `hivemind.pheromone.events.base` and `waggle.messages.base` (the slot bounds) only.
 
 Key invariants:
@@ -73,6 +91,7 @@ MAX_PROVIDER_CHARS = 64  # A provider name from the manifest ("anthropic", "loca
 
 __all__ = [
     "MAX_PROVIDER_CHARS",
+    "BasketEvent",
     "ForageEvent",
     "LlmEvent",
     "MemoryEvent",
@@ -141,6 +160,33 @@ class ToolEvent(PheromoneEvent):
             "tool.promoted",
             "tool.rejected",
             "tool.retired",
+            # Phase 9 (ADR-0046, ADR-0047): the stages around a promotion.
+            "tool.quarantine_requested",
+            "tool.sandbox_provisioned",
+            "tool.sandbox_released",
+            "tool.announced",
+            "tool.loaded",
+            "tool.load_refused",
+            "tool.rolled_back",
+        }
+    )
+
+
+class BasketEvent(PheromoneEvent):
+    """A Basket deposit, transfer, eviction or retirement; see the module docstring's `basket`."""
+
+    FAMILY: ClassVar[str] = "basket"
+    KINDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "basket.deposited",
+            "basket.deposit_deduplicated",
+            "basket.deposit_refused",
+            "basket.offered",
+            "basket.received",
+            "basket.refused",
+            "basket.evicted",
+            "basket.retired",
+            "basket.shipped",
         }
     )
 

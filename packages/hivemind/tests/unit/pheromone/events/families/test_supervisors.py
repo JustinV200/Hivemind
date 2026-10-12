@@ -114,6 +114,7 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "guard.reduce_ordered",
         "guard.envelope_refused",
         "guard.segment_refused",
+        "guard.basket_integrity_failed",  # Phase 9 (ADR-0048).
     } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
 
 
