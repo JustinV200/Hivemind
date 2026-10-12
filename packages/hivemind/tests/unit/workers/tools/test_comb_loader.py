@@ -65,9 +65,10 @@ async def test_load_writes_the_files_under_scratch_and_imports_tool_py_by_path(
     assert name.startswith(f"{MODULE_PREFIX}_{worker_id}_")
 
 
-async def test_the_second_load_is_served_from_the_cache() -> None:
+async def test_the_second_load_is_served_from_the_cache(tmp_path: Path) -> None:
     package = make_comb_package()
-    session = DiskBackedSession(Path("unused"), FakeClock())
+    # The first load really unpacks (then the cache answers), so it needs a writable scratch.
+    session = DiskBackedSession(tmp_path, FakeClock())
     importer = _RecordingImporter()
     loader = PackageLoader(importer)
     worker_id = new_worker_id(FakeClock())
