@@ -261,3 +261,136 @@ under `tool:<name>` like every built-in.
   manifest sections and composition.
 - Wave 3: 3G Queen ticks; 3H Warden ticks; 3I CLI.
 - Wave 4: 4J exit criteria, then the gates, the roadmap tick and this file's handoff sections.
+
+## 5. Where things stand (handoff, written as the work landed)
+
+- **The branch.** `ccr-4e10bf6f-y9zk5g`, from `main` at `4b66406`, pushed after every wave. `git log
+  --oneline 4b66406..HEAD` lists the commits, one per wave, each body saying why. **No PR was
+  opened**; the operator asked for a branch.
+- **The roadmap.** Every box from 9.1 to 9.10, including 9.2a and 9.3a, is ticked with a dated
+  as-built note; 9.3a is marked partly built (section 9). The exit criteria's "Met" note is in the
+  roadmap below the bullets.
+- **The gates.** Section 8 has the commands; the numbers at handover are recorded there.
+- **Waggle** is **1.12** here (1.11 is reserved for phase 8's branch). ADRs are **0046 to 0048**
+  (0044 and 0045 are phase 8's). If phase 8 never merges, renumber both before merging this.
+- **Migrations.** `royal_jelly/registry/migrations/0001_create_comb_registry.sql` (`comb_tools`)
+  and `basket/store/migrations/0001_create_basket.sql` (`basket_blobs`, `basket_residency`,
+  `basket_shipments`), both in the Hive's one database on their own connections. A Cell's resident
+  Basket is its own file under the lease scratch (`basket/basket.sqlite`, `basket/blobs`).
+- **Manifest.** `[royal_jelly]` (`sandbox = "virtual" | "subprocess"`, `sandbox_image`,
+  `sandbox_distribution`, `limits.*`, `max_retries`, `request_timeout_s`, the sandbox Cell's
+  size) and `[basket]` (`root`, `max_blob_bytes`, `chunk_bytes`, `default_resident_ceiling_bytes`,
+  `ship_on_promotion`), documented in `docs/manifests/full.toml`. `sandbox = "virtual"` set
+  explicitly requires `[virtual_cells] backend`; the dev `subprocess` sandbox warns at build.
+- **Dependencies.** None added.
+
+## 6. What phase 9 implemented (map)
+
+Paths are relative to `packages/hivemind/src/hivemind/` unless they say otherwise.
+
+| Step | Modules | Notes |
+|---|---|---|
+| 9.1 | `royal_jelly/spec/` (models, validate, package, report) | `validate_spec` is pure; a package is a byte-identical zip; `QuarantineReport` requires a passing report to hold exactly `GATE_ORDER`. |
+| 9.2, 9.9 | `royal_jelly/registry/` (protocol, principals, rules, sql, writes, sqlite, fake, migrations), `royal_jelly/tool_state.py`, `royal_jelly/errors.py` | `promote` is the only path to a PROMOTED row; `retire` keeps the row; `rollback` re-currents an older passing row. Contract suite over SQLite and the in-memory fake; a no-bypass suite. |
+| 9.2a | `basket/` (models, manifest, clearance, errors, events, deposits, residency, `store/` with `sql/`, `transfer/` with state, sender, receiver, spool, wire), `waggle/messages/basket/`, `pheromone/.../resources.py` `BasketEvent`, `guard/policy/catalogue.py`, `cli/basket/` | The deposit door signs with the Hive key and writes one Honey record through a port; the receiver keeps bytes only after hash and signature verify; residency evicts oldest first under the ceiling. |
+| 9.3 | `royal_jelly/scaffold/` (models, scaffolder, render, fake), `llm/prompts/scaffold_tool.md` | Tests first; the model never sets name, scope, ids or capabilities. |
+| 9.3a | `quarantine_comb/path.py`, `guard/capabilities/families.py` (`tool:quarantine_on_real`), `queen/ticks/tools/review.py` | The Real Cell tests-gate leg is not built (section 9). |
+| 9.4 | `quarantine_comb/sandbox.py`, `sandbox_cell.py`, `sandbox_subprocess.py`, `queen/cell_gate/provider.py` (`acquire_sandbox`, `release_sandbox`) | A sandbox Virtual Cell has `network_policy = NONE` and is the Queen's; torn down after the report. |
+| 9.5 | `quarantine_comb/comb.py`, `gates/` (base, banned, scan, static, tests, schema, fuzz, resources, capabilities, defaults), `runner/` (main, phases, hooks, session, inputs, usage, report) | The runner executes inside the sandbox; `python -m hivemind.royal_jelly.quarantine_comb.runner`. |
+| 9.6 | `royal_jelly/promotion/` (flow, ports, events), `queen/ticks/tools/` (requests, jobs, runner, quarantine, replies, review, announce, promotions, honey, events, `transfer/` ship, receive, drain), `wardens/ticks/tools/` (relay, pending, install, cell_scope, ports, remote_registry, quarantine_run, seams, messages) | The Queen runs the flow beside her tick; a Warden runs the cell-scope flow in a job of its own. |
+| 9.7 | `workers/tools/comb/` (entry, invoke, loader, request, retain), `workers/runtime/tools.py`, `workers/roles/bounded_loop/` (`ToolsChangedError` rebuilds the registry), `wardens/spawn/comb.py`, `wardens/ticks/basket/` (receive, send, retain, door, source, state, jobs, events, handle) | A bundle changes only when the Warden replaces it; `request_tool` and `retain` are Worker tools. |
+| 9.8 | `royal_jelly/honey_link.py`, `queen/ticks/tools/honey.py` | One Nectar per promotion, `source_key` `tool:<name>:<version>`. |
+| 9.10 | `cli/tools/`, `cli/basket/`, `cli/app.py` | `hive tools --manifest M list|show|request|retire|rollback|quarantine <path>`. |
+| composition | `manifest/schema/royal_jelly.py`, `cli/compose/royal_jelly/` (build, honey_port), `cli/compose/deps.py`, `cli/stores.py` (`open_comb_registry`, `open_basket_store`), `royal_jelly/access.py`, `cli/in_cell/basket.py` | `RoyalJellyAccess` reaches `QueenDeps.royal_jelly` and `WardenDeps.royal_jelly`; a Cell's Warden gets `resident_basket`, `basket_store`, `node_signer`, `hive_verifier`. |
+
+## 7. How the pieces meet at runtime
+
+- **Hive-scope request.** A Worker calls `request_tool` (needs `tool:request`); its Warden checks
+  first-hop identity and relays `tool.request` to the Queen. The Queen validates the capabilities
+  against the task's goal ceiling narrowed by the Worker role, records `tool.requested`, and starts
+  a job: scaffold on SCAFFOLDER → deposit the package in the Basket (`tool.scaffolded`) →
+  provision a sandbox Virtual Cell (or use the dev subprocess sandbox) → ship the blob there →
+  `tool.quarantine` → await the correlated `tool.quarantine_report` (`tool.quarantined`) →
+  `registry.promote` with the Queen principal (`tool.promoted`) → Nectar → announce to every
+  Warden whose Cell's OS the tool supports, blob first (`tool.announced`). The requester's Warden
+  installs the entry once the blob is resident and verified, replaces the bundle of every running
+  sub-bee allowed to call it, and forwards one `tool.promoted` to the asker; the bounded loop
+  rebuilds its registry and the model sees the tool on its next round. One retry with the report;
+  then `tool.rejected` and `control.error hive.tool.rejected` to the asker.
+- **Cell-scope request.** The asker needs `tool:request` and the Warden `tool:scope:cell`. The
+  Warden scaffolds on the first SCAFFOLDER binding the sub-bee's grant allows, deposits (Hive
+  Stand) or deposits locally and ships up (a Cell), sends `tool.quarantine` to the Queen as its
+  sandbox request, and on a passing report promotes: in process with `WardenPrincipal(warden,
+  cell)` on the Hive Stand, or by `tool.promoted` to the Queen, who accepts it only against the
+  run she brokered for that Warden. Only that Cell's bees ever see the tool.
+- **Shipping.** `basket.offer` → ack or refuse by rule (clearance above the Cell's ceiling, so a
+  Real Cell origin never reaches Night Veil; tainted; no room; unknown signer; platform) →
+  `basket.chunk`s, one in flight per ack → `basket.ack(complete)`. The receiver spools to a temp
+  file, verifies the whole hash and the manifest signature, and only then keeps the bytes;
+  `guard.basket_integrity_failed` otherwise. Upward offers are signed with the Warden's node key
+  and re-deposited by the Queen through the signed door, which writes the Honey record.
+- **Retain.** `retain(path, title, summary, kind)` is a capped COPY in scratch; once VERIFIED the
+  Worker's `RetainSink` hands the Warden a `RetainDeposit`, which the Warden re-hashes, labels by
+  provenance (C2 from a borrowed Cell) and taint, and deposits or ships up.
+- **Invocation.** A promoted tool appears in a Worker's registry by name; every call re-validates
+  the arguments against the schema, every required capability against the Worker's set and the
+  Cell's OS against `supported_os`, then loads the resident package only if its bytes hash to the
+  entry's `package_sha256`. A hash with no Comb entry has no API to be invoked.
+
+## 8. Testing state and how to run the gates
+
+Run everything from the repo root with `uv run --frozen`:
+
+```sh
+uv run --frozen ruff format --check . && uv run --frozen ruff check . && uv run --frozen mypy
+uv run --frozen lint-imports
+for s in check_sizes check_fanout check_no_model_ids check_no_kind_branches check_no_transcripts; do
+  uv run --frozen python scripts/$s.py || break
+done
+uv run --frozen pytest -q -p no:cacheprovider \
+  -m "not integration and not e2e and not live_llm and not local_llm" packages scripts/tests
+uv run --frozen pytest -q -p no:cacheprovider -m e2e packages/hivemind/tests/e2e
+```
+
+The Comb's own tests start a real runner in the subprocess sandbox (about 3 s of CPU each, since
+importing `hivemind.royal_jelly` pulls in `hivemind.llm`); run the suite on an idle host, as the
+phase 7 handoff already warns for placement.
+
+GATES_AT_HANDOVER
+
+## 9. Open items
+
+1. **The Real Cell tests-gate leg of 9.3a is not built.** `decide_path` chooses `REAL_CELL` for a
+   non-Ubuntu target, the capability, the report field, the registry rule and the Queen's awake
+   review exist, but `QuarantineComb.run(path=REAL_CELL)` only stamps the report; a sandbox over a
+   lease's scratch on a Real Cell of the target platform, with the flight recorder on at the
+   `device_command` tier, is still to write, and no second-platform Real Cell exists in CI.
+2. **Tool packages are C2.** The Queen deposits a scaffolded package from the Hive Stand with
+   `from_borrowed_cell=True`, so the Basket floor labels it C2 and a Night Veil Cell (ceiling C1)
+   refuses every tool package: Night Veil Cells get no Comb tools. Either label the Queen's own
+   packages C0 (the model wrote them; they hold no operator data) or add a lowering path like
+   ADR-0038's. An operator decision.
+3. **Remote cell-scope promotion is weakly acknowledged.** A Cell's Warden sends `tool.promoted`
+   and treats two seconds without a `control.error` as acceptance; the Queen's `tool.promoted`
+   trail event is the record. An explicit ack kind would be an additive minor bump.
+4. **Swarm uploads.** `QueenDeps.uplink_keys` knows Virtual Cells' node keys from the cell gate;
+   Real Cells enrolled through the Swarm (phase 11) have no key source yet, so their upward offers
+   are accepted only when signed with the Hive key.
+5. **`request_tool` is offered to every Worker** (one extra tool definition per prompt);
+   `tool:request` decides at invocation. Offer it only to Workers that hold the flag if prompt size
+   matters.
+6. **A sandbox Cell may receive a catch-up announcement** on attach (the Queen cannot tell a fresh
+   sandbox from an ordinary Cell until provisioning returns); harmless, one blob and one
+   `tool.promoted`.
+7. **`hive basket show` lists residency only for the Hive Stand, the origin Cell and pending
+   shipment destinations**; a `holders(sha256)` read on `BasketStore` would make it exact.
+8. **A Cell-retained blob's Honey title is the Queen's generic text**, because only the offer's
+   `reason` (200 chars) reaches her; carry title and summary on `basket.offer` in a later minor.
+9. **`basket/context.py` repeats the Basket-root rule** (`[basket] root` else `basket/` beside the
+   database) that `cli/compose/deps._basket_root` holds privately; make it public and share.
+10. **`ScanSource` has no Basket member**; the deposit door scans as `NECTAR_INTAKE`.
+11. **`tool.retired` is not handled by Wardens** (falls to `NEEDS_JUDGEMENT`); a Warden learns a
+    retirement only through the registry it reads at spawn.
+12. **In-Cell residency ceilings** are the `[basket]` default; `Ceilings.resident_basket_disk_bytes`
+    reaches a Cell only on a later grant (`resident_ceiling_bytes` applies the non-zero rule) and a
+    `ResidentBasket` has a fixed ceiling, so a new one must be built when a grant changes it.
