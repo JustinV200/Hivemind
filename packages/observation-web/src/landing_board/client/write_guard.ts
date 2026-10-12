@@ -3,7 +3,7 @@
  *
  * Codingrules 8.11 gives the UI one write path: a message into the Queen's inbox. The Entrance's
  * own routes (login, device and door management) are the other writes a client of the Landing
- * Board needs. Everything else, an isolate or a lift of a Cell for instance, must be impossible
+ * Board needs, and the two passkey routes a new browser enrols through. Everything else, an isolate or a lift of a Cell for instance, must be impossible
  * from here, not merely unused. The HTTP wrapper checks every non-GET request against this list
  * before it signs or sends anything, so the guarantee is code, and a test enumerates the
  * document's mutating routes against it.
@@ -34,6 +34,8 @@ export const WRITE_PATTERNS: readonly string[] = [
   '/v1/push/subscriptions*',
   '/v1/entrance/*',
   '/v1/devices/*',
+  // A browser redeems an invite with a passkey; a program's Ed25519 route is not for the UI.
+  '/v1/enrol/passkey*',
 ];
 
 // Compiled once: escape regex characters, then let `*` stand for any run of characters.

@@ -97,6 +97,8 @@ export interface Browser {
   store: KeyValueStore;
   // Runs navigator.credentials.get with a challenge's `passkey_options`; returns the assertion JSON.
   assertPasskey(options: Record<string, unknown>): Promise<Record<string, unknown>>;
+  // Runs navigator.credentials.create with an invite's creation options; returns the registration JSON.
+  createPasskey(options: Record<string, unknown>): Promise<Record<string, unknown>>;
   // Asks permission and subscribes this browser to Web Push under the Hive's application key.
   subscribeWebPush(applicationServerKey: Bytes): Promise<WebPushSubscription>;
   // Absent on a device that cannot record (no microphone API); a view hides push-to-talk then.

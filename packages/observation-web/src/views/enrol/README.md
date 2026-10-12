@@ -1,0 +1,29 @@
+# observation-web/src/views/enrol
+
+The Enrol view, `#/enrol`, on the Hive Stand only (the session's `listener` is `loopback`; any other
+session is shown "Not found" and the route makes no request): let a new device in. The operator
+names a device and mints an invite, which is shown as a code, a link with a Copy button, a QR code
+and the time it lapses, and can be withdrawn. When the device has redeemed the invite and made its
+passkey it appears under "Waiting to join" with the fingerprint of its key, live through the
+Entrance's security stream; Approve opens a form (name, capabilities, daily spend cap, expiry) and
+Deny refuses it. When the Hive runs its own certificate authority an approval can answer with a
+sealed certificate bundle, shown once with its passphrase.
+
+`slice.ts` is the view's slice (the waiting devices, the invite just minted, the read's error and a
+count of security frames); `use_enrol.ts` seeds it from `GET /v1/entrance/pending` and reads again
+once, a second after the first frame of a burst, never without a frame (it reuses `devices/live/`);
+`use_enrol_actions.ts` holds the four writes (mint, withdraw, approve, deny), each under the shared
+step-up of `devices/step_up/`; `enrol_screen.tsx` is the route component (`index.ts` exports it as
+`EnrolScreen`, and `enrol.tsx` keeps the old `EnrolView` name for the shell's outlet); `invite/` has
+the mint form, the card and the QR image (an `img` over a data URI, never injected markup);
+`pending/` the waiting list, the approval form with its expiry choices and the bundle notice.
+
+`join/` is not part of the screen above: it is the join screen a new device lands on when it opens
+the Entrance with an invite, on any listener and before any session exists. The login screen shows
+it (`src/views/login/`). It reads the invite from the page's address, makes the device's passkey,
+redeems the invite, remembers the device id, and then waits for the operator; the human taps
+"Check again" to ask whether it has been approved (nothing polls), and on approval goes on to log
+in.
+
+Not in the schema, so not shown: the invite's remaining time as a countdown (only the expiry
+moment is given), and anything about a bundle past the moment it is answered.

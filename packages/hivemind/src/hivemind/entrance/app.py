@@ -38,11 +38,12 @@ from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.datastructures import Default
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
 from hivemind.entrance.auth.session.models import Listener
+from hivemind.entrance.enrol.invite import INVITE_PATH
 from hivemind.entrance.gate import (
     AddressLimit,
     BodyLimit,
@@ -190,7 +191,7 @@ def build_listener_app(
     _serve_document(app, options.openapi_document)
     # Mounted last, so every route matches first; the build may not exist yet.
     if options.web_root is not None and options.web_root.is_dir():
-        app.mount("/", StaticFiles(directory=options.web_root, html=True), name="observation")
+        _serve_observation(app, options.web_root)
     # CORS for public_url alone, on the remote listener alone (ADR-0041).
     if options.cors_origin is not None:
         app.add_middleware(
@@ -270,6 +271,29 @@ def _raw_body(body: RawBody) -> dict[str, object]:
         },
         "x-hive-body": {"max_bytes": body.max_bytes, "read_timeout_s": body.read_timeout_s},
     }
+
+
+def _serve_observation(app: FastAPI, web_root: Path) -> None:
+    """Serve the Observation Hive's build, with its one deep link answered by the app itself.
+
+    The build is static files with ``index.html`` at ``/`` only, and the app routes by hash
+    (ADR-0046), so no other path needs the page except ``/enrol``: an invite link is
+    ``<base>/enrol#code=<code>`` (``enrol.invite.INVITE_PATH``) and a new device opens it before
+    it has anything else, so that path serves the page too and the app reads the code from the
+    fragment. Every ``/v1/`` row was mounted before this, so a build file never shadows a route.
+
+    Args:
+        app: The listener's application.
+        web_root: The build directory, which exists.
+    """
+    index = web_root / "index.html"
+
+    async def enrol_page() -> Response:
+        # The same page as `/`; the app shows the join screen when the fragment carries a code.
+        return FileResponse(index, media_type="text/html")
+
+    app.add_api_route(INVITE_PATH, enrol_page, methods=["GET"], include_in_schema=False)
+    app.mount("/", StaticFiles(directory=web_root, html=True), name="observation")
 
 
 def _serve_document(app: FastAPI, document: bytes) -> None:

@@ -311,6 +311,8 @@ Entrance Reducer with its reopen flow. A remote session that opens `#/enrol` see
 "not found" page. This is a convenience; the remote listener 404s the routes (8.15). Read:
 `/v1/entrance/pending`, `/v1/entrance/invites`, `/v1/entrance/mode`.
 
+The join screen is the one place outside the chat where the app writes beyond the Entrance's own device and door routes: it posts `POST /v1/enrol/passkey-options` and `POST /v1/enrol/passkey` to redeem an invite, so the client's write guard allows `/v1/enrol/passkey*` and nothing else under `/v1/enrol/`.
+
 ### 5.11 Metrics
 
 `/v1/metrics` (added in 12.1) is the Prometheus endpoint for scrapers. The UI does not read it;

@@ -32,6 +32,7 @@ export interface ErrorWords {
 // Local refusals use their own namespace so they cannot be mistaken for the Entrance's codes.
 export const CLIENT_CODES = {
   passkeyRequired: 'hivemind.client.passkey_required',
+  passkeyCancelled: 'hivemind.client.passkey_cancelled',
   writeRefused: 'hivemind.client.write_refused',
   network: 'hivemind.client.network',
   microphone: 'hivemind.client.microphone',
@@ -113,6 +114,54 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
     sentence: 'The Hive does not take that kind of request there.',
     action: 'Reload the page and try again.',
   },
+  [`${ENTRANCE}device_not_found`]: {
+    sentence: 'The Hive does not know that device.',
+    action: 'Reload the list and try again.',
+  },
+  [`${ENTRANCE}device_status_conflict`]: {
+    sentence: 'That device changed while you were looking at it.',
+    action: 'Look at its current state and try again.',
+  },
+  [`${ENTRANCE}invalid_device_transition`]: {
+    sentence: 'That device cannot move to that state from where it is.',
+    action: 'Look at its current state and try again.',
+  },
+  [`${ENTRANCE}capability_beyond_ceiling`]: {
+    sentence: 'A device may not be given that much.',
+    action: 'Remove the capabilities the device role does not allow.',
+  },
+  [`${ENTRANCE}invalid_approval`]: {
+    sentence: 'The Hive could not bind that approval.',
+    action: 'Check the expiry is in the future and the spend cap is not negative.',
+  },
+  [`${ENTRANCE}console_protected`]: {
+    sentence: 'The Hive Stand console cannot be revoked.',
+    action: 'Lock it instead if it must be stopped.',
+  },
+  [`${ENTRANCE}step_up_unavailable`]: {
+    sentence: 'This device cannot confirm again, as no person types at it.',
+    action: 'Confirm it from a device you type at.',
+  },
+  [`${ENTRANCE}pending_not_found`]: {
+    sentence: 'That held request is gone.',
+    action: 'Reload the list; someone may have dealt with it already.',
+  },
+  [`${ENTRANCE}invite_not_found`]: {
+    sentence: 'That invite is gone.',
+    action: 'Mint a new one if it is still needed.',
+  },
+  [`${ENTRANCE}mode_conflict`]: {
+    sentence: 'The Entrance is already in the mode you asked for.',
+    action: 'Look at its current mode.',
+  },
+  [`${ENTRANCE}invalid_mode_transition`]: {
+    sentence: 'The Entrance cannot change mode from where it is.',
+    action: 'Look at its current mode.',
+  },
+  [`${ENTRANCE}reopen_refused`]: {
+    sentence: 'Only the Hive Stand may reopen the Entrance, after you confirm again.',
+    action: 'Reopen it from the Hive Stand.',
+  },
   'hivemind.conflict': {
     sentence: 'That already changed.',
     action: 'Look at the current state and try again.',
@@ -120,6 +169,10 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   [CLIENT_CODES.passkeyRequired]: {
     sentence: 'This device is enrolled with a program key, not a passkey.',
     action: 'Log in from a browser with the device passkey.',
+  },
+  [CLIENT_CODES.passkeyCancelled]: {
+    sentence: 'The passkey prompt was cancelled or this browser cannot make passkeys.',
+    action: 'Try again and allow the passkey, or use a browser that supports passkeys.',
   },
   [CLIENT_CODES.writeRefused]: {
     sentence: 'The Observation Hive does not write there.',

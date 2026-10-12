@@ -1,0 +1,30 @@
+/*
+ * Join screen styles: the fingerprint and the notes under the shared login card.
+ *
+ * The join screen is drawn inside the login stack, so the card, labels, fields and buttons come from
+ * the shell's login styles; this file adds only what the join screen needs on top.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/enrol/join/`. Imported by `join_screen.tsx`, so it loads
+ *   wherever the join screen is drawn (on the login page, before any shell).
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - The fingerprint wraps instead of widening the page.
+ *
+ * See Also:
+ *   - src/styles/shell.css for the login card.
+ */
+.join-fingerprint {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.join-note {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}

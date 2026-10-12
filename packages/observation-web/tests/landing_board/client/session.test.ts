@@ -217,3 +217,103 @@ describe('stepUp', () => {
     expect((await loadSession(fake.store))?.needsStepUp).toBe(false);
   });
 });
+
+const CREATION = { challenge: 'Y3JlYXRl', rp: { id: 'hive.test' }, user: { id: 'dXNlcg' } };
+const DESCRIPTION = { name: 'phone', platform: 'Android', user_agent: 'test agent' };
+
+function enrolling(): ReturnType<typeof scripted> {
+  const scene = scripted();
+  scene.fake.respond('POST /v1/enrol/passkey-options', 200, { options: CREATION });
+  scene.fake.respond('POST /v1/enrol/passkey', 202, {
+    device_id: 'dev_new',
+    fingerprint: 'AB:CD',
+    hive_public_key_hex: 'ff',
+  });
+  return scene;
+}
+
+describe('enrol', () => {
+  it('asks for creation options, makes the passkey, redeems, and remembers the device', async () => {
+    const { fake, board } = enrolling();
+    const enrolled = await board.session.enrol('ABCD-EFGH', DESCRIPTION);
+    expect(enrolled).toEqual({ deviceId: 'dev_new', fingerprint: 'AB:CD' });
+    expect(fake.requests.map((r) => `${r.method} ${r.target}`)).toEqual([
+      'POST /v1/enrol/passkey-options',
+      'POST /v1/enrol/passkey',
+    ]);
+    expect(bodyOf(fake, 0)).toEqual({ code: 'ABCD-EFGH' });
+    // The seam got the Entrance's options untouched, and its answer went back as the registration.
+    expect(fake.creationOptions).toEqual([CREATION]);
+    expect(bodyOf(fake, 1)).toEqual({
+      code: 'ABCD-EFGH',
+      registration: { id: 'new-credential', type: 'public-key', response: {} },
+      description: DESCRIPTION,
+    });
+    expect(await board.session.rememberedDevice()).toBe('dev_new');
+    // Neither request is signed: there is no session yet.
+    expect(fake.requests.every((r) => r.headers.Authorization === undefined)).toBe(true);
+  });
+
+  it('reads a refused invite as the Entrance says it, and keeps no device', async () => {
+    const { fake, board } = enrolling();
+    fake.respond('POST /v1/enrol/passkey-options', 403, {
+      error: 'hivemind.entrance.enrolment_refused',
+      detail: 'The invite was not accepted.',
+    });
+    const failure = await board.session.enrol('X', DESCRIPTION).catch((e: unknown) => e);
+    expect(describeError(failure).sentence).toBe('The invite was not accepted.');
+    expect(fake.creationOptions).toEqual([]);
+    expect(await board.session.rememberedDevice()).toBeNull();
+  });
+
+  it('says a cancelled passkey prompt is that, not a network failure, and sends no redemption', async () => {
+    const { fake, board } = enrolling();
+    fake.browser.createPasskey = () => Promise.reject(new DOMException('no', 'NotAllowedError'));
+    const failure = await board.session.enrol('X', DESCRIPTION).catch((e: unknown) => e);
+    expect(failure).toMatchObject({ code: 'hivemind.client.passkey_cancelled' });
+    expect(describeError(failure).sentence).toContain('passkey prompt was cancelled');
+    expect(fake.requests.map((r) => r.target)).toEqual(['/v1/enrol/passkey-options']);
+  });
+});
+
+describe('approved', () => {
+  it('is false while the Entrance answers 401, whatever the reason', async () => {
+    const { fake, board } = scripted();
+    fake.respond('POST /v1/auth/challenge', 401, {
+      error: 'hivemind.entrance.authentication_failed',
+      detail: 'no',
+    });
+    expect(await board.session.approved('dev_new')).toBe(false);
+  });
+
+  it('is true once a challenge is issued, and asks for it with a binding key and no session', async () => {
+    const { fake, board } = scripted();
+    expect(await board.session.approved('dev_new')).toBe(true);
+    expect(bodyOf(fake, 0)).toMatchObject({ device_id: 'dev_new' });
+    expect(typeof bodyOf(fake, 0).binding_key).toBe('string');
+    expect(fake.requests[0]!.headers.Authorization).toBeUndefined();
+    // Asking is not logging in: no session is made and no passkey is asked for.
+    expect(fake.passkeyOptions).toEqual([]);
+    expect(await loadSession(fake.store)).toBeNull();
+  });
+
+  it('lets any other refusal through, so a rate limit is not read as "not yet"', async () => {
+    const { fake, board } = scripted();
+    fake.respond('POST /v1/auth/challenge', 429, {
+      error: 'hivemind.entrance.rate_limited',
+      detail: 'slow',
+    });
+    await expect(board.session.approved('dev_new')).rejects.toMatchObject({ status: 429 });
+  });
+});
+
+describe('a cancelled passkey at login', () => {
+  it('is one local refusal and sends no login', async () => {
+    const { fake, board } = scripted();
+    fake.browser.assertPasskey = () => Promise.reject(new DOMException('no', 'NotAllowedError'));
+    await expect(board.session.login('dev_1', 'pw')).rejects.toMatchObject({
+      code: 'hivemind.client.passkey_cancelled',
+    });
+    expect(fake.requests.map((r) => r.target)).toEqual(['/v1/auth/challenge']);
+  });
+});

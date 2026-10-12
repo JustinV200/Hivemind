@@ -13,7 +13,8 @@
  *
  * Key invariants:
  *   - The allow-list is compared with the exact list in the step: chat and answers into the
- *     inbox, plus the Entrance's own routes (auth, goals, push subscriptions, entrance, devices).
+ *     inbox, plus the Entrance's own routes (auth, goals, push subscriptions, entrance, devices)
+ *     and the two passkey routes of enrolment; a program's Ed25519 enrolment stays refused.
  *
  * See Also:
  *   - .claude/codingrules.md section 8.11 and docs/entrance/openapi.json.
@@ -50,8 +51,6 @@ const REFUSED = [
   'POST /v1/cells/{cell_id}/isolate',
   'POST /v1/cells/{cell_id}/lift',
   'POST /v1/enrol/ed25519',
-  'POST /v1/enrol/passkey',
-  'POST /v1/enrol/passkey-options',
 ];
 
 describe('write list', () => {
@@ -66,6 +65,7 @@ describe('write list', () => {
       '/v1/push/subscriptions*',
       '/v1/entrance/*',
       '/v1/devices/*',
+      '/v1/enrol/passkey*',
     ]);
   });
 
@@ -74,6 +74,13 @@ describe('write list', () => {
       .filter((route) => !isWriteAllowed(route.path))
       .map((route) => `${route.method.toUpperCase()} ${route.template}`);
     expect(refused.sort()).toEqual([...REFUSED].sort());
+  });
+
+  it('lets a browser enrol with a passkey and nothing else under /v1/enrol', () => {
+    expect(isWriteAllowed('/v1/enrol/passkey-options')).toBe(true);
+    expect(isWriteAllowed('/v1/enrol/passkey')).toBe(true);
+    expect(isWriteAllowed('/v1/enrol/ed25519')).toBe(false);
+    expect(isWriteAllowed('/v1/enrol/hive')).toBe(false);
   });
 
   it('lets the inbox routes through: chat, answer and acknowledge', () => {

@@ -21,7 +21,7 @@
  */
 import type { Browser, SocketLike } from '../browser';
 import { indexedDbStore } from './indexed_db';
-import { assertWithPasskey } from './passkey';
+import { assertWithPasskey, createWithPasskey } from './passkey';
 import { realRecorder } from './recorder';
 import { subscribeWebPush } from './web_push';
 
@@ -57,6 +57,7 @@ export function realBrowser(): Browser {
     clearTimer: (id) => window.clearTimeout(id),
     store: indexedDbStore(window.indexedDB),
     assertPasskey: assertWithPasskey,
+    createPasskey: createWithPasskey,
     subscribeWebPush,
     // A device that cannot record simply carries no recorder, so push-to-talk is hidden.
     ...(recorder ? { recorder } : {}),

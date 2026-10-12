@@ -85,6 +85,11 @@ export async function clearSession(store: KeyValueStore): Promise<void> {
   await store.remove(SESSION_RECORD);
 }
 
+// Enrolment: the new device's id is kept so the login screen can prefill it once it is approved.
+export async function rememberDevice(store: KeyValueStore, deviceId: string): Promise<void> {
+  await store.put(DEVICE_RECORD, deviceId);
+}
+
 export async function recallDevice(store: KeyValueStore): Promise<string | null> {
   const value = await store.get(DEVICE_RECORD);
   return typeof value === 'string' ? value : null;

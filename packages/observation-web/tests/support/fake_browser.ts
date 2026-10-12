@@ -116,6 +116,8 @@ export interface FakeBrowser {
   sockets: FakeSocket[];
   routes: Map<string, Responder>;
   passkeyOptions: Record<string, unknown>[];
+  // The creation options each enrolment handed to the passkey seam.
+  creationOptions: Record<string, unknown>[];
   store: Browser['store'];
   now(): number;
   // Moves time forward, running each timer that falls due in order.
@@ -154,6 +156,7 @@ export function createFakeBrowser(
   const sockets: FakeSocket[] = [];
   const routes = new Map<string, Responder>();
   const passkeyOptions: Record<string, unknown>[] = [];
+  const creationOptions: Record<string, unknown>[] = [];
   const store = memoryStore();
 
   const browser: Browser = {
@@ -174,6 +177,10 @@ export function createFakeBrowser(
       passkeyOptions.push(options);
       return Promise.resolve({ id: 'credential', type: 'public-key', response: {} });
     },
+    createPasskey: (options) => {
+      creationOptions.push(options);
+      return Promise.resolve({ id: 'new-credential', type: 'public-key', response: {} });
+    },
     subscribeWebPush: () =>
       Promise.resolve({ endpoint: 'https://push.test/abc', keys: { p256dh: 'P', auth: 'A' } }),
     ...(extras.recorder ? { recorder: extras.recorder } : {}),
@@ -185,6 +192,7 @@ export function createFakeBrowser(
     sockets,
     routes,
     passkeyOptions,
+    creationOptions,
     store,
     now: clock.now,
     advance: clock.advance,

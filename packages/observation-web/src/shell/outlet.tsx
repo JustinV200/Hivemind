@@ -24,8 +24,8 @@ import { CappingScreen } from '../views/capping';
 import { CellPageView } from '../views/cell';
 import { ChatScreen } from '../views/chat';
 import { CostScreen } from '../views/cost';
-import { DevicesView } from '../views/devices/devices';
-import { EnrolView } from '../views/enrol/enrol';
+import { DevicesScreen } from '../views/devices';
+import { EnrolScreen } from '../views/enrol';
 import { FleetView } from '../views/fleet/fleet';
 import { ForageScreen } from '../views/forage';
 import { HoneyScreen } from '../views/honey';
@@ -53,9 +53,9 @@ export function Outlet(): ReactElement {
     case 'capping':
       return <CappingScreen />;
     case 'devices':
-      return <DevicesView />;
+      return <DevicesScreen />;
     case 'enrol':
-      return <EnrolView />;
+      return <EnrolScreen />;
     case 'not_found':
       return <ViewTitle title="Not found" />;
   }

@@ -32,7 +32,7 @@ import type { StreamHandle, StreamOptions } from './socket';
 export { describeError, LandingBoardError } from './errors';
 export { realBrowser } from './platform/real_browser';
 export type { DescribedError } from './errors';
-export type { OpenedSession, SessionClient } from './session';
+export type { DeviceDescription, Enrolled, OpenedSession, SessionClient } from './session';
 export type { StreamEnd, StreamHandle, StreamOptions, StreamState } from './socket';
 export type { Browser } from './browser';
 export type { HttpClient } from './http';

@@ -1,0 +1,275 @@
+/*
+ * Devices view styles: the device list, its forms, the Entrance panel and the held requests.
+ *
+ * Mobile first (design.md section 2): one column at 360 px, where the table is a stack of cards and
+ * each cell keeps its label; from 1080 px it is a table. Forms are bordered cards with 44 px fields
+ * and buttons. Standing and mode are always words in the markup; the colour only repeats them.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/devices/`. Imported by `devices_screen.tsx`. Class names
+ *   are those rendered by this directory and the shared `ErrorNotice`, `IdToken` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long words and ids wrap.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 5.10, 6 and 7.
+ */
+.devices {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.devices-note {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.devices-notice {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.devices-section {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.devices-section h3 {
+  font-size: var(--fs-md);
+}
+
+.devices-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Forms: one bordered card each, under the list */
+.devices-form,
+.devices-arming,
+.devices-held {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.devices-form label {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.devices-form input:not([type='checkbox']),
+.devices-form textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.devices-form .devices-check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.devices-tag {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.devices-status {
+  font-weight: 700;
+}
+
+.devices-status--approved {
+  color: var(--ok);
+}
+
+.devices-status--pending,
+.devices-status--invited,
+.devices-status--locked {
+  color: var(--warn);
+}
+
+.devices-status--denied,
+.devices-status--expired,
+.devices-status--revoked {
+  color: var(--alarm);
+}
+
+.devices-controls {
+  flex-wrap: wrap;
+}
+
+/* The Entrance panel */
+.devices-facts {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.devices-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.devices-facts dt {
+  color: var(--text-muted);
+}
+
+.devices-facts dd {
+  margin: 0;
+  text-align: right;
+}
+
+.devices-held-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.devices-payload {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The list, as cards first */
+.devices-table,
+.devices-table tbody,
+.devices-table tr,
+.devices-table td {
+  display: block;
+}
+
+.devices-table {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.devices-table caption {
+  display: block;
+  text-align: left;
+  color: var(--text-muted);
+  padding-bottom: var(--sp-2);
+}
+
+/* The headers repeat each cell's label in a card, so they are for assistive technology only. */
+.devices-table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.devices-table tr {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.devices-table td {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  overflow-wrap: anywhere;
+}
+
+.devices-table td::before {
+  content: attr(data-label);
+  color: var(--text-muted);
+}
+
+.devices-table td.devices-controls {
+  display: flex;
+  justify-content: flex-start;
+  gap: var(--sp-2);
+}
+
+.devices-table td.devices-controls::before {
+  content: none;
+}
+
+@media (min-width: 1080px) {
+  .devices-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .devices-table caption {
+    display: table-caption;
+  }
+
+  .devices-table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .devices-table tbody {
+    display: table-row-group;
+  }
+
+  .devices-table tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .devices-table th,
+  .devices-table td {
+    display: table-cell;
+    padding: var(--sp-1) var(--sp-2);
+    text-align: left;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: middle;
+  }
+
+  .devices-table thead th {
+    background: var(--surface-2);
+  }
+
+  .devices-table td::before {
+    content: none;
+  }
+
+  /* The class that lays the card's buttons out in a row must not turn the cell into a flex box. */
+  .devices-table td.devices-controls {
+    display: table-cell;
+  }
+}

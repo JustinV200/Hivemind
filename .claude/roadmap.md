@@ -2210,12 +2210,26 @@ in this phase adds a new write path.
   not published, the shell does not surface `PushNotice`, the stream cannot start from the seed's
   `newest_seq` (a line in the gap before the first frame shows only through the inbox), and
   history beyond the newest 100 lines is not paged.
-- [ ] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),
+- [x] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),
   the pending list, approve with name, capabilities, spend cap and expiry, deny, unlock, revoke,
   and the Entrance Reducer with its reopen flow. On every device: the join screen a new device
   lands on when it opens the Entrance with an invite, the passkey login, the step-up prompt, and
   the device list showing where each enrolled device last connected from. The remote build never
   renders the loopback-only screens, and the route test proves it could not use them anyway.
+  **Built 2026-10-12.** `src/views/enrol/` (loopback only: mint an invite with its link and the
+  Entrance's `qr_svg`, withdraw, the pending list live over `/v1/entrance/stream`, approve with
+  name, capabilities, spend cap and expiry, deny) and `src/views/devices/` (every device: the
+  list with the calling device marked, lock, unlock, revoke behind a typed name, capabilities,
+  the Entrance's mode, reduce, reopen after step-up, held confirmations; door controls only on
+  loopback and never on the device in hand); the join screen under `enrol/join/` redeems an
+  invite with a new passkey and waits for approval, re-checking only on tap; the login screen
+  shows it when the address carries an invite; one shared step-up prompt under
+  `devices/step_up/`; the write guard gains `/v1/enrol/passkey*` only. The Entrance now serves
+  the page at `/enrol` so a minted link opens the app. A loopback-gate test enumerates the
+  document's loopback-only operations against what the UI can reach off loopback, and the Python
+  route test proves the remote listener never mounts them. Gaps: `DeviceView` has no "last
+  connected from" address (only `last_seen_at`, platform and user agent), and a pending device
+  can only learn its approval by trying `POST /v1/auth/challenge`.
 - [x] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
   (7.10): the main store under `/hive`, then what each Cell and each bee can see under `/cells`
   and `/bees` (each Cell's folder includes its live Cell Wax), task folders, and Bee Bread.

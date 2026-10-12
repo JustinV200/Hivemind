@@ -40,6 +40,8 @@ import { cappingSlice } from './views/capping';
 import { cellSlice } from './views/cell';
 import { chatSlice } from './views/chat';
 import { costSlice } from './views/cost';
+import { devicesSlice } from './views/devices';
+import { enrolSlice } from './views/enrol';
 import { fleetSlice } from './views/fleet';
 import { forageSlice } from './views/forage';
 import { honeySlice } from './views/honey';
@@ -58,6 +60,8 @@ export const APP_SLICES: AppSlices = {
   cost: costSlice,
   capping: cappingSlice,
   honey: honeySlice,
+  devices: devicesSlice,
+  enrol: enrolSlice,
 };
 
 function buildHive(browser: Browser): Hive {

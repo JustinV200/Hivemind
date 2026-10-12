@@ -1,5 +1,10 @@
 /**
- * Login with a passkey and the operator's password, restore, step up and log out.
+ * Enrol a new device, log in with a passkey and the operator's password, restore, step up, log out.
+ *
+ * A new device redeems an invite with a fresh passkey (landing-board.md section 4): ask for the
+ * creation options, make the passkey in the browser, send the registration with a self-description.
+ * The Entrance answers with the device's id, which is kept here so the login screen can prefill it;
+ * the device then waits for the operator, and `approved` is the one question it may ask meanwhile.
  *
  * A browser device logs in in three steps (landing-board.md section 5): ask for a challenge while
  * sending the public half of a fresh P-256 binding key, answer the challenge with a passkey
@@ -16,6 +21,10 @@
  *   - The password is sent once, in the login body, and never stored or logged.
  *   - A device whose challenge has no `passkey_options` is a program key and cannot log in here;
  *     that is a local refusal, not a retry.
+ *   - A passkey prompt the human cancels (or a browser with no passkeys) is one local refusal, so
+ *     it is never reported as a network failure.
+ *   - `approved` never says why a device is not approved: the Entrance answers a pending, denied,
+ *     expired and unknown device alike, so only "approved or not yet" is returned.
  *   - Local state is cleared at logout even if the Entrance cannot be reached, because the key
  *     must not outlive the human's decision to leave.
  *
@@ -23,11 +32,28 @@
  *   - docs/entrance/landing-board.md sections 5 and 7 for the ceremony and step-up.
  *   - src/landing_board/client/keys.ts for the key and its storage.
  */
+import type { components } from '../types';
 import type { Browser } from './browser';
-import { CLIENT_CODES, clientError } from './errors';
+import { CLIENT_CODES, clientError, LandingBoardError } from './errors';
 import type { HttpClient } from './http';
 import type { SessionHolder, StoredSession } from './keys';
-import { clearSession, generateBindingKey, loadSession, recallDevice, saveSession } from './keys';
+import {
+  clearSession,
+  generateBindingKey,
+  loadSession,
+  recallDevice,
+  rememberDevice,
+  saveSession,
+} from './keys';
+
+// What a new device says about itself at redemption: display text only, shown to the operator.
+export type DeviceDescription = components['schemas']['DeviceDescription'];
+
+export interface Enrolled {
+  deviceId: string;
+  // The key's fingerprint: the operator sees the same one at approval.
+  fingerprint: string;
+}
 
 export interface OpenedSession {
   deviceId: string;
@@ -41,6 +67,9 @@ export interface SessionClient {
   restore(): Promise<OpenedSession | null>;
   logout(): Promise<void>;
   stepUp(password: string): Promise<void>;
+  enrol(code: string, description: DeviceDescription): Promise<Enrolled>;
+  // True once the operator has approved the device; false while it is pending (or was refused).
+  approved(deviceId: string): Promise<boolean>;
   rememberedDevice(): Promise<string | null>;
   // Drops local state only; used when the Entrance already ended the session.
   forget(): Promise<void>;
@@ -72,7 +101,16 @@ async function assertionFor(
 ): Promise<Record<string, unknown>> {
   // No passkey options means an Ed25519 device, which a browser cannot be.
   if (!options) throw clientError(CLIENT_CODES.passkeyRequired, 'No passkey options.');
-  return deps.browser.assertPasskey(options);
+  return withPasskey(() => deps.browser.assertPasskey(options));
+}
+
+// A cancelled prompt, a timeout or a browser without passkeys all reject; say so in one code.
+async function withPasskey<T>(ceremony: () => Promise<T>): Promise<T> {
+  try {
+    return await ceremony();
+  } catch {
+    throw clientError(CLIENT_CODES.passkeyCancelled, 'The passkey prompt did not finish.');
+  }
 }
 
 async function login(
@@ -144,6 +182,37 @@ async function stepUp(deps: SessionDeps, password: string): Promise<void> {
   await saveSession(browser.store, stepped);
 }
 
+async function enrol(
+  deps: SessionDeps,
+  code: string,
+  description: DeviceDescription,
+): Promise<Enrolled> {
+  const { http, browser } = deps;
+  const created = await http.call('post', '/v1/enrol/passkey-options', { body: { code } });
+  const registration = await withPasskey(() => browser.createPasskey(created.options));
+  const redeemed = await http.call('post', '/v1/enrol/passkey', {
+    body: { code, registration, description },
+  });
+  // Kept at once, so a reload while waiting for the operator still finds the device id.
+  await rememberDevice(browser.store, redeemed.device_id);
+  return { deviceId: redeemed.device_id, fingerprint: redeemed.fingerprint };
+}
+
+async function approved(deps: SessionDeps, deviceId: string): Promise<boolean> {
+  const key = await generateBindingKey(deps.browser.subtle);
+  try {
+    // A challenge is only issued to an approved device; the unused nonce lapses in a minute.
+    await deps.http.call('post', '/v1/auth/challenge', {
+      body: { device_id: deviceId, binding_key: key.publicKey },
+    });
+    return true;
+  } catch (error) {
+    // The Entrance answers 401 alike for pending, denied, expired and unknown: "not yet".
+    if (error instanceof LandingBoardError && error.status === 401) return false;
+    throw error;
+  }
+}
+
 export function createSessionClient(deps: SessionDeps): SessionClient {
   return {
     forget: () => forget(deps),
@@ -152,5 +221,7 @@ export function createSessionClient(deps: SessionDeps): SessionClient {
     restore: () => restore(deps),
     logout: () => logout(deps),
     stepUp: (password) => stepUp(deps, password),
+    enrol: (code, description) => enrol(deps, code, description),
+    approved: (deviceId) => approved(deps, deviceId),
   };
 }
