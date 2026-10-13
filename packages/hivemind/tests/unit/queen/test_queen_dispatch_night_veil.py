@@ -110,8 +110,16 @@ def _deps(
     return dataclasses.replace(base, **fields), provider  # type: ignore[arg-type]
 
 
-async def _submit(deps: QueenDeps, needs: TaskNeeds, request_tier: CombShieldLevel | None) -> Task:
-    """Write a one-task goal to the chamber, citing a human request for `request_tier`, if any."""
+async def _submit(
+    deps: QueenDeps,
+    needs: TaskNeeds,
+    request_tier: CombShieldLevel | None,
+    ceiling: tuple[str, ...] | None = None,
+) -> Task:
+    """Write a one-task goal to the chamber, citing a human request for `request_tier`, if any.
+
+    `ceiling` is the goal's capability set (roadmap step 10.3); None is the operator's own path.
+    """
     request_id = None
     if request_tier is not None:
         request = make_goal_request(deps.clock, comb_shield=request_tier)
@@ -123,6 +131,7 @@ async def _submit(deps: QueenDeps, needs: TaskNeeds, request_tier: CombShieldLev
             "needs": needs,
             "origin": RequestOrigin.HUMAN,
             "goal_request_id": request_id,
+            "capabilities": ceiling,
         }
     )
     [minted] = await deps.chamber.submit(TaskGraphDraft(tasks=(task,)))
@@ -188,6 +197,28 @@ async def test_an_unconfigured_night_veil_profile_is_refused_loudly_and_once() -
     assert provider.calls == []
     [decided] = await _events(deps, "queen.decided")
     assert "Night Veil tier profile" in str(decided.payload["detail"])
+
+
+async def test_a_night_veil_goal_whose_ceiling_allows_only_real_cells_is_denied_not_placed() -> (
+    None
+):
+    # Roadmap step 11.8a: a Real Cell is never Night Veil, so a goal that may use only Real Cells
+    # has no home for the tier: `guard.denied` at the placement point, and no Real Cell is used.
+    deps, provider = _deps()
+    _unused_deps, device, _end = make_queen_deps(clock=deps.clock)
+    ceiling = (f"cell:real:{device.cell.id}", "cell:comb_shield:*", "llm:*", "tool:*")
+    task = await _submit(deps, _NIGHT_VEIL_NEEDS, CombShieldLevel.NIGHT_VEIL, ceiling)
+
+    await dispatch_ready(deps, (device,))
+
+    refused = await deps.chamber.get(task.id)
+    assert refused.status is TaskStatus.CANCELLED
+    assert refused.cell_id is None  # Never assigned: not to the device, not to a Virtual Cell.
+    assert provider.calls == []
+    [denied] = await _events(deps, "guard.denied")
+    assert denied.payload["point"] == "placement"
+    assert denied.payload["capability"] == "cell:virtual"
+    assert await _events(deps, "queen.assigned") == []
 
 
 async def test_a_profile_with_no_tor_proxy_is_refused_by_the_control_link_floor() -> None:

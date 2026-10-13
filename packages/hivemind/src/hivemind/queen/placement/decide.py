@@ -22,6 +22,13 @@ helper before this is ever called. So does a backend's rest: one whose provision
 held back by the dispatcher a while (`VirtualBackendCandidate.held_back`), and skipped here like a
 backend with no headroom left, under the reason the dispatcher gave.
 
+Roadmap step 11.8a: a Real Cell's Comb Shield tier is its operator's, so a task whose `TaskNeeds`
+name a stronger tier than a candidate carries (PROPOLIS against a MEADOW device) excludes that
+candidate, with the mismatch in the reason like every other exclusion; a NIGHT_VEIL task never
+reaches the Real side at all (its path above returns before it), and a goal whose ceiling lacks
+`cell:virtual` is denied there (`guard.denied` at the placement point) rather than placed on a
+Real Cell.
+
 Roadmap step 6.12 (ADR-0031, "Needs travel with the task"): an Exoskeleton need (a display, input,
 audio or browser attachment) takes a Real Cell only where attach could honour it there -- a
 browser-only need where the Cell has a browser, a desktop need where it can start a display or
@@ -205,6 +212,11 @@ def _real_exclusion_reason(
         return f"os mismatch (needs {needs.os}, has {candidate.capabilities.os})"
     if not rules.fits_network_scopes(needs, candidate.capabilities):
         return "network scopes not reachable"
+    # Roadmap step 11.8a: the tier is the Cell's own and never changes, so a task that needs more
+    # than the Cell carries (PROPOLIS on a MEADOW device) is excluded, and the reason says so.
+    if not rules.fits_comb_shield(needs, candidate.comb_shield):
+        wanted, has = needs.comb_shield.name, candidate.comb_shield.name
+        return f"Comb Shield mismatch (needs {wanted}, has {has})"
     # Roadmap step 6.12: rule 4c already words what the Cell lacks (a browser, a display it may
     # start or drive, a sound server) and which fact fails it, so the reason is used as it is.
     shortfall = rules.exoskeleton_shortfall(needs, candidate.capabilities, candidate.access_level)

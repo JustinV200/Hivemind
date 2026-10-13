@@ -3,9 +3,11 @@
 ADR-0028 lists six rules, hard ones first, preference last: (1) `isolation = "required"` is always
 Virtual; (2) `comb_shield = NIGHT_VEIL` is always a fresh Virtual Cell; (3) a `BLOCK` Cell Wax
 excludes a Cell and `allow_hive_stand = false` excludes the Hive Stand; (4) a candidate must fit --
-OS, network scopes, and the Exoskeleton (the display, input, audio and browser attachment) the
-task asks for; (5) Forage must cover the grant; (6) otherwise honour `prefer`, rank a `CAUTION`ed
-Cell behind a clean one, and prefer a dormant Cell over a fresh provision. ADR-0039 adds one rule
+OS, network scopes, the Comb Shield tier the task needs (a Real Cell's tier is the operator's and
+never changes, so a task that needs PROPOLIS never lands on a MEADOW Cell), and the Exoskeleton
+(the display, input, audio and browser attachment) the task asks for; (5) Forage must cover the
+grant; (6) otherwise honour `prefer`, rank a `CAUTION`ed Cell behind a clean one, and prefer a
+dormant Cell over a fresh provision. ADR-0039 adds one rule
 ahead of all six (roadmap step 10.3): a goal's capability set is a ceiling, so a candidate the goal
 does not allow -- the Hive Stand without `cell:hive_stand`, any other Real Cell without
 `cell:real:<cell id>`, any Virtual Cell without `cell:virtual`, any Cell at a tier without
@@ -88,6 +90,11 @@ _NO_LEASE_SCRATCH_ROOT = Path("/")
 _CELL_VIRTUAL = Capability(family=CapabilityFamily.CELL_VIRTUAL)
 _CELL_HIVE_STAND = Capability(family=CapabilityFamily.CELL_HIVE_STAND)
 
+# The Comb Shield tiers from the weakest controls to the strongest. A Cell meets a task's minimum
+# tier when it ranks at least as high; `CombShieldLevel` itself carries no order (unlike
+# `AccessLevel`), because only placement ever has to compare tiers.
+_TIER_ORDER = (CombShieldLevel.MEADOW, CombShieldLevel.PROPOLIS, CombShieldLevel.NIGHT_VEIL)
+
 __all__ = [
     "audio_shortfall",
     "browser_shortfall",
@@ -96,6 +103,7 @@ __all__ = [
     "excluded_by_block_wax",
     "excluded_by_hive_stand_policy",
     "exoskeleton_shortfall",
+    "fits_comb_shield",
     "fits_network_scopes",
     "fits_os",
     "goal_lacks",
@@ -181,6 +189,24 @@ def fits_os(needs: TaskNeeds, capabilities: CellCapabilities) -> bool:
 def fits_network_scopes(needs: TaskNeeds, capabilities: CellCapabilities) -> bool:
     """Rule 4b: every network scope the task needs must already be reachable from the candidate."""
     return set(needs.network_scopes) <= set(capabilities.network_scopes)
+
+
+def fits_comb_shield(needs: TaskNeeds, tier: CombShieldLevel) -> bool:
+    """Rule 4d: an attached Cell must carry at least the Comb Shield tier the task needs.
+
+    A Real Cell's tier is set by its operator and describes a VPN the device already runs
+    (codingrules 8.7), so a task that needs PROPOLIS can only run where the operator vouched for
+    one; placement never lifts a MEADOW Cell to it. A task never lands on a weaker tier than it
+    asked for, while a stronger Cell is welcome to a plainer task.
+
+    Args:
+        needs: The task's needs; only `comb_shield` is read.
+        tier: The candidate Cell's own tier.
+
+    Returns:
+        True when `tier` ranks at least as high as `needs.comb_shield`.
+    """
+    return _TIER_ORDER.index(tier) >= _TIER_ORDER.index(needs.comb_shield)
 
 
 def exoskeleton_shortfall(

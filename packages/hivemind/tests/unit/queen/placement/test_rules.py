@@ -105,6 +105,29 @@ def test_fits_network_scopes_false_when_a_scope_is_missing() -> None:
     assert rules.fits_network_scopes(needs, capabilities) is False
 
 
+@pytest.mark.parametrize(
+    ("needed", "carried", "fits"),
+    [
+        (CombShieldLevel.MEADOW, CombShieldLevel.MEADOW, True),
+        (
+            CombShieldLevel.MEADOW,
+            CombShieldLevel.PROPOLIS,
+            True,
+        ),  # A stronger Cell takes a plain task.
+        (CombShieldLevel.PROPOLIS, CombShieldLevel.PROPOLIS, True),
+        (CombShieldLevel.PROPOLIS, CombShieldLevel.MEADOW, False),  # The 11.8a exclusion.
+        (CombShieldLevel.PROPOLIS, CombShieldLevel.NIGHT_VEIL, True),
+        (CombShieldLevel.NIGHT_VEIL, CombShieldLevel.PROPOLIS, False),
+    ],
+)
+def test_fits_comb_shield_asks_the_cell_for_at_least_the_tier_the_task_needs(
+    needed: CombShieldLevel, carried: CombShieldLevel, fits: bool
+) -> None:
+    needs = TaskNeeds(comb_shield=needed, isolation=Isolation.REQUIRED)
+
+    assert rules.fits_comb_shield(needs, carried) is fits
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Rule 4c, Real side (roadmap step 6.12): what attach will ask of the Cell once leased.
 # ──────────────────────────────────────────────────────────────────────────────
