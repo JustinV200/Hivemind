@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -65,7 +66,7 @@ def test_a_virtual_cell_is_accepted_and_rooted_below_the_session_scratch() -> No
     assert sandbox.root.name.startswith("comb-")
     assert sandbox.root != other.root
     assert sandbox.cell_id is not None
-    assert sandbox.interpreter == "python3"
+    assert sandbox.interpreter == sys.executable  # The Warden's own, with the Hive installed.
 
 
 async def test_put_then_read_round_trips_through_the_session() -> None:

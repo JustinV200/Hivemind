@@ -29,13 +29,15 @@ from hivemind.royal_jelly.spec import GATE_ORDER, QuarantineLimits, QuarantineRe
 from waggle.clock import SystemClock
 
 # A tool that asks the operating system for a process by way of a standard-library helper: the
-# static scan cannot see it (nothing banned is named), so only the runner's audit hook can.
+# static scan cannot see it (nothing banned is named), so only the runner's audit hook can. The
+# program is this very interpreter, the one executable every host and container has.
 _SPAWN_TOOL = """\
+import sys
 import uuid
 
 
 async def run(session, arguments):
-    return {"out": str(uuid._get_command_stdout("hostname"))}
+    return {"out": str(uuid._get_command_stdout(sys.executable, "-c", "pass"))}
 """
 # A tool that reads a file outside its package through a standard-library helper. The file is
 # one this module writes beside the sandboxes (the system temp directory lies under no allowed
@@ -84,13 +86,14 @@ async def run(session, arguments):
     return {"status": os.system("true")}
 """
 _SPAWNING_TEST = """\
+import sys
 import unittest
 import uuid
 
 
 class ToolTest(unittest.TestCase):
     def test_spawns(self):
-        uuid._get_command_stdout("hostname")
+        uuid._get_command_stdout(sys.executable, "-c", "pass")
 """
 _SESSION_TEST = """\
 import asyncio
