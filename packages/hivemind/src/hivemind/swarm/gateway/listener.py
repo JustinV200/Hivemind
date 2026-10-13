@@ -281,7 +281,8 @@ class SwarmListener:
         """Forget a finished connection task, logging one that died of a bug."""
         self._handlers.discard(task)
         if not task.cancelled() and task.exception() is not None:
-            log.error("swarm.connection_crashed", error=repr(task.exception()))
+            # The type only, for the same reason as the link reader: a repr can carry a frame.
+            log.error("swarm.connection_crashed", error=type(task.exception()).__name__)
 
 
 def _tls_context(config: ListenerConfig) -> ssl.SSLContext | None:

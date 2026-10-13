@@ -260,3 +260,5 @@ async def test_a_reader_that_dies_of_a_bug_is_logged_and_ends_the_link() -> None
     with structlog.testing.capture_logs() as logs:
         await link.close()
     assert [entry["event"] for entry in logs] == ["swarm.link_reader_failed"]
+    # The failure's type is logged and nothing it said: a frame can be inside a failure's text.
+    assert logs[0]["error"] == "RuntimeError" and "a listener bug" not in str(logs)

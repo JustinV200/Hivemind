@@ -268,4 +268,6 @@ async def _stop_reader(reader: asyncio.Task[None] | None, device_id: DeviceId) -
     outcome = await asyncio.gather(reader, return_exceptions=True)
     failure = outcome[0]
     if isinstance(failure, Exception):
-        log.error("swarm.link_reader_failed", device_id=device_id, error=repr(failure))
+        # The type only: a pydantic error's repr would carry the frame that failed, and a frame
+        # is the device's content.
+        log.error("swarm.link_reader_failed", device_id=device_id, error=type(failure).__name__)
