@@ -13,19 +13,11 @@ See Also:
 
 from __future__ import annotations
 
-import sys
+import signal
+import threading
 import time
 
 import pytest
-
-if sys.platform == "win32":
-    # The runner never runs on Windows (its sandbox is a POSIX host); `resource` and SIGALRM
-    # do not exist there, so the module is skipped before it names them.
-    pytest.skip("the runner's limits and deadline are POSIX only", allow_module_level=True)
-
-import resource  # After the platform skip, so Windows never imports it.
-import signal
-import threading
 
 from hivemind.royal_jelly.quarantine_comb.limits import RlimitPlan
 from hivemind.royal_jelly.quarantine_comb.runner.usage import (
@@ -37,6 +29,11 @@ from hivemind.royal_jelly.quarantine_comb.runner.usage import (
     disarm_deadline,
     take_baseline,
 )
+
+# The runner never runs on Windows (its sandbox is a POSIX host): `resource` and SIGALRM do not
+# exist there, so the module skips itself before it names either.
+resource = pytest.importorskip("resource", reason="the runner's limits are POSIX only")
+_SIGALRM = getattr(signal, "SIGALRM", 0)
 
 
 def test_the_counting_writer_counts_bytes_and_keeps_a_tail() -> None:
@@ -110,21 +107,21 @@ def test_apply_limits_does_not_raise_a_hard_limit(monkeypatch: pytest.MonkeyPatc
 
 
 def test_the_deadline_interrupts_a_blocking_sleep() -> None:
-    previous = signal.getsignal(signal.SIGALRM)
+    previous = signal.getsignal(_SIGALRM)
     try:
         assert arm_deadline(0.05)
         with pytest.raises(DeadlineExceededError):
             time.sleep(5)
     finally:
         disarm_deadline()
-        signal.signal(signal.SIGALRM, previous)
+        signal.signal(_SIGALRM, previous)
 
 
 def test_a_disarmed_deadline_never_fires() -> None:
-    previous = signal.getsignal(signal.SIGALRM)
+    previous = signal.getsignal(_SIGALRM)
     try:
         arm_deadline(0.05)
         disarm_deadline()
         time.sleep(0.15)
     finally:
-        signal.signal(signal.SIGALRM, previous)
+        signal.signal(_SIGALRM, previous)

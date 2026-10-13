@@ -71,13 +71,16 @@ class Meter:
     @classmethod
     def now(cls) -> Meter:
         """Read this process's CPU seconds, peak resident bytes and a monotonic wall time."""
+        # Explicit branches, so mypy checks each platform's half on its own platform only.
         if sys.platform == "win32":
             # No `resource` here: CPU time is still honest, the peak is unknown and reads as 0.
             return cls(time.process_time(), 0, time.monotonic())
-        usage = resource.getrusage(resource.RUSAGE_SELF)
-        # ru_maxrss is kilobytes on Linux and bytes on macOS; the scale differs, the meaning not.
-        scale = 1 if sys.platform == "darwin" else 1024
-        return cls(usage.ru_utime + usage.ru_stime, usage.ru_maxrss * scale, time.monotonic())
+        else:
+            usage = resource.getrusage(resource.RUSAGE_SELF)
+            # ru_maxrss is kilobytes on Linux and bytes on macOS; the scale differs, the meaning
+            # not.
+            scale = 1 if sys.platform == "darwin" else 1024
+            return cls(usage.ru_utime + usage.ru_stime, usage.ru_maxrss * scale, time.monotonic())
 
     def since(self, start: Meter, output_bytes: int, timed_out_phase: str) -> UsageSection:
         """Return what happened between `start` and this reading, as the report section.
@@ -113,18 +116,20 @@ def apply_limits(plan: RlimitPlan) -> None:
     """
     if sys.platform == "win32":
         return  # No `resource` module: nothing to apply, and the gates still measure.
-    for name, (soft, hard) in plan.limits.items():
-        constant = getattr(resource, name, None)
-        # A non-positive value means the platform could not tell: better no cap than a wrong one.
-        if constant is None or soft <= 0:
-            continue
-        try:
-            _, current_hard = resource.getrlimit(constant)
-            if current_hard != resource.RLIM_INFINITY:
-                hard = min(hard, current_hard)
-            resource.setrlimit(constant, (min(soft, hard), hard))
-        except (ValueError, OSError):
-            continue  # The platform refused this one; the measured gates still apply.
+    else:
+        for name, (soft, hard) in plan.limits.items():
+            constant = getattr(resource, name, None)
+            # A non-positive value means the platform could not tell: better no cap than a wrong
+            # one.
+            if constant is None or soft <= 0:
+                continue
+            try:
+                _, current_hard = resource.getrlimit(constant)
+                if current_hard != resource.RLIM_INFINITY:
+                    hard = min(hard, current_hard)
+                resource.setrlimit(constant, (min(soft, hard), hard))
+            except (ValueError, OSError):
+                continue  # The platform refused this one; the measured gates still apply.
 
 
 def arm_deadline(seconds: float) -> bool:
@@ -138,13 +143,14 @@ def arm_deadline(seconds: float) -> bool:
     """
     if sys.platform == "win32" or not hasattr(signal, "setitimer"):
         return False
+    else:
 
-    def _fire(_signum: int, _frame: types.FrameType | None) -> None:
-        raise DeadlineExceededError
+        def _fire(_signum: int, _frame: types.FrameType | None) -> None:
+            raise DeadlineExceededError
 
-    signal.signal(signal.SIGALRM, _fire)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
-    return True
+        signal.signal(signal.SIGALRM, _fire)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        return True
 
 
 def disarm_deadline() -> None:
@@ -185,12 +191,13 @@ def _virtual_size() -> int:
     """Return this process's virtual size in bytes, or 0 where `/proc` does not say."""
     if sys.platform == "win32":
         return 0  # No /proc and no sysconf: the address-space cap is skipped.
-    try:
-        with open("/proc/self/statm", encoding="ascii") as statm:  # No Path needed.
-            pages = int(statm.read().split()[_PAGE_FIELD])
-    except (OSError, ValueError, IndexError):
-        return 0
-    return pages * os.sysconf("SC_PAGE_SIZE")
+    else:
+        try:
+            with open("/proc/self/statm", encoding="ascii") as statm:  # No Path needed.
+                pages = int(statm.read().split()[_PAGE_FIELD])
+        except (OSError, ValueError, IndexError):
+            return 0
+        return pages * os.sysconf("SC_PAGE_SIZE")
 
 
 def _user_task_count() -> int:
@@ -204,19 +211,22 @@ def _user_task_count() -> int:
     """
     if sys.platform == "win32":
         return 0  # No /proc and no uid: the process cap is skipped.
-    uid = os.getuid()
-    total = 0
-    try:
-        entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
-    except OSError:
-        return 0
-    for entry in entries:
+    else:
         try:
-            with open(f"/proc/{entry}/status", encoding="ascii", errors="replace") as status:
-                fields = dict(line.split(":", 1) for line in status if ":" in line)
+            entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
         except OSError:
-            continue  # The process ended between the listing and the read.
-        # `Uid:` lists real, effective, saved and filesystem uids; the real one is the limit's.
-        if int(fields.get("Uid", "-1").split()[0]) == uid:
-            total += int(fields.get("Threads", "1").split()[0])
-    return total
+            return 0
+        return sum(_threads_of(entry, os.getuid()) for entry in entries)
+
+
+def _threads_of(pid: str, uid: int) -> int:
+    """Return how many threads process `pid` runs if its real uid is `uid`, else 0."""
+    try:
+        with open(f"/proc/{pid}/status", encoding="ascii", errors="replace") as status:
+            fields = dict(line.split(":", 1) for line in status if ":" in line)
+    except OSError:
+        return 0  # The process ended between the listing and the read.
+    # `Uid:` lists real, effective, saved and filesystem uids; the real one is the limit's.
+    if int(fields.get("Uid", "-1").split()[0]) != uid:
+        return 0
+    return int(fields.get("Threads", "1").split()[0])

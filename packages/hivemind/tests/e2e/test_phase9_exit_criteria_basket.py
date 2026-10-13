@@ -59,6 +59,7 @@ from e2e.royal_jelly_runs import (
 
 from hivemind.basket import DepositRequest, MediaKind
 from hivemind.cell import CombShieldLevel, HoneyClearance, OsFamily
+from hivemind.cell.local import host_platform
 from hivemind.cli.compose import GoalReport, Hive
 from hivemind.llm import LLMRequest, LLMResponse
 from hivemind.pheromone import PheromoneEvent, TrailQuery
@@ -209,7 +210,8 @@ def _dataset(origin: CellId, content: bytes, *, borrowed: bool) -> DepositReques
         summary="Readings a task kept; data only, it runs nothing.",
         media_kind=MediaKind.DATASET,
         media_type="application/octet-stream",
-        platform_tags=(OsFamily.LINUX,),
+        # The receiving Cell runs on this host; a blob tagged for another platform is refused.
+        platform_tags=(OsFamily(host_platform()[0].value),),
         declared=HoneyClearance.C0,
         origin_cell_id=origin,
         origin_bee=None,

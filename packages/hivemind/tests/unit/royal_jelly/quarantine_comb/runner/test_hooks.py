@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+import hivemind.royal_jelly.quarantine_comb.runner.hooks as hooks_module
 from hivemind.royal_jelly.quarantine_comb.runner.hooks import (
     AuditPolicy,
     AuditRecorder,
@@ -159,6 +160,29 @@ def test_events_the_hook_does_not_watch_are_ignored(tmp_path: Path, event: str) 
     policy = _policy(tmp_path)
 
     assert classify(event, ("x",), _frames(policy, _TOOL_FRAME), policy) is None
+
+
+def test_the_recorder_exempts_socket_events_raised_inside_socketpair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # On Windows `socket.socketpair` is Python code making two loopback AF_INET sockets for
+    # asyncio's wake-up; this function stands in for it, so the test runs on every platform.
+    here = Path(__file__).resolve().parent
+    recorder = AuditRecorder(
+        AuditPolicy(package_dir=str(here), allowed_roots=(str(here),), stdlib_roots=())
+    )
+
+    def stand_in_for_socketpair() -> None:
+        recorder("socket.__new__", (object(), socket.AF_INET, 1, 0))
+        recorder("socket.connect", (object(), ("127.0.0.1", 1)))
+
+    with pytest.raises(SandboxViolationError):
+        stand_in_for_socketpair()
+    monkeypatch.setattr(hooks_module, "_SOCKETPAIR_CODE", stand_in_for_socketpair.__code__)
+
+    stand_in_for_socketpair()
+
+    assert len(recorder.violations) == 1  # Only the unexempted call above was recorded.
 
 
 def test_the_recorder_raises_and_records_when_the_caller_is_in_the_package() -> None:
