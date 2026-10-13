@@ -144,6 +144,7 @@ section-order = [
 # that talks to a human on a terminal, so it is the other named exception.
 "scripts/**" = ["T20"]
 "packages/hivemind/src/hivemind/cli/**" = ["T20"]
+"packages/pollen/src/pollen/cli.py" = ["T20"]  # The packet's one terminal edge; every other pollen module logs instead of printing (codingrules section 12).
 # S603/S607 (subprocess call / partial-path executable) are NOT blanket-ignored anywhere: the
 # handful of allowed subprocess sites (codingrules section 4 corollary) silence them one call at a
 # time with `# noqa: S603  # SAFETY: ...`, so the safety justification is never optional.
@@ -189,6 +190,7 @@ mypy_path = [
     # this base also renames hivemind's test modules from packages.hivemind.tests.unit.* to
     # unit.*, which collides with nothing (waggle's and pollen's trees keep their long names).
     "packages/hivemind/tests",
+    "packages/pollen/tests/support",  # phase 11: lets `import queen_double` resolve the way pytest does; only that directory, so no pollen test module is renamed.
 ]
 explicit_package_bases = true  # Required for stable fully-qualified module names once namespace packages (no __init__.py) are in play -- see the tests/ note below.
 namespace_packages = true  # PEP 420: lets mypy walk tests/unit, tests/integration, tests/contracts etc. without requiring an __init__.py in every directory (codingrules 3: "tests/unit/ mirrors src/").
@@ -262,6 +264,11 @@ pythonpath = [
     # 14.5: `make_task(status=...)`); the tests tree has no __init__.py, so this is what lets a
     # test write `from builders.tasks import make_task`.
     "packages/hivemind/tests",
+    # phase 11 (wave 2A): the scripted Queen the pollen tests dial (queen_double.py and its TLS
+    # helper) lives in tests/support so it has a module name of its own; the pollen test modules
+    # themselves are not on this path, so none of their names (conftest included) can collide
+    # with hivemind's.
+    "packages/pollen/tests/support",
 ]
 addopts = "--import-mode=importlib --strict-markers --strict-config -ra"
 # --import-mode=importlib: the three tests/ trees have no __init__.py (codingrules 3), so the
@@ -293,10 +300,6 @@ asyncio_default_fixture_loop_scope = "function"  # Matches asyncio_mode=auto's p
 [tool.coverage.run]
 branch = true  # Line coverage alone hides an `if` whose one branch never actually runs; the floors in 14.1 are meaningless without branch coverage.
 source = ["waggle", "hivemind", "pollen"]  # Only the shipped packages; a test measuring itself, or the dev toolchain, is never "coverage".
-# pollen ships no code until phase 11, so coverage would warn "module-not-imported" on every run.
-# Keeping pollen listed (rather than re-adding it later and forgetting) and silencing only that
-# warning is the honest trade; remove this line when pollen has its first module.
-disable_warnings = ["module-not-imported"]
 omit = [
     # codingrules 5.4: an __init__.py holds only a docstring, re-exports and __all__ -- no branches,
     # no behaviour. Without this, every not-yet-imported (future-phase) package would show as a

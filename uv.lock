@@ -2193,11 +2193,17 @@ name = "pollen"
 version = "0.1.0.dev0"
 source = { editable = "packages/pollen" }
 dependencies = [
+    { name = "psutil" },
+    { name = "pydantic" },
     { name = "waggle" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "waggle", editable = "packages/waggle" }]
+requires-dist = [
+    { name = "psutil", specifier = ">=7,<8" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "waggle", editable = "packages/waggle" },
+]
 
 [[package]]
 name = "pre-commit"

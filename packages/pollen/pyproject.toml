@@ -5,7 +5,12 @@ description = "The Pollen Packet: a lightweight device connector that turns a bo
 requires-python = ">=3.12"
 dependencies = [
     "waggle",  # Only the shared protocol package; pollen must install with no other workspace deps (phase 1 exit criterion).
+    "pydantic>=2",  # The packet's own state file is a boundary model (codingrules section 9); waggle already needs it, so this adds nothing to the install.
+    "psutil>=7,<8",  # Cross-platform process groups, process snapshots, memory and CPU without per-OS shell parsing; the same pin hivemind locks.
 ]
+
+[project.scripts]
+pollen = "pollen.cli:main"  # The console script `pollen enrol|run|install|uninstall|status|version`.
 
 [tool.uv.sources]
 waggle = { workspace = true }  # Resolve waggle from this workspace, not from an index.

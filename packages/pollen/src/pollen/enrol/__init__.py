@@ -1,23 +1,43 @@
-"""Handle the device's side of first-run registration with the Queen: the enrol package.
+"""Enrol a device in the Swarm: read the invite, present the token, keep the accept.
 
-It reports the device's capabilities and Forage (its spare capacity) so the Queen can enrol it
-as a Real Cell.
+A new device becomes a Real Cell of the Swarm through one ceremony (enrolment.md): the operator
+mints an invite on the Hive Stand, the Pollen Packet (the thin gateway program on a device the Hive
+borrows) reads it, generates its identity and key, dials the Queen (the Hive's central
+orchestrator) over a connection whose certificate it checks against the invite's fingerprint, sends
+one signed ``swarm.enrol_request`` and, if the accept matches what the invite pinned, persists its
+state. ``invite`` reads the ``pollen1.`` string, ``request`` builds the request from what the
+device finds out about itself, and ``enrol`` runs the whole exchange.
 
 Fits into the Hive:
-    Parallel to hivemind's layer table, inside the pollen package. Handles the device's side of
-    first-run registration with the Queen. Called by pollen's public API on behalf of whatever
-    calls pollen itself; calls into waggle only.
+    Parallel to hivemind's layer table, inside the pollen package. Called by pollen.cli
+    (``pollen enrol``); calls into pollen.agent.link for the pinned connection, pollen.state for
+    the key and the state, pollen.executors.info for the probes, and waggle.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 11 adds its first public name.
+    - The key is on disk before the first dial, and the token is sent once, on a pinned connection.
+    - Nothing is persisted unless the accept matches the invite; a device never holds half an
+      enrolment.
+    - The invite string and the token are never logged, stored or put in an error message.
 
 See Also:
+    - docs/waggle/enrolment.md for the ceremony end to end.
     - .claude/codingrules.md section 3 for where this sub-package sits under pollen.
-    - .claude/roadmap.md phase 11 for the work that first populates it.
 
-Public API: none yet; first populated in phase 11.
+Public API:
+    - Invite, parse_invite: the invite string, validated.
+    - DeviceIdentity, build_request: the enrolment request.
+    - EnrolPlan, enrol_device: run the ceremony and persist its result.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 11 adds the first public name.
-__all__: list[str] = []
+from pollen.enrol.enrol import EnrolPlan, enrol_device
+from pollen.enrol.invite import Invite, parse_invite
+from pollen.enrol.request import DeviceIdentity, build_request
+
+__all__ = [
+    "DeviceIdentity",
+    "EnrolPlan",
+    "Invite",
+    "build_request",
+    "enrol_device",
+    "parse_invite",
+]
