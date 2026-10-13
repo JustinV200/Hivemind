@@ -60,3 +60,6 @@ requirements-audit.txt
 # artefacts that regenerate deterministically from scripts/build_cell_image.py and a pinned
 # Ubuntu release; never committed, matching images/base-ubuntu/vm/README.md's own instructions.
 images/*/vm/*.qcow2
+
+# Agent worktrees (Claude Code subagents work in isolated checkouts here); never content.
+.claude/worktrees/
