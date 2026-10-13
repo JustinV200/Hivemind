@@ -5,9 +5,11 @@ Fits into the Hive:
     hivemind.cell.session.CellSession contract and runs against every implementation registered
     in `_HARNESSES` below: `hivemind.cell.fake.FakeSession` (phase 3 step 3.10),
     `hivemind.cell.local.LocalProcessSession`, the Hive Stand's own session (phase 3 step 3.11),
-    and `hivemind.cell.in_cell.InCellSession`, for code already running inside its own Virtual
-    Cell (roadmap step 5.5). A new CellSession implementation adds a `SessionHarness` here and
-    must pass this suite before it is used anywhere else (codingrules 14.3).
+    `hivemind.cell.in_cell.InCellSession`, for code already running inside its own Virtual
+    Cell (roadmap step 5.5), and `hivemind.swarm.PollenSession`, a Swarm device's session carried
+    over Waggle to a real Pollen Packet running in this process (roadmap step 11.5). A new
+    CellSession implementation adds a `SessionHarness` here and must pass this suite before it is
+    used anywhere else (codingrules 14.3).
 
     Every case name a harness supports maps to a fixed, kind-independent outcome (`_LOCAL_SCRIPTS`
     keys below): "echo" writes `_STDOUT_TEXT` to stdout and exits 0, "both" writes both
@@ -15,6 +17,11 @@ Fits into the Hive:
     returns before its timeout. A harness decides *how* its session produces that outcome (a
     scripted responder for the fake, a real `sys.executable -c ...` child for the Hive Stand); the
     test bodies only ever assert the outcome.
+
+    A harness may need to set up and tear down asynchronously (the Pollen harness starts a
+    listener and a packet), so `make_session` is a coroutine and every harness has a `close` the
+    `harness` fixture awaits after the test, whatever the test did. A fixture builds a fresh
+    harness for each test, so nothing one test started outlives it.
 
 Key invariants:
     - None: this module holds tests only.
@@ -24,6 +31,8 @@ See Also:
     - hivemind.cell.fake for FakeSession, the first implementation registered here.
     - hivemind.cell.local for LocalProcessSession, the Hive Stand's own implementation.
     - hivemind.cell.in_cell for InCellSession, the in-Cell implementation (roadmap step 5.5).
+    - hivemind.swarm.session for PollenSession, and contracts.pollen_harness for the packet it
+      is run against.
     - packages/hivemind/tests/contracts/test_pheromone_trail_contract.py for the pattern this
       suite's harness-per-implementation shape mirrors.
 """
@@ -34,11 +43,14 @@ import asyncio
 import os
 import signal
 import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Protocol
 
 import pytest
 from builders.cells import make_hive_stand_releaser, make_real_cell_lease
+from builders.swarm.live import LiveHive, start_live_hive
+from contracts.pollen_harness import PollenDevice, start_device
 
 from hivemind.cell import RealCellLease
 from hivemind.cell.errors import (
@@ -69,14 +81,23 @@ _NONZERO_EXIT = 7
 _SHORT_TIMEOUT_S = 0.5  # The one test that actually waits for a timeout; kept short on purpose.
 _LOCAL_QUOTA_BYTES = 64 * 1024 * 1024  # Generous: this suite is about the CellSession contract.
 # An executable no host has, for the "missing" case: the local harness really tries to spawn it.
-_MISSING_EXECUTABLE = "hivemind-no-such-executable-3f9a2c"
+# Not named like one of the Hive's own entry points (`hivemind-...`): the Guard's state floor
+# refuses those before a command reaches a device, and this case is about a command that cannot
+# start, not about one that may not.
+_MISSING_EXECUTABLE = "no-such-executable-3f9a2c"
 
 
 class SessionHarness(Protocol):
     """Build a CellSession of one kind, and the ExecSpec argv for one of `_CASES`."""
 
-    def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
+    async def make_session(
+        self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()
+    ) -> CellSession:
         """Build a fresh session scoped to `tmp_path`, with `allowed_paths` reachable too."""
+        ...
+
+    async def close(self) -> None:
+        """Tear down everything `make_session` started, whatever the test did."""
         ...
 
     def command_for(self, case: str) -> tuple[str, ...]:
@@ -96,10 +117,19 @@ class SessionHarness(Protocol):
         ...
 
 
-class _FakeHarness:
+class _NothingToClose:
+    """Base of the harnesses whose sessions start nothing outside this process."""
+
+    async def close(self) -> None:
+        """Do nothing: a fake or a child process the session itself stops needs no teardown."""
+
+
+class _FakeHarness(_NothingToClose):
     """Builds a FakeSession scripted to answer each case with its fixed, contract-wide outcome."""
 
-    def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
+    async def make_session(
+        self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()
+    ) -> CellSession:
         responder = {
             "echo": CompletedCommand(exit_code=0, stdout=_STDOUT_TEXT, stderr=b"", duration_s=0.0),
             "both": CompletedCommand(
@@ -173,13 +203,15 @@ _BACKGROUND_SCRIPTS = {
 }
 
 
-class _LocalHarness:
+class _LocalHarness(_NothingToClose):
     """Builds a LocalProcessSession over a real, unopened RealCellLease and a real subprocess."""
 
     def __init__(self) -> None:
         self._leases: dict[int, RealCellLease] = {}
 
-    def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
+    async def make_session(
+        self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()
+    ) -> CellSession:
         # A real SystemClock: this harness spawns real child processes, whose exit and timeout
         # timing cannot be driven by a FakeClock. note_started_process/note_touched_path never
         # check lease.state, so the lease need not be open()ed for a session to use it here.
@@ -209,7 +241,7 @@ class _LocalHarness:
         _kill_leader(process)
 
 
-class _InCellHarness:
+class _InCellHarness(_NothingToClose):
     """Builds an InCellSession over a real, unopened RealCellLease and a real subprocess.
 
     Shares `_LOCAL_SCRIPTS`/`command_for` with `_LocalHarness`: the outcome an InCellSession
@@ -220,7 +252,9 @@ class _InCellHarness:
     def __init__(self) -> None:
         self._leases: dict[int, RealCellLease] = {}
 
-    def make_session(self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()) -> CellSession:
+    async def make_session(
+        self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()
+    ) -> CellSession:
         # A real SystemClock, matching _LocalHarness's own reasoning: real child processes, real
         # exit and timeout timing.
         clock = SystemClock()
@@ -262,23 +296,83 @@ def _kill_leader(process: BackgroundProcess) -> None:
     os.kill(process.pid, getattr(signal, "SIGKILL", signal.SIGTERM))
 
 
-_HARNESSES: dict[str, SessionHarness] = {
-    "fake": _FakeHarness(),
-    "in_cell": _InCellHarness(),
-    "local": _LocalHarness(),
+class _PollenHarness:
+    """Builds a PollenSession over a real Pollen Packet running in this process (roadmap 11.5).
+
+    Every session is its own device: an invite minted at one live Hive Stand, a packet enrolled
+    with it through the real ceremony into a data directory under `tmp_path`, and a lease on it
+    opened through `SwarmSource`. The Stand, the listener and the packet are real and share this
+    machine, so the device's scratch directory, its processes and the paths a test names are the
+    same as the host's, which is why `_kill_leader` and `note_allowed_path` work here as they do
+    for the Hive Stand. Teardown releases every lease and requires the packet to say it left the
+    device exactly as found.
+    """
+
+    def __init__(self) -> None:
+        self._hive: LiveHive | None = None
+        self._devices: dict[int, PollenDevice] = {}
+
+    async def make_session(
+        self, tmp_path: Path, allowed_paths: tuple[Path, ...] = ()
+    ) -> CellSession:
+        # One Stand for the test, started on first use; each session enrols a device of its own.
+        if self._hive is None:
+            self._hive = await start_live_hive()
+        device = await start_device(
+            self._hive, tmp_path / f"pollen-{len(self._devices) + 1}", allowed_paths
+        )
+        self._devices[id(device.session)] = device
+        return device.session
+
+    def widen(self, session: CellSession, path: Path) -> None:
+        # The Hive-side lease is what bounds the session's paths (the packet runs at FULL access),
+        # and PollenSession reads it live on every call.
+        self._devices[id(session)].lease.note_allowed_path(path)
+
+    def command_for(self, case: str) -> tuple[str, ...]:
+        if case == "missing":
+            return (_MISSING_EXECUTABLE,)
+        return (sys.executable, "-c", _LOCAL_SCRIPTS[case])
+
+    def background_for(self, session: CellSession, case: str) -> tuple[str, ...]:
+        return _real_background_argv(case)
+
+    def crash(self, session: CellSession, process: BackgroundProcess) -> None:
+        # The pid the device reports is a pid on this machine, so the host can kill it.
+        _kill_leader(process)
+
+    async def close(self) -> None:
+        # Every device is stopped even if one fails to release, then the Stand; only then is a
+        # lease the packet could not confirm as left-as-found reported.
+        reports = [await device.stop() for device in self._devices.values()]
+        if self._hive is not None:
+            await self._hive.stop()
+        unrestored = [report for report in reports if report is not None and not report.is_restored]
+        assert not unrestored, f"a device was not left as found: {unrestored}"
+
+
+_HARNESSES: dict[str, type[SessionHarness]] = {
+    "fake": _FakeHarness,
+    "in_cell": _InCellHarness,
+    "local": _LocalHarness,
+    "pollen": _PollenHarness,
 }
 
 
 @pytest.fixture(params=sorted(_HARNESSES))
-def harness(request: pytest.FixtureRequest) -> SessionHarness:
-    """One SessionHarness per registered CellSession implementation."""
-    return _HARNESSES[request.param]
+async def harness(request: pytest.FixtureRequest) -> AsyncIterator[SessionHarness]:
+    """A fresh SessionHarness per registered CellSession implementation, closed after the test."""
+    made = _HARNESSES[request.param]()
+    try:
+        yield made
+    finally:
+        await made.close()
 
 
 async def test_exec_ends_in_exactly_one_exit_status_after_its_output(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     events = [event async for event in session.exec(ExecSpec(argv=harness.command_for("both")))]
 
@@ -289,7 +383,7 @@ async def test_exec_ends_in_exactly_one_exit_status_after_its_output(
 async def test_run_collects_stdout_and_stderr_on_success(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     completed = await run(session, ExecSpec(argv=harness.command_for("both")))
 
@@ -299,7 +393,7 @@ async def test_run_collects_stdout_and_stderr_on_success(
 
 
 async def test_nonzero_exit_code_surfaces(harness: SessionHarness, tmp_path: Path) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     completed = await run(session, ExecSpec(argv=harness.command_for("nonzero")))
 
@@ -309,7 +403,7 @@ async def test_nonzero_exit_code_surfaces(harness: SessionHarness, tmp_path: Pat
 async def test_a_command_that_cannot_start_is_a_failed_command_not_an_exception(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     completed = await run(session, ExecSpec(argv=harness.command_for("missing")))
 
@@ -323,7 +417,7 @@ async def test_a_command_that_cannot_start_is_a_failed_command_not_an_exception(
 async def test_put_file_then_get_file_round_trips_bytes(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     await session.put_file(Path("data.bin"), b"payload")
     result = await session.get_file(Path("data.bin"))
@@ -334,7 +428,7 @@ async def test_put_file_then_get_file_round_trips_bytes(
 async def test_delete_file_removes_a_written_file_and_a_missing_path_raises(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     await session.put_file(Path("gone.txt"), b"bye")
 
     await session.delete_file(Path("gone.txt"))
@@ -350,7 +444,7 @@ async def test_delete_file_removes_a_written_file_and_a_missing_path_raises(
 async def test_relative_paths_resolve_under_scratch_dir(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     await session.put_file(Path("nested/dir/data.bin"), b"payload")
 
@@ -361,8 +455,8 @@ async def test_path_outside_scratch_raises_unless_allowed(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
     outside_root = tmp_path.parent / "outside-allowed"
-    refusing = harness.make_session(tmp_path)
-    allowing = harness.make_session(tmp_path, allowed_paths=(outside_root,))
+    refusing = await harness.make_session(tmp_path)
+    allowing = await harness.make_session(tmp_path, allowed_paths=(outside_root,))
 
     with pytest.raises(PathNotAllowedError):
         await refusing.put_file(outside_root / "data.bin", b"payload")
@@ -379,7 +473,7 @@ async def test_a_path_allowed_after_construction_is_reachable(
     review found `InCellSession` doing exactly that).
     """
     outside_root = tmp_path.parent / "outside-widened"
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     with pytest.raises(PathNotAllowedError):
         await session.put_file(outside_root / "data.bin", b"payload")
 
@@ -388,7 +482,7 @@ async def test_a_path_allowed_after_construction_is_reachable(
 
 
 async def test_timeout_raises_command_timeout(harness: SessionHarness, tmp_path: Path) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     spec = ExecSpec(argv=harness.command_for("sleep"), timeout_s=_SHORT_TIMEOUT_S)
 
     with pytest.raises(CommandTimeoutError):
@@ -398,7 +492,7 @@ async def test_timeout_raises_command_timeout(harness: SessionHarness, tmp_path:
 async def test_exec_after_close_raises_session_closed(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     await session.close()
 
     with pytest.raises(SessionClosedError):
@@ -406,7 +500,7 @@ async def test_exec_after_close_raises_session_closed(
 
 
 async def test_close_is_idempotent(harness: SessionHarness, tmp_path: Path) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     await session.close()
     await session.close()
@@ -435,7 +529,7 @@ async def _read_log_when_written(session: CellSession, path: Path) -> bytes:
 async def test_start_returns_a_running_process_and_stop_ends_it(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     process = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
 
@@ -451,7 +545,7 @@ async def test_start_returns_a_running_process_and_stop_ends_it(
 async def test_a_background_process_writes_its_output_to_its_log_in_scratch(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     spec = BackgroundSpec(argv=harness.background_for(session, "logs"), log_path=Path("x/out.log"))
 
     process = await session.start(spec)
@@ -464,7 +558,7 @@ async def test_a_background_process_writes_its_output_to_its_log_in_scratch(
 async def test_a_log_path_outside_scratch_is_refused(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     spec = BackgroundSpec(
         argv=harness.background_for(session, "runs"), log_path=tmp_path.parent / "elsewhere.log"
     )
@@ -477,7 +571,7 @@ async def test_a_log_path_outside_scratch_is_refused(
 async def test_a_command_that_cannot_start_raises_background_start_error(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
 
     # Unlike exec's exit 127, a start is infrastructure asking for something it needs running.
     with pytest.raises(BackgroundStartError):
@@ -488,7 +582,7 @@ async def test_a_command_that_cannot_start_raises_background_start_error(
 async def test_is_running_turns_false_when_the_process_dies_on_its_own(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     process = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
 
     harness.crash(session, process)
@@ -505,7 +599,7 @@ async def test_is_running_turns_false_when_the_process_dies_on_its_own(
 async def test_close_stops_every_background_process(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     first = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
     second = await session.start(BackgroundSpec(argv=harness.background_for(session, "runs")))
 
@@ -518,7 +612,7 @@ async def test_close_stops_every_background_process(
 async def test_start_after_close_raises_session_closed(
     harness: SessionHarness, tmp_path: Path
 ) -> None:
-    session = harness.make_session(tmp_path)
+    session = await harness.make_session(tmp_path)
     await session.close()
 
     with pytest.raises(SessionClosedError):

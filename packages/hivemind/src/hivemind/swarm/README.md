@@ -111,5 +111,7 @@ in-memory connections (`make_router_rig`), a device client for real sockets (`De
 scripted Pollen Packet (`ScriptedDevice`) that answers like the gateway contract says; the real
 Packet is `packages/pollen`. The listener tests use real loopback sockets, TLS with a throwaway
 self-signed certificate and its pin. `PollenSession` is tested against the scripted device for
-every clause of the `CellSession` contract rather than registered in that suite, which runs the
-local session only.
+every clause of the `CellSession` contract, and is also registered in that suite
+(`tests/contracts/test_cell_session_contract.py`) against the real Packet, enrolled on a real
+listener and run in the test process (`tests/contracts/pollen_harness.py`, over the live Hive Stand
+of `builders/swarm/live.py`).
