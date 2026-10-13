@@ -1,22 +1,63 @@
-"""Hold OS-specific shims so the rest of pollen never branches on the host OS: platform.
+"""Hold the operating-system shims so the rest of pollen never branches on the host OS.
 
-Linux, Windows and macOS each get their own shim here.
+Linux, macOS and Windows each get a shim behind one ``PlatformShim`` Protocol: where the data
+directory lives, how a child process is started in its own process group and signalled as a
+group, what the device reports about itself, and how the Pollen Packet (the thin gateway program
+on a device the Hive borrows) is installed as a service that starts at login. ``select_shim`` is
+the single place that looks at the host and chooses; the Linux and macOS shims share the POSIX
+process behaviour in ``posix``.
 
 Fits into the Hive:
-    Parallel to hivemind's layer table, inside the pollen package. Handles OS-specific shims so
-    the rest of pollen never branches on the host OS. Called by pollen's public API on behalf of
-    whatever calls pollen itself; calls into waggle only.
+    Parallel to hivemind's layer table, inside the pollen package. Called by pollen.cli (the
+    composition root) and handed to the executors and the lease code; calls into waggle, psutil
+    and the standard library only.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 11 adds its first public name.
+    - No module outside this package reads ``sys.platform``; they hold a PlatformShim.
+    - Service installation removes nothing of the operator's: uninstalling deletes the one unit
+      the install wrote.
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under pollen.
-    - .claude/roadmap.md phase 11 for the work that first populates it.
+    - docs/waggle/gateway-contract.md section 3 for what a gateway needs from its platform.
+    - .claude/codingrules.md section 2 for the hosts the Hive supports.
 
-Public API: none yet; first populated in phase 11.
+Public API:
+    - PlatformShim: the Protocol every operating-system shim satisfies.
+    - PlatformFacts, ProcessRef, SpawnSpec, ServicePlan, ServiceResult, CommandResult: its values.
+    - select_shim: choose the shim for the host.
+    - launch_command: the argv that starts ``pollen run`` the way this process started.
+    - EXIT_NO_RESTART: the exit status that tells a service manager not to restart the packet.
+    - LinuxShim, MacOsShim, WindowsShim: the three implementations.
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 11 adds the first public name.
-__all__: list[str] = []
+from pollen.platform.base import (
+    EXIT_NO_RESTART,
+    CommandResult,
+    PlatformFacts,
+    PlatformShim,
+    ProcessRef,
+    ServicePlan,
+    ServiceResult,
+    SpawnSpec,
+    launch_command,
+)
+from pollen.platform.linux import LinuxShim
+from pollen.platform.macos import MacOsShim
+from pollen.platform.select import select_shim
+from pollen.platform.windows import WindowsShim
+
+__all__ = [
+    "EXIT_NO_RESTART",
+    "CommandResult",
+    "LinuxShim",
+    "MacOsShim",
+    "PlatformFacts",
+    "PlatformShim",
+    "ProcessRef",
+    "ServicePlan",
+    "ServiceResult",
+    "SpawnSpec",
+    "WindowsShim",
+    "launch_command",
+    "select_shim",
+]

@@ -1,4 +1,5 @@
 # pollen.platform
 
-The platform package holds OS-specific shims (Linux, Windows, macOS) so the rest of pollen never
-has to branch on the host operating system itself.
+The platform package holds the OS-specific shims (Linux, macOS, Windows) behind one PlatformShim, so
+the rest of pollen never branches on the host operating system: process groups, the facts a device
+reports about itself, where its data lives and how the packet is installed as a service.
