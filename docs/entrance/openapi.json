@@ -45,6 +45,16 @@
         "type": "string",
         "x-hive-open": true
       },
+      "AlarmSeverity": {
+        "description": "How bad an Alarm is.\n\nMirrors waggle.messages.labels.AlarmSeverity member for member.",
+        "enum": [
+          "INFO",
+          "WARNING",
+          "CRITICAL"
+        ],
+        "title": "AlarmSeverity",
+        "type": "string"
+      },
       "AlarmView": {
         "description": "An Alarm that reached the human.",
         "properties": {
@@ -447,6 +457,79 @@
         "title": "ApprovedDeviceView",
         "type": "object"
       },
+      "AttendantView": {
+        "description": "The Attendant view for the Queen or one Warden (observe).",
+        "properties": {
+          "as_of": {
+            "description": "When the view was built.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "edges": {
+            "description": "Dependencies between those tasks.",
+            "items": {
+              "$ref": "#/components/schemas/TaskEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "inbox": {
+            "description": "The ordered inbox, highest score first.",
+            "items": {
+              "$ref": "#/components/schemas/InboxEntryView"
+            },
+            "title": "Inbox",
+            "type": "array"
+          },
+          "inbox_is_reconstructed": {
+            "description": "True: the inbox is rebuilt from durable state and scored with the Attendant's own scorer; the supervisor's in-memory tick queue is not readable.",
+            "title": "Inbox Is Reconstructed",
+            "type": "boolean"
+          },
+          "nodes": {
+            "description": "The tasks it is concerned with.",
+            "items": {
+              "$ref": "#/components/schemas/TaskNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "principal": {
+            "description": "queen, or a Warden's id.",
+            "title": "Principal",
+            "type": "string"
+          },
+          "recently_finished": {
+            "description": "Newest finished first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Recently Finished",
+            "type": "array"
+          },
+          "up_next": {
+            "description": "Ready or assigned tasks, oldest first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Up Next",
+            "type": "array"
+          }
+        },
+        "required": [
+          "principal",
+          "as_of",
+          "inbox_is_reconstructed",
+          "inbox",
+          "nodes",
+          "edges",
+          "recently_finished",
+          "up_next"
+        ],
+        "title": "AttendantView",
+        "type": "object"
+      },
       "AudioChunkFrame": {
         "additionalProperties": false,
         "description": "One slice of a push-to-talk recording, sent on the chat socket in order.",
@@ -534,6 +617,236 @@
           "intent"
         ],
         "title": "AudioEndFrame",
+        "type": "object"
+      },
+      "AuditRow": {
+        "description": "One sampled audit of a proposal.",
+        "properties": {
+          "at": {
+            "description": "When the audit was recorded.",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "bee_id": {
+            "description": "The bee that proposed it; the audit's actor if the proposal is out of view.",
+            "title": "Bee Id",
+            "type": "string"
+          },
+          "judge_error": {
+            "description": "The sample was taken but never judged.",
+            "title": "Judge Error",
+            "type": "boolean"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JudgeOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The judge's finding; null when it never ran."
+          },
+          "proposal_id": {
+            "description": "The audited proposal.",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its task, when the proposal is in view.",
+            "title": "Task Id"
+          },
+          "tier": {
+            "description": "Its RiskTier.",
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "tier",
+          "outcome",
+          "judge_error",
+          "bee_id",
+          "task_id",
+          "at"
+        ],
+        "title": "AuditRow",
+        "type": "object"
+      },
+      "AutopilotDecisionView": {
+        "description": "One deterministic decision of the Queen's and the rule outcome recorded for it.",
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The action taken (REBIND, CLUSTER, RECORD ...).",
+            "title": "Action"
+          },
+          "alarm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Alarm that prompted it, if any.",
+            "title": "Alarm Id"
+          },
+          "at": {
+            "description": "When it was decided.",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The trail event's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The trail kind: queen.decided or alarm.handled.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reason code recorded with it, if any.",
+            "title": "Reason"
+          },
+          "subject_id": {
+            "description": "What it concerned: a task, Cell, Alarm or the Hive.",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "subject_id",
+          "action",
+          "reason",
+          "alarm_id"
+        ],
+        "title": "AutopilotDecisionView",
+        "type": "object"
+      },
+      "BeeRow": {
+        "description": "One bee on the Cell: the Warden, or a sub-bee its Heartbeat listed.",
+        "properties": {
+          "context_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Used over window, 0..1, for the gauge.",
+            "title": "Context Fraction"
+          },
+          "context_tokens_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tokens in its context; null unreported.",
+            "title": "Context Tokens Used"
+          },
+          "context_window": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its bound model's context window.",
+            "title": "Context Window"
+          },
+          "id": {
+            "description": "The Warden's or sub-bee's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "description": "WARDEN, or the Worker role of its current task; UNKNOWN when the sub-bee has no task the Brood Chamber can name.",
+            "title": "Role",
+            "type": "string"
+          },
+          "spend_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its spend so far, from its telemetry.",
+            "title": "Spend Usd"
+          },
+          "status": {
+            "description": "Its Warden state or Worker state, as it reported.",
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it is doing now: its current task.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "status",
+          "task_id",
+          "context_tokens_used",
+          "context_window",
+          "context_fraction",
+          "spend_usd"
+        ],
+        "title": "BeeRow",
         "type": "object"
       },
       "BundleView": {
@@ -624,6 +937,78 @@
           "max_sub_bees"
         ],
         "title": "CapacityView",
+        "type": "object"
+      },
+      "CappingView": {
+        "description": "The Hive-wide Capping queue and what came of it (observe).",
+        "properties": {
+          "audit_rates": {
+            "description": "Audit coverage and findings per tier.",
+            "items": {
+              "$ref": "#/components/schemas/TierAuditRate"
+            },
+            "title": "Audit Rates",
+            "type": "array"
+          },
+          "audits": {
+            "description": "Sampled audits, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/AuditRow"
+            },
+            "title": "Audits",
+            "type": "array"
+          },
+          "by_tier_state": {
+            "description": "Proposal counts per tier and state.",
+            "items": {
+              "$ref": "#/components/schemas/TierStateCount"
+            },
+            "title": "By Tier State",
+            "type": "array"
+          },
+          "finished": {
+            "description": "Terminal proposals, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalRow"
+            },
+            "title": "Finished",
+            "type": "array"
+          },
+          "in_flight": {
+            "description": "Proposals not yet terminal, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalRow"
+            },
+            "title": "In Flight",
+            "type": "array"
+          },
+          "rollbacks": {
+            "description": "Rolled-back proposals, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ProposalRow"
+            },
+            "title": "Rollbacks",
+            "type": "array"
+          },
+          "verdicts": {
+            "description": "Capped and rejected verdicts, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/VerdictRow"
+            },
+            "title": "Verdicts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "in_flight",
+          "finished",
+          "by_tier_state",
+          "verdicts",
+          "rollbacks",
+          "audits",
+          "audit_rates"
+        ],
+        "title": "CappingView",
         "type": "object"
       },
       "CellFrame": {
@@ -835,6 +1220,175 @@
         ],
         "title": "CellMode",
         "type": "string"
+      },
+      "CellPageView": {
+        "description": "Everything one Cell's page shows (observe); words stay behind the ids it hands out.",
+        "properties": {
+          "alarms": {
+            "description": "Its open Alarms.",
+            "items": {
+              "$ref": "#/components/schemas/OpenAlarmView"
+            },
+            "title": "Alarms",
+            "type": "array"
+          },
+          "as_of": {
+            "description": "When the page was built.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "bees": {
+            "description": "The Warden, then each sub-bee.",
+            "items": {
+              "$ref": "#/components/schemas/BeeRow"
+            },
+            "title": "Bees",
+            "type": "array"
+          },
+          "capping": {
+            "$ref": "#/components/schemas/CappingView",
+            "description": "Capping activity on this Cell."
+          },
+          "cell": {
+            "$ref": "#/components/schemas/CellView",
+            "description": "The Cell, with its tier and Mask state."
+          },
+          "exoskeleton_attached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the newest attach or detach on the trail; null before any was recorded.",
+            "title": "Exoskeleton Attached"
+          },
+          "forage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WardenForageView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Warden's Forage; null with no Warden."
+          },
+          "honey_folder": {
+            "description": "The Honey browser folder for what the Cell can see.",
+            "title": "Honey Folder",
+            "type": "string"
+          },
+          "hosting": {
+            "$ref": "#/components/schemas/HostingView",
+            "description": "Where its bees' models come from."
+          },
+          "last_patrol_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its last Patrol ran; always null until roadmap phase 11 builds Patrols.",
+            "title": "Last Patrol At"
+          },
+          "lease_age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds since its open lease began.",
+            "title": "Lease Age S"
+          },
+          "status": {
+            "description": "The headline status (as the Fleet shows it).",
+            "title": "Status",
+            "type": "string"
+          },
+          "tasks": {
+            "description": "Its placed tasks (no words); goal_id names the goal.",
+            "items": {
+              "$ref": "#/components/schemas/TaskView"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "thought_principals": {
+            "description": "Bees whose thoughts can be opened.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Thought Principals",
+            "type": "array"
+          },
+          "warden": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WardenView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its Warden; null when none is attached."
+          },
+          "warden_runs": {
+            "anyOf": [
+              {
+                "enum": [
+                  "hive_stand",
+                  "on_cell"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "hive_stand or on_cell; null unknown.",
+            "title": "Warden Runs"
+          },
+          "wax": {
+            "description": "Its Cell Wax, highest severity first.",
+            "items": {
+              "$ref": "#/components/schemas/WaxEntryView"
+            },
+            "title": "Wax",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "cell",
+          "status",
+          "warden",
+          "warden_runs",
+          "hosting",
+          "lease_age_s",
+          "exoskeleton_attached",
+          "bees",
+          "tasks",
+          "forage",
+          "last_patrol_at",
+          "wax",
+          "alarms",
+          "capping",
+          "thought_principals",
+          "honey_folder"
+        ],
+        "title": "CellPageView",
+        "type": "object"
       },
       "CellView": {
         "description": "One Cell, as the Fleet list and a Cell page show it (observe).",
@@ -1450,6 +2004,125 @@
         "title": "ConfirmedView",
         "type": "object"
       },
+      "CostLine": {
+        "description": "The spend of one goal on one slot through one provider (observe).",
+        "properties": {
+          "cached_tokens": {
+            "description": "Tokens served from a provider cache.",
+            "title": "Cached Tokens",
+            "type": "integer"
+          },
+          "calls": {
+            "description": "Completed calls.",
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "description": "Cost in US dollars.",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The goal it served; null when not attributable.",
+            "title": "Goal Id"
+          },
+          "input_tokens": {
+            "description": "Tokens consumed.",
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "description": "Tokens generated.",
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "provider": {
+            "description": "The provider's manifest name.",
+            "title": "Provider",
+            "type": "string"
+          },
+          "slot": {
+            "description": "The model slot the calls were routed to.",
+            "title": "Slot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id",
+          "slot",
+          "provider",
+          "calls",
+          "input_tokens",
+          "output_tokens",
+          "cached_tokens",
+          "cost_usd"
+        ],
+        "title": "CostLine",
+        "type": "object"
+      },
+      "CostView": {
+        "description": "Spend per goal, slot and provider (observe).",
+        "properties": {
+          "as_of": {
+            "description": "When the view was built.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "goals": {
+            "description": "Per goal, costliest first.",
+            "items": {
+              "$ref": "#/components/schemas/GoalCost"
+            },
+            "title": "Goals",
+            "type": "array"
+          },
+          "if_local_saving_usd": {
+            "description": "The slots' savings together.",
+            "title": "If Local Saving Usd",
+            "type": "number"
+          },
+          "providers": {
+            "description": "Per provider, costliest first.",
+            "items": {
+              "$ref": "#/components/schemas/ProviderCost"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "slots": {
+            "description": "Per slot, with its local saving.",
+            "items": {
+              "$ref": "#/components/schemas/SlotSaving"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "total_usd": {
+            "description": "Every call counted.",
+            "title": "Total Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "as_of",
+          "total_usd",
+          "if_local_saving_usd",
+          "goals",
+          "slots",
+          "providers"
+        ],
+        "title": "CostView",
+        "type": "object"
+      },
       "DeclineBody": {
         "additionalProperties": false,
         "description": "Decline a goal request held for the human's yes.",
@@ -1956,6 +2629,39 @@
             "$ref": "#/components/schemas/ModelSlot",
             "description": "The model slot it ran on."
           },
+          "taint": {
+            "anyOf": [
+              {
+                "enum": [
+                  "tainted",
+                  "cleared"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its taint label: tainted (nothing assembles it), cleared (a judge cleared it; history kept), or null for an unlabelled record.",
+            "title": "Taint"
+          },
+          "taint_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "isolation",
+                  "quarantine",
+                  "guard_report"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which setter labelled it (isolation, quarantine or guard_report); null when unlabelled.",
+            "title": "Taint Source"
+          },
           "trigger_kind": {
             "description": "What kind of thing triggered it.",
             "title": "Trigger Kind",
@@ -1992,6 +2698,8 @@
           "decision",
           "action",
           "clearance",
+          "taint",
+          "taint_source",
           "input_tokens",
           "output_tokens",
           "cost_usd",
@@ -2055,6 +2763,259 @@
           "detail"
         ],
         "title": "ErrorBody",
+        "type": "object"
+      },
+      "FleetLinks": {
+        "description": "The ids a Fleet row links through; the UI builds the routes from them.",
+        "properties": {
+          "attendant_principal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Open its Warden's Attendant view (/v1/attendant/{id}); null with no Warden.",
+            "title": "Attendant Principal"
+          },
+          "cell_id": {
+            "description": "Open the Cell page (/v1/cells/{id}/page).",
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "thought_principals": {
+            "description": "The Warden and each sub-bee whose thoughts can be opened (/v1/thoughts).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Thought Principals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cell_id",
+          "attendant_principal",
+          "thought_principals"
+        ],
+        "title": "FleetLinks",
+        "type": "object"
+      },
+      "FleetRow": {
+        "description": "One Cell in the Fleet list (observe).",
+        "properties": {
+          "access_level": {
+            "$ref": "#/components/schemas/AccessLevel",
+            "description": "How much of it the Hive may touch."
+          },
+          "comb_shield": {
+            "$ref": "#/components/schemas/CombShieldLevel",
+            "description": "Its security tier: always shown."
+          },
+          "current_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its running task, else its first.",
+            "title": "Current Task Id"
+          },
+          "current_task_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerRole"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The role working that task."
+          },
+          "highest_wax_severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/hivemind__memory__cell_wax__model__WaxSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The highest severity among its live Cell Wax; null with none."
+          },
+          "id": {
+            "description": "The Cell's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CellKind",
+            "description": "REAL or VIRTUAL, for the Real / Virtual / All filter."
+          },
+          "lease_age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds since its open lease began.",
+            "title": "Lease Age S"
+          },
+          "links": {
+            "$ref": "#/components/schemas/FleetLinks",
+            "description": "The ids the row links through."
+          },
+          "mask_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "OFF",
+                  "WARDEN",
+                  "QUEEN_FORCED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pheromone Mask state; null until roadmap 6.13 tracks it.",
+            "title": "Mask State"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CellMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ACTIVE or WATCH, when its Warden reported one."
+          },
+          "models_from": {
+            "description": "Where its bees' models come from, from its hosting plan; unknown with none.",
+            "enum": [
+              "local",
+              "hive_stand",
+              "hosted",
+              "hybrid",
+              "unknown"
+            ],
+            "title": "Models From",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its label, or a Virtual Cell's image.",
+            "title": "Name",
+            "type": "string"
+          },
+          "open_alarms": {
+            "description": "Open Alarms placed on it.",
+            "title": "Open Alarms",
+            "type": "integer"
+          },
+          "source": {
+            "description": "What produced it: hive_stand, swarm, or a backend.",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "description": "Headline status: a Virtual Cell's lifecycle status, else its Warden's state, else its lease state; UNKNOWN when none is known.",
+            "title": "Status",
+            "type": "string"
+          },
+          "warden_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its Warden; null when none is attached.",
+            "title": "Warden Id"
+          },
+          "warden_runs": {
+            "anyOf": [
+              {
+                "enum": [
+                  "hive_stand",
+                  "on_cell"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where its Warden runs: hive_stand, or on_cell (inside a Virtual Cell). Null with no Warden, and for a Swarm Cell until phase 11 tracks its runtime level.",
+            "title": "Warden Runs"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "source",
+          "status",
+          "mode",
+          "comb_shield",
+          "mask_state",
+          "access_level",
+          "warden_runs",
+          "models_from",
+          "current_task_id",
+          "current_task_role",
+          "open_alarms",
+          "highest_wax_severity",
+          "lease_age_s",
+          "warden_id",
+          "links"
+        ],
+        "title": "FleetRow",
+        "type": "object"
+      },
+      "FleetView": {
+        "description": "Every Cell, with the tier legend the view always shows (observe).",
+        "properties": {
+          "as_of": {
+            "description": "When the view was built.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "legend": {
+            "description": "MEADOW, PROPOLIS and NIGHT_VEIL, always.",
+            "items": {
+              "$ref": "#/components/schemas/TierLegendEntry"
+            },
+            "title": "Legend",
+            "type": "array"
+          },
+          "rows": {
+            "description": "Every Cell: attached Wardens' first, then Virtual.",
+            "items": {
+              "$ref": "#/components/schemas/FleetRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of",
+          "rows",
+          "legend"
+        ],
+        "title": "FleetView",
         "type": "object"
       },
       "ForageFrame": {
@@ -2149,6 +3110,49 @@
           "state"
         ],
         "title": "GoalAccepted",
+        "type": "object"
+      },
+      "GoalCost": {
+        "description": "One goal's spend, by slot and provider.",
+        "properties": {
+          "calls": {
+            "description": "Its completed calls.",
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "description": "Its total cost.",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The goal; null groups every unattributed call.",
+            "title": "Goal Id"
+          },
+          "lines": {
+            "description": "Its spend per slot and provider.",
+            "items": {
+              "$ref": "#/components/schemas/CostLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "goal_id",
+          "cost_usd",
+          "calls",
+          "lines"
+        ],
+        "title": "GoalCost",
         "type": "object"
       },
       "GoalRequestState": {
@@ -2514,6 +3518,735 @@
         "title": "HoneyClearance",
         "type": "string"
       },
+      "HoneyFolderEntryView": {
+        "description": "One sub-folder of a folder: where it is and what it holds.",
+        "properties": {
+          "detail": {
+            "description": "A short qualifier, e.g. how many rows it holds; may be empty.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its last path segment: hive, a Cell's id, wax.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "The sub-folder's own path; read it with /v1/honey/tree.",
+            "title": "Path",
+            "type": "string"
+          },
+          "title": {
+            "description": "What it holds, in a few words.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "title",
+          "detail"
+        ],
+        "title": "HoneyFolderEntryView",
+        "type": "object"
+      },
+      "HoneyFolderView": {
+        "description": "One folder of the Honey tree: its sub-folders and a page of its items.",
+        "properties": {
+          "can_search": {
+            "description": "Whether /v1/honey/search can search this folder.",
+            "title": "Can Search",
+            "type": "boolean"
+          },
+          "ceiling": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The most sensitive label this viewer may read; items above it are not listed."
+          },
+          "folders": {
+            "description": "Sub-folders the viewer's observe:honey capabilities reach.",
+            "items": {
+              "$ref": "#/components/schemas/HoneyFolderEntryView"
+            },
+            "title": "Folders",
+            "type": "array"
+          },
+          "items": {
+            "description": "One page of the folder's visible items.",
+            "items": {
+              "$ref": "#/components/schemas/HoneyItemSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as ?cursor= for the next page; null at end.",
+            "title": "Next Cursor"
+          },
+          "note": {
+            "description": "Why the listing is what it is, when not obvious; else empty.",
+            "title": "Note",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its parent folder; null for the root.",
+            "title": "Parent"
+          },
+          "path": {
+            "description": "The folder, normalised.",
+            "title": "Path",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scope the folder shows (hive, cell:<id> ...); null for the root, an index folder and /bee-bread, which gather what the viewer may see.",
+            "title": "Scope"
+          }
+        },
+        "required": [
+          "path",
+          "parent",
+          "scope",
+          "can_search",
+          "ceiling",
+          "folders",
+          "items",
+          "next_cursor",
+          "note"
+        ],
+        "title": "HoneyFolderView",
+        "type": "object"
+      },
+      "HoneyItemKind": {
+        "description": "What one item in the Honey browser is; the vocabulary may grow (x-hive-open).",
+        "enum": [
+          "honey",
+          "note",
+          "wax",
+          "bee_bread"
+        ],
+        "title": "HoneyItemKind",
+        "type": "string",
+        "x-hive-open": true
+      },
+      "HoneyItemSummary": {
+        "description": "One item in a folder: enough to weigh it before opening it (observe:honey:<scope>).",
+        "properties": {
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The item's data-sensitivity label."
+          },
+          "detail": {
+            "description": "A short qualifier: a Honey row's part, a wax note's severity, an entry's kind.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a wax note lapses on its own; null for standing wax and other items.",
+            "title": "Expires At"
+          },
+          "id": {
+            "description": "The item's own id; open it with /v1/honey/items/{id}.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HoneyItemKind",
+            "description": "A Honey row, a human's note, a wax note or an entry."
+          },
+          "path": {
+            "description": "The item's own browser path, its place in the tree.",
+            "title": "Path",
+            "type": "string"
+          },
+          "proposer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's proposing bee; null for the human's.",
+            "title": "Proposer"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/HoneyProvenanceView",
+            "description": "Task, Cell, bee, source and when."
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scope it is filed under; decides who may read it.",
+            "title": "Scope"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/waggle__messages__cell__wax__WaxSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's weight; null for other items."
+          },
+          "size_chars": {
+            "description": "The item's text length in characters.",
+            "title": "Size Chars",
+            "type": "integer"
+          },
+          "title": {
+            "description": "A one-line label.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "kind",
+          "title",
+          "detail",
+          "scope",
+          "clearance",
+          "provenance",
+          "size_chars",
+          "severity",
+          "proposer",
+          "expires_at"
+        ],
+        "title": "HoneyItemSummary",
+        "type": "object"
+      },
+      "HoneyItemView": {
+        "description": "One item with its text (observe:honey:<scope>, and clearance within the viewer's).",
+        "properties": {
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The item's data-sensitivity label."
+          },
+          "content": {
+            "description": "The item's text: a row's body, a note's words, an entry.",
+            "title": "Content",
+            "type": "string"
+          },
+          "detail": {
+            "description": "A short qualifier: a Honey row's part, a wax note's severity, an entry's kind.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a wax note lapses on its own; null for standing wax and other items.",
+            "title": "Expires At"
+          },
+          "id": {
+            "description": "The item's own id; open it with /v1/honey/items/{id}.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/HoneyItemKind",
+            "description": "A Honey row, a human's note, a wax note or an entry."
+          },
+          "path": {
+            "description": "The item's own browser path, its place in the tree.",
+            "title": "Path",
+            "type": "string"
+          },
+          "proposer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's proposing bee; null for the human's.",
+            "title": "Proposer"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/HoneyProvenanceView",
+            "description": "Task, Cell, bee, source and when."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a wax note's proposer believed it; else null.",
+            "title": "Reason"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scope it is filed under; decides who may read it.",
+            "title": "Scope"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/waggle__messages__cell__wax__WaxSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A wax note's weight; null for other items."
+          },
+          "size_chars": {
+            "description": "The item's text length in characters.",
+            "title": "Size Chars",
+            "type": "integer"
+          },
+          "sources": {
+            "description": "A Honey row's other distinctly-provenanced deposits of the same content (who else deposited it, never what); empty for other items.",
+            "items": {
+              "$ref": "#/components/schemas/HoneyProvenanceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A Honey row's gist; null for other items.",
+            "title": "Summary"
+          },
+          "title": {
+            "description": "A one-line label.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "kind",
+          "title",
+          "detail",
+          "scope",
+          "clearance",
+          "provenance",
+          "size_chars",
+          "severity",
+          "proposer",
+          "expires_at",
+          "summary",
+          "content",
+          "reason",
+          "sources"
+        ],
+        "title": "HoneyItemView",
+        "type": "object"
+      },
+      "HoneyProvenanceView": {
+        "description": "Where an item came from: its task, Cell, bee, the source it came by and when.",
+        "properties": {
+          "bee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Worker or Warden that gathered it; null if none.",
+            "title": "Bee"
+          },
+          "cell_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Cell it was gathered on; null if unknown.",
+            "title": "Cell Id"
+          },
+          "observed_at": {
+            "description": "When it was observed (a note: proposed).",
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How it came to be: a Nectar origin (BEE, HUMAN, WATCH, TASK_OUTCOME ...), a wax note's origin (BEE, PATROL, HUMAN) or BEE_BREAD; null for a search hit.",
+            "title": "Source"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it came from; null when none.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "task_id",
+          "cell_id",
+          "bee",
+          "source",
+          "observed_at"
+        ],
+        "title": "HoneyProvenanceView",
+        "type": "object"
+      },
+      "HoneySearchHit": {
+        "description": "One ranked search result (observe:honey:<scope>).",
+        "properties": {
+          "clearance": {
+            "$ref": "#/components/schemas/HoneyClearance",
+            "description": "The row's data-sensitivity label."
+          },
+          "id": {
+            "description": "The hit's item id; open it with /v1/honey/items/{id}.",
+            "title": "Id",
+            "type": "string"
+          },
+          "path": {
+            "description": "The hit's browser path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/HoneyProvenanceView",
+            "description": "Task, Cell, bee and when."
+          },
+          "scope": {
+            "description": "The scope it was found in.",
+            "title": "Scope",
+            "type": "string"
+          },
+          "score": {
+            "description": "Relevance, 0 (no match) to 1 (perfect).",
+            "title": "Score",
+            "type": "number"
+          },
+          "snippet": {
+            "description": "The passage that matched, bounded.",
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "description": "The row's one-line title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "title",
+          "snippet",
+          "score",
+          "scope",
+          "clearance",
+          "provenance"
+        ],
+        "title": "HoneySearchHit",
+        "type": "object"
+      },
+      "HoneySearchPage": {
+        "description": "One page of a folder's search, ranked.",
+        "properties": {
+          "hits": {
+            "description": "The page's hits, best first.",
+            "items": {
+              "$ref": "#/components/schemas/HoneySearchHit"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as ?cursor= for the next page; null at end.",
+            "title": "Next Cursor"
+          },
+          "note": {
+            "description": "Why the result is what it is, when not obvious; else empty.",
+            "title": "Note",
+            "type": "string"
+          },
+          "path": {
+            "description": "The folder searched.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "hits",
+          "next_cursor",
+          "note"
+        ],
+        "title": "HoneySearchPage",
+        "type": "object"
+      },
+      "HostingView": {
+        "description": "Where a Cell's bees get their models: the one-word badge and the plan behind it.",
+        "properties": {
+          "models_from": {
+            "description": "local, hive_stand, hosted, hybrid or unknown.",
+            "enum": [
+              "local",
+              "hive_stand",
+              "hosted",
+              "hybrid",
+              "unknown"
+            ],
+            "title": "Models From",
+            "type": "string"
+          },
+          "plan_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan's revision; null with no plan.",
+            "title": "Plan Revision"
+          },
+          "slots": {
+            "description": "Each planned slot's primary source.",
+            "items": {
+              "$ref": "#/components/schemas/SlotHostingView"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models_from",
+          "plan_revision",
+          "slots"
+        ],
+        "title": "HostingView",
+        "type": "object"
+      },
+      "ImageDepositView": {
+        "description": "An image kept as C2 Nectar: where to find it, and until when.",
+        "properties": {
+          "deposited_at": {
+            "description": "When the Hive kept it.",
+            "format": "date-time",
+            "title": "Deposited At",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the retention sweep deletes it ([entrance] image_keep_hours later).",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "media_type": {
+            "$ref": "#/components/schemas/ImageMediaType",
+            "description": "Its format: png, jpeg or webp."
+          },
+          "nectar_id": {
+            "description": "The Nectar id the image was given.",
+            "title": "Nectar Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "The image's size in bytes.",
+            "minimum": 1.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nectar_id",
+          "size_bytes",
+          "media_type",
+          "deposited_at",
+          "expires_at"
+        ],
+        "title": "ImageDepositView",
+        "type": "object"
+      },
+      "ImageMediaType": {
+        "description": "The image formats the Hive takes; the value is the ``Content-Type`` that names it.",
+        "enum": [
+          "image/png",
+          "image/jpeg",
+          "image/webp"
+        ],
+        "title": "ImageMediaType",
+        "type": "string"
+      },
+      "InboxEntryView": {
+        "description": "One item in a supervisor's ordered inbox, with the score the Attendant gave it.",
+        "properties": {
+          "id": {
+            "description": "The item's id: an Alarm, a question or a chat entry.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InboxKind",
+            "description": "ALARM, QUESTION or HUMAN_MESSAGE as listed here."
+          },
+          "reasons": {
+            "description": "The scorer's factor-by-factor reasons.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "received_at": {
+            "description": "When it began waiting.",
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "score": {
+            "description": "The Attendant's score; higher sorts first.",
+            "title": "Score",
+            "type": "number"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AlarmSeverity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An Alarm's severity; null otherwise."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it concerns, if any.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "score",
+          "reasons",
+          "task_id",
+          "severity",
+          "received_at"
+        ],
+        "title": "InboxEntryView",
+        "type": "object"
+      },
+      "InboxKind": {
+        "description": "What kind of thing landed in a supervisor's inbox.",
+        "enum": [
+          "WAGGLE_MESSAGE",
+          "ALARM",
+          "QUESTION",
+          "HUMAN_MESSAGE",
+          "TIMER",
+          "WATCH_OBSERVATION",
+          "GUARD_REQUEST"
+        ],
+        "title": "InboxKind",
+        "type": "string"
+      },
       "InboxView": {
         "description": "Everything waiting on the human (C2).",
         "properties": {
@@ -2641,6 +4374,16 @@
         "type": "string"
       },
       "JsonValue": {},
+      "JudgeOutcome": {
+        "description": "The judge's structured decision on one proposal, mapped onto the check ladder's own shape.\n\n`hivemind.supervision.capping.checks.judge._OUTCOME_MAP` carries the mapping onto\n`waggle.messages.capping.CheckOutcome`, which has no independent APPROVE/REJECT vocabulary of\nits own -- CheckOutcome is shared by every rung of the ladder, JudgeOutcome only by this one.",
+        "enum": [
+          "APPROVE",
+          "REQUEST_CHANGES",
+          "REJECT"
+        ],
+        "title": "JudgeOutcome",
+        "type": "string"
+      },
       "LeaseState": {
         "description": "Every state a Real Cell lease can be in, from request to release.\n\nSee TRANSITIONS below for the legal moves between these; nowhere else decides that.",
         "enum": [
@@ -2849,6 +4592,71 @@
         "type": "string",
         "x-hive-open": true
       },
+      "OpenAlarmView": {
+        "description": "One Alarm that is still open, without the sentence a bee wrote about it (observe).",
+        "properties": {
+          "cell_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Cell it is placed on through its task or its recording Warden; null when neither can be resolved.",
+            "title": "Cell Id"
+          },
+          "escalated": {
+            "description": "It has reached the human.",
+            "title": "Escalated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The Alarm's id, identical at every level.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What went wrong (WORKER_CRASHED, GRANT_EXCEEDED ...).",
+            "title": "Kind",
+            "type": "string"
+          },
+          "raised_at": {
+            "description": "When its first event in the folded window happened (its raising, unless that is older than the window).",
+            "format": "date-time",
+            "title": "Raised At",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlarmSeverity",
+            "description": "INFO, WARNING or CRITICAL."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it concerns, if any.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "severity",
+          "task_id",
+          "cell_id",
+          "raised_at",
+          "escalated"
+        ],
+        "title": "OpenAlarmView",
+        "type": "object"
+      },
       "OpenedSessionView": {
         "description": "A new session: its bearer token, handed out this once, and how long it lives.",
         "properties": {
@@ -2966,6 +4774,41 @@
         "title": "PasskeyRedemption",
         "type": "object"
       },
+      "PendingRequestView": {
+        "description": "A Forage request the Queen has not yet answered.",
+        "properties": {
+          "grant_id": {
+            "description": "The grant the request concerns.",
+            "title": "Grant Id",
+            "type": "string"
+          },
+          "request_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHARED_SEATS, SPEND, BINDING or SUB_BEES.",
+            "title": "Request Kind"
+          },
+          "requested_at": {
+            "description": "When it was asked.",
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_id",
+          "request_kind",
+          "requested_at"
+        ],
+        "title": "PendingRequestView",
+        "type": "object"
+      },
       "PendingStatus": {
         "description": "Every state a pending confirmation can be in; see TRANSITIONS for the moves.",
         "enum": [
@@ -3040,6 +4883,158 @@
         "title": "PostconditionKind",
         "type": "string",
         "x-hive-open": true
+      },
+      "ProposalRow": {
+        "description": "One proposal and the state its newest event reached (observe).",
+        "properties": {
+          "action_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once applied: the kind of action it ran.",
+            "title": "Action Kind"
+          },
+          "bee_id": {
+            "description": "The bee that proposed it (its events' actor).",
+            "title": "Bee Id",
+            "type": "string"
+          },
+          "cell_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Cell it would act on.",
+            "title": "Cell Id"
+          },
+          "failing_check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "REJECTED: the check that failed it.",
+            "title": "Failing Check"
+          },
+          "id": {
+            "description": "The proposal's id (the subject of its capping.* events).",
+            "title": "Id",
+            "type": "string"
+          },
+          "proposed_at": {
+            "description": "When it was proposed.",
+            "format": "date-time",
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "rollback_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ROLLED_BACK: how the Cell was restored.",
+            "title": "Rollback Method"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProposalState",
+            "description": "PROPOSED ... VERIFIED, REJECTED or ROLLED_BACK."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task it serves.",
+            "title": "Task Id"
+          },
+          "tier": {
+            "description": "Its declared RiskTier.",
+            "title": "Tier",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When its newest event happened.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "state",
+          "bee_id",
+          "task_id",
+          "cell_id",
+          "proposed_at",
+          "updated_at",
+          "failing_check",
+          "rollback_method",
+          "action_kind"
+        ],
+        "title": "ProposalRow",
+        "type": "object"
+      },
+      "ProposalState": {
+        "description": "Every state a Capping proposal can be in, from being proposed to a terminal outcome.\n\nSee TRANSITIONS below for the legal moves between these; nowhere else decides that.",
+        "enum": [
+          "PROPOSED",
+          "CHECKING",
+          "CAPPED",
+          "APPLIED",
+          "VERIFIED",
+          "REJECTED",
+          "ROLLED_BACK"
+        ],
+        "title": "ProposalState",
+        "type": "string"
+      },
+      "ProviderCost": {
+        "description": "One provider's spend across all slots.",
+        "properties": {
+          "calls": {
+            "description": "Completed calls.",
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "description": "Its total cost.",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "provider": {
+            "description": "The provider's manifest name.",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "calls",
+          "cost_usd"
+        ],
+        "title": "ProviderCost",
+        "type": "object"
       },
       "ProviderHealthView": {
         "description": "How the Queen currently judges a provider, from her own bookkeeping.",
@@ -3416,6 +5411,72 @@
         "title": "SecurityFrame",
         "type": "object"
       },
+      "SlotHostingView": {
+        "description": "One slot's primary source in a Cell's plan, and where that source runs.",
+        "properties": {
+          "models_from": {
+            "description": "Where that source runs, for this Cell.",
+            "enum": [
+              "local",
+              "hive_stand",
+              "hosted",
+              "hybrid",
+              "unknown"
+            ],
+            "title": "Models From",
+            "type": "string"
+          },
+          "primary_source": {
+            "description": "The Forage map source every call tries first.",
+            "title": "Primary Source",
+            "type": "string"
+          },
+          "slot": {
+            "$ref": "#/components/schemas/ModelSlot",
+            "description": "The model slot."
+          }
+        },
+        "required": [
+          "slot",
+          "primary_source",
+          "models_from"
+        ],
+        "title": "SlotHostingView",
+        "type": "object"
+      },
+      "SlotSaving": {
+        "description": "One slot's spend, and what binding it to a local model would have saved.",
+        "properties": {
+          "cost_usd": {
+            "description": "Everything spent through it.",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "hosted_usd": {
+            "description": "Spend on calls that cost money (hosted).",
+            "title": "Hosted Usd",
+            "type": "number"
+          },
+          "if_local_saving_usd": {
+            "description": "The hosted spend that would be zero if the slot were local: an upper bound.",
+            "title": "If Local Saving Usd",
+            "type": "number"
+          },
+          "slot": {
+            "description": "The model slot.",
+            "title": "Slot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "cost_usd",
+          "hosted_usd",
+          "if_local_saving_usd"
+        ],
+        "title": "SlotSaving",
+        "type": "object"
+      },
       "SlotView": {
         "description": "One [llm.slots] binding: a slot, or a named binding a fallback chain reaches.",
         "properties": {
@@ -3648,6 +5709,94 @@
         "title": "SubscriptionView",
         "type": "object"
       },
+      "SummaryView": {
+        "description": "The summary strip's counters (observe).",
+        "properties": {
+          "active_bees": {
+            "description": "Active Wardens plus active sub-bees (the Queen is not).",
+            "title": "Active Bees",
+            "type": "integer"
+          },
+          "active_sub_bees": {
+            "description": "Sub-bees SPAWNED, RUNNING or HANDING_OFF.",
+            "title": "Active Sub Bees",
+            "type": "integer"
+          },
+          "active_wardens": {
+            "description": "Wardens whose newest state is ACTIVE or WATCH.",
+            "title": "Active Wardens",
+            "type": "integer"
+          },
+          "activity_window_s": {
+            "description": "The window, in seconds, 'current' means.",
+            "title": "Activity Window S",
+            "type": "number"
+          },
+          "as_of": {
+            "description": "When the counters were computed.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "bees_autopilot": {
+            "description": "Bees with only autopilot decisions in the window.",
+            "title": "Bees Autopilot",
+            "type": "integer"
+          },
+          "bees_awake": {
+            "description": "Bees with an awake (LLM) episode in the window.",
+            "title": "Bees Awake",
+            "type": "integer"
+          },
+          "cells_active": {
+            "description": "Cells whose Warden reports ACTIVE.",
+            "title": "Cells Active",
+            "type": "integer"
+          },
+          "cells_inactive": {
+            "description": "Every other Cell.",
+            "title": "Cells Inactive",
+            "type": "integer"
+          },
+          "cells_real": {
+            "description": "Real (borrowed) Cells.",
+            "title": "Cells Real",
+            "type": "integer"
+          },
+          "cells_total": {
+            "description": "Every Cell the Hive knows.",
+            "title": "Cells Total",
+            "type": "integer"
+          },
+          "cells_virtual": {
+            "description": "Virtual (provisioned) Cells.",
+            "title": "Cells Virtual",
+            "type": "integer"
+          },
+          "open_alarms": {
+            "description": "Open Alarms, all severities.",
+            "title": "Open Alarms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "as_of",
+          "active_bees",
+          "active_wardens",
+          "active_sub_bees",
+          "cells_total",
+          "cells_active",
+          "cells_inactive",
+          "cells_real",
+          "cells_virtual",
+          "bees_awake",
+          "bees_autopilot",
+          "activity_window_s",
+          "open_alarms"
+        ],
+        "title": "SummaryView",
+        "type": "object"
+      },
       "TaskBriefView": {
         "description": "What a task was asked to do and what it reported, in its own words (C2).",
         "properties": {
@@ -3719,6 +5868,27 @@
         "title": "TaskBriefView",
         "type": "object"
       },
+      "TaskEdge": {
+        "description": "A dependency: ``after`` starts only once ``before`` has succeeded.",
+        "properties": {
+          "after": {
+            "description": "The task that waits.",
+            "title": "After",
+            "type": "string"
+          },
+          "before": {
+            "description": "The task depended on.",
+            "title": "Before",
+            "type": "string"
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "title": "TaskEdge",
+        "type": "object"
+      },
       "TaskGraphFrame": {
         "description": "One task that changed, in one principal's task graph (``/v1/tasks/stream``).",
         "properties": {
@@ -3744,6 +5914,63 @@
           "task"
         ],
         "title": "TaskGraphFrame",
+        "type": "object"
+      },
+      "TaskNode": {
+        "description": "One task in the graph a principal watches.",
+        "properties": {
+          "cell_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its placement Cell; null while unplaced.",
+            "title": "Cell Id"
+          },
+          "open_alarms": {
+            "description": "Open Alarms that concern it.",
+            "title": "Open Alarms",
+            "type": "integer"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkerRole",
+            "description": "The Worker role its Warden spawns for it."
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus",
+            "description": "Where it stands."
+          },
+          "task_id": {
+            "description": "The task.",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "warden_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its Warden; null while unplaced.",
+            "title": "Warden Id"
+          }
+        },
+        "required": [
+          "task_id",
+          "status",
+          "role",
+          "cell_id",
+          "warden_id",
+          "open_alarms"
+        ],
+        "title": "TaskNode",
         "type": "object"
       },
       "TaskOutcomeView": {
@@ -4069,6 +6296,19 @@
             "title": "Spend",
             "type": "number"
           },
+          "sub_bees": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "On the Warden's own report: how many sub-bee rows its Heartbeat listed, which follow it in the stream, so a client knows when the Heartbeat is whole and a bee it no longer lists has finished; null on a sub-bee's row.",
+            "title": "Sub Bees"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -4141,6 +6381,169 @@
           "at"
         ],
         "title": "TelemetrySampleView",
+        "type": "object"
+      },
+      "ThoughtsPage": {
+        "description": "One page of a bee's thinking (observe:thoughts, C2).",
+        "properties": {
+          "decisions": {
+            "description": "The Queen's recent autopilot decisions, newest first; empty for other bees.",
+            "items": {
+              "$ref": "#/components/schemas/AutopilotDecisionView"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "episodes": {
+            "description": "Episode records, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/EpisodeView"
+            },
+            "title": "Episodes",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as ?cursor= for the next page; null at end.",
+            "title": "Next Cursor"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The principal the episodes belong to: the Queen's real principal (the Hive id) when the query asked for 'queen', else the query's own; null for every bee's.",
+            "title": "Principal"
+          }
+        },
+        "required": [
+          "episodes",
+          "next_cursor",
+          "decisions"
+        ],
+        "title": "ThoughtsPage",
+        "type": "object"
+      },
+      "TierAuditRate": {
+        "description": "One tier's audit coverage and what the judge found.",
+        "properties": {
+          "audited": {
+            "description": "Sampled audits recorded.",
+            "title": "Audited",
+            "type": "integer"
+          },
+          "finished": {
+            "description": "Proposals that reached a terminal state.",
+            "title": "Finished",
+            "type": "integer"
+          },
+          "inconclusive": {
+            "description": "Audits the judge never scored.",
+            "title": "Inconclusive",
+            "type": "integer"
+          },
+          "rejected": {
+            "description": "Audits whose finding was REJECT.",
+            "title": "Rejected",
+            "type": "integer"
+          },
+          "rejection_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "rejected / (audited - inconclusive); null with no scored audit.",
+            "title": "Rejection Fraction"
+          },
+          "sampled_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "audited / finished; null with none.",
+            "title": "Sampled Fraction"
+          },
+          "tier": {
+            "description": "The RiskTier.",
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "finished",
+          "audited",
+          "rejected",
+          "inconclusive",
+          "sampled_fraction",
+          "rejection_fraction"
+        ],
+        "title": "TierAuditRate",
+        "type": "object"
+      },
+      "TierLegendEntry": {
+        "description": "One Comb Shield tier and what it means, for the legend the Fleet always shows.",
+        "properties": {
+          "meaning": {
+            "description": "One line on what the tier requires of a Cell.",
+            "title": "Meaning",
+            "type": "string"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/CombShieldLevel",
+            "description": "The tier."
+          }
+        },
+        "required": [
+          "tier",
+          "meaning"
+        ],
+        "title": "TierLegendEntry",
+        "type": "object"
+      },
+      "TierStateCount": {
+        "description": "How many proposals of one tier sit in one state.",
+        "properties": {
+          "count": {
+            "description": "Proposals of that tier in that state.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProposalState",
+            "description": "The state."
+          },
+          "tier": {
+            "description": "The RiskTier.",
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "state",
+          "count"
+        ],
+        "title": "TierStateCount",
         "type": "object"
       },
       "TrailCursor": {
@@ -4381,6 +6784,88 @@
         "title": "VapidKeyView",
         "type": "object"
       },
+      "VerdictRow": {
+        "description": "The gate's word on a proposal after its checks: capped (approved) or rejected.",
+        "properties": {
+          "at": {
+            "description": "When the verdict was recorded.",
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "bee_id": {
+            "description": "The bee that proposed it.",
+            "title": "Bee Id",
+            "type": "string"
+          },
+          "checks_run": {
+            "description": "Checks run (CAPPED: passed; REJECTED: up to the failure).",
+            "title": "Checks Run",
+            "type": "integer"
+          },
+          "failing_check": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "REJECTED: the check that failed, as a code.",
+            "title": "Failing Check"
+          },
+          "judge_error": {
+            "description": "The judge could not answer (not 'it disagreed').",
+            "title": "Judge Error",
+            "type": "boolean"
+          },
+          "proposal_id": {
+            "description": "The proposal.",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its task.",
+            "title": "Task Id"
+          },
+          "tier": {
+            "description": "Its RiskTier.",
+            "title": "Tier",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "Approved to apply, or refused.",
+            "enum": [
+              "CAPPED",
+              "REJECTED"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "tier",
+          "verdict",
+          "failing_check",
+          "judge_error",
+          "checks_run",
+          "bee_id",
+          "task_id",
+          "at"
+        ],
+        "title": "VerdictRow",
+        "type": "object"
+      },
       "VirtualCellStatus": {
         "description": "Every state a Virtual Cell can be in, from provisioning to gone.\n\nSee TRANSITIONS below for the legal moves between these; nowhere else decides that.",
         "enum": [
@@ -4528,6 +7013,57 @@
         "title": "VoiceRefusedFrame",
         "type": "object"
       },
+      "WardenForageView": {
+        "description": "The Forage the Cell's Warden holds: issued against used, and what it waits on.",
+        "properties": {
+          "grants": {
+            "description": "Its live grants.",
+            "items": {
+              "$ref": "#/components/schemas/GrantView"
+            },
+            "title": "Grants",
+            "type": "array"
+          },
+          "pending_requests": {
+            "description": "Requests awaiting an answer.",
+            "items": {
+              "$ref": "#/components/schemas/PendingRequestView"
+            },
+            "title": "Pending Requests",
+            "type": "array"
+          },
+          "spend_budget_usd": {
+            "description": "Spend issued across them, in US dollars.",
+            "title": "Spend Budget Usd",
+            "type": "number"
+          },
+          "spent_usd": {
+            "description": "Spend charged to them.",
+            "title": "Spent Usd",
+            "type": "number"
+          },
+          "token_budget": {
+            "description": "Tokens issued across them.",
+            "title": "Token Budget",
+            "type": "integer"
+          },
+          "tokens_spent": {
+            "description": "Tokens spent against them.",
+            "title": "Tokens Spent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "grants",
+          "token_budget",
+          "tokens_spent",
+          "spend_budget_usd",
+          "spent_usd",
+          "pending_requests"
+        ],
+        "title": "WardenForageView",
+        "type": "object"
+      },
       "WardenList": {
         "description": "Every Warden attached to the Queen.",
         "properties": {
@@ -4631,6 +7167,105 @@
         "title": "WardenView",
         "type": "object"
       },
+      "WaxEntryView": {
+        "description": "One Cell Wax note, without its text (observe).",
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it lapses; null for standing wax.",
+            "title": "Expires At"
+          },
+          "id": {
+            "description": "The note's id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/WaxOrigin",
+            "description": "Who noticed it: a bee, a Patrol or the human."
+          },
+          "proposed_at": {
+            "description": "When it was proposed.",
+            "format": "date-time",
+            "title": "Proposed At",
+            "type": "string"
+          },
+          "proposer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The proposing bee; null for the human's.",
+            "title": "Proposer"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/hivemind__memory__cell_wax__model__WaxSeverity",
+            "description": "NOTE, CAUTION or BLOCK."
+          },
+          "state": {
+            "$ref": "#/components/schemas/WaxState",
+            "description": "PROPOSED or WRITTEN."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The task during which it was noticed.",
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "id",
+          "severity",
+          "state",
+          "origin",
+          "proposer",
+          "task_id",
+          "proposed_at",
+          "expires_at"
+        ],
+        "title": "WaxEntryView",
+        "type": "object"
+      },
+      "WaxOrigin": {
+        "description": "Who noticed the caution a Cell Wax note records.",
+        "enum": [
+          "BEE",
+          "PATROL",
+          "HUMAN"
+        ],
+        "title": "WaxOrigin",
+        "type": "string"
+      },
+      "WaxState": {
+        "description": "Every state a Cell Wax note can be in, from proposal to its terminal outcome.\n\nSee TRANSITIONS below for the legal moves between these; nowhere else decides that.",
+        "enum": [
+          "PROPOSED",
+          "WRITTEN",
+          "REJECTED",
+          "CLEARED",
+          "EXPIRED"
+        ],
+        "title": "WaxState",
+        "type": "string"
+      },
       "WebPushKeys": {
         "additionalProperties": false,
         "description": "A Web Push subscription's keys, as a browser's ``PushSubscription.toJSON()`` gives them.\n\nCrosses the subscribe route inbound and the subscription store; ``auth`` is a secret shared\nwith the user agent, so it never appears in ``repr``, a log line or the trail.",
@@ -4688,6 +7323,19 @@
         "title": "WidenBody",
         "type": "object"
       },
+      "WorkerRole": {
+        "description": "Which Worker role the Warden spawns for a task; the six roles that all implement Worker.",
+        "enum": [
+          "DRONE",
+          "FORAGER",
+          "SCOUT",
+          "GUARD_BEE",
+          "UNDERTAKER",
+          "HOUSE_BEE"
+        ],
+        "title": "WorkerRole",
+        "type": "string"
+      },
       "WorkerState": {
         "description": "Where a Worker is in its life, as its heartbeat and its Warden's rows report it.",
         "enum": [
@@ -4700,6 +7348,26 @@
           "KILLED"
         ],
         "title": "WorkerState",
+        "type": "string"
+      },
+      "hivemind__memory__cell_wax__model__WaxSeverity": {
+        "description": "How much a Cell Wax note weighs on placement; mirrors waggle's, member for member.",
+        "enum": [
+          "NOTE",
+          "CAUTION",
+          "BLOCK"
+        ],
+        "title": "WaxSeverity",
+        "type": "string"
+      },
+      "waggle__messages__cell__wax__WaxSeverity": {
+        "description": "How much a Cell Wax note weighs on placement.",
+        "enum": [
+          "NOTE",
+          "CAUTION",
+          "BLOCK"
+        ],
+        "title": "WaxSeverity",
         "type": "string"
       }
     },
@@ -4717,6 +7385,113 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/attendant/{principal}": {
+      "get": {
+        "operationId": "get_attendant_v1_attendant__principal__get",
+        "parameters": [
+          {
+            "description": "queen, or an attached Warden's id.",
+            "in": "path",
+            "name": "principal",
+            "required": true,
+            "schema": {
+              "description": "queen, or an attached Warden's id.",
+              "pattern": "^(queen|warden_[0-9A-HJKMNP-TV-Z]{26})$",
+              "title": "Principal",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendantView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the Attendant view for the Queen or a Warden: inbox, task graph, next.",
+        "tags": [
+          "attendant"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
     "/v1/auth/challenge": {
       "post": {
         "operationId": "login_challenge_v1_auth_challenge_post",
@@ -5192,6 +7967,99 @@
         ]
       }
     },
+    "/v1/capping": {
+      "get": {
+        "operationId": "get_capping_v1_capping_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CappingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the Capping queue: proposals, verdicts, rollbacks and sampled audits.",
+        "tags": [
+          "capping"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
     "/v1/cells": {
       "get": {
         "operationId": "list_cells_v1_cells_get",
@@ -5609,6 +8477,112 @@
         "x-hive-c2": false,
         "x-hive-capability": "entrance:steward",
         "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/cells/{cell_id}/page": {
+      "get": {
+        "operationId": "get_cell_page_v1_cells__cell_id__page_get",
+        "parameters": [
+          {
+            "description": "The Cell's id.",
+            "in": "path",
+            "name": "cell_id",
+            "required": true,
+            "schema": {
+              "description": "The Cell's id.",
+              "title": "Cell Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellPageView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read one Cell's page: bees, tasks, Forage, Cell Wax, Alarms and Capping.",
+        "tags": [
+          "cells"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
         "x-hive-listeners": [
           "loopback",
           "remote"
@@ -6079,6 +9053,99 @@
           "remote"
         ],
         "x-hive-switch": "voice.enabled"
+      }
+    },
+    "/v1/cost": {
+      "get": {
+        "operationId": "get_cost_v1_cost_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read spend per goal, slot and provider, and what a local slot would save.",
+        "tags": [
+          "cost"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
       }
     },
     "/v1/devices": {
@@ -8728,6 +11795,99 @@
         ]
       }
     },
+    "/v1/fleet": {
+      "get": {
+        "operationId": "get_fleet_v1_fleet_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the Fleet list: every Cell with tier, Mask state, badges, work and Alarms.",
+        "tags": [
+          "fleet"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
     "/v1/forage": {
       "get": {
         "operationId": "read_forage_v1_forage_get",
@@ -9252,10 +12412,34 @@
         ]
       }
     },
-    "/v1/honey": {
+    "/v1/honey/items/{item_id}": {
       "get": {
-        "operationId": "read_honey_v1_honey_get",
+        "operationId": "get_item_v1_honey_items__item_id__get",
+        "parameters": [
+          {
+            "description": "The item's id.",
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "description": "The item's id.",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoneyItemView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -9315,16 +12499,6 @@
               }
             },
             "description": "Too many requests from this device or address."
-          },
-          "501": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotBuiltView"
-                }
-              }
-            },
-            "description": "Successful Response"
           }
         },
         "security": [
@@ -9332,7 +12506,302 @@
             "HiveSession": []
           }
         ],
-        "summary": "The Honey browser over provenance: not built yet, answers 501 (phase 7).",
+        "summary": "Read one Honey item with its text: observe:honey:<scope> for the item's scope, and honey:clearance:c2 for a C2 item.",
+        "tags": [
+          "honey"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/honey/search": {
+      "get": {
+        "operationId": "get_search_v1_honey_search_get",
+        "parameters": [
+          {
+            "description": "The folder to search: / (every scope the viewer may read), an index folder or one scope's folder.",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "default": "/",
+              "description": "The folder to search: / (every scope the viewer may read), an index folder or one scope's folder.",
+              "maxLength": 512,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The words to find.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "The words to find.",
+              "maxLength": 2000,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A previous page's next_cursor: continue after it.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A previous page's next_cursor: continue after it.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Most hits.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "Most hits.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoneySearchPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Search one folder of the Honey tree: observe:honey:<scope> for the folder's scope, hits within the caller's clearance.",
+        "tags": [
+          "honey"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/honey/tree": {
+      "get": {
+        "operationId": "get_tree_v1_honey_tree_get",
+        "parameters": [
+          {
+            "description": "The folder to list: / by default, /hive, /cells/<id>, /cells/<id>/wax ...",
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "default": "/",
+              "description": "The folder to list: / by default, /hive, /cells/<id>, /cells/<id>/wax ...",
+              "maxLength": 512,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A previous page's next_cursor: continue after it.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A previous page's next_cursor: continue after it.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Most entries.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Most entries.",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoneyFolderView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "List one folder of the Honey tree: observe:honey:<scope> for the folder's scope, items within the caller's clearance.",
         "tags": [
           "honey"
         ],
@@ -9753,6 +13222,279 @@
         ]
       }
     },
+    "/v1/metrics": {
+      "get": {
+        "operationId": "get_metrics_v1_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain; version=0.0.4; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the Hive's metrics as Prometheus text exposition (version 0.0.4).",
+        "tags": [
+          "metrics"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/nectar/images": {
+      "post": {
+        "operationId": "deposit_v1_nectar_images_post",
+        "parameters": [
+          {
+            "description": "A few words about the image (C2); kept beside it, never echoed back.",
+            "in": "query",
+            "name": "caption",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 280,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A few words about the image (C2); kept beside it, never echoed back.",
+              "title": "Caption"
+            }
+          },
+          {
+            "description": "The task the image concerns; absent when it concerns none.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The task the image concerns; absent when it concerns none.",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageDepositView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The image is larger than [entrance] max_image_bytes."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The Content-Type is missing or not image/png, jpeg or webp."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Hand the Hive an image: kept as C2 Nectar for its retention window.",
+        "tags": [
+          "nectar"
+        ],
+        "x-hive-body": {
+          "max_bytes": 33554432,
+          "read_timeout_s": 120.0
+        },
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
     "/v1/push/hive-key": {
       "get": {
         "operationId": "hive_key_v1_push_hive_key_get",
@@ -10135,6 +13877,99 @@
         ],
         "x-hive-c2": false,
         "x-hive-capability": "entrance:push",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/summary": {
+      "get": {
+        "operationId": "get_summary_v1_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read the summary strip: active bees, active/inactive and Real/Virtual Cells, LLM against autopilot activity.",
+        "tags": [
+          "summary"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "observe",
         "x-hive-effect": "read",
         "x-hive-listeners": [
           "loopback",
@@ -10603,6 +14438,153 @@
         ],
         "x-hive-c2": true,
         "x-hive-capability": "observe",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/thoughts": {
+      "get": {
+        "operationId": "get_thoughts_v1_thoughts_get",
+        "parameters": [
+          {
+            "description": "Only this bee's records (its id or role); every bee's when omitted.",
+            "in": "query",
+            "name": "principal",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this bee's records (its id or role); every bee's when omitted.",
+              "title": "Principal"
+            }
+          },
+          {
+            "description": "A previous page's next_cursor: continue after the record it names.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A previous page's next_cursor: continue after the record it names.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Most records.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Most records.",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThoughtsPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Read a page of a bee's episode records, and the Queen's autopilot decisions (observe:thoughts, C2).",
+        "tags": [
+          "thoughts"
+        ],
+        "x-hive-c2": true,
+        "x-hive-capability": "observe:thoughts",
         "x-hive-effect": "read",
         "x-hive-listeners": [
           "loopback",

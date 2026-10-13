@@ -1,0 +1,148 @@
+/*
+ * Cost view styles: the totals strip, the three tables and their phone-width cards.
+ *
+ * Mobile first (design.md section 2): everything is one column at 360 px. The totals stack, then sit
+ * in a row from 720 px. Under 720 px a table row becomes a stacked card whose cells keep their labels
+ * (from `data-label`), so nothing needs width and the page never scrolls sideways.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/cost/`. Imported by `cost_screen.tsx`. Class names are
+ *   those rendered by this directory and the shared `Gauge` and `IdToken`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 4.2, 4.3 and 5.8.
+ */
+.cost-section {
+  margin: var(--sp-5) 0;
+}
+
+.cost-section h2 {
+  font-size: var(--fs-lg);
+  line-height: var(--lh-heading);
+  margin: 0 0 var(--sp-3);
+}
+
+.cost-note {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.cost-totals {
+  display: grid;
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0;
+}
+
+.cost-figure {
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.cost-figure dt {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.cost-figure dd {
+  margin: 0;
+}
+
+.cost-figure dd:not(.cost-note) {
+  font-size: var(--fs-xl);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-heading);
+}
+
+.cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-table caption {
+  text-align: left;
+  color: var(--text-muted);
+  padding-bottom: var(--sp-2);
+}
+
+.cost-table th,
+.cost-table td {
+  padding: var(--sp-1) var(--sp-2);
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+
+.cost-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+}
+
+.cost-sort {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cost-split {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Phone width: a row is a card; each cell keeps its label. */
+@media (max-width: 719px) {
+  .cost-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .cost-table,
+  .cost-table tbody,
+  .cost-table tr,
+  .cost-table td {
+    display: block;
+  }
+
+  .cost-table tr {
+    margin-bottom: var(--sp-3);
+    padding: var(--sp-2);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .cost-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    border-bottom: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .cost-table td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+  }
+}
+
+@media (min-width: 720px) {
+  .cost-totals {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

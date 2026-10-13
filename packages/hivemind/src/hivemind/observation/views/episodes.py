@@ -25,6 +25,7 @@ See Also:
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,7 +35,12 @@ from hivemind.memory import EpisodeRecord
 
 _CONFIG = ConfigDict(frozen=True, extra="forbid")  # Every view here: immutable, no strays.
 
-__all__ = ["EpisodeList", "EpisodeView", "episode_view"]
+# The taint enums' wire values, spelled out so the document names each (a test keeps them in
+# step with hivemind.memory's TaintState and TaintSource).
+TaintStateName = Literal["tainted", "cleared"]
+TaintSourceName = Literal["isolation", "quarantine", "guard_report"]
+
+__all__ = ["EpisodeList", "EpisodeView", "TaintSourceName", "TaintStateName", "episode_view"]
 
 
 class EpisodeView(BaseModel):
@@ -56,6 +62,14 @@ class EpisodeView(BaseModel):
     decision: str = Field(description="What was decided.")
     action: str = Field(description="What was done about it.")
     clearance: HoneyClearance = Field(description="The record's data-sensitivity label.")
+    taint: TaintStateName | None = Field(
+        description="Its taint label: tainted (nothing assembles it), cleared (a judge cleared it;"
+        " history kept), or null for an unlabelled record."
+    )
+    taint_source: TaintSourceName | None = Field(
+        description="Which setter labelled it (isolation, quarantine or guard_report); null when"
+        " unlabelled."
+    )
     input_tokens: int | None = Field(description="Tokens the call consumed; null for autopilot.")
     output_tokens: int | None = Field(description="Tokens it generated; null for autopilot.")
     cost_usd: float | None = Field(description="What it cost; null for autopilot.")
@@ -93,6 +107,9 @@ def episode_view(record: EpisodeRecord) -> EpisodeView:
         decision=record.decision,
         action=record.action,
         clearance=record.clearance,
+        # The marker's reason is free text another setter wrote, so only its two enums cross.
+        taint=record.tainted.state.value if record.tainted is not None else None,
+        taint_source=record.tainted.source.value if record.tainted is not None else None,
         input_tokens=usage.input_tokens if usage is not None else None,
         output_tokens=usage.output_tokens if usage is not None else None,
         cost_usd=usage.cost_usd if usage is not None else None,

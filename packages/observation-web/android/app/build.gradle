@@ -1,0 +1,86 @@
+// The Observation Hive APK's module build (roadmap 12.12, ADR-0050).
+//
+// What: the Capacitor Android app plus three local Kotlin plugins (passkeys, UnifiedPush, share
+// intake). Why: the build is configured by Gradle properties or environment variables so CI and a
+// developer's machine use the same file and no secret is ever written into it.
+//
+// Properties (all optional; see android/README.md):
+//   hiveEntranceHost    the Entrance's DNS name, for the App Link on /enrol (default: a placeholder
+//                       that matches no real host, so an unconfigured build opens no link)
+//   hiveVersionCode / hiveVersionName
+//   HIVE_KEYSTORE_PATH / HIVE_KEYSTORE_PASSWORD / HIVE_KEY_ALIAS / HIVE_KEY_PASSWORD
+//                       release signing key (environment variables); without them the release APK
+//                       is left unsigned and is not installable
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace = "dev.hivemind.observation"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "dev.hivemind.observation"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode((project.findProperty('hiveVersionCode') ?: '1') as int)
+        versionName((project.findProperty('hiveVersionName') ?: '0.1.0') as String)
+        manifestPlaceholders = [
+            entranceHost: (project.findProperty('hiveEntranceHost') ?: 'hive.example.invalid')
+        ]
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            def keystore = System.getenv('HIVE_KEYSTORE_PATH')
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv('HIVE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('HIVE_KEY_ALIAS')
+                keyPassword System.getenv('HIVE_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // Signed only when CI (or the developer) supplies the key; never from a committed file.
+            if (System.getenv('HIVE_KEYSTORE_PATH')) signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    // Passkeys (ADR-0050). The Play services half is the Credential Manager's backing provider on
+    // Android 13 and older; Android 14+ uses the platform's own and does not need it.
+    implementation "androidx.credentials:credentials:$androidxCredentialsVersion"
+    implementation "androidx.credentials:credentials-play-services-auth:$androidxCredentialsVersion"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion"
+    // UnifiedPush: the connector talks to whichever distributor the operator installed.
+    implementation "org.unifiedpush.android:connector:$unifiedPushVersion"
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'

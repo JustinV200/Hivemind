@@ -31,6 +31,10 @@ Public API:
     - TrailEventView, TrailUsageView, TrailCursor, TrailPage, TrailFilters, trail_event_view,
       MAX_TRAIL_PAGE, MAX_TRAIL_SKIP, DEFAULT_TRAIL_PAGE, MAX_FILTER_CHARS, WORDS_FIELDS: the
       trail (trail).
+    - HoneyFolderView, HoneyFolderEntryView, HoneyItemSummary, HoneyItemView, HoneyItemKind,
+      HoneyProvenanceView, HoneySearchHit, HoneySearchPage, HoneyTreeQuery, HoneySearchQuery,
+      encode_honey_cursor, decode_honey_cursor, DEFAULT_HONEY_PAGE, MAX_HONEY_PAGE,
+      DEFAULT_SEARCH_PAGE, MAX_SEARCH_PAGE: the Honey browser (honey).
     - LlmView, ProviderView, ProviderHealthView, SlotView: providers and slots (llm).
     - NotBuiltView, NOT_BUILT_CODE: a resource a later phase fills (unbuilt).
     - TrailFrame, TelemetryFrame, TelemetrySampleView, ForageFrame, TaskGraphFrame, EpisodeFrame,
@@ -60,6 +64,24 @@ from hivemind.observation.views.frames import (
     TelemetrySampleView,
     TrailFrame,
     telemetry_samples,
+)
+from hivemind.observation.views.honey import (
+    DEFAULT_HONEY_PAGE,
+    DEFAULT_SEARCH_PAGE,
+    MAX_HONEY_PAGE,
+    MAX_SEARCH_PAGE,
+    HoneyFolderEntryView,
+    HoneyFolderView,
+    HoneyItemKind,
+    HoneyItemSummary,
+    HoneyItemView,
+    HoneyProvenanceView,
+    HoneySearchHit,
+    HoneySearchPage,
+    HoneySearchQuery,
+    HoneyTreeQuery,
+    decode_honey_cursor,
+    encode_honey_cursor,
 )
 from hivemind.observation.views.llm import (
     LlmView,
@@ -92,8 +114,12 @@ from hivemind.observation.views.unbuilt import NOT_BUILT_CODE, NotBuiltView
 from hivemind.observation.views.wardens import WardenList, WardenView
 
 __all__ = [
+    "DEFAULT_HONEY_PAGE",
+    "DEFAULT_SEARCH_PAGE",
     "DEFAULT_TRAIL_PAGE",
     "MAX_FILTER_CHARS",
+    "MAX_HONEY_PAGE",
+    "MAX_SEARCH_PAGE",
     "MAX_TRAIL_PAGE",
     "MAX_TRAIL_SKIP",
     "NOT_BUILT_CODE",
@@ -110,6 +136,16 @@ __all__ = [
     "ForageView",
     "GrantView",
     "HeadroomView",
+    "HoneyFolderEntryView",
+    "HoneyFolderView",
+    "HoneyItemKind",
+    "HoneyItemSummary",
+    "HoneyItemView",
+    "HoneyProvenanceView",
+    "HoneySearchHit",
+    "HoneySearchPage",
+    "HoneySearchQuery",
+    "HoneyTreeQuery",
     "LlmView",
     "MaskStateName",
     "NotBuiltView",
@@ -133,6 +169,8 @@ __all__ = [
     "WardenList",
     "WardenView",
     "capacity_view",
+    "decode_honey_cursor",
+    "encode_honey_cursor",
     "episode_view",
     "forage_view",
     "grant_view",

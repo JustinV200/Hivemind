@@ -80,6 +80,12 @@ class TelemetrySampleView(BaseModel):
     blockers: list[str] = Field(description="What it is stuck on.")
     spend: float = Field(description="Its spend so far.")
     at: datetime = Field(description="When the Queen received the Heartbeat.")
+    sub_bees: int | None = Field(
+        default=None,
+        description="On the Warden's own report: how many sub-bee rows its Heartbeat listed, which "
+        "follow it in the stream, so a client knows when the Heartbeat is whole and a bee it no "
+        "longer lists has finished; null on a sub-bee's row.",
+    )
 
 
 class TelemetryFrame(BaseModel):
@@ -148,7 +154,10 @@ def telemetry_samples(
     """
     samples = [
         _sample(warden_id, None, heartbeat.task_id, heartbeat.telemetry, at).model_copy(
-            update={"warden_state": heartbeat.warden_state}
+            update={
+                "warden_state": heartbeat.warden_state,
+                "sub_bees": len(heartbeat.children),
+            }
         )
     ]
     # Each sub-bee's row carries its own state, task and telemetry.

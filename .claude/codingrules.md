@@ -1167,7 +1167,8 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   transcript are `C2`; the audio is discarded after transcription unless `keep_audio` is set, in
   which case it is Nectar with a retention window. Clips are capped by `max_clip_seconds`, and the
   rate limiter counts each device's audio seconds; both refuse a clip before any model runs.
-  Replies are text; speech synthesis is post-1.0. Images a client sends are deposited as Nectar
+  Replies are text; speech synthesis is post-1.0. Images a client sends (`POST /v1/nectar/images`,
+  capped by `[entrance] max_image_bytes` and counted in bytes per device) are deposited as Nectar
   with clearance `C2`, since they come from the human. On a Night Veil Cell the same slot resolves
   to a local Whisper, because every slot there is local.
 - **The Observation Hive is a client.** The React app, as a web page, a PWA or the Android APK,
@@ -1379,6 +1380,9 @@ Rules:
   request_skew_s = 60                    # a signed request's timestamp tolerance
   invite_ttl_minutes = 15
   pending_ttl_hours = 24
+  max_image_bytes = 8388608              # the largest image POST /v1/nectar/images takes (at most 32 MiB)
+  image_bytes_per_minute = 33554432      # each device's image budget; at least max_image_bytes
+  image_keep_hours = 24                  # how long a deposited image stays as C2 Nectar
 
   [entrance.push]
   webhooks = true
@@ -1392,6 +1396,11 @@ Rules:
   keep_audio_hours = 24                  # a kept clip's retention window
   max_clip_seconds = 120
   audio_seconds_per_minute = 120         # each device's audio budget; at least max_clip_seconds
+
+  [entrance.android]                     # the Android client; unset, nothing below is served or accepted
+  package_name = ""                      # the app's application id, in /.well-known/assetlinks.json
+  cert_fingerprints = []                 # SHA-256 signing-certificate fingerprints (AA:BB:...); also the APK passkey origins
+  webview_origin = "https://observation.hive.local"  # Capacitor's pinned origin, accepted by CORS and the sockets
   ```
 - **Secrets** (API keys, device enrolment tokens, cloud credentials) are never in the manifest
   file, never in code, never in logs, never in the Pheromone Trail. They come from environment

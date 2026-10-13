@@ -11,7 +11,9 @@ can react by category without knowing the Entrance. Every class carries its own 
 ``code`` (codingrules section 10), the form an error takes once it crosses the Landing Board (the
 Entrance's versioned API). Roadmap step 10.5e adds the refusals of login and sessions (one generic
 ``AuthenticationFailedError``), step-up, pending confirmations, the travel lock and the Entrance
-Reducer; the read routes add ``CellNotFoundError``.
+Reducer; the read routes add ``CellNotFoundError``, ``PrincipalNotFoundError`` and the Honey
+browser's three: ``HoneyFolderNotFoundError``, ``HoneyItemNotFoundError`` and
+``HoneyUnavailableError``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Raised by
@@ -68,6 +70,9 @@ __all__ = [
     "EnrolmentRefusedError",
     "EntranceError",
     "EntranceModeConflictError",
+    "HoneyFolderNotFoundError",
+    "HoneyItemNotFoundError",
+    "HoneyUnavailableError",
     "InvalidApprovalError",
     "InvalidDeviceEntryError",
     "InvalidDeviceTransitionError",
@@ -84,6 +89,7 @@ __all__ = [
     "PasskeyRejectedError",
     "PendingNotFoundError",
     "PendingStatusConflictError",
+    "PrincipalNotFoundError",
     "ReopenRefusedError",
     "SingleOperatorError",
     "StepUpUnavailableError",
@@ -238,6 +244,67 @@ class CellNotFoundError(EntranceError, NotFoundError):
         """
         super().__init__(f"No Cell {cell_id} is attached to the Queen or tracked as Virtual.")
         self.cell_id = cell_id
+
+
+class PrincipalNotFoundError(EntranceError, NotFoundError):
+    """Raise when an Attendant view names a principal that is neither the Queen nor a Warden."""
+
+    code: ClassVar[str] = "hivemind.entrance.principal_not_found"
+
+    def __init__(self, principal: str) -> None:
+        """Build the error for a principal no Warden is attached under.
+
+        Args:
+            principal: The id that was looked up.
+        """
+        super().__init__(
+            f"No Warden {principal} is attached to the Queen, and it is not the Queen."
+        )
+        self.principal = principal
+
+
+class HoneyUnavailableError(EntranceError, NotFoundError):
+    """Raise when the Honey browser is asked for on a Hive that keeps no Honey Store."""
+
+    code: ClassVar[str] = "hivemind.entrance.honey_unavailable"
+
+    def __init__(self) -> None:
+        """Build the error; one fixed message, since there is nothing to name."""
+        super().__init__("This Hive keeps no Honey Store, so there is no Honey to browse.")
+
+
+class HoneyFolderNotFoundError(EntranceError, NotFoundError):
+    """Raise when a Honey path names no folder the tree can list or search.
+
+    Covers a path outside the tree's grammar, a document where a folder was asked for, and a
+    search in a folder that holds no Honey (a Cell's live wax, Bee Bread).
+    """
+
+    code: ClassVar[str] = "hivemind.entrance.honey_folder_not_found"
+
+    def __init__(self, path: str) -> None:
+        """Build the error for a path no folder answers to.
+
+        Args:
+            path: The path as the caller gave it, already bounded by the query's length limit.
+        """
+        super().__init__(f"There is no Honey folder {path!r} to list or search.")
+        self.path = path
+
+
+class HoneyItemNotFoundError(EntranceError, NotFoundError):
+    """Raise when no Honey item has the id: no row, note or entry, or none still live."""
+
+    code: ClassVar[str] = "hivemind.entrance.honey_item_not_found"
+
+    def __init__(self, item_id: str) -> None:
+        """Build the error for an id no live item answers to.
+
+        Args:
+            item_id: The id that was looked up.
+        """
+        super().__init__(f"No Honey item {item_id} exists.")
+        self.item_id = item_id
 
 
 class DeviceAlreadyExistsError(EntranceError, ConflictError):

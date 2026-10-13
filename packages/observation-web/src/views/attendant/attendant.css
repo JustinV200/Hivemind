@@ -1,0 +1,185 @@
+/*
+ * Attendant view styles: the header, the graph panel and the inbox column beside it.
+ *
+ * Mobile first (design.md section 2): the graph panel and the inbox stack in one column, the
+ * graph drawn top to bottom and scaled by its viewBox. From 1100px the inbox column sits beside the
+ * graph, which then runs left to right and scrolls sideways inside its panel rather than shrink
+ * its text. The SVG's text is real text in the page's fonts and its fills and strokes are tokens,
+ * so both themes work with no literal colour here.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/attendant/`. Imported by `attendant.tsx`. Class names
+ *   are those rendered by this view's components and the shared `IdToken` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long text wraps and the wide graph
+ *     scrolls inside its own box.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 4.8 and 5.5.
+ */
+.att-header {
+  display: grid;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+}
+
+.att-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.att-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+}
+
+@media (min-width: 1100px) {
+  .att-page {
+    grid-template-columns: minmax(0, 1fr) 380px;
+    align-items: start;
+  }
+}
+
+.att-side {
+  display: grid;
+  gap: var(--sp-4);
+  align-content: start;
+  min-width: 0;
+}
+
+.att-panel {
+  display: grid;
+  gap: var(--sp-2);
+  align-content: start;
+  min-width: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.att-panel h2 {
+  font-size: var(--fs-lg);
+}
+
+.att-muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.att-note {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--warn);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+
+.att-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.att-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.att-entry {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+
+.att-entry-body {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.att-rank {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.att-kind {
+  font-weight: 700;
+}
+
+.att-tag {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--alarm);
+  border-radius: var(--radius-tag);
+  color: var(--alarm);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.att-reasons {
+  margin: 0;
+  padding-left: var(--sp-4);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* The graph */
+.ag {
+  min-width: 0;
+}
+
+.ag--wide {
+  overflow-x: auto;
+}
+
+.ag-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.ag--wide .ag-svg {
+  max-width: none;
+}
+
+.ag-svg text {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.ag-svg .ag-id {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.ag-svg .ag-cell {
+  fill: var(--text-muted);
+}
+
+.ag-svg .ag-alarm text {
+  fill: var(--bg);
+  font-weight: 700;
+}
+
+.ag-node:focus-visible {
+  outline: none;
+}
+
+.ag-node:focus-visible rect:first-of-type {
+  stroke: var(--accent);
+  stroke-width: 3px;
+}

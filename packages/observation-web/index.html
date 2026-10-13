@@ -13,6 +13,8 @@
 
   Key invariants:
     - The #root element's id must match the one src/main.tsx looks up with getElementById.
+    - The manifest and theme colours here must agree with public/manifest.webmanifest and the
+      --bg token in src/styles/tokens.css, or the installed app flashes the wrong colour.
 
   See Also:
     - src/main.tsx for the mount logic.
@@ -22,6 +24,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HiveMind Observation Hive</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <meta name="theme-color" content="#FAF8F3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14110C" media="(prefers-color-scheme: dark)" />
   </head>
   <body>
     <div id="root"></div>

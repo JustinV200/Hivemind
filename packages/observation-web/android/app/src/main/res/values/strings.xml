@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Observation Hive</string>
+    <string name="title_activity_main">Observation Hive</string>
+    <string name="package_name">dev.hivemind.observation</string>
+    <string name="custom_url_scheme">dev.hivemind.observation</string>
+</resources>

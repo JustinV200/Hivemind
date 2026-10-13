@@ -1,0 +1,104 @@
+# HiveMind Android client build (roadmap step 12.12, ADR-0050).
+#
+# What: builds the Observation Hive APK (a Capacitor project wrapping the same `vite build`) on every
+# `v*` tag, and on demand, signs it with the release key from CI secrets and uploads it as a
+# workflow artifact. Phase 14 attaches that artifact to the release.
+#
+# Why: the APK needs a JDK, the Android SDK and Gradle, which makes it slow and heavy, so it is not
+# part of the per-push gate (ci.yml's `web` job stays that, and is untouched). A tag is the moment an
+# APK is wanted. Signing happens here and only here: the key never lives in the repository, and an
+# unsigned release APK cannot be installed, so a missing secret fails the job rather than shipping
+# something unusable.
+#
+# How it fits: ci.yml gates every push; this workflow runs on tags only. It rebuilds the web bundle
+# (the APK carries its own copy), copies it into the Android project with `cap sync`, and runs
+# Gradle `assembleRelease`. The signing certificate's SHA-256 fingerprint is printed at the end:
+# that is the value the operator puts in the Entrance's Digital Asset Links and accepted APK
+# origins configuration (ADR-0050), so a rotated key is visible in the log.
+#
+# Secrets (repository or environment): HIVE_ANDROID_KEYSTORE_B64 (the .jks file, base64),
+# HIVE_ANDROID_KEYSTORE_PASSWORD, HIVE_ANDROID_KEY_ALIAS, HIVE_ANDROID_KEY_PASSWORD.
+# Variable: HIVE_ENTRANCE_HOST, the Entrance's DNS name, which becomes the App Link host for /enrol.
+name: Android
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Least privilege (codingrules section 15): the job only reads the repo and uploads an artifact.
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/observation-web
+    steps:
+      - uses: actions/checkout@v4
+      # Same order and versions as ci.yml's `web` job: pnpm before Node so setup-node's cache finds it.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: packages/observation-web/pnpm-lock.yaml
+      # Capacitor 8's Android template compiles for Java 21 (android/app/capacitor.build.gradle).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: pnpm install --frozen-lockfile
+      # The APK carries its own copy of the one `vite build` output (webDir in capacitor.config.ts).
+      - run: pnpm build
+      - run: pnpm exec cap sync android
+      # The tag names the version (v1.2.3 gives 1.2.3); a manual run is a development build.
+      - name: Work out the version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) echo "VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV" ;;
+            *) echo "VERSION_NAME=0.0.0-dev" >> "$GITHUB_ENV" ;;
+          esac
+      # The key exists on disk only for this job. A missing secret is a hard failure on purpose.
+      - name: Write the release key
+        env:
+          KEYSTORE_B64: ${{ secrets.HIVE_ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "HIVE_ANDROID_KEYSTORE_B64 is not set; refusing to build an unsigned APK." >&2
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/hive-release.jks"
+          echo "HIVE_KEYSTORE_PATH=$RUNNER_TEMP/hive-release.jks" >> "$GITHUB_ENV"
+      - name: Build the release APK
+        working-directory: packages/observation-web/android
+        env:
+          HIVE_KEYSTORE_PASSWORD: ${{ secrets.HIVE_ANDROID_KEYSTORE_PASSWORD }}
+          HIVE_KEY_ALIAS: ${{ secrets.HIVE_ANDROID_KEY_ALIAS }}
+          HIVE_KEY_PASSWORD: ${{ secrets.HIVE_ANDROID_KEY_PASSWORD }}
+        run: >
+          chmod +x ./gradlew &&
+          ./gradlew --no-daemon assembleRelease
+          -PhiveEntranceHost="${{ vars.HIVE_ENTRANCE_HOST }}"
+          -PhiveVersionName="$VERSION_NAME"
+          -PhiveVersionCode="${{ github.run_number }}"
+      # Prove the APK is signed and print the certificate fingerprint the Entrance must list.
+      - name: Verify the signature and print the fingerprint
+        working-directory: packages/observation-web/android/app/build/outputs/apk/release
+        run: |
+          APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          "$APKSIGNER" verify --print-certs ./*.apk | tee "$RUNNER_TEMP/certs.txt"
+          grep "SHA-256 digest" "$RUNNER_TEMP/certs.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: observation-hive-apk
+          path: packages/observation-web/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

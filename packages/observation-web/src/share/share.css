@@ -1,0 +1,83 @@
+/*
+ * Phone host styles: the cards the Android shell draws above the app (invite box, shared item,
+ * push offer).
+ *
+ * The cards float at the top of the viewport, over whichever screen is showing, because a shared
+ * item or a missing address needs an answer before anything else. They use the same bordered-card
+ * look as the chat's forms.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/share/`. Imported by `phone_host.tsx`, so it loads on the web
+ *   too but styles nothing there (the host renders no markup without a phone member).
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing makes the page wider than the viewport; long text wraps.
+ *   - The host ignores pointer events except on its cards, so it never blocks the page beneath.
+ *
+ * See Also:
+ *   - src/views/chat/chat.css for the forms these cards echo.
+ */
+.phone-host {
+  position: fixed;
+  inset: var(--sp-3) var(--sp-4) auto var(--sp-4);
+  z-index: 100;
+  display: grid;
+  gap: var(--sp-3);
+  pointer-events: none;
+}
+
+.phone-host:empty {
+  display: none;
+}
+
+.phone-card {
+  pointer-events: auto;
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.phone-card h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  line-height: var(--lh-heading);
+}
+
+.phone-card input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.phone-preview {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  max-height: 30vh;
+  overflow: auto;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+}
+
+.phone-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.phone-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}

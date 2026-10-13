@@ -9,7 +9,8 @@ goal a person confirmed whose request a crash kept from being committed is commi
 obeyed. Then it serves the loopback listener, starts the remote one only when the persisted mode is
 OPEN and the plan exposes one, and runs its background work: the stream hub, the push outbox, the
 reduce-order follower and a sweep that expires devices and held requests on time and deletes kept
-voice clips past their retention window (``[entrance.voice] keep_audio_hours``). A listener that
+voice clips and deposited images past their retention windows (``[entrance.voice]
+keep_audio_hours``, ``[entrance] image_keep_hours``). A listener that
 fails after start is logged and raises an Alarm to the human: the remote one reduces the Entrance,
 the loopback one is restarted with bounded backoff (``listeners``); the Queen never stops for
 either. ``stop`` closes every socket with a reason, stops both listeners and the background
@@ -166,9 +167,12 @@ class HiveEntrance:
             if await expire_due(enrolment):
                 await self._listeners.device_revoked()
             await expire_pending(enrolment.records)
-            # A kept clip lives no longer than its retention window (and one sweep interval).
-            if services.voice is not None:
-                await services.voice.nectar.sweep(services.clock.now())
+            # A kept clip or image lives no longer than its retention window (and one sweep
+            # interval). Voice and images normally share one seam; it is swept once.
+            now = services.clock.now()
+            await services.images.nectar.sweep(now)
+            if services.voice is not None and services.voice.nectar is not services.images.nectar:
+                await services.voice.nectar.sweep(now)
 
     async def _listener_failed(self, listener: Listener, failure: str) -> None:
         """A listener failed after start: reduce for the remote one, and tell the human."""

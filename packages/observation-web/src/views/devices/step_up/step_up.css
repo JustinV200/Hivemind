@@ -1,0 +1,48 @@
+/*
+ * Step-up styles: the form a refused write or the shell banner opens to ask for both factors.
+ *
+ * One card with a sentence, the refusal if the last password was wrong, a password field and the
+ * Confirm and Cancel buttons. The field is at least 44 px high so it is a touch target on a phone.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/devices/step_up/`. Imported by `step_up_form.tsx`, so it
+ *   loads wherever the form is drawn (the Devices and Enrol views).
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 7 and 8.
+ */
+.step-up {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step-up label {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.step-up input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step-up-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}

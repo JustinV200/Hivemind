@@ -175,3 +175,36 @@ async def test_bee_bread_scope_follows_the_ripening_rule(hive: BrowseHive) -> No
     assert bee_bread_scope(with_task) == task_scope(task)
     assert bee_bread_scope(without_task) == "hive"
     assert bee_bread_visible(without_task, reader(CapabilitySet.parse("honey:read:hive")))
+
+
+async def test_find_reads_each_kind_of_document_by_its_id_alone(hive: BrowseHive) -> None:
+    cell, task = new_cell_id(hive.clock), new_task_id(hive.clock)
+    (row,) = await hive.ripen("Found by id.", scope=cell_scope(cell))
+    note = hive.wax_note(cell)
+    entry = hive.bee_bread_note(task_id=task)
+    browser = hive.browser(wax=(note,), bee_bread=(entry,))
+
+    found = [await browser.find(item, reader()) for item in (row.id, note.id, entry.id)]
+
+    assert found == [HoneyDocument(**row.model_dump(), sources=()), note, entry]
+    # `find` is `cat` for the document's own path: the same documents come back.
+    assert found[0] == await browser.cat(row.path, reader())
+
+
+async def test_find_hides_what_cat_hides_and_what_does_not_exist(hive: BrowseHive) -> None:
+    cell = new_cell_id(hive.clock)
+    (royal,) = await hive.ripen("Royal.", scope=cell_scope(cell), clearance=HoneyClearance.C2)
+    note = hive.wax_note(cell, expires_at=hive.clock.now() - timedelta(seconds=1))
+    browser = hive.browser(wax=(note,))
+    hidden_scope = reader(CapabilitySet.parse("honey:read:hive"))
+    missing = ("honey_0000000000000000000000000A", "wax_0000000000000000000000000A", "../x", "a.b")
+
+    with pytest.raises(BrowseNotFoundError):
+        await browser.find(royal.id, reader(ceiling=HoneyClearance.C1))
+    with pytest.raises(BrowseNotFoundError):
+        await browser.find(royal.id, hidden_scope)
+    with pytest.raises(BrowseNotFoundError):
+        await browser.find(note.id, reader())  # Expired wax is no longer live.
+    for item in missing:
+        with pytest.raises(BrowseNotFoundError):
+            await browser.find(item, reader())

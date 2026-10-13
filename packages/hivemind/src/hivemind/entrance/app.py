@@ -12,8 +12,11 @@ interactive documentation routes are off: they load script from a CDN) and the O
 build when it exists, and is wrapped, outermost first, in the security headers, the loopback check
 (loopback only), the per-address rate limit and the body limit (a mounted raw-body row, the voice
 route's clip, with its own allowance). CORS is allowed for ``public_url`` alone, on the remote
-listener alone. A raw-body row is documented with its media types as a binary request body and its
-allowance as ``x-hive-body``; a row's extra refusals join the ones every row declares.
+listener alone, plus the Android WebView's pinned origin on both listeners when
+``[entrance.android]`` is configured, which also adds ``/.well-known/assetlinks.json`` to both
+(outside ``/v1/``, so outside the document). A raw-body row is documented with its media types
+as a binary request body and its allowance as ``x-hive-body``; a row's extra refusals join the
+ones every row declares.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by the
@@ -36,12 +39,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.datastructures import Default
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
+from hivemind.entrance.android import serve_asset_links
 from hivemind.entrance.auth.session.models import Listener
+from hivemind.entrance.enrol.invite import INVITE_PATH
 from hivemind.entrance.gate import (
     AddressLimit,
     BodyLimit,
@@ -112,7 +118,10 @@ class ListenerOptions:
         switches: The manifest switches that are on (the steward route's).
         openapi_document: The committed OpenAPI document's bytes, served as a static file.
         bound_port: The port the loopback listener bound, for its Host check; None remotely.
-        cors_origin: ``public_url``'s origin on the remote listener; None on loopback.
+        cors_origins: The origins CORS allows: ``public_url``'s on the remote listener, and the
+            Android WebView's on both when ``[entrance.android]`` is configured; none otherwise.
+        asset_links: The Digital Asset Links document, served at ``/.well-known/assetlinks.json``
+            on both listeners when ``[entrance.android]`` is configured; None serves nothing.
         web_root: The Observation Hive's build directory, served when it exists; None for none.
     """
 
@@ -120,7 +129,8 @@ class ListenerOptions:
     switches: frozenset[Switch]
     openapi_document: bytes
     bound_port: int | None = None
-    cors_origin: str | None = None
+    cors_origins: tuple[str, ...] = ()
+    asset_links: bytes | None = None
     web_root: Path | None = None
 
 
@@ -187,14 +197,17 @@ def build_listener_app(
     # Only a row this listener mounts may read a large body; every other body stays small JSON.
     allowances = {(row.method, row.path): row.raw_body for row in rows if row.raw_body is not None}
     _serve_document(app, options.openapi_document)
+    if options.asset_links is not None:
+        serve_asset_links(app, options.asset_links)
     # Mounted last, so every route matches first; the build may not exist yet.
     if options.web_root is not None and options.web_root.is_dir():
-        app.mount("/", StaticFiles(directory=options.web_root, html=True), name="observation")
-    # CORS for public_url alone, on the remote listener alone (ADR-0041).
-    if options.cors_origin is not None:
+        _serve_observation(app, options.web_root)
+    # CORS for public_url on the remote listener alone (ADR-0041), plus the Android WebView's
+    # pinned origin when that client is configured (ADR-0050); otherwise no origin at all.
+    if options.cors_origins:
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=[options.cors_origin],
+            allow_origins=list(options.cors_origins),
             allow_methods=_CORS_METHODS,
             allow_headers=_SIGNED_HEADERS,
             max_age=_CORS_MAX_AGE_S,
@@ -221,19 +234,42 @@ def _mount(app: FastAPI, route: RouteSpec) -> None:
     own: dict[int | str, dict[str, object]] = {
         status: {"model": ErrorBody, "description": text} for status, text in route.refusals
     }
+    # A non-JSON body (the metrics text) names its response class, which the document declares.
+    response_class = route.response_class or Default(JSONResponse)
     app.add_api_route(
         route.path,
         route.endpoint,
         methods=[route.method],
         status_code=route.status_code,
         response_model=route.response_model,
+        response_class=response_class,
         dependencies=dependencies,
         summary=route.summary,
         description=_NO_DESCRIPTION,
         tags=[_resource(route.path)],
-        responses={**_REFUSALS, **own},
+        responses=_json_refusals({**_REFUSALS, **own})
+        if route.response_class
+        else {**_REFUSALS, **own},
         openapi_extra=extra,
     )
+
+
+def _json_refusals(
+    refusals: dict[int | str, dict[str, object]],
+) -> dict[int | str, dict[str, object]]:
+    """Declare refusals as JSON explicitly, for a row whose success body is not.
+
+    FastAPI documents a modelled refusal in the row's own response class; on the metrics row that
+    would call the JSON ErrorBody ``text/plain``, so each is spelled out as the JSON it is.
+    """
+    error = {"$ref": "#/components/schemas/ErrorBody"}
+    return {
+        status: {
+            "description": entry["description"],
+            "content": {"application/json": {"schema": error}},
+        }
+        for status, entry in refusals.items()
+    }
 
 
 def _raw_body(body: RawBody) -> dict[str, object]:
@@ -246,6 +282,29 @@ def _raw_body(body: RawBody) -> dict[str, object]:
         },
         "x-hive-body": {"max_bytes": body.max_bytes, "read_timeout_s": body.read_timeout_s},
     }
+
+
+def _serve_observation(app: FastAPI, web_root: Path) -> None:
+    """Serve the Observation Hive's build, with its one deep link answered by the app itself.
+
+    The build is static files with ``index.html`` at ``/`` only, and the app routes by hash
+    (ADR-0049), so no other path needs the page except ``/enrol``: an invite link is
+    ``<base>/enrol#code=<code>`` (``enrol.invite.INVITE_PATH``) and a new device opens it before
+    it has anything else, so that path serves the page too and the app reads the code from the
+    fragment. Every ``/v1/`` row was mounted before this, so a build file never shadows a route.
+
+    Args:
+        app: The listener's application.
+        web_root: The build directory, which exists.
+    """
+    index = web_root / "index.html"
+
+    async def enrol_page() -> Response:
+        # The same page as `/`; the app shows the join screen when the fragment carries a code.
+        return FileResponse(index, media_type="text/html")
+
+    app.add_api_route(INVITE_PATH, enrol_page, methods=["GET"], include_in_schema=False)
+    app.mount("/", StaticFiles(directory=web_root, html=True), name="observation")
 
 
 def _serve_document(app: FastAPI, document: bytes) -> None:

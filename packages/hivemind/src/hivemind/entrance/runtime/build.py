@@ -33,6 +33,7 @@ from datetime import timedelta
 from starlette.types import ASGIApp
 
 from hivemind.common.errors import InvariantViolationError
+from hivemind.entrance.android import apk_origins, render_asset_links, webview_origins
 from hivemind.entrance.app import ListenerOptions, build_listener_app, route_table
 from hivemind.entrance.auth import ChallengeBook, PasswordHasher, RelyingParty
 from hivemind.entrance.auth.limits import DenialCounter, RateLimiter
@@ -157,6 +158,7 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
         rules=_rules(parts),
         door=listeners,
         clock=parts.clock,
+        images=parts.images,
         voice=parts.voice,
     )
     listeners.mount(_apps(parts, services, port))
@@ -210,11 +212,16 @@ def _rules(parts: EntranceParts) -> EntranceRules:
 
 
 def _origins(parts: EntranceParts, port: int) -> dict[Listener, frozenset[str]]:
-    """Return each listener's own origin: the only one a browser's socket may open from."""
-    origins = {Listener.LOOPBACK: frozenset({_loopback_origin(port)})}
+    """Return each listener's own origins: the only ones a browser's socket may open from.
+
+    The Android WebView's pinned origin joins each listener's own, but only while
+    ``[entrance.android]`` is configured (ADR-0050); unconfigured, nothing is added.
+    """
+    webview = frozenset(webview_origins(parts.settings.section.android))
+    origins = {Listener.LOOPBACK: frozenset({_loopback_origin(port)}) | webview}
     public = parts.settings.plan.public_origin
     if public is not None:
-        origins[Listener.REMOTE] = frozenset({public})
+        origins[Listener.REMOTE] = frozenset({public}) | webview
     return origins
 
 
@@ -232,8 +239,12 @@ def _relying_parties(parts: EntranceParts, port: int) -> dict[Listener, RelyingP
     }
     plan = parts.settings.plan
     if plan.remote is not None and plan.rp_id is not None and plan.public_origin is not None:
+        # The Android Credential Manager reports an APK origin, one per signing certificate; the
+        # relying party is still the Entrance's name, so one passkey works in the app and on the
+        # web. Loopback's `localhost` is no app's relying party, so it accepts none.
+        android = apk_origins(parts.settings.section.android)
         parties[Listener.REMOTE] = RelyingParty(
-            id=plan.rp_id, name=RELYING_PARTY_NAME, origins=(plan.public_origin,)
+            id=plan.rp_id, name=RELYING_PARTY_NAME, origins=(plan.public_origin, *android)
         )
     return parties
 
@@ -339,21 +350,33 @@ def _apps(parts: EntranceParts, services: EntranceServices, port: int) -> dict[L
     settings = parts.settings
     table, document = route_table(), render_document()
     switches = _switches(parts)
+    # Android's asset links are served on both listeners, and its WebView origin is a CORS origin
+    # on both; both are absent unless `[entrance.android]` is configured (ADR-0050).
+    android = settings.section.android
+    links, webview = render_asset_links(android), webview_origins(android)
     apps = {
         Listener.LOOPBACK: build_listener_app(
             table,
             services,
             ListenerOptions(
-                Listener.LOOPBACK, switches, document, bound_port=port, web_root=settings.web_root
+                Listener.LOOPBACK,
+                switches,
+                document,
+                bound_port=port,
+                cors_origins=webview,
+                asset_links=links,
+                web_root=settings.web_root,
             ),
         )
     }
     if Listener.REMOTE in services.listeners:
+        public = settings.plan.public_origin
         options = ListenerOptions(
             Listener.REMOTE,
             switches,
             document,
-            cors_origin=settings.plan.public_origin,
+            cors_origins=(*((public,) if public is not None else ()), *webview),
+            asset_links=links,
             web_root=settings.web_root,
         )
         apps[Listener.REMOTE] = build_listener_app(table, services, options)

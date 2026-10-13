@@ -8,7 +8,8 @@ from it. Adding a resource is one module and one line in the registry. Routes ar
 authorise (the gate does it from the row), call a subsystem's public API, shape the reply; every
 write into the Hive goes through the Queen's door, and every read goes straight to the stores and
 the Queen's live tables (`gate.HiveReads`). `hive/` holds the Hive's read routes (tasks, Cells,
-Wardens, Forage, episodes, trail, LLM); `later/` holds the resources a later phase fills, each
+Wardens, Forage, episodes, trail, LLM, Honey); `screens/` holds the Observation Hive's aggregated screens
+and the Prometheus endpoint (roadmap 12.1); `later/` holds the resources a later phase fills, each
 answering 501 with the phase that builds it. `POST /v1/chat/audio` is declared with the rest of
 voice, in `hivemind.entrance.voice`, and listed in the registry beside the chat.
 
@@ -56,6 +57,7 @@ own session.
 | GET | /v1/chat | L+R | entrance:submit +c2 | read |
 | POST | /v1/chat | L+R | entrance:submit | inbox |
 | POST | /v1/chat/audio | L+R, only with `[entrance.voice] enabled` | entrance:submit +c2 (an answer also entrance:answer; a goal steps up as `/v1/goals` does) | inbox |
+| POST | /v1/nectar/images | L+R | entrance:submit (no c2: the answer holds no content) | inbox |
 | GET | /v1/inbox | L+R | entrance:answer +c2 | read |
 | POST | /v1/inbox/questions/{question_id}/answer | L+R | entrance:answer | inbox |
 | POST | /v1/inbox/alarms/{alarm_id}/acknowledge | L+R | entrance:answer | inbox |
@@ -73,8 +75,18 @@ own session.
 | GET | /v1/episodes | L+R | observe:thoughts +c2 | read |
 | GET | /v1/trail | L+R | observe | read |
 | GET | /v1/llm | L+R | observe | read |
+| GET | /v1/honey/tree | L+R | observe + `observe:honey:<scope>` of the folder | read |
+| GET | /v1/honey/items/{item_id} | L+R | observe + `observe:honey:<scope>` of the item, label within the device's clearance | read |
+| GET | /v1/honey/search | L+R | observe + `observe:honey:<scope>` of the folder | read |
+| GET | /v1/summary | L+R | observe | read |
+| GET | /v1/fleet | L+R | observe | read |
+| GET | /v1/cells/{cell_id}/page | L+R | observe | read |
+| GET | /v1/attendant/{principal} | L+R | observe | read |
+| GET | /v1/thoughts | L+R | observe:thoughts +c2 | read |
+| GET | /v1/capping | L+R | observe | read |
+| GET | /v1/cost | L+R | observe | read |
+| GET | /v1/metrics | L+R | observe | read (`text/plain; version=0.0.4`) |
 | GET | /v1/tools | L+R | observe (501 until phase 9) | read |
-| GET | /v1/honey | L+R | observe (501 until phase 7) | read |
 | GET | /v1/swarm | L+R | observe (501 until phase 11) | read |
 
 `GET /v1/tasks` pages by keyset (`goal_id`, `status`, `after` = the previous page's `next_after`,
@@ -83,6 +95,34 @@ own session.
 names (`since` or `until`, and `skip`, the events at exactly that instant already read); an unknown
 query parameter is a 422. `GET /v1/episodes` answers the newest records first, optionally one
 bee's (`principal`), up to `limit`.
+
+The Honey browser (`hive/honey.py`, roadmap 12.9) is three reads over `honey_store.browse`'s folder
+tree. `GET /v1/honey/tree?path=` lists a folder (`/`, `/hive`, `/cells/<id>` with its live wax under
+`/cells/<id>/wax`, `/bees/<id>`, `/tasks/<id>`, `/bee-bread`) with `cursor` and `limit`;
+`GET /v1/honey/items/{item_id}` reads one item by its id (a Honey row, a wax note or a Bee Bread
+entry) with its text; `GET /v1/honey/search?path=&q=` ranks hits within a folder. A folder's scope
+(`hive`, `cell:<id>`, `bee:<id>`, `task:<id>`) is the `observe:honey:<scope>` the device must hold,
+checked in the route because it depends on the path: a device without it gets a 403 on that folder
+and never sees it listed in its parent (the root and the index folders list only what the device
+reaches). An item is read within the device's clearance (`honey:clearance:c2` for C2, C1 without
+any rung), and a refused item answers 403 naming only `observe:honey`. Neither route nor reads can
+write: the Entrance's Honey reads (`HoneyReads`) have no method that proposes a note.
+
+The screens (`screens/`, one module per route) each join several stores into one model and answer
+ids, states and figures only; the words behind them stay behind `observe:thoughts` and C2.
+`GET /v1/summary` is the always-visible strip (active bees, active/inactive Cells, Real/Virtual,
+bees in awake episodes against autopilot). `GET /v1/fleet` is one row per Cell (the Real / Virtual /
+All filter is the client's, over `kind`) plus the fixed three-tier legend. `GET /v1/cells/{id}/page`
+is one Cell's page; it gives bee ids to open in `/v1/thoughts?principal=` rather than their goal
+lines. `GET /v1/attendant/{principal}` takes `queen` or an attached Warden's id (404 with
+`hivemind.entrance.principal_not_found` for any other well-formed id) and answers the task graph and
+an inbox rebuilt from durable state and scored with the Attendant's own scorer
+(`inbox_is_reconstructed` says so). `GET /v1/thoughts` pages episode records newest first with the
+`next_cursor` a page returns (`principal`, `cursor`, `limit` up to 200) and, for the Queen, her
+autopilot decisions; `/v1/episodes` is unchanged. `GET /v1/capping` and `GET /v1/cost` fold the
+trail's `capping.*` and `llm.call` events. `GET /v1/metrics` answers Prometheus text exposition
+format 0.0.4 (the document declares its media type); a scraper is an enrolled program holding
+`observe`.
 
 The WebSocket views (`hivemind.entrance.streams.views`, first frame within five seconds), all on
 both listeners, each fed from durable state and closed with FELL_BEHIND past its backlog; the
@@ -101,14 +141,23 @@ OpenAPI document lists them under `x-hive-streams`:
 | /v1/cells/stream | observe | every Cell once, then each Cell whose status changed |
 
 Each listener also serves `GET /v1/openapi.json` (the committed document, unauthenticated) and,
-when it has been built, the Observation Hive's front end.
+when it has been built, the Observation Hive's front end. When `[entrance.android]` is configured
+it also serves `GET /.well-known/assetlinks.json` (unauthenticated, static, outside `/v1/` and so
+outside the document; ADR-0050); unconfigured, that path is a 404.
+
+`POST /v1/nectar/images` takes a PNG, JPEG or WebP as a raw body (`Content-Type` names it; the
+query may carry a short `caption` and a `task_id`) and keeps it as C2 Nectar for
+`[entrance] image_keep_hours`. Its refusals are 413 (past `[entrance] max_image_bytes`), 415 (a
+format the Hive does not take), 422 (empty, or not the format it claims) and 429 (the device's
+image bytes for the minute, `image_bytes_per_minute`).
 
 ## How to test this
 
 `tests/unit/entrance/test_app.py` walks the table (every row declares its listeners and access,
 no loopback-only row is served remotely, the Observation Hive's credentials reach no mutating route
 beyond the Queen's inbox, their own session and push); `tests/unit/entrance/routes/` exercises the
-resources over a real listener (`hive/` and `later/` mirror the read routes);
+resources over a real listener (`hive/`, `screens/` and `later/` mirror the read routes);
 `tests/unit/entrance/streams/views/` opens every live view; `tests/unit/entrance/voice/` speaks
-to the audio route and the chat socket; `tests/unit/entrance/test_landing_board.py` fails when the
+to the audio route and the chat socket; `tests/unit/entrance/images/` sends the image route its
+images and `tests/unit/entrance/android/` fetches the asset links; `tests/unit/entrance/test_landing_board.py` fails when the
 committed document drifts from this table.

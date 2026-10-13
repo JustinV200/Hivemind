@@ -2,7 +2,8 @@
 
 The Honey Store's read-only folder tree (roadmap step 7.10): walk Honey (ripened, labelled,
 retrievable knowledge) the way one walks a filesystem, so the operator's CLI (`hive honey ls`,
-`cat`, `propose`, `relabel`) and, later, the Observation Hive see the Hive's knowledge by place.
+`cat`, `propose`, `relabel`) and the Observation Hive (the Landing Board's `/v1/honey/*` reads)
+see the Hive's knowledge by place.
 
 ```
 /                          the five folders below
@@ -31,9 +32,12 @@ retrievable knowledge) the way one walks a filesystem, so the operator's CLI (`h
   the memory store.
 - `fake.py` -- `FakeLiveWaxSource` and `FakeBeeBreadSource`: the same Protocols over fixed lists.
 - `listing.py` -- `BrowseEntry` (path, kind, one-line title, detail, clearance, provenance: the
-  wire's `HoneyProvenance`), `BrowseListing` (a page, `is_truncated`, a `note`), and one builder
-  per item kind.
-- `documents.py` -- `read_document` (`cat`) and the visibility rules every read applies:
+  wire's `HoneyProvenance`, and for an item the scope it is filed under, the `source` it came by,
+  its `size_chars` and, for wax, its `expires_at`), `BrowseListing` (a page, `is_truncated`, a
+  `note`), and one builder per item kind.
+- `documents.py` -- `read_document` (`cat`), `find_document` (one document by its id alone: a
+  `honey_` id is a Honey row, a `wax_` id a Cell Wax note, any other a Bee Bread entry; the
+  Observation Hive opens items this way) and the visibility rules every read applies:
   `honey_visible` (live, readable scope, label within the ceiling: retrieval's own filter per
   row), `wax_visible` (unexpired too), `bee_bread_visible` over `bee_bread_scope` (`task:<id>` or
   `hive`, the scope its ripened Honey would carry), `visible_honey` and `live_wax_notes`. Anything
@@ -53,10 +57,10 @@ retrievable knowledge) the way one walks a filesystem, so the operator's CLI (`h
   (`honey.label_raised`) or, after `clearance.check_lowering` with approver HUMAN, lowering
   (`honey.label_lowered`) of one visible row's label, each event carrying both labels, the
   approver and the reason. Kept apart from `HoneyBrowser`, which never writes Honey.
-- `browser.py` -- `HoneyBrowser(deps)`: `ls`, `cat`, `search` (the retriever over the folder's
-  scopes: `/` every readable scope, a scope folder its own, an index folder the scopes it lists
-  with Honey, nothing at all for an index with none), `propose_note`; and `operator_reader`
-  (`honey:read:*` up to a ceiling, the operator's defaults per ADR-0035).
+- `browser.py` -- `HoneyBrowser(deps)`: `ls`, `cat`, `find` (by id), `search` (the retriever over
+  the folder's scopes: `/` every readable scope, a scope folder its own, an index folder the
+  scopes it lists with Honey, nothing at all for an index with none), `propose_note`; and
+  `operator_reader` (`honey:read:*` up to a ceiling, the operator's defaults per ADR-0035).
 - `errors.py` -- `BrowseError` (a `HoneyStoreError`), `BrowsePathError`, `BrowseNotFoundError`,
   `BrowseInputError`.
 

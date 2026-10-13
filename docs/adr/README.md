@@ -231,3 +231,19 @@ ADRs that exist today, in numeric order:
   stores; a bee finds a blob only through its Honey record; a clearance floor restated beside the
   Honey Store's, a tainted blob never shipped, residency under a per-Cell ceiling, and a resumable
   verified transfer through the Hive Stand as Waggle 1.12's `basket.*` messages.
+- `0049-observation-hive-dashboard-stack.md`: the Observation Hive is one TypeScript and React app
+  with no UI library and types generated from the committed OpenAPI document; one client module
+  holds all network access and the browser's non-extractable signing key; one in-memory store is
+  fed only by the nine Entrance streams through per-stream reducers read with
+  `useSyncExternalStore`, with a fixed reconnect policy; hash routes, a shell-only service worker,
+  loopback-only screens gated as defence in depth, and the same build for the page, the PWA and
+  the APK.
+- `0050-android-client-capacitor-and-push-delivery.md`: the Android client is Capacitor over the
+  same `vite build`, with an Android implementation of the `platform` seam chosen at startup;
+  push is UnifiedPush, whose endpoint speaks Web Push and so registers as `channel: web_push` with
+  the existing channel and no Google services (FCM is not built; without a distributor the app
+  falls back to the foreground socket and an ongoing notification); passkeys go through the
+  Credential Manager against the Entrance's relying party with Digital Asset Links served at
+  `/.well-known/assetlinks.json`; the share sheet is an intake (text and audio over existing
+  routes, images through one new additive `/v1/` route as Nectar `C2`); the phone enrols like any
+  device through an App Link; the APK is built in CI on tags and releases only.

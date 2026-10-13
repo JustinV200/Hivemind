@@ -1,0 +1,161 @@
+/*
+ * Enrol view styles: the invite card, its QR code, the waiting devices and the approval form.
+ *
+ * Mobile first (design.md section 2): one column at 360 px. The invite code is large and monospaced
+ * so it can be read aloud; the QR code sits on a light backdrop in both themes, because the
+ * Entrance draws it with dark modules and no background. Forms are bordered cards with 44 px fields
+ * and buttons.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/enrol/`. Imported by `enrol_screen.tsx`. Class names are
+ *   those rendered by this directory and the shared `ErrorNotice` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long words, links and ids wrap.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 5.10, 6 and 7.
+ */
+.enrol {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.enrol-section {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+
+.enrol-note {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.enrol-warn {
+  color: var(--alarm);
+  font-weight: 700;
+}
+
+.enrol-notice {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.enrol-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.enrol-form,
+.enrol-invite,
+.enrol-pending,
+.enrol-bundle {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.enrol-form label {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.enrol-form input:not([type='checkbox']),
+.enrol-form textarea,
+.enrol-form select {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.enrol-form .enrol-check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.enrol-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  overflow-wrap: anywhere;
+}
+
+.enrol-link {
+  overflow-wrap: anywhere;
+}
+
+/* The Entrance's QR has dark modules and no background: give it a light one in both themes. */
+.enrol-qr {
+  width: min(100%, 16rem);
+  height: auto;
+  padding: var(--sp-2);
+  background: var(--surface);
+  border-radius: var(--radius);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .enrol-qr {
+    background: var(--text);
+  }
+}
+
+:root[data-theme='dark'] .enrol-qr {
+  background: var(--text);
+}
+
+.enrol-pending-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.enrol-facts {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.enrol-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.enrol-facts dt {
+  color: var(--text-muted);
+}
+
+.enrol-facts dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.enrol-fingerprint {
+  font-family: var(--font-mono);
+}
+
+.enrol-bundle a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

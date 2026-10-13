@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar glyph for "something is waiting": a hexagonal cell. White on transparent, as the
+     system tints it. Used by the push notice and by the local notification (capacitor.config.ts). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2 L20.66,7 L20.66,17 L12,22 L3.34,17 L3.34,7 Z M12,6 L8,8.3 L8,15.7 L12,18 L16,15.7 L16,8.3 Z"
+        android:fillType="evenOdd" />
+</vector>

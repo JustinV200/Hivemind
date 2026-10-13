@@ -337,3 +337,15 @@ Run just this suite with:
 ```
 PYTHONIOENCODING=utf-8 uv run --frozen pytest -m "e2e" packages/hivemind/tests/e2e -q --durations=10
 ```
+
+## The Observation Hive in a browser
+
+`test_phase12_observation_hive.py` is phase 12's exit run: `hive serve`'s composition serves the built
+React app (`packages/observation-web/dist`, linked into the manifest-relative path `hive serve` looks
+in) and a headless Chromium, driven by `packages/observation-web/e2e/observation_run.mjs` through
+`observation_browser.py`, joins by invite with a virtual passkey, is approved at the Hive Stand, logs
+in, and checks the strip, fleet, Cell page, chat question and answer, thoughts, Attendant, Honey and
+a 360 px pass, plus that the page never reloaded and wrote nowhere but the chat and the Entrance's own
+routes. It needs Node, Playwright for Node and Chromium, and a `pnpm build`; it skips with the reason
+when any is missing. Keep its screenshots with `HIVE_E2E_OUT=<dir>`; see
+`packages/observation-web/e2e/README.md`.

@@ -9,7 +9,9 @@ for the door), shape the reply. The resources built so far: ``auth`` (login, log
 ``enrol`` (redeeming an invite), ``entrance`` (the door: mode, reduce, reopen, invites, approvals,
 the steward route, held requests), ``devices``, ``goals``, ``chat``, ``inbox`` and ``push``;
 ``hive`` holds the Hive's read resources (``tasks``, ``cells``, ``wardens``, ``forage``,
-``episodes``, ``trail``, ``llm``), and ``later`` the resources the contract names before the
+``episodes``, ``trail``, ``llm``), ``screens`` the Observation Hive's aggregated screens and the
+Prometheus endpoint (``summary``, ``fleet``, ``cell_page``, ``attendant``, ``thoughts``,
+``capping``, ``cost``, ``metrics``), and ``later`` the resources the contract names before the
 phases that fill them (``tools``, ``honey``, ``swarm``, each answering 501). The live streams are
 views in ``hivemind.entrance.streams``. A new resource joins by adding a module and one line to
 ``registry``.

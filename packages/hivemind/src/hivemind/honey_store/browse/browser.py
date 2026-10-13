@@ -3,12 +3,13 @@
 The Honey Store is the Hive's cold-tier knowledge base: Nectar (raw findings) ripened into Honey
 (labelled, searchable knowledge). `HoneyBrowser` lets the operator's CLI and, later, the
 Observation Hive (the operator's dashboard) walk it the way one walks a filesystem (roadmap 7.10):
-`ls` lists a folder, `cat` reads one document, `search` runs the retriever within one folder's
-scopes, and `propose_note` is the one way to add to it from a folder -- a Cell Wax proposal from a
-Cell's folder, a note queued for the House Bee (the maintenance Worker) from anywhere else. Every
-listing and document is filtered by the reader's `honey:read` capabilities and clearance ceiling
-exactly as retrieval is, and nothing here writes Honey: every write to it goes through the
-Queen's process (intake, ripening), never through a browser.
+`ls` lists a folder, `cat` reads one document (`find` reads one by its id alone), `search` runs
+the retriever within one folder's scopes, and `propose_note` is the one way to add to it from a
+folder -- a Cell Wax proposal from a Cell's folder, a note queued for the House Bee (the
+maintenance Worker) from anywhere else. Every listing and document is filtered by the reader's
+`honey:read` capabilities and clearance ceiling exactly as retrieval is, and nothing here writes
+Honey: every write to it goes through the Queen's process (intake, ripening), never through a
+browser.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package's
@@ -34,7 +35,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.cell import HoneyClearance
-from hivemind.honey_store.browse.documents import BrowseDocument, read_document
+from hivemind.honey_store.browse.documents import BrowseDocument, find_document, read_document
 from hivemind.honey_store.browse.errors import BrowseError
 from hivemind.honey_store.browse.folders import FIRST_PAGE, Page, list_folder, search_scopes
 from hivemind.honey_store.browse.listing import BrowseListing
@@ -104,6 +105,21 @@ class HoneyBrowser:
             BrowseNotFoundError: Nothing at `path` is visible to `reader`.
         """
         return await read_document(self._deps, parse_path(path), reader)
+
+    async def find(self, item_id: str, reader: HoneyReader) -> BrowseDocument:
+        """Read the one document with this id, wherever it lives, if `reader` may see it.
+
+        Args:
+            item_id: A Honey row's, a Cell Wax note's or a Bee Bread entry's own id.
+            reader: Its `honey:read` capabilities and clearance ceiling.
+
+        Returns:
+            The same document `cat` returns for the document's path.
+
+        Raises:
+            BrowseNotFoundError: Nothing with this id is visible to `reader`.
+        """
+        return await find_document(self._deps, item_id, reader)
 
     async def search(
         self, path: str, text: str, reader: HoneyReader, max_hits: int = DEFAULT_MAX_HITS

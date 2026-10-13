@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from hivemind.entrance.auth import RateLimiter
+from hivemind.entrance.auth.limits import ByteBudget
 from hivemind.manifest import EntranceSection
 from hivemind.manifest.schema.entrance import EntranceVoiceSection
 from waggle.clock import FakeClock
@@ -111,3 +112,39 @@ def test_the_audio_budget_comes_from_the_voice_section() -> None:
 def test_an_audio_budget_that_is_not_positive_is_refused() -> None:
     with pytest.raises(ValueError, match="audio budget"):
         RateLimiter(FakeClock(), 1, 1, audio_s_per_device=0.0)
+
+
+def test_a_devices_image_bytes_are_charged_whole_images_or_nothing() -> None:
+    clock = FakeClock()
+    budget = ByteBudget(clock, bytes_per_minute=1_000)
+
+    first = budget.allow("device-a", 600)
+    too_big = budget.allow("device-a", 600)  # Only 400 left: refused whole, nothing taken.
+    fits = budget.allow("device-a", 400)
+    clock.advance(30)  # Half a minute refills 500 bytes.
+    refilled = budget.allow("device-a", 500)
+
+    assert (first, too_big, fits, refilled) == (True, False, True, True)
+    assert budget.allow("device-b", 1_000)  # Every device has its own budget.
+
+
+def test_the_image_budget_is_apart_from_the_request_rate_and_the_audio_budget() -> None:
+    clock = FakeClock()
+    limiter = RateLimiter(clock, per_device=1, per_address=1, audio_s_per_device=10.0)
+    budget = ByteBudget(clock, bytes_per_minute=10)
+
+    assert limiter.allow_device("device-a") and limiter.allow_audio("device-a", 10.0)
+    assert budget.allow("device-a", 10)  # Neither of the others' spending touched it.
+    assert not budget.allow("device-a", 1)
+
+
+def test_the_image_budget_comes_from_the_entrance_section() -> None:
+    section = EntranceSection(max_image_bytes=5, image_bytes_per_minute=6)
+    budget = ByteBudget.from_section(section, FakeClock())
+
+    assert [budget.allow("d", 3) for _ in range(3)] == [True, True, False]
+
+
+def test_an_image_budget_below_one_byte_is_refused() -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        ByteBudget(FakeClock(), 0)

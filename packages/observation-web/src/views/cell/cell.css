@@ -1,0 +1,224 @@
+/*
+ * Cell page styles: the sticky header, the diagram and the panels beside it.
+ *
+ * Mobile first (design.md section 2): the header's badges wrap rather than collapse, the diagram
+ * is one full-width SVG that scales by its viewBox, and the panels stack in one column under it.
+ * From 720px the panels flow into as many columns as fit; from 1400px the diagram sits beside them.
+ * The SVG's text is real text in the page's fonts and its fills and strokes are tokens, so both
+ * themes work with no literal colour here.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/cell/`. Imported by `cell.tsx`. Class names are those
+ *   rendered by this view's components and the shared `IdToken`, `TimeStamp` and `Gauge`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 4.5, 4.6 and 5.2.
+ */
+.cell-header {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--strip-h));
+  z-index: 10;
+  padding-bottom: var(--sp-2);
+  background: var(--bg);
+}
+
+.cell-header .view-title {
+  margin-bottom: var(--sp-2);
+}
+
+.cell-meta {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.cell-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
+}
+
+.cell-badges .badge {
+  min-height: 32px;
+  font-size: var(--fs-md);
+}
+
+.cell-badges .badge-tier {
+  padding: 0 var(--sp-4);
+}
+
+.cell-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+@media (min-width: 1400px) {
+  .cell-page {
+    grid-template-columns: 744px minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+/* Diagram */
+.cell-diagram {
+  min-width: 0;
+}
+
+.dg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.dg text {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.dg .dg-id {
+  font-family: var(--font-mono);
+}
+
+.dg .dg-role,
+.dg .dg-box-value {
+  font-weight: 700;
+}
+
+.dg .dg-line,
+.dg .dg-box-label,
+.dg .dg-frame-label,
+.dg .dg-note {
+  fill: var(--text-muted);
+}
+
+.dg .dg-alarm {
+  fill: var(--alarm);
+  font-weight: 700;
+}
+
+.dg-node:focus-visible {
+  outline: none;
+}
+
+.dg-node:focus-visible rect:first-of-type {
+  stroke: var(--accent);
+  stroke-width: 3px;
+}
+
+/* Panels */
+.cell-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+@media (min-width: 720px) {
+  .cell-panels {
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  }
+}
+
+.cell-panel {
+  display: grid;
+  gap: var(--sp-2);
+  align-content: start;
+  padding: var(--sp-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.cell-panel h2 {
+  font-size: var(--fs-lg);
+}
+
+.cell-panel h3 {
+  font-size: var(--fs-md);
+}
+
+.cell-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cell-item {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.cell-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.cell-muted {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.cell-tag {
+  display: inline-block;
+  padding: 0 var(--sp-2);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.cell-tag--ok {
+  color: var(--ok);
+}
+
+.cell-tag--warn {
+  color: var(--warn);
+}
+
+.cell-tag--alarm {
+  color: var(--alarm);
+}
+
+.cell-tag--idle {
+  color: var(--idle);
+}
+
+.cell-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+}
+
+.cell-facts dd {
+  margin: 0;
+}
+
+.cell-gauges {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-sm);
+}
+
+.cell-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
+}

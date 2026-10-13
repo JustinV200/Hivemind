@@ -396,7 +396,11 @@ layers = [
 name = "entrance reaches observation only through its face"
 type = "forbidden"
 source_modules = ["hivemind.entrance"]
-forbidden_modules = ["hivemind.observation.views"]
+forbidden_modules = [
+    "hivemind.observation.views",
+    "hivemind.observation.api",
+    "hivemind.observation.metrics",
+]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]

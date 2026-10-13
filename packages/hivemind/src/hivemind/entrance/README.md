@@ -26,11 +26,13 @@ Landing Board) landed what is below.
 | `push/` | The push channels (webhooks, Web Push, the live socket hub, the dispatcher); its own README. |
 | `expose/` | Remote exposure: the pure mode check, the Hive's certificate authority and the mutual-TLS context, the tunnel client, the loopback Host check; its own README. |
 | `gate/` | What every request passes: the route table's rows (`spec`), the ASGI wrappers (`middleware`: security headers, the loopback check, the per-address limit, the body limit, with a raw-body row's own allowance), admission (`admit`: the signed request, the per-device limit, the travel lock, each capability at `EnforcementPoint.ENTRANCE_ROUTE`), step-up, the error handlers, the services a route is handed, and `reads` (`HiveReads`: the stores and live tables the Entrance reads directly). |
-| `models/` | The Landing Board's request and response models, one module per resource; `views/` holds the Hive's read models (tasks, Cells, Wardens, Forage, episodes, trail, LLM, the not-built answer) and every live view's frame. |
-| `reads/` | The read side the routes and views share: `census` (every Cell and Warden, joined from the Warden links, the Virtual Cell lifecycle, the trail, the Brood Chamber, the Queen's pulse, the telemetry board and the ledger), `trail` (a filtered page from a cursor), `llm` (providers as the Queen judges them, and every binding). |
-| `routes/` | One module per resource, each declaring its rows; `hive/` holds the Hive's read routes, `later/` the resources a later phase fills (answering 501); `registry` lists them; its own README holds the route table. |
+| `models/` | The Landing Board's request and response models, one module per resource; `views/` holds the Hive's read models (tasks, Cells, Wardens, Forage, episodes, trail, LLM, Honey, the not-built answer) and every live view's frame. |
+| `reads/` | The read side the routes and views share: `census` (every Cell and Warden, joined from the Warden links, the Virtual Cell lifecycle, the trail, the Brood Chamber, the Queen's pulse, the telemetry board and the ledger), `trail` (a filtered page from a cursor), `llm` (providers as the Queen judges them, and every binding), `honey` (a device as a reader of Honey, and a folder, an item or a search gathered for it). |
+| `routes/` | One module per resource, each declaring its rows; `hive/` holds the Hive's read routes (the Honey browser's included), `later/` the resources a later phase fills (answering 501); `registry` lists them; its own README holds the route table. |
 | `intake.py` | How every goal comes in, typed, spoken, confirmed or recovered: its spend weighed against its device's day, and a held goal committed once under the id minted when it was held. |
-| `voice/` | Voice in: a clip on `POST /v1/chat/audio` or a push-to-talk hold on the chat socket, both heard at one door (every refusal before the model, one transcription on `TRANSCRIBER`, the scan, then where typed words go); the `AudioNectar` seam for `keep_audio`; its own README. |
+| `voice/` | Voice in: a clip on `POST /v1/chat/audio` or a push-to-talk hold on the chat socket, both heard at one door (every refusal before the model, one transcription on `TRANSCRIBER`, the scan, then where typed words go); the `MediaNectar` seam for `keep_audio`; its own README. |
+| `images/` | Images in: a PNG, JPEG or WebP on `POST /v1/nectar/images` (roadmap step 12.12), refused before anything is kept (format, `max_image_bytes`, shape, the device's byte budget) and deposited as C2 Nectar through the same `MediaNectar` seam voice uses; its own README. |
+| `android/` | What the Android client needs of the Entrance (ADR-0050), all absent unless `[entrance.android]` is configured: the Digital Asset Links file at `/.well-known/assetlinks.json`, the `android:apk-key-hash:` passkey origins, and the WebView origin CORS and the sockets accept; its own README. |
 | `streams/` | The live views: `StreamHub` (one trail follower), `StreamSubscription` (a bounded queue, closed with FELL_BEHIND past its backlog), `TelemetryBoard` (every Heartbeat the Queen hands its `on_heartbeat` hook), the socket registry and lifecycle, `views/` (the Landing Board's chat, push and security views, and the Hive's trail, telemetry, Forage, task-graph, episode and Cell-status views), and the follower obeying a Guard Bee's `guard.reduce_ordered`. |
 | `notify/` | `PushOutbox` (notices off the caller's path, ordered per ref), `PushHumanChannel` (the Queen's `HumanChannel`), `PushSecurityNotifier`, `HumanChannelRelay`. |
 | `app.py` | Builds both FastAPI applications from one route table (the remote one mounts only `REMOTE` rows). |
@@ -44,7 +46,7 @@ socket (bound by the Entrance) ── uvicorn, in the Hive's loop
    │
    ▼
 SecurityHeaders ─► LoopbackGate (loopback only: Host, no forwarding header; bare 403)
-   │                 ─► AddressLimit (per address) ─► BodyLimit ─► FastAPI (CORS: public_url, remote only)
+   │                 ─► AddressLimit (per address) ─► BodyLimit ─► FastAPI (CORS: public_url on remote; Android WebView if set)
    ▼
 route row ── public? ──────────────────────────────► endpoint
    │ authenticated
@@ -83,8 +85,11 @@ feed. The one feed not on the trail is telemetry: Heartbeats never reach it, so 
 root sets the Queen's `on_heartbeat` hook to a `TelemetryBoard`, which keeps each Warden's newest
 Heartbeat (the Wardens read counts its sub-bees from it) and fans every one out the same way.
 
-The view models live in `hivemind.observation.views` (codingrules 8.11), and the Entrance, which
-answers with them and publishes them in the OpenAPI document, imports them from the
+The view models live in `hivemind.observation.views` and the aggregated screens (summary, Fleet,
+Cell page, Attendant, Thoughts, Capping, Cost, and the metrics snapshot) in
+`hivemind.observation.api` and `.metrics` (codingrules 8.11). The Entrance gathers the records for
+the screens (`reads/screens/`, effectful, direct from the stores), hands them to the pure builders
+and answers with the models, publishing them in the OpenAPI document; it imports them from the
 `hivemind.observation` face only: the import-linter ranks `entrance` over `observation` and holds
 the edge to the face (ADR-0040 lists it); nothing in `observation` imports the Entrance.
 
@@ -153,7 +158,10 @@ runtime are reached through their own modules, so importing the face never loads
   `hivemind.entrance.reads`: their faces list every name. The view models are
   `hivemind.observation`'s.
 - `hivemind.entrance.voice`: `VoiceServices` and `VoiceRules` (what `hive serve` builds when
-  `[entrance.voice]` is on), `InMemoryAudioNectar`, and the door, the route and the socket reader.
+  `[entrance.voice]` is on), `InMemoryMediaNectar`, and the door, the route and the socket reader.
+- `hivemind.entrance.images`: `ImageServices` and `ImageRules` (always built by `hive serve`),
+  `deposit_image` and the route. `hivemind.entrance.android`: the asset links and the extra
+  origins.
 
 Nothing in the Entrance stores a password, an invite code, a session token or a private key in
 the clear, and no log line or trail event carries a code, a key, a token, a signature, a password,

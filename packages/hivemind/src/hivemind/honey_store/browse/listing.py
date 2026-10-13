@@ -29,10 +29,12 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell import HoneyClearance
+from hivemind.honey_store.browse.documents import bee_bread_scope
 from hivemind.honey_store.browse.paths import bee_bread_entry_path, wax_note_path
 from hivemind.honey_store.browse.sources import BeeBreadNote, WaxNote
 from hivemind.honey_store.models import Honey, HoneyPart
 from hivemind.honey_store.scope import cell_scope
+from waggle.messages.base import UtcDatetime
 from waggle.messages.honey import HoneyProvenance
 
 MAX_ENTRY_TITLE_CHARS = 120  # One line in a listing; the document itself carries the rest.
@@ -40,8 +42,10 @@ MAX_ENTRY_TITLE_CHARS = 120  # One line in a listing; the document itself carrie
 # codingrules 8.5: frozen, extra-forbidding config both listing models share.
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 _ELLIPSIS = "…"  # Marks a title cut to fit one line.
+BEE_BREAD_SOURCE = "BEE_BREAD"  # What an entry's `source` says: the warm tier, whatever its kind.
 
 __all__ = [
+    "BEE_BREAD_SOURCE",
     "MAX_ENTRY_TITLE_CHARS",
     "BrowseEntry",
     "BrowseListing",
@@ -79,6 +83,23 @@ class BrowseEntry(BaseModel):
     )
     provenance: HoneyProvenance | None = Field(
         description="The task, Cell, bee and time the item came from; None for a folder."
+    )
+    scope: str | None = Field(
+        default=None,
+        description="The scope the item is filed under (hive, cell:<id>, task:<id> ...), which "
+        "decides who may read it; None for a folder.",
+    )
+    source: str = Field(
+        default="",
+        description="How the item came to be, as the store names it: a Honey row's Nectar origin "
+        "(BEE, HUMAN, WATCH ...), a wax note's origin (BEE, PATROL, HUMAN), BEE_BREAD for an "
+        "entry; empty for a folder.",
+    )
+    size_chars: int = Field(
+        default=0, ge=0, description="The item's text length in characters; 0 for a folder."
+    )
+    expires_at: UtcDatetime | None = Field(
+        default=None, description="When a wax note expires on its own; None for anything else."
     )
 
 
@@ -140,6 +161,9 @@ def honey_entry(honey: Honey) -> BrowseEntry:
             bee=honey.bee,
             observed_at=honey.observed_at,
         ),
+        scope=honey.scope,
+        source=honey.origin.value,
+        size_chars=len(honey.body),
     )
 
 
@@ -164,6 +188,10 @@ def wax_entry(note: WaxNote) -> BrowseEntry:
             bee=note.proposer,
             observed_at=note.proposed_at,
         ),
+        scope=cell_scope(note.cell_id),
+        source=note.origin.value,
+        size_chars=len(note.text),
+        expires_at=note.expires_at,
     )
 
 
@@ -187,6 +215,9 @@ def bee_bread_entry(note: BeeBreadNote) -> BrowseEntry:
         provenance=HoneyProvenance(
             task_id=note.task_id, cell_id=None, bee=None, observed_at=note.created_at
         ),
+        scope=bee_bread_scope(note),
+        source=BEE_BREAD_SOURCE,
+        size_chars=len(note.payload or note.text or ""),
     )
 
 

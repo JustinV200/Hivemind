@@ -1,0 +1,272 @@
+/*
+ * Honey browser styles: the folder column, the reading pane, and the clearance and severity tags.
+ *
+ * Mobile first (design.md section 2): the folder column and the reading pane stack in one column.
+ * At phone width an open item replaces the folder column (its Close button is the way back), so the
+ * reader is never scrolling past a long list to find the pane; from 960px the two sit side by side.
+ * The clearance tag is a bordered square tag with words, never hidden at any width. Content is
+ * pre-formatted and scrolls inside its own box, so no note can make the page wider than the viewport.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/honey/`. Imported by `honey_screen.tsx`. Class names are
+ *   those rendered by this view's parts and panels and the shared `IdToken` and `TimeStamp`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Colour is never the only signal: every tag carries its label as text.
+ *   - Nothing here makes the page wider than the viewport; long text wraps or scrolls in place.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3, 5.7 and 7.
+ */
+.honey {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+}
+
+/* At phone width an open item takes the place of the folder column. */
+.honey--reading .honey-list {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .honey--reading {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .honey--reading .honey-list {
+    display: block;
+  }
+
+  .honey-pane {
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--strip-h) + var(--sp-3));
+  }
+}
+
+.honey-list,
+.honey-pane {
+  display: grid;
+  gap: var(--sp-3);
+  min-width: 0;
+  align-content: start;
+}
+
+/* Breadcrumbs */
+.honey-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-sm);
+}
+
+.honey-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.honey-crumbs li + li::before {
+  content: '/';
+  margin-right: var(--sp-1);
+  color: var(--text-muted);
+}
+
+/* Lists */
+.honey-section {
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-lg);
+}
+
+.honey-folders,
+.honey-items,
+.honey-sources {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.honey-folders li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-3);
+  min-height: 32px;
+}
+
+.honey-item {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.honey-item[aria-current='true'] {
+  border-color: var(--accent);
+  border-width: 2px;
+}
+
+.honey-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: 0;
+}
+
+.honey-open {
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 720px) {
+  .honey-open {
+    min-height: 32px;
+  }
+}
+
+.honey-kind,
+.honey-muted,
+.honey-fact-label {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.honey-note {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border-left: 4px solid var(--border);
+  font-size: var(--fs-sm);
+}
+
+.honey-provenance,
+.honey-wax {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.honey-snippet {
+  overflow-wrap: anywhere;
+}
+
+/* Clearance: a square tag with a heavy left edge, told apart from tier pills and mask tags */
+.honey-clearance {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid currentcolor;
+  border-left-width: 6px;
+  border-radius: var(--radius-tag);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.honey-clearance--c0 {
+  border-left-color: var(--ok);
+}
+
+.honey-clearance--c1 {
+  border-left-color: var(--warn);
+}
+
+.honey-clearance--c2 {
+  border-left-color: var(--alarm);
+}
+
+/* Cell Wax severity: a word in a tag, the border carries the weight */
+.honey-severity {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-tag);
+  font-weight: 700;
+}
+
+.honey-severity--caution {
+  border-color: var(--warn);
+}
+
+.honey-severity--block {
+  border-color: var(--alarm);
+  border-width: 2px;
+}
+
+/* Search */
+.honey-search form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.honey-search label {
+  flex-basis: 100%;
+  font-size: var(--fs-sm);
+}
+
+.honey-search input {
+  flex: 1 1 200px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+@media (min-width: 720px) {
+  .honey-search input {
+    min-height: 36px;
+  }
+}
+
+/* The reading pane */
+.honey-pane {
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.honey-pane .button {
+  justify-self: start;
+}
+
+.honey-content {
+  max-height: 60vh;
+  margin: 0;
+  padding: var(--sp-3);
+  overflow: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

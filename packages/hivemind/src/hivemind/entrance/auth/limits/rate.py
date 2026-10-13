@@ -1,4 +1,4 @@
-"""Provide RateLimiter: token buckets per device and per network address, bounded in memory.
+"""Provide RateLimiter and ByteBudget: token buckets per device and address, bounded in memory.
 
 The Hive Entrance (the Hive's one HTTP door) limits how often one device, and one network address,
 may knock (ADR-0041): ``rate_limit_per_device`` requests a minute per enrolled device, and
@@ -11,7 +11,9 @@ Audio is a separate budget per device (roadmap step 10.5f, ``[entrance.voice]
 audio_seconds_per_minute``): a third family of buckets counted in seconds of audio, not requests,
 and charged a clip's whole length before it is transcribed (``allow_audio``), so a device may send
 at most that much audio a minute however few requests carry it. A clip still costs one request
-token besides, like every other request.
+token besides, like every other request. Images (roadmap step 12.12) have the same kind of budget
+in bytes, ``ByteBudget`` (``[entrance] image_bytes_per_minute``), held by the image intake's
+services rather than here, so this limiter's constructor stays small.
 
 The buckets are **in memory by design**: they describe the last minute and nothing older, so
 persisting them would cost a write on every request to protect a minute that a restart only
@@ -48,7 +50,7 @@ _SECONDS_PER_MINUTE = 60.0  # The manifest's limits are per minute.
 _REQUEST_COST = 1.0  # One request, or one extra charge, takes one token.
 DEFAULT_AUDIO_S_PER_MINUTE = 120.0  # [entrance.voice] audio_seconds_per_minute's own default.
 
-__all__ = ["DEFAULT_AUDIO_S_PER_MINUTE", "MAX_TRACKED_KEYS", "RateLimiter"]
+__all__ = ["DEFAULT_AUDIO_S_PER_MINUTE", "MAX_TRACKED_KEYS", "ByteBudget", "RateLimiter"]
 
 
 @dataclass(slots=True)
@@ -57,6 +59,108 @@ class _Bucket:
 
     tokens: float
     refilled_at: float
+
+
+class _Buckets:
+    """One family of token buckets (per device, per address, per audio or image budget).
+
+    Owns its map, which is bounded in keys; synchronous and never awaiting, so each ``take`` is
+    atomic on the event loop without a lock.
+    """
+
+    def __init__(self, clock: Clock, per_minute: float, capacity: int) -> None:
+        """Build a family with no buckets yet.
+
+        Args:
+            clock: Its ``monotonic`` reading refills the buckets.
+            per_minute: What a full bucket holds, and what it refills in a minute; > 0.
+            capacity: Buckets kept before the least recently used is evicted; >= 1.
+        """
+        self._clock = clock
+        self._per_minute = per_minute
+        self._capacity = capacity
+        # Insertion order is recency order: every take moves its key to the end.
+        self._buckets: OrderedDict[str, _Bucket] = OrderedDict()
+
+    def take(self, key: str, cost: float = _REQUEST_COST) -> bool:
+        """Refill ``key``'s bucket for the time passed, then take ``cost`` tokens if it has them.
+
+        Args:
+            key: The device or address the bucket belongs to.
+            cost: How many tokens to take; a refused take takes nothing.
+
+        Returns:
+            True when the bucket had ``cost`` tokens; False when the key is over its rate.
+        """
+        now = self._clock.monotonic()
+        per_minute = self._per_minute
+        bucket = self._buckets.pop(key, None)
+        # A key seen for the first time (or evicted since) starts with a full minute's allowance.
+        if bucket is None:
+            bucket = _Bucket(tokens=per_minute, refilled_at=now)
+        elapsed = max(0.0, now - bucket.refilled_at)
+        bucket.tokens = min(per_minute, bucket.tokens + elapsed * per_minute / _SECONDS_PER_MINUTE)
+        bucket.refilled_at = now
+        allowed = bucket.tokens >= cost
+        if allowed:
+            bucket.tokens -= cost
+        # Re-inserted at the end (most recent); the oldest go first once past capacity.
+        self._buckets[key] = bucket
+        while len(self._buckets) > self._capacity:
+            self._buckets.popitem(last=False)
+        return allowed
+
+
+class ByteBudget:
+    """A device's budget of bytes a minute, charged whole before anything is kept.
+
+    The image intake's counterpart of the audio budget (``RateLimiter.allow_audio``): a token
+    bucket of ``[entrance] image_bytes_per_minute`` bytes per device, so a device may send at most
+    that much however few requests carry it. An image still costs one request token besides, like
+    every other request.
+    """
+
+    def __init__(
+        self, clock: Clock, bytes_per_minute: int, capacity: int = MAX_TRACKED_KEYS
+    ) -> None:
+        """Build a budget with no buckets yet.
+
+        Args:
+            clock: Its ``monotonic`` reading refills the buckets.
+            bytes_per_minute: Bytes one device may send a minute; >= 1.
+            capacity: Devices whose buckets are kept before the least recently used goes; >= 1.
+
+        Raises:
+            ValueError: The budget or the capacity is below 1.
+        """
+        if min(bytes_per_minute, capacity) < 1:
+            raise ValueError("A byte budget and its bucket capacity must be at least 1.")
+        self._buckets = _Buckets(clock, float(bytes_per_minute), capacity)
+
+    @classmethod
+    def from_section(cls, section: EntranceSection, clock: Clock) -> ByteBudget:
+        """Build the budget from ``[entrance] image_bytes_per_minute``.
+
+        Args:
+            section: The manifest's ``[entrance]`` section.
+            clock: The Entrance's clock.
+
+        Returns:
+            The budget.
+        """
+        return cls(clock, section.image_bytes_per_minute)
+
+    def allow(self, device_id: str, size: int) -> bool:
+        """Charge ``size`` bytes to ``device_id``, if its budget has that much left.
+
+        Args:
+            device_id: The device that sent the image, authenticated.
+            size: The image's size in bytes; charged whole or not at all.
+
+        Returns:
+            True when the image may be kept; False when the device is over its budget.
+        """
+        return self._buckets.take(device_id, float(size))
 
 
 class RateLimiter:
@@ -86,15 +190,9 @@ class RateLimiter:
             raise ValueError("Rate limits and the bucket capacity must be at least 1.")
         if audio_s_per_device <= 0:
             raise ValueError("A device's audio budget must be a positive number of seconds.")
-        self._clock = clock
-        self._per_device = float(per_device)
-        self._per_address = float(per_address)
-        self._audio_s = float(audio_s_per_device)
-        self._capacity = capacity
-        # Insertion order is recency order: every take moves its key to the end.
-        self._devices: OrderedDict[str, _Bucket] = OrderedDict()
-        self._addresses: OrderedDict[str, _Bucket] = OrderedDict()
-        self._audio: OrderedDict[str, _Bucket] = OrderedDict()
+        self._devices = _Buckets(clock, float(per_device), capacity)
+        self._addresses = _Buckets(clock, float(per_address), capacity)
+        self._audio = _Buckets(clock, float(audio_s_per_device), capacity)
 
     @classmethod
     def from_section(cls, section: EntranceSection, clock: Clock) -> RateLimiter:
@@ -123,7 +221,7 @@ class RateLimiter:
         Returns:
             True when the request may proceed; False when the device is over its rate.
         """
-        return self._take(self._devices, device_id, self._per_device)
+        return self._devices.take(device_id)
 
     def allow_address(self, address: str) -> bool:
         """Take one token from ``address``'s bucket.
@@ -134,7 +232,7 @@ class RateLimiter:
         Returns:
             True when the request may proceed; False when the address is over its rate.
         """
-        return self._take(self._addresses, address, self._per_address)
+        return self._addresses.take(address)
 
     def charge_address(self, address: str) -> None:
         """Take one more token from ``address``: an invalid login proof costs it double.
@@ -142,7 +240,7 @@ class RateLimiter:
         Args:
             address: The address the invalid proof came from.
         """
-        self._take(self._addresses, address, self._per_address)
+        self._addresses.take(address)
 
     def allow_audio(self, device_id: str, seconds: float) -> bool:
         """Charge ``seconds`` of audio to ``device_id``'s audio budget, if it has that much left.
@@ -157,29 +255,4 @@ class RateLimiter:
         Returns:
             True when the clip may be transcribed; False when the device is over its budget.
         """
-        return self._take(self._audio, device_id, self._audio_s, cost=seconds)
-
-    def _take(
-        self,
-        buckets: OrderedDict[str, _Bucket],
-        key: str,
-        per_minute: float,
-        cost: float = _REQUEST_COST,
-    ) -> bool:
-        """Refill ``key``'s bucket for the time passed, then take ``cost`` tokens if it has them."""
-        now = self._clock.monotonic()
-        bucket = buckets.pop(key, None)
-        # A key seen for the first time (or evicted since) starts with a full minute's allowance.
-        if bucket is None:
-            bucket = _Bucket(tokens=per_minute, refilled_at=now)
-        elapsed = max(0.0, now - bucket.refilled_at)
-        bucket.tokens = min(per_minute, bucket.tokens + elapsed * per_minute / _SECONDS_PER_MINUTE)
-        bucket.refilled_at = now
-        allowed = bucket.tokens >= cost
-        if allowed:
-            bucket.tokens -= cost
-        # Re-inserted at the end (most recent); the oldest go first once past capacity.
-        buckets[key] = bucket
-        while len(buckets) > self._capacity:
-            buckets.popitem(last=False)
-        return allowed
+        return self._audio.take(device_id, seconds)

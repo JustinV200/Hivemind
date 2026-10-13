@@ -2196,14 +2196,29 @@ in this phase adds a new write path.
 
 ### Steps
 
-- [ ] **12.1 Read API and metrics.** `observation/api.py`: aggregated views for every screen
+- [x] **12.1 Read API and metrics.** `observation/api.py`: aggregated views for every screen
   below, paginated trail and episode queries, all behind `observe` with `observe:thoughts` and
   `observe:honey:<scope>` for the sensitive ones. `observation/metrics.py`: Cells by kind and
   status, Wardens by location, grants and headroom, Alarms by kind and level, awake episodes per
   hour per principal, tasks by status, tool promotions, denials, tokens and cost per task per slot
   per provider; Prometheus endpoint. Add first-class counters for total active bees, active versus
   inactive Cells, Real versus Virtual Cell totals, and current LLM versus autopilot activity.
-- [ ] **12.2 Shell and live plumbing.** `packages/observation-web/` (scaffolded in 0.1):
+  **Built 2026-10-12.** `observation/api/` and `observation/metrics/` are packages (the views
+  directory was at its ten-module limit): one module per screen holding its read model and a pure
+  builder; `entrance/reads/screens/` gathers from `HiveReads` and `entrance/routes/screens/`
+  serves `GET /v1/summary`, `/v1/fleet`, `/v1/cells/{id}/page`, `/v1/attendant/{principal}`,
+  `/v1/thoughts` (`observe:thoughts`, C2, cursor-paged over the newest 2,000 records),
+  `/v1/capping`, `/v1/cost` and `/v1/metrics` (hand-written Prometheus text 0.0.4, no new
+  dependency; `RouteSpec.response_class` declares its media type). Deferred, each documented on
+  its field: `mask_state` (6.13), `last_patrol_at` and a Swarm Cell's `warden_runs` (phase 11),
+  Capping recording links (no recording store is reachable), and the live Attendant inbox (the
+  tick queues are memory-only, so it is reconstructed from open Alarms, blocked questions and
+  unhandled chat and marked `inbox_is_reconstructed`). Autopilot decisions come from
+  `queen.decided` and `alarm.handled` trail events, since autopilot leaves no episode record.
+  Cost is per goal and lands under a null goal until the Fanner lanes carry `goal_id` (12.10
+  wires that). The task-status metric reads up to 10,000 rows per status per scrape; a store
+  `count` is a cheap follow-up if scrapes are frequent.
+- [x] **12.2 Shell and live plumbing.** `packages/observation-web/` (scaffolded in 0.1):
   TypeScript (strict) + React, built with Vite and served by the Entrance as static files;
   `src/landing_board/` holds the TS types generated from `docs/entrance/openapi.json` (CI
   regenerates and fails on a diff) and the one client module (login with passkey plus password,
@@ -2214,14 +2229,37 @@ in this phase adds a new write path.
   Forage diagram are React components rendering live SVG. The shell includes
   a persistent summary strip for the core counters: active bees, active/inactive Cells,
   Real/Virtual split, and LLM/autopilot split.
-- [ ] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
+  **Built 2026-10-12** (ADR-0049, `docs/observation/design.md`). `pnpm generate` writes
+  `src/landing_board/types.ts` with `openapi-typescript` and `pnpm generate:check` runs in CI;
+  `src/landing_board/client/` is the only module touching `fetch` or `WebSocket` (non-extractable
+  P-256 binding key in IndexedDB, `hive-request-v1` and `hive-ws-v1` signing, the first-frame
+  hello, the reconnect policy by close code, Web Push, and a write guard that refuses every
+  mutating route but the Queen's inbox and the Entrance's own, asserted against the document);
+  `src/store/` folds the streams into bounded slices read with `useSyncExternalStore`; hash
+  routes with the loopback-only screens hidden off loopback; the shell, strip, tokens, badges and
+  a placeholder per view; a shell-only service worker that never caches `/v1/`. The supervision
+  tree, Cell and Forage diagrams land with their views (12.4, 12.5). Not yet: a push handler in
+  the service worker (12.12), a theme toggle, and the Entrance serving `.webmanifest` with its
+  media type (checked in the phase's exit run).
+- [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
   provider exposes one, decision and action. The same view opens for **any bee** from the fleet
   view, with full read access to its episode records and telemetry, and a "follow" mode that
   streams new episodes as they happen. Backed by `memory/episodes.py` (3.14) and the episode stream
   (10.5). Secrets and screenshot bytes are redacted at the source, not in the UI.
-- [ ] **12.4 Cell pages and diagrams.** One page per Cell with a live diagram: its Warden and
+  **Built 2026-10-12.** `src/views/thoughts/`: seeded from `GET /v1/thoughts` (and
+  `GET /v1/attendant/queen` for the Queen's ordered inbox with scores), follow mode over
+  `/v1/episodes/stream` through the store's `useViewStream`, a "N new" queue when follow is off,
+  cursor paging bounded at 500 records, autopilot decisions interleaved by time, and the taint
+  label (state and source, added to `EpisodeView` for this step) beside the clearance. The store
+  became generic here (`createHiveStore(slices)`, `useSlice`, `useViewStream`; a view registers
+  its slice by declaration merging into `SliceRegistry` and one entry in `APP_SLICES`). Deferred:
+  the assembled context by section, because an episode record holds only `prompt_ref`, which
+  nothing sets yet (memory 3.14 chose never to store the prompt text; exposing sections needs a
+  memory-side decision on what to persist); and a cursor on the episode stream, so a 4409
+  reconnect re-subscribes without the gap until the view is re-seeded.
+- [x] **12.4 Cell pages and diagrams.** One page per Cell with a live diagram: its Warden and
   where it runs (Hive Stand or on the Cell), every sub-bee with role, status, what it is doing
   right now and a context gauge, the session, whether an Exoskeleton is attached, the lease or
   Virtual Cell status, the model hosting for its bees. Alongside the diagram: the Cell's current
@@ -2233,7 +2271,20 @@ in this phase adds a new write path.
   with flight-recorder playback for
   Exoskeleton actions. Redrawn from telemetry and Cell status deltas.
   `CombShieldLevel` is shown in the page header as a persistent, high-contrast badge.
-- [ ] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
+  **Built 2026-10-12.** `src/views/cell/`: seeded from `GET /v1/cells/{id}/page`, folded live
+  from `/v1/cells/stream`, `/v1/telemetry/stream` and `/v1/trail/stream` (a trail event naming
+  the Cell or its Warden re-reads the page once, a second after the first of a burst); the header
+  carries the tier pill and the mask tag at every width (`OFF` with a "not tracked yet" note while
+  `mask_state` is null); the diagram is SVG from a pure layout module, the Warden drawn inside
+  the frame when it runs on the Cell, outside on the Hive Stand, dashed when untracked, each
+  sub-bee with a role glyph, status colour, task and context gauge, plus a hidden table for
+  readers; panels for tasks and goals, the Warden's Forage, the Honey entry point
+  (`#/honey/cells/<id>`), mode and Patrol, Cell Wax, open Alarms and Capping activity. Not in
+  the schema yet, shown as "not tracked yet" or omitted: the session's kind and state, the lease
+  expiry, the Patrol's report (only its time), a recording link for Exoskeleton Capping items,
+  the bee an Alarm belongs to (the bee whose task it names is marked), and the Cell's `status`
+  on `CellFrame` (the header's status updates on re-read).
+- [x] **12.5 Forage view.** A live diagram of total capacity and how it is divided: per host
   (Hive Stand, each Nuc, each Virtual Cell backend) the cores, memory, GPU and model seats in use
   versus available, the Royal Reserve held back, and a flow from the Queen's shared pool to each
   Warden's grant to each sub-bee's spend, plus hosted spend against cost caps. Each Nuc and Level 1
@@ -2242,18 +2293,51 @@ in this phase adds a new write path.
   a table: every source with grade, measured grade, distance from each Cell, abundance and cost.
   The Fanner's queues per binding with waiting requests and their tempo. Pending `ForageRequest`s
   with their reasons and the Queen's decision when it lands, and grants nearing expiry.
-- [ ] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
+  **Built 2026-10-12** for what today's reads carry. `src/views/forage/`: seeded from
+  `GET /v1/forage`, `/v1/wardens` and `/v1/llm` together, folded live from `/v1/forage/stream`
+  (a `forage.capacity_reported` frame re-reads the ledger once, since the frame carries no
+  figures); the capacity diagram (pure model and layout, SVG) per host for cores, memory, GPUs,
+  local seats and sub-bee slots with the shared pool and the Royal Reserve first and
+  over-commitment marked; the flow diagram pool to Wardens to grants in seats, sub-bees, spend
+  or tokens; grants within ten minutes of expiry first and marked; requests from the stream's
+  `forage.requested`, `granted` and `denied` events with the Queen's decision; Wardens with
+  state and Heartbeat; a sortable map table; a spend gauge per Warden against its grants'
+  budgets. Schema gaps, each needing a read-model field before the view can show it: the map's
+  grade, measured grade, abundance, cost and per-Cell distance (`LlmView` has none); the
+  Fanner's queues per binding; Nuc and Level 1 local pools and ceilings (phase 11);
+  `CapacityView`'s host kind, per-host reserve, granted-but-idle, GPU and seat use; pool and
+  reserve for spend and tokens; Hive-wide cost caps; pending requests in the seed; per-sub-bee
+  spend in the Forage reads; and capacity figures on `ForageFrame`.
+- [x] **12.6 Fleet list.** Every Cell in one table with a **Real / Virtual / All** filter: kind,
   source, status and mode, `CombShieldLevel`, Pheromone Mask state, access level, two badges (where the Warden runs: Hive Stand or on the
   Cell; where its models come from: local, Hive Stand, hosted, or hybrid per its hosting plan),
   current task and role, open Alarms, a Cell Wax indicator showing the highest live severity, lease
   age, and links into its page, its Warden's Attendant view and its bees' thoughts. `CombShieldLevel` appears as a persistent, high-contrast badge in
   every row, and the view includes a fixed legend for Meadow, Propolis, and Night Veil.
-- [ ] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
+  **Built 2026-10-12.** `src/views/fleet/`: seeded from `GET /v1/fleet`, each `CellFrame` from
+  `/v1/cells/stream` folded into its row at once and one throttled re-read (a second after the
+  first frame of a burst, never without a frame) for the aggregate-only columns; the Real /
+  Virtual / All chips remembered per viewer; stable sorting by meaning with `aria-sort`; the tier
+  pill and mask tag first in every row and in the stacked cards below 1080 px; the legend fixed
+  above the table. The task's bee link comes from the row's `thought_principals`, since
+  `FleetRow` does not name the bee working the task, and a Queen-forced mask's expiry is not
+  published, so the tag is drawn without it. The design's tablet expander and "N new rows"
+  button are not built; the header is not sticky inside the scrolling pane.
+- [x] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own
   inbox, reachable from the fleet list and the Cell diagram. Both read the per-principal task graph
   stream from 10.5.
-- [ ] **12.8 Chat.** A chatbox for the human: request tasks, ask questions, answer the Queen's
+  **Built 2026-10-12.** `src/views/attendant/`: seeded from `GET /v1/attendant/{principal}`,
+  each `TaskGraphFrame` for the principal's tasks folded at once (status, placement) with one
+  throttled re-read per burst for the ordering, the inbox and the Alarm counts; the graph is SVG
+  from a pure layout (longest-path layers, cycles broken at the smallest id, left to right from
+  720 px and top to bottom below) with a hidden table; beside it the ordered inbox with scores and
+  reasons (and the "reconstructed" note), recently finished and up next. Read-model fields that
+  would improve it: a Warden's `cell_id` on `AttendantView`, a subject on `InboxEntryView`, a
+  `title` and `worker_id` on `TaskNode`, a `role` on `TaskView` (so a frame can add a node) and an
+  Alarm count on `TaskGraphFrame`.
+- [x] **12.8 Chat.** A chatbox for the human: request tasks, ask questions, answer the Queen's
   questions, resolve Alarms that reached the human, typed or spoken (a push-to-talk button using
   the browser's recorder, sent through 10.5f, with the transcript shown for confirmation when the
   message is a goal). Messages go into the Queen's inbox through the chat route (10.5) and the
@@ -2261,25 +2345,83 @@ in this phase adds a new write path.
   This is the only write path in the UI. Each message links to the tasks and episodes it produced.
   Any break-glass Absconding path in UI requires password re-auth, a typed confirmation phrase,
   and a final scope review; no one-click trigger is permitted.
-- [ ] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),
+  **Built 2026-10-12.** `src/views/chat/`: seeded from `GET /v1/chat` and `GET /v1/inbox`,
+  followed over `/v1/chat/stream` resuming from the last `seq`, the inbox re-read on a question
+  or Alarm line; the conversation with the human's lines pending until they land, answer forms on
+  waiting questions and acknowledge on Alarms (posting to the two inbox routes), the composer
+  posting to `POST /v1/chat` with the step-up prompt and one retry on `step_up_required`;
+  push-to-talk through a `MediaRecorder` behind the `Browser` seam, capped at 60 s with a
+  countdown, posted as the clip's own bytes and media type by the client's new `postAudio`
+  (signed over the bytes sent), the transcript shown and a held spoken goal confirmed or
+  declined from its card. A test enumerates every request the view can issue and asserts the
+  write set is the chat, the audio route, the two inbox routes and the goal confirm and decline.
+  No break-glass control exists. Gaps: `ChatLine` and `QuestionView` carry only `task_id` (no
+  episode or goal id, so links go to the Queen's Attendant and thoughts), `max_clip_seconds` is
+  not published, the shell does not surface `PushNotice`, the stream cannot start from the seed's
+  `newest_seq` (a line in the gap before the first frame shows only through the inbox), and
+  history beyond the newest 100 lines is not paged.
+- [x] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),
   the pending list, approve with name, capabilities, spend cap and expiry, deny, unlock, revoke,
   and the Entrance Reducer with its reopen flow. On every device: the join screen a new device
   lands on when it opens the Entrance with an invite, the passkey login, the step-up prompt, and
   the device list showing where each enrolled device last connected from. The remote build never
   renders the loopback-only screens, and the route test proves it could not use them anyway.
-- [ ] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
+  **Built 2026-10-12.** `src/views/enrol/` (loopback only: mint an invite with its link and the
+  Entrance's `qr_svg`, withdraw, the pending list live over `/v1/entrance/stream`, approve with
+  name, capabilities, spend cap and expiry, deny) and `src/views/devices/` (every device: the
+  list with the calling device marked, lock, unlock, revoke behind a typed name, capabilities,
+  the Entrance's mode, reduce, reopen after step-up, held confirmations; door controls only on
+  loopback and never on the device in hand); the join screen under `enrol/join/` redeems an
+  invite with a new passkey and waits for approval, re-checking only on tap; the login screen
+  shows it when the address carries an invite; one shared step-up prompt under
+  `devices/step_up/`; the write guard gains `/v1/enrol/passkey*` only. The Entrance now serves
+  the page at `/enrol` so a minted link opens the app. A loopback-gate test enumerates the
+  document's loopback-only operations against what the UI can reach off loopback, and the Python
+  route test proves the remote listener never mounts them. Gaps: `DeviceView` has no "last
+  connected from" address (only `last_seen_at`, platform and user agent), and a pending device
+  can only learn its approval by trying `POST /v1/auth/challenge`.
+- [x] **12.9 Honey browser.** The Hive's knowledge as a folder tree from `honey_store/browse.py`
   (7.10): the main store under `/hive`, then what each Cell and each bee can see under `/cells`
   and `/bees` (each Cell's folder includes its live Cell Wax), task folders, and Bee Bread.
   Read-only navigation, reading and search per folder, provenance and `HoneyClearance` on every
   item, and a "propose a note" action that queues the note for the House Bee rather than writing
   (a Honey note, or Cell Wax when made from a Cell's folder; 7.10). Scope and clearance filtering
   match the viewer's capabilities.
-- [ ] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
+  **Built 2026-10-12.** Python: `GET /v1/honey/tree`, `/v1/honey/items/{id}` and
+  `/v1/honey/search` over the browse facade (`entrance/routes/hive/honey.py`,
+  `entrance/reads/honey.py`, `observation/views/honey/`), each folder's scope checked as
+  `observe:honey:<scope>` through the Guard, the viewer's clearance ceiling cutting the listing,
+  a hidden item a 403 naming only the family, cursor paging; the 501 placeholder `GET /v1/honey`
+  is gone. Front end: `src/views/honey/`, breadcrumbs, folders and items with the clearance tag
+  always visible, wax severity, proposer and expiry, the reading pane, search where
+  `can_search`, a Cell folder re-read once per burst on a `honey.*` or `memory.wax_*` event
+  naming the Cell and other folders on `honey.*`; a two-viewer test proves the trees differ as
+  the scopes say and every request is a GET. **Propose a note is not built:** nothing on the
+  Landing Board carries a proposal to the House Bee (open decision 16), so the browser says so
+  in each folder and draws no control.
+- [x] **12.10 Cost view.** Per-goal spend by slot and provider, and what moving a slot local would
   save, from normalised `Usage` on the trail.
-- [ ] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
+  **Built 2026-10-12.** `src/views/cost/`: seeded from `GET /v1/cost`, each `llm.call` frame
+  with usage on `/v1/trail/stream` folded into its goal, slot and provider at once (a call with
+  no `goal_id` in its payload lands in the unattributed row, pinned last and explained) with one
+  throttled re-read per burst that replaces the figures; a totals strip, then sortable goal, slot
+  and provider tables as stacked cards at phone width; the slot gauge shows hosted calls out of
+  all calls, since `hosted_usd` equals `cost_usd` in today's model. Spend reaches a goal only once
+  the Fanner lanes carry `goal_id` (12.1's note); a per-slot hosted and local call count would
+  make the hosted share exact.
+- [x] **12.11 Capping view.** Hive-wide queue of proposals by tier and state, judge verdicts with
   reasons, rollbacks, sampled-audit findings and rates per tier, and a link from every item to the
   bee's thoughts and, for Exoskeleton actions, the recording.
-- [ ] **12.12 Android client.** `packages/observation-web/android/`: a Capacitor project wrapping
+  **Built 2026-10-12.** `src/views/capping/`: seeded from `GET /v1/capping`, each `capping.*`
+  frame on `/v1/trail/stream` folded at once (state, failing check, verdict, rollback, audit,
+  with the per-tier counts and rates moving by the server's formulas) and one throttled re-read
+  per burst; a rates strip per tier, the queue with tier and state chips, sorting with
+  `aria-sort`, bee and Cell links, the verdict rendered from its check codes, and the Exoskeleton
+  rows marked "recording not available" because `ProposalRow` carries no recording reference
+  yet; audits in their own table; stacked cards below 1080 px. Reviewer prose is deliberately not
+  on the trail, so a `reason` on `VerdictRow` and `AuditRow` is a read-model decision to make
+  before the view can show one.
+- [x] **12.12 Android client.** `packages/observation-web/android/`: a Capacitor project wrapping
   the same React app as an APK. Native push through the channel chosen in the ADR (FCM or
   UnifiedPush) registered with 10.5b, passkeys through the Android credential manager, the
   share sheet as an intake so any app on the phone (a glasses companion app included) can share
@@ -2287,8 +2429,39 @@ in this phase adds a new write path.
   push-to-talk button that streams to 10.5f, and a foreground notification while a question is
   waiting. The phone is an enrolled device like any other; the
   APK is built in CI and is a release artifact from phase 14.
+  **Built 2026-10-13** (ADR-0050). `packages/observation-web/android/` is a Capacitor project over
+  the same build with a pinned WebView origin; Kotlin plugins for passkeys through the Credential
+  Manager, UnifiedPush delivery over the Entrance's existing Web Push channel (no FCM) with a
+  local notice while a question waits, and the share sheet as an intake; the TypeScript platform
+  seam for Android is chosen at startup, a share card confirms before sending text through the
+  chat, audio through `/v1/chat/audio` and images through the new `POST /v1/nectar/images`
+  (`entrance:submit`; C2 Nectar with a per-device byte budget and `[entrance] max_image_bytes`,
+  `image_bytes_per_minute`, `image_keep_hours`); `[entrance.android]` (`package_name`,
+  `cert_fingerprints`, `webview_origin`) serves `/.well-known/assetlinks.json`, adds each
+  fingerprint's `android:apk-key-hash` origin to the remote relying party and the WebView origin
+  to the CORS and socket checks; `android.yml` builds and signs the APK on tags only.
+  **Unverified here:** the native side has not been compiled (no JDK, SDK or Gradle in the build
+  container), the library calls (`androidx.credentials`, the UnifiedPush connector 3.x) follow
+  their documentation, and the real-device run (passkeys against a VPN-only Entrance, a push in
+  the background, a share of each kind, App Link verification) is the operator's to do with the
+  first tagged build.
 
 ### Exit criteria
+
+**Exit run, 2026-10-13.** `packages/hivemind/tests/e2e/test_phase12_observation_hive.py` (marker
+`e2e`; needs the web build, Node and Playwright's Chromium) serves `hive serve`'s composition with
+a scripted provider and drives the built app in a real browser: a device joins by invite link with
+a passkey, is approved at the Hive Stand, logs in, and in one page load with no reload the fleet
+shows the Hive Stand's Cell with its tier and mask badges, the strip's counters move and equal
+`/v1/summary`, a goal requested from the chatbox runs, its question comes back in the chat, the
+answer resumes it and the reply arrives, the Queen's thoughts and the Attendant graph move live,
+the Honey browser shows `/hive` and refuses a Cell folder the device lacks, every write the page
+made is the chat's, the goal's or the Entrance's own, there are no page errors, and the strip, the
+fleet and the chat render at 360 px. Not provable in the build container, left to the operator:
+Cells appearing and grants flowing under the phase 6 or 9 scenario (only the Hive Stand's Cell
+exists here), the phone over the VPN, the PWA install, the APK's enrolment, passkey, background
+push and shared text, and the remote build's absence of the loopback-only screens (the Python
+route test proves the routes are not mounted; the UI gate is tested in vitest).
 
 - Running the phase 6 or 9 scenario with the Observation Hive open shows Cells appearing in the
   fleet list and diagrams, grants flowing in the Forage view, the Queen's and a Forager's thoughts
@@ -2495,8 +2668,9 @@ borrowed device and revoking every grant.
    Windows and macOS Virtual Cell images; and the language for the compiled gateway for phones
    and IoT (11.7a).
 8. First cloud Virtual Cell backend (phase 5.11).
-9. Dashboard stack (phase 12): resolved to TypeScript + React + Vite with Capacitor for Android;
-   still open are the state and stream library and push delivery on Android (FCM or UnifiedPush).
+9. Dashboard stack (phase 12): resolved. TypeScript + React + Vite, one stream-fed store with
+   per-stream reducers and no state library (ADR-0049); Capacitor for Android with UnifiedPush
+   delivery over the existing Web Push channel, not FCM (ADR-0050).
 10. Packaging for `pollen` (phase 11.7).
 11. License (phase 14).
 12. VPN overlay for `expose = "vpn"`: WireGuard or Tailscale; and the tunnel client for
@@ -2506,6 +2680,12 @@ borrowed device and revoking every grant.
    optional extra (phase 6.5a; the eval harness in 8.5 settles the size).
 15. Speech synthesis for spoken replies, and whatever a glasses vendor's SDK allows beyond the
    share sheet (post-1.0).
+16. How the Observation Hive proposes a Honey note or Cell Wax for the House Bee (12.9): today
+   `hive honey propose` writes the queue row from the CLI process and nothing on the Landing
+   Board carries a proposal, so the browser shows no propose control. The options are a
+   structured intent the Queen parses out of a chat `HumanMessage`, a typed message kind in
+   Waggle handled by the Queen, or a `POST /v1/honey/notes` row through the Queen's door added
+   to codingrules 8.11's route test. Needs an ADR before the control exists.
 
 ---
 

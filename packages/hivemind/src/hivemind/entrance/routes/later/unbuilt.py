@@ -2,15 +2,15 @@
 
 ADR-0040: a Landing Board resource whose subsystem is not built yet answers ``501 Not
 Implemented`` naming the roadmap phase that fills it, so the contract names every resource from
-the start: a client written against the document sees ``/v1/tools``, ``/v1/honey`` and
-``/v1/swarm`` now, and learns from the answer when they arrive. ``not_built_row`` builds that row
+the start: a client written against the document sees ``/v1/tools`` and ``/v1/swarm`` now, and
+learns from the answer when they arrive. ``not_built_row`` builds that row
 for one resource: a GET on both listeners, behind ``observe`` like the reads it stands in for, and
 answering ``NotBuiltView``. Each resource keeps its own module (one module per resource); this is
 the shape they share.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes.later``. Called
-    by the tools, honey and swarm modules beside it. Calls into the gate's row types and the
+    by the tools and swarm modules beside it. Calls into the gate's row types and the
     view models.
 
 Key invariants:
