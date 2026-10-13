@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+import os
 import socket
 from pathlib import Path
 
@@ -27,10 +28,16 @@ from hivemind.royal_jelly.quarantine_comb.runner.hooks import (
     classify,
 )
 
-_STDLIB = "/usr/lib/python3.12"
-_TOOL_FRAME = ("{pkg}/tool.py", 7)
-_STDLIB_FRAME = (f"{_STDLIB}/subprocess.py", 1_900)
-_HIVE_FRAME = ("/opt/venv/lib/python3.12/site-packages/hivemind/cell/local/process.py", 240)
+# Native separators throughout: the policy compares `root + os.sep` prefixes, so a frame written
+# with `/` on Windows would never match the root it is meant to lie under.
+_STDLIB = str(Path("/usr/lib/python3.12"))
+_VENV = str(Path("/opt/venv"))
+_TOOL_FRAME = ("{pkg}" + os.sep + "tool.py", 7)
+_STDLIB_FRAME = (os.path.join(_STDLIB, "subprocess.py"), 1_900)
+_HIVE_FRAME = (
+    os.path.join(_VENV, "lib", "python3.12", "site-packages", "hivemind", "cell", "process.py"),
+    240,
+)
 
 
 def _policy(tmp_path: Path) -> AuditPolicy:
@@ -38,7 +45,7 @@ def _policy(tmp_path: Path) -> AuditPolicy:
     root = tmp_path.resolve()
     return AuditPolicy(
         package_dir=str(root / "pkg"),
-        allowed_roots=(str(root), "/opt/venv"),
+        allowed_roots=(str(root), _VENV),
         stdlib_roots=(_STDLIB,),
     )
 
@@ -90,7 +97,14 @@ def test_opening_a_file_outside_every_allowed_root_names_the_path(tmp_path: Path
 
 @pytest.mark.parametrize(
     "path",
-    ["{root}/scratch/notes.txt", "{root}/pkg/tool.py", "/opt/venv/lib/x.py", "/dev/null", 3, None],
+    [
+        os.path.join("{root}", "scratch", "notes.txt"),
+        os.path.join("{root}", "pkg", "tool.py"),
+        os.path.join(_VENV, "lib", "x.py"),
+        os.devnull,
+        3,
+        None,
+    ],
 )
 def test_opening_inside_the_package_scratch_or_prefix_is_fine(tmp_path: Path, path: object) -> None:
     policy = _policy(tmp_path)
@@ -189,9 +203,7 @@ def test_the_recorder_raises_and_records_when_the_caller_is_in_the_package() -> 
     # This test file stands in for the tool: the recorder walks the real stack from here.
     here = Path(__file__).resolve().parent
     recorder = AuditRecorder(
-        AuditPolicy(
-            package_dir=str(here), allowed_roots=(str(here),), stdlib_roots=("/usr/lib/python3.12",)
-        )
+        AuditPolicy(package_dir=str(here), allowed_roots=(str(here),), stdlib_roots=(_STDLIB,))
     )
     recorder.phase = "fuzz"
 

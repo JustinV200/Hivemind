@@ -50,6 +50,7 @@ from hivemind.royal_jelly.quarantine_comb.sandbox import (
 from waggle.clock import Clock
 from waggle.ids import CellId
 
+_TRANSPORT_CLOSE_TURNS = 3  # Loop turns a finished subprocess transport needs to close.
 _READ_CHUNK_BYTES = 65536  # Pipe read size: efficient without holding output back long.
 _REAP_GRACE_S = 5.0  # After SIGKILL the child is reaped almost at once; this only bounds a wedge.
 _DIR_PREFIX = "hive-comb-"  # Names the temp directory so a leftover is recognisable.
@@ -193,6 +194,11 @@ async def _drain_and_wait(process: asyncio.subprocess.Process, output: CappedOut
         group.create_task(_pump(process.stdout, output, is_stderr=False))
         group.create_task(_pump(process.stderr, output, is_stderr=True))
     await process.wait()
+    # The transport finishes closing on later loop turns (each pipe's connection-lost and the
+    # exit itself are scheduled, not run, when `wait` wakes; Windows' proactor warns of a
+    # transport still open when a loop closes), so yield until it is done.
+    for _ in range(_TRANSPORT_CLOSE_TURNS):
+        await asyncio.sleep(0)
 
 
 async def _pump(

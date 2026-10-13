@@ -13,6 +13,7 @@ See Also:
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,6 +96,7 @@ def test_a_hash_that_is_not_a_digest_never_becomes_a_path(tmp_path: Path, bad: s
         BlobFiles(tmp_path).path_for(bad)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows files carry no POSIX mode bits")
 def test_the_files_are_owner_only(tmp_path: Path) -> None:
     files = BlobFiles(tmp_path)
     files.write(_SHA, _DATA)

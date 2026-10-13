@@ -87,8 +87,8 @@ async def test_the_package_is_put_under_pkg_and_the_runner_is_started_once() -> 
     assert len(sandbox.execs) == 1
     argv = sandbox.execs[0]
     assert argv[:3] == ("python3", "-m", RUNNER_MODULE)
-    assert argv[3] == "/sandbox/pkg"
-    assert argv[4] == "/sandbox/report.json"
+    assert argv[3] == str(sandbox.root / "pkg")  # Rendered as this host renders paths.
+    assert argv[4] == str(sandbox.root / "report.json")
     assert QuarantineLimits.from_json(argv[5]) == _LIMITS
 
 

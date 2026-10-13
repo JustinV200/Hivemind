@@ -38,7 +38,12 @@ def _zip(entries: list[tuple[str, bytes]], *, compression: int = zipfile.ZIP_DEF
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression) as archive:
         for name, content in entries:
-            archive.writestr(name, content)
+            # ZipInfo turns the host's separator into `/` at construction, so a backslash would
+            # vanish on Windows; the name is set afterwards to reach the archive untouched.
+            info = zipfile.ZipInfo("placeholder")
+            info.filename = name
+            info.compress_type = compression  # A ZipInfo ignores the archive's default.
+            archive.writestr(info, content)
     return buffer.getvalue()
 
 
