@@ -36,6 +36,15 @@ Public API:
 """
 
 from builders.swarm.client import DeviceClient
+from builders.swarm.device import (
+    DeviceLease,
+    DeviceProcess,
+    DeviceScript,
+    DeviceState,
+    ExecScript,
+    ReleaseScript,
+    ScriptedDevice,
+)
 from builders.swarm.dial import Dialled, RouterRig, make_router_rig
 from builders.swarm.enrolment import (
     enrol_node,
@@ -45,6 +54,7 @@ from builders.swarm.enrolment import (
     make_rules,
     make_swarm_invite,
 )
+from builders.swarm.guards import RecordingGuard
 from builders.swarm.hive import HiveRig, HubLog, WardenHandlerLog, make_hive_rig
 from builders.swarm.parties import (
     DeviceParty,
@@ -57,20 +67,46 @@ from builders.swarm.parties import (
     make_swarm_node,
 )
 from builders.swarm.raw import RawLink, make_raw_link
+from builders.swarm.rig import LinkRig, make_link_rig, make_source, open_rig_session
+from builders.swarm.routes import (
+    RouteRow,
+    linux_probes,
+    linux_route,
+    linux_route6,
+    macos_netstat,
+    macos_probes,
+    resolv_conf,
+    scutil_dns,
+)
 from builders.swarm.tls import TlsMaterial, make_tls_material
 
 __all__ = [
     "DeviceClient",
+    "DeviceLease",
     "DeviceParty",
+    "DeviceProcess",
+    "DeviceScript",
+    "DeviceState",
     "Dialled",
+    "ExecScript",
     "HiveParty",
     "HiveRig",
     "HubLog",
+    "LinkRig",
     "RawLink",
+    "RecordingGuard",
+    "ReleaseScript",
+    "RouteRow",
     "RouterRig",
+    "ScriptedDevice",
     "TlsMaterial",
     "WardenHandlerLog",
     "enrol_node",
+    "linux_probes",
+    "linux_route",
+    "linux_route6",
+    "macos_netstat",
+    "macos_probes",
     "make_capacity_report",
     "make_cell_ready",
     "make_device_party",
@@ -80,10 +116,15 @@ __all__ = [
     "make_heartbeat",
     "make_hive_party",
     "make_hive_rig",
+    "make_link_rig",
     "make_raw_link",
     "make_router_rig",
     "make_rules",
+    "make_source",
     "make_swarm_invite",
     "make_swarm_node",
     "make_tls_material",
+    "open_rig_session",
+    "resolv_conf",
+    "scutil_dns",
 ]

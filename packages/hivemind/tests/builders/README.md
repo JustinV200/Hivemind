@@ -113,3 +113,34 @@ reads: `scene` (one attached Warden over the Queen's in-memory stores, with the 
 would have, plus `submit`, `place`, `finish`, `record` and `write_wax` to populate it through the
 real Brood Chamber, trail and memory), `heartbeat`, and the `Census`, `Lifecycle` and `StaticMap`
 stand-ins for the Queen's Warden table, the Virtual Cell lifecycle and the Forage map.
+
+## `swarm/` (roadmap phase 11, the Swarm's Hive side)
+
+Everything a Swarm test needs, importable as `from builders.swarm import ...`. `parties.py` builds
+the signing parties and registry rows: `make_hive_party`, `make_device_party` (real Ed25519 keys and
+ids), `make_swarm_node`, `make_heartbeat`, `make_cell_ready`, `make_capacity_report`.
+`enrolment.py` builds the ceremony's values: `make_endpoint`, `make_rules`, `make_swarm_invite`,
+`make_enrol_request`, `make_enrol_envelope`, and `enrol_node` (puts a node into a registry the only
+way one gets in, by redeeming an invite). `hive.py` is the Hive Stand's side over in-memory storage:
+`make_hive_rig` (registry, trail, door, hub, recorder; `mint`, `events`, `kinds`, `listener`),
+`HubLog` (a hub listener that keeps what it heard, with `wait_until`) and `WardenHandlerLog`.
+
+Three ways to talk to the Hive's side. `rig.py`: `make_link_rig` starts a `DeviceLink` to a
+`ScriptedDevice` over an in-memory transport (`make_source`, `open_rig_session` lease it and open a
+`PollenSession`). `raw.py`: `make_raw_link` is the same link with the device end driven by hand,
+frame by frame, for the tests of the link, exchange and hub. `dial.py`: `make_router_rig` serves a
+`ConnectionRouter` over in-memory connections whose Hive end verifies with the real key ring, and
+`dial(party)` returns the device's end. `client.py`: `DeviceClient` dials the real listener over a
+real socket (TLS with a pin when asked) with the device's own key.
+
+`device/` is the scripted Pollen Packet: it answers leases, sessions, execs, file transfers,
+background processes, `swarm.observe` and node updates the way `docs/waggle/gateway-contract.md`
+says, from a `DeviceScript` the test turns (per-program or per-command-line `ExecScript`s, refusals,
+silences, release behaviour) and a virtual disk. It is test scripting only; the real Packet is
+`packages/pollen`. `routes.py` writes the text of a device's routing table and DNS settings as the
+Propolis commands print it (`linux_probes`, `macos_probes`); `tls.py` writes a throwaway
+self-signed certificate (`make_tls_material`); `guards.py` has `RecordingGuard`, a `CommandGuard`
+that allows everything except what a test denies.
+
+A `DeviceScript` is a mutable dataclass that is read afresh on every request: a test that changes
+one builds its own rather than editing a module-level script other tests share.

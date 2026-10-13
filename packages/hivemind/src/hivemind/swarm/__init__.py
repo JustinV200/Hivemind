@@ -97,13 +97,25 @@ from hivemind.swarm.level import RuntimeLevel, assert_move, can_move, is_promoti
 from hivemind.swarm.models import SWARM_SOURCE, InviteState, SwarmInvite, SwarmNode
 from hivemind.swarm.node_state import NodeStatus, assert_transition, can_transition
 from hivemind.swarm.registry import MemorySwarmRegistry, SqliteSwarmRegistry, SwarmRegistry
+from hivemind.swarm.session import (
+    CommandGuard,
+    DeviceCommand,
+    EnforcedCommandGuard,
+    PollenSession,
+)
+from hivemind.swarm.shield import PropolisChecks, ShieldedSource, ShieldReport
+from hivemind.swarm.source import SwarmLeaseReleaser, SwarmSource
+from hivemind.swarm.watch import PollenWatchProbe
 
 __all__ = [
     "SWARM_SOURCE",
     "CommandDeniedError",
+    "CommandGuard",
+    "DeviceCommand",
     "DeviceLink",
     "DeviceRequestError",
     "DeviceTimeoutError",
+    "EnforcedCommandGuard",
     "EnrolRefusal",
     "EnrolmentDeniedError",
     "EnrolmentDoor",
@@ -128,15 +140,22 @@ __all__ = [
     "NodeRevokedError",
     "NodeStatus",
     "NodeStatusConflictError",
+    "PollenSession",
+    "PollenWatchProbe",
+    "PropolisChecks",
     "RuntimeLevel",
+    "ShieldReport",
     "ShieldUnverifiedError",
+    "ShieldedSource",
     "SqliteSwarmRegistry",
     "SwarmError",
     "SwarmInvite",
+    "SwarmLeaseReleaser",
     "SwarmListener",
     "SwarmNode",
     "SwarmRecorder",
     "SwarmRegistry",
+    "SwarmSource",
     "TransferIntegrityError",
     "WardenConnection",
     "WardenConnectionHandler",
