@@ -152,12 +152,13 @@ level, but it cannot raise the ceiling it is asked against, and it cannot choose
 
 `pollen1.<base64url(JSON)>`: the prefix, a dot, and the URL-safe base64 (RFC 4648 section 5) of a
 compact UTF-8 JSON object. Padding is not written; a reader accepts it either way, as the spec's
-JSON conventions do for every `bytes` field. The object has exactly seven keys.
+JSON conventions do for every `bytes` field. The object has exactly eight keys.
 
 | Key | Value |
 |---|---|
 | `token` | 16 random bytes from the system's CSPRNG written as RFC 4648 base32 without padding, in groups of four joined by hyphens: 26 characters and six hyphens, 32 in all, the same shape as the Landing Board's invite code. The secret. |
 | `url` | The swarm listener's advertised URL (`wss://...`, or `ws://` on loopback). |
+| `hive_id` | The Queen's bee address (`hive_<ULID>`), the `recipient` of the first frame. |
 | `hive_node_id` | The Hive Stand's node id (`node_<ULID>`). |
 | `hive_key` | The Hive key: the Hive Stand's node public key, 64 lowercase hex characters (a raw 32-byte Ed25519 key). In this protocol version the Hive key is the Hive Stand's node key. |
 | `tls_sha256` | The SHA-256 fingerprint of the listener's certificate (the DER encoding), 64 lowercase hex characters; `null` when the URL is `ws://`. |
@@ -170,12 +171,12 @@ values are illustrative; the string is shown wrapped, the real one has no line b
 
 ```text
 pollen1.eyJ0b2tlbiI6Ikg3UUstM01aUC1XRDJGLVhOVkEtUjVURy1DNFlCLUo2IiwidXJsIjoi
-d3NzOi8vaGl2ZS5leGFtcGxlLm5ldDo4NzIwIiwiaGl2ZV9ub2RlX2lkIjoibm9kZV8wMU00VEo0
-R0cwMjQ4SDI0OEgyNDhIMjQ4SCIsImhpdmVfa2V5IjoiMDNhMTA3YmZmM2NlMTBiZTFkNzBkZDE4
-ZTc0YmMwOTk2N2U0ZDYzMDliYTUwZDVmMWRkYzg2NjQxMjU1MzFiOCIsInRsc19zaGEyNTYiOiI0
-MmIzNDFiZWY3M2FjYWQ5ZDVkY2I1NDQ1NGE5YWZlNTA1YjIyMzI2YTllMDQ0MWI2YTNhYWIxYTNk
-NzE5MTk1IiwiZXhwaXJlc19hdCI6IjIwMjYtMTAtMTNUMTI6MTU6MDBaIiwibGFiZWwiOiJraXRj
-aGVuLXBpIn0
+d3NzOi8vaGl2ZS5leGFtcGxlLm5ldDo4NzIwIiwiaGl2ZV9pZCI6ImhpdmVfMDFNNFRKNEdHMDI0
+OEgyNDhIMjQ4SDI0OEoiLCJoaXZlX25vZGVfaWQiOiJub2RlXzAxTTRUSjRHRzAyNDhIMjQ4SDI0
+OEgyNDhIIiwiaGl2ZV9rZXkiOiIwM2ExMDdiZmYzY2UxMGJlMWQ3MGRkMThlNzRiYzA5OTY3ZTRk
+NjMwOWJhNTBkNWYxZGRjODY2NDEyNTUzMWI4IiwidGxzX3NoYTI1NiI6IjQyYjM0MWJlZjczYWNh
+ZDlkNWRjYjU0NDU0YTlhZmU1MDViMjIzMjZhOWUwNDQxYjZhM2FhYjFhM2Q3MTkxOTUiLCJleHBp
+cmVzX2F0IjoiMjAyNi0xMC0xM1QxMjoxNTowMFoiLCJsYWJlbCI6ImtpdGNoZW4tcGkifQ
 ```
 
 It decodes to:
@@ -184,6 +185,7 @@ It decodes to:
 {
   "token": "H7QK-3MZP-WD2F-XNVA-R5TG-C4YB-J6",
   "url": "wss://hive.example.net:8720",
+  "hive_id": "hive_01M4TJ4GG0248H248H248H248J",
   "hive_node_id": "node_01M4TJ4GG0248H248H248H248H",
   "hive_key": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
   "tls_sha256": "42b341bef73acad9d5dcb54454a9afe505b22326a9e0441b6a3aab1a3d719195",
@@ -231,11 +233,10 @@ pinned.
 
 The first frame on the connection is one `swarm.enrol_request`, signed with the node key the packet
 just minted. The envelope (the fixed outer record every Waggle message rides in) names the packet as
-sender (`device_id`) and node (`node_id`). Its `recipient` has to be a well-formed Hive address, but
-the packet does not know the Queen's `hive_id` yet: the invite carries the Hive Stand's node and not
-the Queen's bee address, and `EnrolAccept` is where `hive_id` arrives. The packet therefore
-addresses this one frame to the placeholder `hive_00000000000000000000000000`, and the door does not
-check the recipient of an enrolment request.
+sender (`device_id`) and node (`node_id`). Its `recipient` is the invite's `hive_id`, the Queen's bee
+address, and the door refuses an enrolment request addressed to any other Hive (the receiver rule of
+spec section 3: a frame whose `recipient` is not the receiver's own address is dropped). `EnrolAccept`
+repeats `hive_id`; a packet that finds the two different refuses the accept.
 
 The payload (spec section 8.10):
 

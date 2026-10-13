@@ -51,10 +51,10 @@ per device, pinned in the swarm registry at enrolment, and revoking the device i
 
 **An invite binds the first key to the operator's decision.** `hive swarm invite --access LEVEL
 --shield meadow|propolis [--label NAME]` prints one invite string, `pollen1.<base64url(JSON)>`, with
-seven fields. `token` is 16 random bytes as RFC 4648 base32 in groups of four (26 characters and six
+eight fields. `token` is 16 random bytes as RFC 4648 base32 in groups of four (26 characters and six
 hyphens, 32 in all), the same shape as the invite code of the Landing Board, the Hive's HTTP door
 for enrolled clients (ADR-0041); only its SHA-256 is stored. `url` is the swarm listener's
-advertised URL. `hive_node_id` and `hive_key` (64 hex characters) are the Hive Stand's node and its
+advertised URL and `hive_id` the Queen's bee address, the recipient of the first frame. `hive_node_id` and `hive_key` (64 hex characters) are the Hive Stand's node and its
 public key. `tls_sha256` is the fingerprint of the listener's certificate, or null on loopback.
 `expires_at` and `label` complete it. The string is a secret: it is printed once and never logged.
 Invites expire (`[swarm] invite_ttl_minutes`, default 15) and are single use. The access cap and the

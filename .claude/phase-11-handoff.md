@@ -35,7 +35,8 @@ lint-imports (12 contracts), the five hygiene scripts all clean; unit and contra
 - **Invites bind the first key.** `hive swarm invite --access LEVEL --shield meadow|propolis
   [--label NAME]` prints one invite string, `pollen1.<base64url(JSON)>`, with `token` (16 random
   bytes as grouped base32, 32 characters, the same shape as the Entrance's invite code; only
-  its sha256 is stored), `url` (the swarm listener's advertised URL), `hive_node_id`,
+  its sha256 is stored), `url` (the swarm listener's advertised URL), `hive_id` (the recipient of the first
+  frame), `hive_node_id`,
   `hive_key` (64 hex), `tls_sha256` (the listener certificate's fingerprint, or null on
   loopback), `expires_at` and `label`. The string is a secret: printed once, never logged.
   Invites expire (`[swarm] invite_ttl_minutes`, default 15) and are single use; the operator's
