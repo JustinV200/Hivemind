@@ -35,6 +35,8 @@ Public API:
     - ScriptedDevice, DeviceScript, ExecScript, ReleaseScript: the device double (device).
 """
 
+from builders.swarm.client import DeviceClient
+from builders.swarm.dial import Dialled, RouterRig, make_router_rig
 from builders.swarm.enrolment import (
     enrol_node,
     make_endpoint,
@@ -43,6 +45,7 @@ from builders.swarm.enrolment import (
     make_rules,
     make_swarm_invite,
 )
+from builders.swarm.hive import HiveRig, HubLog, WardenHandlerLog, make_hive_rig
 from builders.swarm.parties import (
     DeviceParty,
     HiveParty,
@@ -53,10 +56,20 @@ from builders.swarm.parties import (
     make_hive_party,
     make_swarm_node,
 )
+from builders.swarm.raw import RawLink, make_raw_link
+from builders.swarm.tls import TlsMaterial, make_tls_material
 
 __all__ = [
+    "DeviceClient",
     "DeviceParty",
+    "Dialled",
     "HiveParty",
+    "HiveRig",
+    "HubLog",
+    "RawLink",
+    "RouterRig",
+    "TlsMaterial",
+    "WardenHandlerLog",
     "enrol_node",
     "make_capacity_report",
     "make_cell_ready",
@@ -66,7 +79,11 @@ __all__ = [
     "make_enrol_request",
     "make_heartbeat",
     "make_hive_party",
+    "make_hive_rig",
+    "make_raw_link",
+    "make_router_rig",
     "make_rules",
     "make_swarm_invite",
     "make_swarm_node",
+    "make_tls_material",
 ]

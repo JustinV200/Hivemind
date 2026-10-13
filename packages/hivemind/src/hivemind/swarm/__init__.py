@@ -82,6 +82,17 @@ from hivemind.swarm.errors import (
     TransferIntegrityError,
 )
 from hivemind.swarm.events import SwarmRecorder
+from hivemind.swarm.gateway import (
+    DeviceLink,
+    GatewayHub,
+    HeartbeatMonitor,
+    HubListener,
+    ListenerConfig,
+    ListenerDeps,
+    SwarmListener,
+    WardenConnection,
+    WardenConnectionHandler,
+)
 from hivemind.swarm.level import RuntimeLevel, assert_move, can_move, is_promotion
 from hivemind.swarm.models import SWARM_SOURCE, InviteState, SwarmInvite, SwarmNode
 from hivemind.swarm.node_state import NodeStatus, assert_transition, can_transition
@@ -90,13 +101,17 @@ from hivemind.swarm.registry import MemorySwarmRegistry, SqliteSwarmRegistry, Sw
 __all__ = [
     "SWARM_SOURCE",
     "CommandDeniedError",
+    "DeviceLink",
     "DeviceRequestError",
     "DeviceTimeoutError",
     "EnrolRefusal",
     "EnrolmentDeniedError",
     "EnrolmentDoor",
     "EnrolmentRules",
+    "GatewayHub",
     "GatewayUnavailableError",
+    "HeartbeatMonitor",
+    "HubListener",
     "InvalidNodeTransitionError",
     "InviteConflictError",
     "InviteEndpoint",
@@ -105,6 +120,8 @@ __all__ = [
     "InviteRefusedError",
     "InviteState",
     "LadderError",
+    "ListenerConfig",
+    "ListenerDeps",
     "MemorySwarmRegistry",
     "MintedInvite",
     "NodeNotFoundError",
@@ -116,10 +133,13 @@ __all__ = [
     "SqliteSwarmRegistry",
     "SwarmError",
     "SwarmInvite",
+    "SwarmListener",
     "SwarmNode",
     "SwarmRecorder",
     "SwarmRegistry",
     "TransferIntegrityError",
+    "WardenConnection",
+    "WardenConnectionHandler",
     "assert_move",
     "assert_transition",
     "can_move",
