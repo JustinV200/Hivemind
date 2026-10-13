@@ -14,7 +14,8 @@ contract names it); it does so through asyncio's subprocess API with an argument
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside royal_jelly.quarantine_comb.
     Built by the composition root (dev manifests, `hive tools quarantine`) and by the tests; used
-    by `QuarantineComb`. Calls into `hivemind.cell.session` (CompletedCommand) and the standard
+    by `QuarantineComb`. Calls into `hivemind.cell.session` (CompletedCommand),
+    `hivemind.cell.local` (kill_process_tree, for Windows) and the standard
     library.
 
 Key invariants:
@@ -41,6 +42,7 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
+from hivemind.cell.local import kill_process_tree
 from hivemind.cell.session import CompletedCommand
 from hivemind.royal_jelly.quarantine_comb.sandbox import (
     DEFAULT_OUTPUT_BYTES,
@@ -158,7 +160,7 @@ class SandboxSubprocess:
             await asyncio.wait_for(_drain_and_wait(process, output), timeout=timeout_s)
         except TimeoutError:
             timed_out = True
-            await _kill_group(process)
+            await _kill_group(process, self._clock)
             # The pumps died with the wait: read what is left so each pipe reaches EOF and its
             # transport closes (one left open warns when the loop closes), bounded in case a
             # grandchild the kill missed still holds the pipe's far end.
@@ -221,12 +223,15 @@ async def _pump(
         output.add(is_stderr=is_stderr, data=data)
 
 
-async def _kill_group(process: asyncio.subprocess.Process) -> None:
-    """Kill the child's whole process group and reap it."""
+async def _kill_group(process: asyncio.subprocess.Process, clock: Clock) -> None:
+    """Kill the child's whole process group (its tree, on Windows) and reap it."""
     if process.returncode is None:
         try:
             if sys.platform == "win32":
-                process.kill()
+                # No process groups to signal here: the Cell releaser's `taskkill /T` takes the
+                # tree, so a grandchild cannot outlive the kill and keep the pipes open (which
+                # would also keep their transports from ever closing).
+                await kill_process_tree(process.pid, clock)
             else:
                 os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
