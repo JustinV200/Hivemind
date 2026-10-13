@@ -130,7 +130,9 @@ def test_asyncios_own_unix_socket_pair_is_not_network_use(tmp_path: Path) -> Non
     policy = _policy(tmp_path)
     frames = _frames(policy, _TOOL_FRAME)
 
-    assert classify("socket.__new__", (object(), socket.AF_UNIX, 1, 0), frames, policy) is None
+    # AF_UNIX is absent on Windows; any family outside the internet ones reads the same way.
+    unix_family = getattr(socket, "AF_UNIX", 1)
+    assert classify("socket.__new__", (object(), unix_family, 1, 0), frames, policy) is None
     assert classify("socket.__new__", (object(), socket.AF_INET, 1, 0), frames, policy) is not None
     assert classify("socket.connect", (object(), ("example.org", 80)), frames, policy) is not None
     assert classify("socket.getaddrinfo", ("example.org", 80), frames, policy) is not None

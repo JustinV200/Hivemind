@@ -13,11 +13,19 @@ See Also:
 
 from __future__ import annotations
 
-import resource
-import signal
+import sys
 import time
 
 import pytest
+
+if sys.platform == "win32":
+    # The runner never runs on Windows (its sandbox is a POSIX host); `resource` and SIGALRM
+    # do not exist there, so the module is skipped before it names them.
+    pytest.skip("the runner's limits and deadline are POSIX only", allow_module_level=True)
+
+import resource  # After the platform skip, so Windows never imports it.
+import signal
+import threading
 
 from hivemind.royal_jelly.quarantine_comb.limits import RlimitPlan
 from hivemind.royal_jelly.quarantine_comb.runner.usage import (
@@ -60,7 +68,9 @@ def test_the_baseline_reads_this_process() -> None:
 
     assert baseline.cpu_s > 0
     assert baseline.address_space_bytes >= 0
-    assert baseline.process_count >= 0
+    # RLIMIT_NPROC counts the user's threads too, so the baseline must count at least this
+    # process's own, or a cap built on it would fail the next thread at once (CI runners do).
+    assert baseline.task_count >= threading.active_count()
 
 
 def test_apply_limits_sets_known_limits_and_skips_unknown_ones(

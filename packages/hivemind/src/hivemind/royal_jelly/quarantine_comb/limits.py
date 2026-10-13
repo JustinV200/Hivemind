@@ -33,7 +33,7 @@ CPU_GRACE_S = (
     1  # Whole seconds added to the CPU cap: RLIMIT_CPU counts in integers and rounds down.
 )
 FSIZE_BYTES = 16 * 1024 * 1024  # One file may not outgrow this; a tool writes source-sized data.
-PROCESS_HEADROOM = 64  # New processes the user may start beyond those already running.
+PROCESS_HEADROOM = 64  # New tasks (processes or threads) the user may start beyond those running.
 MIN_FUZZ_CALL_S = 1.0  # A fuzz call needs at least this long to finish an honest tool.
 MAX_FUZZ_CALL_S = 30.0  # And never more: a hang must not spend the whole wall budget on one case.
 
@@ -57,12 +57,13 @@ class Baseline:
     Attributes:
         cpu_s: CPU seconds spent so far (user plus system).
         address_space_bytes: Virtual size of the process so far.
-        process_count: Processes already running on the machine, a ceiling for the user's own.
+        task_count: Tasks (processes and their threads) this user already runs across the
+            machine, which is what `RLIMIT_NPROC` counts against; 0 where it could not be read.
     """
 
     cpu_s: float
     address_space_bytes: int
-    process_count: int
+    task_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,8 +100,8 @@ def rlimit_plan(limits: QuarantineLimits, baseline: Baseline) -> RlimitPlan:
     if baseline.address_space_bytes > 0:
         caps["RLIMIT_AS"] = baseline.address_space_bytes + limits.memory_bytes
     # Processes are counted per user across the machine, so the cap is what runs now plus headroom.
-    if baseline.process_count > 0:
-        caps["RLIMIT_NPROC"] = baseline.process_count + PROCESS_HEADROOM
+    if baseline.task_count > 0:
+        caps["RLIMIT_NPROC"] = baseline.task_count + PROCESS_HEADROOM
     return RlimitPlan(limits={name: (value, value) for name, value in caps.items()})
 
 

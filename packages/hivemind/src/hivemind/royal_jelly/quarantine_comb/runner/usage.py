@@ -6,7 +6,10 @@ what start-up already cost (a `Baseline`), applies the operating-system limits t
 the main thread is doing (a blocking sleep included, which `asyncio.wait_for` cannot). After the
 phases it measures what the tool's work cost, net of that baseline, and reports how many bytes the
 tool wrote to stdout and stderr. Every platform call is guarded: a limit or signal the platform
-lacks is skipped silently, since the gates still judge the measured figures.
+lacks is skipped silently, since the gates still judge the measured figures. The runner only ever
+runs where a sandbox is (an Ubuntu Virtual Cell, or the development subprocess on a POSIX host),
+but the module stays importable on Windows, because the Comb's own modules import it and a Windows
+Hive Stand still composes a Comb.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside royal_jelly.quarantine_comb.
@@ -27,7 +30,6 @@ See Also:
 from __future__ import annotations
 
 import os
-import resource
 import signal
 import sys
 import time
@@ -36,6 +38,9 @@ from dataclasses import dataclass
 
 from hivemind.royal_jelly.quarantine_comb.limits import Baseline, RlimitPlan
 from hivemind.royal_jelly.quarantine_comb.runner.report import UsageSection
+
+if sys.platform != "win32":
+    import resource  # POSIX only; typeshed (and mypy's platform narrowing) agree.
 
 _PAGE_FIELD = 0  # First field of /proc/self/statm: total program size, in pages.
 _TAIL_KEEP_CHARS = 4_000  # How much of the tool's last output the writer keeps for a human.
@@ -66,6 +71,9 @@ class Meter:
     @classmethod
     def now(cls) -> Meter:
         """Read this process's CPU seconds, peak resident bytes and a monotonic wall time."""
+        if sys.platform == "win32":
+            # No `resource` here: CPU time is still honest, the peak is unknown and reads as 0.
+            return cls(time.process_time(), 0, time.monotonic())
         usage = resource.getrusage(resource.RUSAGE_SELF)
         # ru_maxrss is kilobytes on Linux and bytes on macOS; the scale differs, the meaning not.
         scale = 1 if sys.platform == "darwin" else 1024
@@ -93,7 +101,7 @@ def take_baseline() -> Baseline:
     return Baseline(
         cpu_s=Meter.now().cpu_s,
         address_space_bytes=_virtual_size(),
-        process_count=_process_count(),
+        task_count=_user_task_count(),
     )
 
 
@@ -103,6 +111,8 @@ def apply_limits(plan: RlimitPlan) -> None:
     Args:
         plan: Limit constant names to `(soft, hard)` values.
     """
+    if sys.platform == "win32":
+        return  # No `resource` module: nothing to apply, and the gates still measure.
     for name, (soft, hard) in plan.limits.items():
         constant = getattr(resource, name, None)
         # A non-positive value means the platform could not tell: better no cap than a wrong one.
@@ -126,7 +136,7 @@ def arm_deadline(seconds: float) -> bool:
     Returns:
         False when the platform has no interval timer (the Comb's own kill is the only bound).
     """
-    if not hasattr(signal, "setitimer"):
+    if sys.platform == "win32" or not hasattr(signal, "setitimer"):
         return False
 
     def _fire(_signum: int, _frame: types.FrameType | None) -> None:
@@ -139,7 +149,7 @@ def arm_deadline(seconds: float) -> bool:
 
 def disarm_deadline() -> None:
     """Cancel a pending deadline, so a late signal cannot interrupt the report being written."""
-    if hasattr(signal, "setitimer"):
+    if sys.platform != "win32" and hasattr(signal, "setitimer"):
         signal.setitimer(signal.ITIMER_REAL, 0)
 
 
@@ -173,6 +183,8 @@ class CountingWriter:
 
 def _virtual_size() -> int:
     """Return this process's virtual size in bytes, or 0 where `/proc` does not say."""
+    if sys.platform == "win32":
+        return 0  # No /proc and no sysconf: the address-space cap is skipped.
     try:
         with open("/proc/self/statm", encoding="ascii") as statm:  # No Path needed.
             pages = int(statm.read().split()[_PAGE_FIELD])
@@ -181,9 +193,30 @@ def _virtual_size() -> int:
     return pages * os.sysconf("SC_PAGE_SIZE")
 
 
-def _process_count() -> int:
-    """Return how many processes the machine runs, or 0 where `/proc` does not say."""
+def _user_task_count() -> int:
+    """Return how many tasks this user already runs, or 0 where `/proc` does not say.
+
+    RLIMIT_NPROC counts every task of the real user across the machine, threads included, so
+    the baseline must count the same thing: `/proc/<pid>/status`'s `Threads` for each process
+    whose real uid is this one. Counting processes alone undercounts a user who runs threaded
+    programs (a CI runner's own agent holds hundreds), and a cap below what the user already
+    runs makes the next thread or fork fail at once.
+    """
+    if sys.platform == "win32":
+        return 0  # No /proc and no uid: the process cap is skipped.
+    uid = os.getuid()
+    total = 0
     try:
-        return sum(1 for entry in os.listdir("/proc") if entry.isdigit())
+        entries = [entry for entry in os.listdir("/proc") if entry.isdigit()]
     except OSError:
         return 0
+    for entry in entries:
+        try:
+            with open(f"/proc/{entry}/status", encoding="ascii", errors="replace") as status:
+                fields = dict(line.split(":", 1) for line in status if ":" in line)
+        except OSError:
+            continue  # The process ended between the listing and the read.
+        # `Uid:` lists real, effective, saved and filesystem uids; the real one is the limit's.
+        if int(fields.get("Uid", "-1").split()[0]) == uid:
+            total += int(fields.get("Threads", "1").split()[0])
+    return total
