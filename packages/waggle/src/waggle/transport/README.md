@@ -5,9 +5,11 @@ every Waggle message travels in) between two bees, plus the implementations that
 transport is a policy-free carrier of frames: every check on a frame (size, shape, version,
 kind, signature) happens in the `Codec` it is built with. Delivery at this layer is at-most-once,
 with ordering preserved within one connection; retries and durability belong to the caller
-through `waggle.outbox`.
+through `waggle.outbox`. The one place a transport has a policy is the Hive Stand's listener,
+which defends itself (roadmap steps 11.3a and 11.3b): a frame ceiling per connection, a replay
+window shared by all of them, and `wss://` with a certificate a dialling node pins.
 
-## Public API (roadmap steps 1.4 to 1.6)
+## Public API (roadmap steps 1.4 to 1.6, 10.3a, 11.3a and 11.3b)
 
 - **`Transport`** (`base.py`): `connect()`, `send(envelope)`, `receive()` (an async generator:
   `async for envelope in transport.receive()`), `close()` and `is_connected`. The docstring is the
@@ -39,6 +41,33 @@ through `waggle.outbox`.
 - **`WebSocketServer`** (`websocket_server.py`): the loopback-by-default listener; `start()`,
   `port`, `uri`, `connections()` (an async generator of accepted `WebSocketTransport`s) and
   `close()`. Every Cell and device dials out to the Hive Stand; the server is the only listener.
+  `WebSocketServer(codec, host=..., port=..., **options)` takes its optional settings as the
+  typed keywords of `ServerOptions` (so the constructor stays within the five-parameter limit):
+  `limits` (a `ServerLimits`), `ssl_context` (serve `wss://`; `uri` then says so), `on_refusal`
+  (an async callback handed each `ConnectionRefusal`), `clock` and `open_timeout_s`. Without
+  `limits` and `ssl_context` the server is exactly the plain listener it always was.
+- **Limits** (`limits.py`, `replay.py`, `ceiling.py`, roadmap steps 11.3a and 11.3b): with
+  `ServerLimits` every accepted connection counts each received frame against its own
+  `FrameCeiling`, a pure token bucket (`CeilingLimits`: `max_frames_per_minute` 6000, `burst`
+  600), *before* the frame is parsed; over it the listener reports a `FRAME_CEILING` refusal,
+  closes with code 4029 (`CLOSE_FRAME_CEILING`, reason `waggle.transport.frame_ceiling`) and
+  `receive()` raises `FrameCeilingError`. Every decoded envelope's `(node_id, id)` is checked
+  against one `ReplayWindow` (`ReplayLimits`: `window_s` 600, `max_ids` 50,000) shared by all
+  connections, so a signed frame replayed on a fresh connection is caught; a duplicate is
+  reported as a `REPLAY` refusal and skipped, never yielded. Both checks are pure and take the
+  time as an argument (read from the injected `Clock`), so tests need no timer. Waggle writes no
+  trail: the Hive Stand's listener wrapper records each `ConnectionRefusal` (`node_id`, `kind`,
+  `envelope_id`, `at`) as `guard.frame_ceiling` or `guard.replay_refused`.
+  `WebSocketTransport` consults the listener through `ReceiveHooks`, which `ConnectionLimiter`
+  satisfies; a dialled connection has no hooks.
+- **TLS** (`tls.py`): `server_ssl_context(cert, key)` builds the listener's context (TLS 1.2 or
+  later); `DialOptions.tls_pin_sha256` makes a `wss://` dial trust one certificate by its
+  SHA-256 fingerprint (`certificate_sha256`, 64 lowercase hex) instead of a certificate
+  authority. Right after the handshake, before any frame is sent, `check_pin` compares the
+  peer's certificate with the pin; a mismatch aborts the connection and raises
+  `TlsPinMismatchError` (a `ConnectFailedError`, code `waggle.transport.tls_pin`) at once, never
+  retried. It works through a SOCKS proxy too, and a pin on a `ws://` URI is refused. A `wss://`
+  URI with no pin keeps the default certificate-authority verification.
 
 ## How to test this
 
@@ -50,4 +79,9 @@ uv run --frozen pytest packages/waggle/tests/transport packages/waggle/tests/con
 parametrised over both implementations: ordering within a connection, close semantics, oversized
 and malformed frame rejection, signature rejection, and outbox replay after a dropped link. The
 WebSocket tests bind a real loopback server on an OS-assigned port and use a raw `websockets`
-client to send the frames a well-behaved transport never would.
+client to send the frames a well-behaved transport never would. The limits tests
+(`test_replay.py`, `test_ceiling.py` and `test_limits.py` for the pure parts,
+`test_websocket_server_limits.py` for the 4029 close and a replay on a second connection) inject a
+`FakeClock`; the TLS tests (`test_tls.py`, `test_websocket_tls.py`) generate throwaway
+self-signed certificates with `cryptography` (see `tests/transport/conftest.py`), so no key is
+committed.

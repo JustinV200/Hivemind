@@ -367,6 +367,8 @@ class in `waggle/errors.py`.
 | `waggle.transport.connection_lost` | `ConnectionLostError` | The link dropped mid-transfer |
 | `waggle.transport.connect_failed` | `ConnectFailedError` | Gave up after `max_attempts` dials |
 | `waggle.transport.proxy_failed` | `ProxyFailedError` | The SOCKS proxy could not be reached, refused, closed early or did not answer in time |
+| `waggle.transport.frame_ceiling` | `FrameCeilingError` | A connection sent frames faster than the listener's per-connection ceiling; the listener closed it with code `4029` and this code as the close reason, never as a `control.error` (section 9) |
+| `waggle.transport.tls_pin` | `TlsPinMismatchError` | A pinned `wss://` dial found a certificate other than its `tls_pin_sha256`; a `ConnectFailedError` raised at once on the first attempt and never retried (section 9) |
 | `waggle.outbox.error` | `OutboxError` | Root; never raised directly |
 | `waggle.outbox.corrupt` | `OutboxCorruptError` | An unreadable non-trailing outbox record |
 
@@ -2448,12 +2450,20 @@ connection, client or server side, binary frames only; a text frame is `waggle.c
   `RECONNECT_FACTOR = 2.0`, `RECONNECT_MAX_S = 30.0`, plus an `open_timeout`; it raises
   `waggle.transport.connect_failed` after `max_attempts`. After a drop the caller calls
   `connect()` again and then replays its outbox.
-- `WebSocketServer(host="127.0.0.1", port=0, codec, ...)` offers `start()`, a `port` property,
-  `connections() -> AsyncIterator[WebSocketTransport]` and `close()`; it owns its handler tasks
-  (structured concurrency, no dropped tasks).
+- `WebSocketServer(codec, *, host="127.0.0.1", port=0, **options)` offers `start()`, `port` and
+  `uri` properties, `connections() -> AsyncIterator[WebSocketTransport]` and `close()`; it owns
+  its handler tasks (structured concurrency, no dropped tasks). The optional keywords are the
+  typed `ServerOptions`: `limits` (`ServerLimits`, below), `ssl_context` (serve `wss://`; `uri`
+  then starts with `wss://`), `on_refusal` (an async callback handed each `ConnectionRefusal`),
+  `clock` (the injected `Clock` the limits read) and `open_timeout_s`. Without `limits` and
+  `ssl_context` the listener is the plain one described above, unchanged.
 - Keepalive is the WebSocket ping: `PING_INTERVAL_S = 20.0`, `PING_TIMEOUT_S = 20.0`.
 - Close codes: `1000` normal; `1002` protocol error (malformed frame, unsupported major, unknown
-  kind); `1008` policy violation (missing, unknown or invalid signature); `1009` message too big.
+  kind); `1008` policy violation (missing, unknown or invalid signature); `1009` message too big;
+  `4029` frame ceiling (the application range of RFC 6455 section 7.4.2): the peer sent frames
+  faster than the listener's per-connection ceiling, with the reason
+  `waggle.transport.frame_ceiling`. Only the server half sends `4029`; the peer's `receive` sees
+  a lost link (`waggle.transport.connection_lost`) and reconnects with its usual backoff.
 - Where a Cell's tier routes its link through a VPN or Tor (a `NIGHT_VEIL` Cell reaches the Hive
   Stand through a hidden-service endpoint), only the URI and the network path differ; the
   transport and the protocol are unchanged.
@@ -2466,6 +2476,53 @@ connection, client or server side, binary frames only; a text frame is `waggle.c
   timeout is `waggle.transport.proxy_failed`, retried with the same backoff through the same
   proxy; a proxied transport never falls back to a direct connection. A `ws://` onion URI with no
   proxy is refused at construction.
+
+**Receiver obligations at the listener** (`waggle/transport/replay.py`, `ceiling.py`,
+`limits.py`). Receivers must deduplicate by envelope id within a bounded window, and a listener
+must bound what one connection can make it do. A `WebSocketServer` given
+`limits=ServerLimits(replay=ReplayLimits(...), ceiling=CeilingLimits(...))`, either of which may
+be `None` to switch that check off, therefore:
+
+- **Counts every frame** a connection delivers, valid or not, against that connection's own
+  token bucket *before* anything is parsed: `max_frames_per_minute = 6000` (a hundred a second,
+  well above any heartbeat and result traffic) with a `burst` of 600 by default. Over it the
+  listener reports the refusal, closes the connection with code `4029` and the reason
+  `waggle.transport.frame_ceiling`, and its `receive` raises `FrameCeilingError`. Below the
+  ceiling nothing changes.
+- **Drops a duplicate envelope id.** Once the codec has decoded (and, with a verifier, verified)
+  a frame, its `(node_id, id)` is checked against one replay window shared by every connection
+  the listener accepts: the ids seen over the last `window_s = 600` seconds, at most
+  `max_ids = 50_000` of them, the oldest forgotten first. A duplicate is dropped without being
+  handed to the receiver, and the connection stays open: a lost ack followed by an outbox replay
+  (section 10) is idempotent, and a signed frame replayed on a fresh connection is caught as well
+  as one replayed on the old. The same id from two nodes is two ids. This window is the
+  listener's bounded first line; the inbox's longer per-sender memory (section 3) stays the
+  authority on what was processed.
+- **Reports, but writes no trail.** waggle has no trail, so each refusal is handed to the
+  caller's `on_refusal` callback as a `ConnectionRefusal` (`node_id`, `kind` = `REPLAY` or
+  `FRAME_CEILING`, `envelope_id`, `at`) before the duplicate is dropped or the connection closed;
+  the Hive Stand's listener wrapper records it. A `FRAME_CEILING` names the node of the last
+  envelope the connection decoded, or none when it never decoded one.
+
+The client end and the in-process pair apply neither check. Every other receiver of Waggle
+frames, a Pollen Packet's gateway included, carries the same duplicate-drop obligation on its
+own side.
+
+**TLS and certificate pinning.** Confidentiality is the link's (section 6), and off the Hive
+Stand's own machine the link is `wss://`. A `WebSocketServer` given an `ssl_context`
+(`waggle.transport.tls.server_ssl_context(cert, key)`, TLS 1.2 or later, asking clients for no
+certificate: a node proves itself with signatures) serves `wss://`. The listener's certificate is
+usually self-signed and often addressed by IP, so a dialling node does not verify it against a
+certificate authority: `DialOptions.tls_pin_sha256` is the SHA-256 of the certificate's DER
+bytes, 64 lowercase hexadecimal characters (anything else is a `ValueError`), and with it the
+dial trusts that one certificate, checks no host name, and compares the peer's certificate with
+the pin as soon as the connection opens, before any frame is sent. A mismatch (another
+certificate, or none) aborts the connection and raises `waggle.transport.tls_pin`
+(`TlsPinMismatchError`, a `ConnectFailedError`) at once: it is never retried, because a
+different certificate is a different machine or an attacker in the path, not a flaky link. The
+pin works through a SOCKS proxy too, since the TLS handshake runs over the proxied socket. A
+`wss://` URI with no pin keeps the default certificate-authority verification, and a pin on a
+`ws://` URI is refused at construction.
 
 ## 10. Outbox and offline replay
 

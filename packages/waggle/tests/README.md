@@ -11,7 +11,9 @@ source module (a large module's suite splits by feature: `test_codec_decode.py`,
   valid instance of every class; `test_registry*.py` loads all ten by file path and round-trips
   every example through the codec.
 - `outbox/`: the queue, the JSONL log underneath it and the replay through a transport.
-- `transport/`: the memory and WebSocket transports, the latter against a real loopback server.
+- `transport/`: the memory and WebSocket transports, the latter against a real loopback server,
+  plus the listener's limits (replay window, frame ceiling) and TLS pinning, with generated
+  self-signed certificates.
 - `contracts/`: the transport conformance suite of roadmap step 1.9, parametrised over both
   implementations.
 

@@ -20,15 +20,29 @@ resolved here) and the connected socket is handed to the WebSocket handshake, so
 or retried, ever connects directly. An onion service URI with no proxy is refused at construction:
 there is no direct route to one, and looking its name up would leak it.
 
+Roadmap step 11.3 (TLS pinning): the swarm listener serves ``wss://`` with a certificate of its
+own, usually self-signed and often addressed by IP, so a device cannot verify it against a
+certificate authority. ``DialOptions.tls_pin_sha256`` is the SHA-256 fingerprint the invite
+carried (``waggle.transport.tls``). With a pin the dial trusts no authority and checks no host
+name; as soon as the connection opens, before any Waggle frame is sent, it compares the
+certificate the peer presented with the pin, and a mismatch drops the connection and raises
+``TlsPinMismatchError`` at once, with no retry: a wrong certificate is a different machine or an
+attacker in the path, which a backoff cannot cure. The pin works through a SOCKS proxy too, since
+the TLS handshake runs over the proxied socket like the WebSocket one. A ``wss://`` URI with no pin
+keeps the default certificate-authority verification, and a pin on a ``ws://`` URI is refused.
+
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Satisfies waggle.transport.base.Transport; used by
     every Warden and Pollen loop that reaches the Hive Stand; calls into waggle.uris,
-    waggle.clock, waggle.transport.socks, waggle.transport.websocket and the websockets library.
+    waggle.clock, waggle.transport.socks, waggle.transport.tls, waggle.transport.websocket and
+    the websockets library.
 
 Key invariants:
     - A ws:// URI is accepted only on a loopback host or a v3 onion service (waggle.uris):
       confidentiality is the link's, one machine's or Tor's (spec section 6).
+    - With a pin, no connection is handed out whose certificate is not the pinned one, and a
+      mismatch is never retried; without one, wss:// verifies against the system's authorities.
     - With a SOCKS proxy set, every attempt goes through it; a proxy failure is retried through
       the same proxy and never falls back to a direct connection.
     - Every backoff sleep goes through the injected Clock; the only real-time wait is the
@@ -46,6 +60,7 @@ See Also:
 from __future__ import annotations
 
 import socket
+import ssl
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -68,6 +83,7 @@ from waggle.transport.socks import (
     SocksTimeouts,
     open_socks_connection,
 )
+from waggle.transport.tls import check_pin, is_valid_pin, pinned_client_ssl_context
 from waggle.transport.websocket import (
     CLOSE_TIMEOUT_S,
     PING_INTERVAL_S,
@@ -110,6 +126,11 @@ class DialOptions:
             that every dial goes through, the destination named to it (a Night Veil Cell's Tor
             SOCKS port, roadmap step 10.3a); None dials directly.
         socks_timeouts: How long reaching the proxy, and its answer, may each take.
+        tls_pin_sha256: The SHA-256 fingerprint of the listener's certificate, 64 lowercase hex
+            characters (``waggle.transport.tls.certificate_sha256``), for a ``wss://`` URI. With
+            it the dial trusts that one certificate and no authority, and a different certificate
+            is ``TlsPinMismatchError``, never retried; None verifies against the system's
+            authorities as an ordinary ``wss://`` client does.
     """
 
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
@@ -117,6 +138,21 @@ class DialOptions:
     allow_virtual_cell_gateway_host: bool = False
     socks_proxy_url: str | None = None
     socks_timeouts: SocksTimeouts = DEFAULT_SOCKS_TIMEOUTS
+    tls_pin_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse a pin that is not spelled as a SHA-256 fingerprint.
+
+        Raises:
+            ValueError: ``tls_pin_sha256`` is set but is not 64 lowercase hexadecimal characters.
+        """
+        # Strict on purpose: a pin that never matches would fail every dial forever, and an
+        # uppercase or colon-separated fingerprint is the commonest way to write one by hand.
+        if self.tls_pin_sha256 is not None and not is_valid_pin(self.tls_pin_sha256):
+            raise ValueError(
+                "tls_pin_sha256 must be the 64 lowercase hexadecimal characters of a SHA-256 "
+                f"certificate fingerprint, got {self.tls_pin_sha256!r}."
+            )
 
 
 DEFAULT_DIAL_OPTIONS = DialOptions()  # One frozen instance; the constructor's own default.
@@ -147,7 +183,8 @@ class WebSocketClientTransport:
         Raises:
             ValueError: ``uri`` is not a WebSocket URI, uses ws:// off an allowed host, names an
                 onion service with no SOCKS proxy set, the proxy URL is not a loopback
-                ``socks5h``/``socks4a`` one, or ``options.max_attempts`` is below 1.
+                ``socks5h``/``socks4a`` one, ``options.max_attempts`` is below 1, or
+                ``options.tls_pin_sha256`` is set for a ws:// URI.
         """
         # Checked once here, not per dial, so a misconfigured address fails at construction in
         # the composition root rather than inside a reconnect loop (spec section 6).
@@ -158,6 +195,8 @@ class WebSocketClientTransport:
             raise ValueError(f"max_attempts must be at least 1, got {options.max_attempts}.")
         self._proxy = _proxy(self._uri, options.socks_proxy_url)
         self._socks_timeouts = options.socks_timeouts
+        self._tls = _tls_argument(self._uri, options.tls_pin_sha256)
+        self._tls_pin = options.tls_pin_sha256
         self._codec = codec
         self._clock = clock
         self._max_attempts = options.max_attempts
@@ -204,6 +243,8 @@ class WebSocketClientTransport:
         Raises:
             ConnectFailedError: Every attempt failed (refused, unreachable, handshake rejected
                 or timed out); the message carries the URI and the attempt count.
+            TlsPinMismatchError: A ConnectFailedError raised at once, on the first attempt that
+                reaches a peer, when the certificate it presents is not the pinned one.
             InvalidURI: The URI passed the loopback rule but websockets cannot parse it; a
                 configuration error, never retried.
         """
@@ -280,23 +321,16 @@ class WebSocketClientTransport:
     async def _dial(self) -> ClientConnection:
         """Make one dial attempt: TCP connect (through the proxy, when set), then the handshake."""
         sock = await _proxied_socket(self._uri, self._proxy, self._socks_timeouts)
-        # Network: milliseconds on loopback, seconds over a VPN or Tor route; open_timeout is
-        # the real-time bound and raises TimeoutError (an OSError) when it expires. max_size
-        # is the codec's limit so websockets refuses an oversized frame (1009) before the codec
-        # sees it. proxy=None because a Hive link is direct, over the tier's own VPN, or through
-        # the SOCKS socket opened above (spec section 9): an HTTP(S)_PROXY variable must never
-        # reroute it silently. With `sock` given, websockets connects over it and nothing else.
         try:
-            return await connect(
-                self._uri,
-                open_timeout=self._open_timeout_s,
-                max_size=self._codec.max_frame_bytes,
-                ping_interval=PING_INTERVAL_S,
-                ping_timeout=PING_TIMEOUT_S,
-                close_timeout=CLOSE_TIMEOUT_S,
-                proxy=None,
-                sock=sock,
+            connection = await _open_websocket(
+                self._uri, sock, self._tls, self._open_timeout_s, self._codec.max_frame_bytes
             )
+            # Straight after the handshake and before this connection is handed out, so no Waggle
+            # frame can reach a peer whose certificate is not the pinned one. A mismatch is not
+            # in connect()'s retry list, so it ends the dial at once.
+            if self._tls_pin is not None:
+                await check_pin(connection, self._tls_pin)
+            return connection
         except BaseException:
             if sock is not None:
                 sock.close()  # Already closed if the handshake took it; never left open.
@@ -331,6 +365,55 @@ def _proxy(uri: str, socks_proxy_url: str | None) -> SocksProxy | None:
             "proxy; set DialOptions.socks_proxy_url."
         )
     return None
+
+
+def _tls_argument(uri: str, pin: str | None) -> ssl.SSLContext | bool | None:
+    """Choose the ``ssl`` argument websockets' connect() takes for this URI and pin.
+
+    Returns:
+        None for a ws:// URI (plaintext); the pinned context for a wss:// URI with a pin; True
+        for a wss:// URI without one, which makes websockets build the default context that
+        verifies the certificate and host name against the system's authorities.
+
+    Raises:
+        ValueError: A pin was given for a ws:// URI, where there is no certificate to pin.
+    """
+    if urlsplit(uri).scheme != "wss":
+        # A pin that silently did nothing would let the operator believe a plaintext link is
+        # pinned, so it is refused here rather than ignored.
+        if pin is not None:
+            raise ValueError(f"URI {uri!r} is ws://; tls_pin_sha256 applies to wss:// URIs only.")
+        return None
+    return True if pin is None else pinned_client_ssl_context()
+
+
+async def _open_websocket(
+    uri: str,
+    sock: socket.socket | None,
+    tls: ssl.SSLContext | bool | None,
+    open_timeout_s: float,
+    max_size: int,
+) -> ClientConnection:
+    """Open one WebSocket connection over `sock` (or directly when None), with TLS as chosen."""
+    # Network: milliseconds on loopback, seconds over a VPN or Tor route; open_timeout is the
+    # real-time bound for TCP, TLS and the upgrade together, and raises TimeoutError (an
+    # OSError) when it expires. max_size is the codec's limit so websockets refuses an
+    # oversized frame (1009) before the codec sees it. proxy=None because a Hive link is direct,
+    # over the tier's own VPN, or through the SOCKS socket opened by the caller (spec section
+    # 9): an HTTP(S)_PROXY variable must never reroute it silently. With `sock` given,
+    # websockets connects over it and nothing else, and TLS (when `tls` asks for it) runs over
+    # that same socket.
+    return await connect(
+        uri,
+        open_timeout=open_timeout_s,
+        max_size=max_size,
+        ping_interval=PING_INTERVAL_S,
+        ping_timeout=PING_TIMEOUT_S,
+        close_timeout=CLOSE_TIMEOUT_S,
+        proxy=None,
+        sock=sock,
+        ssl=tls,
+    )
 
 
 async def _proxied_socket(

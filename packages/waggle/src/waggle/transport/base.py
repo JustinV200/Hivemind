@@ -52,11 +52,14 @@ CLOSE_NORMAL = 1000  # RFC 6455 7.4.1: a deliberate close(); the peer's receive 
 CLOSE_PROTOCOL_ERROR = 1002  # A malformed frame, an unsupported major or an unknown kind.
 CLOSE_POLICY_VIOLATION = 1008  # A missing, unknown or invalid signature: the codec's policy.
 CLOSE_MESSAGE_TOO_BIG = 1009  # A frame over the codec's max_frame_bytes.
+CLOSE_FRAME_CEILING = 4029  # Application range (RFC 6455 7.4.2): the peer outran the frame ceiling.
 
 # Decode failure -> close code, matched by isinstance IN THIS ORDER: the specific class comes
 # before its family root because FrameTooLargeError is itself a CodecError. InvalidPayloadError
 # is deliberately absent: that frame had a readable id, the receiver answers it with a
 # control.error and the connection stays open (spec section 7), so close_code_for returns None.
+# CLOSE_FRAME_CEILING is absent too: it is no decode failure, and only the server half of the
+# WebSocket transport ever sends it (spec section 9).
 CLOSE_CODE_FOR: Mapping[type[WaggleError], int] = MappingProxyType(
     {
         FrameTooLargeError: CLOSE_MESSAGE_TOO_BIG,
@@ -67,6 +70,7 @@ CLOSE_CODE_FOR: Mapping[type[WaggleError], int] = MappingProxyType(
 
 __all__ = [
     "CLOSE_CODE_FOR",
+    "CLOSE_FRAME_CEILING",
     "CLOSE_MESSAGE_TOO_BIG",
     "CLOSE_NORMAL",
     "CLOSE_POLICY_VIOLATION",

@@ -23,6 +23,7 @@ from waggle.errors import (
     CodecError,
     ConnectFailedError,
     ConnectionLostError,
+    FrameCeilingError,
     FrameTooLargeError,
     InvalidIdError,
     InvalidPayloadError,
@@ -33,6 +34,7 @@ from waggle.errors import (
     OutboxError,
     ProxyFailedError,
     SignatureError,
+    TlsPinMismatchError,
     TransportClosedError,
     TransportError,
     UnknownKindError,
@@ -61,6 +63,8 @@ _TREE: list[tuple[type[WaggleError], type[WaggleError]]] = [
     (ConnectionLostError, TransportError),
     (ConnectFailedError, TransportError),
     (ProxyFailedError, TransportError),
+    (FrameCeilingError, TransportError),
+    (TlsPinMismatchError, ConnectFailedError),
     (OutboxError, WaggleError),
     (OutboxCorruptError, OutboxError),
 ]
@@ -85,6 +89,8 @@ _CODES: list[tuple[type[WaggleError], str]] = [
     (ConnectionLostError, "waggle.transport.connection_lost"),
     (ConnectFailedError, "waggle.transport.connect_failed"),
     (ProxyFailedError, "waggle.transport.proxy_failed"),
+    (FrameCeilingError, "waggle.transport.frame_ceiling"),
+    (TlsPinMismatchError, "waggle.transport.tls_pin"),
     (OutboxError, "waggle.outbox.error"),
     (OutboxCorruptError, "waggle.outbox.corrupt"),
 ]

@@ -14,6 +14,14 @@ the codec refuses closes the connection with the code ``waggle.transport.base`` 
 a frame ``websockets`` itself refused for size (its ``max_size`` is the codec's limit) is
 reported as the codec would have: ``FrameTooLargeError`` after a 1009 close.
 
+The listener's connections (and only those) may carry ``ReceiveHooks``, the two questions a
+listener asks of its receive path (``waggle.transport.limits``). Before a frame is parsed it is
+counted against the connection's frame ceiling: a connection over it is closed with code 4029
+and ``receive`` raises ``FrameCeilingError``. After a frame decodes, its envelope is checked
+against the listener's replay window: a duplicate is skipped, never yielded. With no hooks, which
+is every dialled connection and every listener built without limits, neither check exists and
+nothing here changes.
+
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Satisfies waggle.transport.base.Transport; built by
@@ -27,10 +35,14 @@ Key invariants:
     - Every frame sent is binary and passed through the codec first; every frame received
       passes through the codec before it is yielded.
     - close() sends close code 1000 at most once; a decode failure sends its mapped code at most
-      once; after either, send raises TransportClosedError.
+      once, and so does the frame ceiling's 4029; after any, send raises TransportClosedError.
+    - A frame is counted against the ceiling before it is parsed, so a flood of garbage costs the
+      listener no more than a flood of valid frames; a duplicate is dropped only after the codec
+      has decoded (and, with a verifier, verified) it, so the id it is judged by is attributed.
 
 See Also:
     - waggle.transport.base for the delivery contract and the close-code table.
+    - waggle.transport.limits for the ConnectionLimiter that satisfies ReceiveHooks.
     - waggle.transport.websocket_client and waggle.transport.websocket_server for the two
       ways a connection comes to exist.
     - docs/adr/0004-waggle-transport-websocket-json.md for the transport decision.
@@ -40,7 +52,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import NoReturn
+from typing import NoReturn, Protocol
 
 from websockets.asyncio.connection import Connection
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
@@ -51,18 +63,60 @@ from waggle.envelope import Envelope
 from waggle.errors import (
     CodecError,
     ConnectionLostError,
+    FrameCeilingError,
     FrameTooLargeError,
     MalformedFrameError,
     SignatureError,
     TransportClosedError,
 )
-from waggle.transport.base import CLOSE_MESSAGE_TOO_BIG, CLOSE_NORMAL, close_code_for
+from waggle.transport.base import (
+    CLOSE_FRAME_CEILING,
+    CLOSE_MESSAGE_TOO_BIG,
+    CLOSE_NORMAL,
+    close_code_for,
+)
 
 PING_INTERVAL_S = 20.0  # A link silent this long gets a WebSocket ping (websockets' default).
 PING_TIMEOUT_S = 20.0  # No pong within this fails the link: 40 s at most from the last traffic.
 CLOSE_TIMEOUT_S = 10.0  # The most a close waits for the peer's close frame before dropping TCP.
 
-__all__ = ["CLOSE_TIMEOUT_S", "PING_INTERVAL_S", "PING_TIMEOUT_S", "WebSocketTransport"]
+__all__ = [
+    "CLOSE_TIMEOUT_S",
+    "PING_INTERVAL_S",
+    "PING_TIMEOUT_S",
+    "ReceiveHooks",
+    "WebSocketTransport",
+]
+
+
+class ReceiveHooks(Protocol):
+    """The two questions a listener asks of a connection's receive path.
+
+    Satisfied structurally by ``waggle.transport.limits.ConnectionLimiter``. Each method reports
+    its own refusal (to the listener's recorder) before it answers False, so the transport has
+    only to enforce the answer: close with 4029 for a frame, skip for an envelope.
+    """
+
+    async def frame_admitted(self) -> bool:
+        """Count one received frame against the connection's ceiling.
+
+        Returns:
+            True while the connection is within its ceiling; False once it is over, which makes
+            the transport close with code 4029 and raise FrameCeilingError.
+        """
+        ...
+
+    async def envelope_admitted(self, envelope: Envelope) -> bool:
+        """Check one decoded envelope against the listener's replay window.
+
+        Args:
+            envelope: The envelope the codec just decoded.
+
+        Returns:
+            True when the envelope is new; False when it is a duplicate, which makes the
+            transport skip it without yielding it.
+        """
+        ...
 
 
 class WebSocketTransport:
@@ -73,15 +127,19 @@ class WebSocketTransport:
     in websockets' own task with the intervals the dial or the listener gave it.
     """
 
-    def __init__(self, connection: Connection, codec: Codec) -> None:
+    def __init__(
+        self, connection: Connection, codec: Codec, hooks: ReceiveHooks | None = None
+    ) -> None:
         """Wrap an already open connection with the codec that reads and writes its frames.
 
         Args:
             connection: A websockets ClientConnection or ServerConnection in the OPEN state.
             codec: Encodes every send and decodes every receive; its policy decides signatures.
+            hooks: The listener's frame ceiling and replay check; None applies neither.
         """
         self._connection = connection
         self._codec = codec
+        self._hooks = hooks
         self._closed = False  # This end sent a close frame (1000 or a mapped code).
         # Captured now because websockets forgets the peer's address once the socket is gone,
         # and the address is most wanted in the log line written after a failure.
@@ -157,6 +215,8 @@ class WebSocketTransport:
             CodecError: A frame failed to decode; the connection is closed with the mapped
                 code, except for InvalidPayloadError, after which it stays open.
             SignatureError: A frame failed the codec's signature policy; closed with 1008.
+            FrameCeilingError: The listener's hooks found the connection over its frame
+                ceiling; it is closed with 4029 and the reason ``waggle.transport.frame_ceiling``.
         """
         while True:
             # Network read: resolves when a frame arrives or the connection ends; no timeout
@@ -169,6 +229,8 @@ class WebSocketTransport:
                 return
             except ConnectionClosedError as exc:
                 raise self._ended_abnormally(exc) from exc
+            # Counted before any parsing, so a flood costs the listener a counter and no more.
+            await self._enforce_ceiling()
             # A text frame is the one framing mistake a peer can make (spec section 5).
             if isinstance(message, str):
                 await self._refuse(
@@ -177,7 +239,12 @@ class WebSocketTransport:
                         "are binary."
                     )
                 )
-            yield await self._decode(message)
+            envelope = await self._decode(message)
+            # A duplicate is skipped, not an error: the connection stays open and the next
+            # frame is read, so a lost ack followed by an outbox replay stays harmless.
+            if await self._is_duplicate(envelope):
+                continue
+            yield envelope
 
     async def close(self) -> None:
         """Send close code 1000 and wait for the handshake; a second call does nothing.
@@ -189,6 +256,21 @@ class WebSocketTransport:
         if self._closed:
             return
         await self._close_with(CLOSE_NORMAL, "")
+
+    async def _enforce_ceiling(self) -> None:
+        """Count one received frame; close with 4029 and raise when the connection is over."""
+        if self._hooks is None or await self._hooks.frame_admitted():
+            return
+        # Already reported by the hooks; the reason is the stable code, as for a decode failure.
+        await self._close_with(CLOSE_FRAME_CEILING, FrameCeilingError.code)
+        raise FrameCeilingError(
+            f"The peer at {self._remote_address} sent frames faster than the listener's frame "
+            f"ceiling allows; the connection was closed with code {CLOSE_FRAME_CEILING}."
+        )
+
+    async def _is_duplicate(self, envelope: Envelope) -> bool:
+        """Return whether the listener's replay window has seen this envelope's id already."""
+        return self._hooks is not None and not await self._hooks.envelope_admitted(envelope)
 
     async def _decode(self, frame: bytes) -> Envelope:
         """Decode one frame, closing with the mapped code when the codec refuses it."""

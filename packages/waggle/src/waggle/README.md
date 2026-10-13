@@ -29,7 +29,8 @@ Shared primitives (roadmap step 0.5):
   error tree (`InvalidIdError`; `CodecError` with `MalformedFrameError`, `FrameTooLargeError`,
   `UnsupportedVersionError`, `UnknownKindError`, `InvalidPayloadError`; `SignatureError` with
   `MissingSignatureError`, `UnknownSignerError`, `InvalidSignatureError`; `TransportError` with
-  `TransportClosedError`, `ConnectionLostError`, `ConnectFailedError`; `OutboxError` with
+  `TransportClosedError`, `ConnectionLostError`, `ConnectFailedError` (and its subclass
+  `TlsPinMismatchError`), `ProxyFailedError`, `FrameCeilingError`; `OutboxError` with
   `OutboxCorruptError`), each with a stable `code` string that is the same string an
   `ErrorMessage` carries on the wire (spec section 7).
 

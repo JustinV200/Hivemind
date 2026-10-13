@@ -44,6 +44,7 @@ __all__ = [
     "CodecError",
     "ConnectFailedError",
     "ConnectionLostError",
+    "FrameCeilingError",
     "FrameTooLargeError",
     "InvalidIdError",
     "InvalidPayloadError",
@@ -54,6 +55,7 @@ __all__ = [
     "OutboxError",
     "ProxyFailedError",
     "SignatureError",
+    "TlsPinMismatchError",
     "TransportClosedError",
     "TransportError",
     "UnknownKindError",
@@ -285,6 +287,33 @@ class ProxyFailedError(TransportError):
     """
 
     code: ClassVar[str] = "waggle.transport.proxy_failed"
+
+
+class FrameCeilingError(TransportError):
+    """Raised when a peer sends frames faster than the listener's per-connection ceiling allows.
+
+    Raised by WebSocketTransport.receive on a connection a WebSocketServer accepted with limits,
+    after the listener has reported the refusal and closed the connection with code 4029 and the
+    reason ``waggle.transport.frame_ceiling`` (spec section 9). The peer sees that close as a
+    lost link and reconnects with its usual backoff; nothing here is retried, because a peer
+    over its ceiling is either flooding or broken, and either way the listener has already
+    protected itself.
+    """
+
+    code: ClassVar[str] = "waggle.transport.frame_ceiling"
+
+
+class TlsPinMismatchError(ConnectFailedError):
+    """Raised when the certificate a ``wss://`` peer presents is not the one the dial pinned.
+
+    Raised by WebSocketClientTransport.connect when ``DialOptions.tls_pin_sha256`` is set and the
+    sha256 of the peer's certificate differs from it. It is a ConnectFailedError, so a caller
+    that already handles a failed dial handles this too, but it is raised at once and never
+    retried: a wrong certificate is a different machine, a rotated certificate or an attacker in
+    the path, none of which a backoff cures.
+    """
+
+    code: ClassVar[str] = "waggle.transport.tls_pin"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
