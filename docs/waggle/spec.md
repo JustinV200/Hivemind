@@ -28,7 +28,7 @@ This specification covers:
 Out of scope: model calls (they travel separately to whichever provider serves the model and never
 ride on Waggle), the Landing Board's HTTP contract (`docs/entrance/openapi.json`), the Pheromone
 Trail export format (the audit log's segments cross Waggle as opaque bytes, section 8.10), and the
-enrolment ceremony around `swarm.enrol_request` (`docs/waggle/enrolment.md`, phase 11).
+enrolment ceremony around `swarm.enrol_request` ([`enrolment.md`](enrolment.md)).
 
 The `waggle` package is its own layer: `hivemind` and `pollen` both import it and it imports
 neither. Its only third-party dependencies are `pydantic`, `websockets` and `cryptography`, so a

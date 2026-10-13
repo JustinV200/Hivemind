@@ -115,7 +115,7 @@ HiveMind/
 ├── .github/workflows/            # CI: lint, type-check, import-linter, tests, image builds
 ├── docs/
 │   ├── adr/                      # Architecture Decision Records: NNNN-short-title.md
-│   ├── waggle/                   # Waggle protocol spec: message catalogue, transports, versioning
+│   ├── waggle/                   # Waggle protocol spec: message catalogue, transports, versioning; enrolment.md (the device enrolment ceremony) and gateway-contract.md (what a gateway in another language must meet)
 │   ├── entrance/                 # Landing Board: the committed OpenAPI document, client guide, push and enrolment contracts
 │   ├── manifests/                # Annotated example Hive Manifests
 │   ├── supervision/              # Operator notes on the supervisors' data; the tables themselves ship in hivemind/supervision/defaults/
@@ -155,12 +155,12 @@ HiveMind/
 │   │   │   ├── guard/            # Policy engine, capabilities.py (CapabilitySet, built in phase 3), access.py (what each AccessLevel allows), permission checks. The security enums live in cell/tiers.py.
 │   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, needs.py (TaskNeeds), tiers.py (AccessLevel, CombShieldLevel, HoneyClearance), snapshot.py (Snapshotter protocol), local/ (the Hive Stand)
 │   │   │   ├── hive/             # VIRTUAL Cells: lifecycle.py + night_veil.py (attestation) + backends/ (docker.py, qemu.py, cloud/...) + overwinter/ + snapshot.py (Snapshotter backends)
-│   │   │   ├── swarm/            # REAL Cells from enrolled devices: registry, enrolment, heartbeat, PollenSession, Nuc promotion
+│   │   │   ├── swarm/            # REAL Cells from enrolled devices: errors.py, models.py (SwarmNode, SwarmInvite), node_state.py (NodeStatus), level.py (the runtime ladder, decide_colonize), nuc.py (decide_nuc), source.py (SwarmSource), watch.py (PollenWatchProbe), registry/ (protocol, sqlite, memory, migrations), enrolment/ (invite, accept, capabilities, door), gateway/ (listener, verifier, link, hub, heartbeat), session/ (PollenSession), shield/ (Propolis checks)
 │   │   │   ├── exoskeleton/      # compound_eye/, antennae/, buzz/, browser/, attach.py, recorder.py (flight recorder), tactics/ (mouse_like_human)
 │   │   │   ├── royal_jelly/      # Royal Jelly Lab + Comb Registry: spec/, scaffold/, quarantine_comb/, registry/ (hive + cell scopes), promotion/
 │   │   │   ├── workers/          # Worker runtime + roles/ (forager.py, scout.py, ...) + tools/ + tactics/ (write_like_human)
-│   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/ (allocation and hosting/: model servers on the Warden's Cell), requests, offline/, watch/
-│   │   │   ├── queen/            # inbox/, autopilot/, awake/, planner/, placement/, forage/ (shared pool, ceilings, hosting plans), dispatcher, cluster/, requeening/, supersedure/ (moving the Hive Stand)
+│   │   │   ├── wardens/          # Per-Cell supervisor: state.py, inbox/, autopilot/ (never awaits a model), awake/, spawn/, local_pool/ (allocation and hosting/: model servers on the Warden's Cell), requests, offline/ (link, outbox, policy, freeze, reconnect, diagnose), watch/ (probe, observer, signals, patrol)
+│   │   │   ├── queen/            # inbox/, autopilot/, awake/, planner/, placement/, forage/ (shared pool, ceilings, hosting plans), dispatcher, cluster/, requeening/, supersedure/ (moving the Hive Stand), swarm_gate/ (devices, beside cell_gate/: gate, wardens, attach, reconcile, colonize, nuc, unreachable)
 │   │   │   ├── entrance/         # Hive Entrance: two listeners (loopback, remote), routes/ (versioned), enrol/ (device invites; approval on loopback only), auth/ (device key + password, sessions, step-up), push/ (webhooks, web push), expose.py (vpn, lan, tunnel), reducer.py (Entrance Reducer), landing_board.py (OpenAPI contract), human inbox
 │   │   │   ├── observation/      # Observation Hive read side: views/ (pydantic read models), api.py, metrics. The front end is packages/observation-web/.
 │   │   │   └── cli/              # `hive` CLI. One file per command group.
@@ -175,12 +175,16 @@ HiveMind/
 │   │   └── pyproject.toml
 │   ├── pollen/                   # POLLEN PACKET device connector. Depends ONLY on waggle.
 │   │   ├── src/pollen/
-│   │   │   ├── agent/            # The gateway loop: connect out, heartbeat, hand a session to the Warden on the Hive Stand; persists the Queen's address and honours a signed QueenMoved
-│   │   │   ├── enrol/            # First-run registration with the Queen: capability + Forage report
-│   │   │   ├── executors/        # What the device can do: session.py (persistent shell), files.py, info.py
-│   │   │   ├── lease/            # Device-side lease: scratch dir, started PIDs, restore on release, dead-man switch
-│   │   │   ├── bootstrap/        # Install the full hivemind runtime when the Queen promotes the device to a Nuc
-│   │   │   └── platform/         # OS-specific shims (linux.py, windows.py, macos.py)
+│   │   │   ├── __main__.py       # `python -m pollen`, the entry point of the packaged binary
+│   │   │   ├── cli.py            # `pollen install | uninstall | enrol | run | status | version`
+│   │   │   ├── errors.py         # PollenError and its pollen.* codes
+│   │   │   ├── state.py          # PacketState: the packet's persisted JSON (the node key has its own file)
+│   │   │   ├── agent/            # The gateway loop: packet.py (PollenPacket), link.py (dial, verify, address), dispatch.py (sender, recipient and capability checks), checks.py (the pure capability matcher), heartbeat.py, moved.py (honours a signed QueenMoved)
+│   │   │   ├── enrol/            # First-run registration: invite.py (parse pollen1. strings), request.py (EnrolRequest from the probe), enrol.py (dial, enrol, verify the accept, persist)
+│   │   │   ├── executors/        # What the device can do: base.py (DeviceExecutor), session.py (exec), files.py, process.py (background programs), info.py (platform, capabilities, capacity), observe.py (watch mode's fixed collectors)
+│   │   │   ├── lease/            # Device-side lease: lease.py (DeviceLease), table.py (persisted), restore.py, quota.py, deadman.py
+│   │   │   ├── bootstrap/        # Colonization: runtime.py (install the pinned hivemind runtime in a venv), warden.py (start and stop the on-device Warden)
+│   │   │   └── platform/         # OS-specific shims: base.py (PlatformShim), linux.py, windows.py, macos.py, select.py
 │   │   ├── tests/
 │   │   └── pyproject.toml
 │   └── observation-web/          # OBSERVATION HIVE front end: TypeScript (strict) + React, Vite. Served by the Entrance as static files.
@@ -1805,10 +1809,13 @@ transaction as the state change.
 | Proposal | Capping, `supervision/capping/state.py` | `PROPOSED → CHECKING → CAPPED → APPLIED → VERIFIED`; `CHECKING → REJECTED`; `APPLIED → ROLLED_BACK` | Tier decides the checks between `CHECKING` and `CAPPED`. |
 | Alarm | Supervision, `supervision/alarm.py` | `RAISED → HANDLING → RESOLVED`; `HANDLING → ESCALATED → HANDLING` (at the next level) | Attempt count travels with it; same id at every level. |
 | Worker | Warden, `workers/state.py` | `SPAWNED → RUNNING → DONE / FAILED / KILLED`; `RUNNING ↔ HANDING_OFF` (reset, rebind, migrate); `RUNNING ↔ PAUSED` | Runtime state is in-process; a Handoff is the durable form. |
-| Warden | Queen, `wardens/state.py` | `STARTING → ACTIVE`; `ACTIVE ↔ WATCH` (Real Cells, no active bees); `ACTIVE / WATCH → OFFLINE → ACTIVE`; any → `CLUSTERED → ACTIVE`; `ACTIVE → MIGRATING → ACTIVE` (new host); → `STOPPED` | `WATCH` exists only for Real Cells; Virtual Cell Wardens stop with their Cell. |
+| Warden | Queen, `wardens/state.py` | `STARTING → ACTIVE`; `ACTIVE ↔ WATCH` (Real Cells, no active bees); `ACTIVE / WATCH → OFFLINE → ACTIVE`; `OFFLINE → WATCH` (the link came back with no sub-bee running); any → `CLUSTERED → ACTIVE`; `ACTIVE → MIGRATING → ACTIVE` (new host); → `STOPPED` | `WATCH` exists only for Real Cells; Virtual Cell Wardens stop with their Cell. A Warden that was idle when its link dropped returns to `WATCH`, not through `ACTIVE`. |
 | Virtual Cell | Hive, `hive/cell_state.py` | `PROVISIONING → READY → GRANTED → RELEASED → DORMANT → READY`; `PROVISIONING / READY / GRANTED / RELEASED / DORMANT → DESTROYING → DESTROYED`; `PROVISIONING → FAILED`; a `NIGHT_VEIL` Cell never enters `DORMANT` | Backend labels are the source of truth; the table is reconciled against them. |
 | Lease (Real Cell) | Cell, `cell/lease_state.py` | `REQUESTED → OPEN → RELEASING → RELEASED`; `OPEN → ORPHANED → RELEASING` (sweep); `RELEASING → ORPHANED → RELEASING` (release() failed, retried) | Every open lease has a scratch root and a process list. |
-| Swarm node | Swarm, `swarm/node_state.py` | `INVITED → ENROLLING → ONLINE ↔ UNREACHABLE`; `ONLINE → PROMOTING → NUC`; `NUC → DEMOTING → ONLINE`; any → `REVOKED` | Access level is an attribute, not a state. |
+| Device lease | Pollen Packet, `pollen/lease/lease.py` (`DeviceLease`, in the packet's JSON state) | `OPEN → RELEASING → RELEASED`; `RELEASING → RELEASING` (a step failed or the packet restarted mid-release; every step is idempotent and runs again) | The device-side half of a Real Cell lease. Written to the packet's state before `cell.lease_opened` is sent and before a started process's first output frame, so a crash leaks neither scratch nor a process; `RELEASING` begins on a `cell.teardown_request` or when the dead-man switch fires (cause `DEAD_MAN`); `RELEASED` leaves the table with `cell.lease_released` queued in the outbox. The packet writes no trail (ADR-0051): the Queen records the edges that reach her as those two messages. |
+| Swarm node status | Swarm, `swarm/node_state.py` (`NodeStatus`, `swarm_nodes.status`) | `ONLINE ↔ UNREACHABLE` (the link is lost or heartbeats are missed; the next verified heartbeat restores it); `ONLINE / UNREACHABLE → REVOKED` | A node is created `ONLINE` by the enrolment that redeems its invite (`swarm.enrolled`). `REVOKED` is final: the key is refused, the Warden stopped and the row kept for the audit. Access level and Comb Shield tier are attributes, not states. Every edge is a `swarm.online`, `swarm.unreachable` or `swarm.revoked` event, written in the same transaction as the status change. |
+| Runtime ladder | Swarm, `swarm/level.py` (`RuntimeLevel`, `swarm_nodes.level`) | `GATEWAY ↔ COLONIZED ↔ NUC`; never `GATEWAY ↔ NUC` | One rung at a time, the Warden moving first (ADR-0052). A rung up needs `decide_colonize` or `decide_nuc` (or the operator's `desired_level`) and the Guard's `NUC_PROMOTION` point; `COLONIZED → GATEWAY` only when the on-device Warden is idle in `WATCH`; `NUC → COLONIZED` is local to the device's Warden. Every edge, up or down, is a `swarm.promoted` or `swarm.demoted` event with `from_level` and `to_level`. Mirrors the wire enum member for member. |
+| Swarm invite | Swarm, `swarm/models.py` (`InviteState`, `swarm_invites.state`) | `ISSUED → REDEEMED` (the enrolment that presented the token, in the same transaction as the node's creation); `ISSUED → EXPIRED` (the time to live lapsed unredeemed); `ISSUED → REVOKED` (the operator cancelled it) | Single use and short-lived (`[swarm] invite_ttl_minutes`); the three later states are final, so a second redemption of a token is denied (`hive.swarm.enrol_denied`, `swarm.enrol_refused`). Only the token's SHA-256 is stored. |
 | Forage grant | Queen, `forage/grant_state.py` | `ISSUED → ACTIVE → REVOKED`; `ACTIVE → EXHAUSTED → ACTIVE` (top-up); `EXHAUSTED → REVOKED` (holder lost while spent) | Growing or shrinking keeps it `ACTIVE`; each change is an event. |
 | Tool | Royal Jelly, `royal_jelly/tool_state.py` | `REQUESTED → SCAFFOLDED → QUARANTINING → PROMOTED / REJECTED`; `REQUESTED → REJECTED` (nothing could be scaffolded); `QUARANTINING → SCAFFOLDED` (one retry with the report); `PROMOTED → RETIRED` | Scope (`hive` or `cell`) is an attribute set at promotion. |
 | Blob | Basket, `basket/models.py` | `PRESENT → RETIRED` | content-addressed; a retired blob is never shipped or loaded |
@@ -1839,7 +1846,8 @@ Where state lives, and what survives a Queen crash:
 | Capacity, grants, hosting decisions, snapshots | Forage ledger (SQLite) | Yes | Reconciled against fresh capacity reports on Requeening. |
 | Leases | Lease table plus trail | Yes | Orphan sweep on Queen and Warden start. |
 | Virtual Cell status | Backend labels plus a Hive table | Backend is truth | Reconciled from the backend on start. |
-| Swarm nodes, access levels | Swarm registry (SQLite) | Yes | Heartbeats re-establish reachability. |
+| Swarm nodes, invites, access levels, runtime levels | Swarm registry (SQLite) | Yes | Heartbeats re-establish reachability; an unredeemed invite lapses by its own expiry. |
+| A device's key, pins, grants, leases and outbox | The Pollen Packet's state directory (the node key file, a JSON state document, the lease table, `waggle.outbox`) | Yes | On start the packet resumes or releases every lease still `OPEN` or `RELEASING`, replays its outbox, and counts the dead-man limit from the last time it heard from the Queen; the Hive Stand holds the other half in the swarm registry. |
 | Tools and reports | Comb Registry (SQLite plus package dir) | Yes | Read directly. |
 | Blobs, their residency and shipments | Basket (SQLite plus blob directory) | Yes | Read directly; a Cell's resident copies live in its own volume and survive Overwintering. |
 | Proposals and verdicts | Capping table plus trail | Yes | In-flight proposals are re-checked, never auto-applied, after a restart. |

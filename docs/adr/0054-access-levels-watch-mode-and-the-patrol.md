@@ -1,0 +1,116 @@
+# ADR-0054: An idle Real Cell is watched read-only at every access level, and an hourly Patrol decides whether anything is worth saying
+
+- Status: Accepted
+- Date: 2026-10-13
+
+## Context
+
+A Real Cell (an existing device the Hive borrows for a task and leaves exactly as found) stays
+enrolled between tasks, so its Warden (the always-on supervisor of one Cell, a unit of compute) is
+long-lived and, most of the time, has nothing to supervise. Codingrules 8.7 and 15 give that idle
+time a purpose and a fence: the Warden watches, it does not touch, it never captures the screen or
+the input, it keeps what it sees only for a retention window, and it labels everything it sees `C2`
+(Royal: personal or sensitive), because it describes the operator's own machine. Roadmap step 11.10
+builds the mode and its hourly review, the Patrol. The fence is easy to state and easy to erode, so
+the points that decide it are recorded here before the first probe exists. What exactly may be
+observed, and does a wider access level (`READ_ONLY`, `SCRATCH` or `FULL`: how much of a Real Cell
+the Hive may touch) widen it. Where does an observation come from on a Cell whose Warden runs on the
+Hive Stand, the machine the Queen (the central orchestrator) runs on, and the device holds only the
+Pollen Packet (ADR-0051), the thin gateway installed on it, which must not run commands a request
+could shape. How long are observations kept and how often are they judged. What a judgement may
+produce. And how a Warden that was watching behaves when its link to the Queen drops and returns.
+
+## Decision
+
+**Watching is read-only by construction.** A Real Cell's Warden with no active sub-bees (the Workers
+it spawns) enters `WATCH` and releases its lease (the Hive's temporary hold on the device, with its
+scratch directory), because a device keeps no Hive scratch between tasks. Observations come from a
+`WatchProbe` (`wardens/watch/probe.py`), a protocol that returns `waggle.messages.swarm.Observation`
+values. `SessionWatchProbe` runs fixed read-only commands through the Warden's own session, which is
+the right probe wherever the Warden is local to its Cell: the Hive Stand's own Cell, and a colonized
+device's Warden. `swarm.watch.PollenWatchProbe` serves a Level 0 device (one with only the packet on
+it, ADR-0052), whose Warden is on the Hive Stand: it sends the packet a `swarm.observe`, and the
+packet answers from fixed collectors, without a lease and without running any command a request
+could shape. In both cases the commands or collectors are a fixed list in code, never text from a
+request or a model.
+
+**What may be observed is the same at every access level.** The set is exactly
+`guard.watch.WATCH_OBSERVATIONS`, which maps every `AccessLevel` to the `READ_ONLY` set: the process
+list; resource use, which includes network counters; logs under the roots the watcher may read; and
+file-change events under those roots. A higher level never widens it, because acting is not
+watching. Screen capture and input capture are never watch mode: they are a separate grant
+(`exoskeleton:real_display`, which lets the Exoskeleton, the Hive's virtual display, input and
+audio, drive the operator's real screen) that no level issues implicitly. Watching is bounded by the
+capability `watch:<cell_id>`, so a Warden may watch its own Cell and no other, and the packet checks
+it again on every `swarm.observe`.
+
+| Access level | What a bee on the Cell may do | What watch mode observes |
+|---|---|---|
+| `READ_ONLY` | read files anywhere; nothing else | the four observations |
+| `SCRATCH` | the above, write inside the lease's scratch, run programs | the same four |
+| `FULL` | the above, write anywhere, use the network and devices, touch paths outside scratch, drive the lease's own display and sound | the same four |
+
+**Observations are Bee Bread, labelled `C2`, and they expire.** Each sample is stored in Bee Bread,
+the warm memory tier, with the clearance label `C2` by provenance (codingrules 8.9). The Warden
+samples every `[supervision.watch] interval_s` (default 300 s) and keeps a sample for `retention_s`
+(default 86,400 s, 24 hours). A Night Veil bee (one working in the strictest tier, which only
+Virtual Cells can have) never sees them, because `memory.assemble` filters by clearance.
+
+**The Patrol is one awake episode an hour, not a model call per sample.** Every `patrol_interval_s`
+(default 3,600 s) the Warden runs one awake episode (a model call assembled fresh from stored state
+and discarded after one decision) on `ModelSlot.WARDEN` (the named place the Warden's model calls
+resolve to) over the observations since the last Patrol. The episode is assembled, as every awake
+episode is, from state by `memory.assemble`. It receives the signals of a pure pre-filter
+(`wardens/watch/signals.py`) labelled as facts: new processes over a CPU share (`cpu_share_alarm`,
+default 0.5), disk past a fill ratio (`disk_fill_alarm`, default 0.95) and a restart loop. The
+episode decides exactly one of four things. `ALARM` raises an Alarm (an issue a bee cannot resolve,
+escalated up the chain) of the new kind `AlarmKind.PATROL_ANOMALY` (Waggle 1.13), which climbs the
+ordinary chain and is posted to the human only by the Queen. `NECTAR` deposits a summary as Nectar
+(the Hive's intake for raw findings), labelled `C2`. `WAX` sends a `cell.wax_proposed` with origin
+`PATROL`: a proposal for Cell Wax, a caution about one Cell, which only the Queen writes or rejects
+(a disk nearly full, a service that keeps restarting). `NOTHING` records that nothing was notable
+and discards the observations the Patrol covered. Whatever it decides, every Patrol records
+`warden.patrol` with its outcome and counts. A bee assigned to the Cell moves the Warden back to
+`ACTIVE`, and the same mode applies to the Hive Stand's own Cell when it is idle.
+
+**A watching Warden that goes offline returns to watching.** The Warden's state machine gains one
+edge, `OFFLINE -> WATCH`, for a link that comes back when no sub-bee is running, so a Warden that
+was idle when the link dropped does not have to pass through `ACTIVE` to resume.
+
+## Consequences
+
+Positive: the Hive learns a device's habits without touching it. The exit criterion can be checked
+mechanically, as a file-tree snapshot taken before and after an idle night, because nothing in watch
+mode writes. The breadth of observation does not grow with trust, so there is one audit story for
+all three levels, and a read-only device, which runs no command at all, can still be watched through
+the packet's fixed collectors. The cost of judgement is one bounded episode an hour per Cell, with
+the arithmetic done by a pure pre-filter so the model is given numbers instead of being asked to
+find them. Anomalies surface as ordinary Alarms, a persistent concern as Cell Wax, and a quiet hour
+leaves nothing behind. The mode is visible in the Observation Hive (the Hive's dashboard) as the
+Cell's mode.
+
+Negative: the Patrol is an awake episode, so it needs a reachable model on the Warden slot; without
+one the Warden keeps sampling but cannot judge, and the observations age out under the retention
+window. A sample is a point in time, so a burst shorter than the sampling interval can go unseen. A
+day of `C2` observations about the operator's machine sits in Bee Bread on the Hive Stand, which is
+sensitive in itself; it is protected by the clearance filter and the window, not by its absence. Log
+lines, file names and process names are text written by whatever runs on the device, and like any
+retrieved content (codingrules 15) they reach the Patrol's prompt delimited and labelled as data,
+with a closed set of four outcomes none of which executes anything. A Level 0 device costs one
+`swarm.observe` round trip per interval, bounded but not free. Releasing the lease while watching
+means the first task after a quiet spell pays for opening a new one.
+
+## Alternatives considered
+
+Letting a wider access level watch more: it would turn trust in acting into permission to read, and
+leave three audit stories where one will do. Capturing the screen or the keyboard in watch mode: it
+is a different act with a different risk, and it stays a separate, explicit grant. Streaming every
+sample to a model: it spends tokens on hours when nothing happens; the pre-filter and the hourly
+episode bound the cost. Letting the pre-filter raise Alarms with no model: fixed thresholds alone
+would be noisy and brittle, so the pre-filter's output is given to the episode as facts and the
+model judges. Running commands on a Level 0 device for each observation through a lease: the
+commands are the thing a request could shape, a read-only device has no `exec` to run them, and the
+lease would leave scratch behind; fixed collectors in the packet avoid all three. Keeping
+observations indefinitely or in Honey: they are raw, personal and mostly uninteresting, so a short
+window in Bee Bread is the right life for them. Holding the lease open while watching: a lease owns
+scratch and processes, and a device is meant to carry none of the Hive between tasks.

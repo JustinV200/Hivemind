@@ -247,3 +247,32 @@ ADRs that exist today, in numeric order:
   `/.well-known/assetlinks.json`; the share sheet is an intake (text and audio over existing
   routes, images through one new additive `/v1/` route as Nectar `C2`); the phone enrols like any
   device through an App Link; the APK is built in CI on tags and releases only.
+- `0051-pollen-packet-is-a-gateway-and-the-trust-model.md`: the Pollen Packet is a gateway with no
+  supervision logic, model client or trail, and a device has one node key that an on-device Warden
+  signs with too; a single-use, 15-minute `pollen1.` invite binds the first key and pins the Hive
+  key and the listener's certificate fingerprint; enrolment is one signed frame; the packet checks
+  every frame's sender and every request against its granted capabilities, and runs a dead-man
+  switch when it loses the link.
+- `0052-runtime-ladder-warden-moves-first.md`: a device climbs three rungs, `GATEWAY`, `COLONIZED`
+  and `NUC`, one at a time; the Warden moves first and always with its sub-bees, keeps its
+  `warden_id` across the move (checkpoint, Handoff carried inline in `TaskAssign`, resume), and
+  colonization installs the runtime only from a source the operator configured; the decisions are
+  pure and Guard-gated.
+- `0053-nucs-warden-migration-and-offline-operation.md`: every remote Warden reconnects through one
+  link with capped backoff; the offline rules are a pure table (queue results, hold questions,
+  refuse growth, freeze grants); a Nuc keeps working while a Level 1 Warden with no model clusters
+  at once; the Queen reconciles a returning Warden, accepts an offline trail segment only with the
+  node's signature, and holds a lost device through a grace period before deciding.
+- `0054-access-levels-watch-mode-and-the-patrol.md`: an idle Real Cell is watched read-only at every
+  access level (the `READ_ONLY` set, never the screen or the input); observations are `C2` Bee
+  Bread, sampled every five minutes and kept 24 hours; an hourly Patrol, one awake episode over a
+  pure pre-filter's facts, ends in an Alarm, Nectar, Cell Wax or nothing.
+- `0055-waggle-replay-window-and-frame-ceiling.md`: amends ADR-0005, which stays as accepted, and
+  adds a close code to ADR-0004's list; every receiver drops a duplicate envelope id inside a
+  bounded window (600 s, 50,000 ids) and reports it, and a connection over a frame ceiling (6,000 a
+  minute, burst 600) is closed with `4029`.
+- `0056-active-reconnection-diagnostic-drones.md`: a lost link is investigated by an ordinary
+  Capping-gated Drone and not a new role, spawned from a Nuc's own pool or, for any lost device, by
+  the Hive Stand's Warden on a task the Queen assigns; its budget is carved out of the offline limit
+  and never added to it, it never touches the Royal Jelly Lab or gains access, and it reports
+  `FIXED`, `DIAGNOSED` or `NO_CAUSE`.
