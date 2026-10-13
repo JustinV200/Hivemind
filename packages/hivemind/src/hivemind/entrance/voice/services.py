@@ -30,7 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-from hivemind.entrance.voice.nectar import AudioNectar
+from hivemind.entrance.voice.nectar import MediaNectar
 from hivemind.guard.scanner import ContentScanner
 from hivemind.llm.transcription import Ears
 from hivemind.manifest.schema.entrance import EntranceVoiceSection
@@ -87,5 +87,5 @@ class VoiceServices:
 
     ears: Ears
     scanner: ContentScanner
-    nectar: AudioNectar
+    nectar: MediaNectar
     rules: VoiceRules

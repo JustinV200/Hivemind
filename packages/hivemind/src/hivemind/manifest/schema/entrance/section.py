@@ -6,7 +6,8 @@ versioned API contract) to devices enrolled and approved at the Hive Stand. This
 every setting that door reads, with the defaults codingrules section 13 documents: where the
 listeners bind, how the remote one is exposed (``loopback``, ``vpn``, ``lan`` or ``tunnel``; there
 is deliberately no ``public`` value), session lifetimes, step-up and lockout thresholds, rate
-limits, and the ``[entrance.push]`` and ``[entrance.voice]`` sub-tables. The schema checks only
+limits, image intake, and the ``[entrance.tls]``, ``[entrance.push]``, ``[entrance.voice]`` and
+``[entrance.android]`` sub-tables (defined beside this module). The schema checks only
 what a value is: a loopback ``bind``, a specific (never wildcard) ``remote_bind``, parseable VPN
 ranges. Whether a mode's prerequisites are all present (TLS and mutual TLS for ``lan`` and
 ``tunnel``, a ``remote_bind`` inside ``vpn_cidrs`` for ``vpn``) is decided when the Entrance
@@ -23,7 +24,8 @@ Fits into the Hive:
     when it composes the listeners, auth and push. Calls into the standard library only.
 
 Key invariants:
-    - Every model here is frozen and forbids unknown fields (codingrules section 8.5).
+    - Every model here is frozen and forbids unknown fields (codingrules section 8.5);
+      ``EntranceSection`` takes that configuration from ``EntranceImageLimits``, its base.
     - ``mutual_tls`` is always a plain bool once a section is built: an omitted value is filled
       from ``expose`` before validation, so every reader sees what the mode asks for.
     - ``EntranceExposure`` has no public member, and ``remote_bind`` is never a wildcard address,
@@ -49,16 +51,21 @@ import ipaddress
 from collections.abc import Mapping
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+
+from hivemind.manifest.schema.entrance.android import EntranceAndroidSection
+from hivemind.manifest.schema.entrance.images import EntranceImageLimits
+from hivemind.manifest.schema.entrance.subsections import (
+    EntrancePushSection,
+    EntranceTlsSection,
+    EntranceVoiceSection,
+)
 
 __all__ = [
     "DEFAULT_ENTRANCE_BIND",
     "DEFAULT_VPN_CIDRS",
     "EntranceExposure",
-    "EntrancePushSection",
     "EntranceSection",
-    "EntranceTlsSection",
-    "EntranceVoiceSection",
     "split_host_port",
 ]
 
@@ -72,10 +79,7 @@ _MAX_TUNNEL_ARGS = 64  # A tunnel client's argv; generous, but a bound keeps the
 _MAX_VPN_CIDRS = 32  # Overlay ranges; a real Hive lists one or two.
 _MAX_INTERFACE_CHARS = 64  # A network interface name; the OS limits are far shorter.
 _MAX_RP_ID_CHARS = 253  # A WebAuthn relying party id is a DNS name, at most 253 characters.
-_MAX_WEBHOOK_ALLOWLIST = 64  # Extra webhook destinations; a real Hive lists a handful.
 
-# A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
-_MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 # The modes whose remote listener faces a network nobody vouches for, so an omitted mutual_tls
 # means true there (and false everywhere else): the expose values, as the manifest spells them.
 _MUTUAL_TLS_BY_DEFAULT = frozenset({"lan", "tunnel"})
@@ -92,96 +96,8 @@ class EntranceExposure(Enum):
     )
 
 
-class EntranceTlsSection(BaseModel):
-    """``[entrance.tls]``: the remote listener's own certificate and key, by path."""
-
-    model_config = _MODEL_CONFIG
-
-    cert: str = Field(
-        default="",
-        description="Path to the remote listener's PEM certificate chain; empty means no TLS. "
-        "Required for lan and tunnel, and for browsers in any mode (a passkey needs a secure "
-        "origin), e.g. the output of `tailscale cert` for the overlay's DNS name.",
-    )
-    key: str = Field(
-        default="",
-        description="Path to the PEM private key for `cert`; a file path, never the key itself.",
-    )
-
-
-class EntrancePushSection(BaseModel):
-    """``[entrance.push]``: which push channels the Entrance offers devices (ADR-0042)."""
-
-    model_config = _MODEL_CONFIG
-
-    webhooks: bool = Field(default=True, description="Offer signed webhooks to program devices.")
-    web_push: bool = Field(
-        default=True,
-        description="Offer Web Push to browsers and phones; the VAPID key comes from "
-        "HIVEMIND_ENTRANCE_VAPID_PRIVATE_KEY (or the secret store) and its contact from "
-        "HIVEMIND_ENTRANCE_VAPID_SUBJECT.",
-    )
-    webhook_allowlist: tuple[str, ...] = Field(
-        default=(),
-        max_length=_MAX_WEBHOOK_ALLOWLIST,
-        description="Hosts or CIDR networks a webhook may target beyond the default rule (an "
-        "https URL, or an address inside vpn_cidrs); never loopback, link-local or the Hive "
-        "Stand's own addresses, whatever this lists (ADR-0042).",
-    )
-
-
-class EntranceVoiceSection(BaseModel):
-    """``[entrance.voice]``: audio in at the Landing Board, transcribed on the TRANSCRIBER slot."""
-
-    model_config = _MODEL_CONFIG
-
-    enabled: bool = Field(
-        default=True, description="Accept audio on the chat route and the chat WebSocket."
-    )
-    confirm_goals: bool = Field(
-        default=True,
-        description="Echo a spoken goal back to the device for confirmation before it becomes "
-        "a task, so a misheard sentence never spends anything; answers and chat go straight "
-        "through.",
-    )
-    keep_audio: bool = Field(
-        default=False,
-        description="Keep a clip after transcription as C2 Nectar with a retention window; "
-        "false discards it once transcribed.",
-    )
-    max_clip_seconds: float = Field(
-        default=120.0, gt=0, description="The longest clip accepted, in seconds."
-    )
-    audio_seconds_per_minute: float = Field(
-        default=120.0,
-        gt=0,
-        description="Seconds of audio one device may send a minute: a token bucket of that many "
-        "seconds, refilling at that rate, charged each clip's length before it is transcribed. "
-        "At least max_clip_seconds, so the longest clip always fits a full bucket.",
-    )
-    keep_audio_hours: float = Field(
-        default=24.0,
-        gt=0,
-        description="How long a kept clip stays as C2 Nectar before the retention sweep deletes "
-        "it; read only when keep_audio is true.",
-    )
-
-    @model_validator(mode="after")
-    def _budget_fits_a_clip(self) -> EntranceVoiceSection:
-        """Refuse an audio budget smaller than the longest clip: that clip could never be heard."""
-        if self.audio_seconds_per_minute < self.max_clip_seconds:
-            raise ValueError(
-                f"[entrance.voice] audio_seconds_per_minute ({self.audio_seconds_per_minute:g}) "
-                f"is below max_clip_seconds ({self.max_clip_seconds:g}): a clip that long could "
-                "never fit a device's audio budget."
-            )
-        return self
-
-
-class EntranceSection(BaseModel):
+class EntranceSection(EntranceImageLimits):
     """``[entrance]``: the Hive Entrance's listeners, sessions, thresholds and sub-tables."""
-
-    model_config = _MODEL_CONFIG
 
     bind: str = Field(
         default=DEFAULT_ENTRANCE_BIND,
@@ -285,8 +201,8 @@ class EntranceSection(BaseModel):
         max_length=_MAX_INTERFACE_CHARS,
         description="The overlay's network interface remote_bind must be assigned to in vpn "
         "mode; empty means the platform's Tailscale interface (tailscale0 on Linux, Tailscale "
-        "on Windows). The interface is what proves the overlay: Tailscale's IPv4 range is also "
-        "carrier-grade NAT space an ordinary WAN address can fall in.",
+        "on Windows). The interface proves the overlay: Tailscale's IPv4 range is also "
+        "carrier-grade NAT space a WAN address can fall in.",
     )
     rp_id: str = Field(
         default="",
@@ -306,6 +222,9 @@ class EntranceSection(BaseModel):
     )
     voice: EntranceVoiceSection = Field(
         default_factory=EntranceVoiceSection, description="Audio in at the chat route."
+    )
+    android: EntranceAndroidSection = Field(
+        default_factory=EntranceAndroidSection, description="The Android client's identity."
     )
 
     @model_validator(mode="before")

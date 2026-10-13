@@ -27,7 +27,7 @@ from builders.entrance.serving import ProgramGrant, serving
 from builders.entrance.voice import PHONE, SPEAKER, speak, voice_rig
 
 from hivemind.cell import HoneyClearance
-from hivemind.entrance.voice import InMemoryAudioNectar
+from hivemind.entrance.voice import InMemoryMediaNectar
 from hivemind.guard import INJECTION_SUSPECTED_KIND
 from hivemind.llm.transcription import FakeTranscription
 from hivemind.pheromone import TrailQuery
@@ -184,14 +184,14 @@ async def test_a_clip_is_kept_as_c2_nectar_for_its_window_only_with_keep_audio()
         speaker = DeviceId(session.key.device_id)
         spoken = await speak(client, session, _WAV, "goal")
         nectar = rig.entrance.services.voice.nectar if rig.entrance.services.voice else None
-        assert isinstance(nectar, InMemoryAudioNectar)
+        assert isinstance(nectar, InMemoryMediaNectar)
         [kept] = nectar.kept
         swept = await nectar.sweep(kept.kept_at + timedelta(hours=2, seconds=1))
     async with serving(voice_rig(dropped_fake)) as rig:
         client, session = await rig.program(PHONE)
         await speak(client, session, _WAV, "goal")
         dropped = rig.entrance.services.voice.nectar if rig.entrance.services.voice else None
-        assert isinstance(dropped, InMemoryAudioNectar)
+        assert isinstance(dropped, InMemoryMediaNectar)
 
     assert (kept.ref, kept.data, kept.clearance) == (
         spoken.json()["goal"]["id"],

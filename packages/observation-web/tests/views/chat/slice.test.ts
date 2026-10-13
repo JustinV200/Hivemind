@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CHAT_RESUME } from '../../../src/views/chat/reads/chat_stream';
-import { initialChat, MAX_LINES, reduceChat } from '../../../src/views/chat/slice';
+import { initialChat, MAX_GOALS, MAX_LINES, reduceChat } from '../../../src/views/chat/slice';
 import type { ChatEvent, ChatState } from '../../../src/views/chat/slice';
 import {
   alarmView,
@@ -231,5 +231,42 @@ describe('spoken results', () => {
       text: 'write three haiku about bees',
       lineId: 'chat_5',
     });
+  });
+});
+
+describe('goals asked for from the chatbox', () => {
+  const asked = (id: string, at = '2026-01-01T00:00:20Z'): ChatEvent => ({
+    type: 'goal_asked',
+    goal: goalView({ id, source: 'typed', state: 'RECEIVED', needs_confirmation: false }),
+    text: `words for ${id}`,
+    at,
+  });
+
+  it('keeps the words as a line and the request as a goal', () => {
+    const state = apply([asked('goalreq_1')]);
+    expect(state.asked).toEqual([
+      { id: 'goalreq_1', text: 'words for goalreq_1', at: '2026-01-01T00:00:20Z' },
+    ]);
+    expect(state.goals.map((g) => g.id)).toEqual(['goalreq_1']);
+  });
+
+  it('shows a request once, and updates its goal when it is confirmed', () => {
+    const held: ChatEvent = {
+      type: 'goal_asked',
+      goal: goalView({ id: 'goalreq_1', source: 'typed' }),
+      text: 'words',
+      at: '2026-01-01T00:00:20Z',
+    };
+    const confirmed = goalView({ id: 'goalreq_1', needs_confirmation: false, state: 'PLANNING' });
+    const state = apply([held, held, { type: 'goal', goal: confirmed }]);
+    expect(state.asked).toHaveLength(1);
+    expect(state.goals[0]?.state).toBe('PLANNING');
+  });
+
+  it('is bounded like the goals themselves', () => {
+    const events = Array.from({ length: MAX_GOALS + 5 }, (_, i) => asked(`goalreq_${i}`));
+    const state = apply(events);
+    expect(state.asked).toHaveLength(MAX_GOALS);
+    expect(state.asked.at(-1)?.id).toBe(`goalreq_${MAX_GOALS + 4}`);
   });
 });

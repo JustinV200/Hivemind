@@ -12,8 +12,11 @@ interactive documentation routes are off: they load script from a CDN) and the O
 build when it exists, and is wrapped, outermost first, in the security headers, the loopback check
 (loopback only), the per-address rate limit and the body limit (a mounted raw-body row, the voice
 route's clip, with its own allowance). CORS is allowed for ``public_url`` alone, on the remote
-listener alone. A raw-body row is documented with its media types as a binary request body and its
-allowance as ``x-hive-body``; a row's extra refusals join the ones every row declares.
+listener alone, plus the Android WebView's pinned origin on both listeners when
+``[entrance.android]`` is configured, which also adds ``/.well-known/assetlinks.json`` to both
+(outside ``/v1/``, so outside the document). A raw-body row is documented with its media types
+as a binary request body and its allowance as ``x-hive-body``; a row's extra refusals join the
+ones every row declares.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance``. Called by the
@@ -42,6 +45,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp
 
+from hivemind.entrance.android import serve_asset_links
 from hivemind.entrance.auth.session.models import Listener
 from hivemind.entrance.enrol.invite import INVITE_PATH
 from hivemind.entrance.gate import (
@@ -114,7 +118,10 @@ class ListenerOptions:
         switches: The manifest switches that are on (the steward route's).
         openapi_document: The committed OpenAPI document's bytes, served as a static file.
         bound_port: The port the loopback listener bound, for its Host check; None remotely.
-        cors_origin: ``public_url``'s origin on the remote listener; None on loopback.
+        cors_origins: The origins CORS allows: ``public_url``'s on the remote listener, and the
+            Android WebView's on both when ``[entrance.android]`` is configured; none otherwise.
+        asset_links: The Digital Asset Links document, served at ``/.well-known/assetlinks.json``
+            on both listeners when ``[entrance.android]`` is configured; None serves nothing.
         web_root: The Observation Hive's build directory, served when it exists; None for none.
     """
 
@@ -122,7 +129,8 @@ class ListenerOptions:
     switches: frozenset[Switch]
     openapi_document: bytes
     bound_port: int | None = None
-    cors_origin: str | None = None
+    cors_origins: tuple[str, ...] = ()
+    asset_links: bytes | None = None
     web_root: Path | None = None
 
 
@@ -189,14 +197,17 @@ def build_listener_app(
     # Only a row this listener mounts may read a large body; every other body stays small JSON.
     allowances = {(row.method, row.path): row.raw_body for row in rows if row.raw_body is not None}
     _serve_document(app, options.openapi_document)
+    if options.asset_links is not None:
+        serve_asset_links(app, options.asset_links)
     # Mounted last, so every route matches first; the build may not exist yet.
     if options.web_root is not None and options.web_root.is_dir():
         _serve_observation(app, options.web_root)
-    # CORS for public_url alone, on the remote listener alone (ADR-0041).
-    if options.cors_origin is not None:
+    # CORS for public_url on the remote listener alone (ADR-0041), plus the Android WebView's
+    # pinned origin when that client is configured (ADR-0047); otherwise no origin at all.
+    if options.cors_origins:
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=[options.cors_origin],
+            allow_origins=list(options.cors_origins),
             allow_methods=_CORS_METHODS,
             allow_headers=_SIGNED_HEADERS,
             max_age=_CORS_MAX_AGE_S,

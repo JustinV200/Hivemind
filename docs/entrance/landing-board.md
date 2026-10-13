@@ -90,7 +90,7 @@ standard fields, it carries these extensions:
 | `x-hive-c2` | each operation, each stream | `true`: the answer holds personal (`C2`) content, so the device must also hold `honey:clearance:c2`. |
 | `x-hive-effect` | each operation | What it changes: `read`, `session`, `inbox` (a write into the Queen's inbox), `push`, or `door` (the Entrance itself). |
 | `x-hive-switch` | some operations | Mounted only while that `[entrance]` switch is on; otherwise a `404`. Today two have one: the steward approval route (`steward_devices`) and `POST /v1/chat/audio` (`voice.enabled`). |
-| `x-hive-body` | some operations | The operation takes a raw body (audio, not JSON): the most bytes it takes (`max_bytes`) and how long its upload may take (`read_timeout_s`). |
+| `x-hive-body` | some operations | The operation takes a raw body (audio or an image, not JSON): the most bytes it takes (`max_bytes`) and how long its upload may take (`read_timeout_s`). |
 | `x-hive-signing` | top level | Every signed string, its fields, its encodings, the header names, and a worked example. |
 | `x-hive-streams` | top level | The WebSocket views: path, first frame, frame schema, capability and listeners; a view that also takes frames from the client lists them in `client_frames`, and its answers in `reply_frames`. |
 
@@ -484,7 +484,7 @@ curl -sS --fail-with-body --noproxy '*' "$HIVE_URL/v1/chat?limit=20" \
      -H @auth.header -H @signed.headers | jq -r '.entries[] | "\(.author) \(.kind): \(.text)"'
 ```
 
-### 8.4 Speak instead of typing
+### 8.4 Speak instead of typing, or send a picture
 
 `POST /v1/chat/audio` takes a recording as the raw request body, labelled by its `Content-Type`
 (`audio/wav`, `audio/ogg`, `audio/webm`, `audio/mpeg` or `audio/mp4`). The query's `intent` says
@@ -536,6 +536,18 @@ The socket answers the device that spoke, and no other, with a `VoiceFrame` (its
 same `VoiceAccepted`) or a `VoiceRefusedFrame` (the `status` and `ErrorBody` the route would have
 answered). A hold whose next frame is more than 10 seconds late is dropped.
 
+**An image** goes to `POST /v1/nectar/images`, with the same raw-body shape: the picture is the
+request body, labelled `image/png`, `image/jpeg` or `image/webp`, and the query may carry a short
+`caption` and the `task_id` it concerns. The operation needs `entrance:submit` alone, since its
+`202` answer (an `ImageDepositView`: the `nectar_id`, `size_bytes`, `media_type`, `deposited_at`
+and `expires_at`) holds nothing of what the picture shows. The Hive does not open it: it keeps the
+image as Nectar labelled `C2`, with the device, the time, the caption and the task, until its
+retention window (`[entrance] image_keep_hours`) ends. An image past the Hive's `[entrance]
+max_image_bytes` is `413`, a `Content-Type` that is missing or another format is `415`, a body
+that is empty or does not begin as its label says is `422`, and a device that has sent more image
+bytes than its budget for the minute is `429` (`hivemind.entrance.image_over_budget`); a refused
+image is neither kept nor charged.
+
 ## 9. The push contract
 
 - **A notice says only that something is waiting, never what.** A `PushNotice` has four members:
@@ -574,10 +586,10 @@ Every refusal an operation declares carries an `ErrorBody`:
 | `403` | Refused: a capability, a step-up, or the device's standing. | `capability_denied` (with `capability`), `step_up_required` (with `reason`, and `pending_id` for a held request), `enrolment_refused`, `confirmation_refused` |
 | `404` | Not found, or not served on this listener. | `hivemind.entrance.not_found` for a route this listener does not serve |
 | `409` | The item moved on meanwhile, such as a question already answered. | varies |
-| `413` | A spoken clip is longer than the Hive takes. | `hivemind.entrance.clip_refused` |
-| `415` | A spoken clip's `Content-Type` is missing or not one the Hive takes. | `hivemind.entrance.clip_refused` |
-| `422` | A body or parameter is not valid. The detail names the fields, never their values. | `hivemind.entrance.invalid_request` |
-| `429` | Too many requests from this device or address, or too many seconds of audio. | `hivemind.entrance.rate_limited`, `hivemind.entrance.audio_over_budget` |
+| `413` | A spoken clip is longer, or an image larger, than the Hive takes. | `hivemind.entrance.clip_refused`, `hivemind.entrance.image_too_large` |
+| `415` | A spoken clip's or an image's `Content-Type` is missing or not one the Hive takes. | `hivemind.entrance.clip_refused`, `hivemind.entrance.image_type_refused` |
+| `422` | A body or parameter is not valid. The detail names the fields, never their values. | `hivemind.entrance.invalid_request`, `hivemind.entrance.image_malformed` |
+| `429` | Too many requests from this device or address, too many seconds of audio, or too many bytes of images. | `hivemind.entrance.rate_limited`, `hivemind.entrance.audio_over_budget`, `hivemind.entrance.image_over_budget` |
 | `503` | The transcriber could not hear a clip; send it again shortly. | `hivemind.entrance.transcription_failed` |
 
 The document does not enumerate the codes. The ones above are what the Entrance answers today. The

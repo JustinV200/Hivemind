@@ -3,7 +3,8 @@
  *
  * The slice holds everything the chat needs to draw: the conversation lines in log order, the
  * messages the human has sent that have not come back on the stream yet, the inbox (the questions
- * and Alarms still waiting on the human), the goals this device spoke and may need to confirm, and
+ * and Alarms still waiting on the human), the goals this device spoke and may need to confirm, the
+ * goals it typed and asked for as goals (their words, with the request's progress in `goals`), and
  * the last spoken result. Every member is a generated Landing Board type as received; nothing is
  * reshaped, so the view renders what the schema carries and no more.
  *
@@ -13,7 +14,8 @@
  *   results of the human's own actions).
  *
  * Key invariants:
- *   - Every list is bounded here: `MAX_LINES`, `MAX_PENDING` and `MAX_GOALS`.
+ *   - Every list is bounded here: `MAX_LINES`, `MAX_PENDING` and `MAX_GOALS` (which also bounds
+ *     the goals asked for).
  *   - Events carry their own times and keys, so the reducer stays pure.
  *
  * See Also:
@@ -53,6 +55,14 @@ export interface PendingMessage {
   error: unknown;
 }
 
+// A goal the human typed and asked for as a goal: the words they used, shown as a line. The
+// request's progress is the `GoalView` with the same id in `goals`.
+export interface AskedGoal {
+  id: string;
+  text: string;
+  at: string;
+}
+
 // The last clip the human spoke: what was heard and what the Entrance did with it.
 export interface SpokenState {
   result: VoiceAccepted;
@@ -73,6 +83,7 @@ export interface ChatState {
   // The newest live question or Alarm line, for the polite live region.
   announce: ChatLine | null;
   goals: readonly GoalView[];
+  asked: readonly AskedGoal[];
   spoken: SpokenState | null;
   // One sentence about something that changed under the human, such as an answer given elsewhere.
   notice: string | null;
@@ -91,6 +102,7 @@ export type ChatEvent =
   | { type: 'answered'; questionId: string }
   | { type: 'acknowledged'; alarmId: string }
   | { type: 'goal'; goal: GoalView }
+  | { type: 'goal_asked'; goal: GoalView; text: string; at: string }
   | { type: 'spoken'; result: VoiceAccepted; at: string }
   | { type: 'dismiss_spoken' }
   | { type: 'notice'; text: string }
@@ -106,6 +118,7 @@ export const initialChat: ChatState = {
   inboxWanted: 0,
   announce: null,
   goals: [],
+  asked: [],
   spoken: null,
   notice: null,
 };

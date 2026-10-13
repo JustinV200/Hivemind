@@ -120,6 +120,7 @@ from hivemind.observation.api.thoughts import (
     ThoughtsQuery,
     decode_cursor,
     encode_cursor,
+    resolve_principal,
     thoughts_page,
 )
 
@@ -195,6 +196,7 @@ __all__ = [
     "open_alarms",
     "pending_requests",
     "reconstruct_inbox",
+    "resolve_principal",
     "summary_view",
     "thoughts_page",
     "warden_runs",

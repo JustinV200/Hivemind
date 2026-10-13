@@ -1,8 +1,8 @@
 """Tests for hivemind.manifest.schema.entrance: the [entrance] section and its sub-tables.
 
 Fits into the Hive:
-    Mirrors src/hivemind/manifest/schema/entrance.py (codingrules section 3: tests/unit mirrors
-    src/ one-to-one).
+    Mirrors src/hivemind/manifest/schema/entrance/section.py (codingrules section 3: tests/unit
+    mirrors src/ one-to-one); the sub-tables' own tests are beside it.
 
 Key invariants:
     - None: this module holds tests only.
@@ -33,7 +33,7 @@ from hivemind.manifest.schema.entrance import (
 TAILSCALE_V4 = "100.101.102.103:8711"  # An address inside Tailscale's CGNAT range.
 TAILSCALE_V6 = "[fd7a:115c:a1e0::1]:8711"  # An address inside Tailscale's IPv6 prefix.
 # The shipped minimal example manifest, which omits [entrance] entirely.
-MINIMAL_MANIFEST = Path(__file__).parents[6] / "docs" / "manifests" / "minimal.toml"
+MINIMAL_MANIFEST = Path(__file__).parents[7] / "docs" / "manifests" / "minimal.toml"
 
 
 def test_entrance_section_defaults_to_loopback_only() -> None:

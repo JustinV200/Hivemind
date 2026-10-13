@@ -4915,6 +4915,12 @@ export interface components {
              */
             spend: number;
             /**
+             * Sub Bees
+             * @description On the Warden's own report: how many sub-bee rows its Heartbeat listed, which follow it in the stream, so a client knows when the Heartbeat is whole and a bee it no longer lists has finished; null on a sub-bee's row.
+             * @default null
+             */
+            sub_bees: number | null;
+            /**
              * Task Id
              * @description The bee's current task, if any.
              */
@@ -4959,6 +4965,11 @@ export interface components {
              * @description Pass as ?cursor= for the next page; null at end.
              */
             next_cursor: string | null;
+            /**
+             * Principal
+             * @description The principal the episodes belong to: the Queen's real principal (the Hive id) when the query asked for 'queen', else the query's own; null for every bee's.
+             */
+            principal?: string | null;
         };
         /**
          * TierAuditRate

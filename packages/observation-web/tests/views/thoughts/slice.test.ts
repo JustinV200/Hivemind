@@ -17,7 +17,13 @@
 import { describe, expect, it } from 'vitest';
 import { initialThoughts, MAX_EPISODES, reduceThoughts } from '../../../src/views/thoughts/slice';
 import type { ThoughtsEvent, ThoughtsState } from '../../../src/views/thoughts/slice';
-import { decisionView, episodeFrame, episodeView, thoughtsPage } from '../../support/frames';
+import {
+  decisionView,
+  episodeFrame,
+  episodeView,
+  thoughtsPage,
+  trailFrame,
+} from '../../support/frames';
 
 const run = (events: ThoughtsEvent[], from: ThoughtsState = initialThoughts): ThoughtsState =>
   events.reduce(reduceThoughts, from);
@@ -161,5 +167,79 @@ describe('older page', () => {
   it('ignores a page fetched with a cursor that is no longer next', () => {
     const page = thoughtsPage({ episodes: [ep(1)] });
     expect(run([{ type: 'older', principal: 'queen', cursor: 'old', page }], seeded)).toBe(seeded);
+  });
+});
+
+describe("the Queen's real principal", () => {
+  const hiveId = 'hive_01QUEEN';
+  const seeded = run(
+    [{ type: 'seeded', principal: 'queen', page: thoughtsPage({ principal: hiveId }) }],
+    opened,
+  );
+
+  it('takes the resolved principal from the seed', () => {
+    expect(seeded.resolved).toBe(hiveId);
+    expect(opened.resolved).toBeNull();
+  });
+
+  it('accepts a frame under either the requested name or the resolved principal', () => {
+    const state = run([frame(1, hiveId), frame(2, 'queen'), frame(3, 'warden_a')], seeded);
+    expect(ids(state)).toEqual(['ep_2', 'ep_1']);
+  });
+
+  it('does not accept the Hive id before the seed has said it is hers', () => {
+    expect(ids(run([frame(1, hiveId)], opened))).toEqual([]);
+  });
+
+  it('starts clean for another bee, forgetting the resolved principal', () => {
+    expect(run([{ type: 'open', principal: 'w_9' }], seeded).resolved).toBeNull();
+  });
+});
+
+describe("the Queen's decisions from the trail", () => {
+  const decision = (id: string, n: number, kind = 'queen.decided', payload = {}) =>
+    ({
+      type: 'decision',
+      frame: trailFrame({
+        id,
+        kind,
+        payload,
+        at: new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString(),
+      }),
+    }) satisfies ThoughtsEvent;
+
+  it('reshapes a queen.decided and an alarm.handled event like the seed does', () => {
+    const state = run(
+      [
+        decision('d1', 1, 'queen.decided', { action: 'REBIND', cause: 'lease_gone' }),
+        decision('d2', 2, 'alarm.handled', { action: 'RECORD' }),
+      ],
+      opened,
+    );
+    expect(state.decisions).toEqual([
+      expect.objectContaining({ id: 'd2', alarm_id: 'cell_1', action: 'RECORD', reason: null }),
+      expect.objectContaining({ id: 'd1', alarm_id: null, action: 'REBIND', reason: 'lease_gone' }),
+    ]);
+  });
+
+  it('ignores other kinds, a repeat, and any bee but the Queen', () => {
+    const once = run([decision('d1', 1)], opened);
+    expect(run([decision('d1', 1)], once)).toBe(once);
+    expect(run([decision('t1', 2, 'task.started')], opened)).toBe(opened);
+    const worker = run([{ type: 'open', principal: 'w_9' }]);
+    expect(run([decision('d3', 3)], worker)).toBe(worker);
+  });
+
+  it('queues behind Follow off and reveals with the episodes', () => {
+    const off = run([{ type: 'follow', on: false }, decision('d1', 1)], opened);
+    expect(off.decisions).toEqual([]);
+    expect(off.queuedDecisions).toHaveLength(1);
+    expect(run([{ type: 'reveal' }], off)).toMatchObject({ queuedDecisions: [] });
+    expect(run([{ type: 'reveal' }], off).decisions).toHaveLength(1);
+  });
+
+  it('stays bounded', () => {
+    const events = Array.from({ length: MAX_EPISODES + 20 }, (_, i) => decision(`d${i}`, i));
+    expect(run(events, opened).decisions).toHaveLength(MAX_EPISODES);
   });
 });

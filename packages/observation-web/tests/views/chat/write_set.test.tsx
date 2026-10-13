@@ -3,7 +3,8 @@
  *
  * Codingrules 8.11 gives the UI one write path, the message into the Queen's inbox. This test runs
  * every interaction the view has (seed, a live question and Alarm, an answer, an acknowledgement,
- * a typed message, a spoken goal confirmed, a spoken goal declined) on one mounted screen and
+ * a typed message, a typed goal requested and confirmed, a spoken goal confirmed, a spoken goal
+ * declined) on one mounted screen and
  * collects every request the fake browser saw. The set of `METHOD path` pairs must be exactly the
  * reads and writes of step 12.8, and the only socket must be the chat stream.
  *
@@ -37,6 +38,8 @@ const EXPECTED = [
   'GET /v1/inbox',
   'POST /v1/chat',
   'POST /v1/chat/audio',
+  'POST /v1/goals',
+  'POST /v1/goals/goalreq_3/confirm',
   'POST /v1/inbox/alarms/alarm_1/acknowledge',
   'POST /v1/inbox/questions/msg_Q1/answer',
   'POST /v1/goals/goalreq_1/confirm',
@@ -69,6 +72,12 @@ it('makes only the reads and the writes of the chat, across every interaction', 
     200,
     goalView({ id: 'goalreq_2', needs_confirmation: false, state: 'REFUSED', refused: true }),
   );
+  fake.respond('POST /v1/goals', 202, { id: 'goalreq_3', state: 'AWAITING_CONFIRMATION' });
+  fake.respond(
+    'POST /v1/goals/goalreq_3/confirm',
+    200,
+    goalView({ id: 'goalreq_3', needs_confirmation: false, state: 'PLANNING', source: 'typed' }),
+  );
   let goals = 0;
   fake.routes.set('POST /v1/chat/audio', () => ({
     status: 202,
@@ -87,6 +96,14 @@ it('makes only the reads and the writes of the chat, across every interaction', 
   fireEvent.change(screen.getByLabelText('Message to the Queen'), { target: { value: 'hello' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await screen.findByText('Sent, waiting for the Queen to log it');
+
+  // A typed goal, held for the human's yes and confirmed from its own line.
+  fireEvent.click(screen.getByRole('switch', { name: 'Request as a goal' }));
+  fireEvent.change(screen.getByLabelText('Message to the Queen'), { target: { value: 'plan it' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Request goal' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+  await screen.findByText('Confirmed. The Queen is planning it.');
+  fireEvent.click(screen.getByRole('switch', { name: 'Request as a goal' }));
 
   // Two spoken goals: one confirmed, one declined.
   for (const verdict of ['Confirm', 'Decline']) {

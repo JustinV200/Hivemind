@@ -40,10 +40,12 @@ from unit.entrance.push.support import OWN_ADDRESS, Recorder, StaticResolver
 from hivemind.cell import CellKind
 from hivemind.common.secrets import MemorySecretStore
 from hivemind.entrance.auth import SoftPasskey
+from hivemind.entrance.auth.limits import ByteBudget
 from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import CONSOLE_CAPABILITIES, DeviceStatus, EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, ListenerPlan, load_or_create_authority
 from hivemind.entrance.gate import HiveReads, HoneyReads, LlmReads
+from hivemind.entrance.images import ImageRules, ImageServices
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.push import (
     MemorySubscriptionStore,
@@ -63,7 +65,7 @@ from hivemind.entrance.runtime import (
 )
 from hivemind.entrance.store import MemoryEntranceStore
 from hivemind.entrance.streams import DEFAULT_BACKLOG, TelemetryBoard
-from hivemind.entrance.voice import InMemoryAudioNectar, VoiceRules, VoiceServices
+from hivemind.entrance.voice import InMemoryMediaNectar, VoiceRules, VoiceServices
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
     BoundTranscriber,
@@ -170,12 +172,20 @@ class ServingRig:
     push_service: Recorder
     console: DeviceKey
     clock: SystemClock
+    images: ImageServices
     http: list[httpx.AsyncClient] = field(default_factory=list)
 
     @property
     def hive_id(self) -> str:
         """The Hive every signed string names."""
         return self.deps.identity.hive_id
+
+    @property
+    def nectar(self) -> InMemoryMediaNectar:
+        """The in-memory Nectar seam images are deposited in, to read back what was kept."""
+        nectar = self.images.nectar
+        assert isinstance(nectar, InMemoryMediaNectar), "the rig serves an in-memory Nectar seam"
+        return nectar
 
     @property
     def loopback_url(self) -> str:
@@ -297,6 +307,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
         # What an earlier run left behind, found by the Entrance as it settles on start.
         await active.seed(store, deps)
     recorder, resolver = Recorder(*active.push_statuses), StaticResolver()
+    images = _images(active, clock)
     async with recorder.client() as push_http:
         parts = EntranceParts(
             settings=_settings(deps, active),
@@ -305,6 +316,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             keys=await _keys(clock, deps.identity.hive_id if active.authority else None),
             clock=clock,
             http=push_http,
+            images=images,
             own_addresses=frozenset({ipaddress.ip_address(OWN_ADDRESS)}),
             resolver=resolver,
             voice=_voice(active, deps),
@@ -321,6 +333,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             push_service=recorder,
             console=console,
             clock=clock,
+            images=images,
         )
         async with _running(rig):
             yield rig
@@ -346,6 +359,16 @@ async def _queen(
     return queen, deps, warden_end
 
 
+def _images(options: RigOptions, clock: SystemClock) -> ImageServices:
+    """Serve the image intake with the rig's ``[entrance]`` limits and an in-memory seam."""
+    section = options.section
+    return ImageServices(
+        nectar=InMemoryMediaNectar(),
+        budget=ByteBudget.from_section(section, clock),
+        rules=ImageRules.from_section(section),
+    )
+
+
 def _voice(options: RigOptions, deps: QueenDeps) -> VoiceServices | None:
     """Serve voice when the rig has a transcriber and ``[entrance.voice]`` is on."""
     section = options.section.voice
@@ -354,7 +377,7 @@ def _voice(options: RigOptions, deps: QueenDeps) -> VoiceServices | None:
     return VoiceServices(
         ears=_ears(options.transcriber),
         scanner=deps.scanner,
-        nectar=InMemoryAudioNectar(),
+        nectar=InMemoryMediaNectar(),
         rules=VoiceRules.from_section(section),
     )
 

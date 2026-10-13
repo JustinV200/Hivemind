@@ -35,7 +35,7 @@ Public API:
     - Guard policy overrides (security.guard): GuardSection, GuardRoleSection,
       DEFAULT_DIRE_PATTERNS.
     - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
-      EntrancePushSection, EntranceVoiceSection.
+      EntrancePushSection, EntranceVoiceSection, EntranceAndroidSection.
     - Supervision and memory (supervision): SupervisionSection, MemorySection.
     - Security and clearance (security.tiers): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
@@ -56,6 +56,7 @@ from hivemind.manifest.schema.core import (
     QueenSection,
 )
 from hivemind.manifest.schema.entrance import (
+    EntranceAndroidSection,
     EntranceExposure,
     EntrancePushSection,
     EntranceSection,
@@ -105,6 +106,7 @@ __all__ = [
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "EntranceAndroidSection",
     "EntranceExposure",
     "EntrancePushSection",
     "EntranceSection",

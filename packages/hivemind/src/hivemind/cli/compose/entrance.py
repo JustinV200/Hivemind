@@ -23,9 +23,10 @@ is the Hive's without its own variables and without any provider's API key, plus
 voice door hears through), so every clip is one `llm.call` on the Hive's trail, and a slot bound to
 a provider that cannot transcribe refuses to start `hive serve` rather than failing the first
 spoken word; the transcript is scored by the Queen's own scanner, and a kept clip goes to the
-in-memory Nectar seam (the Honey Store's own intake does not take audio yet). The Honey browser
-(roadmap step 12.9) is built over the Hive's own Honey Store, retriever and memory store, and
-handed to the Entrance as its read side only (`HoneyReads`: no method that proposes a note).
+in-memory Nectar seam (the Honey Store's own intake does not take audio yet). The image intake
+(roadmap step 12.12) is always wired, over that same seam and a per-device byte budget. The Honey
+browser (roadmap step 12.9) is built over the Hive's own Honey Store, retriever and memory store,
+and handed to the Entrance as its read side only (`HoneyReads`: no method that proposes a note).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.serve` and by the
@@ -66,6 +67,7 @@ from hivemind.cli.honey.sources import MemoryBeeBreadSource, MemoryWaxSource
 from hivemind.common.logging import get_logger
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.common.sqlite import connect
+from hivemind.entrance.auth.limits import ByteBudget
 from hivemind.entrance.enrol import EntranceIdentity
 from hivemind.entrance.expose import (
     ExposurePlan,
@@ -77,6 +79,7 @@ from hivemind.entrance.expose import (
     tunnel_environment,
 )
 from hivemind.entrance.gate import HiveReads, LlmReads
+from hivemind.entrance.images import ImageRules, ImageServices
 from hivemind.entrance.push import (
     Resolver,
     SqliteSubscriptionStore,
@@ -97,7 +100,7 @@ from hivemind.entrance.runtime import (
     build_entrance,
 )
 from hivemind.entrance.store import SqliteEntranceStore
-from hivemind.entrance.voice import InMemoryAudioNectar, VoiceRules, VoiceServices
+from hivemind.entrance.voice import InMemoryMediaNectar, MediaNectar, VoiceRules, VoiceServices
 from hivemind.forage.tempo import AccuracyBar, Tempo
 from hivemind.honey_store.browse import BrowserDeps, BrowseSources, HoneyBrowser
 from hivemind.llm import Ears, FannerTranscriptionGate, Responder
@@ -213,8 +216,11 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
     hive = served.hive
     manifest, clock = hive.manifest, hive.clock
     plan = await _plan(served)
+    # One Nectar seam for everything a device hands over to keep (clips and images), so one
+    # retention sweep and one set of memory bounds cover both.
+    nectar = InMemoryMediaNectar()
     # Bound before anything listens, so a transcriber that cannot be bound refuses to start.
-    voice = _voice(hive)
+    voice = _voice(hive, nectar)
     loopback = bind_listener(plan.loopback.host, plan.loopback.port)
     async with AsyncExitStack() as stack:
         # Closed on every way out, a failed build included; closing it twice is harmless.
@@ -235,6 +241,7 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
             keys=keys,
             clock=clock,
             http=http,
+            images=_images(hive, nectar),
             own_addresses=await _own_addresses(served, plan),
             resolver=served.resolver,
             voice=voice,
@@ -385,7 +392,17 @@ def _honey_browser(hive: Hive) -> HoneyBrowser | None:
     )
 
 
-def _voice(hive: Hive) -> VoiceServices | None:
+def _images(hive: Hive, nectar: MediaNectar) -> ImageServices:
+    """Build the image intake: the shared Nectar seam, each device's byte budget, the rules."""
+    section = hive.manifest.entrance
+    return ImageServices(
+        nectar=nectar,
+        budget=ByteBudget.from_section(section, hive.clock),
+        rules=ImageRules.from_section(section),
+    )
+
+
+def _voice(hive: Hive, nectar: MediaNectar) -> VoiceServices | None:
     """Bind and meter the TRANSCRIBER slot for voice at the Entrance; None while voice is off."""
     section = hive.manifest.entrance.voice
     if not section.enabled:
@@ -399,7 +416,7 @@ def _voice(hive: Hive) -> VoiceServices | None:
     return VoiceServices(
         ears=ears,
         scanner=hive.queen_deps.scanner,
-        nectar=InMemoryAudioNectar(),
+        nectar=nectar,
         rules=VoiceRules.from_section(section),
     )
 

@@ -58,10 +58,13 @@ export type AudioIntent = QueryOf<AudioOp>['intent'];
 // A clip shorter than this is not worth a request; the document asks for a length above zero.
 const MIN_CLIP_SECONDS = 0.01;
 
-// TODO(12.12-python): once `POST /v1/nectar/images` is in the generated types.ts, read the accepted
-// media types off the operation as `AudioMediaType` does; until then they are the three in
-// docs/entrance/openapi.json.
-export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
+// The image formats the Entrance takes are read off the operation, as `AudioMediaType` is, so the
+// client can never offer a format the document does not name.
+export type ImageMediaType = keyof OperationOf<
+  '/v1/nectar/images',
+  'post'
+>['requestBody']['content'] &
+  string;
 
 export interface SharedImage {
   bytes: Bytes;

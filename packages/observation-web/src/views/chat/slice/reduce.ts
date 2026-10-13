@@ -69,6 +69,18 @@ function withGoal(state: ChatState, goal: GoalView): ChatState {
   return { ...state, goals };
 }
 
+// A typed goal request: its words become a line, and its progress joins the goals held.
+function asked(state: ChatState, event: Extract<ChatEvent, { type: 'goal_asked' }>): ChatState {
+  const { goal, text, at } = event;
+  const entry = { id: goal.id, text, at };
+  const rest = state.asked.filter((held) => held.id !== goal.id);
+  return { ...withGoal(state, goal), asked: [...rest, entry].slice(-MAX_GOALS) };
+}
+
+function seeded(state: ChatState, entries: readonly ChatLine[]): ChatState {
+  return { ...withLines(state, mergeLines(state.lines, entries)), seeded: true, error: null };
+}
+
 function spoken(state: ChatState, event: Extract<ChatEvent, { type: 'spoken' }>): ChatState {
   const { result, at } = event;
   let next: ChatState = { ...state, spoken: { result, at } };
@@ -97,11 +109,7 @@ function withoutInboxItem(state: ChatState, kind: 'questions' | 'alarms', id: st
 export function reduceChat(state: ChatState, event: ChatEvent): ChatState {
   switch (event.type) {
     case 'seeded':
-      return {
-        ...withLines(state, mergeLines(state.lines, event.page.entries)),
-        seeded: true,
-        error: null,
-      };
+      return seeded(state, event.page.entries);
     case 'failed':
       return { ...state, error: event.error, seeded: true };
     case 'inbox':
@@ -134,6 +142,8 @@ export function reduceChat(state: ChatState, event: ChatEvent): ChatState {
       return withoutInboxItem(state, 'alarms', event.alarmId);
     case 'goal':
       return withGoal(state, event.goal);
+    case 'goal_asked':
+      return asked(state, event);
     case 'spoken':
       return spoken(state, event);
     case 'dismiss_spoken':

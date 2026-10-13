@@ -145,7 +145,7 @@ describe('summary strip', () => {
           cellFrame({
             id,
             kind: 'REAL',
-            lease_state: id < 'c' ? 'OPEN' : 'RELEASED',
+            mode: id < 'c' ? 'ACTIVE' : 'WATCH',
             virtual_status: null,
           }),
         );

@@ -630,6 +630,13 @@ vpn_interface = "tailscale0"
 # The WebAuthn relying party for remote devices; empty means public_url's host. Fixed once the
 # first remote device enrols (a passkey is bound to it).
 rp_id = "hivestand.example-tailnet.ts.net"
+# Images in on POST /v1/nectar/images (roadmap step 12.12): the largest image taken, in bytes (at
+# most 32 MiB; a bigger one is a 413), each device's image bytes a minute (a bucket charged each
+# image's whole size; at least max_image_bytes), and how long a deposited image stays as C2 Nectar
+# before the retention sweep deletes it.
+max_image_bytes = 8388608
+image_bytes_per_minute = 33554432
+image_keep_hours = 24.0
 
 [entrance.tls]
 # Paths to the remote listener's certificate chain and key (here, `tailscale cert` output). Every
@@ -660,6 +667,19 @@ max_clip_seconds = 120.0
 # Each device's audio budget: this many seconds a minute (a bucket charged each clip's length
 # before it is heard); at least max_clip_seconds.
 audio_seconds_per_minute = 120.0
+
+[entrance.android]
+# The Android client (roadmap step 12.12, ADR-0047). With a package name and at least one signing
+# certificate fingerprint the Entrance serves /.well-known/assetlinks.json on both listeners,
+# accepts the passkey origin `android:apk-key-hash:<base64url of each fingerprint>` on the remote
+# relying party, and accepts the WebView origin below in CORS and on the sockets. Both empty (the
+# default) turns every one of them off; one without the other is an error.
+package_name = "net.example.hivemind"
+# SHA-256 fingerprints of the app's signing certificates (`keytool -list -v`), 32 hex pairs each.
+# Rotating the signing key means updating this list.
+cert_fingerprints = ["14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5"]
+# The origin Capacitor pins the bundled WebView to (server.hostname and androidScheme).
+webview_origin = "https://observation.hive.local"
 
 [guard]
 # The Guard policy's overrides (roadmap step 10.2, ADR-0039). Every Hive starts from the policy

@@ -4115,6 +4115,57 @@
         "title": "HostingView",
         "type": "object"
       },
+      "ImageDepositView": {
+        "description": "An image kept as C2 Nectar: where to find it, and until when.",
+        "properties": {
+          "deposited_at": {
+            "description": "When the Hive kept it.",
+            "format": "date-time",
+            "title": "Deposited At",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When the retention sweep deletes it ([entrance] image_keep_hours later).",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "media_type": {
+            "$ref": "#/components/schemas/ImageMediaType",
+            "description": "Its format: png, jpeg or webp."
+          },
+          "nectar_id": {
+            "description": "The Nectar id the image was given.",
+            "title": "Nectar Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "description": "The image's size in bytes.",
+            "minimum": 1.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nectar_id",
+          "size_bytes",
+          "media_type",
+          "deposited_at",
+          "expires_at"
+        ],
+        "title": "ImageDepositView",
+        "type": "object"
+      },
+      "ImageMediaType": {
+        "description": "The image formats the Hive takes; the value is the ``Content-Type`` that names it.",
+        "enum": [
+          "image/png",
+          "image/jpeg",
+          "image/webp"
+        ],
+        "title": "ImageMediaType",
+        "type": "string"
+      },
       "InboxEntryView": {
         "description": "One item in a supervisor's ordered inbox, with the score the Attendant gave it.",
         "properties": {
@@ -6245,6 +6296,19 @@
             "title": "Spend",
             "type": "number"
           },
+          "sub_bees": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "On the Warden's own report: how many sub-bee rows its Heartbeat listed, which follow it in the stream, so a client knows when the Heartbeat is whole and a bee it no longer lists has finished; null on a sub-bee's row.",
+            "title": "Sub Bees"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -6349,6 +6413,18 @@
             ],
             "description": "Pass as ?cursor= for the next page; null at end.",
             "title": "Next Cursor"
+          },
+          "principal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The principal the episodes belong to: the Queen's real principal (the Hive id) when the query asked for 'queen', else the query's own; null for every bee's.",
+            "title": "Principal"
           }
         },
         "required": [
@@ -13233,6 +13309,186 @@
         "x-hive-c2": false,
         "x-hive-capability": "observe",
         "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/nectar/images": {
+      "post": {
+        "operationId": "deposit_v1_nectar_images_post",
+        "parameters": [
+          {
+            "description": "A few words about the image (C2); kept beside it, never echoed back.",
+            "in": "query",
+            "name": "caption",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 280,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A few words about the image (C2); kept beside it, never echoed back.",
+              "title": "Caption"
+            }
+          },
+          {
+            "description": "The task the image concerns; absent when it concerns none.",
+            "in": "query",
+            "name": "task_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The task the image concerns; absent when it concerns none.",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageDepositView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The image is larger than [entrance] max_image_bytes."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The Content-Type is missing or not image/png, jpeg or webp."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Hand the Hive an image: kept as C2 Nectar for its retention window.",
+        "tags": [
+          "nectar"
+        ],
+        "x-hive-body": {
+          "max_bytes": 33554432,
+          "read_timeout_s": 120.0
+        },
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:submit",
+        "x-hive-effect": "inbox",
         "x-hive-listeners": [
           "loopback",
           "remote"

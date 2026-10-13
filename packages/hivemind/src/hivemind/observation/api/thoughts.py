@@ -20,6 +20,8 @@ Key invariants:
     - A cursor names a (time, id) pair in URL-safe form; a malformed one is refused when the
       query is validated.
     - The decisions list is the Queen's: it is empty for any other principal.
+    - ``principal`` on the page is the one the records were read for: the Queen's role resolves
+      to her Hive id, because that is what her episode records carry.
 
 See Also:
     - hivemind.observation.views.episodes for the record view this page carries.
@@ -56,6 +58,7 @@ __all__ = [
     "AutopilotDecisionView",
     "ThoughtsPage",
     "ThoughtsQuery",
+    "resolve_principal",
     "thoughts_page",
 ]
 
@@ -112,10 +115,18 @@ class ThoughtsPage(BaseModel):
     decisions: list[AutopilotDecisionView] = Field(
         description="The Queen's recent autopilot decisions, newest first; empty for other bees."
     )
+    principal: str | None = Field(
+        default=None,
+        description="The principal the episodes belong to: the Queen's real principal (the Hive "
+        "id) when the query asked for 'queen', else the query's own; null for every bee's.",
+    )
 
 
 def thoughts_page(
-    records: Sequence[EpisodeRecord], events: Sequence[PheromoneEvent], query: ThoughtsQuery
+    records: Sequence[EpisodeRecord],
+    events: Sequence[PheromoneEvent],
+    query: ThoughtsQuery,
+    queen_id: str | None = None,
 ) -> ThoughtsPage:
     """Cut one page of episode records after the query's cursor.
 
@@ -123,9 +134,12 @@ def thoughts_page(
         records: Episode records in any order, already limited to the query's principal.
         events: Trail events from which the Queen's autopilot decisions are read.
         query: The validated query.
+        queen_id: The principal the Queen's episodes carry (her Hive's id), so a query for
+            ``queen`` is answered under it; None leaves the name as asked.
 
     Returns:
-        The page: up to ``limit`` records newest first, the cursor for the next, the decisions.
+        The page: up to ``limit`` records newest first, the cursor for the next, the decisions
+        and the principal the episodes were read for.
     """
     ordered = sorted(records, key=lambda record: (record.at, record.id), reverse=True)
     # Continue strictly after the record the cursor names, whatever has arrived since.
@@ -134,12 +148,32 @@ def thoughts_page(
         ordered = [record for record in ordered if (record.at, record.id) < after]
     page = ordered[: query.limit]
     more = len(ordered) > query.limit
-    wants_decisions = query.principal in (None, QUEEN_PRINCIPAL)
+    principal = resolve_principal(query.principal, queen_id)
+    wants_decisions = query.principal in (None, QUEEN_PRINCIPAL) or principal == queen_id
     return ThoughtsPage(
         episodes=[episode_view(record) for record in page],
         next_cursor=encode_cursor(page[-1]) if more else None,
         decisions=_decisions(events) if wants_decisions else [],
+        principal=principal,
     )
+
+
+def resolve_principal(principal: str | None, queen_id: str | None) -> str | None:
+    """Name the principal whose records a query reads.
+
+    The Queen's episode records carry her Hive's id, not the word ``queen`` the views ask by, so
+    the role is translated here once and every reader agrees.
+
+    Args:
+        principal: The query's principal: an id, a role, or None for every bee.
+        queen_id: The Queen's real principal, or None when it is unknown.
+
+    Returns:
+        ``queen_id`` for the role ``queen`` when known, else ``principal`` unchanged.
+    """
+    if principal == QUEEN_PRINCIPAL and queen_id is not None:
+        return queen_id
+    return principal
 
 
 def encode_cursor(record: EpisodeRecord) -> str:

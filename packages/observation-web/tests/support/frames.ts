@@ -57,6 +57,7 @@ export function telemetryFrame(
       goal: 'goal',
       last_actions: [],
       spend: 0,
+      sub_bees: null,
       task_id: null,
       tokens_used: 0,
       warden_id: 'warden_1',
@@ -141,6 +142,23 @@ export function decisionView(
     reason: 'lease_expired',
     subject_id: 'cell_1',
     ...decision,
+  };
+}
+
+export function trailFrame(event: Partial<Schemas['TrailEventView']> = {}): Schemas['TrailFrame'] {
+  return {
+    type: 'trail',
+    event: {
+      actor: 'system',
+      at: '2026-01-01T00:00:00Z',
+      family: (event.kind ?? 'queen.decided').split('.')[0] ?? 'queen',
+      id: 'evt_1',
+      kind: 'queen.decided',
+      node_id: 'node_1',
+      payload: {},
+      subject_id: 'cell_1',
+      ...event,
+    },
   };
 }
 

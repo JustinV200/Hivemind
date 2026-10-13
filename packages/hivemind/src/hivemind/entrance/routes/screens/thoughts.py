@@ -47,7 +47,9 @@ async def get_thoughts(
         The page: records newest first, the next cursor, and for the Queen her autopilot rows.
     """
     # Latency: one indexed memory read and two indexed trail reads.
-    return await read_thoughts(services.hive, query)
+    # The Queen's records carry her Hive's id, so 'queen' is read under it.
+    hive_id = services.enrolment.records.identity.hive_id
+    return await read_thoughts(services.hive, query, hive_id)
 
 
 ROUTES: tuple[RouteSpec, ...] = (

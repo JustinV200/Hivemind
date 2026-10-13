@@ -9,7 +9,8 @@ the two into the ``RouteTable``.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Read by
     ``hivemind.entrance.app``. Calls into each resource module for its rows only (the voice
-    route's rows live with the rest of voice, in ``hivemind.entrance.voice``).
+    route's rows live with the rest of voice, in ``hivemind.entrance.voice``, and the image
+    route's in ``hivemind.entrance.images``).
 
 Key invariants:
     - Every resource appears once; the document lists its rows in this order.
@@ -21,6 +22,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.entrance.gate.spec import RouteSpec
+from hivemind.entrance.images import IMAGE_ROUTES
 from hivemind.entrance.routes import auth, chat, devices, enrol, goals, inbox, push
 from hivemind.entrance.routes.entrance import (
     DOOR_ROUTES,
@@ -66,6 +68,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     goals.ROUTES,
     chat.ROUTES,
     VOICE_ROUTES,  # POST /v1/chat/audio, beside the chat it speaks into (hivemind.entrance.voice).
+    IMAGE_ROUTES,  # POST /v1/nectar/images, roadmap step 12.12 (hivemind.entrance.images).
     inbox.ROUTES,
     push.ROUTES,
     TASK_ROUTES,

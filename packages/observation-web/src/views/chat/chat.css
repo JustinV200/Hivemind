@@ -177,6 +177,21 @@
   font-size: var(--fs-sm);
 }
 
+/* The goal switch: a checkbox with a tap target as tall as the buttons beside it. */
+.chat-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  font-size: var(--fs-sm);
+}
+
+.chat-switch input {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--accent);
+}
+
 .chat-send {
   min-height: 44px;
   padding: 0 var(--sp-5);

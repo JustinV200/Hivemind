@@ -253,6 +253,7 @@ export function sampleFrame(
       goal: 'edit the file',
       last_actions: [],
       spend: 0.75,
+      sub_bees: null,
       task_id: 'task_1',
       tokens_used: 64000,
       warden_id: 'warden_1',

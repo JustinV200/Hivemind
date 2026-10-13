@@ -27,6 +27,7 @@ export { alarmFor, goalById, isResolved, questionFor, unmatchedInbox } from './s
 export { initialChat, MAX_GOALS, MAX_LINES, MAX_PENDING } from './state';
 export type {
   AlarmView,
+  AskedGoal,
   ChatEvent,
   ChatFrame,
   ChatLine,

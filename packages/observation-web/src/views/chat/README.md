@@ -8,7 +8,9 @@ word and links to the task it concerns (`#/attendant/queen`; a human message als
 (buttons for a closed question, a text field for a free one), and an Alarm that reached the human has
 Acknowledge; both post to the inbox routes and disappear on success. The composer is docked to the
 bottom, above the nav on a phone: a text box and Send (the one filled accent button), and a
-hold-to-talk button that records with the browser's recorder, posts the clip to `/v1/chat/audio`
+"Request as a goal" switch (off by default; on, the button reads "Request goal" and the words go
+to `POST /v1/goals` instead of the chat, with the Confirm and Decline controls a held goal has, and a
+line linking to `#/attendant/queen`), and a hold-to-talk button that records with the browser's recorder, posts the clip to `/v1/chat/audio`
 and shows the transcript, with Confirm and Decline while a spoken goal is held. A `403
 step_up_required` shows a password prompt and retries the write once. A device without
 `entrance:submit` is told so and gets no composer. There is no break-glass control: none is built
@@ -22,9 +24,10 @@ an alias for the outlet. `chat_screen.tsx` is the route component.
 - `reads/`: `use_chat.ts` seeds from `GET /v1/chat` and `GET /v1/inbox` once and re-reads the inbox
   once per live question or Alarm line (never on a timer); `chat_stream.ts` is the stream wiring,
   resuming with `?after=<seq>`.
-- `writes/`: `use_actions.ts` is every write the view makes; `use_step_up.ts` and
+- `writes/`: `use_actions.ts` is every chat, inbox and voice write; `use_goal.ts` is the typed goal
+  request; `use_step_up.ts` and
   `step_up_prompt.tsx` are the step-up flow.
-- `conversation/`: the list, a line, a pending message, the question and Alarm forms, the links and
+- `conversation/`: the list, a line, a pending message, a requested goal (`goal_row.tsx`), the question and Alarm forms, the links and
   the "Waiting for you" block for inbox items whose line has not arrived.
 - `composer/`: the text box and Send. `voice/`: push-to-talk, its state machine, the transcript card
   and the goal controls.

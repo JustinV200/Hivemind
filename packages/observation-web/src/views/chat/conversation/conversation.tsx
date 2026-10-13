@@ -2,7 +2,7 @@
  * `Conversation`: the chat in order, oldest first, then what is still on its way.
  *
  * It draws the slice's lines, then the messages the human sent that have not come back, then the
- * waiting items no line points at. Before the first read it says it is reading; an empty
+ * goals they asked for, then the waiting items no line points at. Before the first read it says it is reading; an empty
  * conversation says what would fill it (design.md section 8). The list scrolls with the page while
  * the composer stays docked below it.
  *
@@ -20,6 +20,7 @@
 import type { ReactElement } from 'react';
 import type { ChatState } from '../slice';
 import type { ChatActions } from '../writes/use_actions';
+import { GoalRow } from './goal_row';
 import { LineRow } from './line_row';
 import { PendingRow } from './pending_row';
 import { Waiting } from './waiting';
@@ -30,7 +31,7 @@ export function Conversation(props: {
   onDismiss: (key: string) => void;
 }): ReactElement {
   const { state, actions } = props;
-  const empty = state.lines.length === 0 && state.pending.length === 0;
+  const empty = state.lines.length === 0 && state.pending.length === 0 && state.asked.length === 0;
   return (
     <div className="chat-conversation">
       {!state.seeded ? <p aria-busy="true">Reading the chat</p> : null}
@@ -46,6 +47,9 @@ export function Conversation(props: {
         ))}
         {state.pending.map((entry) => (
           <PendingRow key={entry.key} entry={entry} onDismiss={props.onDismiss} />
+        ))}
+        {state.asked.map((asked) => (
+          <GoalRow key={asked.id} asked={asked} state={state} actions={actions} />
         ))}
       </ol>
       <Waiting state={state} actions={actions} />

@@ -57,6 +57,7 @@ own session.
 | GET | /v1/chat | L+R | entrance:submit +c2 | read |
 | POST | /v1/chat | L+R | entrance:submit | inbox |
 | POST | /v1/chat/audio | L+R, only with `[entrance.voice] enabled` | entrance:submit +c2 (an answer also entrance:answer; a goal steps up as `/v1/goals` does) | inbox |
+| POST | /v1/nectar/images | L+R | entrance:submit (no c2: the answer holds no content) | inbox |
 | GET | /v1/inbox | L+R | entrance:answer +c2 | read |
 | POST | /v1/inbox/questions/{question_id}/answer | L+R | entrance:answer | inbox |
 | POST | /v1/inbox/alarms/{alarm_id}/acknowledge | L+R | entrance:answer | inbox |
@@ -140,7 +141,15 @@ OpenAPI document lists them under `x-hive-streams`:
 | /v1/cells/stream | observe | every Cell once, then each Cell whose status changed |
 
 Each listener also serves `GET /v1/openapi.json` (the committed document, unauthenticated) and,
-when it has been built, the Observation Hive's front end.
+when it has been built, the Observation Hive's front end. When `[entrance.android]` is configured
+it also serves `GET /.well-known/assetlinks.json` (unauthenticated, static, outside `/v1/` and so
+outside the document; ADR-0047); unconfigured, that path is a 404.
+
+`POST /v1/nectar/images` takes a PNG, JPEG or WebP as a raw body (`Content-Type` names it; the
+query may carry a short `caption` and a `task_id`) and keeps it as C2 Nectar for
+`[entrance] image_keep_hours`. Its refusals are 413 (past `[entrance] max_image_bytes`), 415 (a
+format the Hive does not take), 422 (empty, or not the format it claims) and 429 (the device's
+image bytes for the minute, `image_bytes_per_minute`).
 
 ## How to test this
 
@@ -149,5 +158,6 @@ no loopback-only row is served remotely, the Observation Hive's credentials reac
 beyond the Queen's inbox, their own session and push); `tests/unit/entrance/routes/` exercises the
 resources over a real listener (`hive/`, `screens/` and `later/` mirror the read routes);
 `tests/unit/entrance/streams/views/` opens every live view; `tests/unit/entrance/voice/` speaks
-to the audio route and the chat socket; `tests/unit/entrance/test_landing_board.py` fails when the
+to the audio route and the chat socket; `tests/unit/entrance/images/` sends the image route its
+images and `tests/unit/entrance/android/` fetches the asset links; `tests/unit/entrance/test_landing_board.py` fails when the
 committed document drifts from this table.

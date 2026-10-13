@@ -2271,7 +2271,7 @@ in this phase adds a new write path.
   yet; audits in their own table; stacked cards below 1080 px. Reviewer prose is deliberately not
   on the trail, so a `reason` on `VerdictRow` and `AuditRow` is a read-model decision to make
   before the view can show one.
-- [ ] **12.12 Android client.** `packages/observation-web/android/`: a Capacitor project wrapping
+- [x] **12.12 Android client.** `packages/observation-web/android/`: a Capacitor project wrapping
   the same React app as an APK. Native push through the channel chosen in the ADR (FCM or
   UnifiedPush) registered with 10.5b, passkeys through the Android credential manager, the
   share sheet as an intake so any app on the phone (a glasses companion app included) can share
@@ -2279,8 +2279,39 @@ in this phase adds a new write path.
   push-to-talk button that streams to 10.5f, and a foreground notification while a question is
   waiting. The phone is an enrolled device like any other; the
   APK is built in CI and is a release artifact from phase 14.
+  **Built 2026-10-13** (ADR-0047). `packages/observation-web/android/` is a Capacitor project over
+  the same build with a pinned WebView origin; Kotlin plugins for passkeys through the Credential
+  Manager, UnifiedPush delivery over the Entrance's existing Web Push channel (no FCM) with a
+  local notice while a question waits, and the share sheet as an intake; the TypeScript platform
+  seam for Android is chosen at startup, a share card confirms before sending text through the
+  chat, audio through `/v1/chat/audio` and images through the new `POST /v1/nectar/images`
+  (`entrance:submit`; C2 Nectar with a per-device byte budget and `[entrance] max_image_bytes`,
+  `image_bytes_per_minute`, `image_keep_hours`); `[entrance.android]` (`package_name`,
+  `cert_fingerprints`, `webview_origin`) serves `/.well-known/assetlinks.json`, adds each
+  fingerprint's `android:apk-key-hash` origin to the remote relying party and the WebView origin
+  to the CORS and socket checks; `android.yml` builds and signs the APK on tags only.
+  **Unverified here:** the native side has not been compiled (no JDK, SDK or Gradle in the build
+  container), the library calls (`androidx.credentials`, the UnifiedPush connector 3.x) follow
+  their documentation, and the real-device run (passkeys against a VPN-only Entrance, a push in
+  the background, a share of each kind, App Link verification) is the operator's to do with the
+  first tagged build.
 
 ### Exit criteria
+
+**Exit run, 2026-10-13.** `packages/hivemind/tests/e2e/test_phase12_observation_hive.py` (marker
+`e2e`; needs the web build, Node and Playwright's Chromium) serves `hive serve`'s composition with
+a scripted provider and drives the built app in a real browser: a device joins by invite link with
+a passkey, is approved at the Hive Stand, logs in, and in one page load with no reload the fleet
+shows the Hive Stand's Cell with its tier and mask badges, the strip's counters move and equal
+`/v1/summary`, a goal requested from the chatbox runs, its question comes back in the chat, the
+answer resumes it and the reply arrives, the Queen's thoughts and the Attendant graph move live,
+the Honey browser shows `/hive` and refuses a Cell folder the device lacks, every write the page
+made is the chat's, the goal's or the Entrance's own, there are no page errors, and the strip, the
+fleet and the chat render at 360 px. Not provable in the build container, left to the operator:
+Cells appearing and grants flowing under the phase 6 or 9 scenario (only the Hive Stand's Cell
+exists here), the phone over the VPN, the PWA install, the APK's enrolment, passkey, background
+push and shared text, and the remote build's absence of the loopback-only screens (the Python
+route test proves the routes are not mounted; the UI gate is tested in vitest).
 
 - Running the phase 6 or 9 scenario with the Observation Hive open shows Cells appearing in the
   fleet list and diagrams, grants flowing in the Forage view, the Queen's and a Forager's thoughts

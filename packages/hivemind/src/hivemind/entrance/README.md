@@ -30,7 +30,9 @@ Landing Board) landed what is below.
 | `reads/` | The read side the routes and views share: `census` (every Cell and Warden, joined from the Warden links, the Virtual Cell lifecycle, the trail, the Brood Chamber, the Queen's pulse, the telemetry board and the ledger), `trail` (a filtered page from a cursor), `llm` (providers as the Queen judges them, and every binding), `honey` (a device as a reader of Honey, and a folder, an item or a search gathered for it). |
 | `routes/` | One module per resource, each declaring its rows; `hive/` holds the Hive's read routes (the Honey browser's included), `later/` the resources a later phase fills (answering 501); `registry` lists them; its own README holds the route table. |
 | `intake.py` | How every goal comes in, typed, spoken, confirmed or recovered: its spend weighed against its device's day, and a held goal committed once under the id minted when it was held. |
-| `voice/` | Voice in: a clip on `POST /v1/chat/audio` or a push-to-talk hold on the chat socket, both heard at one door (every refusal before the model, one transcription on `TRANSCRIBER`, the scan, then where typed words go); the `AudioNectar` seam for `keep_audio`; its own README. |
+| `voice/` | Voice in: a clip on `POST /v1/chat/audio` or a push-to-talk hold on the chat socket, both heard at one door (every refusal before the model, one transcription on `TRANSCRIBER`, the scan, then where typed words go); the `MediaNectar` seam for `keep_audio`; its own README. |
+| `images/` | Images in: a PNG, JPEG or WebP on `POST /v1/nectar/images` (roadmap step 12.12), refused before anything is kept (format, `max_image_bytes`, shape, the device's byte budget) and deposited as C2 Nectar through the same `MediaNectar` seam voice uses; its own README. |
+| `android/` | What the Android client needs of the Entrance (ADR-0047), all absent unless `[entrance.android]` is configured: the Digital Asset Links file at `/.well-known/assetlinks.json`, the `android:apk-key-hash:` passkey origins, and the WebView origin CORS and the sockets accept; its own README. |
 | `streams/` | The live views: `StreamHub` (one trail follower), `StreamSubscription` (a bounded queue, closed with FELL_BEHIND past its backlog), `TelemetryBoard` (every Heartbeat the Queen hands its `on_heartbeat` hook), the socket registry and lifecycle, `views/` (the Landing Board's chat, push and security views, and the Hive's trail, telemetry, Forage, task-graph, episode and Cell-status views), and the follower obeying a Guard Bee's `guard.reduce_ordered`. |
 | `notify/` | `PushOutbox` (notices off the caller's path, ordered per ref), `PushHumanChannel` (the Queen's `HumanChannel`), `PushSecurityNotifier`, `HumanChannelRelay`. |
 | `app.py` | Builds both FastAPI applications from one route table (the remote one mounts only `REMOTE` rows). |
@@ -44,7 +46,7 @@ socket (bound by the Entrance) ── uvicorn, in the Hive's loop
    │
    ▼
 SecurityHeaders ─► LoopbackGate (loopback only: Host, no forwarding header; bare 403)
-   │                 ─► AddressLimit (per address) ─► BodyLimit ─► FastAPI (CORS: public_url, remote only)
+   │                 ─► AddressLimit (per address) ─► BodyLimit ─► FastAPI (CORS: public_url on remote; Android WebView if set)
    ▼
 route row ── public? ──────────────────────────────► endpoint
    │ authenticated
@@ -156,7 +158,10 @@ runtime are reached through their own modules, so importing the face never loads
   `hivemind.entrance.reads`: their faces list every name. The view models are
   `hivemind.observation`'s.
 - `hivemind.entrance.voice`: `VoiceServices` and `VoiceRules` (what `hive serve` builds when
-  `[entrance.voice]` is on), `InMemoryAudioNectar`, and the door, the route and the socket reader.
+  `[entrance.voice]` is on), `InMemoryMediaNectar`, and the door, the route and the socket reader.
+- `hivemind.entrance.images`: `ImageServices` and `ImageRules` (always built by `hive serve`),
+  `deposit_image` and the route. `hivemind.entrance.android`: the asset links and the extra
+  origins.
 
 Nothing in the Entrance stores a password, an invite code, a session token or a private key in
 the clear, and no log line or trail event carries a code, a key, a token, a signature, a password,

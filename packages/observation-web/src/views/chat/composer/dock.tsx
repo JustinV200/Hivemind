@@ -47,7 +47,11 @@ export function Dock(props: {
         actions={actions}
         onDismiss={() => store.dispatch({ slice: 'chat', event: { type: 'dismiss_spoken' } })}
       />
-      <Composer actions={actions} questions={state.inbox?.questions ?? []} />
+      <Composer
+        actions={actions}
+        questions={state.inbox?.questions ?? []}
+        guarded={stepUp.guarded}
+      />
     </div>
   );
 }

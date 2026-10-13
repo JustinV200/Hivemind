@@ -43,8 +43,8 @@ Public API:
     - listen, Talk, Send, MAX_HOLD_CHUNKS, CHUNK_IDLE_S, HOLD_GRACE_S: push-to-talk on the chat
       socket (talk).
     - VoiceServices, VoiceRules: what hearing needs (services).
-    - AudioNectar, InMemoryAudioNectar, KeptAudio, MAX_KEPT_CLIPS, MAX_KEPT_BYTES: the Nectar seam
-      and its retention sweep (nectar).
+    - MediaNectar, InMemoryMediaNectar, KeptAudio, KeptImage, KeptMedia, MAX_KEPT_CLIPS,
+      MAX_KEPT_BYTES: the Nectar seam for kept clips and images, and its retention sweep (nectar).
     - Delivered, SpokenGoal, weigh_goal, deliver_goal, deliver_answer, deliver_chat, words_of,
       WORD_LIMITS, SPOKEN_GOAL_CLEARANCE: where the words go (deliver).
     - VoiceNotServedError, InvalidIntentError, ClipRefusedError, AudioOverBudgetError,
@@ -103,9 +103,11 @@ from hivemind.entrance.voice.models import (
 from hivemind.entrance.voice.nectar import (
     MAX_KEPT_BYTES,
     MAX_KEPT_CLIPS,
-    AudioNectar,
-    InMemoryAudioNectar,
+    InMemoryMediaNectar,
     KeptAudio,
+    KeptImage,
+    KeptMedia,
+    MediaNectar,
 )
 from hivemind.entrance.voice.route import AUDIO_BODY, AUDIO_PATH, VOICE_ROUTES, clip_from_body
 from hivemind.entrance.voice.services import VoiceRules, VoiceServices
@@ -139,14 +141,16 @@ __all__ = [
     "WORD_LIMITS",
     "AudioChunkFrame",
     "AudioEndFrame",
-    "AudioNectar",
     "AudioOverBudgetError",
     "ClientFrame",
     "ClipRefusedError",
     "Delivered",
-    "InMemoryAudioNectar",
+    "InMemoryMediaNectar",
     "InvalidIntentError",
     "KeptAudio",
+    "KeptImage",
+    "KeptMedia",
+    "MediaNectar",
     "NothingHeardError",
     "PushToTalkError",
     "Send",

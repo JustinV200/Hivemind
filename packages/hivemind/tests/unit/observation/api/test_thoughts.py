@@ -102,3 +102,15 @@ def test_only_the_newest_decisions_are_listed() -> None:
 
     assert len(page.decisions) == MAX_DECISIONS
     assert page.decisions[0].at == after(MAX_DECISIONS + 4)
+
+
+def test_a_query_for_the_queen_is_read_under_her_real_principal() -> None:
+    queen = thoughts_page([], [], ThoughtsQuery(principal="queen"), "hive_01QUEEN")
+    other = thoughts_page([], [], ThoughtsQuery(principal="warden_a"), "hive_01QUEEN")
+    everyone = thoughts_page([], [], ThoughtsQuery(), "hive_01QUEEN")
+    unresolved = thoughts_page([], [], ThoughtsQuery(principal="queen"))
+
+    assert queen.principal == "hive_01QUEEN"
+    assert other.principal == "warden_a"
+    assert everyone.principal is None
+    assert unresolved.principal == "queen"

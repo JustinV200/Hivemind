@@ -36,9 +36,10 @@ async def _think(rig: ServingRig, principal: str, step: int) -> EpisodeRecord:
 async def test_records_page_newest_first_and_the_queens_decisions_come_with_them() -> None:
     async with serving() as rig:
         client, session = await rig.program(_THOUGHTS)
-        first = await _think(rig, "queen", 0)
+        queen = str(rig.deps.identity.hive_id)  # The Queen's episodes carry her Hive id.
+        first = await _think(rig, queen, 0)
         garden = await _think(rig, "warden_garden", 1)
-        last = await _think(rig, "queen", 2)
+        last = await _think(rig, queen, 2)
         await rig.deps.trail.record(
             trail_event(rig, "queen.decided", rig.deps.identity.hive_id, {"action": "CLUSTER"})
         )
@@ -55,6 +56,7 @@ async def test_records_page_newest_first_and_the_queens_decisions_come_with_them
     assert page_two.json()["next_cursor"] is None
     assert [e["id"] for e in queens.json()["episodes"]] == [last.id, first.id]
     assert [d["action"] for d in queens.json()["decisions"]] == ["CLUSTER"]
+    assert queens.json()["principal"] == queen
     assert wardens.json()["decisions"] == []
 
 

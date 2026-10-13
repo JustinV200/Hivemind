@@ -9,3 +9,9 @@ the table in `src/app.tsx`, so the store itself never changes. React reads a sli
 mounted, folds its frames into the named slice and reports its state to the connection slice
 (`view_stream.ts`). `feed.ts` seeds the summary once and keeps it live from the cells, telemetry
 and episodes streams; views never poll and never call `openStream`. Each reducer bounds its slice.
+
+The summary slice counts what the server's `/v1/summary` counts: a Cell is active while its Warden is
+in the ACTIVE mode; a Warden is an active bee in ACTIVE or WATCH, a sub-bee in SPAWNED, RUNNING or
+HANDING_OFF. The telemetry stream never sends a finished Drone as DONE, so a Heartbeat (a Warden's
+sample, then the `sub_bees` rows it lists) is folded as the Warden's whole current set and a bee it
+no longer lists is dropped once the last row has arrived.

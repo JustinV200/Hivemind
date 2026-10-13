@@ -32,6 +32,7 @@ from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, HiveAuthority
 from hivemind.entrance.gate import HiveReads, QueenDoor
+from hivemind.entrance.images import ImageServices
 from hivemind.entrance.push import Resolver, SubscriptionStore, VapidSigner, system_resolver
 from hivemind.entrance.store import EntranceStore
 from hivemind.entrance.streams import DEFAULT_BACKLOG
@@ -144,6 +145,7 @@ class EntranceParts:
         keys: The signing keys and the TLS authority.
         clock: The Entrance's clock.
         http: The HTTP client push deliveries use, built without environment proxies.
+        images: The Nectar seam, byte budget and rules the image intake deposits with.
         own_addresses: Every address the Hive Stand answers on; no push destination may be one.
         resolver: Resolves push destinations; the system resolver unless a test injects one.
         voice: The transcriber, scanner, Nectar seam and rules voice needs; None while
@@ -156,6 +158,7 @@ class EntranceParts:
     keys: EntranceKeys
     clock: Clock
     http: httpx.AsyncClient
+    images: ImageServices
     own_addresses: frozenset[IPAddress] = frozenset()
     resolver: Resolver = system_resolver
     voice: VoiceServices | None = None

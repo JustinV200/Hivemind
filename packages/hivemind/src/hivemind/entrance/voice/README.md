@@ -64,8 +64,8 @@ line or the trail: the transcription's `llm.call` carries the slot, provider, la
 seconds (`audio_s`), and a flag records a keyed hash of the words. By default the clip is dropped
 once heard. With `keep_audio`, `hear` deposits it as `KeptAudio` (C2, its device, its reference:
 the goal request or question it became, and `expires_at` = now + `keep_audio_hours`) through the
-`AudioNectar` seam. The seam's implementation today is `InMemoryAudioNectar`: bounded (256 clips,
-128 MiB; the oldest goes first) and swept once a minute by the Entrance's own sweep loop, which
+`MediaNectar` seam. The seam's implementation today is `InMemoryMediaNectar`: bounded (256 items, clips and
+images together, and 128 MiB; the oldest goes first) and swept once a minute by the Entrance's own sweep loop, which
 deletes every clip past its window. Nothing is written to disk, so a restart forgets every kept
 clip; a durable implementation takes the same seam once the Honey Store's Nectar intake (roadmap
 7.4) exists.
@@ -81,8 +81,8 @@ same 404 (`hivemind.entrance.voice_not_served`), and the chat socket serves on.
 
 `hear`, `Utterance`, `voice_of` (the door); `VoiceIntent`, `VoiceIntentKind` (intents);
 `VOICE_ROUTES`, `clip_from_body` (the route); `listen`, `Talk` (push-to-talk); `VoiceServices`,
-`VoiceRules` (what `hive serve` builds); `AudioNectar`, `InMemoryAudioNectar`, `KeptAudio` (the
-Nectar seam); the Landing Board's shapes (`VoiceAccepted`, `SpeakParams`, `AudioChunkFrame`,
+`VoiceRules` (what `hive serve` builds); `MediaNectar`, `InMemoryMediaNectar`, `KeptAudio`,
+`KeptImage` (the Nectar seam, shared with the image intake); the Landing Board's shapes (`VoiceAccepted`, `SpeakParams`, `AudioChunkFrame`,
 `AudioEndFrame`, `VoiceFrame`, `VoiceRefusedFrame`); and the refusals. The face lists every name.
 
 ## How to test this

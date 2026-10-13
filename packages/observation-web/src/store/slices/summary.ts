@@ -17,10 +17,15 @@
  *   - Pure and bounded: one entry per Cell, and at most `MAX_BEES` bee entries (a finished bee's
  *     entry is removed, and the one with the oldest sample is dropped past the cap), so memory
  *     cannot grow with time.
- *   - A Cell is active when a bee can work in it now: a Real Cell with an OPEN lease, or a
- *     Virtual Cell that is READY or GRANTED. Every other Cell counts as inactive.
- *   - A bee is active until it reports a terminal state (a Worker DONE, FAILED or KILLED; a
- *     Warden OFFLINE or STOPPED).
+ *   - A Cell is active by the server's rule (`observation/api/summary.py`): its Warden is in the
+ *     ACTIVE mode. A Virtual Cell must also be READY or GRANTED, since a Warden left over from a
+ *     Cell being torn down is not working. Every other Cell counts as inactive.
+ *   - A bee is active while its state says it works: a Worker SPAWNED, RUNNING or HANDING_OFF; a
+ *     Warden ACTIVE or WATCH. The stream never sends a terminal sample for a finished Drone, so
+ *     a Heartbeat is folded as its Warden's whole current set: the Warden's sample says how many
+ *     sub-bee rows follow, and once the last has arrived a sub-bee the Heartbeat does not list
+ *     (its sample is older) is no longer active. A Heartbeat that does not say counts as whole at
+ *     once.
  *
  * See Also:
  *   - docs/observation/design.md sections 2 and 4 for the strip.
@@ -49,19 +54,29 @@ export type SummaryCounters = Pick<
 
 export const MAX_BEES = 2048;
 
-const ENDED_WORKER = new Set(['DONE', 'FAILED', 'KILLED']);
-const ENDED_WARDEN = new Set(['OFFLINE', 'STOPPED']);
+// The server's own sets (`_ACTIVE_WORKERS`, `_ACTIVE_WARDENS`): the strip counts what it counts.
+const ACTIVE_WORKER = new Set(['SPAWNED', 'RUNNING', 'HANDING_OFF']);
+const ACTIVE_WARDEN = new Set(['ACTIVE', 'WATCH']);
 
 interface CellEntry {
   real: boolean;
   active: boolean;
 }
 
+interface BeeEntry {
+  // The Warden whose Heartbeat listed it, and when that Heartbeat arrived.
+  warden: string;
+  at: string;
+}
+
 export interface SummarySlice {
   seed: SummarySeed | null;
   cells: Record<string, CellEntry>;
-  // Bee id to its latest sample time; present only while the bee is active.
-  bees: Record<string, string>;
+  // Bee id to its latest sample; present only while the bee is active.
+  bees: Record<string, BeeEntry>;
+  // A Warden to the Heartbeat still arriving: when it was received and how many of its sub-bee
+  // rows are yet to come. Present only between a Warden's sample and the last row after it.
+  beats: Record<string, { at: string; remaining: number }>;
   // Principal to its latest episode: whether it was autopilot handling, and when.
   autopilot: Record<string, { auto: boolean; at: string }>;
   // Once the streams cover the seed's count, each group stops reading the seed.
@@ -79,13 +94,17 @@ export const initialSummary: SummarySlice = {
   seed: null,
   cells: {},
   bees: {},
+  beats: {},
   autopilot: {},
   streamed: { cells: false, bees: false, thinking: false },
   asOf: null,
 };
 
+// The server counts a Cell active while its Warden is working in it; the Cell's mode is its
+// Warden's newest mode edge, so it follows the Warden and not the Cell's lease.
 function isActiveCell(cell: CellFrame['cell']): boolean {
-  if (cell.kind === 'REAL') return cell.lease_state === 'OPEN';
+  if (cell.mode !== 'ACTIVE') return false;
+  if (cell.kind === 'REAL') return true;
   return cell.virtual_status === 'READY' || cell.virtual_status === 'GRANTED';
 }
 
@@ -117,23 +136,63 @@ function latest(a: string | null, b: string | null): string | null {
   return b !== null && b > a ? b : a;
 }
 
+// Removes the bees a Warden's newest Heartbeat no longer lists: those it listed earlier. Their
+// episode entries go with them, as with any bee that ends.
+function sweep(slice: SummarySlice, warden: string, at: string): SummarySlice {
+  const stale = Object.keys(slice.bees).filter((id) => {
+    const entry = slice.bees[id] as BeeEntry;
+    // The Warden's own entry is replaced by its sample, so it is never swept.
+    return id !== warden && entry.warden === warden && entry.at < at;
+  });
+  if (stale.length === 0) return slice;
+  const bees = { ...slice.bees };
+  let autopilot = slice.autopilot;
+  for (const id of stale) {
+    delete bees[id];
+    autopilot = without(autopilot, id);
+  }
+  return { ...slice, bees, autopilot };
+}
+
+// A Heartbeat is a Warden's sample followed by the `sub_bees` rows it lists. The sweep waits for
+// the last row, so a bee the Heartbeat does list is never counted out between two frames of it.
+function closeBeat(slice: SummarySlice, warden: string, at: string): SummarySlice {
+  return sweep({ ...slice, beats: without(slice.beats, warden) }, warden, at);
+}
+
+function foldWarden(slice: SummarySlice, sample: TelemetryFrame['sample']): SummarySlice {
+  const warden = sample.warden_id;
+  const active = ACTIVE_WARDEN.has(sample.warden_state ?? '');
+  const entry: BeeEntry = { warden, at: sample.at };
+  const bees = active ? put(slice.bees, warden, entry, (e) => e.at) : without(slice.bees, warden);
+  const autopilot = active ? slice.autopilot : without(slice.autopilot, warden);
+  const next = { ...slice, bees, autopilot };
+  const rows = sample.sub_bees ?? 0;
+  if (rows === 0) return closeBeat(next, warden, sample.at);
+  const beat = { at: sample.at, remaining: rows };
+  return { ...next, beats: put(next.beats, warden, beat, (b) => b.at) };
+}
+
+function foldWorker(slice: SummarySlice, sample: TelemetryFrame['sample']): SummarySlice {
+  const worker = sample.worker_id as string;
+  const active = ACTIVE_WORKER.has(sample.worker_state ?? '');
+  const entry: BeeEntry = { warden: sample.warden_id, at: sample.at };
+  const bees = active ? put(slice.bees, worker, entry, (e) => e.at) : without(slice.bees, worker);
+  const autopilot = active ? slice.autopilot : without(slice.autopilot, worker);
+  const next = { ...slice, bees, autopilot };
+  const beat = slice.beats[sample.warden_id];
+  if (!beat || beat.at !== sample.at) return next;
+  if (beat.remaining > 1) {
+    const counted = { ...beat, remaining: beat.remaining - 1 };
+    return { ...next, beats: { ...next.beats, [sample.warden_id]: counted } };
+  }
+  return closeBeat(next, sample.warden_id, sample.at);
+}
+
 function foldTelemetry(slice: SummarySlice, frame: TelemetryFrame): SummarySlice {
   const { sample } = frame;
-  const bee = sample.worker_id ?? sample.warden_id;
-  const ended = sample.worker_id
-    ? ENDED_WORKER.has(sample.worker_state ?? '')
-    : ENDED_WARDEN.has(sample.warden_state ?? '');
-  if (ended) {
-    const autopilot = without(slice.autopilot, bee);
-    return {
-      ...slice,
-      bees: without(slice.bees, bee),
-      autopilot,
-      asOf: latest(slice.asOf, sample.at),
-    };
-  }
-  const bees = put(slice.bees, bee, sample.at, (at) => at);
-  return { ...slice, bees, asOf: latest(slice.asOf, sample.at) };
+  const folded = sample.worker_id ? foldWorker(slice, sample) : foldWarden(slice, sample);
+  return { ...folded, asOf: latest(folded.asOf, sample.at) };
 }
 
 function foldEpisode(slice: SummarySlice, frame: EpisodeFrame): SummarySlice {

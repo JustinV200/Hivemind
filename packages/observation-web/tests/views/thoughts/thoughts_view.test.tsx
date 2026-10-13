@@ -29,6 +29,7 @@ import {
   inboxEntry,
   SEED,
   thoughtsPage,
+  trailFrame,
 } from '../../support/frames';
 import { storeSession } from '../../support/session_fixture';
 
@@ -58,7 +59,9 @@ async function openThoughts(options: Options = {}): Promise<FakeBrowser> {
   fake.respond('GET /v1/attendant/queen', 200, options.attendant ?? attendantView());
   window.location.hash = options.hash ?? '#/thoughts/queen';
   render(<App browser={fake.browser} />);
-  await waitFor(() => expect(fake.sockets).toHaveLength(4));
+  // The three the shell opens, the episodes stream, and the Queen's two decision streams.
+  const opening = (options.hash ?? '#/thoughts/queen') === '#/thoughts/queen' ? 6 : 4;
+  await waitFor(() => expect(fake.sockets).toHaveLength(opening));
   await act(async () => {
     fake.sockets.forEach((socket) => socket.open());
     await flush();
@@ -66,8 +69,10 @@ async function openThoughts(options: Options = {}): Promise<FakeBrowser> {
   return fake;
 }
 
-// The view's effects run before the shell's, so its stream is the first socket opened.
-const episodesSocket = (fake: FakeBrowser) => fake.sockets[0]!;
+// The view's effects run before the shell's, so its streams come first.
+const socketAt = (fake: FakeBrowser, path: string) =>
+  fake.sockets.find((socket) => socket.url.endsWith(path))!;
+const episodesSocket = (fake: FakeBrowser) => socketAt(fake, '/v1/episodes/stream');
 
 const newest = episodeView({
   id: 'ep_new',
@@ -192,6 +197,60 @@ describe('the Queen', () => {
   });
 });
 
+describe("the Queen's real principal", () => {
+  const hiveId = 'hive_01QUEEN';
+
+  it('shows her episodes, which carry the Hive id, and the frames that follow', async () => {
+    const fake = await openThoughts({
+      page: thoughtsPage({
+        principal: hiveId,
+        episodes: [episodeView({ id: 'ep_q', principal: hiveId, decision: 'Cluster' })],
+      }),
+    });
+    expect(await screen.findByText('Cluster')).toBeTruthy();
+    act(() => {
+      episodesSocket(fake).receive(
+        episodeFrame({ id: 'ep_live', principal: hiveId, decision: 'Live one' }),
+      );
+    });
+    expect(screen.getByText('Live one')).toBeTruthy();
+  });
+});
+
+describe("the Queen's decisions, live", () => {
+  const decided = (id: string, at: string, payload: Record<string, string>) =>
+    trailFrame({ id, kind: 'queen.decided', at, subject_id: 'cell_1', payload });
+
+  it('add a row for queen.decided and alarm.handled, and ignore other kinds', async () => {
+    const fake = await openThoughts({ page: thoughtsPage({ episodes: [oldest] }) });
+    await screen.findByText('Wait');
+    act(() => {
+      socketAt(fake, '?kind=queen.decided').receive(
+        decided('dec_live', '2026-01-01T00:02:00Z', { action: 'CLUSTER', reason: 'provider_down' }),
+      );
+      socketAt(fake, '?kind=alarm.handled').receive(
+        trailFrame({
+          id: 'dec_alarm',
+          kind: 'alarm.handled',
+          at: '2026-01-01T00:03:00Z',
+          subject_id: 'alarm_9',
+          payload: { action: 'RECORD' },
+        }),
+      );
+      socketAt(fake, '?kind=alarm.handled').receive(
+        trailFrame({ id: 'noise', kind: 'task.started', at: '2026-01-01T00:04:00Z' }),
+      );
+    });
+    expect(screen.getByText('provider_down')).toBeTruthy();
+    expect(screen.getAllByRole('article', { name: 'Autopilot decision' })).toHaveLength(2);
+  });
+
+  it('are opened for the Queen only', async () => {
+    const fake = await openThoughts({ hash: '#/thoughts/worker_9', page: thoughtsPage() });
+    expect(fake.sockets.some((s) => s.url.includes('/v1/trail/stream'))).toBe(false);
+  });
+});
+
 describe('follow', () => {
   it('prepends a new episode for this bee and ignores another bee', async () => {
     const fake = await openThoughts({ page: thoughtsPage({ episodes: [oldest] }) });
@@ -259,6 +318,8 @@ describe('the stream', () => {
   it('is opened once with the others and closed when the reader leaves', async () => {
     const fake = await openThoughts({ page: thoughtsPage() });
     expect(fake.sockets.map((s) => s.url.replace('wss://hive.test', ''))).toEqual([
+      '/v1/trail/stream?kind=queen.decided',
+      '/v1/trail/stream?kind=alarm.handled',
       '/v1/episodes/stream',
       '/v1/cells/stream',
       '/v1/telemetry/stream',
@@ -268,7 +329,7 @@ describe('the stream', () => {
       window.location.hash = '#/forage';
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(fake.sockets[0]!.closedWith).toBe(1000);
-    expect(fake.sockets[3]!.closedWith).toBeNull();
+    for (const index of [0, 1, 2]) expect(fake.sockets[index]!.closedWith).toBe(1000);
+    expect(fake.sockets[5]!.closedWith).toBeNull();
   });
 });

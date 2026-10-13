@@ -22,7 +22,13 @@ from __future__ import annotations
 
 from hivemind.cell import HoneyClearance
 from hivemind.entrance.gate.reads import HiveReads
-from hivemind.observation import MAX_DECISIONS, ThoughtsPage, ThoughtsQuery, thoughts_page
+from hivemind.observation import (
+    MAX_DECISIONS,
+    ThoughtsPage,
+    ThoughtsQuery,
+    resolve_principal,
+    thoughts_page,
+)
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 
 THOUGHTS_WINDOW = 2_000  # Newest records a page is cut from: deeper history is /v1/episodes'.
@@ -31,23 +37,26 @@ _DECISION_KINDS = ("queen.decided", "alarm.handled")  # The trail's deterministi
 __all__ = ["THOUGHTS_WINDOW", "read_thoughts"]
 
 
-async def read_thoughts(reads: HiveReads, query: ThoughtsQuery) -> ThoughtsPage:
+async def read_thoughts(reads: HiveReads, query: ThoughtsQuery, queen_id: str) -> ThoughtsPage:
     """Read one page of thoughts.
 
     Args:
         reads: The stores and live tables the Entrance reads.
         query: The validated query: whose, the cursor and the page size.
+        queen_id: The Queen's real principal, her Hive's id: her episode records carry it, so a
+            query for ``queen`` reads under it.
 
     Returns:
         The page.
     """
     # The route already required honey:clearance:c2, so every clearance is within allowance.
     # Latency: one local indexed read of the memory tables.
-    records = await reads.memory.list_episodes(query.principal, HoneyClearance.C2, THOUGHTS_WINDOW)
+    principal = resolve_principal(query.principal, queen_id)
+    records = await reads.memory.list_episodes(principal, HoneyClearance.C2, THOUGHTS_WINDOW)
     events: list[PheromoneEvent] = []
     for kind in _DECISION_KINDS:
         # Latency: one local indexed trail read per kind.
         events.extend(
             await reads.trail.query(TrailQuery(kind=kind, newest_first=True, limit=MAX_DECISIONS))
         )
-    return thoughts_page(records, events, query)
+    return thoughts_page(records, events, query, queen_id)

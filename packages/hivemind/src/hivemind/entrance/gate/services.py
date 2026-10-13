@@ -7,10 +7,11 @@ reads directly, since reading never changes state; ``hivemind.entrance.gate.read
 ``PushServices``, ``GateGuards`` (the Guard's enforcer, the
 denial-burst lock, the rate limiter), ``EntranceRules`` (the thresholds routes decide with),
 ``DoorControl`` (the running listeners, as routes see them), the Entrance's own reducer, streams
-and sockets, and its voice (``hivemind.entrance.voice``, None when ``[entrance.voice]`` is off), in
-one ``EntranceServices``. ``ListenerDeps`` is what
-differs per listener: the login and enrolment dependencies carrying that listener's WebAuthn
-relying party (``localhost`` on loopback, the exposure plan's name on the remote listener).
+and sockets, its image intake (``hivemind.entrance.images``) and its voice
+(``hivemind.entrance.voice``, None when ``[entrance.voice]`` is off), in one
+``EntranceServices``. ``ListenerDeps`` is what differs per listener: the login and enrolment
+dependencies carrying that listener's WebAuthn relying party (``localhost`` on loopback, the
+exposure plan's name on the remote listener).
 FastAPI hands them to routes through two dependencies, ``get_services`` and ``get_listener``, which
 each application overrides with its own; neither is ever called unbound.
 
@@ -57,8 +58,9 @@ from waggle.clock import Clock
 from waggle.ids import CellId, DeviceId, MessageId, TaskId
 
 if TYPE_CHECKING:
-    # Type-only: the streams and voice packages import this module's services, so a runtime
-    # import of either here would cycle.
+    # Type-only: the streams, voice and images packages import this module's services, so a
+    # runtime import of any of them here would cycle.
+    from hivemind.entrance.images.services import ImageServices
     from hivemind.entrance.streams.hub import StreamHub
     from hivemind.entrance.streams.registry import SocketRegistry
     from hivemind.entrance.voice.services import VoiceServices
@@ -267,6 +269,7 @@ class EntranceServices:
         rules: The thresholds routes decide with.
         door: The running listeners.
         clock: The Entrance's clock.
+        images: The Nectar seam, byte budget and rules the image intake deposits with.
         voice: The transcriber and what hearing a clip needs; None while voice is off, which
             leaves the voice route unmounted.
     """
@@ -281,6 +284,7 @@ class EntranceServices:
     rules: EntranceRules
     door: DoorControl
     clock: Clock
+    images: ImageServices
     voice: VoiceServices | None = None
 
     @property
