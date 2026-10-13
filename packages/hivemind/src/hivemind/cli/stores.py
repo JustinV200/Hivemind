@@ -30,10 +30,11 @@ Fits into the Hive:
     hive_stand_source` calls `open_leavings` (roadmap step 5.0a); `hive recordings` and
     `hivemind.cli.compose.exoskeleton` call `open_recordings` (roadmap step 6.6); the Hive's
     composition root and `hive honey` call `open_honey_store` (roadmap phase 7), and the
-    composition root calls `open_comb_registry` and `open_basket_store` (roadmap phase 9). Calls
-    into `hivemind.basket`, `hivemind.royal_jelly`, `hivemind.brood_chamber`,
-    `hivemind.cell.leavings`, `hivemind.common.sqlite`, `hivemind.exoskeleton.recorder`,
-    `hivemind.honey_store`, `hivemind.pheromone`, `hivemind.forage`, `hivemind.llm`,
+    composition root calls `open_comb_registry` and `open_basket_store` (roadmap phase 9) and
+    `open_swarm_registry` (roadmap phase 11). Calls into `hivemind.basket`,
+    `hivemind.royal_jelly`, `hivemind.brood_chamber`, `hivemind.cell.leavings`,
+    `hivemind.common.sqlite`, `hivemind.exoskeleton.recorder`, `hivemind.honey_store`,
+    `hivemind.pheromone`, `hivemind.swarm`, `hivemind.forage`, `hivemind.llm`,
     `hivemind.manifest`, `hivemind.queen.forage.ledger` and `hivemind.wardens.local_pool.hosting`
     (ServerConfig, built by `server_configs`).
 
@@ -82,7 +83,8 @@ Public API:
       annotations every command group from roadmap step 3.21 on attaches.
     - load_manifest_or_exit: load a manifest or exit 2 with `ManifestError`'s own message.
     - open_trail, open_chamber, open_memory, open_leavings, open_ledger, open_recordings,
-      open_honey_store, open_comb_registry, open_basket_store: the store composition functions;
+      open_honey_store, open_comb_registry, open_basket_store, open_swarm_registry: the store
+      composition functions;
       open_goal_requests and open_chat_log (roadmap step 10.5) open the Queen's own goal-request
       table and chat log the same way.
     - server_configs: `[llm.servers]` as the Warden's decoupled ServerConfigs (roadmap step 8.3).
@@ -137,6 +139,7 @@ from hivemind.queen.forage.ledger import SqliteLedgerStore
 from hivemind.queen.guard_requests import SqliteGuardRequestStore
 from hivemind.queen.intake import SqliteGoalRequestStore
 from hivemind.royal_jelly import SqliteCombRegistry
+from hivemind.swarm.registry import SqliteSwarmRegistry
 from hivemind.wardens.local_pool.hosting import ServerConfig
 from waggle.clock import Clock, SystemClock
 
@@ -185,6 +188,7 @@ __all__ = [
     "open_memory",
     "open_recordings",
     "open_snapshot_ledger",
+    "open_swarm_registry",
     "open_trail",
     "provider_configs",
     "resolve_db",
@@ -423,6 +427,27 @@ def open_leavings(db: Path) -> SqliteLeavingsStore:
         return await SqliteLeavingsStore.create(connection, clock)
 
     return asyncio.run(_open())
+
+
+def open_swarm_registry(db: Path) -> SqliteSwarmRegistry:
+    """Open `db` and return a ready SqliteSwarmRegistry, applying its migrations first.
+
+    Roadmap step 11.2: the Hive's composition root and the `hive swarm` commands open the Swarm's
+    table of enrolled devices and their invites the same way, each on its own connection to the
+    one database file (ADR-0006), so an invite minted by a command is seen by a running Hive.
+
+    Args:
+        db: The Hive's SQLite database file.
+
+    Returns:
+        A SqliteSwarmRegistry whose `swarm_invites` and `swarm_nodes` tables exist and are current.
+    """
+    connection, clock = connect(db), SystemClock()
+    # Same "trail's migration runs first" rule open_leavings follows: the registry refuses without
+    # a pheromone_events table already present, because every change it makes is committed
+    # together with its trail event. Two short runs share the one connection, which no loop owns.
+    asyncio.run(SqlitePheromoneTrail.create(connection, clock))
+    return asyncio.run(SqliteSwarmRegistry.create(connection, clock))
 
 
 def open_ledger(db: Path) -> SqliteLedgerStore:
