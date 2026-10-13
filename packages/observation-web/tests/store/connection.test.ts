@@ -40,10 +40,37 @@ const live = (at: number): ConnectionEvent[] =>
   }));
 
 describe('connection', () => {
-  it('is offline before anything connects, reconnecting while connecting, live when all are', () => {
+  it('is offline before anything connects, connecting on a first attempt, live when all are', () => {
     expect(connectionWord(initialConnection)).toBe('offline');
-    expect(connectionWord(fold([{ type: 'reset', at: 1 }]))).toBe('reconnecting');
+    expect(connectionWord(fold([{ type: 'reset', at: 1 }]))).toBe('connecting');
     expect(connectionWord(fold([{ type: 'reset', at: 1 }, ...live(2)]))).toBe('live');
+  });
+
+  it('is not stale while its streams are on their first attempt or live', () => {
+    const first = fold([{ type: 'reset', at: 1 }]);
+    expect(staleSince(first)).toBeNull();
+    // One stream confirmed, the quiet two still waiting out the hello deadline.
+    const partly = reduceConnection(first, { type: 'stream', name: 'cells', state: 'live', at: 2 });
+    expect(connectionWord(partly)).toBe('connecting');
+    expect(staleSince(partly)).toBeNull();
+  });
+
+  it('says reconnecting (and stale) only for a stream that dropped, even beside a first attempt', () => {
+    const slice = fold([
+      { type: 'reset', at: 1 },
+      { type: 'stream', name: 'cells', state: 'reconnecting', at: 7 },
+    ]);
+    expect(connectionWord(slice)).toBe('reconnecting');
+    expect(staleSince(slice)).toBe(7);
+  });
+
+  it('does not call a stream the Entrance ended with 1000 reconnecting', () => {
+    const slice = fold([
+      { type: 'reset', at: 1 },
+      ...live(2),
+      { type: 'stream', name: 'cells', state: 'closed', at: 9 },
+    ]);
+    expect(connectionWord(slice)).toBe('offline');
   });
 
   it('is current while live and stale since the first stream went down', () => {
@@ -99,6 +126,17 @@ describe('view streams', () => {
     expect(reduceConnection(allLive, { type: 'view', path: PATH, state: 'closed', at: 4 })).toBe(
       allLive,
     );
+  });
+
+  it('on a first attempt read connecting, never reconnecting, and leave the strip current', () => {
+    const opening = reduceConnection(allLive, {
+      type: 'view',
+      path: PATH,
+      state: 'connecting',
+      at: 9,
+    });
+    expect(connectionWord(opening)).toBe('connecting');
+    expect(staleSince(opening)).toBeNull();
   });
 
   it('count toward the word but never make the strip stale', () => {

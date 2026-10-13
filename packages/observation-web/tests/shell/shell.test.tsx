@@ -160,6 +160,19 @@ describe('summary strip', () => {
     expect(screen.getByRole('group', { name: 'Bees: 5 active' })).toBeTruthy();
   });
 
+  it('reads connecting, never stale, while quiet streams wait out the hello deadline, then live', async () => {
+    const fake = await openShell();
+    await live(fake);
+    // Sockets are open and silent: nothing has dropped, so the bar is not "reconnecting" and the
+    // strip (seeded by the summary read) is not stale.
+    expect(screen.getByText('connecting')).toBeTruthy();
+    expect(screen.queryByText('reconnecting')).toBeNull();
+    expect(screen.queryByText(/stale since/)).toBeNull();
+    act(() => fake.advance(5000));
+    expect(screen.getByText('live')).toBeTruthy();
+    expect(screen.queryByText(/stale since/)).toBeNull();
+  });
+
   it('dims and says stale since when a stream drops, and the bar says reconnecting', async () => {
     const fake = await openShell();
     await live(fake);

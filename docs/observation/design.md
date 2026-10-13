@@ -23,7 +23,7 @@ Warden, Cell, Forage, Honey and the rest are used literally in code, in the UI a
 From top to bottom, on every screen after login:
 
 1. **Top bar** (48 px). Left: the Hive's name. Centre or right: the connection dot (section 4.4)
-   with its word (`live`, `reconnecting`, `offline`); the device name and the listener
+   with its word (`live`, `connecting`, `reconnecting`, `offline`); the device name and the listener
    (`loopback` or `remote`); a log out button. A session that `needs_step_up` shows a banner under
    the bar until the step-up prompt is done.
 2. **Summary strip** (40 px, never scrolls away, never hidden by navigation). Four groups, each a
@@ -152,7 +152,7 @@ to 8 characters, the full id in `title`; times are relative with the ISO time in
 ### 4.4 Status dot
 
 A 10 px circle in a status token followed by a word; the dot is `aria-hidden`, the word is the
-content. Fixed words: `live`, `reconnecting`, `offline` (connection); `working`, `idle`,
+content. Fixed words: `live`, `connecting` (first attempt, not yet confirmed), `reconnecting` (after a drop), `offline` (connection); `working`, `idle`,
 `waiting`, `failed` (a bee); `active`, `watch` (a Cell's mode).
 
 ### 4.5 Supervision tree

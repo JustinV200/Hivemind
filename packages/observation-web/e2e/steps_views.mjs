@@ -93,7 +93,30 @@ export async function fleetRows(ctx, step) {
     }),
   );
   const legend = await page.locator('#fleet-legend-title').count();
-  return { rows, legend: legend > 0 };
+  // The browser's own verdict on the layout: a table row and cells from 1080 px, a card below.
+  const layout = await page.evaluate(() => {
+    const display = (selector) => getComputedStyle(document.querySelector(selector)).display;
+    return {
+      head: display('table.fleet-table thead tr'),
+      row: display('table.fleet-table tbody tr'),
+      cell: display('table.fleet-table tbody td'),
+    };
+  });
+  return { rows, legend: legend > 0, layout };
+}
+
+// Waits for the top bar to read `live` with no stale note: quiet streams count as accepted when
+// the hello deadline passes, so a quiet Hive must settle to this within seconds, not stay down.
+export async function awaitLive(ctx, step) {
+  const { page } = ctx;
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.topbar [aria-live]')?.textContent?.trim() === 'live' &&
+      document.querySelector('.strip-stale') === null,
+    undefined,
+    { timeout: step.timeoutMs ?? 15000 },
+  );
+  return { word: 'live', stale: null };
 }
 
 export async function cellPage(ctx) {

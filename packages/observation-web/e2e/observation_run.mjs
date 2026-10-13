@@ -58,6 +58,7 @@ const STEPS = {
   read_strip: views.readStrip,
   open: views.open,
   fleet_rows: views.fleetRows,
+  await_live: views.awaitLive,
   cell_page: views.cellPage,
   send_chat: sendChat,
   request_goal: requestGoal,

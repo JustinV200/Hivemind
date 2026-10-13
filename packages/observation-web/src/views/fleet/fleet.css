@@ -258,11 +258,14 @@
     display: table-row-group;
   }
 
-  .fleet-table tr,
+  /* Each selector matches the specificity of the card rule it undoes (`tbody tr`, `thead tr`), or
+     the card's flex box would keep winning and the row would sit under the header as a card. */
+  .fleet-table tbody tr,
   .fleet-table thead tr {
     display: table-row;
     padding: 0;
     border: 0;
+    border-radius: 0;
     margin: 0;
   }
 
@@ -311,8 +314,8 @@
     display: table-cell;
   }
 
-  .fleet-links a + a,
-  .fleet-links a + .fleet-thoughts {
-    margin-left: var(--sp-2);
+  /* Spacing on the right, so a link that wraps to a new line still starts at the cell's edge. */
+  .fleet-links a {
+    margin-right: var(--sp-2);
   }
 }

@@ -39,7 +39,7 @@ setting the hash.
 
 ## Steps
 
-`join`, `await_approval_and_login`, `read_strip`, `open`, `fleet_rows`, `cell_page`, `send_chat`,
+`join`, `await_approval_and_login`, `read_strip`, `open`, `fleet_rows`, `await_live`, `cell_page`, `send_chat`,
 `request_goal` (the composer's "Request as a goal" switch), `await_question_and_answer`,
 `await_reply`, `thoughts`, `thoughts_wait`, `attendant`,
 `attendant_wait`, `trail_scrolls` (skips: the app has no trail view), `honey`, `viewport`,

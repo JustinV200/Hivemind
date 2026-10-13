@@ -2,9 +2,12 @@
  * The connection slice: the state of each live stream, for the top bar's dot and the strip.
  *
  * The shell opens three streams (cells, telemetry, episodes). The top bar shows one word for them
- * all (`live`, `reconnecting`, `offline`), and the summary strip dims and says `stale since` when
- * any stream that could be live is not, rather than showing old numbers as current. A stream the
- * Entrance refused (4401, 4403) is not "down": it will not come back, so it is kept apart and the
+ * all (`live`, `connecting`, `reconnecting`, `offline`), and the summary strip dims and says `stale
+ * since` when any stream that was live and dropped is not back, rather than showing old numbers as
+ * current. A stream on its
+ * first attempt is `connecting`, not `reconnecting`: a quiet stream is only known to be accepted
+ * when the hello deadline passes (socket.ts), so for those seconds nothing has dropped and nothing
+ * is stale. A stream the Entrance refused (4401, 4403) is not "down": it will not come back, so it is kept apart and the
  * strip says which groups it leaves without data.
  *
  * Fits into the Hive:
@@ -27,7 +30,7 @@
 import type { StreamState } from '../../landing_board/client';
 
 export type StreamName = 'cells' | 'telemetry' | 'episodes';
-export type ConnectionWord = 'live' | 'reconnecting' | 'offline';
+export type ConnectionWord = 'live' | 'connecting' | 'reconnecting' | 'offline';
 
 export const STREAM_NAMES: readonly StreamName[] = ['cells', 'telemetry', 'episodes'];
 
@@ -97,15 +100,16 @@ export function connectionWord(slice: ConnectionSlice): ConnectionWord {
     (s) => s.state !== 'refused',
   );
   if (needed.length > 0 && needed.every((s) => s.state === 'live')) return 'live';
-  if (needed.some((s) => s.state === 'connecting' || s.state === 'reconnecting')) {
-    return 'reconnecting';
-  }
+  // A drop outranks a first attempt: the bar says the worse of the two.
+  if (needed.some((s) => s.state === 'reconnecting')) return 'reconnecting';
+  if (needed.some((s) => s.state === 'connecting')) return 'connecting';
   return 'offline';
 }
 
-// When the strip last had every usable stream live; null when it is current.
+// When the strip last had every usable stream live; null when it is current. A stream still on its
+// first attempt has not dropped, and the strip is seeded from the summary read, so it is current.
 export function staleSince(slice: ConnectionSlice): number | null {
-  const down = usable(slice).filter((s) => s.state !== 'live');
+  const down = usable(slice).filter((s) => s.state !== 'live' && s.state !== 'connecting');
   return down.length === 0 ? null : Math.min(...down.map((s) => s.since));
 }
 

@@ -146,6 +146,8 @@ async def _drive(stand: Stand, browser: Browser, base: str) -> _Run:
     seen["login"] = await browser.step("await_approval_and_login")
     seen["strip"] = await browser.step("read_strip")
     seen["fleet"] = await browser.step("fleet_rows")
+    # A quiet Hive must settle to live with a current strip once the hello deadline has passed.
+    seen["live"] = await browser.step("await_live")
     seen["cell"] = await browser.step("cell_page")
     client, program = await _program(stand)
 
@@ -218,6 +220,7 @@ def _assert_exit_criteria(run: _Run) -> None:
         _assert_only_allowed_writes,
         _assert_no_page_errors,
         _assert_phone_width,
+        _assert_layout_and_connection,
     )
     failed: list[str] = []
     for check in checks:
@@ -341,3 +344,17 @@ def _assert_phone_width(run: _Run) -> None:
     assert row["tier"] in TIERS and row["mask"] in MASKS
     assert seen["phone_chat"].result["composer"] and seen["phone_chat"].result["send"]
     assert [seen[k].overflow_x for k in ("phone_strip", "phone_fleet", "phone_chat")] == [False] * 3
+
+
+def _assert_layout_and_connection(run: _Run) -> None:
+    """The fleet is a table at 1280 px and cards at 360 px; a quiet Hive reads live, not stale."""
+    seen = run.steps
+    # Header and row are both table rows on the desktop; at phone width the row is a flex card.
+    assert seen["fleet"].result["layout"] == {
+        "head": "table-row",
+        "row": "table-row",
+        "cell": "table-cell",
+    }, seen["fleet"].result["layout"]
+    phone = seen["phone_fleet"].result["layout"]
+    assert phone["row"] == "flex" and phone["cell"] != "table-cell", phone
+    assert seen["live"].result == {"word": "live", "stale": None}

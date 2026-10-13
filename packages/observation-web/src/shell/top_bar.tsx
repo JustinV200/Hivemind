@@ -1,8 +1,8 @@
 /**
  * The top bar: the Hive's name, the connection word, the device and listener, and log out.
  *
- * The connection dot says whether the live streams are connected (`live`, `reconnecting` or
- * `offline`), and its word is announced politely when it changes. The device name comes from the
+ * The connection dot says whether the live streams are connected (`live`, `connecting`,
+ * `reconnecting` or `offline`), and its word is announced politely when it changes. The device name comes from the
  * device's own record and falls back to its id until that loads. The listener (`loopback` on the
  * Hive Stand, `remote` anywhere else) is shown because it decides which screens exist.
  *

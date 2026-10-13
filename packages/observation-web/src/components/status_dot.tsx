@@ -20,6 +20,7 @@ import type { ReactElement } from 'react';
 
 export type StatusWord =
   | 'live'
+  | 'connecting'
   | 'reconnecting'
   | 'offline'
   | 'working'
@@ -33,6 +34,7 @@ type Tone = 'ok' | 'warn' | 'alarm' | 'idle';
 
 const TONE: Record<StatusWord, Tone> = {
   live: 'ok',
+  connecting: 'idle',
   reconnecting: 'warn',
   offline: 'alarm',
   working: 'ok',
