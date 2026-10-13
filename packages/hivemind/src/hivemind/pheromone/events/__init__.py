@@ -1,4 +1,4 @@
-"""Provide PheromoneEvent and its fourteen event families: the Pheromone Trail's data model.
+"""Provide PheromoneEvent and its fifteen event families: the Pheromone Trail's data model.
 
 Every state-changing action anywhere in the Hive is recorded as one of the event subclasses this
 package exports (codingrules section 12). `base` defines the shared shape (`PheromoneEvent`) and
@@ -28,8 +28,8 @@ Public API:
     - PheromoneEvent: the base every event family subclasses.
     - LlmUsage: the provider-neutral token-and-cost shape an `llm.call` event carries.
     - CellEvent, TaskEvent, AlarmEvent, ForageEvent, MemoryEvent, QueenEvent, WardenEvent,
-      ToolEvent, SwarmEvent, CappingEvent, LlmEvent, WorkerEvent, GuardEvent, HoneyEvent: the
-      fourteen event families.
+      ToolEvent, SwarmEvent, CappingEvent, LlmEvent, WorkerEvent, GuardEvent, HoneyEvent,
+      BasketEvent: the fifteen event families.
     - EVENT_FAMILIES: the family-prefix to class mapping the codec dispatches through.
     - event_class_for, parse_event, parse_event_json: look up a family class, or decode a stored
       event, by its `kind` string.
@@ -52,6 +52,7 @@ from hivemind.pheromone.events.families import (
     EVENT_FAMILIES,
     MAX_PROVIDER_CHARS,
     AlarmEvent,
+    BasketEvent,
     CappingEvent,
     CellEvent,
     ForageEvent,
@@ -80,6 +81,7 @@ __all__ = [
     "MAX_PAYLOAD_STRING_CHARS",
     "MAX_PROVIDER_CHARS",
     "AlarmEvent",
+    "BasketEvent",
     "CappingEvent",
     "CellEvent",
     "ForageEvent",

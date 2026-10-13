@@ -2,7 +2,7 @@
 
 Every Pheromone event family (`hivemind.pheromone.events.families.work`, `.resources`,
 `.supervisors`, `.honey`) is registered here, once, in the order the vocabulary documents them: the
-tuple below is the single place a fifteenth family would be added. `EVENT_FAMILIES` maps each
+tuple below is the single place a sixteenth family would be added. `EVENT_FAMILIES` maps each
 family's prefix (the part of a kind before the dot) to its class, and the codec dispatches on it:
 `event_class_for` finds the class for a kind, `parse_event` validates a JSON-shaped mapping into it,
 and `parse_event_json` does the same from raw JSON text, so a caller never needs to know which
@@ -35,6 +35,7 @@ from hivemind.pheromone.errors import UnknownEventFamilyError
 from hivemind.pheromone.events.base import PheromoneEvent
 from hivemind.pheromone.events.families.honey import HoneyEvent
 from hivemind.pheromone.events.families.resources import (
+    BasketEvent,
     ForageEvent,
     LlmEvent,
     MemoryEvent,
@@ -52,7 +53,7 @@ from hivemind.pheromone.events.families.work import AlarmEvent, CellEvent, TaskE
 __all__ = ["EVENT_FAMILIES", "event_class_for", "parse_event", "parse_event_json"]
 
 # Every family class, in the order the vocabulary is documented; the tuple, not the mapping built
-# from it, is the single place a fifteenth family would be added.
+# from it, is the single place a sixteenth family would be added.
 _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     CellEvent,
     TaskEvent,
@@ -68,6 +69,7 @@ _FAMILY_CLASSES: tuple[type[PheromoneEvent], ...] = (
     WorkerEvent,
     GuardEvent,
     HoneyEvent,
+    BasketEvent,
 )
 
 

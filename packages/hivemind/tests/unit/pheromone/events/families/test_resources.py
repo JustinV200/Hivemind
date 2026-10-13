@@ -1,4 +1,4 @@
-"""Tests for hivemind.pheromone.events.families.resources: forage, memory, tool, swarm and llm.
+"""Tests for hivemind.pheromone.events.families.resources: forage, memory, tool, basket, swarm, llm.
 
 Fits into the Hive:
     Mirrors src/hivemind/pheromone/events/families/resources.py (codingrules section 3:
@@ -18,7 +18,14 @@ import pytest
 from pydantic import ValidationError
 
 from hivemind.pheromone.events.base import LlmUsage
-from hivemind.pheromone.events.families import ForageEvent, LlmEvent, MemoryEvent
+from hivemind.pheromone.events.families import (
+    BasketEvent,
+    ForageEvent,
+    GuardEvent,
+    LlmEvent,
+    MemoryEvent,
+    ToolEvent,
+)
 from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 
@@ -116,3 +123,73 @@ def test_memory_event_kinds_include_the_phase_4_4_addition() -> None:
 def test_memory_event_kinds_include_the_taint_label() -> None:
     # Roadmap step 10.6d (ADR-0043): one label, set by three paths and cleared only by a judge.
     assert {"memory.tainted", "memory.taint_cleared"} <= MemoryEvent.KINDS
+
+
+_PHASE_9_TOOL_KINDS = {
+    "tool.quarantine_requested",
+    "tool.sandbox_provisioned",
+    "tool.sandbox_released",
+    "tool.announced",
+    "tool.loaded",
+    "tool.load_refused",
+    "tool.rolled_back",
+}
+_BASKET_KINDS = {
+    "basket.deposited",
+    "basket.deposit_deduplicated",
+    "basket.deposit_refused",
+    "basket.offered",
+    "basket.received",
+    "basket.refused",
+    "basket.evicted",
+    "basket.retired",
+    "basket.shipped",
+}
+
+
+def test_tool_event_kinds_keep_the_six_original_kinds_and_gain_the_phase_9_stages() -> None:
+    # Phase 9 (ADR-0046, ADR-0047): the original lifecycle is unchanged; the new stages are
+    # additions, so a stored event of an old kind still decodes.
+    original = {
+        "tool.requested",
+        "tool.scaffolded",
+        "tool.quarantined",
+        "tool.promoted",
+        "tool.rejected",
+        "tool.retired",
+    }
+
+    assert original | _PHASE_9_TOOL_KINDS == ToolEvent.KINDS
+
+
+@pytest.mark.parametrize("kind", sorted(_PHASE_9_TOOL_KINDS))
+def test_tool_event_accepts_each_phase_9_kind(kind: str) -> None:
+    event = ToolEvent(kind=kind, **_base_kwargs(FakeClock()))
+
+    assert event.kind == kind
+    assert event.family == "tool"
+
+
+def test_basket_event_declares_exactly_the_nine_basket_kinds() -> None:
+    assert BasketEvent.FAMILY == "basket"
+    assert BasketEvent.KINDS == _BASKET_KINDS
+
+
+@pytest.mark.parametrize("kind", sorted(_BASKET_KINDS))
+def test_basket_event_accepts_each_kind_and_round_trips(kind: str) -> None:
+    event = BasketEvent(kind=kind, **_base_kwargs(FakeClock()))
+
+    assert event.family == "basket"
+    assert BasketEvent.model_validate(event.model_dump(mode="json")) == event
+
+
+@pytest.mark.parametrize("kind", ["basket.nonexistent", "tool.deposited", "blob.deposited"])
+def test_basket_event_rejects_a_kind_outside_its_family(kind: str) -> None:
+    with pytest.raises(ValidationError):
+        BasketEvent(kind=kind, **_base_kwargs(FakeClock()))
+
+
+def test_guard_event_kinds_include_the_basket_integrity_failure() -> None:
+    # Phase 9 (ADR-0048): a transfer whose bytes or manifest failed verification is a guard event,
+    # so the Guard Bee's rules can follow it beside the other node-integrity refusals.
+    assert "guard.basket_integrity_failed" in GuardEvent.KINDS

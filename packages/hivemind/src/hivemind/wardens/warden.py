@@ -88,6 +88,7 @@ from hivemind.wardens.local_pool.hosting import HostedCell, ModelServerHost, Run
 from hivemind.wardens.quarantine import QuarantineRecord, admit_respawn, carry_out, quarantine_child
 from hivemind.wardens.spawn import SubBee
 from hivemind.wardens.state import WardenState
+from hivemind.workers.tools.comb import CombToolEntry
 from waggle.envelope import Envelope
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
 from waggle.ids import MessageId, TaskId, WardenId, WorkerId, new_event_id
@@ -139,11 +140,8 @@ class Warden(TickLoop):
         self._queen_iter: AsyncIterator[Envelope] = deps.queen_link.receive()
         self._receive_tasks: dict[str, asyncio.Task[Envelope | None]] = {}
         self._heartbeat_task: asyncio.Task[None] | None = None
-        # Roadmap step 4.9 (Clustering): every task id a Queen-sent Intervene(HANDOFF) told this
-        # Warden to pause, dropped again on a Queen-sent TaskResume for the same task; read by
-        # ticks.assign.settle_after_tick to decide ACTIVE <-> CLUSTERED, the same way _sub_bees'
-        # own emptiness
-        # already decides ACTIVE <-> WATCH.
+        # Roadmap step 4.9 (Clustering): tasks a Queen-sent Intervene(HANDOFF) paused, dropped on a
+        # TaskResume; ticks.assign.settle_after_tick reads it to decide ACTIVE <-> CLUSTERED.
         self._clustered_tasks: set[TaskId] = set()
         # Roadmap 4.8: the Queen's own CeilingsSet/PlanWritten (ticks.control), None until sent.
         self._ceilings: Ceilings | None = None
@@ -151,9 +149,15 @@ class Warden(TickLoop):
         # Roadmap step 8.3: the model servers this Warden hosts on its Cell; None until `start()`
         # holds a lease and the manifest declares at least one (`_host_models`).
         self._models: ModelServerHost | None = None
-        # Roadmap step 10.6c: every task a quarantine holds, until a judge-cleared respawn lifts it
-        # (hivemind.wardens.quarantine.gate); this Warden's half of the task's PAUSED state.
+        # Roadmap step 10.6c: every task a quarantine holds until a judge-cleared respawn lifts it.
         self._quarantined: dict[TaskId, QuarantineRecord] = {}
+        # Roadmap phase 9: its tools by name; who asked each relayed tool request; Basket transfers
+        # in flight; the jobs it owns (reaped in `stop`); whether the Queen isolated this Cell.
+        self._comb_entries: dict[str, CombToolEntry] = {}
+        self._tool_relay = ticks.tools.ToolRelay()
+        self._basket = ticks.basket.BasketTransfers()
+        self._tool_jobs: set[asyncio.Task[None]] = set()
+        self._isolated = False
         # A relayed snapshot freezes this Warden with its Cell: announced first, so the Queen
         # never reads the Hive's own freeze as this Warden gone silent (ticks.heartbeat).
         ticks.heartbeat.bind_freeze_announcer(self)
@@ -213,6 +217,10 @@ class Warden(TickLoop):
             # cancel-and-reap only as a bounded fallback, its receive task reaped BEFORE its link
             # closes (codingrules section 11; this dispatch's rule 2), and its slot freed.
             await ticks.alarms.retire_sub_bee(self, sub_bee)
+        # Background jobs (a scaffold, a sandbox request, a shipment) wait on replies no tick will
+        # deliver once the loop has stopped, so they are cancelled and reaped, not awaited.
+        await reap_all(tuple(self._tool_jobs))
+        self._tool_jobs.clear()
         # Every receive task this Warden still owns (the queen link's own, and any sub-bee's
         # whose respawn or a slow stop_sub_bee left one outstanding): reaped before stop()
         # returns, so none is ever destroyed pending once the event loop closes (rules 1-3).

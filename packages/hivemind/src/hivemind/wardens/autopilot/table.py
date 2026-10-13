@@ -22,9 +22,12 @@ follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter
 step 8.3) maps to `EVICT_SOURCE`; the Honey Store's traffic (roadmap
 step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.error` whose
 `failed_kind` is `honey.nectar_deposit` -- maps to `FORWARD_HONEY`, which
-`hivemind.wardens.ticks.honey` relays or logs; every other recognised kind maps to a fixed
-action; anything this table has never seen returns `NEEDS_JUDGEMENT`, the one signal that hands
-the item to `hivemind.wardens.awake` instead of silently dropping it.
+`hivemind.wardens.ticks.honey` relays or logs; the Royal Jelly Lab's and the Basket's traffic
+(roadmap phase 9) maps to `FORWARD_TOOL` (a `ToolRequest`, `ToolPromoted`, `ToolQuarantineReport`
+or a `control.error` about a tool message), `RUN_QUARANTINE` (a `ToolQuarantine` order) and
+`BASKET` (every `basket.*` payload); every other recognised kind maps to a fixed action;
+anything this table has never seen returns `NEEDS_JUDGEMENT`, the one signal that hands the item
+to `hivemind.wardens.awake` instead of silently dropping it.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -61,6 +64,7 @@ from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot.actions import WardenAction
+from waggle.messages.basket import BasketAck, BasketChunk, BasketOffer, BasketRefuse
 from waggle.messages.cell import CellTaintOrder
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
@@ -85,6 +89,7 @@ from waggle.messages.task import (
     TaskResult,
     TaskResume,
 )
+from waggle.messages.tool import ToolPromoted, ToolQuarantine, ToolQuarantineReport, ToolRequest
 
 if TYPE_CHECKING:
     # Import-only: hivemind.workers.state.WorkerState is used here purely as a type annotation
@@ -101,6 +106,13 @@ __all__ = ["SubBeeView", "decide"]
 # The kind a Queen's control.error names when it refuses a deposit this Warden relayed; read from
 # the registry, the one place kinds live, so it can never drift from the wire.
 _NECTAR_DEPOSIT_KIND = kind_for(NectarDeposit)
+
+# The kinds a control.error names when it answers something this Warden sent on the Royal Jelly
+# Lab's behalf (a relayed request, its own sandbox request, its own promotion); every other
+# control.error still reaches awake. Read from the registry for the same reason as above.
+_TOOL_ERROR_KINDS = frozenset(
+    {kind_for(ToolRequest), kind_for(ToolQuarantine), kind_for(ToolPromoted)}
+)
 
 # Every PolicyAction a Warden's own EscalationPolicy can name, mapped onto what a Warden actually
 # does about it (roadmap step 3.19's own dispatch map): RESPAWN and RETRY both mean "start this
@@ -214,7 +226,23 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
         # Roadmap step 8.3: reclaiming seats she exported is a rule (the handler checks the source
         # is this Warden's own and exported), never a judgement call.
         return WardenAction.EVICT_SOURCE
-    return _decide_honey(payload)
+    honey = _decide_honey(payload)
+    return honey if honey is not None else _decide_tool_or_basket(payload)
+
+
+def _decide_tool_or_basket(payload: object) -> WardenAction | None:
+    """Return the WardenAction for a Royal Jelly Lab or Basket payload (phase 9); None otherwise."""
+    if isinstance(payload, ToolRequest | ToolPromoted | ToolQuarantineReport):
+        # Relayed or installed by hivemind.wardens.ticks.tools, which checks the direction itself.
+        return WardenAction.FORWARD_TOOL
+    if isinstance(payload, ErrorMessage) and payload.failed_kind in _TOOL_ERROR_KINDS:
+        # The Queen refused or failed something this Warden sent for a tool: relayed or awaited.
+        return WardenAction.FORWARD_TOOL
+    if isinstance(payload, ToolQuarantine):
+        return WardenAction.RUN_QUARANTINE
+    if isinstance(payload, BasketOffer | BasketChunk | BasketAck | BasketRefuse):
+        return WardenAction.BASKET
+    return None
 
 
 def _decide_honey(payload: object) -> WardenAction | None:

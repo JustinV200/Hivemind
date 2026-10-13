@@ -44,6 +44,7 @@ def test_every_point_the_adr_names_is_declared() -> None:
         "sting_cut",
         "supersedure",
         "absconding",
+        "basket_transfer",
     ]
 
 

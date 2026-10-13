@@ -21,7 +21,7 @@ deterministic on any host `deterministic_checks()` runs on, without depending on
 Roadmap step 5.0e: this scenario now drives the real `keep` tool through a real, unpatched Drone --
 `hivemind.workers.tools.keep.keep` -- rather than the test-only `_LeavingWorker` stand-in and
 `_WideningLeaseView` this dispatch's predecessor needed: `hivemind.wardens.spawn.spawn.
-_widen_lease_reachability` now widens the Warden's one shared lease for a task's own declared
+widen_lease_reachability` now widens the Warden's one shared lease for a task's own declared
 `leaves` (and the manifest's `keep_root`) the moment a sub-bee spawns, under `AccessLevel.FULL`,
 and `hivemind.cell.local.session.LocalProcessSession` now reads `lease.allowed_paths` live on every
 call instead of a snapshot taken at `Warden.start()` -- so no `hivemind/` source needs a test-only
@@ -41,7 +41,7 @@ See Also:
     - tests.e2e.test_kernel_on_hive_stand for scenario (d) (the `hive inbox answer` pattern this
       module reuses).
     - hivemind.workers.tools.keep for keep, the tool this scenario now drives for real.
-    - hivemind.wardens.spawn.spawn for _widen_lease_reachability, the fix that closes the
+    - hivemind.wardens.spawn.attenuate for widen_lease_reachability, the fix that closes the
       capability/reachability gap this module's predecessor worked around by hand.
     - hivemind.supervision.capping.checks.human for HumanCheck, the HUMAN rung this scenario
       proves end to end, including the `Answer.chosen_option` roundtrip through a real `hive

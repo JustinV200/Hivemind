@@ -805,3 +805,62 @@ drop = 6.0
 [guard.untrusted_content.night_veil]
 label = 2.0
 drop = 5.0
+
+[royal_jelly]
+# The Royal Jelly Lab (roadmap phase 9, ADR-0046 and ADR-0047): how the Hive grows tools. A bee asks
+# for a tool that does not exist, the Lab scaffolds it, and the Quarantine Comb proves it in a
+# sandbox before the Comb Registry will keep it.
+# Where candidate tools are proven: "virtual" (a disposable Virtual Cell with no network; needs
+# [virtual_cells] backend, which is set above) or "subprocess" (a local process of the Hive Stand;
+# development only, and the Hive logs a warning at start when it is chosen).
+sandbox = "virtual"
+# The images/<name> the sandbox Virtual Cell boots.
+sandbox_image = "base-ubuntu"
+# The Linux distribution sandbox_image is built on. A tool aimed at any other platform is also
+# tested on a Real Cell of that platform, because the sandbox cannot stand in for it.
+sandbox_distribution = "ubuntu"
+# Times a failed scaffold is retried, shown the Comb's report, before the request is rejected
+# (0 to 3; 0 means one attempt).
+max_retries = 1
+# Seconds a tool request may take from acceptance to verdict, sandbox boot included.
+request_timeout_s = 600.0
+# Logical cores reserved for a sandbox Virtual Cell.
+sandbox_cpu_cores = 1.0
+# Memory reserved for a sandbox Virtual Cell, in bytes (1 GiB here).
+sandbox_memory_bytes = 1073741824
+# Disk reserved for a sandbox Virtual Cell, in bytes (2 GiB here).
+sandbox_disk_bytes = 2147483648
+# The longest a sandbox Virtual Cell may live before it is torn down, report or no report.
+sandbox_lifetime_s = 900.0
+
+[royal_jelly.limits]
+# What one Quarantine Comb run may spend before the resources gate fails the tool.
+# CPU seconds the tool's tests and fuzz inputs may use in total (up to 3600).
+cpu_s = 30.0
+# Peak resident memory the tool may reach, in bytes (512 MiB here; 16 MiB to 8 GiB).
+memory_bytes = 536870912
+# Wall-clock seconds the whole run may take (up to 3600).
+wall_s = 120.0
+# Stdout and stderr bytes the run may produce before it is cut off (1 MiB here; 1 KiB to 64 MiB).
+output_bytes = 1048576
+# Schema-derived inputs the fuzz gate feeds the tool (1 to 1000).
+fuzz_cases = 32
+
+[basket]
+# The Basket (roadmap phase 9, ADR-0048): content-addressed, signed, inert blobs (a wheel, a
+# dataset, a tool package) that Honey describes and no bee can run just by holding.
+# The directory blob bytes are kept under; a relative path resolves against this file's directory.
+# Omitted (the default), it is a `basket` directory beside the Hive database.
+root = "basket"
+# The largest blob a deposit may carry, in bytes (256 MiB here; up to 1 GiB). A larger one is
+# refused and the refusal is recorded.
+max_blob_bytes = 268435456
+# Raw bytes in one shipment chunk (1024 to 262144). The default is the largest a Waggle frame
+# carries once base64-encoded.
+chunk_bytes = 262144
+# The resident Basket disk ceiling for a Cell whose Forage ceilings set none, in bytes (2 GiB
+# here). A Cell evicts its oldest resident blobs to stay under it.
+default_resident_ceiling_bytes = 2147483648
+# Whether a newly promoted tool's package is shipped at once to every Cell that can run it; false
+# ships it on first use.
+ship_on_promotion = true

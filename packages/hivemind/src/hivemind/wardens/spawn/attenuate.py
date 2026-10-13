@@ -7,7 +7,8 @@ default from the Warden's own Guard policy (`role_set`, `{scratch}` filled with 
 root), the task's needs (its Exoskeleton need and network scopes, `TaskAssign.exoskeleton` and
 `.network_scopes`, both since Waggle minor 6, ADR-0031), the goal's set (`TaskAssign.capabilities`,
 Waggle minor 8; None when the goal carries no ceiling) and the declared write roots (roadmap step
-5.0e: the manifest's `keep_root` and each declared leaving's root).
+5.0e: the manifest's `keep_root` and each declared leaving's root), and `widen_lease_reachability`
+makes those roots reachable on the Warden's one shared lease, under FULL access only.
 Anything on the wire this Warden cannot read fails closed: a goal set with a string that is not a
 capability allows nothing, and a network scope that is not a host, a domain or an address is never
 offered, so a malformed assignment can refuse a Worker capabilities but never crash the Warden.
@@ -34,7 +35,7 @@ from __future__ import annotations
 
 from pathlib import Path, PurePath
 
-from hivemind.cell import MAX_SCOPE_CHARS, TaskNeeds
+from hivemind.cell import MAX_SCOPE_CHARS, AccessLevel, RealCellLease, TaskNeeds
 from hivemind.common.logging import get_logger
 from hivemind.forage.tempo import Tempo
 from hivemind.guard import (
@@ -52,7 +53,7 @@ from waggle.messages.task import TaskAssign
 
 _LOG = get_logger(__name__)
 
-__all__ = ["declared_write_roots", "sub_bee_capabilities"]
+__all__ = ["declared_write_roots", "sub_bee_capabilities", "widen_lease_reachability"]
 
 
 def sub_bee_capabilities(
@@ -102,6 +103,25 @@ def declared_write_roots(deps: WardenDeps, assignment: TaskAssign) -> tuple[Path
     if deps.keep_root is not None:
         roots.append(deps.keep_root)
     return tuple(roots)
+
+
+def widen_lease_reachability(lease: RealCellLease, write_roots: tuple[Path, ...]) -> None:
+    """Widen this Warden's lease so `write_roots` are reachable, under FULL access only.
+
+    Roadmap step 5.0e: "make keep_root and the task's declared leaves reachable for a lease only
+    in the way the access level already permits." A lease is opened once, at `Warden.start()`,
+    before any `TaskAssign` exists, so `RealCellLease.allowed_paths` cannot be sized from a task's
+    `leaves` or the manifest's `keep_root` up front; this call (once per spawned sub-bee, on the
+    one lease every sub-bee on this Cell shares) is what closes that gap. Only ever widens under
+    `AccessLevel.FULL`: at READ_ONLY or SCRATCH the leave policy's own hard rule (roadmap step
+    5.0c) always DENYs a leaving regardless, so nothing there would ever need to reach outside
+    scratch for this reason, and widening reachability past what a lower level's own capability
+    ceiling grants would be exactly the escalation codingrules section 15 forbids.
+    """
+    if lease.access_level is not AccessLevel.FULL:
+        return
+    for root in write_roots:
+        lease.note_allowed_path(root)
 
 
 def _task_needs(assignment: TaskAssign) -> TaskNeeds:

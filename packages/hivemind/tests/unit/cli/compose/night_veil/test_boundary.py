@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from builders.cli import fake_manifest
 
-from hivemind.cli.compose.deps import _placement_policy
+from hivemind.cli.compose.deps.queen import _placement_policy
 from hivemind.cli.compose.night_veil import (
     in_process_providers,
     local_providers,

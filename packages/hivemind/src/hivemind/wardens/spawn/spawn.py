@@ -86,7 +86,7 @@ import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
-from hivemind.cell import AccessLevel, Cell, CellSession, RealCellLease
+from hivemind.cell import Cell, CellSession, RealCellLease
 from hivemind.cell.source import CellIdentity
 from hivemind.common.tasks import reap
 from hivemind.exoskeleton import ExoskeletonHandle
@@ -101,9 +101,10 @@ from hivemind.supervision.capping import GateDeps, GuiSurface
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.links import send_guarded
-from hivemind.wardens.spawn.attenuate import sub_bee_capabilities
+from hivemind.wardens.spawn.attenuate import sub_bee_capabilities, widen_lease_reachability
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
+from hivemind.wardens.spawn.comb import CombHandles, CombSeams, make_handles
 from hivemind.wardens.spawn.equip import equip, gui_surface, unequip
 from hivemind.wardens.spawn.route import (
     BindingTarget,
@@ -154,6 +155,9 @@ class WardenCellContext:
             spawns (see the module docstring's "Key invariants" for why it is shared, not fresh).
         hosting: The HostingPlan the Queen last sent for `cell` (`Warden._hosting_plan`), which
             routing ranks by; None until she has sent one.
+        comb: What this Warden offers a new sub-bee of the Comb (roadmap 9.7): the tools it holds,
+            where their bytes come from and a way to make the bee's retain sink; None when this
+            Warden holds no Basket, and the bee is then given no Comb tools.
     """
 
     warden_id: WardenId
@@ -163,6 +167,7 @@ class WardenCellContext:
     lease: RealCellLease
     session: CellSession
     hosting: HostingPlan | None = None
+    comb: CombSeams | None = None
 
     def route_scope(self, assignment: TaskAssign, grant: GrantIssued) -> RouteScope:
         """Return what routing `assignment`'s sub-bee under `grant` needs from this Warden."""
@@ -195,6 +200,7 @@ class _SpawnedBeeFacts:
     bound: BoundModel
     capabilities: CapabilitySet
     recording_id: str | None = None  # Where its GUI actions are recorded, named in its Alarms.
+    comb: CombHandles | None = None  # Its Comb tools, their source and its retain sink (9.7).
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,7 +302,7 @@ async def _start_sub_bee(
     worker_id = new_worker_id(deps.clock)
     bound = bind_routed(deps.rebind, plan.binding_key, plan.routed)
     sub_bee_grant = _build_sub_bee_grant(deps, grant, assignment)
-    _widen_lease_reachability(ctx, plan.write_roots)
+    widen_lease_reachability(ctx.lease, plan.write_roots)
     # Equipped before the role's first tool call, so a GUI tool never finds its peripherals gone.
     exoskeleton = await equip(ctx, assignment, plan.capabilities)
     surface = await gui_surface(ctx, assignment, exoskeleton)
@@ -304,7 +310,10 @@ async def _start_sub_bee(
     if plan.routed is not None:
         await record_routing(ctx.route_scope(assignment, grant), plan.routed, worker_id)
     recording_id = surface.recording_id if surface is not None else None
-    facts = _SpawnedBeeFacts(worker_id, bound, plan.capabilities, recording_id)
+    comb = await make_handles(
+        ctx.comb, plan.capabilities, ctx.cell.id, (worker_id, assignment.task_id)
+    )
+    facts = _SpawnedBeeFacts(worker_id, bound, plan.capabilities, recording_id, comb)
     worker_ctx = _build_worker_context(ctx, facts, sub_bee_grant, capping_gate, exoskeleton)
     warden_link, runtime, runtime_task = _start_runtime(ctx, worker_ctx, worker_id, assignment)
     spawned_event_id = await _record_spawned(deps, worker_id, assignment)
@@ -326,6 +335,7 @@ async def _start_sub_bee(
         capabilities=plan.capabilities,
         spawned_event_id=spawned_event_id,
         exoskeleton=exoskeleton,
+        comb_tools=comb.bundle if comb is not None else None,
     )
 
 
@@ -389,25 +399,6 @@ async def stop_sub_bee(
     # Roadmap step 6.4: every retirement passes here, so this is where the task's display, sound
     # server and browser stop; the runtime is already gone, so no tool is still driving them.
     await unequip(sub_bee.exoskeleton)
-
-
-def _widen_lease_reachability(ctx: WardenCellContext, write_roots: tuple[Path, ...]) -> None:
-    """Widen this Warden's lease so `write_roots` are reachable, under FULL access only.
-
-    Roadmap step 5.0e: "make keep_root and the task's declared leaves reachable for a lease only
-    in the way the access level already permits." A lease is opened once, at `Warden.start()`,
-    before any `TaskAssign` exists, so `RealCellLease.allowed_paths` cannot be sized from a task's
-    `leaves` or the manifest's `keep_root` up front; this call (once per spawned sub-bee, on the
-    one lease every sub-bee on this Cell shares) is what closes that gap. Only ever widens under
-    `AccessLevel.FULL`: at READ_ONLY or SCRATCH the leave policy's own hard rule (roadmap step
-    5.0c) always DENYs a leaving regardless, so nothing there would ever need to reach outside
-    scratch for this reason, and widening reachability past what a lower level's own capability
-    ceiling grants would be exactly the escalation codingrules section 15 forbids.
-    """
-    if ctx.lease.access_level is not AccessLevel.FULL:
-        return
-    for root in write_roots:
-        ctx.lease.note_allowed_path(root)
 
 
 def _build_capping_gate(
@@ -487,6 +478,7 @@ def _build_worker_context(
 ) -> WorkerContext:
     """Assemble the WorkerContext one sub-bee runs its role inside."""
     deps = ctx.deps
+    comb = facts.comb
     return WorkerContext(
         worker_id=facts.worker_id,
         cell=ctx.cell,
@@ -509,6 +501,9 @@ def _build_worker_context(
         ears=deps.ears,
         recording_id=facts.recording_id,
         scanner=deps.scanner,  # Roadmap 10.6b: every tool result is scanned on this node's key.
+        comb_tools=comb.bundle if comb is not None else None,  # Roadmap 9.7: the Comb's three.
+        package_source=comb.package_source if comb is not None else None,
+        retain_sink=comb.retain_sink if comb is not None else None,
     )
 
 

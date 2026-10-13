@@ -367,7 +367,7 @@ layers = [
     # import them from there"; hive already gets this for free by being a full layer above cell),
     # and guard (the rank below) for the capability primitives the Capping gate checks a proposal
     # against (ADR-0018).
-    "honey_store | supervision | brood_chamber | memory",
+    "honey_store | supervision | brood_chamber | memory | basket",
     # Layer 2, middle: the capability primitives. Its own sub-rank for the same reason cell is one:
     # supervision.capping -> guard must be one-way (guard never reads a policy), and guard -> cell
     # stays open for the enums guard.access maps capabilities onto.
@@ -398,6 +398,19 @@ type = "forbidden"
 source_modules = ["hivemind.entrance"]
 forbidden_modules = ["hivemind.observation.views"]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+# Phase 9, design section 1.3 (.claude/phase-9-handoff.md, ADR-0048): the Basket holds bytes that
+# grant nothing, and the only way a bee finds a blob is the Honey record that describes it. If
+# memory (which assembles every prompt) or llm (which sends it) could import basket, a blob could
+# reach a prompt or a model call without that record, so neither may, directly or transitively.
+# basket sits in the Layer 2 upper rank beside memory, so the layers contract allows the edge
+# and this contract is what forbids it. (basket never imports honey_store either: the layers
+# contract's independent sibling rank already forbids that.)
+name = "memory and llm never import basket"
+type = "forbidden"
+source_modules = ["hivemind.memory", "hivemind.llm"]
+forbidden_modules = ["hivemind.basket"]
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "waggle... imports nothing from hivemind"; section 3 makes waggle the
@@ -521,7 +534,8 @@ source_modules = ["hivemind.common"]
 # logging and migrations", built on waggle's ids/clock/loop like every other layer).
 forbidden_modules = [
     "hivemind.manifest", "hivemind.pheromone", "hivemind.llm", "hivemind.forage",
-    "hivemind.cell", "hivemind.brood_chamber", "hivemind.honey_store", "hivemind.memory",
+    "hivemind.cell", "hivemind.brood_chamber", "hivemind.honey_store", "hivemind.basket",
+    "hivemind.memory",
     "hivemind.supervision", "hivemind.guard", "hivemind.hive", "hivemind.swarm",
     "hivemind.exoskeleton", "hivemind.royal_jelly", "hivemind.workers", "hivemind.wardens",
     "hivemind.queen", "hivemind.entrance", "hivemind.observation", "hivemind.cli",

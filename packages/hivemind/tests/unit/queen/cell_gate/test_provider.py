@@ -49,6 +49,7 @@ from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Hop
 from waggle.ids import new_grant_id, new_hive_id, new_node_id, new_warden_id
+from waggle.signing import Ed25519Signer
 from waggle.transport.memory import MemoryTransport
 
 
@@ -367,3 +368,43 @@ async def test_acquire_refuses_a_cell_announcing_a_tier_it_was_not_provisioned_a
     tracked = lifecycle.live_cells()
     assert [cell.status for cell in tracked] in ([], [VirtualCellStatus.DESTROYED])
     assert not await trail.query(TrailQuery(kind="cell.attested"))
+
+
+async def test_acquire_sandbox_provisions_on_the_one_backend_and_release_tears_it_down() -> None:
+    provider, lifecycle, wardens, _gate, _trail = _build()
+
+    link = await provider.acquire_sandbox(_spec(network_policy=NetworkPolicy.NONE))
+
+    assert link in wardens and lifecycle.status_of(link.cell.id) is VirtualCellStatus.READY
+    await provider.release_sandbox(link.cell.id)
+    assert lifecycle.status_of(link.cell.id) in (None, VirtualCellStatus.DESTROYED)
+    await provider.release_sandbox(link.cell.id)  # A sandbox already gone is not an error.
+
+
+async def test_acquire_sandbox_with_no_backend_registered_cannot_provision() -> None:
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    identity = make_identity(clock)
+    lifecycle = CellLifecycle(BackendRegistry(), trail, clock, identity)
+    recorder = TrailRecorder(
+        trail=trail, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
+    )
+    provider = LifecycleVirtualCellProvider(
+        lifecycle, QueenReadinessGate(), recorder, _always_green_probe
+    )
+    provider.bind_queen(_StubQueen([]))
+
+    with pytest.raises(CellProvisionError, match="no Virtual backend"):
+        await provider.acquire_sandbox(_spec())
+
+
+async def test_uplink_key_is_the_public_key_the_gate_holds_for_the_links_cell() -> None:
+    provider, _lifecycle, _wardens, gate, _trail = _build()
+    link = await provider.acquire_sandbox(_spec())
+    key = Ed25519Signer.generate().public_key_bytes
+    assert provider.uplink_key(link) is None  # The test backend registered a malformed key.
+    await gate.expect(link.cell.id, key.hex())
+
+    assert provider.uplink_key(link) == key
+    await gate.forget(link.cell.id)
+    assert provider.uplink_key(link) is None

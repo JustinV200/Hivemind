@@ -3,13 +3,14 @@
 ``HiveManifest`` gathers every section (``[hive]``, ``[queen]``, ``[hive_stand]``, ``[llm]``,
 ``[forage]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
 ``[brood_chamber]``, ``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``,
-``[entrance]``, ``[guard]``) into one frozen value. Every section but ``[hive]`` has a
-``default_factory``, so a manifest may omit ``[queen]``, ``[hive_stand]``, ``[supervision]``,
-``[memory]``, ``[security]``, ``[honey.clearance]``, ``[brood_chamber]``, ``[pheromone]``,
-``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``, ``[entrance]`` and ``[guard]`` entirely
-and still validate; ``[hive]`` alone has no default, because an id and a node id are never
-guessed on a Hive's behalf (``hivemind.manifest.schema.core.HiveSection``). Omitting
-``[virtual_cells]`` (or its own ``backend`` key) leaves placement
+``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]``) into one frozen value. Every section
+but ``[hive]`` has a ``default_factory``, so a manifest may omit ``[queen]``, ``[hive_stand]``,
+``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``, ``[brood_chamber]``,
+``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``, ``[entrance]``,
+``[guard]``, ``[royal_jelly]`` and ``[basket]`` entirely and still validate; ``[hive]`` alone has
+no default, because an id and a node id are never guessed on a Hive's behalf
+(``hivemind.manifest.schema.core.HiveSection``). Omitting ``[virtual_cells]`` (or its own
+``backend`` key) leaves placement
 Real-only, exactly as before roadmap step 5.7 (``hivemind.manifest.schema.placement.
 VirtualCellsSection``'s own key invariant).
 ``[llm]`` and ``[forage]`` also default to an empty table structurally, but each carries its own
@@ -22,7 +23,8 @@ known, so ``resolve_path`` can turn a manifest-relative path into an absolute on
 cross-section validator the roadmap calls for that no single section can run on its own -- every
 ``[forage.map.<source_id>]`` entry's provider must be declared in ``[llm.providers]`` -- because
 ``ForageSection`` has no visibility into ``LlmSection`` and vice versa (codingrules section 4: they
-sit in different, independent Layer-1 packages' worth of schema, joined only here).
+sit in different, independent Layer-1 packages' worth of schema, joined only here), and
+``[royal_jelly] sandbox = "virtual"`` needs a ``[virtual_cells] backend`` to provision from.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Built by ``hivemind.manifest.loader.
@@ -36,6 +38,9 @@ Key invariants:
     - `source_path` is `None` until `hivemind.manifest.loader.load_manifest` sets it; a manifest
       built directly (a test, or `HiveManifest(hive=...)`) has no source file and `resolve_path`
       falls back to resolving against the current working directory instead.
+    - An explicit `royal_jelly.sandbox = "virtual"` implies `virtual_cells.backend` is set; the dev
+      `subprocess` sandbox needs no backend, and the unstated default is left to the composition
+      root (a Real-only Hive has no Virtual sandbox, so its Lab promotes nothing).
     - Every `[forage.map.<source_id>].provider` names a key in `llm.providers`; nothing else about
       the two sections is cross-checked (a slot's model need not appear anywhere on the map: the
       map and the slot table are two independent ways of naming what a call may use).
@@ -70,6 +75,7 @@ from hivemind.manifest.schema.exoskeleton import ExoskeletonSection
 from hivemind.manifest.schema.forage import ForageSection
 from hivemind.manifest.schema.llm import LlmSection, check_server_sources
 from hivemind.manifest.schema.placement import PlacementSection, VirtualCellsSection
+from hivemind.manifest.schema.royal_jelly import BasketSection, RoyalJellySection, SandboxKind
 from hivemind.manifest.schema.security.guard import GuardSection
 from hivemind.manifest.schema.security.tiers import HoneySection, SecuritySection
 from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
@@ -147,6 +153,16 @@ class HiveManifest(BaseModel):
         "sets, hive-wide denials and escalation per point (roadmap step 10.2, ADR-0039); the "
         "shipped policy when omitted.",
     )
+    royal_jelly: RoyalJellySection = Field(
+        default_factory=RoyalJellySection,
+        description="The Royal Jelly Lab: the Quarantine Comb's sandbox, limits and retry budget "
+        "(roadmap phase 9, ADR-0047); a Virtual Cell sandbox by default.",
+    )
+    basket: BasketSection = Field(
+        default_factory=BasketSection,
+        description="The Basket: where blob bytes live, size bounds and shipping policy "
+        "(roadmap phase 9, ADR-0048).",
+    )
     source_path: Path | None = Field(
         default=None,
         exclude=True,
@@ -191,4 +207,22 @@ class HiveManifest(BaseModel):
         """Reject an [llm.servers] source with no [forage.map] entry of the server's provider."""
         # Only this root sees both [llm] and [forage], so the cross-table rule lives here.
         check_server_sources(self.llm.servers, self.forage.map)
+        return self
+
+    @model_validator(mode="after")
+    def _virtual_sandbox_needs_a_backend(self) -> HiveManifest:
+        """Reject an explicit Virtual Cell sandbox when no Virtual Cell backend is configured."""
+        # Only an operator's own `sandbox = "virtual"` is checked. The default is also VIRTUAL, but
+        # a manifest that says nothing about the Lab and sets no backend (every Real-only Hive,
+        # as before phase 9) must keep validating; its Lab simply has no sandbox to promote with.
+        explicit = "sandbox" in self.royal_jelly.model_fields_set
+        if (
+            explicit
+            and self.royal_jelly.sandbox is SandboxKind.VIRTUAL
+            and self.virtual_cells.backend is None
+        ):
+            raise ValueError(
+                '[royal_jelly] sandbox = "virtual" needs [virtual_cells] backend to be set; set '
+                'a backend, or for development only use sandbox = "subprocess".'
+            )
         return self

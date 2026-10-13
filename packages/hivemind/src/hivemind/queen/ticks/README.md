@@ -73,6 +73,18 @@ class stay within codingrules 5.1's size limits.
   settles, holds or plans every durable goal request, one plan at a time beside the tick
   (`drain_goal_requests`, `stop_planning`). A sub-package, for the same ten-module limit.
 
+- `tools.handle_tool_item` (roadmap phase 9, ADR-0046 to 0048): the Royal Jelly Lab's and the
+  Basket's Queen side, reached through `handle_infrastructure_item` beside `honey`. A Warden's
+  `tool.request` is validated at the door (first-hop identity, hive scope, the requester's held
+  capabilities) and runs `PromotionFlow` as a job in `QueenDeps.tool_lane`, never inside the tick;
+  the requester gets `tool.promoted` or `control.error` (`hive.tool.request_refused`,
+  `.rejected`, `.sandbox_unavailable`), correlated to its request. `runner` proves the package in
+  a sandbox Cell (or the dev subprocess), `quarantine` brokers a Warden's own `tool.quarantine`,
+  `promotions` writes a cell-scope tool a remote Warden promoted, `announce` ships the blob and
+  announces to the Cells that can run it, `review` is the Queen's awake judgement of a real-Cell
+  proof, `honey` describes a promotion to Honey, and `transfer` moves blobs both ways and drains
+  `hive basket ship`'s queue. A sub-package, for the same ten-module limit.
+
 ## How to test this
 
 ```bash

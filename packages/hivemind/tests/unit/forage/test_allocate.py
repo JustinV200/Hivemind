@@ -178,6 +178,21 @@ def test_grant_headroom_fraction_shaves_a_margin_off_the_raw_limit() -> None:
     assert result.max_sub_bees == 5  # 10 * (1 - 0.5).
 
 
+def test_grant_names_each_extra_slot_beside_the_workers_for_every_allowed_source() -> None:
+    plain = grant(_inputs())
+
+    extended = grant(_inputs(extra_slots=(ModelSlot.SCAFFOLDER,)))
+
+    # Without extra slots a grant names only WORKER (v0's own behaviour); with SCAFFOLDER the same
+    # source also carries a SCAFFOLDER binding, so a Warden may be granted the model that writes
+    # a tool for its Cell.
+    assert {binding.slot for binding in plain.allowed} == {ModelSlot.WORKER}
+    assert [(b.slot, b.source_id) for b in extended.allowed] == [
+        (ModelSlot.WORKER, "src_1"),
+        (ModelSlot.SCAFFOLDER, "src_1"),
+    ]
+
+
 def test_grant_excludes_a_source_below_the_grade_floor() -> None:
     forage_map = ForageMap(
         [make_source(source_id="src_low", grade=MIN_MODEL_GRADE)], clock=FakeClock()

@@ -21,7 +21,7 @@ Fits into the Hive:
 Key invariants:
     - CATALOGUE holds one row per kind of the spec's catalogue table, in the table's order,
       with the table's class, shape and replies_to; tests/test_spec_drift.py fails until the
-      two list the same seventy-four kinds in both directions.
+      two list the same eighty-one kinds in both directions.
     - This module is data only: the registry checks the kind pattern, uniqueness and dangling
       replies when it indexes the rows, and refuses to import otherwise.
     - control.error is a reply with no replies_to: it answers any kind (spec section 8.11).
@@ -35,6 +35,7 @@ See Also:
 from __future__ import annotations
 
 from waggle.messages.base import MessageShape, WaggleMessage
+from waggle.messages.basket import BasketAck, BasketChunk, BasketOffer, BasketRefuse
 from waggle.messages.capping import (
     CheckResult,
     PostconditionResult,
@@ -119,7 +120,15 @@ from waggle.messages.task import (
     TaskResult,
     TaskResume,
 )
-from waggle.messages.tool import ToolInvoke, ToolPromoted, ToolRequest, ToolResult
+from waggle.messages.tool import (
+    ToolInvoke,
+    ToolPromoted,
+    ToolQuarantine,
+    ToolQuarantineReport,
+    ToolRequest,
+    ToolResult,
+    ToolRetired,
+)
 
 __all__ = ["CATALOGUE", "CatalogueRow"]
 
@@ -204,6 +213,13 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("tool.promoted", ToolPromoted, _EVENT, "tool.request"),
     ("tool.invoke", ToolInvoke, _REQUEST, None),
     ("tool.result", ToolResult, _REPLY, "tool.invoke"),
+    # PROTOCOL_MINOR 12 (phase 9, ADR-0047): the order to run the Quarantine Comb where its
+    # sandbox is, its report, and a version's retirement (a rollback is a tool.promoted instead).
+    ("tool.quarantine", ToolQuarantine, _REQUEST, None),
+    ("tool.quarantine_report", ToolQuarantineReport, _REPLY, "tool.quarantine"),
+    # tool.retired registers no antecedent: a promotion is an event, and the registry's replies_to
+    # names a request only; the retired version is identified by the payload's tool_id and version.
+    ("tool.retired", ToolRetired, _EVENT, None),
     # capping (spec section 8.9): the gate every proposed action passes through.
     ("capping.proposal_submitted", ProposalSubmitted, _REQUEST, None),
     ("capping.check_result", CheckResult, _EVENT, "capping.proposal_submitted"),
@@ -217,6 +233,15 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("swarm.nuc_promote", NucPromote, _REQUEST, None),
     ("swarm.nuc_promoted", NucPromoted, _REPLY, "swarm.nuc_promote"),
     ("swarm.trail_segment_sync", TrailSegmentSync, _EVENT, None),
+    # basket (spec section 8.12, PROTOCOL_MINOR 12, ADR-0048): content-addressed blobs offered,
+    # streamed, acknowledged or refused; placed before control so the table still closes on the
+    # Hive-wide orders. A BasketAck answers an offer or a chunk, but a reply has one registered
+    # parent, so it is registered against the chunk and the offer's ack is the documented
+    # receiver convention (spec section 8.12); a refusal registers against the offer.
+    ("basket.offer", BasketOffer, _REQUEST, None),
+    ("basket.chunk", BasketChunk, _REQUEST, None),
+    ("basket.ack", BasketAck, _REPLY, "basket.chunk"),
+    ("basket.refuse", BasketRefuse, _REPLY, "basket.offer"),
     # control (spec section 8.11): housekeeping and Hive-wide orders.
     ("control.ping", Ping, _REQUEST, None),
     ("control.pong", Pong, _REPLY, "control.ping"),

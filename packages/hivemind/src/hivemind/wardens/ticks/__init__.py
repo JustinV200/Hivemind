@@ -36,11 +36,18 @@ Public API (roadmap steps 3.19, 7.8, 10.3):
     - alarms, assign, control, dispatch, heartbeat, honey, lease, questions, results: the
       tick-handler modules; `dispatch.act` is the one entry point the Warden's tick calls, and
       `lease` is `Warden.start`'s own body, behind the `lease_creation` point.
+
+Public API (roadmap phase 9, steps 9.2a, 9.6, 9.7):
+    - basket, tools: the sub-packages that relay and fulfil tool requests, install promoted tools,
+      run the Quarantine Comb on this Cell, receive and ship Basket blobs and deposit what a
+      sub-bee retains. Sub-packages rather than modules because this directory is at its
+      codingrules 5.6 fan-out limit.
 """
 
 from hivemind.wardens.ticks import (
     alarms,
     assign,
+    basket,
     control,
     dispatch,
     heartbeat,
@@ -48,11 +55,13 @@ from hivemind.wardens.ticks import (
     lease,
     questions,
     results,
+    tools,
 )
 
 __all__ = [
     "alarms",
     "assign",
+    "basket",
     "control",
     "dispatch",
     "heartbeat",
@@ -60,4 +69,5 @@ __all__ = [
     "lease",
     "questions",
     "results",
+    "tools",
 ]

@@ -193,3 +193,21 @@ user's config directory (`<config>/hivemind/remote/`, owner-only).
 `scripts/check_no_model_ids.py` exempts every path with a `manifest` or `docs` segment, which is
 why a real Claude or Ollama model id is allowed to appear in this directory and inside
 `hivemind.manifest`'s own tests, but nowhere else in the codebase (codingrules section 8.6).
+
+## `[royal_jelly]` and `[basket]` (roadmap phase 9)
+
+`[royal_jelly]` (with `[royal_jelly.limits]`) configures the Royal Jelly Lab, which scaffolds a new
+tool and proves it in the Quarantine Comb before the Comb Registry keeps it
+(`docs/adr/0046-tool-spec-comb-registry-and-scopes.md`,
+`docs/adr/0047-quarantine-comb-gates-and-sandbox.md`). `sandbox = "virtual"` (the default) runs the
+Comb in a disposable Virtual Cell with no network and needs `[virtual_cells] backend`; writing it
+explicitly in a manifest with no backend fails to load. A manifest that never mentions the Lab and
+sets no backend still loads, and its Lab simply has no sandbox to promote with. `sandbox =
+"subprocess"` runs the Comb in a local process of the Hive Stand: development only, and the Hive
+logs a warning at start. `[basket]` configures the Basket, the store of signed, inert blobs
+(`docs/adr/0048-basket-inert-blobs-residency-and-transfer.md`): where bytes live (`root`, default
+a `basket` directory beside `[hive] db`), the largest blob, the shipment chunk size (at most
+262144 bytes, the wire's bound), the resident disk ceiling a Cell gets when Forage sets none, and
+whether a promoted tool is shipped at once. Both sections have a default for every key, so neither
+needs to appear in a manifest; `full.toml` shows every key. Neither holds a secret: the key that
+signs blobs is the Hive key in the secret store.

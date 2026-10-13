@@ -36,6 +36,7 @@ See Also:
     - hivemind.cli.run and hivemind.cli.readback for the four commands roadmap step 3.21's second
       half adds, and hivemind.cli.compose for the composition root they are built on.
     - hivemind.cli.recordings for `hive recordings`, the flight recorder's reader (step 6.6).
+    - hivemind.cli.tools and hivemind.cli.basket for `hive tools` and `hive basket` (step 9.10).
 """
 
 from __future__ import annotations
@@ -46,7 +47,18 @@ from typing import Annotated
 
 import typer
 
-from hivemind.cli import capping, forage, honey, llm, memory, recordings, tasks, trail
+from hivemind.cli import (
+    basket,
+    capping,
+    forage,
+    honey,
+    llm,
+    memory,
+    recordings,
+    tasks,
+    tools,
+    trail,
+)
 from hivemind.cli.entrance import app as entrance_app
 from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
@@ -127,6 +139,10 @@ app.add_typer(entrance_app, name="entrance")
 app.add_typer(remote_app, name="remote")
 app.add_typer(keys_app, name="keys")
 
+# Roadmap step 9.10: the Comb Registry and the Quarantine Comb (`hive tools list|show|request|
+# retire|rollback|quarantine`), and the Basket (`hive basket list|show|deposit|ship|evict|retire`).
+app.add_typer(tools.app, name="tools")
+app.add_typer(basket.app, name="basket")
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:

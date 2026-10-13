@@ -35,7 +35,7 @@ from typing import ClassVar
 
 from hivemind.workers.errors import WorkerError
 
-__all__ = ["ToolError", "UnreachablePathError"]
+__all__ = ["PackageUnavailableError", "ToolError", "ToolsChangedError", "UnreachablePathError"]
 
 
 class ToolError(WorkerError):
@@ -71,3 +71,49 @@ class UnreachablePathError(ToolError):
             "every path its lease allows)."
         )
         self.path = path
+
+
+class PackageUnavailableError(ToolError):
+    """Raise when a `PackageSource` cannot hand over the bytes of a package it was asked for.
+
+    The source behind a Worker's Comb tools (the resident Basket) raises this for a blob it does
+    not hold or cannot read. `hivemind.workers.tools.comb.invoke.CombToolRunner` turns it into a
+    `tool.load_refused` event and a readable line; the call never runs.
+    """
+
+    code: ClassVar[str] = "hivemind.workers.tools.package_unavailable"
+
+    def __init__(self, sha256: str, reason: str) -> None:
+        """Build the error for a package the source could not supply.
+
+        Args:
+            sha256: The hash asked for (a hash names one immutable version everywhere).
+            reason: One short phrase for why (`"not resident"`, `"unreadable"`).
+        """
+        super().__init__(f"The package {sha256[:16]} is unavailable: {reason}.")
+        self.sha256 = sha256
+
+
+class ToolsChangedError(WorkerError):
+    """Raise between tool calls when the Warden changed this Worker's Comb tool bundle.
+
+    A control exception, not a `ToolError`: `ToolRegistry.execute` lets it propagate, exactly as it
+    does `HandoffRequestedError`. `hivemind.workers.roles.bounded_loop.executor.LoopExecutor`
+    raises it once a call has finished and `ctx.comb_tools.version` is no longer the version the
+    registry was built from; `run_bounded_loop` is its one catcher, which rebuilds the registry
+    and runs the loop again from state, so the model's next round is offered the new tools.
+    """
+
+    code: ClassVar[str] = "hivemind.workers.tools.tools_changed"
+
+    def __init__(self, version: int) -> None:
+        """Build the error naming the bundle version that is now current.
+
+        Args:
+            version: `CombToolBundle.version` at the moment the change was noticed.
+        """
+        super().__init__(
+            f"This Worker's Comb tool bundle changed (now version {version}); the tools offered "
+            "to the model must be rebuilt."
+        )
+        self.version = version

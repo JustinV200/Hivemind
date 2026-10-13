@@ -65,6 +65,7 @@ from hivemind.queen.authority import queen_held, request_for
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.isolation import resend_taint_order
 from hivemind.queen.ticks.liveness import WardenLiveness
+from hivemind.queen.ticks.tools import announce_current_tools, forget_warden
 from waggle.ids import WardenId, new_event_id
 
 if TYPE_CHECKING:
@@ -114,6 +115,9 @@ async def attach_warden(queen: Queen, link: WardenLink) -> None:
     await _record_spawned(queen, link)
     # An isolation standing on its Cell: the taint order may have been lost with the old link.
     await resend_taint_order(deps, link)
+    # Phase 9: a Cell attached after a promotion gets every current hive-scope tool it can run,
+    # as a job: shipping waits on this very Warden's acks, which her tick has not read yet.
+    await announce_current_tools(deps, link)
 
 
 async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
@@ -130,6 +134,8 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
         table.pop(warden_id, None)
     # Whatever the link still had queued goes with it: nothing drains a detached Warden again.
     await queen._links.remove(warden_id)
+    # Phase 9: a shipment or a Comb order waiting on this Warden fails now, not after its timeout.
+    forget_warden(queen._deps, warden_id)
 
 
 async def _record_spawned(queen: Queen, link: WardenLink) -> None:

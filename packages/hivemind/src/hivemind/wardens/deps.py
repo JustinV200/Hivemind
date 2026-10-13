@@ -59,6 +59,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hivemind.basket import BasketStore, ResidentBasket
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
 from hivemind.exoskeleton import ExoskeletonConfig
 from hivemind.exoskeleton.browser import BrowserLauncher
@@ -75,6 +76,7 @@ from hivemind.llm.transcription import Ears
 from hivemind.memory import MemoryIdentity, MemoryStore
 from hivemind.memory.taint import TaintLedger
 from hivemind.pheromone import PheromoneTrail
+from hivemind.royal_jelly import RoyalJellyAccess
 from hivemind.supervision import EscalationPolicy
 from hivemind.supervision.capping import (
     AuditRates,
@@ -99,6 +101,7 @@ from hivemind.wardens.local_pool.hosting.config import (
 from hivemind.wardens.trail_sync import TrailSync
 from hivemind.workers import Worker
 from waggle.clock import Clock
+from waggle.codec import Signer, Verifier
 from waggle.envelope import Hop
 from waggle.messages.capping import CheckKind
 from waggle.messages.task import WorkerRole
@@ -144,51 +147,40 @@ class WardenDeps:
         missed_heartbeats_before_stalled: How many of a sub-bee's own heartbeat intervals may
             elapse with nothing heard before this Warden raises `AlarmKind.WORKER_STALLED`.
         judge_reviewer: The independent `JudgeReviewer` `checks[CheckKind.JUDGE]` and
-            `hivemind.wardens.spawn.audited_gate.AuditingCappingGate`'s own after-the-fact
-            sampling both call (roadmap step 4.10). Additive: defaults to a `FakeJudgeReviewer`
-            with nothing scripted, so a WardenDeps built before this field existed still
-            constructs, and any tier that actually reaches for it without a real one wired in
-            fails loudly (`JudgeUnavailableError`) rather than silently approving.
-        judge_rubrics: Every configured tier's rubric (`hivemind.supervision.capping.checks.
-            rubrics.load_judge_rubrics`), read by `checks[CheckKind.JUDGE]` and by audit
-            sampling alike. Defaults to the shipped table.
+            `AuditingCappingGate`'s after-the-fact sampling both call (roadmap step 4.10). Defaults
+            to an unscripted `FakeJudgeReviewer`: reached unwired, it fails loudly.
+        judge_rubrics: Every configured tier's rubric (`load_judge_rubrics`), read by the judge
+            check and by audit sampling alike. Defaults to the shipped table.
         audit_sampler: Decides, per completed proposal, whether it is sampled for after-the-fact
-            judge review (roadmap step 4.10). Defaults to a fresh, deterministic
-            `AuditSampler()`.
+            judge review (roadmap step 4.10). Defaults to a fresh, deterministic `AuditSampler()`.
         findings_sink: Where a sampled proposal's `AuditFinding` is deposited. Defaults to a
             fresh `InMemoryFindingsSink()` (the Honey Store's own Nectar intake is phase 7).
         audit_rates: Per-tier sampled/failed counts, the Guard Bee's own future read model
             (phase 10). Defaults to a fresh `AuditRates()`.
         carried_raises: The Guard Bee's audit-rate raises its grants carried (step 10.6).
-        lane_for_grant: Builds a grant-attributed `CallGate` for one sub-bee
-            (`hivemind.llm.fanner.Fanner.lane(tempo, grant_id=, goal_id=)`, closed over this
-            Warden's own Fanner); `hivemind.wardens.spawn.spawn_sub_bee` calls it once per
+        lane_for_grant: Builds a grant-attributed `CallGate` for one sub-bee (`Fanner.lane(tempo,
+            grant_id=, goal_id=)` over this Warden's Fanner); `spawn_sub_bee` calls it once per
             spawn with the assignment's `Tempo`, so every `llm.call` carries its grant and goal
             id and the task's urgency reaches the Fanner's queue (codingrules section 8.14).
             `call_gate` stays the Warden's own unattributed lane, for its awake episodes.
         leave_policy: The leave policy every sub-bee's `CappingGate` decides an outside-scratch
             write against (roadmap step 5.0c). Defaults to the shipped `leave-policy.toml`.
         keep_root: The manifest's `[hive_stand] keep_root` (roadmap step 5.0e), or None; threaded
-            into every sub-bee's `GateDeps.keep_root` unchanged, and into
-            `hivemind.wardens.spawn.spawn._widen_lease_reachability`.
+            into every sub-bee's `GateDeps.keep_root` and into `widen_lease_reachability`.
         leave_home: This Warden's own Cell's home directory, for `~`-rooted `leaves` pattern
-            expansion (roadmap step 5.0c); defaults to this process's own home, correct for the
-            Hive Stand (v0's only Real Cell source).
-        disk_reserve_mb: The manifest's own `[hive_stand] disk_reserve_mb` (roadmap step 5.0e), a
+            expansion (roadmap step 5.0c); defaults to this process's own home (the Hive Stand's).
+        disk_reserve_mb: The manifest's `[hive_stand] disk_reserve_mb` (roadmap step 5.0e), a
             `keep` COPY's destination is refused against; threaded into every sub-bee's
-            `GateDeps.disk_reserve_mb` unchanged. Defaults to `DEFAULT_DISK_RESERVE_MB` (this
-            module's own mirror of the manifest's, so Layer 5 imports nothing from Layer 1 for
-            one constant), so the check is never silently skipped.
-        trail_sync: Ships this node's own local trail segment to the Queen on this Warden's own
-            heartbeat cadence and once more from `stop()` (codingrules section 12). `None` -- the
-            default, and the Hive Stand's -- means this Warden already records into the Queen's
-            own store; `hivemind.cli.in_cell.deps` wires a `hivemind.wardens.trail_sync.
-            WaggleTrailSync` in, because a Virtual Cell's store dies with the container.
-        snapshotter: Handed to every sub-bee's own `CappingGate` as `GateDeps.snapshotter`.
-            Defaults to `NoopSnapshotter()` (every Real Cell source's answer). `hivemind.cli.
-            in_cell.deps` wires a `hivemind.wardens.snapshot_relay.RelaySnapshotter` in instead:
-            a Virtual Cell's own Warden cannot reach the host backend itself (ADR-0027), so it
-            asks the Queen over `queen_link` (roadmap step 5.10's own follow-up gap).
+            `GateDeps.disk_reserve_mb` unchanged. Defaults to `DEFAULT_DISK_RESERVE_MB` (a local
+            mirror of the manifest's, so Layer 5 imports nothing from Layer 1 for one constant).
+        trail_sync: Ships this node's local trail segment to the Queen on the heartbeat cadence and
+            once more from `stop()` (codingrules section 12). `None` (the Hive Stand's default)
+            means this Warden already records into the Queen's own store; `hivemind.cli.in_cell.
+            deps` wires a `WaggleTrailSync` in, because a Virtual Cell's store dies with the Cell.
+        snapshotter: Handed to every sub-bee's `CappingGate` as `GateDeps.snapshotter`. Defaults to
+            `NoopSnapshotter()`; `hivemind.cli.in_cell.deps` wires a `RelaySnapshotter` in
+            instead: a Virtual Cell's Warden cannot reach the host backend (ADR-0027), so it asks
+            the Queen over `queen_link`.
         exoskeleton_config: How `hivemind.wardens.spawn.equip` equips a sub-bee whose task needs
             an Exoskeleton: screen size, readiness budget, whether the browser keeps its sandbox.
         browser_launcher: Starts a lease's browser (the Playwright launcher in production), or
@@ -214,17 +206,14 @@ class WardenDeps:
             the composition root that built the Cell source, never derived from a Cell's kind.
         bindings: Every `[llm.slots]` row, forage-side, so a rebind to a named binding
             (`local_worker`) resolves to the slot whose fallback chain names it before its
-            `llm:<slot>` is checked (`hivemind.forage.map.slot_for_binding`). Defaults to empty:
-            only a slot's own key then resolves, and any named binding is refused.
+            `llm:<slot>` is checked (`hivemind.forage.map.slot_for_binding`); empty by default.
         scanner: The untrusted-content scanner (roadmap step 10.6b) every sub-bee's tool results
-            pass through (`WorkerContext.scanner`): the Hive Stand's composition root builds it
-            from `[guard.untrusted_content]` and the Hive's secret store; a Virtual Cell's Warden
-            gets the shipped patterns and thresholds with a key that lives and dies with the Cell.
+            pass through (`WorkerContext.scanner`): built from `[guard.untrusted_content]` and the
+            Hive's secret store on the Hive Stand; a Virtual Cell's gets the shipped defaults.
         local_providers: The `[llm.providers]` names that serve from this Warden's own machine
             (in process, or on its loopback: `hivemind.llm.registry.runs_locally`), so a binding
             under Night Veil is local only when every provider its fallback chain can reach is
-            one of these (roadmap step 10.3a). Defaults to none: nothing is shown local, so a
-            Night Veil binding fails closed.
+            one of these (roadmap step 10.3a). Defaults to none, so Night Veil fails closed.
         taint_ledgers: The stores a quarantine taints beyond the memory tables (roadmap step
             10.6c): the Honey Store's Nectar ledger joins here in phase 7. Defaults to none.
         map: The live Forage map routing reads before a sub-bee is bound (roadmap step 8.1)
@@ -236,6 +225,14 @@ class WardenDeps:
         register_provider: Registers a started server's provider and returns the live instance
             (`hosting.provider_door`, closed over the model registry); None cannot host a server.
         unregister_provider: Gives that provider back on stop; True when the caller must close it.
+        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9); only the Hive
+            Stand's Warden holds them, a Cell's Warden reaches the Basket through the Queen.
+        resident_basket: This Warden's own resident view of the Basket (ADR-0048): the Hive Stand's
+            (`RoyalJellyAccess.resident`) or, in a Cell, one over a store in its scratch.
+        basket_store, node_signer, node_signer_id, hive_verifier: A Cell's Warden's own blob store
+            and node keys: the signer of the manifests it deposits, the id its key is registered
+            under at the Queen, and the verifier of the manifests it receives. None on the Hive
+            Stand, whose store and Hive key are in `royal_jelly`.
     """
 
     source: RealCellSource
@@ -266,10 +263,8 @@ class WardenDeps:
     findings_sink: FindingsSink = field(default_factory=InMemoryFindingsSink)
     audit_rates: AuditRates = field(default_factory=AuditRates)
     carried_raises: CarriedAuditRaises = field(default_factory=CarriedAuditRaises)
-    # Roadmap step 4.8's own wiring step (per-grant lane attribution): additive, defaulted to an
-    # unmetered DirectCallGate that ignores grant_id/goal_id (matching `call_gate`'s own default
-    # in every builder that never names either field), so a WardenDeps built before this dispatch
-    # keeps today's single-lane behaviour.
+    # Roadmap step 4.8's wiring step (per-grant lane attribution): additive, defaulted to an
+    # unmetered DirectCallGate that ignores grant_id/goal_id, so earlier callers keep one lane.
     lane_for_grant: Callable[[str, str, Tempo], CallGate] = field(
         default_factory=lambda: _default_lane_for_grant
     )
@@ -310,6 +305,14 @@ class WardenDeps:
     servers: Mapping[str, ServerConfig] = field(default_factory=dict)
     register_provider: RegisterProvider | None = None
     unregister_provider: UnregisterProvider | None = None
+    # Roadmap phase 9: additive, defaulted to none; each composition root fills them.
+    royal_jelly: RoyalJellyAccess | None = None
+    resident_basket: ResidentBasket | None = None
+    # Roadmap phase 9: a Cell's Warden's own blob store and keys (the Hive Stand's: `royal_jelly`).
+    basket_store: BasketStore | None = None
+    node_signer: Signer | None = None
+    node_signer_id: str | None = None
+    hive_verifier: Verifier | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

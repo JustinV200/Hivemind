@@ -22,12 +22,15 @@ import pytest
 import typer
 from pydantic import ValidationError
 
+from hivemind.basket import SqliteBasketStore
 from hivemind.brood_chamber import BroodChamber, ChamberIdentity, TaskFilter
 from hivemind.cli.stores import (
     build_forage_map,
     build_registry,
+    open_basket_store,
     open_chamber,
     open_cluster_orders,
+    open_comb_registry,
     open_honey_store,
     open_ledger,
     open_trail,
@@ -47,6 +50,7 @@ from hivemind.queen.cluster import SqliteOrderStore
 from hivemind.queen.cluster.orders import SUBSYSTEM as ORDERS_SUBSYSTEM
 from hivemind.queen.forage.ledger import SqliteLedgerStore
 from hivemind.queen.forage.ledger.store_sqlite import SUBSYSTEM as LEDGER_SUBSYSTEM
+from hivemind.royal_jelly import SqliteCombRegistry
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import new_hive_id, new_node_id
 
@@ -129,6 +133,43 @@ def test_open_honey_store_works_on_a_file_other_stores_already_opened(tmp_path: 
     store = open_honey_store(db)
 
     assert asyncio.run(store.stats()).honey_by_part == {}
+
+
+def test_open_comb_registry_returns_a_ready_registry_on_a_fresh_file(tmp_path: Path) -> None:
+    registry = open_comb_registry(tmp_path / "hive.sqlite3")
+
+    assert isinstance(registry, SqliteCombRegistry)
+    assert asyncio.run(registry.list_tools()) == ()
+
+
+def test_open_comb_registry_shares_a_file_with_the_other_stores(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+    open_chamber(db, _identity())
+    open_honey_store(db)
+
+    assert asyncio.run(open_comb_registry(db).list_tools()) == ()
+
+
+def test_open_basket_store_returns_a_ready_store_and_keeps_bytes_under_root(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "hive.sqlite3"
+    root = tmp_path / "basket"
+
+    store = open_basket_store(db, root)
+
+    assert isinstance(store, SqliteBasketStore)
+    assert asyncio.run(store.list_blobs()) == ()
+    assert not root.exists()  # Created on the first deposit, not on open.
+
+
+def test_open_basket_store_works_beside_the_registry_on_one_file(tmp_path: Path) -> None:
+    db = tmp_path / "hive.sqlite3"
+    open_comb_registry(db)
+
+    store = open_basket_store(db, tmp_path / "basket", max_bytes=1_024)
+
+    assert asyncio.run(store.list_blobs()) == ()
 
 
 def test_open_ledger_returns_a_ready_sqlite_ledger_store_on_a_fresh_file(tmp_path: Path) -> None:

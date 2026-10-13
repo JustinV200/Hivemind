@@ -48,14 +48,22 @@ Public API (roadmap step 5.5):
 Public API (roadmap step 8.1):
     - Routed, RouteScope, BindingTarget, route_rebind: the routing step (route); the rest of the
       module (`pick_binding`, `bind_routed`, `record_routing`) is `spawn_sub_bee`'s own.
+Public API (roadmap step 9.7):
+    - CombSeams, CombHandles, make_handles, visible_entries: a sub-bee's Comb tools (comb).
 
 Public API (roadmap step 10.3):
-    - sub_bee_capabilities, declared_write_roots: a sub-bee's capability slice (attenuate).
+    - sub_bee_capabilities, declared_write_roots, widen_lease_reachability: a sub-bee's capability
+      slice and the lease widening its declared write roots need (attenuate).
     - BindingCheck, authorize_binding, binding_check: the `slot_binding` point (binding, spawn).
 """
 
-from hivemind.wardens.spawn.attenuate import declared_write_roots, sub_bee_capabilities
+from hivemind.wardens.spawn.attenuate import (
+    declared_write_roots,
+    sub_bee_capabilities,
+    widen_lease_reachability,
+)
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
+from hivemind.wardens.spawn.comb import CombHandles, CombSeams, make_handles, visible_entries
 from hivemind.wardens.spawn.in_cell import InCellSpawnConfig, InCellSpawnSource
 from hivemind.wardens.spawn.route import BindingTarget, Routed, RouteScope, route_rebind
 from hivemind.wardens.spawn.spawn import (
@@ -69,6 +77,8 @@ from hivemind.wardens.spawn.sub_bee import SubBee
 __all__ = [
     "BindingCheck",
     "BindingTarget",
+    "CombHandles",
+    "CombSeams",
     "InCellSpawnConfig",
     "InCellSpawnSource",
     "RouteScope",
@@ -78,8 +88,11 @@ __all__ = [
     "authorize_binding",
     "binding_check",
     "declared_write_roots",
+    "make_handles",
     "route_rebind",
     "spawn_sub_bee",
     "stop_sub_bee",
     "sub_bee_capabilities",
+    "visible_entries",
+    "widen_lease_reachability",
 ]

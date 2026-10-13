@@ -14,12 +14,16 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
+import pytest
 from builders.forage import make_capacity, make_host_capacity
 from builders.queen import make_queen_deps
+from builders.queen_tools import make_tool_rig
 from builders.tasks import make_task, make_task_spec
 
 from hivemind.forage import ForageCapacity, GrantBound, RoleFootprint
+from hivemind.forage.slots import ModelSlot
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.dispatcher.sizing import _grant_inputs, size_grant
 from waggle.messages.task import WorkerRole
@@ -116,3 +120,19 @@ async def test_grant_inputs_falls_back_to_the_drone_footprint_for_an_unbound_rol
     )  # The real role is still recorded, only sizing falls back.
     assert inputs.footprint == deps.footprints[WorkerRole.DRONE]
     await warden_end.close()
+
+
+async def test_grant_inputs_ask_for_the_scaffolder_slot_only_when_the_hive_has_a_lab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = await make_tool_rig(tmp_path, monkeypatch)
+    bare = dataclasses.replace(rig.deps, royal_jelly=None)
+    task = make_task()
+    holder = (rig.link.warden_id, rig.link.cell.id)
+
+    with_lab = _grant_inputs(rig.deps, rig.link.cell.capacity, task, holder)
+    without = _grant_inputs(bare, rig.link.cell.capacity, task, holder)
+
+    assert with_lab.extra_slots == (ModelSlot.SCAFFOLDER,)
+    assert without.extra_slots == ()
+    await rig.aclose()

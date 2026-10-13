@@ -15,9 +15,12 @@ call and its result as a bounded `hivemind.workers.roles.bounded_loop.records.To
 (roadmap step 6.9) the one place a role's own `on_tool_result` hook runs, after a call that did not
 fail. `collect_artifacts` reads that record back to find every `write_file` call whose target still
 exists in scratch. A tool's media (a screenshot, a recording) passes straight through to the model
-as `ToolResultPart.media` and is never recorded. Moved out of `hivemind.workers.roles.drone.outcome.
-executor._RecordingExecutor` (roadmap step 6.9): that class carried no Drone-specific behaviour, so
-it now subclasses this one with no overrides, keeping its own name, module path and tests alive.
+as `ToolResultPart.media` and is never recorded. Roadmap step 9.7: it also notices a changed Comb
+tool bundle (`ctx.comb_tools.version`) and raises `ToolsChangedError`, the third control exception,
+so `run_bounded_loop` can rebuild the registry and offer the model the new tools. Moved out of
+`hivemind.workers.roles.drone.outcome.executor._RecordingExecutor` (roadmap step 6.9): that class
+carried no Drone-specific behaviour, so it now subclasses this one with no overrides, keeping its
+own name, module path and tests alive.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Used by
@@ -31,6 +34,9 @@ Key invariants:
     - `LoopExecutor.records` never grows past `MAX_RECORDED_CALLS`: the oldest entry is dropped
       once a new one would exceed it, so this stays a bounded per-attempt record, never a
       transcript (`scripts/check_no_transcripts.py`).
+    - `ToolsChangedError` is raised only between calls, before a call runs or after its record is
+      appended, and never twice for one change: `use_registry` moves the executor to the bundle
+      version its new registry was built from.
     - `LoopExecutor.pending_call` is set to the one call refused for a checkpoint, if any, so a
       Handoff's `open_threads` (`hivemind.workers.roles.bounded_loop.fields.open_thread_lines`) can
       say what was in progress when the attempt stopped.
@@ -67,7 +73,7 @@ from hivemind.workers.errors import WorkerError
 from hivemind.workers.roles.bounded_loop.profile import ToolCallResultHook
 from hivemind.workers.roles.bounded_loop.records import ToolCallRecord, classify_error
 from hivemind.workers.telemetry import TelemetryTracker
-from hivemind.workers.tools import ToolInvocation, ToolRegistry
+from hivemind.workers.tools import ToolInvocation, ToolRegistry, ToolsChangedError
 from waggle.messages.task import ArtifactRef
 
 MAX_RECORDED_CALLS = 64  # A generous round cap (12-16) never nears this; bounding the storage
@@ -149,8 +155,27 @@ class LoopExecutor:
         self._telemetry = telemetry
         self._handoff_threshold = handoff_threshold
         self._on_result = on_result
+        # Roadmap step 9.7: the bundle version the registry above was built from; a different one
+        # later means the Warden changed this Worker's Comb tools under it.
+        self._tools_version = self._bundle_version()
         self.records: list[ToolCallRecord] = []
         self.pending_call: ToolCall | None = None
+
+    def use_registry(self, registry: ToolRegistry) -> None:
+        """Run later calls through `registry`, rebuilt after the Warden changed the Comb tools.
+
+        Args:
+            registry: A registry built from the Worker's current bundle; this executor's notion
+                of "current" moves to the bundle's version as of this call, so the next call
+                does not raise `ToolsChangedError` for a change this registry already holds.
+        """
+        self._registry = registry
+        self._tools_version = self._bundle_version()
+
+    @property
+    def registry(self) -> ToolRegistry:
+        """The registry calls run through now; its definitions are what the model is shown."""
+        return self._registry
 
     async def execute(self, call: ToolCall) -> ToolResultPart:
         """Run `call` through the wrapped registry, after pause/cancel/handoff cooperation.
@@ -166,6 +191,8 @@ class LoopExecutor:
             hivemind.workers.errors.WorkerCancelledError: Cancellation was noticed while paused.
             HandoffRequestedError: This attempt's telemetry says it should checkpoint now.
             LoopStoppedError: The tool itself ended the loop with a pre-built outcome.
+            ToolsChangedError: The Warden changed this Worker's Comb tools (roadmap step 9.7);
+                `run_bounded_loop` rebuilds the registry and runs the loop again from state.
         """
         # External await: waits out a pause the runtime holds between tool calls; no fixed
         # timeout, since a paused attempt is meant to wait until TaskResume, not time out on its
@@ -178,6 +205,9 @@ class LoopExecutor:
             # open_threads can name what was in progress when it checkpointed.
             self.pending_call = call
             raise HandoffRequestedError()
+        # Roadmap step 9.7: a Warden that changed this Worker's tools while the model was thinking
+        # has made the call it is about to run a decision about a stale menu; re-decide it.
+        self._raise_if_tools_changed()
         # LoopStoppedError propagates unchanged from here: a tool ending its own loop early
         # (module docstring) is not a call this attempt should remember as an ordinary record.
         output = await self._registry.execute(self._invocation, call)
@@ -188,9 +218,23 @@ class LoopExecutor:
             # External await: a role's own hook (the Forager's Nectar deposit); bounded by
             # whatever that hook itself awaits, since this executor knows nothing about its shape.
             await self._on_result(self._invocation.ctx, self._invocation.assignment, call, output)
+        # A call that itself changed the bundle (request_tool, once its Warden handed the tool
+        # over) ends this loop so the next one is offered the new tool.
+        self._raise_if_tools_changed()
         return ToolResultPart(
             call_id=call.id, content=output.text, is_error=is_error, media=output.media
         )
+
+    def _bundle_version(self) -> int:
+        """Return the Worker's Comb tool bundle version, or 0 when it has none."""
+        bundle = self._invocation.ctx.comb_tools
+        return bundle.version if bundle is not None else 0
+
+    def _raise_if_tools_changed(self) -> None:
+        """Raise `ToolsChangedError` when the bundle is no longer the version the registry holds."""
+        version = self._bundle_version()
+        if version != self._tools_version:
+            raise ToolsChangedError(version)
 
     def _remember(self, record: ToolCallRecord) -> None:
         """Append `record`, dropping the oldest once past `MAX_RECORDED_CALLS` (class docstring)."""

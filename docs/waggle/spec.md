@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.10`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.12`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -21,7 +21,7 @@ This specification covers:
 - the envelope every message travels in (section 2) and the three message shapes (section 3);
 - how the protocol is versioned (section 4), framed and bounded (section 5) and signed (section 6);
 - the error message and its stable code table (section 7);
-- the complete message catalogue, ten families and seventy-four kinds (section 8);
+- the complete message catalogue, eleven families and eighty-one kinds (section 8);
 - the transports (section 9), the offline outbox (section 10) and conformance (section 11);
 - the design questions the catalogue settled and why (section 12).
 
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.11"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.12"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.10"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 10` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.12"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 12` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -219,6 +219,20 @@ validates every message a newer one sends it, as long as the sender honours the 
     names, from the instant she names, caused by her `cell.isolated` event), which her own label
     on the Hive's tables cannot reach; the Warden then refuses to resume a bee from a Handoff so
     labelled.
+- **1.11** (reserved): phase 8's `forage.source_added`/`source_removed`/`source_evict`, on branch
+  `ccr-0235b6d7-okyhmn`. They are not registered in this tree; the number is held so the two
+  branches never claim the same minor.
+- **1.12** (all additive, roadmap steps 9.2a and 9.5, ADR-0046 to ADR-0048):
+  - The `basket` family (section 8.12): `basket.offer`, `basket.chunk`, `basket.ack` and
+    `basket.refuse`. A Basket blob (a content-addressed, signed, inert byte string: an archive, a
+    wheel, a dataset, a tool package) is offered by its sha256 and then streamed in chunks of at
+    most 256 KiB, resumable by byte offset, and the receiver refuses it by rule (clearance, taint,
+    room, signer, platform) before the first chunk moves.
+  - `tool.quarantine`, `tool.quarantine_report` and `tool.retired` (section 8.8): the order to run
+    the Quarantine Comb on a package already delivered as a blob, where the sandbox is; its
+    report, back to whoever asked; and a version leaving the registry (a rollback stays a
+    `tool.promoted` of the earlier version). A sender uses none of them toward a peer that has not
+    advertised minor 12.
 
 - **1.11** (roadmap step 8.3, ADR-0044): `forage.source_added` (`SourceAdded`),
   `forage.source_removed` (`SourceRemoved`, with the new enum `SourceRemovalCause`) and
@@ -384,7 +398,9 @@ Reason fields are always named `reason` (a decision that crosses the wire always
 the Pheromone Trail, the append-only audit log, can record it); their bound is the shared
 `MAX_REASON_CHARS = 1_000`. Timestamps are timezone-aware UTC and end in `_at`; durations are
 seconds as `float` and end in `_s`; sizes in bytes end in `_bytes`. Chunked content is `chunk`
-(`bytes`, at most `MAX_CHUNK_BYTES`) plus `offset` and `final` (section 5). Booleans read as
+(`bytes`, at most `MAX_CHUNK_BYTES`) plus `offset` and `final` (section 5); the one exception is
+`basket.chunk` (section 8.12), whose `data` is base64 text that the model itself decodes and
+bounds, with `is_last` for `final`. Booleans read as
 predicates (`is_`, `has_`, `can_`); `final` is the one fixed exception. Datetimes end in `_at`;
 `grace_until` is the one fixed exception. Digests are lowercase hex sha256 in fields named
 `sha256` or ending in `_sha256`, pattern `^[0-9a-f]{64}$` (`base.py`). Every count of sub-bees
@@ -401,14 +417,15 @@ commented constant in its family file, and the number, not the name, is normativ
 and arguments are the one sanctioned use of JSON text on the wire (section 8.8). Each row's
 Direction names the sending and receiving bees; a comma separates the hops a relayed message
 takes, each a fresh envelope. Shape and Replies to are the registry's values (section 3). Terms
-the table uses before their family defines them: Forage (capacity as data), Honey and Nectar
-(distilled and raw knowledge), a Handoff (the document a bee writes before its context is
-reset), Clustering (pause and preserve while a model provider is down), a Pheromone Mask (a
-short-lived write-or-move-like-a-human tactic), Cell Wax (a Queen-written caution about one
-Cell), the Landing Board (the Entrance's HTTP contract), the flight recorder (the Exoskeleton's
-record of GUI actions), the Forage map (every source that can serve a model), and a checker
-(the Warden's own check runner, a judge on its own slot, or a human, reporting through the
-Warden).
+the table uses before their family defines them: the Basket (the Hive's store of content-addressed,
+signed blobs), the Quarantine Comb (the sandbox every new tool must pass), Forage (capacity as
+data), Honey and Nectar (distilled and raw knowledge), a Handoff (the document a bee writes before
+its context is reset), Clustering (pause and preserve while a model provider is down), a Pheromone
+Mask (a short-lived write-or-move-like-a-human tactic), Cell Wax (a Queen-written caution about
+one Cell), the Landing Board (the Entrance's HTTP contract), the flight recorder (the
+Exoskeleton's record of GUI actions), the Forage map (every source that can serve a model), and a
+checker (the Warden's own check runner, a judge on its own slot, or a human, reporting through
+the Warden).
 
 | Kind | Class | Shape | Replies to | Direction | Summary |
 |---|---|---|---|---|---|
@@ -466,6 +483,9 @@ Warden).
 | `tool.promoted` | `ToolPromoted` | event | `tool.request` | Queen -> Warden, Warden -> Worker | Announce a tool version as promoted. |
 | `tool.invoke` | `ToolInvoke` | request | none | Worker -> Warden, Queen -> Warden | Run one tool version on a Cell. |
 | `tool.result` | `ToolResult` | reply | `tool.invoke` | Warden -> Worker, Warden -> Queen | Return a tool call's outcome. |
+| `tool.quarantine` | `ToolQuarantine` | request | none | Warden -> Queen, Queen -> Warden | Request a sandbox for a tool, or order a Comb run in one. |
+| `tool.quarantine_report` | `ToolQuarantineReport` | reply | `tool.quarantine` | Warden -> Queen, Queen -> Warden | Return a Comb run's verdict and report to whoever asked. |
+| `tool.retired` | `ToolRetired` | event | none | Queen -> Warden, Warden -> Worker | Announce a tool version as withdrawn from the registry. |
 | `capping.proposal_submitted` | `ProposalSubmitted` | request | none | Worker -> Warden | Propose an action with its postconditions. |
 | `capping.check_result` | `CheckResult` | event | `capping.proposal_submitted` | checker -> Warden, Warden -> Queen | Report one rung of the check ladder. |
 | `capping.verdict` | `Verdict` | reply | `capping.proposal_submitted` | Warden -> Worker | Give the gate's final word on a proposal. |
@@ -477,6 +497,10 @@ Warden).
 | `swarm.nuc_promote` | `NucPromote` | request | none | Queen -> Warden | Start or stop a local model server. |
 | `swarm.nuc_promoted` | `NucPromoted` | reply | `swarm.nuc_promote` | Warden -> Queen | Report the new runtime level and models. |
 | `swarm.trail_segment_sync` | `TrailSegmentSync` | event | none | Warden -> Queen | Ship one chunk of an offline trail segment. |
+| `basket.offer` | `BasketOffer` | request | none | Queen -> Warden, Warden -> Queen | Offer a blob by digest, with the claims a receiver checks. |
+| `basket.chunk` | `BasketChunk` | request | none | Queen -> Warden, Warden -> Queen | Carry one slice of an accepted blob, ordered by offset. |
+| `basket.ack` | `BasketAck` | reply | `basket.chunk` | Warden -> Queen, Queen -> Warden | Acknowledge an offer or a chunk with the bytes held so far. |
+| `basket.refuse` | `BasketRefuse` | reply | `basket.offer` | Warden -> Queen, Queen -> Warden | Refuse a blob with a stable code before or after its bytes move. |
 | `control.ping` | `Ping` | request | none | any -> any | Probe a peer's liveness. |
 | `control.pong` | `Pong` | reply | `control.ping` | any -> any | Answer a Ping with the arrival time. |
 | `control.error` | `ErrorMessage` | reply | none | receiver -> sender | Report that a message could not be processed. |
@@ -1673,7 +1697,8 @@ promoted tools) announces the promotion, and calls run through the Cell's Warden
 arguments and outputs are inherently open JSON, so this family is the one sanctioned use of JSON
 text on the wire: each such field is bounded and must parse as a JSON object (or value, for
 output), and is validated against the tool's schema at the edge, never handled as a mapping in
-transit. No tool code or package ever crosses Waggle; only a digest does.
+transit. No tool code or package ever rides a `tool.*` message; a package crosses Waggle only as
+a Basket blob (section 8.12), named by its digest.
 
 Family enums:
 
@@ -1776,6 +1801,87 @@ The outcome of one `ToolInvoke`: its bounded JSON output or a stable error code,
   `outcome` is not `SUCCEEDED` (validator); max 128.
 - `duration_s` (`float`): wall-clock seconds. At least 0.
 - `reason` (`str`): the explanation of a non-success, or a one-line summary on success.
+
+#### ToolQuarantine
+
+Order or request a Quarantine Comb run over a package already delivered as a Basket blob. The Comb
+runs where its sandbox is, driven by that Cell's Warden, because no Warden answers `session.*`
+messages before phase 11 and so the Queen cannot drive a sandbox Cell's session from her own
+process. From a Warden to the Queen it is that Warden's request for a sandbox for a cell-scope
+tool: the Queen provisions one, ships the package to it, runs the Comb there on the requester's
+behalf and relays the report back. From the Queen to the Warden of a sandbox Cell it is the order
+to run the Comb there. A refusal is a `control.error`; a successful run is a
+`tool.quarantine_report`. Lives in `tool/quarantine.py`.
+
+- `tool_id` (`ToolId`): the tool under test, as minted by its requester.
+- `name` (`str`): the registry name. Pattern as `ToolRequest.name`.
+- `version` (`str`): the immutable version under test. Pattern as `ToolPromoted.version`, max 32.
+- `scope` (`ToolScope`): the visibility the tool would be promoted at.
+- `cell_id` (`CellId | None`): the one Cell a `CELL`-scope tool is for. Required exactly when
+  `scope` is `CELL` (validator).
+- `spec_json` (`str`): the `ToolSpec` as JSON text. Max 32768; must parse as a JSON object
+  (validator).
+- `package_sha256` (`str`): digest of the package, a Basket blob already resident on the
+  recipient. The sha256 pattern.
+- `package_size_bytes` (`int`): size of that package. At least 1.
+- `path` (`QuarantinePath`): which route through the Comb the sender chose.
+- `limits_json` (`str`): the `QuarantineLimits` (CPU seconds, memory, wall time, output, fuzz
+  cases) as JSON text. Max 16384; must parse as a JSON object (validator).
+- `requested_by_warden` (`WardenId`): the Warden whose Worker or own work needs the tool.
+- `reason` (`str`): why the tool is being quarantined now.
+
+Receiver rules. A Warden accepts a `tool.quarantine` only from a `hive` sender, and only when
+`package_sha256` names a blob resident on its own Cell whose size is `package_size_bytes`; it
+re-validates `spec_json`, checks the spec and the package agree, and refuses with a
+`control.error` otherwise. The Queen accepts one only from a Warden, only when
+`requested_by_warden` equals the envelope `sender`, and for `CELL` scope only when `cell_id` is
+that Warden's own Cell; a sandbox is never handed to the requester, it stays the Queen's and is
+torn down after the report. Neither side runs the Comb on a package whose digest it has not
+verified.
+
+#### ToolQuarantineReport
+
+The verdict of one `ToolQuarantine`. It is a reply: `correlation_id` is the request's `id`, and
+the message goes back to whoever sent the request (the sandbox's Warden to the Queen, or the Queen
+to the Warden that asked for a sandbox). The registry promotes only on a passing report whose
+`spec_sha256` and `package_sha256` match what it was offered, so the full report travels as JSON
+text for the promoter to re-check. Lives in `tool/quarantine.py`.
+
+- `tool_id` (`ToolId`): the tool that was quarantined.
+- `version` (`str`): the version that was quarantined. Pattern as `ToolPromoted.version`.
+- `passed` (`bool`): true when every gate passed.
+- `path` (`QuarantinePath`): which route proved, or failed to prove, the tool.
+- `sandbox_cell_id` (`CellId`): the Cell the Comb ran in; the Hive Stand's Cell for the
+  development subprocess sandbox.
+- `failing_gate` (`str | None`): the first gate that failed (`static`, `tests`, `schema`, `fuzz`,
+  `resources`, `capabilities`). Pattern `^[a-z][a-z0-9_]{0,63}$`. None exactly when `passed` is
+  true (validator).
+- `report_json` (`str`): the full `QuarantineReport` as JSON text. Max 65536; must parse as a JSON
+  object (validator).
+- `reason` (`str`): a one-line summary of the verdict for the trail.
+
+#### ToolRetired
+
+Announce that a tool version left the Comb Registry, so Wardens and Workers stop offering it. A
+retired version is never deleted: its row and package stay as evidence, and a rollback makes an
+earlier version current again by a `tool.promoted` naming `supersedes_version`, not by this
+message. An event with no registered antecedent (a promotion is an event, and a registered
+antecedent is always a request): the version is identified by `tool_id` and `version`, and
+`correlation_id` is normally null. Lives in `tool/quarantine.py`.
+
+- `tool_id` (`ToolId`): the retired tool.
+- `name` (`str`): the registry name. Pattern as `ToolRequest.name`.
+- `version` (`str`): the immutable version retired. Pattern as `ToolPromoted.version`.
+- `scope` (`ToolScope`): the visibility the version had.
+- `cell_id` (`CellId | None`): the one Cell a `CELL`-scope tool was visible on. Required exactly
+  when `scope` is `CELL` (validator).
+- `retired_by` (`HiveId | WardenId`): the Queen's address, or the address of the Warden that owns a
+  `CELL`-scope tool.
+- `reason` (`str`): why the version was withdrawn.
+
+Receiver rules. A Warden accepts a `tool.retired` only from a `hive` sender, or for its own Cell's
+`CELL`-scope tool from the Warden named in `retired_by`; a Worker never sends one. `retired_by`
+equals the first-hop envelope `sender`.
 
 ### 8.9 capping (`messages/capping/`)
 
@@ -2192,6 +2298,120 @@ Waggle.
   failed handover. Default false.
 - `reason` (`str`): why the move, or the rollback cause.
 
+### 8.12 basket (`messages/basket/`)
+
+The Basket is the Hive's store of content-addressed, signed blobs: an archive, a wheel, a dataset,
+a tool package. A blob is **inert**: bytes travel and permission does not, so holding or
+receiving one grants nothing, and only a Comb promotion (section 8.8) makes a blob executable, by
+naming its hash as a tool's package. Honey describes a blob, the Comb permits it, the Basket
+stores it. This family moves a blob between the Hive Stand (where the Queen keeps the store) and a
+Cell's Warden (which keeps a bounded resident copy), always through the Queen, because nodes
+connect out to her; a Warden-to-Warden shipment is two legs. `BasketOffer`, `BasketRefuse` and
+`BasketRefusal` live in `basket/offer.py`; `BasketChunk` and `BasketAck` in `basket/chunk.py`.
+
+Family enums:
+
+- `BasketRefusal`: `CLEARANCE` (the blob's label is above what the receiving Cell may hold; a
+  `NIGHT_VEIL` Cell takes nothing above `C1`, so nothing from a Real Cell), `TAINTED` (the blob
+  came from an isolated or quarantined source), `NO_ROOM` (not even evicting every older blob
+  would fit it under the Cell's resident-Basket ceiling), `UNKNOWN_SIGNER` (the manifest was
+  signed by a node the receiver does not trust), `INTEGRITY` (the assembled bytes do not hash to
+  the offered digest, or the manifest signature failed), `PLATFORM` (none of the blob's platform
+  tags fits the receiving Cell), `UNKNOWN_BLOB` (the sender holds no blob by this digest).
+
+Transfer sequence (receiver rules). The sender sends a `basket.offer`; the receiver checks every
+claim against its own rules and answers with a `basket.refuse` or a `basket.ack` whose
+`received_bytes` says where to start (0 for a new shipment, more when it kept a partial temp file
+of the same digest). The sender then sends `basket.chunk` messages in offset order, each answered
+by a `basket.ack` carrying the new contiguous length. The last chunk (`is_last`) makes the receiver
+verify the sha256 of the whole and the manifest signature before keeping a byte outside its temp
+file; its ack has `complete` true and the blob is then resident. A mismatch is a `basket.refuse`
+with code `INTEGRITY`, the temp file is deleted, and the receiver records a
+`guard.basket_integrity_failed` event. A chunk whose `offset` is not the receiver's
+`received_bytes` is not kept: the receiver re-acknowledges with its real count and the sender
+resumes from it, so a dropped link or a duplicate costs one round trip. A shipment is resumable by
+hash: after a reconnect the sender offers again and reads `received_bytes` from the ack. A chunk
+that would run past `size_bytes`, or an `is_last` chunk that does not end exactly there, is an
+`INTEGRITY` refusal.
+
+Correlation. A `basket.ack` answers either an offer or a chunk, but the registry gives a reply one
+parent (section 3), so it is registered as a reply to `basket.chunk`; the ack to an offer carries
+the offer's `id` as its `correlation_id` by this documented convention, and the ack to a chunk
+carries that chunk's. `basket.refuse` is registered as a reply to `basket.offer`; one sent
+mid-transfer (`INTEGRITY`) carries the offending chunk's `id`. Every transfer ends in exactly one
+`basket.refuse` or one `basket.ack` with `complete` true, or in a sender-side timeout (every await
+on the wire has one); a receiver that cannot match an ack or refusal to a transfer it made drops
+it at debug level.
+
+#### BasketOffer
+
+Offer one blob to a Cell's Warden, or to the Queen. It carries no bytes, so the receiver can
+refuse by rule before the first chunk moves.
+
+- `sha256` (`str`): digest of the complete blob; with the envelope `sender` it is the key every
+  chunk of one shipment shares. The sha256 pattern.
+- `size_bytes` (`int`): length of the complete blob. Between 1 and 68719476736 (64 GiB), a sanity
+  bound; every receiver's own ceiling is far lower.
+- `media_kind` (`str`): a descriptive tag (`wheel`, `archive`, `dataset`, `tool_package`,
+  `text`). Pattern `^[a-z][a-z0-9_]{0,63}$`. It names what the blob is for a reader and grants
+  nothing.
+- `media_type` (`str`): MIME type of the content. Min 1, max 128.
+- `platform_tags` (`tuple[OsFamily, ...]`): platforms the blob is built for; empty means
+  platform-independent. Members unique (validator).
+- `clearance` (`HoneyClearance`): the blob's data-sensitivity label, set at deposit from its
+  provenance as `max(declared, floor)`, the floor being `C2` for a blob from a Real Cell. A
+  receiver whose ceiling is lower refuses it (receiver rule). The floor is restated for the Basket
+  (it is the same rule the Honey Store applies to Nectar) so the two Layer 2 stores never import
+  each other.
+- `origin_cell_id` (`CellId`): the Cell the blob was first deposited from.
+- `origin_task_id` (`TaskId | None`): the task it came from; None when no task was involved.
+- `origin_bee` (`WorkerId | WardenId | None`): the bee that produced it; None when unknown.
+- `tainted` (`bool`): true when the provenance names an isolated or quarantined source. A
+  tainted blob is never shipped or loaded, and a receiver refuses it with `TAINTED` (receiver
+  rule).
+- `manifest_json` (`str`): the signed `BlobManifest` (the blob's record, the signer's node id and
+  an Ed25519 signature over those canonical bytes, made with the Hive key at deposit) as JSON
+  text. Max 8192; must parse as a JSON object (validator). The receiver verifies the signature
+  against the Hive key it trusts before keeping a byte (receiver rule).
+- `destination_cell_id` (`CellId`): the Cell whose resident Basket should hold the blob; the
+  recipient's own Cell, or one it relays for (receiver rule).
+- `reason` (`str`): why the blob is being shipped now.
+
+Receiver rules. A Warden accepts a `basket.offer` only from a `hive` sender. The Queen accepts one
+only from a Warden whose Cell is `origin_cell_id` (a deposit from a Cell) and never from a Worker;
+she re-labels the blob at her own deposit, never trusting `clearance` or `tainted` downward.
+
+#### BasketChunk
+
+Carry one slice of a blob. A request answered by a `basket.ack` (or a `basket.refuse`).
+
+- `sha256` (`str`): digest of the complete blob this chunk belongs to. The sha256 pattern.
+- `offset` (`int`): byte offset of this slice within the blob. At least 0.
+- `data` (`str`): this slice as standard padded base64 text (RFC 4648 section 4, the standard
+  alphabet; a URL-safe character or a line break is refused). Max 349528 characters, and it must
+  decode to between 1 and `MAX_CHUNK_BYTES = 262_144` raw bytes (validator). A 256 KiB chunk is
+  341 KiB of text, so a frame always fits `MAX_FRAME_BYTES` (section 5).
+- `is_last` (`bool`): true on the final chunk.
+
+#### BasketAck
+
+Acknowledge an offer or a chunk. A reply.
+
+- `sha256` (`str`): the blob acknowledged. The sha256 pattern.
+- `received_bytes` (`int`): contiguous bytes from offset 0 the receiver holds in its temp file;
+  the sender resumes from here. At least 0.
+- `complete` (`bool`): true once the whole blob is held, its sha256 matched and the manifest
+  signature verified.
+- `reason` (`str`): a one-line note for the trail; empty when there is nothing to add.
+
+#### BasketRefuse
+
+Refuse a blob, before the first chunk moves or on an integrity failure after the last. A reply.
+
+- `sha256` (`str`): the blob refused. The sha256 pattern.
+- `code` (`BasketRefusal`): the stable reason code.
+- `reason` (`str`): which rule, which limit.
+
 ## 9. Transports
 
 A transport is a policy-free carrier of frames: it moves the bytes the codec produced and
@@ -2435,10 +2655,15 @@ Wire, JSON and addresses:
 33. **Trail segments are opaque bytes** in the Pheromone Trail's own export format with a
     `segment_format_version`; Waggle cannot define a trail event record (layer rule), and typed
     records would reintroduce open JSON.
-34. **Tool packages do not cross Waggle**; `tool.promoted` carries the digest and size, and phase
-    9 may add a chunked `tool.package` kind or reuse `session.put_file` additively.
-35. **Tool retirement has no kind**; a rollback is a `tool.promoted` of the earlier version with
-    `supersedes_version`, and a plain retire is an additive `tool.retired` for phase 9.
+34. **A tool package travels as a Basket blob, so there is no `tool.package` kind.** Resolved in
+    1.12: `tool.promoted` carries the package digest and size, and the bytes follow through the
+    `basket.*` messages of section 8.12 like any other blob, verified by hash and signature before
+    a byte is kept. Reusing `session.put_file` was rejected because it addresses a device and not
+    a content hash, and cannot be resumed by digest.
+35. **Tool retirement has its own kind.** Resolved in 1.12: a rollback stays a `tool.promoted` of
+    the earlier version with `supersedes_version`, and a plain retire is `tool.retired`
+    (section 8.8), so a registry that withdraws a version without replacing it is not forced to
+    invent a promotion.
 
 Signing and versioning:
 

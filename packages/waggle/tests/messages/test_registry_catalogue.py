@@ -1,11 +1,11 @@
-"""Tests for the full Waggle catalogue: seventy-four kinds, one example of each, the package face.
+"""Tests for the full Waggle catalogue: eighty-one kinds, one example of each, the package face.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins the registry's kind order to the spec's
     catalogue table, then loads the EXAMPLES tuple of each family's root test module by file
     path (the test tree has no packages, so a sibling test module cannot be imported by name)
     and checks that every example is registered, resolves back to its kind and survives wrap,
-    encode and decode unchanged; that the ten tuples together cover every registered model
+    encode and decode unchanged; that the eleven tuples together cover every registered model
     exactly once; and that waggle.messages and each family package re-export every registered
     class.
 
@@ -36,7 +36,7 @@ from waggle.ids import new_message_id
 from waggle.messages.base import MessageShape, WaggleMessage
 from waggle.messages.registry import MESSAGE_SPECS, all_kinds, kind_for, spec_for
 
-# The ten families of the spec's catalogue, each a package under waggle/messages/ whose root
+# The eleven families of the spec's catalogue, each a package under waggle/messages/ whose root
 # test module, tests/messages/<family>/test_<root>.py, defines EXAMPLES: one valid instance of
 # every message class of that family.
 EXAMPLE_MODULES: dict[str, str] = {
@@ -50,6 +50,7 @@ EXAMPLE_MODULES: dict[str, str] = {
     "capping": "proposals",
     "swarm": "enrolment",
     "control": "protocol",
+    "basket": "offer",
 }
 FAMILIES = tuple(EXAMPLE_MODULES)
 
@@ -109,6 +110,9 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "tool.promoted",
     "tool.invoke",
     "tool.result",
+    "tool.quarantine",
+    "tool.quarantine_report",
+    "tool.retired",
     "capping.proposal_submitted",
     "capping.check_result",
     "capping.verdict",
@@ -120,6 +124,10 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "swarm.nuc_promote",
     "swarm.nuc_promoted",
     "swarm.trail_segment_sync",
+    "basket.offer",
+    "basket.chunk",
+    "basket.ack",
+    "basket.refuse",
     "control.ping",
     "control.pong",
     "control.error",
@@ -172,7 +180,7 @@ ALL_EXAMPLES: tuple[WaggleMessage, ...] = tuple(
 
 
 def test_all_kinds_lists_the_catalogue_kinds_in_table_order() -> None:
-    assert len(CATALOGUE_KINDS) == 74
+    assert len(CATALOGUE_KINDS) == 81
     assert all_kinds() == CATALOGUE_KINDS
 
 
@@ -186,7 +194,7 @@ def test_every_registered_model_is_a_distinct_waggle_message_subclass() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# One example of every kind, from the ten family test modules
+# One example of every kind, from the eleven family test modules
 # ──────────────────────────────────────────────────────────────────────────────
 
 

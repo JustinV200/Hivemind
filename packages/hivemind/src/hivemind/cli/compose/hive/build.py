@@ -10,14 +10,18 @@ build_honey_access`) for the Queen's `QueenDeps.honey`, and the House Bee's ripe
 (`hivemind.workers.roles.house_bee.HouseBeeRipening`) over them. The zero-grant fix wires two
 things here: the Hive Stand's Queen-side link reads the Stand's capacity as it stands on every
 grant (`hivemind.queen.deps.WardenLink.live_capacity`), and the Queen gets `[forage]
-zero_grant_patience_s`, how long a fresh task may wait for that capacity to make room.
+zero_grant_patience_s`, how long a fresh task may wait for that capacity to make room. Roadmap
+phase 9 adds the Royal Jelly Lab's and the Basket's handles (`hivemind.cli.compose.royal_jelly.
+build_royal_jelly`), built once after Honey and held by both the Queen and the Hive Stand's
+Warden.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Calls into
     `hivemind.cell`, `hivemind.cli.compose.deps`, `.guard`, `.honey`, `.links`, `.night_veil`,
-    `.virtual_cells`, `hivemind.cli.stores`, `hivemind.common.secrets` (the Hive's persisted
-    signing key, for the Virtual side), `hivemind.entrance` (the relay and telemetry board `hive
-    serve` binds), `hivemind.forage` (ForageCapacity), `hivemind.guard`, `hivemind.honey_store`,
+    `.royal_jelly`, `.virtual_cells`, `hivemind.cli.stores`, `hivemind.common.secrets` (the Hive's
+    persisted signing key, for the Virtual side and the Basket), `hivemind.entrance` (the relay
+    and telemetry board `hive serve` binds), `hivemind.forage` (ForageCapacity), `hivemind.guard`,
+    `hivemind.honey_store`,
     `hivemind.llm`, `hivemind.manifest`, `hivemind.queen` (and `hivemind.queen.deps` for
     DispatchBook, GrantWaits and LiveCapacity), `hivemind.wardens`,
     `hivemind.workers.roles.house_bee` and waggle only.
@@ -32,6 +36,8 @@ Key invariants:
       built from `[guard.untrusted_content]` and keyed from the secret store at `[hive]
       secrets_dir`; its key is minted on the first flag, never at build time.
     - A Hive with no Honey Store (a hand-built HiveStores) has no House Bee ripening loop.
+    - A Hive whose stores carry a Comb Registry and a Basket always has one RoyalJellyAccess,
+      shared by the Queen and the Hive Stand's Warden; a hand-built HiveStores has none.
 
 See Also:
     - hivemind.cli.compose.deps for every manifest-to-deps builder `build_hive` composes.
@@ -61,6 +67,7 @@ from hivemind.cli.compose.guard import build_content_scanner, with_guard
 from hivemind.cli.compose.honey import build_honey_access
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.night_veil import attach_side_channels, veil_trail
+from hivemind.cli.compose.royal_jelly import build_royal_jelly
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map, build_provider_registry
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
@@ -73,6 +80,7 @@ from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.queen import ForageLedger, Queen, QueenDeps, WardenLink
 from hivemind.queen.deps import DispatchBook, GrantWaits, LiveCapacity
+from hivemind.royal_jelly import RoyalJellyAccess
 from hivemind.wardens import Warden, WardenDeps
 from hivemind.workers.roles.house_bee import HouseBeeRipening
 from waggle.clock import Clock
@@ -112,6 +120,9 @@ class Hive:
             None when the stores carry no Honey Store (roadmap phase 7).
         house_bee: The House Bee's ripening loop over `honey`, run by `run_hive`; None exactly
             when `honey` is.
+        royal_jelly: The Royal Jelly Lab's and the Basket's handles, the same ones the Queen holds
+            as `QueenDeps.royal_jelly` and the Hive Stand's Warden as `WardenDeps.royal_jelly`;
+            None when the stores carry no Comb Registry or Basket (roadmap phase 9).
     """
 
     manifest: HiveManifest
@@ -130,6 +141,7 @@ class Hive:
     virtual_cells: VirtualCellsParts | None = None
     honey: HoneyAccess | None = None
     house_bee: HouseBeeRipening | None = None
+    royal_jelly: RoyalJellyAccess | None = None
 
     @property
     def guard_door(self) -> GuardRequestDoor:
@@ -203,6 +215,16 @@ def _honey(parts: HiveParts) -> HoneyAccess | None:
     if store is None:
         return None  # A hand-built HiveStores (a test's in-memory stores): no Honey Store.
     return build_honey_access(parts.manifest, store, parts.registry, parts.fanner, parts.clock)
+
+
+def _with_royal_jelly(parts: HiveParts, honey: HoneyAccess | None) -> HiveParts:
+    """Add the Royal Jelly Lab's and the Basket's handles to `parts` (roadmap phase 9).
+
+    Built after Honey, whose intake the Basket's Honey port writes through; the Queen and the Hive
+    Stand's Warden then both read the one access from `parts`, so they share a registry and a key.
+    """
+    built = build_royal_jelly(parts.manifest, parts.stores, parts.registry, honey, parts.clock)
+    return replace(parts, royal_jelly=built)
 
 
 def _veiled_stores(manifest: HiveManifest, stores: HiveStores | None, clock: Clock) -> HiveStores:
@@ -293,6 +315,7 @@ def _assemble_hive(
     parts: HiveParts, source: HiveStandSource, links: HiveLinks, extras: _AssemblyExtras
 ) -> Hive:
     """Build the Warden, Queen and House Bee from `parts` and wrap them; `run_hive` attaches."""
+    parts = _with_royal_jelly(parts, extras.honey)
     # Roadmap 10.6b: one configured scanner, shared by the Queen and the Hive Stand's Warden,
     # replaces each deps bundle's shipped-default one, so every flag here is hashed under one key.
     scanner = build_content_scanner(parts.manifest)
@@ -321,6 +344,7 @@ def _assemble_hive(
         virtual_cells=extras.virtual_cells,
         honey=extras.honey,
         house_bee=_house_bee(extras.honey, links, parts.clock),
+        royal_jelly=parts.royal_jelly,
     )
 
 

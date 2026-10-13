@@ -61,7 +61,8 @@ Key invariants:
       about the grant it actually got.
     - Every value in `SubBeeLimits.at_best` is at least its value in `.now`: a figure at its best
       never allows fewer bees than it does as it stands.
-    - v0 names every allowed binding under `ModelSlot.WORKER`; per-role slot mapping and per-slot
+    - v0 names every allowed binding under `ModelSlot.WORKER` (plus `GrantInputs.extra_slots`, the
+      Royal Jelly Lab's SCAFFOLDER when the Hive has one); per-role slot mapping and per-slot
       hosting plans (`hivemind.forage.models.pools.HostingPlan`) are the Queen's job, a later
       phase this allocator does not attempt.
 
@@ -193,6 +194,11 @@ class GrantInputs:
             Layer-1 module may not read `hivemind.cell` or `hivemind.forage.models.pools.
             HostingPlan` for itself); None means every source the grade floor and cost already
             allow is reachable, v0's own behaviour.
+        extra_slots: Slots, besides the WORKER one, the grant also names a binding for on every
+            allowed source. A Warden may use only a slot its grant names (`llm:<slot>` held), so a
+            Hive with a Royal Jelly Lab passes SCAFFOLDER here: without it a Warden asked for a
+            cell-scope tool could never be granted the model that writes it. Empty (v0's own
+            behaviour) by default.
     """
 
     cell_capacity: ForageCapacity
@@ -211,6 +217,7 @@ class GrantInputs:
     goal_sub_bees_used: int = 0
     goal_spend_used: float = 0.0
     reachable_source_ids: frozenset[str] | None = None
+    extra_slots: tuple[ModelSlot, ...] = ()
 
 
 class GrantBound(Enum):
@@ -316,7 +323,7 @@ def grant(inputs: GrantInputs) -> ForageGrant:
         holder=inputs.holder,
         cell_id=inputs.cell_id,
         task_id=inputs.task_id,
-        allowed=_allowed_bindings(allowed_sources, max_effort),
+        allowed=_allowed_bindings(allowed_sources, max_effort, inputs.extra_slots),
         seats=_seat_reservations(allowed_sources, max_sub_bees),
         token_budget=int(inputs.budgets.token_budget * token_usable),
         spend_budget=remaining_spend * spend_usable,
@@ -560,11 +567,12 @@ def _reachable_seats_at_best(sources: Sequence[ModelSource], reserve_seats: int)
 
 
 def _allowed_bindings(
-    sources: Sequence[ModelSource], max_effort: Effort
+    sources: Sequence[ModelSource], max_effort: Effort, extra_slots: Sequence[ModelSlot] = ()
 ) -> tuple[AllowedBinding, ...]:
-    """Build one AllowedBinding per source, all under ModelSlot.WORKER (see module docstring)."""
+    """Build one AllowedBinding per source under WORKER, then one per source per extra slot."""
     return tuple(
-        AllowedBinding(slot=ModelSlot.WORKER, source_id=source.source_id, max_effort=max_effort)
+        AllowedBinding(slot=slot, source_id=source.source_id, max_effort=max_effort)
+        for slot in (ModelSlot.WORKER, *extra_slots)
         for source in sources
     )
 

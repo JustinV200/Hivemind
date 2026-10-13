@@ -35,6 +35,7 @@ from hivemind.guard.capabilities.families import (
 _ADR_TABLE: dict[ScopeKind, set[str]] = {
     ScopeKind.FLAG: {
         "tool:request",
+        "tool:quarantine_on_real",
         "cell:virtual",
         "cell:hive_stand",
         "honey:write",
@@ -107,6 +108,9 @@ def test_parse_order_is_longest_family_first() -> None:
     assert set(PARSE_ORDER) == set(CapabilityFamily)
     # The two reserved tool shapes are only safe because both are tried before `tool`.
     assert PARSE_ORDER.index(CapabilityFamily.TOOL_REQUEST) < PARSE_ORDER.index(
+        CapabilityFamily.TOOL
+    )
+    assert PARSE_ORDER.index(CapabilityFamily.TOOL_QUARANTINE_ON_REAL) < PARSE_ORDER.index(
         CapabilityFamily.TOOL
     )
 

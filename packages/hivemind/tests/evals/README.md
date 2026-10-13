@@ -163,3 +163,32 @@ HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 embedder from the chat server instead of in process, and `HIVEMIND_LOCAL_GOAL_TIMEOUT_S` (default
 900) bounds each goal. They skip cleanly when unset, and `.github/workflows/integration.yml`'s
 `local_llm` job runs them nightly on an Ollama it installs on the runner.
+## `scaffold/`: roadmap phase 9, the SCAFFOLDER on a local model
+
+`test_scaffold_local.py` is phase 9's fourth exit criterion: the scaffold scenario passes with the
+`SCAFFOLDER` slot on a local model. `scenario.py` is the first exit criterion's flow cut to a
+Drone, in a whole Hive built with `build_hive`: a Worker writes `data/notes.txt`, asks for a line
+counter with `request_tool`, the Queen's Royal Jelly flow has the `SCAFFOLDER` write it, the real
+Quarantine Comb proves it (the development subprocess sandbox: this scenario needs no Docker),
+the Queen promotes it, and the Worker calls it by the argument its own schema names and finishes
+with the count. The planner, the Worker and the judge stay on the fake provider, so the only
+variable is who writes the tool; `with_local_scaffolder` rebinds that one slot, its Forage source
+and its model to the OpenAI-compatible server `docs/manifests/local.toml` describes. The case
+passes when the tool is promoted and the Worker's task finishes with the right count; a model that
+writes a tool the Comb rejects fails it with the failing gate named, which is the finding.
+
+```bash
+HIVEMIND_LIVE_LLM=1 HIVEMIND_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+  HIVEMIND_LOCAL_SCAFFOLDER_MODEL=<the scaffolder model> \
+  uv run pytest -m local_llm packages/hivemind/tests/evals/scaffold
+```
+
+`HIVEMIND_LOCAL_SCAFFOLDER_MODEL` replaces the model id local.toml names for the slot. Like the
+others it skips cleanly when `HIVEMIND_LIVE_LLM` or the base URL is unset. Two cases run in CI with
+no server: the same scenario with a scripted fake `SCAFFOLDER` (so the scenario, its grader and
+the wiring are exercised on every run), and a check that the local binding moves only the
+`scaffolder` slot and resolves. The local case was exercised once against a stand-in loopback
+server that answers with the scripted tool; it has not been run against a real model, so a real
+model's first run may find prompt or schema problems no fake can show. One to expect: a model that
+declares a bare wildcard such as `fs:read:**` writes a tool that passes the Comb but is refused by
+the Guard whenever a Worker calls it (the prompt now says to name a directory).

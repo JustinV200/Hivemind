@@ -98,6 +98,10 @@ def test_classify_returns_the_point_or_the_reason() -> None:
     assert classify("warden.spawned") is EnforcementPoint.WARDEN_SPAWN
     assert classify("llm.rebound") is EnforcementPoint.SLOT_BINDING
     assert isinstance(classify("guard.denied"), str)
+    # Phase 9 (ADR-0048): a deposit is a capped `retain`, a transfer has its own point.
+    assert classify("basket.deposited") is EnforcementPoint.TOOL_INVOCATION
+    assert classify("basket.shipped") is EnforcementPoint.BASKET_TRANSFER
+    assert classify("basket.received") is EnforcementPoint.BASKET_TRANSFER
     with pytest.raises(KeyError):
         classify("nothing.defined")
 
@@ -107,6 +111,10 @@ def test_pending_points_and_the_call_sites_partition_every_point() -> None:
 
     assert pending.isdisjoint(wired)
     assert pending | wired == set(EnforcementPoint)
+
+
+def test_the_basket_transfer_point_is_pending_on_step_9_2a() -> None:
+    assert "9.2a" in PENDING_POINTS[EnforcementPoint.BASKET_TRANSFER]
 
 
 def test_every_pending_point_names_the_step_that_wires_it() -> None:

@@ -116,6 +116,7 @@ from hivemind.queen.ticks import context as context_tick
 from hivemind.queen.ticks import forage as forage_tick
 from hivemind.queen.ticks import honey as honey_tick
 from hivemind.queen.ticks import sources as sources_tick
+from hivemind.queen.ticks import tools as tools_tick
 from hivemind.queen.ticks import wax as wax_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
 from hivemind.supervision.attendant import InboxItem
@@ -217,7 +218,7 @@ async def handle_infrastructure_item(
     last_heartbeat: MutableMapping[WardenId, Heartbeat],
     liveness: MutableMapping[WardenId, WardenLiveness],
 ) -> bool:
-    """Handle a Heartbeat, ForageRequest, Honey, source report or CellWaxProposed item.
+    """Handle a Heartbeat, ForageRequest, Honey, source, tool, Basket or CellWaxProposed item.
 
     Reports whether it did.
 
@@ -226,7 +227,9 @@ async def handle_infrastructure_item(
     roadmap step 4.7 requires a ForageRequest within headroom to be granted "with no awake
     episode", roadmap step 4.2a requires the same for a Warden's own NOTE/CAUTION within its
     per-Cell cap, and roadmap step 7.8's Nectar deposits and Honey queries are routine traffic
-    (`hivemind.queen.ticks.honey`) -- so `hivemind.queen.queen.Queen`'s own tick reaches this
+    (`hivemind.queen.ticks.honey`), and so are phase 9's tool requests, sandbox reports and Basket
+    transfers (`hivemind.queen.ticks.tools`) -- so `hivemind.queen.queen.Queen`'s own tick reaches
+    this
     ahead of `decide` for all of them, sharing the one dispatch rather than repeating the same
     `isinstance` checks there.
 
@@ -238,8 +241,9 @@ async def handle_infrastructure_item(
         liveness: The Queen's own `warden_id -> WardenLiveness` table; mutated in place.
 
     Returns:
-        True if `item.payload` was a Heartbeat, a ForageRequest, a NectarDeposit, a HoneyQuery or
-        a CellWaxProposed (either way, fully handled); False otherwise, so the caller falls
+        True if `item.payload` was a Heartbeat, a ForageRequest, a NectarDeposit, a HoneyQuery, a
+        tool or Basket message or a CellWaxProposed (either way, fully handled); False
+        otherwise, so the caller falls
         through to its own ordinary dispatch.
     """
     if isinstance(item.payload, Heartbeat):
@@ -252,6 +256,8 @@ async def handle_infrastructure_item(
         return True  # Roadmap step 7.8: a Nectar deposit chunk or a Honey query, answered here.
     if await sources_tick.handle_source_item(deps, wardens, item):
         return True  # Roadmap step 8.3: a Warden's model source added to, or gone from, its Cell.
+    if await tools_tick.handle_tool_item(deps, wardens, item):
+        return True  # Roadmap phase 9: a tool request, a sandbox report or a Basket transfer.
     return await wax_tick.handle_wax_item(deps, wardens, item)
 
 

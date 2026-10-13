@@ -9,10 +9,10 @@ trail on reconnection.
 
 ## Public API
 
-- **Events** (`hivemind.pheromone.events`): `PheromoneEvent` and its fourteen family subclasses
+- **Events** (`hivemind.pheromone.events`): `PheromoneEvent` and its fifteen family subclasses
   (`CellEvent`, `TaskEvent`, `AlarmEvent`, `ForageEvent`, `MemoryEvent`, `QueenEvent`,
   `WardenEvent`, `ToolEvent`, `SwarmEvent`, `CappingEvent`, `LlmEvent`, `WorkerEvent`,
-  `GuardEvent`), the normative `kind`
+  `GuardEvent`, `HoneyEvent`, `BasketEvent`), the normative `kind`
   vocabulary documented in the `events/families/` package (a package since roadmap step 10.5 added
   the Queen's goal request and chat kinds: `work.py`, `resources.py` and `supervisors.py` each
   document their own families' kinds, `codec.py` holds the registry), and the JSON codec

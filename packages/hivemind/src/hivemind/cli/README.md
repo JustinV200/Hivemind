@@ -509,6 +509,75 @@ run the real `ModelClearanceJudge`. `harness.invoke` wraps each run in
 `structlog.testing.capture_logs()`, so no log line (the store's own `honey_store.vector_backend`,
 for one) can land in front of the JSON a test parses, whatever logging the run configured.
 
+## Command groups (phase 9 step 9.10)
+
+- `tools/` (a package: `listing.py`, `lifecycle.py`, `request.py`, `quarantine.py`, plus a shared
+  `context.py` and `render.py` for output, codingrules section 5.1's 300-line limit) -- `hive
+  tools`, the operator's door into the Comb Registry (the catalogue of promoted Royal Jelly tools,
+  ADR-0046) and the Quarantine Comb (ADR-0047). `--manifest` belongs to the group, as it does for
+  `hive honey`, so it comes right after `tools` and before the subcommand (`hive tools --manifest
+  hive.toml list`); `quarantine` runs on the Comb's default limits when none is given. A tool is
+  HIVE scope unless `--cell ID` names a Cell, which makes it CELL scope (one option says both, so
+  there is no separate `--scope` on the commands that take a name; `list --scope hive|cell` is a
+  filter).
+    - `list [--scope hive|cell] [--cell ID] [--all] [--json]`: each tool's current version (every
+      stored version with `--all`): name, version, scope, Cell, state, current, short package hash,
+      promoted at.
+    - `show NAME [--cell ID] [--version V] [--json]`: the spec (description, input schema,
+      capabilities, dependencies, supported OS), the report's summary (path, gates passed, failing
+      gate), and the package's full hash and size. No version means the current one.
+    - `retire NAME --version V --reason TEXT [--cell ID]` and `rollback NAME --to V --reason TEXT
+      [--cell ID]`: through the registry with `QueenPrincipal()` (the operator's CLI acts with the
+      Queen's authority, the way `hive honey review` acts as `human`); print the `RegistryChange`
+      and record `tool.retired`, or `tool.promoted` (naming the version it displaced) and
+      `tool.rolled_back`, with the actor `human`. A refusal exits 1 with its code and records
+      nothing.
+    - `request NAME --description TEXT [--capability CAP ...] [--cell ID]`: builds the
+      `ToolRequest` for the Hive Stand's platform (probed like the Hive Stand probes itself),
+      checks it with `validate_spec` against the Guard policy's `operator` role (a refusal prints
+      every reason, exit 1) and hands it to a `RequestSubmitter`. `in_process_submitter(manifest)`
+      is `submit.HiveSubmitter`: it builds and runs a Hive from the manifest and gives the Queen
+      the request as the Hive Stand Warden's own, so the Royal Jelly flow runs as for a Worker's
+      request; it prints the promotion, or the refusal's code and reason (exit 1), waits at most
+      `[royal_jelly] request_timeout_s`, and refuses a `--cell` (cell-scope) request with exit 2
+      because a cell-scope tool is built by the Warden of its own Cell for a Worker.
+    - `quarantine PATH [--limits-json JSON]`: PATH is a directory with `tool.py`, `test_tool.py`
+      and `spec.json`, or a `.zip` package. Reads the spec, runs the Quarantine Comb in the
+      subprocess sandbox (a one-line note says it is the dev loop, with no isolation), prints each
+      gate with pass or fail and its reason and what the run spent, and exits 0 on a pass, 1 on a
+      fail, 2 if the package cannot be read. `--limits-json '{"wall_s": 30}'` overrides single
+      limits over `[royal_jelly.limits]`. Touches no database and records no event.
+- `basket/` (a package: `listing.py`, `deposit.py`, `lifecycle.py`, plus a shared `context.py` and
+  `render.py`) -- `hive basket`, the operator's door into the Basket (inert, signed blobs kept by
+  content hash, ADR-0048). `--manifest` belongs to the group (`hive basket --manifest hive.toml
+  list`). A blob is named by its sha256 or any unambiguous prefix (`list` prints twelve digits).
+    - `list [--kind K] [--state present|retired] [--cell ID] [--json]`: short hash, size, kind,
+      media type, platform tags, clearance, origin Cell, deposited at, tainted, state.
+    - `show SHA [--json]`: the blob, its manifest's signer and whether the signature verifies
+      against the Hive key (it exits 1 when it does not, after printing), the Cells known to hold
+      it resident (the Hive Stand, its origin, the destinations of pending shipments of it), and
+      whether its Honey record exists (`source_key basket:<sha256>`).
+    - `deposit PATH --title T --summary S --kind K --media-type MT [--platform linux|windows|macos
+      ...] [--clearance C0|C1|C2]`: through `RoyalJellyAccess.deposits`, built by
+      `build_royal_jelly`, as the Hive Stand (origin its Cell, a borrowed Real Cell, so the label is
+      at least C2; the Hive Stand's tier; no bee; not tainted). The door's events are recorded as
+      `human`; a refusal (size, scanner) prints its code and exits 1 and its `basket.deposit_
+      refused` is still recorded. `--media-type`, `--platform` and `--clearance` are declared on
+      `DepositCommand` (the `RunCommand` pattern) to stay within five parameters.
+    - `ship SHA CELL_ID --reason TEXT`: queues a shipment (`queue_shipment`) and prints its id; the
+      running Queen's basket tick drains the queue (wave 3G). A retired or tainted blob is refused.
+    - `evict SHA [--cell ID]` (default the Hive Stand) frees a resident copy and records
+      `basket.evicted`; `retire SHA --reason TEXT` withdraws the blob and records `basket.retired`.
+      Neither records a reason's text on the trail, and a no-op (nothing resident, already retired)
+      records nothing.
+
+`tests/unit/cli/tools/` and `tests/unit/cli/basket/` drive every command through `CliRunner` against
+a `fake_manifest` Hive and its real SQLite file (each `harness.py`): tools promoted through the real
+`SqliteCombRegistry` with the Royal Jelly builders, blobs deposited through the CLI's own door (the
+real scanner, Hive key and Honey Store), and the real Quarantine Comb run over packages written to a
+directory (a good one, and one importing `socket`). `request` is tested through the
+`in_process_submitter` seam: the stub's exit, and a recording submitter swapped in.
+
 ## Command groups (phase 10 step 10.5)
 
 - `serve.py` -- `hive serve --manifest hive.toml`: runs the Queen, her Hive Stand Warden and the

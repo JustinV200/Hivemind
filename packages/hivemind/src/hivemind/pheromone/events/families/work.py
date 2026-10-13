@@ -1,6 +1,6 @@
 """Define the event families of the work itself: Cells, tasks, Alarms and Workers.
 
-Four of the Pheromone Trail's fourteen event families record the work and where it runs: a Cell's
+Four of the Pheromone Trail's fifteen event families record the work and where it runs: a Cell's
 lifecycle (`cell`), a Brood Chamber task's state machine (`task`), an Alarm's climb up the chain
 (`alarm`) and a Worker's own state machine (`worker`). Each is a `PheromoneEvent` subclass
 (`hivemind.pheromone.events.base`) fixing `FAMILY` (the prefix before the dot) and `KINDS` (every

@@ -55,6 +55,7 @@ from hivemind.forage import (
     grant,
     sub_bee_limits,
 )
+from hivemind.forage.slots import ModelSlot
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.intake import goal_budgets
 from waggle.ids import CellId, WardenId, new_cell_id, new_grant_id, new_warden_id
@@ -158,4 +159,7 @@ def _grant_inputs(
         grant_id=new_grant_id(deps.clock),
         now=deps.clock.now(),
         ttl_s=deps.grant_ttl_s,
+        # A Hive with a Royal Jelly Lab also grants the SCAFFOLDER slot: a Warden asked for a
+        # cell-scope tool writes it on a binding its grant names (wardens.ticks.tools.cell_scope).
+        extra_slots=(ModelSlot.SCAFFOLDER,) if deps.royal_jelly is not None else (),
     )

@@ -60,8 +60,9 @@ def _grant(**changes: object) -> GrantIssued:
     return GrantIssued.model_validate({**fields, **changes})
 
 
-def test_the_protocol_is_at_minor_eight() -> None:
-    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.11", 11)
+def test_the_protocol_is_at_least_minor_ten() -> None:
+    # audit_raises arrived in 1.10; later minors keep it, so the check is a floor, not equality.
+    assert PROTOCOL_MINOR >= 10 and f"1.{PROTOCOL_MINOR}" == PROTOCOL_VERSION
 
 
 def test_a_grant_carrying_raises_round_trips(

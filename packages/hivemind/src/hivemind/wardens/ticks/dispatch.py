@@ -6,14 +6,15 @@ for `NEEDS_JUDGEMENT` by an awake episode; either way it ends with one `WardenAc
 the step after that decision: it routes the action and its item to the handler in this package
 that does the work -- spawn (`assign`), acceptance (`results`), an Alarm's levers (`alarms`), the
 relays between the Queen and a sub-bee (`questions`, `control`, and `honey` for the Honey Store's
-traffic, roadmap step 7.8), the routine records (`heartbeat`, `control`, and `assign` for a grant
-or its revocation) and the Queen's orders that end or narrow this Warden, or reclaim a model
-server's seats (`control`). It lived
-in `hivemind.wardens.warden` as `_act`; it moved here, unchanged in behaviour, so that module stays
-within codingrules 5.1's size limit as the table grows, the same reason every other tick handler
-lives in this package. Roadmap phase 10's isolation orders (a quarantine, a memory taint) and the
-gates a spawn passes first stay in `hivemind.wardens.warden`, which calls `act` for every other
-action: the quarantine and isolation packages import this package's handlers, never the reverse.
+traffic, roadmap step 7.8), the Royal Jelly Lab's and the Basket's traffic (the `tools` and
+`basket` sub-packages, roadmap phase 9), the routine records (`heartbeat`, `control`, and `assign`
+for a grant or its revocation) and the Queen's orders that end or narrow this Warden, or reclaim a
+model server's seats (`control`). It lived in `hivemind.wardens.warden` as `_act`; it moved here,
+unchanged in behaviour, so that module stays within codingrules 5.1's size limit as the table
+grows, the same reason every other tick handler lives in this package. Roadmap phase 10's
+isolation orders (a quarantine, a memory taint) and the gates a spawn passes first stay in
+`hivemind.wardens.warden`, which calls `act` for every other action: the quarantine and isolation
+packages import this package's handlers, never the reverse.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -39,7 +40,17 @@ from typing import TYPE_CHECKING
 
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.autopilot import WardenAction
-from hivemind.wardens.ticks import alarms, assign, control, heartbeat, honey, questions, results
+from hivemind.wardens.ticks import (
+    alarms,
+    assign,
+    basket,
+    control,
+    heartbeat,
+    honey,
+    questions,
+    results,
+    tools,
+)
 from waggle.ids import MessageId
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten, SourceEvict
@@ -60,6 +71,10 @@ if TYPE_CHECKING:
 # The four ways an Alarm's escalation policy maps onto something a Warden does itself.
 _ALARM_ACTIONS = frozenset(
     {WardenAction.RETRY, WardenAction.REBIND, WardenAction.ESCALATE, WardenAction.CANCEL_TASK}
+)
+# The actions of the Royal Jelly Lab and the Basket (roadmap phase 9), routed together below.
+_TOOL_BASKET_ACTIONS = frozenset(
+    {WardenAction.FORWARD_TOOL, WardenAction.RUN_QUARANTINE, WardenAction.BASKET}
 )
 # The actions that relay a message between the Queen and a sub-bee rather than act on it.
 _RELAY_ACTIONS = frozenset(
@@ -93,6 +108,8 @@ async def act(
     payload = item.payload
     if action in _RELAY_ACTIONS:
         await _relay(warden, action, item, sub_bee)
+    elif action in _TOOL_BASKET_ACTIONS:
+        await _tool_or_basket(warden, action, item, sub_bee)
     elif action is WardenAction.SPAWN and isinstance(payload, TaskAssign):
         await assign.handle_assign(warden, payload)
     elif action is WardenAction.RECORD:
@@ -115,6 +132,19 @@ async def act(
         # Roadmap step 8.3: the Queen reclaiming seats she exported; the handler gives them back
         # only for a source this Warden hosts and exported, and ignores the order otherwise.
         await control.handle_source_evict(warden, payload)
+
+
+async def _tool_or_basket(
+    warden: Warden, action: WardenAction, item: InboxItem, sub_bee: SubBee | None
+) -> None:
+    """Hand a tool or Basket item to the sub-package that does it (roadmap phase 9)."""
+    if action is WardenAction.FORWARD_TOOL:
+        # The relay checks the direction and the first-hop identity itself.
+        await tools.handle_tool_item(warden, item, sub_bee)
+    elif action is WardenAction.RUN_QUARANTINE:
+        await tools.handle_quarantine_order(warden, item)
+    else:
+        await basket.handle_basket_item(warden, item)
 
 
 async def _relay(

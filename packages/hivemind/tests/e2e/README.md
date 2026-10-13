@@ -266,6 +266,26 @@ Drone's grant without a free core.
   it): a goal placed on a Virtual Cell still gets its bee and succeeds, because the Cell reports
   the reservation its bootstrap names (`HIVEMIND_RESERVATION`, from its `VirtualCellSpec`, no
   load) -- exactly the capacity the Queen placed it by -- instead of the host's figures.
+- `test_phase9_exit_criteria.py` (`@pytest.mark.e2e`) -- roadmap phase 9's first three exit
+  criteria, each a whole Hive from `build_hive` with the real Quarantine Comb and a scripted
+  `FakeLLMProvider` answering the planner, the Worker and the SCAFFOLDER. (1) A Forager (over the
+  in-memory login site, `royal_jelly_forager.py`) asks for a line counter with `request_tool`; the
+  Queen scaffolds, proves it in the dev subprocess sandbox, promotes and announces it
+  (`tool.requested ... tool.announced` in order), and the same Forager calls it and finishes with
+  its output. (2) The Hive Stand's Warden promotes a cell-scope tool, proved in a sandbox Virtual
+  Cell whose own in-process Warden runs the Comb; the registry row is CELL scope for that Cell and a
+  later Worker on another Cell is never offered it. (3) Three malicious scaffolds (`socket`,
+  `subprocess`, an `open` outside the package) fail the static gate naming the construct, are
+  rejected after the one retry, and leave no registry row.
+- `test_phase9_exit_criteria_basket.py` (`@pytest.mark.e2e`) -- phase 9's fifth exit criterion: a
+  tool promoted at hive scope reaches a Virtual Cell attached afterwards as a Basket blob (the
+  Queen's `basket.offered`, the Cell's `basket.received`, resident bytes hashing to the registry's
+  `package_sha256`); a blob deposited from the Hive Stand (a Real Cell, so C2) is refused by a
+  Night Veil Cell (`CLEARANCE`) while a C0 blob is kept; a dataset never promoted gives a Worker no
+  tool, a tool named after it is refused, and a `tool.promoted` whose package is not resident is
+  refused as `tool.load_refused`. `royal_jelly_runs.py` holds the scripts, the manifest and `run_lab`
+  the two files share. (The fourth criterion, the `local_llm` scaffold run, is
+  `tests/evals/scaffold`.)
 
 ## Budget
 

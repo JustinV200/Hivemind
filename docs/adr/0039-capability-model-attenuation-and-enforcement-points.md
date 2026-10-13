@@ -23,7 +23,7 @@ capability strings are stored on approved devices and tasks.
 
 | Kind | Families | A held capability satisfies a needed one when |
 |---|---|---|
-| flag (no scope) | `tool:request`, `cell:virtual`, `cell:hive_stand`, `honey:write`, `wax:propose`, `warden:spawn`, `forage:request`, `question:human`, `observe`, `observe:thoughts`, `entrance:submit`, `entrance:answer`, `entrance:push`, `entrance:steward`, `supersede`, `sting_cut`, `wifi:scan`, `host:metadata` | the family is the same |
+| flag (no scope) | `tool:request`, `cell:virtual`, `cell:hive_stand`, `honey:write`, `wax:propose`, `warden:spawn`, `forage:request`, `question:human`, `observe`, `observe:thoughts`, `entrance:submit`, `entrance:answer`, `entrance:push`, `entrance:steward`, `supersede`, `sting_cut`, `wifi:scan`, `host:metadata`, `tool:quarantine_on_real` (phase 9, ADR-0047) | the family is the same |
 | glob | `tool`, `fs:read`, `fs:write`, `exec`, `cell:outside_scratch`, `honey:read` | `fnmatch` over the POSIX form matches |
 | host | `net` | equal (DNS names case-insensitively, IP literals as addresses); or the held scope is `*`; or it is `*.domain` and the needed host is a strict subdomain on a label boundary; or it is a CIDR network containing the needed address. No other wildcard is valid, so `net:10.0.0.*` cannot mean `10.0.0.1.attacker.example` |
 | prefix | `device`, `cell:real`, `observe:honey`, `geo`, `watch`, `tool:scope` | equal, or the held scope ends in `*` and prefixes the needed one |
@@ -111,6 +111,9 @@ without a classification fails the test, and so does a registered call site that
 its point. Points whose subsystem is not built yet (Exoskeleton, Honey, Nuc promotion, device
 commands, tactics: phases 6, 7 and 11) are declared now with their phase, so the subsystem wires a
 point that already exists.
+Phase 9 (ADR-0048) adds one point, `basket_transfer`: shipping a blob to a Cell, or keeping one a
+Cell sent, is authorised there; a Basket deposit is a capped `retain` proposal applied, so it stays
+at `tool_invocation`.
 
 ## Consequences
 

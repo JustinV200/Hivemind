@@ -57,3 +57,4 @@ class EnforcementPoint(Enum):
     STING_CUT = "sting_cut"  # Cutting one Cell off in an emergency (step 13.4a).
     SUPERSEDURE = "supersedure"  # Moving the Hive Stand to another machine (codingrules 8.16).
     ABSCONDING = "absconding"  # Tearing the whole Hive down, break-glass (codingrules 15).
+    BASKET_TRANSFER = "basket_transfer"  # Shipping a blob to a Cell, or keeping one it sent (9.2a).

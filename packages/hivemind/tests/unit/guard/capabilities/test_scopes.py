@@ -61,6 +61,8 @@ def test_scope_error_accepts_a_scope_valid_for_its_kind(family: Family, scope: s
         (Family.TOOL, "request", "reserved"),  # Would read back as the tool:request flag.
         (Family.TOOL, "scope:cell", "reserved"),  # Would read back as tool:scope:cell.
         (Family.TOOL, "scope:", "reserved"),
+        (Family.TOOL, "quarantine_on_real", "reserved"),  # Would read back as the phase 9 flag.
+        (Family.TOOL_QUARANTINE_ON_REAL, "x", "takes no scope"),
         (Family.NET, "10.0.0.*", "not a host"),
         (Family.LLM, "nonsense", "not one of"),
         (Family.LLM, "WORKER", "not one of"),  # Values are the lowercase member names.

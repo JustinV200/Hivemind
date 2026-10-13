@@ -1481,16 +1481,27 @@ hive scope by the Queen or at cell scope by the requesting Warden.
 
 ### Steps
 
-- [ ] **9.1 Tool spec format.** `ToolSpec` (name, version, model-facing description, input
+- [x] **9.1 Tool spec format.** `ToolSpec` (name, version, model-facing description, input
   schema with `additionalProperties: false`, required capabilities, entry point, dependencies,
   supported OSes, `scope = "hive" | "cell"`). `validate.py` rejects specs requesting capabilities
-  beyond the requester's own.
-- [ ] **9.2 Comb Registry.** SQLite table + package dir, each package a Basket blob named by hash
+  beyond the requester's own. **Built 2026-10-12** (ADR-0046): `royal_jelly/spec/` (`models.py`,
+  `validate.py`, `package.py`, `report.py`). `validate_spec` is pure and also refuses a schema that
+  is not a closed object, a `tool:` capability, a CELL scope without a Cell and an entry point other
+  than `tool:run`; a tool package is a byte-identical zip of `tool.py`, `test_tool.py` and
+  `spec.json` named by its sha256, and `QuarantineReport` is defined beside the spec because the
+  registry reads it.
+- [x] **9.2 Comb Registry.** SQLite table + package dir, each package a Basket blob named by hash
   (9.2a); `CombRegistry` with `list`, `get`, `promote(spec, report, scope)`, `retire`. `promote`
   refuses without a passing `QuarantineReport`;
   hive scope requires the Queen principal; cell scope requires the owning Warden. A test asserts
-  there is no bypass.
-- [ ] **9.2a The Basket.** `hivemind/basket/`, a package at Layer 2 beside `honey_store` (add it
+  there is no bypass. **Built 2026-10-12** (ADR-0046): `royal_jelly/registry/` keeps the package
+  hash, never the bytes (the Basket holds them); `promote(spec, report, offer, principal, reason)`
+  is the only path to a PROMOTED row and `tests/unit/royal_jelly/registry/test_no_bypass.py` proves
+  every refusal (a failing or mismatched report, HIVE from a Warden, CELL from the Queen or another
+  Cell's Warden, a repeated version, an unreviewed REAL_CELL path at HIVE scope) and that no other
+  public method yields a current PROMOTED row. SQLite triggers make the evidence columns immutable
+  and refuse DELETE.
+- [x] **9.2a The Basket.** `hivemind/basket/`, a package at Layer 2 beside `honey_store` (add it
   to the codingrules layer table and the `import-linter` contract in the same PR): `models.py`
   (`Blob`: content hash, size, media kind as a descriptive tag, platform tags, `HoneyClearance`
   from provenance, origin task, bee and Cell, deposit event id; `BlobManifest`, signed by the
@@ -1518,38 +1529,89 @@ hive scope by the Queen or at cell scope by the requesting Warden.
   except through the Comb. Clearance rules apply unchanged (a Real Cell origin is `C2`, so
   nothing from a laptop ships to Night Veil), and a blob from an isolated or quarantined
   source is tainted (10.6d). `hive basket list|show|deposit|ship|evict|retire`. Absconding
-  (13.4) removes every resident copy.
-- [ ] **9.3 Scaffolder.** From a `ToolRequest` produce spec, source and tests through
+  (13.4) removes every resident copy. **Built 2026-10-12** (ADR-0048): `hivemind/basket/` at Layer 2
+  (`models.py`, `manifest.py`, `clearance.py`, `deposits.py`, `residency.py`, `store/`,
+  `transfer/`), with `basket.*` Waggle messages in minor 1.12 and `BasketEvent` on the trail.
+  Deviations from the text: the Honey record goes through a port the composition root fills with a
+  Nectar submission (Layer 2 siblings never import each other); the clearance floor is restated from
+  `honey_store.clearance` for the same reason; `retain` is a capped COPY whose verified result
+  reaches the Warden's sink in process, the Warden deposits (Hive Stand) or ships up signed with its
+  node key and the Queen re-deposits through the signed door; `resident_basket_disk_bytes` on
+  `Ceilings` is the ceiling, with the `[basket]` default where it is 0; a Warden-to-Warden shipment
+  is two legs through the Hive Stand. Absconding's removal of resident copies is phase 13's.
+- [x] **9.3 Scaffolder.** From a `ToolRequest` produce spec, source and tests through
   `llm/structured.py` on `ModelSlot.SCAFFOLDER`; tests first. The request carries the target
   Cell's capability report (OS, distro, arch, package manager, shell, Python availability) so the
   scaffolder writes for that platform and declares it in `supported_os`. Generated tools act only
   through the `CellSession` they are handed; a direct `subprocess` import fails the Comb. A Warden
-  may run the scaffolder locally within its grant.
-- [ ] **9.3a Quarantine for non-Ubuntu targets.** The Comb's sandbox is an Ubuntu Virtual Cell,
+  may run the scaffolder locally within its grant. **Built 2026-10-12**: `royal_jelly/scaffold/` on
+  `ModelSlot.SCAFFOLDER` through `complete_structured` with `llm/prompts/scaffold_tool.md` (tests
+  first; `async def run(session, arguments)`; standard library plus `hivemind.cell` only); the model
+  never sets the tool's name, scope, ids or capabilities, and `validate_spec` proves it widened
+  nothing. A Warden scaffolds locally on the first SCAFFOLDER binding its grant allows
+  (`wardens/ticks/tools/cell_scope.py`), else answers `hive.tool.no_scaffolder`.
+- [x] **9.3a Quarantine for non-Ubuntu targets.** The Comb's sandbox is an Ubuntu Virtual Cell,
   so a tool written for Windows, macOS or another distro cannot be fully exercised there. Until
   Virtual Cell images exist for those platforms (post-1.0), such tools pass static checks and
   schema fuzzing in the Ubuntu sandbox, then run their tests inside a lease's scratch directory on
   a Real Cell of the target platform under a dedicated `tool:quarantine_on_real` capability, with
   the flight recorder on and the tier set to `device_command`. The report says which path was
   used; hive-scope promotion of such a tool needs the Queen's awake review, not just autopilot.
-- [ ] **9.4 Sandbox protocol.** `Sandbox` protocol; `sandbox_cell.py` (a Virtual Cell with
+  **Partly built 2026-10-12** (ADR-0047): `quarantine_comb/path.py` sends a target whose platform is
+  not the sandbox image's Linux distribution down `REAL_CELL`; the `tool:quarantine_on_real` flag
+  family exists and is held by no role below the two roots; the report carries the path and the
+  registry refuses an unreviewed REAL_CELL path at HIVE scope until the Queen's awake review
+  (`queen/ticks/tools/review.py`) accepts it. **Not built:** the Real Cell tests-gate leg itself (a
+  sandbox over a lease's scratch on a Real Cell of the target platform):
+  `QuarantineComb.run(path=REAL_CELL)` only stamps the report. No second-platform Real Cell exists
+  in CI to run it.
+- [x] **9.4 Sandbox protocol.** `Sandbox` protocol; `sandbox_cell.py` (a Virtual Cell with
   `network = none`, limits, read-only mounts; never a Real Cell); `sandbox_subprocess.py` (dev
   only). A Warden needing a sandbox files a `CellRequest`; the Queen provisions one for the Comb.
-- [ ] **9.5 Quarantine Comb.** Gates in order: static checks with a banned-imports list, the
+  **Built 2026-10-12** (ADR-0047): `quarantine_comb/sandbox.py`, `sandbox_cell.py` (refuses a
+  borrowed Cell by `is_borrowed`, never `kind`) and `sandbox_subprocess.py` (dev only,
+  `[royal_jelly] sandbox = "subprocess"`, warned at build). Deviation: `CellRequest` is not used. A
+  Warden sends `tool.quarantine` to the Queen, which provisions a `network_policy = NONE` Virtual
+  Cell, runs the Comb there through that Cell's Warden and relays the report back; the sandbox stays
+  the Queen's and is torn down after the report.
+- [x] **9.5 Quarantine Comb.** Gates in order: static checks with a banned-imports list, the
   tool's tests, schema round-trip, fuzz over the input schema, resource limits, capability audit.
-  Emits a `QuarantineReport`.
-- [ ] **9.6 Promotion flow.** request → scaffold → sandbox request → quarantine → (promote at
-  scope | reject with report), a `tool.*` event per stage, one retry with the report.
-- [ ] **9.7 Worker integration.** A Worker loads only the bundle its Warden hands it at spawn,
+  Emits a `QuarantineReport`. **Built 2026-10-12** (ADR-0047): six gates in `GATE_ORDER` (static,
+  tests, schema, fuzz, resources, capabilities) under `quarantine_comb/gates/`; the in-sandbox
+  `runner/` package applies rlimits, a `sys.addaudithook` that blames a spawn, a socket or a read
+  outside the package only when the innermost non-stdlib frame is the tool's, runs the `unittest`
+  suite with the module-level `SESSION`, the schema round trip and the fuzz inputs, and writes one
+  JSON report the gates read.
+- [x] **9.6 Promotion flow.** request → scaffold → sandbox request → quarantine → (promote at
+  scope | reject with report), a `tool.*` event per stage, one retry with the report. **Built
+  2026-10-12**: `royal_jelly/promotion/flow.py` walks `ToolState` (`QUARANTINING → SCAFFOLDED` added
+  for the one retry, `REQUESTED → REJECTED` for a first scaffold that fails) with a `tool.*` event
+  per stage; the Queen runs it beside her tick (`queen/ticks/tools/`), ships the package as a Basket
+  blob, orders `tool.quarantine` and awaits the correlated `tool.quarantine_report`; the requester
+  is answered with `tool.promoted` or `control.error`.
+- [x] **9.7 Worker integration.** A Worker loads only the bundle its Warden hands it at spawn,
   attenuated from the Queen's grant, never the registry (README, core concept 10). A promotion
   updates the registry and deposits Honey (9.8); it pushes nothing into a running Worker. A
   Worker's bundle changes only when its Warden re-attenuates it, on a fulfilled `ToolRequest`
   or a smaller minimum for the next step, as an intervention. `workers/tools/invoke.py`
   re-validates inputs, capabilities and OS before every call. Tool packages arrive as Basket blobs
-  (9.2a), resident on the Cell and verified by hash before load.
-- [ ] **9.8 Honey link.** Every promotion deposits Nectar describing the tool.
-- [ ] **9.9 Versioning and rollback.** Immutable versions; `retire`; `hive tools rollback`.
-- [ ] **9.10 CLI.** `hive tools list|show|request|retire|rollback|quarantine <path>`.
+  (9.2a), resident on the Cell and verified by hash before load. **Built 2026-10-12**:
+  `workers/tools/comb/` (`invoke.py` re-validates schema, capabilities and OS before every call and
+  loads a package only through a `CombToolEntry` whose hash the resident bytes match); a Worker's
+  `CombToolBundle` changes only when its Warden replaces it (`wardens/ticks/tools/install.py`, after
+  the blob is resident and verified), and the bounded loop rebuilds its registry on
+  `ToolsChangedError`. A Cell attached after a promotion is caught up on attach, blob first.
+- [x] **9.8 Honey link.** Every promotion deposits Nectar describing the tool. **Built 2026-10-12**:
+  `royal_jelly/honey_link.py`; the Queen deposits on every promotion she makes or accepts, the Hive
+  Stand Warden on its own cell-scope promotions.
+- [x] **9.9 Versioning and rollback.** Immutable versions; `retire`; `hive tools rollback`. **Built
+  2026-10-12**: `retire` keeps the row; `rollback` re-currents an older PROMOTED row whose stored
+  report still passes, recorded as `tool.promoted` with `supersedes_version` plus
+  `tool.rolled_back`; `tool.retired` is a Waggle 1.12 event (spec open point 35).
+- [x] **9.10 CLI.** `hive tools list|show|request|retire|rollback|quarantine <path>`. **Built
+  2026-10-12**: `cli/tools/` and `cli/basket/` (`hive basket list|show|deposit|ship|evict|retire`);
+  `--manifest` is a group option (`hive tools --manifest M list`); `quarantine <path>` runs the Comb
+  in the subprocess sandbox on a package directory.
 
 ### Exit criteria
 
@@ -1562,6 +1624,37 @@ hive scope by the Queen or at cell scope by the requesting Warden.
 - A tool promoted at hive scope reaches a second matching Cell as a Basket blob verified by
   hash; a blob deposited from a Real Cell is refused by a Night Veil Cell; a blob with no Comb
   entry cannot be invoked as a tool, and the refusal is on the trail.
+
+**Met 2026-10-12 with the dev subprocess sandbox standing in for Docker, and the Forager's
+browser faked** (branch `ccr-4e10bf6f-y9zk5g`; the record is `.claude/phase-9-handoff.md`). No
+Docker reaches this container, so every sandbox is either `[royal_jelly] sandbox = "subprocess"`
+on the Hive Stand or a `ContainerSpawningFakeCellBackend` Virtual Cell whose real in-process
+Warden runs the Comb over its `InCellSession`; only the container itself is faked.
+`tests/e2e/test_phase9_exit_criteria.py` proves bullets 1 to 3: a real Forager on the Hive Stand
+calls `request_tool` for a missing capability, the Queen scaffolds (scripted SCAFFOLDER), deposits,
+quarantines in the subprocess sandbox, promotes and announces (`tool.requested, scaffolded,
+quarantine_requested, quarantined, promoted, announced, loaded` in that order), and the same
+Forager finishes with the tool's output; a Drone on the Hive Stand asks at cell scope, its Warden
+scaffolds on the SCAFFOLDER binding in its grant, the Queen provisions a sandbox Virtual Cell for
+it, and the Warden promotes with its own principal, after which `visible_tools` lists the tool for
+that Cell only and a Worker on another Cell is never offered it; a scaffold importing `socket`,
+one calling `subprocess.run` and one reading outside its directory each fail the static gate with
+the construct named, twice, then `tool.rejected` and `control.error hive.tool.rejected`, with no
+registry row. Bullet 4 is `tests/evals/scaffold/test_scaffold_local.py`: the same scenario with
+only the SCAFFOLDER slot moved to `docs/manifests/local.toml`'s server, gated by the `local_llm`
+marker; it passed against a scripted loopback stand-in and has not run against a real model here.
+Bullet 5 is `test_phase9_exit_criteria_basket.py`: a hive-scope tool reaches a Virtual Cell that
+attaches later (`basket.offered` on the Queen's trail, `basket.received` on the Cell's, the resident
+bytes hashing to the registry's `package_sha256`); a C2 blob from the Hive Stand is refused by the
+Night Veil rig with `basket.refused` (CLEARANCE) while a C0 blob is kept; a dataset deposited and
+never promoted gives no tool, and a forged `tool.promoted` whose package is absent is refused with
+`tool.load_refused`. One reading differs from the bullet's text: a call to a tool that was never
+offered is refused by the tool ladder before any registry, so it leaves no `guard.denied` row; the
+trail refusal is `tool.load_refused`. Where the steps differ from their text: a sandbox is asked
+for with `tool.quarantine`, not `CellRequest` (ADR-0047); the Real Cell tests-gate leg of 9.3a is
+not built; no Worker role holds `tool:request` in the shipped policy (the scenarios grant it per
+manifest), and an in-Cell Warden reads no `[guard]` section, so a Worker on a Virtual Cell cannot
+request a tool yet.
 
 ### ADRs to write
 

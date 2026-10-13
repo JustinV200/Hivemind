@@ -42,7 +42,25 @@ _WRITERS = ("hivemind/memory/taint/set.py", "hivemind/memory/taint/clear.py")
 # The stores that persist a label they were handed: memory's tables, and the Honey Store's (phase
 # 7), whose rows carry a `tainted` flag they only ever store False on insert and read back; the one
 # path that sets it is the Queen's Guard-report setter below (roadmap 10.6d).
-_LABEL_STORES = ("hivemind/memory/store/", "hivemind/honey_store/store/sqlite/")
+_LABEL_STORES = (
+    "hivemind/memory/store/",
+    "hivemind/honey_store/store/sqlite/",
+    # Phase 9 (ADR-0048): the Basket's rows carry the label a blob was deposited with.
+    "hivemind/basket/store/",
+)
+# Phase 9 (ADR-0048, roadmap 9.2a: "a blob from an isolated or quarantined source is tainted"): the
+# one path that labels a Basket deposit is the Warden's retain sink, which reads its own quarantine
+# and isolation state (`is_tainted`), and the deposit door, which only ever raises a stored label on
+# a repeat of the same bytes (`existing.tainted or request.tainted`). Nothing else sets a blob's.
+_BASKET_WRITERS = ("hivemind/basket/deposits.py", "hivemind/wardens/ticks/basket/retain.py")
+# Modules that carry a blob's label in a mapping without deciding it: a trail payload, the wire's
+# claim check, the receiver's refusal-code table and the operator's table: read-only, each.
+_LABEL_CARRIERS = (
+    "hivemind/basket/events.py",
+    "hivemind/basket/transfer/receiver.py",
+    "hivemind/basket/transfer/wire.py",
+    "hivemind/cli/basket/render.py",
+)
 # Roadmap 10.6a's in-Cell half: the Warden runs the setter on its own store at the Queen's order.
 _IN_CELL_ISOLATION_TAINT = "hivemind/wardens/isolation/taint.py"
 # The three setters (ADR-0043), by module, each with the only TaintSource it may pass. 10.6c's is
@@ -111,7 +129,9 @@ def test_a_tainted_argument_only_ever_carries_a_label_read_off_another_item() ->
                     isinstance(keyword.value, ast.Attribute) and keyword.value.attr == "tainted"
                 )
                 # A label store decodes the label its own row holds: a label read off an item too.
-                exempt = path in _WRITERS or path.startswith(_LABEL_STORES)
+                exempt = (
+                    path in _WRITERS or path in _BASKET_WRITERS or path.startswith(_LABEL_STORES)
+                )
                 if keyword.arg == "tainted" and not propagated and not exempt:
                     offenders.append(f"{path}:{node.lineno}")
 
@@ -126,9 +146,17 @@ def test_only_the_label_stores_set_a_tainted_key() -> None:
         if isinstance(node, ast.Dict)
         and any(isinstance(key, ast.Constant) and key.value == "tainted" for key in node.keys)
         and not path.startswith(_LABEL_STORES)
+        and path not in _BASKET_WRITERS
+        and path not in _LABEL_CARRIERS
     ]
 
     assert offenders == []
+
+
+@pytest.mark.parametrize("path", [*_BASKET_WRITERS, *_LABEL_CARRIERS])
+def test_every_phase_9_exemption_names_a_module_that_exists(path: str) -> None:
+    # A stale exemption would silently widen this test's blind spot once the module moved.
+    assert (_SRC / path).is_file()
 
 
 def test_only_the_three_setters_call_taint_memory_each_with_its_own_source() -> None:

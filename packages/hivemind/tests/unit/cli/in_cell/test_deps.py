@@ -356,6 +356,16 @@ def test_the_in_cell_warden_is_equipped_with_the_exoskeleton_wiring(tmp_path: Pa
     assert CheckKind.JUDGE not in deps.checks
     has_extra = importlib.util.find_spec("playwright") is not None
     assert (deps.browser_launcher is not None) is has_extra
+    # Roadmap phase 9: its own resident Basket, in a database below the Cell's scratch.
+    assert deps.resident_basket is not None
+    assert deps.resident_basket.cell_id == config.spawn_config.cell_id
+    assert (tmp_path / "basket" / "basket.sqlite").is_file()
+    assert deps.royal_jelly is None  # A Cell reaches the Basket through the Queen.
+    # The Warden writes received and retained blobs itself, so it holds the store behind the
+    # resident view, and signs and verifies manifests with the keys its Queen link already has.
+    assert deps.basket_store is not None
+    assert deps.node_signer is config.signer and deps.node_signer_id == str(config.node_id)
+    assert deps.hive_verifier is config.verifier
 
 
 def test_a_cell_whose_table_binds_a_judge_gets_the_judge_rung_and_reviewer(

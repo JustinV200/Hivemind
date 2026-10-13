@@ -1,4 +1,4 @@
-"""Define GrantSlice, QuestionChannel, HoneyChannel and WorkerContext: what a role may use.
+"""Define GrantSlice, the channels and WorkerContext: what a role may use.
 
 `WorkerContext` is the one bundle `hivemind.workers.base.Worker.run` receives: its Cell, an open
 session on it, the model it is bound to, its own slice of the Warden's `ForageGrant`
@@ -19,6 +19,10 @@ bindings it may still fall back to), the one Worker's share of the `ForageGrant`
 the Honey Store, the Hive's knowledge base, which the Queen owns: `query` asks it a `HoneyQuery`
 and waits for the `HoneyResponse`, `deposit` sends Nectar (raw findings) as `NectarDeposit`
 chunks; both travel over the Worker's one link to its Warden, which relays them to the Queen.
+`ToolChannel` (roadmap step 9.7) is the same link used to ask the Hive for a tool that does not
+exist yet; `RetainSink` is the in-process seam a verified artefact goes through to the Warden's
+Basket deposit; and `comb_tools` / `package_source` are the Comb tools the Warden handed this
+Worker and where their package bytes come from.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). `WorkerContext` is constructed by `hivemind.wardens.spawn`
@@ -45,6 +49,8 @@ Key invariants:
       mutates either directly, only through `capping.propose`/`capping.run`.
     - `honey` is None unless a runtime wired a real channel: nothing a role or tool does may
       assume the Honey Store is reachable, and a tool offered only with it checks it first.
+    - `comb_tools`, `package_source`, `tools` and `retain_sink` are None unless the Warden or the
+      runtime wired them; `request_tool`, `retain` and the Comb tools are offered only with them.
     - `enforcer` is the one door a tool's own capability checks go through (`tool_invocation`,
       `session_outside_scratch`, `question_routing`), so every refusal is a `guard.denied` row;
       a tool never decides a capability with `capabilities.allows` alone.
@@ -66,7 +72,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -81,11 +87,25 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.supervision.capping import CappingGate, LeaseView
 from hivemind.workers.telemetry import TelemetryTracker
 from waggle.clock import Clock
-from waggle.ids import GrantId, WorkerId
+from waggle.ids import GrantId, WardenId, WorkerId
+from waggle.messages.control import ErrorMessage
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.supervision import Answer, Question
+from waggle.messages.tool.authoring import ToolPromoted, ToolRequest
 
-__all__ = ["GrantSlice", "HoneyChannel", "QuestionChannel", "WorkerContext"]
+if TYPE_CHECKING:
+    # Only for annotations: the Comb tool package imports this module back (build_registry, the
+    # runners), so a runtime import here would cycle.
+    from hivemind.workers.tools.comb import CombToolBundle, PackageSource, RetainDeposit
+
+__all__ = [
+    "GrantSlice",
+    "HoneyChannel",
+    "QuestionChannel",
+    "RetainSink",
+    "ToolChannel",
+    "WorkerContext",
+]
 
 
 class GrantSlice(BaseModel):
@@ -171,6 +191,56 @@ class HoneyChannel(Protocol):
         ...
 
 
+class ToolChannel(Protocol):
+    """Ask the Hive for a tool that does not exist yet, over this Worker's own link (roadmap 9.7).
+
+    Satisfied by `hivemind.workers.runtime.tools.MailboxToolChannel`, which sends a `ToolRequest`
+    through the Worker's mailbox to its Warden; the Warden relays it up to the Queen, who runs
+    the Royal Jelly Lab, and the answer comes back the same way. Nothing here reaches the Comb
+    Registry, and a promotion does not change this Worker's tools by itself: its Warden does, as
+    an intervention.
+    """
+
+    @property
+    def warden_id(self) -> WardenId:
+        """The Warden this link leads to: the `warden_id` a `ToolRequest` must name."""
+        ...
+
+    async def request(self, request: ToolRequest) -> ToolPromoted | ErrorMessage:
+        """Send `request` and wait, bounded, for the promotion that fulfils it or an error.
+
+        Args:
+            request: The tool wanted; its `tool_id` is what the eventual promotion is matched on.
+
+        Returns:
+            The `ToolPromoted` for that tool id, or the `ErrorMessage` that refused the request
+            (a timeout is answered as an error with a retryable code, never raised).
+
+        Raises:
+            waggle.errors.WaggleError: The link to the Warden is gone, so the request never left.
+        """
+        ...
+
+
+class RetainSink(Protocol):
+    """Receive a verified file the Worker wants kept: the Warden's deposit path, in process.
+
+    A Worker and its Warden share a process, so a file the Capping gate has verified travels as
+    a plain `RetainDeposit` value, not a Waggle message. The Warden deposits it into the Basket
+    with provenance (or ships it up from a Cell) and writes the Honey record that describes it;
+    the Worker never touches the Basket.
+    """
+
+    async def retain(self, deposit: RetainDeposit) -> None:
+        """Take a deposit whose file the gate verified against `deposit.sha256`.
+
+        Args:
+            deposit: The staged file's path in scratch, its description and its digest; the sink
+                re-checks the bytes against the digest before depositing them.
+        """
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class WorkerContext:
     """Everything a Worker's role may use; never a provider, a subprocess handle or a Cell's kind.
@@ -231,6 +301,15 @@ class WorkerContext:
             are offered only when it is set, and a checkpoint's Handoff is deposited through it.
             `hivemind.workers.runtime.WorkerRuntime` always sets its own; None (the default) is a
             context no runtime has wired, such as one a test builds by hand.
+        comb_tools: The Comb tools this Worker's Warden handed it (roadmap 9.7), or None: the one
+            mutable thing a Warden may change under a Worker (codingrules 8.5), read by
+            `build_registry` and by the bounded loop's version check.
+        package_source: Where those tools' package bytes come from (the resident Basket); the
+            tools are offered only when both this and `comb_tools` are set.
+        tools: This Worker's way to ask the Hive for a new tool; `request_tool` is offered only
+            when it is set. `WorkerRuntime` always sets its own.
+        retain_sink: The Warden's seam for depositing a verified artefact; `retain` is offered
+            only when it is set.
     """
 
     worker_id: WorkerId
@@ -257,3 +336,8 @@ class WorkerContext:
     honey: HoneyChannel | None = None
     scanner: ContentScanner = field(default_factory=default_content_scanner)
     resolver: Resolver = system_resolver
+    # Additive and defaulted (roadmap step 9.7): a WorkerContext built before them still builds.
+    comb_tools: CombToolBundle | None = None
+    package_source: PackageSource | None = None
+    tools: ToolChannel | None = None
+    retain_sink: RetainSink | None = None

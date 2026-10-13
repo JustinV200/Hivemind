@@ -10,8 +10,9 @@ can be read side by side; and the enumerated and ordered kinds carry their close
 from the enums they mirror (`ModelSlot`, `CombShieldLevel`, `MaskTactic`, `HoneyClearance`) or, for
 `exoskeleton`, from `EXOSKELETON_SCOPES` (ADR-0031's four peripherals, so a misspelt grant is
 refused rather than silently granting nothing). `PARSE_ORDER` is the longest-first order a string is
-read in, so `tool:request` and `tool:scope:cell` are their own families rather than tools named
-`request` or `scope:cell`, and `observe:honey:hive` is never read as `observe`.
+read in, so `tool:request`, `tool:quarantine_on_real` and `tool:scope:cell` are their own families
+rather than tools named `request`, `quarantine_on_real` or `scope:cell`, and `observe:honey:hive`
+is never read as `observe`.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read by `hivemind.guard.capabilities.
@@ -81,6 +82,9 @@ class CapabilityFamily(Enum):
     SPEND = "spend"  # Spending up to a USD ceiling.
     TOOL_REQUEST = "tool:request"  # Asking the Queen for a tool the Comb Registry lacks.
     TOOL_SCOPE = "tool:scope"  # Using tools the Comb Registry scopes to a Cell, not the Hive.
+    # Running a candidate tool's tests in a lease's scratch on a Real Cell, when the sandbox
+    # cannot exercise the target platform (roadmap step 9.3a, ADR-0047). Held by nobody by default.
+    TOOL_QUARANTINE_ON_REAL = "tool:quarantine_on_real"
     CELL_VIRTUAL = "cell:virtual"  # Being placed on a Virtual Cell (a VM or container).
     CELL_HIVE_STAND = "cell:hive_stand"  # Being placed on the Hive Stand, the Queen's machine.
     CELL_REAL = "cell:real"  # Being placed on one named Real Cell (a borrowed device).
@@ -136,6 +140,7 @@ FAMILIES_BY_KIND: Mapping[ScopeKind, frozenset[CapabilityFamily]] = MappingProxy
         ScopeKind.FLAG: frozenset(
             {
                 CapabilityFamily.TOOL_REQUEST,
+                CapabilityFamily.TOOL_QUARANTINE_ON_REAL,
                 CapabilityFamily.CELL_VIRTUAL,
                 CapabilityFamily.CELL_HIVE_STAND,
                 CapabilityFamily.HONEY_WRITE,

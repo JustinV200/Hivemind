@@ -1,7 +1,7 @@
 """Provide the Pheromone Trail: the Hive's append-only audit log, event model and Night Veil purge.
 
 Every state-changing action anywhere in the Hive leaves a `PheromoneEvent` here before the action
-counts as complete (codingrules section 12). `events` defines the fourteen event families and
+counts as complete (codingrules section 12). `events` defines the fifteen event families and
 the JSON codec; `trail` groups the `PheromoneTrail` protocol, its two implementations and
 live-tail follow behind its own face (codingrules 5.6: at most ten modules per directory);
 `retention` is the Night Veil boundary (a package: the skeleton, the Queen-side ephemeral segments,
@@ -29,11 +29,11 @@ See Also:
       modules and packages behind this package's public API.
 
 Public API:
-    - PheromoneEvent, LlmUsage and the fourteen event families (CellEvent, TaskEvent,
+    - PheromoneEvent, LlmUsage and the fifteen event families (CellEvent, TaskEvent,
       AlarmEvent, ForageEvent, MemoryEvent, QueenEvent, WardenEvent, ToolEvent, SwarmEvent,
-      CappingEvent, LlmEvent, WorkerEvent, GuardEvent, HoneyEvent), plus EVENT_FAMILIES,
-      event_class_for, parse_event, parse_event_json and the vocabulary/validation bounds:
-      KIND_PATTERN, ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS, MAX_ACTOR_CHARS,
+      CappingEvent, LlmEvent, WorkerEvent, GuardEvent, HoneyEvent, BasketEvent), plus
+      EVENT_FAMILIES, event_class_for, parse_event, parse_event_json and the vocabulary/validation
+      bounds: KIND_PATTERN, ACTOR_LITERALS, FORBIDDEN_PAYLOAD_KEYS, MAX_ACTOR_CHARS,
       MAX_PAYLOAD_STRING_CHARS, MAX_PAYLOAD_BYTES, MAX_PROVIDER_CHARS.
     - PheromoneTrail: the protocol every trail store implements. TrailQuery, TrailSegment,
       TRAIL_ORDER_KEY, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT: its query and segment shapes.
@@ -67,6 +67,7 @@ from hivemind.pheromone.events import (
     MAX_PAYLOAD_STRING_CHARS,
     MAX_PROVIDER_CHARS,
     AlarmEvent,
+    BasketEvent,
     CappingEvent,
     CellEvent,
     ForageEvent,
@@ -141,6 +142,7 @@ __all__ = [
     "SUBSYSTEM",
     "TRAIL_ORDER_KEY",
     "AlarmEvent",
+    "BasketEvent",
     "CappingEvent",
     "CellEvent",
     "DuplicateEventError",

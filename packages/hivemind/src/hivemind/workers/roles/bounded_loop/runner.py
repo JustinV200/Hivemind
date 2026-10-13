@@ -17,7 +17,10 @@ loop: `HandoffRequestedError` (this attempt's own telemetry crossed the handoff 
 a `claimed=False` outcome carrying a Handoff; `LoopStoppedError` (a tool, the Scout's
 `report_findings`, ended the loop itself with an already-built outcome) is returned with this
 attempt's own telemetry spend overlaid on it, after `_UsageTally` (the gate every call of the
-attempt goes through) records what the unfinished loop never got to sum.
+attempt goes through) records what the unfinished loop never got to sum. Roadmap step 9.7: a
+`hivemind.workers.tools.ToolsChangedError` (the Warden changed this Worker's Comb tools, as when a
+requested tool was promoted and handed over) restarts the tool loop from state with a rebuilt
+registry and a note naming the new tools, at most `MAX_TOOL_REBUILDS` times.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.roles.bounded_loop`. Called once
@@ -29,7 +32,9 @@ Fits into the Hive:
 Key invariants:
     - Never marks a task SUCCEEDED (codingrules 8.7): a `claimed=True` outcome says only that the
       role believes the work is done.
-    - Holds no conversation between attempts; a handoff carries what the next attempt needs.
+    - Holds no conversation between attempts; a handoff carries what the next attempt needs. A
+      tool rebuild restarts the loop from state, as a context overflow does, and keeps the same
+      executor, so its records (and the artifacts read from them) survive the restart.
     - A `ContextTooLongError` never crashes this attempt: it is caught and retried, with a shrunk
       budget, inside `run_with_overflow_retry`; only `ContextOverflowError` (after `MAX_OVERFLOWS`
       retries), `WorkerCancelledError` or a role bug ever escapes this function.
@@ -45,6 +50,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from hivemind.cell import HoneyClearance
 from hivemind.llm import (
     BoundModel,
     CallGate,
@@ -56,7 +62,14 @@ from hivemind.llm import (
     Usage,
     run_tool_loop,
 )
-from hivemind.memory import Handoff, TokenBudget, run_with_overflow_retry
+from hivemind.memory import (
+    Handoff,
+    MemoryContext,
+    Note,
+    TokenBudget,
+    add_note,
+    run_with_overflow_retry,
+)
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.roles.bounded_loop.executor import (
@@ -73,10 +86,16 @@ from hivemind.workers.roles.bounded_loop.prompt import (
     initial_budget,
 )
 from hivemind.workers.roles.bounded_loop.sources import RoleSources
-from hivemind.workers.tools import ToolInvocation, ToolRegistry
+from hivemind.workers.tools import ToolInvocation, ToolsChangedError
+from waggle.ids import new_event_id
 from waggle.messages.task import TaskAssign
 
-__all__ = ["run_bounded_loop"]
+# Roadmap step 9.7: how many times one attempt may restart its tool loop because the Warden changed
+# its Comb tools. Each restart is a promotion or a re-attenuation; a handful covers a task that
+# asks for a couple of tools, and the cap stops a Warden that keeps changing them from looping.
+MAX_TOOL_REBUILDS = 4
+
+__all__ = ["MAX_TOOL_REBUILDS", "run_bounded_loop"]
 
 
 @dataclass(slots=True)
@@ -105,7 +124,6 @@ class _Attempt:
     ctx: WorkerContext
     assignment: TaskAssign
     profile: RoleProfile
-    registry: ToolRegistry
     sources: RoleSources
     executor: LoopExecutor
     options: ToolLoopOptions
@@ -132,18 +150,12 @@ async def run_bounded_loop(
     """
     attempt = _build_attempt(ctx, assignment, resume_from, profile)
 
-    async def _episode(budget: TokenBudget) -> ToolLoopResult:
-        """Assemble this attempt's prompt at `budget` and run the tool loop once."""
-        return await _run_once(attempt, budget)
-
     try:
         # A ContextTooLongError here is caught and retried, with a shrunk budget, inside
-        # run_with_overflow_retry; only ContextOverflowError (after MAX_OVERFLOWS retries),
+        # run_with_overflow_retry; a ToolsChangedError restarts the loop with a rebuilt registry
+        # (_run_episodes); only ContextOverflowError (after MAX_OVERFLOWS retries),
         # HandoffRequestedError or LoopStoppedError ever escape this try (module docstring).
-        starting = initial_budget(ctx, profile.budget_fraction, profile.output_reserve_tokens)
-        result = await run_with_overflow_retry(
-            _episode, starting, ctx.trail, ctx.identity, ctx.clock
-        )
+        result = await _run_episodes(attempt)
     except HandoffRequestedError:
         # This attempt's own telemetry asked to checkpoint; hand back a Handoff instead of a
         # claim, so hivemind.workers.runtime.WorkerRuntime can reset and resume it.
@@ -155,7 +167,8 @@ async def run_bounded_loop(
         # never has to read ctx.telemetry itself (LoopStoppedError's own docstring).
         _record_usage(ctx, attempt.tally.usage)
         return stopped.outcome.model_copy(update={"spend_usd": ctx.telemetry.snapshot().spend})
-    _record_usage(ctx, result.usage)
+    # The tally, not `result.usage`: after a tool rebuild the final loop's usage is only its own.
+    _record_usage(ctx, attempt.tally.usage)
     artifacts = await collect_artifacts(ctx, attempt.executor.records)
     return build_claimed_outcome(assignment, result, artifacts)
 
@@ -175,7 +188,61 @@ def _build_attempt(
     )
     tally = _UsageTally(ctx.call_gate)  # Every call still goes through ctx.call_gate itself.
     options = ToolLoopOptions(max_rounds=profile.max_rounds, gate=tally, observer=observer)
-    return _Attempt(ctx, assignment, profile, registry, sources, executor, options, tally)
+    return _Attempt(ctx, assignment, profile, sources, executor, options, tally)
+
+
+async def _run_episodes(attempt: _Attempt) -> ToolLoopResult:
+    """Run the tool loop, restarting it from state when the Warden changes this Worker's tools.
+
+    A promotion (or a Warden's re-attenuation) changes `ctx.comb_tools` under a running attempt.
+    `LoopExecutor` notices and raises `ToolsChangedError`; the loop's conversation is gone, as it
+    is after a context overflow, and the attempt's memory is assembled from state each time anyway
+    (codingrules 8.9). So the registry is rebuilt, a note records which Comb tools are now offered
+    (hot state shows it to the model), and the loop starts again with the same starting budget.
+    """
+    ctx = attempt.ctx
+
+    async def _episode(budget: TokenBudget) -> ToolLoopResult:
+        """Assemble this attempt's prompt at `budget` and run the tool loop once."""
+        return await _run_once(attempt, budget)
+
+    starting = initial_budget(
+        ctx, attempt.profile.budget_fraction, attempt.profile.output_reserve_tokens
+    )
+    rebuilds = 0
+    while True:
+        try:
+            return await run_with_overflow_retry(
+                _episode, starting, ctx.trail, ctx.identity, ctx.clock
+            )
+        except ToolsChangedError:
+            rebuilds += 1
+            if rebuilds > MAX_TOOL_REBUILDS:
+                raise
+            # Built and swapped without an await between, so the executor's notion of the
+            # bundle version is exactly the one this registry was built from.
+            attempt.executor.use_registry(attempt.profile.build_tools(ctx))
+            await _note_new_tools(attempt)
+
+
+async def _note_new_tools(attempt: _Attempt) -> None:
+    """Write the note that tells the restarted episode which Comb tools it may now call."""
+    ctx = attempt.ctx
+    bundle = ctx.comb_tools
+    names = sorted(entry.name for entry in bundle.entries()) if bundle is not None else []
+    text = (
+        "Your tool set changed. The Comb tools you may call now: "
+        f"{', '.join(names) if names else 'none'}. They are in your tools list; call one by name."
+    )
+    note = Note(
+        id=new_event_id(ctx.clock),
+        author=str(ctx.worker_id),
+        text=text,
+        clearance=HoneyClearance.from_wire(attempt.assignment.clearance),
+        written_at=ctx.clock.now(),
+    )
+    # Local store write, milliseconds; the note is hot state the next prompt assembly reads.
+    await add_note(note, MemoryContext(store=ctx.memory, identity=ctx.identity, clock=ctx.clock))
 
 
 async def _run_once(attempt: _Attempt, budget: TokenBudget) -> ToolLoopResult:
@@ -183,7 +250,8 @@ async def _run_once(attempt: _Attempt, budget: TokenBudget) -> ToolLoopResult:
     prompt = await assemble_role_prompt(
         attempt.ctx, attempt.assignment, attempt.sources, budget, attempt.profile.principal_role
     )
-    tools = attempt.registry.definitions()
+    # Read from the executor on every run: a rebuilt registry replaces it between loops.
+    tools = attempt.executor.registry.definitions()
     request = build_request(attempt.ctx, prompt, attempt.assignment, tools, attempt.profile)
     return await run_tool_loop(attempt.ctx.bound, request, tools, attempt.executor, attempt.options)
 

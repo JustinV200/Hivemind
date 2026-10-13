@@ -216,3 +216,18 @@ ADRs that exist today, in numeric order:
   come from `[llm.floors]` and tempo only raises them; shortfalls become `llm.fallback` events and
   a `ForageRequest`; measured grades live in the ledger and override hand-set ones; offline mode is
   proven with a loopback server and a socket guard.
+- `0046-tool-spec-comb-registry-and-scopes.md`: a tool is a deterministic package named by its
+  sha256, kept as a Basket blob; the registry stores the hash and promotes only a passing report
+  whose digests match, at hive scope for the Queen alone or at cell scope for the owning Warden,
+  with no bypass; versions are immutable, retirement is a mark and a rollback needs no new
+  quarantine; a spec can never ask for more than its requester holds.
+- `0047-quarantine-comb-gates-and-sandbox.md`: the Comb runs inside a no-network sandbox Cell,
+  driven by that Cell's Warden over `tool.quarantine` and `tool.quarantine_report`, and a sandbox
+  stays the Queen's rather than becoming a `CellRequest` lease; six ordered gates with an audit hook
+  that blames the tool and not the session; a non-Ubuntu target runs its tests on a Real Cell under
+  `tool:quarantine_on_real` and needs the Queen's review at hive scope.
+- `0048-basket-inert-blobs-residency-and-transfer.md`: the Basket is a Layer 2 store of
+  content-addressed, signed blobs that grant nothing; Honey describes, the Comb permits, the Basket
+  stores; a bee finds a blob only through its Honey record; a clearance floor restated beside the
+  Honey Store's, a tainted blob never shipped, residency under a per-Cell ceiling, and a resumable
+  verified transfer through the Hive Stand as Waggle 1.12's `basket.*` messages.
