@@ -14,7 +14,10 @@ plus the chosen Cell's live Cell Wax, carried as `HoneyHit`s), its goal's capabi
 (PROTOCOL_MINOR 8, roadmap step 10.3: the ceiling a goal's submitter set on every task planned from
 it, so the Warden can attenuate its Worker's set to it and to the network scopes the task's needs
 name) and an optional Handoff (the document a bee writes before its context is reset) to resume
-from; ``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders on a task in flight. The
+from, referenced by ``resume_from`` and, when the receiving Warden cannot read the sender's memory
+store (a Warden migrating onto a colonized device, PROTOCOL_MINOR 13, roadmap phase 11), carried
+inline as a ``HandoffDocument``; ``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders
+on a task in flight. The
 reports that travel back up (``TaskProgress``, ``TaskResult``) live in
 ``waggle.messages.task.reports``, split out by responsibility so each file stays under the
 codingrules 5.1 size limit. ``WorkerRole`` names the
@@ -26,8 +29,9 @@ Fits into the Hive:
     connector), inside the waggle package. Registered by waggle.messages.registry, which maps
     each class to its kind; built by the Queen and every Warden and read by every Warden and
     Worker; calls into waggle.messages.base, waggle.messages.labels, waggle.messages.task.needs
-    and waggle.messages.task.recon (a task's Exoskeleton need, network scopes and Scout reports)
-    and waggle.messages.honey.hit (HoneyHit, the retrieval result the pre-check attaches) only.
+    and waggle.messages.task.recon (a task's Exoskeleton need, network scopes and Scout reports),
+    waggle.messages.task.handoff (the Handoff that can travel inline) and
+    waggle.messages.honey.hit (HoneyHit, the retrieval result the pre-check attaches) only.
 
 Key invariants:
     - No class here carries its kind string; the registry is the only place kinds live.
@@ -35,6 +39,9 @@ Key invariants:
     - Every rule the spec marks (validator) is a pydantic validator on the class; every rule it
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A task never resumes from a Handoff labelled above its own clearance (TaskAssign).
+    - A Handoff travels inline only with the reference it is stored under, and carries exactly
+      the label that reference advertises (TaskAssign), so the receiver files it where the
+      reference says and a bee never reads a document above the label it was shown.
     - A task is never handed Honey labelled above its own clearance (TaskAssign).
     - ``TaskAssign.capabilities`` of None and of ``()`` mean different things: None is "no goal
       ceiling travels" (the operator's own local submission, or a peer older than minor 8), an
@@ -44,6 +51,7 @@ See Also:
     - docs/waggle/spec.md section 8.2 for the normative fields, bounds and validators.
     - waggle.messages.task.reports for TaskProgress, TaskResult and the enums they report in.
     - waggle.messages.labels for Tempo, Postcondition, HandoffRef and HoneyClearance.
+    - waggle.messages.task.handoff for HandoffDocument, the Handoff that can travel inline.
     - waggle.messages.registry for the kinds these classes are registered under.
 """
 
@@ -65,6 +73,7 @@ from waggle.messages.base import (
 )
 from waggle.messages.honey.hit import HoneyHit
 from waggle.messages.labels import HandoffRef, HoneyClearance, PlannedLeaving, Postcondition, Tempo
+from waggle.messages.task.handoff import HandoffDocument
 from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES, ExoskeletonNeed, NetworkScope
 from waggle.messages.task.recon import MAX_RECON_REPORTS, ScoutReport
 
@@ -128,8 +137,9 @@ _Capability = Annotated[str, Field(min_length=1, max_length=MAX_CAPABILITY_CHARS
 class TaskAssign(WaggleMessage):
     """Hand a placed task to the Warden of its Cell, then to its Worker (task.assign, a request).
 
-    Carries the acceptance criteria, Tempo, clearance, grant and optional Handoff to resume from,
-    and (PROTOCOL_MINOR 8) the goal's capability set and the task's network scopes; the Warden
+    Carries the acceptance criteria, Tempo, clearance, grant and optional Handoff to resume from
+    (by reference, and inline when the receiver cannot read the sender's memory store), and
+    (PROTOCOL_MINOR 8) the goal's capability set and the task's network scopes; the Warden
     re-issues it to the Worker it spawns. A task reaches SUCCEEDED only after its Warden, never
     the Worker that did the work, has run the acceptance checks.
     """
@@ -220,6 +230,15 @@ class TaskAssign(WaggleMessage):
         description="The Handoff to resume from after a rebind, takeover, wake or reassignment; "
         "None for a fresh start. Its clearance never exceeds clearance."
     )
+    handoff: HandoffDocument | None = Field(
+        default=None,
+        description="The Handoff itself, for a receiver that cannot read the sender's memory "
+        "store (a Warden migrating onto a colonized device, or a task reassigned across nodes); "
+        "the receiver stores it under resume_from.event_id before it spawns the bee. Set only "
+        "with resume_from, and labelled exactly as resume_from is (validator). Never a tainted "
+        "Handoff. None by default, so an older peer's task.assign still validates "
+        "(PROTOCOL_MINOR 13).",
+    )
     reason: _Reason = Field(
         description="Why this task was placed here, on this role and slot, now."
     )
@@ -250,6 +269,24 @@ class TaskAssign(WaggleMessage):
             raise ValueError(
                 f"TaskAssign resume_from is labelled {self.resume_from.clearance.value}, above "
                 f"the task's clearance {self.clearance.value}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _inline_handoff_matches_its_reference(self) -> TaskAssign:
+        """Require an inline Handoff to travel with a reference carrying the same label."""
+        # The receiver files the document under resume_from.event_id, so without a reference it
+        # has nowhere to put it; and the label the reference advertises is what every check up
+        # the tree (and the clearance rule above) was run against, so a document labelled
+        # differently would slip past them. Equality, not a ceiling: the two must be one label.
+        if self.handoff is None:
+            return self
+        if self.resume_from is None:
+            raise ValueError("TaskAssign handoff is set only together with resume_from.")
+        if self.handoff.clearance is not self.resume_from.clearance:
+            raise ValueError(
+                f"TaskAssign handoff is labelled {self.handoff.clearance.value}, but "
+                f"resume_from advertises {self.resume_from.clearance.value}; they must match."
             )
         return self
 

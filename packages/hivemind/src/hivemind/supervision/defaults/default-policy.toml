@@ -131,6 +131,17 @@ kind = "SECURITY"
 min_attempts = 1
 action = "ESCALATE"
 
+# PATROL_ANOMALY (roadmap phase 11, ADR-0054): a watching Warden's Patrol (its scheduled read-only
+# review of an idle Cell's processes, resources, logs and file changes) found something a person
+# should see, such as a process hogging the CPU or a disk nearly full. Nothing about it can be
+# retried, respawned or rebound: no bee failed, and the Warden is only an observer of a device it
+# does not own. A Warden sends it to the Queen, who posts it to the human; as with SECURITY, a
+# fresh Alarm (attempts 0) gets `default`, which is ESCALATE too.
+[[rules]]
+kind = "PATROL_ANOMALY"
+min_attempts = 1
+action = "ESCALATE"
+
 # AUDIT_FAILED, CELL_UNREACHABLE, EXOSKELETON_FAILED and OTHER have no row here on purpose: each
 # is rare enough, or unnamed enough (OTHER), that a fixed playbook would be guessing (an
 # EXOSKELETON_FAILED usually means the task sits on a Cell that cannot equip it, which only a new

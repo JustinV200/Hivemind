@@ -1,4 +1,4 @@
-"""Every table keyed by PolicyAction or AlarmKind covers every member, and SECURITY always goes up.
+"""Every table keyed by PolicyAction or AlarmKind covers every member; SECURITY always goes up.
 
 `PolicyAction` is the Hive's own vocabulary, mirrored by no wire enum (ADR-0043), so nothing but a
 test notices a member some dispatch table forgot: that would surface as a `KeyError` in a tick,
@@ -7,7 +7,9 @@ without its rows fails here, for both tables that map one: the Warden's autopilo
 (`hivemind.wardens.autopilot.table`) and the Queen's (`hivemind.queen.autopilot.table`). The
 shipped escalation policy is walked the same way for every `AlarmKind`, and its SECURITY row
 (roadmap steps 10.6 and 10.6c) is pinned: a security Alarm is never retried, respawned or rebound
-at any level; a Warden sends it to the Queen, and she sends it on to the human.
+at any level; a Warden sends it to the Queen, and she sends it on to the human. So is its
+sibling PATROL_ANOMALY's (roadmap phase 11, ADR-0054): a Patrol's finding is escalated from the
+first attempt and posted to the human by the Queen.
 
 Fits into the Hive:
     Mirrors src/hivemind/supervision/policy.py (codingrules section 3), across the two tables that
@@ -142,5 +144,20 @@ def test_a_security_alarm_always_goes_up_never_retried_or_rebound() -> None:
         assert policy_decide(shipped, Alarm.from_wire(alarm)) is PolicyAction.ESCALATE
         view = SubBeeView(state=WorkerState.RUNNING, attempt=max(attempts, 1))
         assert warden_decide(_item(alarm), view, shipped) is WardenAction.ESCALATE
+        decided = queen_decide(_item(alarm), None, attempts, shipped, _LIMIT)
+        assert decided is QueenAction.ESCALATE_TO_HUMAN
+
+
+def test_a_patrol_anomaly_always_goes_up_to_the_queen_who_posts_it_to_the_human() -> None:
+    shipped = load_policy()
+
+    for attempts in _ATTEMPTS:
+        alarm = _alarm(WireAlarmKind.PATROL_ANOMALY, attempts)
+        # No bee failed and the Warden only observes the device, so nothing is retried, respawned
+        # or rebound: every level above the raiser escalates, and the Queen tells the human.
+        assert policy_decide(shipped, Alarm.from_wire(alarm)) is PolicyAction.ESCALATE
+        view = SubBeeView(state=WorkerState.RUNNING, attempt=max(attempts, 1))
+        assert warden_decide(_item(alarm), view, shipped) is WardenAction.ESCALATE
+        assert warden_decide(_item(alarm), None, shipped) is WardenAction.ESCALATE
         decided = queen_decide(_item(alarm), None, attempts, shipped, _LIMIT)
         assert decided is QueenAction.ESCALATE_TO_HUMAN

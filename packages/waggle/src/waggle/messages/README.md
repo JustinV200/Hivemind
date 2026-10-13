@@ -43,18 +43,30 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   `basket.chunk`, `basket.ack`, `basket.refuse`: a content-addressed blob offered, streamed in
   chunks of at most 256 KiB and acknowledged or refused with a stable code), and
   `tool/quarantine.py` adds `tool.quarantine`, `tool.quarantine_report` and `tool.retired`.
+- Waggle 1.13 (phase 11, the Swarm, ADR-0051 to ADR-0056), all additive: `session/files.py` adds
+  `session.delete_file` (`SessionDeleteFile`, with `SessionRequestKind.DELETE_FILE` for its exit)
+  and `session/process.py` adds `session.process` and `session.process_state` (start, stop and
+  query a background process, `ProcessAction`); `swarm/ladder.py` adds `swarm.node_update`,
+  `swarm.colonize` and `swarm.colonized` (move a device up the ladder and amend its terms) and
+  `swarm/watch.py` adds `swarm.observe` and `swarm.observation` (a Warden reads a device
+  read-only); `task/handoff.py` adds `HandoffDocument`, which `task.assign` carries in `handoff`
+  when the receiver cannot read the sender's memory store; `swarm/colonized.py`'s
+  `TrailSegmentSync` gains `segment_signature` with the helper `segment_signing_bytes`;
+  `cell.request` gains `scratch_quota_bytes`; `AlarmKind` gains `PATROL_ANOMALY`.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
-  3): `task/` (`assignment.py`, `reports.py`, `needs.py`, `recon.py`); `supervision/` (`oversight.py`, `telemetry.py`,
-  `alarms.py`, `questions.py`); `forage/` (`grants.py`, `values.py`, `capacity.py`,
-  `hosting.py`, `sources.py`); `cell/` (`status.py`, `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`,
-  `output.py`, `files.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
-  `call.py`, `quarantine.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `gui.py`, `verdict.py`); `swarm/`
-  (`enrolment.py`, `colonized.py`); `control/` (`protocol.py`, `hive.py`); `basket/` (`offer.py`, `chunk.py`). Enums that only one
-  family uses live in that family's package; every bound stays in the module that names it.
+  3): `task/` (`assignment.py`, `reports.py`, `needs.py`, `recon.py`, `handoff.py`);
+  `supervision/` (`oversight.py`, `telemetry.py`, `alarms.py`, `questions.py`); `forage/`
+  (`grants.py`, `values.py`, `capacity.py`, `hosting.py`, `sources.py`); `cell/` (`status.py`,
+  `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`, `output.py`,
+  `files.py`, `process.py`); `honey/` (`exchange.py`, `hit.py`); `tool/` (`authoring.py`,
+  `call.py`, `quarantine.py`, `json_text.py`); `capping/` (`proposals.py`, `action.py`, `gui.py`,
+  `verdict.py`); `swarm/` (`enrolment.py`, `colonized.py`, `ladder.py`, `watch.py`); `control/`
+  (`protocol.py`, `hive.py`); `basket/` (`offer.py`, `chunk.py`). Enums that only one family uses
+  live in that family's package; every bound stays in the module that names it.
 - `registry.py`: `MessageSpec` (kind, model, shape, replies_to), `MESSAGE_SPECS` for all
-  eighty-one kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
+  eighty-nine kinds in the spec's order, and the lookups `spec_for`, `model_for`, `kind_for`,
   `all_kinds`. Message classes never carry their own kind.
 
 Rules every family follows: every id field uses a base.py alias; every `reason` is bounded by

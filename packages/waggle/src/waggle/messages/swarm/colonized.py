@@ -11,7 +11,11 @@ own model server, which keeps working when disconnected) or an ordinary colonize
 the Warden answers with a ``NucPromoted``. When such a Warden reconnects after working offline, it
 ships its local segment of the Pheromone Trail (the append-only audit log, one logical log made of
 per-node segments) to the Queen in ``TrailSegmentSync`` chunks, which the Queen merges idempotently.
-Every bound is a named constant here; the number, not the name, is normative.
+From PROTOCOL_MINOR 13 (roadmap phase 11, ADR-0053) the final chunk of a Swarm node's segment also
+carries an Ed25519 signature by the node's own key over the segment's identity and digest, built
+from ``segment_signing_bytes``, because merging a segment writes into the Queen's audit log and
+the dedupe by ids and digest alone proves order, not authorship. Every bound is a named constant
+here; the number, not the name, is normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device connector),
@@ -27,6 +31,8 @@ Key invariants:
     - A model server is named by its manifest key only; its kind and address never cross the
       wire, so a Warden can only start what the operator's manifest already defines.
     - A trail chunk is at most MAX_CHUNK_BYTES and travels with offset and final (section 5).
+    - A segment signature rides only on the final chunk, the one that carries the digest it
+      signs, and segment_signing_bytes is the one definition of what it signs.
 
 See Also:
     - docs/waggle/spec.md section 8.10 for the normative fields, bounds and validators.
@@ -61,6 +67,13 @@ MAX_MODEL_ID_CHARS = 128  # A Forage map model id: a name and a tag, never a des
 MIN_EVENT_COUNT = 1  # A segment with no events would have nothing to merge.
 MIN_SEGMENT_FORMAT_VERSION = 1  # Export formats are numbered from 1; 0 would mean "unknown".
 MIN_SEGMENT_BYTES = 1  # An export of a non-empty segment is never empty.
+# A raw 64-byte Ed25519 signature as standard padded base64: 86 alphabet characters and "==",
+# the same 88-character form an envelope's own signature takes (spec section 6).
+SEGMENT_SIGNATURE_PATTERN = r"^[A-Za-z0-9+/]{86}==$"
+# The first line of the signed bytes: a domain tag naming this one use of the node key, so a
+# signature made for a trail segment can never verify as anything else the key signs (an
+# envelope's canonical JSON starts with "{", so the two byte strings cannot collide).
+SEGMENT_SIGNING_DOMAIN = "waggle-trail-segment-v1"
 
 __all__ = [
     "MAX_MODELS",
@@ -69,9 +82,12 @@ __all__ = [
     "MIN_EVENT_COUNT",
     "MIN_SEGMENT_BYTES",
     "MIN_SEGMENT_FORMAT_VERSION",
+    "SEGMENT_SIGNATURE_PATTERN",
+    "SEGMENT_SIGNING_DOMAIN",
     "NucPromote",
     "NucPromoted",
     "TrailSegmentSync",
+    "segment_signing_bytes",
 ]
 
 # The success outcome each action can report; FAILED may answer either.
@@ -195,7 +211,9 @@ class TrailSegmentSync(WaggleMessage):
 
     The Queen merges the segment idempotently on reconnection; the bytes are the trail's own
     export format, opaque to Waggle. The Queen dedupes by the envelope node_id, first_event_id,
-    last_event_id and sha256 together.
+    last_event_id and sha256 together. The final chunk of a Swarm node's segment carries the
+    node's signature over those and the event count (segment_signature); a segment from a Swarm
+    node without a verifying one is refused by the receiver (a receiver rule, not the model's).
     """
 
     node_id: NodeIdField = Field(
@@ -229,6 +247,14 @@ class TrailSegmentSync(WaggleMessage):
     sha256: Annotated[str, Field(pattern=SHA256_PATTERN)] | None = Field(
         description="Digest of the whole export; required when final, None otherwise."
     )
+    segment_signature: Annotated[str, Field(pattern=SEGMENT_SIGNATURE_PATTERN)] | None = Field(
+        default=None,
+        description="Padded base64 Ed25519 signature by the node's key over "
+        "segment_signing_bytes(node_id, first_event_id, last_event_id, event_count, sha256); "
+        "final chunk only (validator). A Swarm node's segment without one that verifies is "
+        "refused (receiver rule). None by default, so an older peer's chunk still validates "
+        "(PROTOCOL_MINOR 13).",
+    )
 
     @model_validator(mode="after")
     def _segment_ends_after_it_starts(self) -> TrailSegmentSync:
@@ -253,3 +279,43 @@ class TrailSegmentSync(WaggleMessage):
                 f"{self.final} with sha256 {self.sha256}."
             )
         return self
+
+    @model_validator(mode="after")
+    def _signature_only_on_the_final_chunk(self) -> TrailSegmentSync:
+        """Forbid a segment signature on any chunk but the last."""
+        # The signature covers the whole export's digest, which only the final chunk carries; on
+        # an earlier chunk it would sign a digest the receiver does not yet have and could not
+        # check until the end. Optional on the final chunk: a Virtual Cell's Warden has no
+        # registered node key to sign with, and the receiver rule decides who must.
+        if self.segment_signature is not None and not self.final:
+            raise ValueError(
+                "TrailSegmentSync segment_signature is allowed only on the final chunk."
+            )
+        return self
+
+
+def segment_signing_bytes(
+    node_id: str, first_event_id: str, last_event_id: str, event_count: int, sha256: str
+) -> bytes:
+    """Return the exact bytes a node signs to vouch for one trail segment.
+
+    The one definition of what ``TrailSegmentSync.segment_signature`` covers, so the Warden that
+    signs and the Queen that verifies cannot disagree: the UTF-8 of the domain tag
+    ``SEGMENT_SIGNING_DOMAIN``, a newline, and the five identifying fields joined by newlines.
+
+    Args:
+        node_id: The node whose segment it is (``TrailSegmentSync.node_id``).
+        first_event_id: The segment's first event id.
+        last_event_id: The segment's last event id.
+        event_count: Events in the whole segment, written as decimal digits.
+        sha256: Lowercase hex digest of the whole export.
+
+    Returns:
+        The bytes to sign or to verify against. No field can contain a newline (each is an id, a
+        decimal number or hex), so the join cannot be made ambiguous.
+    """
+    # A newline between the fields and a versioned domain tag in front: the tag keeps this
+    # signature from being replayed as any other the node key makes, and its "-v1" lets the
+    # format change later without an old signature ever passing for a new one.
+    body = "\n".join((node_id, first_event_id, last_event_id, str(event_count), sha256))
+    return f"{SEGMENT_SIGNING_DOMAIN}\n{body}".encode()

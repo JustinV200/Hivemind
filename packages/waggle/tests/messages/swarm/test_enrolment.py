@@ -1,20 +1,19 @@
-"""Tests for the swarm family: EXAMPLES of all six classes, and waggle.messages.swarm.
+"""Tests for the swarm family: EXAMPLES of all eleven classes, and waggle.messages.swarm.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Holds EXAMPLES, one valid instance of every
-    swarm class across the family's two modules, which the registry step later loads by file
+    swarm class across the family's four modules, which the registry step later loads by file
     path to seed its per-family checks; pins for every class construction, the JSON round trip
     (bytes included), the rejection of an extra field and the shared reason bound; then the
     three enums, NodeKey and every rule spec section 8.10 names for EnrolRequest, EnrolAccept
-    and DeviceHeartbeat. The other three classes' own rules are pinned in
-    test_colonized.py.
+    and DeviceHeartbeat. The other eight classes' own rules are pinned in test_colonized.py,
+    test_ladder.py and test_watch.py.
 
 Key invariants:
-    - EXAMPLES holds exactly one instance of each of the six swarm classes.
+    - EXAMPLES holds exactly one instance of each of the eleven swarm classes.
 
 See Also:
-    - waggle.messages.swarm.enrolment and waggle.messages.swarm.colonized for the modules under
-      test.
+    - waggle.messages.swarm.enrolment, colonized, ladder and watch for the modules under test.
     - docs/waggle/spec.md section 8.10 for the fields, bounds and validators pinned here.
 """
 
@@ -48,11 +47,30 @@ from waggle.messages.swarm.enrolment import (
     NucOutcome,
     RuntimeLevel,
 )
+from waggle.messages.swarm.ladder import (
+    Colonize,
+    ColonizeAction,
+    Colonized,
+    ColonizeOutcome,
+    NodeUpdate,
+)
+from waggle.messages.swarm.watch import (
+    FileChange,
+    FileChangeKind,
+    LogLine,
+    NetworkCounter,
+    Observation,
+    ObservationKind,
+    Observe,
+    ProcessSample,
+    ResourceSample,
+)
 
 CLOCK = FakeClock()
 NOW = CLOCK.now()
 LATER = NOW + timedelta(hours=1)
 KEY_HEX = "ab" * 32  # 32 bytes of public key as 64 lowercase hex characters.
+SIGNATURE = "Ab" * 43 + "=="  # 64 signature bytes as 88 characters of padded base64.
 DIGEST = "0123456789abcdef" * 4  # 32 bytes of digest as 64 lowercase hex characters.
 INVITE_TOKEN = "invite-0123456789abcdef0123456789"  # noqa: S105  # A fixture, not a credential.
 DEVICE_ID = new_id(IdKind.DEVICE, CLOCK)
@@ -95,6 +113,11 @@ SWARM_CLASSES: tuple[type[WaggleMessage], ...] = (
     NucPromote,
     NucPromoted,
     TrailSegmentSync,
+    NodeUpdate,
+    Colonize,
+    Colonized,
+    Observe,
+    Observation,
 )
 
 
@@ -181,6 +204,71 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         total_bytes=3,
         final=True,
         sha256=DIGEST,
+        segment_signature=SIGNATURE,
+    ),
+    NodeUpdate(
+        device_id=DEVICE_ID,
+        cell_id=CELL_ID,
+        warden_id=WARDEN_ID,
+        level=RuntimeLevel.COLONIZED,
+        access_level=AccessLevel.SCRATCH,
+        comb_shield=CombShieldLevel.PROPOLIS,
+        granted_capabilities=("exec:*", "fs:read:**"),
+        offline_limit_s=600.0,
+        heartbeat_interval_s=30.0,
+        reason="The operator raised the tier to PROPOLIS.",
+    ),
+    Colonize(
+        cell_id=CELL_ID,
+        device_id=DEVICE_ID,
+        action=ColonizeAction.START,
+        warden_id=WARDEN_ID,
+        runtime_version=None,
+        warden_url="wss://hive.example.org:8720/",
+        deadline_s=60.0,
+        reason="The Hive Stand needs relief and the device has room for a Warden.",
+    ),
+    Colonized(
+        cell_id=CELL_ID,
+        device_id=DEVICE_ID,
+        action=ColonizeAction.START,
+        outcome=ColonizeOutcome.STARTED,
+        level=RuntimeLevel.COLONIZED,
+        runtime_version="0.4.2",
+        warden_pid=4242,
+        reason="The Warden is running and dialled the swarm listener.",
+    ),
+    Observe(
+        device_id=DEVICE_ID,
+        kinds=(ObservationKind.PROCESS_LIST, ObservationKind.RESOURCE_USE, ObservationKind.LOGS),
+        roots=("/var/log",),
+        since_at=None,
+        max_items=100,
+        reason="A scheduled sample of an idle device.",
+    ),
+    Observation(
+        device_id=DEVICE_ID,
+        observed_at=NOW,
+        processes=(
+            ProcessSample(pid=812, name="firefox", cpu_share=0.31, rss_bytes=GIB, started_at=NOW),
+        ),
+        resources=ResourceSample(
+            cpu_load=0.4,
+            memory_bytes=32 * GIB,
+            memory_free_bytes=16 * GIB,
+            disk_bytes=512 * GIB,
+            disk_free_bytes=100 * GIB,
+            uptime_s=86_400.0,
+            network=(NetworkCounter(interface="eth0", rx_bytes=GIB, tx_bytes=GIB // 4),),
+        ),
+        log_lines=(LogLine(path="/var/log/syslog", line="Oct 13 12:00:00 laptop kernel: ok"),),
+        file_changes=(
+            FileChange(
+                path="/var/log/syslog", change=FileChangeKind.MODIFIED, at=NOW, size_bytes=4_096
+            ),
+        ),
+        is_truncated=False,
+        reason="Sampled the process list, resources and logs; no file changes were asked for.",
     ),
 )
 
@@ -222,7 +310,21 @@ def test_swarm_message_rejects_an_extra_field_and_a_foreign_id(example: WaggleMe
 
 
 @pytest.mark.parametrize(
-    "example", [_example(EnrolAccept), _example(NucPromote), _example(NucPromoted)]
+    "example",
+    [
+        _example(message_type)
+        for message_type in (
+            EnrolAccept,
+            NucPromote,
+            NucPromoted,
+            NodeUpdate,
+            Colonize,
+            Colonized,
+            Observe,
+            Observation,
+        )
+    ],
+    ids=lambda example: type(example).__name__,
 )
 def test_reason_is_bounded_by_the_shared_limit(example: WaggleMessage) -> None:
     assert _rebuild(example, reason="x" * MAX_REASON_CHARS)

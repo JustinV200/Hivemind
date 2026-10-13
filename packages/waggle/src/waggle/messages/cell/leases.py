@@ -6,7 +6,8 @@ a task and left exactly as found. A lease is one Warden's (the always-on supervi
 tenancy on a Cell, with a scratch directory and the processes it started, and the four messages here
 are its life: ``CellRequest`` asks for a Cell (a Warden states task needs and the Queen, the central
 orchestrator, places; or the Queen names a Real Cell and asks its gateway or Warden to open a lease
-for a holder), ``LeaseOpened`` answers it, ``CellTeardownRequest`` asks to release a lease or retire
+for a holder, naming the scratch quota the holder's ceilings allow it, PROTOCOL_MINOR 13),
+``LeaseOpened`` answers it, ``CellTeardownRequest`` asks to release a lease or retire
 a Virtual Cell, gracefully or immediately, and ``LeaseReleased`` answers that, saying whether the
 device was left as found. The Cell's own half of the family (cell.ready, cell.heartbeat) and the
 enums and value models these messages share live in ``waggle.messages.cell.status``, and the Cell
@@ -56,10 +57,14 @@ from waggle.messages.labels import AccessLevel, CombShieldLevel, Urgency
 MIN_SCRATCH_ROOT_CHARS = 1  # A lease always has a scratch directory; an empty path names none.
 MAX_ALLOWED_PATHS = 64  # Paths outside scratch a lease may touch; more means scratch is misplaced.
 MAX_RESIDUAL_PATHS = 64  # Paths that could not be restored, at most the allowed paths plus scratch.
+MIN_SCRATCH_QUOTA_BYTES = (
+    0  # 0 is a quota that allows no scratch bytes; a negative one is no quota.
+)
 
 __all__ = [
     "MAX_ALLOWED_PATHS",
     "MAX_RESIDUAL_PATHS",
+    "MIN_SCRATCH_QUOTA_BYTES",
     "MIN_SCRATCH_ROOT_CHARS",
     "CellRequest",
     "CellTeardownRequest",
@@ -143,6 +148,13 @@ class CellRequest(WaggleMessage):
     )
     lifetime_s: Annotated[float, Field(gt=0)] | None = Field(
         description="Expected tenancy length, in seconds; None means until released."
+    )
+    scratch_quota_bytes: Annotated[int, Field(ge=MIN_SCRATCH_QUOTA_BYTES)] | None = Field(
+        default=None,
+        description="The lease's scratch quota in bytes, from the holder's Ceilings "
+        "(scratch_disk_bytes_per_lease), which the device's packet enforces on the lease's "
+        "scratch directory; None leaves the packet's own default. PROTOCOL_MINOR 13, so an "
+        "older peer's cell.request still validates.",
     )
     reason: _Reason = Field(description="Why the Cell is needed.")
 

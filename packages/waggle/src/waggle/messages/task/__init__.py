@@ -5,8 +5,9 @@ is one placed unit of work that the Queen (the central orchestrator) hands to a 
 always-on supervisor of one Cell, a unit of compute) and the Warden to a Worker (the bee that does
 the work). The family is split by direction: ``assignment`` carries the downward orders (assign,
 then cancel, pause or resume) and ``reports`` the upward events (progress on an attempt and the
-result that closes it); ``needs`` (the Exoskeleton a task needs, protocol 1.6) and ``recon`` (a
-Scout's report, protocol 1.6) are the value models both directions carry. This package is the
+result that closes it); ``needs`` (the Exoskeleton a task needs, protocol 1.6), ``recon`` (a
+Scout's report, protocol 1.6) and ``handoff`` (a Handoff carried inline, protocol 1.13) are the
+value models both directions carry. This package is the
 family's face: a caller imports any of its messages, enums or value models from here without
 knowing which module defines them. The bounds each module names stay in that module, because the
 spec makes the number normative, not the name.
@@ -24,14 +25,15 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.2 for the family's normative fields and rules.
-    - waggle.messages.task.assignment, waggle.messages.task.reports, waggle.messages.task.needs
-      and waggle.messages.task.recon for the definitions.
+    - waggle.messages.task.assignment, waggle.messages.task.reports, waggle.messages.task.needs,
+      waggle.messages.task.recon and waggle.messages.task.handoff for the definitions.
 
 Public API:
     - Assignment (assignment): TaskAssign, TaskCancel, TaskPause, TaskResume, WorkerRole.
     - Reports (reports): ArtifactRef, TaskOutcome, TaskProgress, TaskResult, TaskStage.
     - Needs (needs): ExoskeletonNeed, NetworkScope.
     - Recon (recon): ScoutReport, SCOUT_REPORT_FILE.
+    - Handoff (handoff): HandoffDecision, HandoffDocument.
 """
 
 from waggle.messages.task.assignment import (
@@ -41,6 +43,7 @@ from waggle.messages.task.assignment import (
     TaskResume,
     WorkerRole,
 )
+from waggle.messages.task.handoff import HandoffDecision, HandoffDocument
 from waggle.messages.task.needs import ExoskeletonNeed, NetworkScope
 from waggle.messages.task.recon import SCOUT_REPORT_FILE, ScoutReport
 from waggle.messages.task.reports import (
@@ -55,6 +58,8 @@ __all__ = [
     "SCOUT_REPORT_FILE",
     "ArtifactRef",
     "ExoskeletonNeed",
+    "HandoffDecision",
+    "HandoffDocument",
     "NetworkScope",
     "ScoutReport",
     "TaskAssign",

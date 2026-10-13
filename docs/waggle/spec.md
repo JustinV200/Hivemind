@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.12`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.13`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -21,7 +21,7 @@ This specification covers:
 - the envelope every message travels in (section 2) and the three message shapes (section 3);
 - how the protocol is versioned (section 4), framed and bounded (section 5) and signed (section 6);
 - the error message and its stable code table (section 7);
-- the complete message catalogue, eleven families and eighty-one kinds (section 8);
+- the complete message catalogue, eleven families and eighty-nine kinds (section 8);
 - the transports (section 9), the offline outbox (section 10) and conformance (section 11);
 - the design questions the catalogue settled and why (section 12).
 
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.12"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.13"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.12"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 12` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.13"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 13` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -129,12 +129,14 @@ Registered correlations for events (the `replies_to` column of the catalogue):
 Every other event has no registered antecedent and normally travels with `correlation_id` null;
 the payload carries the identity that links it (`task_id`, `alarm_id`, `lease_id`, `grant_id`).
 
-Session rule: every session request (`session.open`, `session.exec`, `session.get_file`, and a
-`session.put_file` transfer, whose identity is its `transfer_id`, the first chunk's envelope id)
-ends in exactly one `session.exit` correlated to it or one `control.error`; `session.output`
-chunks may precede that terminal message and never follow it. A non-final `session.put_file`
-chunk draws no answer unless it fails. `session.stdin` carries the exec's id in its payload and
-sets `correlation_id` to it.
+Session rule: every session request (`session.open`, `session.exec`, `session.get_file`,
+`session.delete_file`, and a `session.put_file` transfer, whose identity is its `transfer_id`, the
+first chunk's envelope id) ends in exactly one `session.exit` correlated to it or one
+`control.error`; `session.output` chunks may precede that terminal message and never follow it.
+A non-final `session.put_file` chunk draws no answer unless it fails. `session.stdin` carries the
+exec's id in its payload and sets `correlation_id` to it. `session.process` is the one session
+request that ends in no `session.exit`: its single answer is a `session.process_state` or a
+`control.error`.
 
 Relaying: when a message crosses more than one hop (`Queen -> Warden -> Worker`), each hop is a
 fresh envelope with its own `id`, `sender`, `recipient` and `node_id`; the relaying bee re-wraps
@@ -146,9 +148,10 @@ First-hop identity (receiver rule): a payload field that names the sender (`prop
 `asked_by`, `device_id`, `warden_id`, `worker_id`, `requester`, `origin` and `holder` on the
 hop that creates the message) must equal the envelope `sender`; a relaying bee preserves it.
 Kinds only the Queen sends (`forage.grant_issued`, `forage.grant_revoked`,
-`forage.hosting_decided`, `forage.ceilings_set`, `forage.plan_written`, `forage.source_evict`, `swarm.nuc_promote`,
-`control.cluster`, `control.wake`, `control.shutdown`, `control.mask_override` and
-`control.queen_moved`) are accepted only from a `hive` sender, and a receiver drops a frame
+`forage.hosting_decided`, `forage.ceilings_set`, `forage.plan_written`, `forage.source_evict`,
+`swarm.nuc_promote`, `swarm.node_update`, `swarm.colonize`, `control.cluster`, `control.wake`,
+`control.shutdown`, `control.mask_override` and `control.queen_moved`) are accepted only from a
+`hive` sender, and a receiver drops a frame
 whose `recipient` is not its own address or one it relays for. The guard (the policy engine,
 phase 10) and the Pollen Packet (phase 11) enforce these; they are listed here so the rules
 have one home.
@@ -241,6 +244,23 @@ validates every message a newer one sends it, as long as the sender honours the 
   when the source goes), so she enters it in her Forage map and seat ledger; the Queen may order
   `source_evict` only to reclaim seats she exported. All three are new kinds, so a peer below
   minor 11 must not be sent them (section 4's rule).
+- **1.13** (all additive, roadmap phase 11, ADR-0051 to ADR-0056):
+  - Device control (section 8.6): `session.delete_file`, with `SessionRequestKind.DELETE_FILE` for
+    the `session.exit` that ends it, and `session.process` with its reply `session.process_state`,
+    which start, stop or query a background process that outlives the request that started it.
+  - The Swarm ladder and watch mode (section 8.10): `swarm.node_update` (the Queen amends an
+    enrolled device's rung, access level, Comb Shield tier, capabilities and limits),
+    `swarm.colonize` and its reply `swarm.colonized` (prepare, start or withdraw the Warden on a
+    device), and `swarm.observe` with its reply `swarm.observation` (a Warden reads a device
+    read-only). `swarm.node_update` and `swarm.colonize` are Queen-only (section 3).
+  - `TaskAssign.handoff` (section 8.2) with the value models `HandoffDocument` and
+    `HandoffDecision`: the Handoff itself, for a receiver that cannot read the sender's memory
+    store (a Warden migrating onto a device, a task reassigned across nodes).
+  - `TrailSegmentSync.segment_signature` (section 8.10), with the helper `segment_signing_bytes`:
+    a Swarm node's signature over the identity and digest of its offline trail segment.
+  - `CellRequest.scratch_quota_bytes` (section 8.5) and `AlarmKind.PATROL_ANOMALY` (section 8.3).
+
+  A sender uses none of these toward a peer that has not advertised minor 13 (section 4's rule).
 
 ## 5. Wire format and size limit
 
@@ -425,9 +445,10 @@ data), Honey and Nectar (distilled and raw knowledge), a Handoff (the document a
 its context is reset), Clustering (pause and preserve while a model provider is down), a Pheromone
 Mask (a short-lived write-or-move-like-a-human tactic), Cell Wax (a Queen-written caution about
 one Cell), the Landing Board (the Entrance's HTTP contract), the flight recorder (the
-Exoskeleton's record of GUI actions), the Forage map (every source that can serve a model), and a
+Exoskeleton's record of GUI actions), the Forage map (every source that can serve a model), a
 checker (the Warden's own check runner, a judge on its own slot, or a human, reporting through
-the Warden).
+the Warden), and a device's level (which of three rungs of the Swarm ladder it is on: only its
+Pollen Packet, a Warden and sub-bees on it too, or a model server of its own as well).
 
 | Kind | Class | Shape | Replies to | Direction | Summary |
 |---|---|---|---|---|---|
@@ -478,6 +499,9 @@ the Warden).
 | `session.put_file` | `SessionPutFile` | event | none | Warden -> Pollen Packet | Write one chunk of a file onto the device. |
 | `session.get_file` | `SessionGetFile` | request | none | Warden -> Pollen Packet | Read a file from the device. |
 | `session.close` | `SessionClose` | event | none | Warden -> Pollen Packet | Close the lease's session. |
+| `session.delete_file` | `SessionDeleteFile` | request | none | Warden -> Pollen Packet | Delete one file on the device. |
+| `session.process` | `SessionProcess` | request | none | Warden -> Pollen Packet | Start, stop or query one background process. |
+| `session.process_state` | `SessionProcessState` | reply | `session.process` | Pollen Packet -> Warden | Report a background process's pid and whether it runs. |
 | `honey.nectar_deposit` | `NectarDeposit` | event | none | Worker or Warden -> Queen | Deposit one chunk of raw Nectar. |
 | `honey.query` | `HoneyQuery` | request | none | any bee -> Queen | Search Honey within scopes and a budget. |
 | `honey.response` | `HoneyResponse` | reply | `honey.query` | Queen -> any bee | Return the hits that survived filtering. |
@@ -499,6 +523,11 @@ the Warden).
 | `swarm.nuc_promote` | `NucPromote` | request | none | Queen -> Warden | Start or stop a local model server. |
 | `swarm.nuc_promoted` | `NucPromoted` | reply | `swarm.nuc_promote` | Warden -> Queen | Report the new runtime level and models. |
 | `swarm.trail_segment_sync` | `TrailSegmentSync` | event | none | Warden -> Queen | Ship one chunk of an offline trail segment. |
+| `swarm.node_update` | `NodeUpdate` | event | none | Queen -> Pollen Packet | Amend an enrolled device's level, access, tier and limits. |
+| `swarm.colonize` | `Colonize` | request | none | Queen -> Pollen Packet | Order one step of putting a Warden on the device. |
+| `swarm.colonized` | `Colonized` | reply | `swarm.colonize` | Pollen Packet -> Queen | Report how a colonization step ended. |
+| `swarm.observe` | `Observe` | request | none | Warden -> Pollen Packet | Ask a device what it looks like, read-only. |
+| `swarm.observation` | `Observation` | reply | `swarm.observe` | Pollen Packet -> Warden | Return the device's processes, resource use, logs and file changes. |
 | `basket.offer` | `BasketOffer` | request | none | Queen -> Warden, Warden -> Queen | Offer a blob by digest, with the claims a receiver checks. |
 | `basket.chunk` | `BasketChunk` | request | none | Queen -> Warden, Warden -> Queen | Carry one slice of an accepted blob, ordered by offset. |
 | `basket.ack` | `BasketAck` | reply | `basket.chunk` | Warden -> Queen, Queen -> Warden | Acknowledge an offer or a chunk with the bytes held so far. |
@@ -645,6 +674,25 @@ Family enums and value models:
     (`tuple[str, ...]`): max 8 items each. Every item min 1, max 500 chars.
   - A Scout writes its report as JSON to `scout-report.json` (`SCOUT_REPORT_FILE`) in its lease's
     scratch; the planner makes `FILE_EXISTS` on that path a Scout task's acceptance.
+- `HandoffDocument` (`PROTOCOL_MINOR` 13, `messages/task/handoff.py`): a Handoff as it crosses
+  Waggle, the wire form of hivemind's `Handoff` field for field with the same bounds, minus the
+  taint label (a tainted Handoff is one nobody may resume from, so it never travels). Every field
+  but `task_id` is mandatory, so a bee resuming from it never has to guess what an absent field
+  meant. A test in hivemind keeps the two in step.
+  - `goal` (`str`): what it is working toward. Min 1, max 2000.
+  - `progress` (`str`): what has been done so far. Min 1, max 4000.
+  - `decisions` (`tuple[HandoffDecision, ...]`): decisions made so far, each with its reason. Max
+    64.
+  - `tried_and_failed`, `constraints`, `open_threads`, `next_steps`, `do_not_redo`,
+    `pinned_facts` (`tuple[str, ...]`): approaches that did not work, constraints discovered,
+    loose ends, what the resuming bee does next, what must not be repeated, and facts copied
+    verbatim from a pin and never summarised. Max 64 items each, every item max 500.
+  - `notes` (`str`): freeform notes. Max 2000.
+  - `clearance` (`HoneyClearance`): the document's data-sensitivity label.
+  - `written_by` (`str`): the bee id or role that wrote it. Max 128.
+  - `task_id` (`TaskId | None`): the task it concerns, if any. Default None.
+- `HandoffDecision` (`PROTOCOL_MINOR` 13): one decision with its reason. `what` (`str`, min 1,
+  max 500) and `why` (`str`, min 1, max 500).
 
 #### TaskAssign
 
@@ -699,6 +747,15 @@ Cell, which re-issues it to the Worker it spawns.
 - `resume_from` (`HandoffRef | None`): the Handoff to resume from after a rebind, takeover, wake
   or reassignment; None for a fresh start. Its `clearance` must not exceed `clearance`
   (validator).
+- `handoff` (`HandoffDocument | None`, `PROTOCOL_MINOR` 13): the Handoff itself, for a receiver
+  that may not hold it: a Warden migrating onto a colonized device cannot read the Hive Stand's
+  memory store, and a task reassigned across nodes finds the sender's store out of reach. The
+  receiver stores it under `resume_from.event_id` before it spawns the bee. Set only with
+  `resume_from`, and `handoff.clearance` must equal `resume_from.clearance` (validators), so the
+  label every check ran against is the label of the document. A tainted Handoff never travels.
+  A frame that would exceed `MAX_FRAME_BYTES` with it raises `waggle.codec.too_large` at the
+  sender, which falls back to a fresh start rather than send a partial document. Defaults to
+  None, so an envelope from before this field existed still validates.
 - `reason` (`str`): why this task was placed here, on this role and slot, now.
 
 #### TaskProgress
@@ -807,8 +864,11 @@ Family enums and value models:
   could not equip the Cell with the Exoskeleton its task needs, or a lease-started peripheral
   process would not stop; added in minor 6, ADR-0031), `SECURITY` (a security event, such as a
   bee its Warden quarantined; it always goes up to the Queen and on to the human, never retried
-  or rebound; PROTOCOL_MINOR 9, roadmap step 10.6), `OTHER`. The closed set the
-  escalation policy keys on; `OTHER` carries anything new until a minor bump names it.
+  or rebound; PROTOCOL_MINOR 9, roadmap step 10.6), `PATROL_ANOMALY` (a watching Warden's Patrol,
+  its scheduled read-only review of an idle Cell, found something worth a human's eyes; it
+  escalates to the Queen, who posts it to the human; PROTOCOL_MINOR 13, roadmap phase 11,
+  ADR-0054), `OTHER`. The closed set the escalation policy keys on; `OTHER` carries anything new
+  until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:
     the bee concerned, which may differ from `origin` when a Warden raises about a sub-bee),
@@ -1295,6 +1355,11 @@ correlated `LeaseOpened` or a `control.error`.
   it.
 - `lifetime_s` (`float | None`): expected tenancy length; None means until released. Greater
   than 0 when set.
+- `scratch_quota_bytes` (`int | None`, `PROTOCOL_MINOR` 13): the lease's scratch quota in bytes,
+  taken from the holder's `Ceilings.scratch_disk_bytes_per_lease`, which the device's packet
+  enforces on the lease's scratch directory; None leaves the packet's own default. At least 0 when
+  set (0 allows no scratch bytes). Defaults to None, so an envelope from before this field existed
+  still validates.
 - `reason` (`str`): why the Cell is needed.
 
 #### LeaseOpened
@@ -1453,8 +1518,9 @@ link reattaches while the isolation stands.
 ### 8.6 session (`messages/session/`)
 
 The terminal-over-Waggle family: a Warden on the Hive Stand drives a remote Real Cell through its
-Pollen Packet exactly as it would a local terminal (exec with streaming output, stdin, put and get
-file, close). A session is identified by its `LeaseId`, one session per lease; concurrency lives
+Pollen Packet exactly as it would a local terminal (exec with streaming output, stdin, put, get
+and delete file, start, stop and query a background process, close). A session is identified by
+its `LeaseId`, one session per lease; concurrency lives
 at the exec level, each exec keyed by its request's `MessageId`. Command arguments are always
 argument lists, never a shell string.
 
@@ -1468,8 +1534,11 @@ Family enums and value models:
   (killed at `timeout_s`), `KILLED` (killed on a stdin signal, an output cap or session close),
   `COMPLETED` (an open or a file transfer finished).
 - `ProcessSignal`: `INTERRUPT`, `TERMINATE`, `KILL`. Platform-neutral; the packet maps them.
-- `SessionRequestKind`: `OPEN`, `EXEC`, `PUT_FILE`, `GET_FILE`. Which request a `SessionExit`
-  ends.
+- `SessionRequestKind`: `OPEN`, `EXEC`, `PUT_FILE`, `GET_FILE`, `DELETE_FILE` (`PROTOCOL_MINOR`
+  13). Which request a `SessionExit` ends. A `DELETE_FILE` exit follows an `OPEN` exit's rules for
+  its outcome, size and digest: it completes, and it moved no file.
+- `ProcessAction` (`PROTOCOL_MINOR` 13, `messages/session/process.py`): `START`, `STOP`, `QUERY`.
+  What a `SessionProcess` asks of a background process.
 
 #### SessionOpen
 
@@ -1536,24 +1605,25 @@ One chunk of an exec's stdout or stderr, or of a file answering `SessionGetFile`
 #### SessionExit
 
 The terminal event of one session request: an exec's exit status, or the completion of an open,
-put-file or get-file.
+put-file, get-file or delete-file.
 
 - `lease_id` (`LeaseId`): the session the request ran in.
 - `request_id` (`MessageId`): envelope id of the request this ends (for a put-file, its
   `transfer_id`); also the envelope's `correlation_id`.
-- `request_kind` (`SessionRequestKind`): `OPEN`, `EXEC`, `PUT_FILE` or `GET_FILE`, which
-  request this ends, so the rules below are decidable on the model alone.
+- `request_kind` (`SessionRequestKind`): `OPEN`, `EXEC`, `PUT_FILE`, `GET_FILE` or `DELETE_FILE`,
+  which request this ends, so the rules below are decidable on the model alone.
 - `outcome` (`SessionOutcome`): how it ended; `EXITED`, `SIGNALED`, `TIMED_OUT` and `KILLED`
-  only when `request_kind` is `EXEC`, `COMPLETED` only otherwise (validator).
+  only when `request_kind` is `EXEC`, `COMPLETED` only otherwise, a `DELETE_FILE` included
+  (validator).
 - `exit_code` (`int | None`): the process's exit status. Set exactly when `outcome` is `EXITED`
   (validator).
 - `signal_name` (`str | None`): the platform signal that ended the process. Set exactly when
   `outcome` is `SIGNALED` (validator); max 16.
 - `duration_s` (`float`): seconds from start to end. At least 0.
 - `size_bytes` (`int | None`): total bytes written or sent. Set exactly when `request_kind` is
-  `PUT_FILE` or `GET_FILE` (validator); at least 0.
+  `PUT_FILE` or `GET_FILE` (validator), so never for a `DELETE_FILE`; at least 0.
 - `sha256` (`str | None`): digest of the whole file written or read. Set exactly when
-  `request_kind` is `PUT_FILE` or `GET_FILE` (validator).
+  `request_kind` is `PUT_FILE` or `GET_FILE` (validator), so never for a `DELETE_FILE`.
 - `reason` (`str`): why it ended, in words.
 
 #### SessionPutFile
@@ -1604,6 +1674,76 @@ released by `cell.lease_released`, not here.
 
 - `lease_id` (`LeaseId`): the session to close.
 - `reason` (`str`): why the session closes.
+
+#### SessionDeleteFile
+
+Delete one file on the device (`PROTOCOL_MINOR` 13, roadmap phase 11). The packet removes it and
+ends the request with one `SessionExit` whose `request_kind` is `DELETE_FILE` and `outcome`
+`COMPLETED`, with `size_bytes` and `sha256` None. A path that does not exist is a `control.error`
+`pollen.not_found`, and one outside what the lease may touch, or not a file, is
+`pollen.path_refused`; neither deletes anything. One message removes one file: there is no glob,
+no recursion and no force flag, so a single request can never remove more than the file it names.
+
+- `lease_id` (`LeaseId`): the session the delete belongs to.
+- `path` (`str`): the file to remove, absolute or relative to scratch; resolved with symlinks
+  followed and checked against the lease's allowed roots and access level, and a touch outside
+  scratch is recorded with the file's prior bytes so the release can restore it. Min 1, max
+  `MAX_PATH_CHARS`.
+- `task_id` (`TaskId | None`): the task this delete serves.
+- `worker_id` (`WorkerId | None`): the sub-bee on whose behalf it is deleted.
+
+#### SessionProcess
+
+Start, stop or query one background process in the lease (`PROTOCOL_MINOR` 13). An exec runs a
+program to its end; this is for a program that must outlive the request that started it (a virtual
+display server, an audio daemon, a browser the Exoskeleton needs running for the whole task). The
+packet records every process it starts with the lease before it answers, so a release or the
+dead-man switch kills it and the device is left as found. The answer is one `SessionProcessState`,
+or a `control.error` (`pollen.start_failed` for a `START` that could not launch the program,
+`hive.session.lease_not_open` for an unknown lease). One message does exactly one thing: the launch
+fields belong to `START` alone, the pid to `STOP` and `QUERY` alone.
+
+- `lease_id` (`LeaseId`): the open lease the process belongs to; its scratch directory is the
+  default working directory.
+- `action` (`ProcessAction`): start a process, stop one, or ask about one.
+- `argv` (`tuple[str, ...]`): the program and its arguments, as `SessionExec.argv` (never a shell
+  string; max 128 items, each max 4096 chars, at most 131,072 characters in total, validator).
+  Non-empty exactly when `action` is `START` (validator).
+- `cwd` (`str | None`): working directory for a `START`; None means the lease's scratch
+  directory. The packet refuses a path outside scratch or the lease's allowed roots. Max
+  `MAX_PATH_CHARS`; None for `STOP` and `QUERY` (validator).
+- `env` (`tuple[EnvVar, ...]`): variables overlaid on the new process only. Max 64, names unique;
+  empty for `STOP` and `QUERY` (validator).
+- `log_path` (`str | None`): where the packet redirects the process's stdout and stderr, absolute
+  or relative to scratch; None discards them. Max `MAX_PATH_CHARS`; None for `STOP` and `QUERY`
+  (validator).
+- `pid` (`int | None`): the process to stop or query, as a `SessionProcessState` reported it.
+  Required for `STOP` and `QUERY`, None for `START` (validator); at least 1. A pid the lease did
+  not start draws a `control.error` `pollen.not_found`, so one lease can never signal another's
+  process or the device's own; a pid it started that has since exited is answered normally
+  (`is_running` false).
+- `task_id` (`TaskId | None`): the task this process serves.
+- `worker_id` (`WorkerId | None`): the sub-bee on whose behalf it is started, stopped or queried.
+
+#### SessionProcessState
+
+Report one background process's state: the answer to a `SessionProcess` (`PROTOCOL_MINOR` 13),
+correlated to it.
+
+- `lease_id` (`LeaseId`): the lease the process belongs to.
+- `action` (`ProcessAction`): echo of the request's action.
+- `pid` (`int`): the process's id on the device: the new pid after a `START`, the request's pid
+  after `STOP` or `QUERY`. At least 1.
+- `argv` (`tuple[str, ...]`): the command line as started, bounded as `SessionProcess.argv`;
+  non-empty exactly when `action` is `START`, so a Warden sees what ran (validator).
+- `log_path` (`str | None`): the resolved absolute path of the redirected output; only after a
+  `START`, and None there when the request named no log (validator). Max `MAX_PATH_CHARS`.
+- `is_running` (`bool`): whether the process is running now; after a `START`, false means it
+  exited before the packet could answer, and the log says why.
+- `was_running` (`bool | None`): whether the process was running when the `STOP` arrived, so a
+  stop of an already-dead process is told apart from a kill. Set exactly when `action` is `STOP`
+  (validator).
+- `reason` (`str`): what happened, in words, especially why a stop failed.
 
 ### 8.7 honey (`messages/honey/`)
 
@@ -2036,7 +2176,11 @@ completely, and what residue remains.
 
 Devices joining and living in the Swarm: enrolment with a one-time token, the gateway's heartbeat,
 promotion of a colonized device (one whose Warden lives on it) to a Nuc and back, and the merge of
-an offline Warden's local Pheromone Trail segment on reconnection.
+an offline Warden's local Pheromone Trail segment on reconnection. From `PROTOCOL_MINOR` 13
+(roadmap phase 11) the family also carries the steps that put a Warden on a device and amend an
+enrolled device's terms (`messages/swarm/ladder.py`: `swarm.node_update`, `swarm.colonize`,
+`swarm.colonized`), and a Warden's read-only watching of a device through its packet
+(`messages/swarm/watch.py`: `swarm.observe`, `swarm.observation`).
 
 Family enums and value models:
 
@@ -2048,6 +2192,46 @@ Family enums and value models:
 - `NucAction`: `PROMOTE`, `DEMOTE`. Demotion rides `swarm.nuc_promote`; there is no separate
   kind.
 - `NucOutcome`: `PROMOTED`, `DEMOTED`, `FAILED`.
+- `ColonizeAction` (`PROTOCOL_MINOR` 13): `PREPARE` (install the pinned runtime beside the
+  packet, start nothing), `START` (launch the device's Warden from the installed runtime),
+  `WITHDRAW` (stop the device's Warden, leaving the packet alone on the device). One message, one
+  step.
+- `ColonizeOutcome` (`PROTOCOL_MINOR` 13): `PREPARED`, `STARTED`, `WITHDRAWN`, `FAILED`.
+- `ObservationKind` (`PROTOCOL_MINOR` 13): `PROCESS_LIST`, `RESOURCE_USE`, `LOGS`,
+  `FILE_CHANGES`. What a Warden may ask a device to report: exactly the Guard's watch
+  observations (network counters ride on `RESOURCE_USE`), never the screen and never input.
+- `FileChangeKind` (`PROTOCOL_MINOR` 13): `CREATED`, `MODIFIED`, `DELETED`.
+- `ProcessSample` (`PROTOCOL_MINOR` 13, `messages/swarm/watch.py`): one running process.
+  - `pid` (`int`): the process id on the device. At least 0 (0 only for an idle task).
+  - `name` (`str`): the executable's name, never its arguments, which can carry secrets. Max 256.
+  - `cpu_share` (`float`): the share of the device's whole CPU capacity the process used since
+    the previous sample, between 0 and 1 (one core of four busy is 0.25).
+  - `rss_bytes` (`int`): resident memory. At least 0.
+  - `started_at` (`datetime | None`): when the process started; None where the platform does not
+    say.
+- `NetworkCounter` (`PROTOCOL_MINOR` 13): cumulative traffic of one interface since boot.
+  - `interface` (`str`, min 1, max 64), `rx_bytes` (`int`, at least 0), `tx_bytes` (`int`, at
+    least 0).
+- `ResourceSample` (`PROTOCOL_MINOR` 13): the device's resource use at one instant, always a full
+  snapshot.
+  - `cpu_load` (`float`): one-minute load average divided by logical cores. At least 0.
+  - `memory_bytes`, `memory_free_bytes` (`int`): total memory and memory available to start work.
+    At least 0; free at most total (validator).
+  - `disk_bytes`, `disk_free_bytes` (`int`): total and free bytes of the filesystem the packet
+    works on (its data directory's). At least 0; free at most total (validator).
+  - `uptime_s` (`float`): seconds since the device booted. At least 0.
+  - `network` (`tuple[NetworkCounter, ...]`): one counter per interface. Max 32, interface names
+    unique (validator).
+- `LogLine` (`PROTOCOL_MINOR` 13): one line from the tail of a log file inside a watched root.
+  - `path` (`str`): the log file. Min 1, max 256 (`MAX_OBSERVED_PATH_CHARS`).
+  - `line` (`str`): the line without its newline, cut at the bound if it was longer. Max 1000.
+- `FileChange` (`PROTOCOL_MINOR` 13): one file created, changed or deleted inside a watched root
+  since the cursor.
+  - `path` (`str`): the file. Min 1, max 256 (`MAX_OBSERVED_PATH_CHARS`).
+  - `change` (`FileChangeKind`): how it changed.
+  - `at` (`datetime`): when the change was seen (a modification time).
+  - `size_bytes` (`int | None`): the file's size after the change; None for a deleted file
+    (validator) and where the size could not be read. At least 0.
 
 #### EnrolRequest
 
@@ -2174,6 +2358,152 @@ idempotently on reconnection. The bytes are the trail's own export format, opaqu
 - `final` (`bool`): true on the last chunk; the Queen then verifies and merges. Default false.
 - `sha256` (`str | None`): digest of the whole export. Required when `final`, None otherwise
   (validator).
+- `segment_signature` (`str | None`, `PROTOCOL_MINOR` 13): padded base64 Ed25519 signature
+  (exactly 88 characters, pattern `^[A-Za-z0-9+/]{86}==$`) by the node's own key over
+  `segment_signing_bytes(node_id, first_event_id, last_event_id, event_count, sha256)`. Allowed on
+  the final chunk only (validator), the one that carries the digest it covers. Receiver rule: a
+  Swarm node's segment without a signature that verifies against that node's registered key is
+  refused, and recorded as `guard.segment_refused`; the dedupe above proves order, not
+  authorship. A Virtual Cell's Warden has no registered node key to sign with, so for it the
+  field is simply None. Defaults to None, so an envelope from before this field existed still
+  validates.
+
+`segment_signing_bytes(node_id, first_event_id, last_event_id, event_count, sha256) -> bytes`
+(`waggle.messages.swarm`, a pure helper beside the model) is the one definition of what is
+signed: the UTF-8 encoding of the line `waggle-trail-segment-v1` and then the five fields as text
+(the ids as they appear on the wire, the count in decimal, the digest in lowercase hex), each on
+its own line, joined by single newlines with no trailing newline:
+
+```text
+waggle-trail-segment-v1
+<node_id>
+<first_event_id>
+<last_event_id>
+<event_count>
+<sha256>
+```
+
+The first line is a versioned domain tag naming this one use of the node key, so the signature
+cannot be replayed as any other the key makes (an envelope's canonical bytes, section 6, start
+with `{`); no field contains a newline, so the join is unambiguous.
+
+#### NodeUpdate
+
+Change an enrolled device's standing terms without a new enrolment (`PROTOCOL_MINOR` 13,
+roadmap phase 11): an event from the Queen to the device's Pollen Packet, which persists it and
+applies it from the next request it handles. It restates every term an `EnrolAccept` granted that
+can change after enrolment, plus the level the device is on, so the packet never has to merge.
+Queen-only (section 3): a packet accepts it only from the `hive` sender it enrolled with.
+
+- `device_id` (`DeviceId`): the device whose terms change.
+- `cell_id` (`CellId`): the Real Cell this device is.
+- `warden_id` (`WardenId`): the Cell's Warden, which keeps its id across every level; the packet
+  accepts session and lease traffic only from it or the Queen.
+- `level` (`RuntimeLevel`): the level the device is on, so the packet knows whether the dead-man
+  switch or an on-device Warden handles a lost link.
+- `access_level` (`AccessLevel`): the level now granted.
+- `comb_shield` (`CombShieldLevel`): the tier now set by the operator. Never `NIGHT_VEIL`
+  (validator).
+- `granted_capabilities` (`tuple[str, ...]`): the node's capability strings from now on, checked
+  locally on every request; replaces the previous set entirely. Max 64, each max 128.
+- `offline_limit_s` (`float`): the dead-man limit for a device with no Warden on it, from now on.
+  Greater than 0.
+- `heartbeat_interval_s` (`float`): how often the packet sends `DeviceHeartbeat`, from now on.
+  Greater than 0.
+- `reason` (`str`): why the terms changed.
+
+#### Colonize
+
+Order one step of colonizing a device (`PROTOCOL_MINOR` 13): a request from the Queen to the
+device's Pollen Packet. `PREPARE` installs the pinned runtime beside the packet, `START` launches
+the device's Warden under the Warden id the Cell has had since enrolment, and `WITHDRAW` stops it
+again. The answer is one correlated `Colonized` (`FAILED` included), or a `control.error` when the
+packet refuses the order outright. Queen-only (section 3). Nothing here names a program, a path
+or a command: the runtime is installed from the wheelhouse or index the operator configured when
+installing the packet, never from the wire, so the wire can only start what is already there.
+
+- `cell_id` (`CellId`): the Cell being colonized; the packet's own.
+- `device_id` (`DeviceId`): the device behind that Cell.
+- `action` (`ColonizeAction`): prepare, start or withdraw.
+- `warden_id` (`WardenId`): the Warden the device will run: the id the Cell's Warden has had
+  since enrolment, so it keeps its identity (and the trail its continuity) across the move.
+- `runtime_version` (`str | None`): the HiveMind runtime version to install. Required for
+  `PREPARE`; may accompany `START` to pin which prepared runtime starts; None for `WITHDRAW`
+  (validator). Min 1, max 32.
+- `warden_url` (`str | None`): the swarm listener's URL the started Warden dials. Required for
+  `START`, None otherwise (validator). Pattern `^wss?://\S+$`, max 512; the packet checks it
+  against the endpoint rule of section 6 (`waggle.uris`) before it passes it on.
+- `deadline_s` (`float`): seconds the step may take before the packet answers `FAILED`. Greater
+  than 0.
+- `reason` (`str`): the Queen's decision.
+
+#### Colonized
+
+Report how a colonization step ended (`PROTOCOL_MINOR` 13): the packet's answer to a `Colonize`,
+correlated to it.
+
+- `cell_id` (`CellId`): the Cell.
+- `device_id` (`DeviceId`): the device behind it.
+- `action` (`ColonizeAction`): echo of the order's step.
+- `outcome` (`ColonizeOutcome`): `PREPARED` only after `PREPARE`, `STARTED` only after `START`,
+  `WITHDRAWN` only after `WITHDRAW`; `FAILED` after any (validator).
+- `level` (`RuntimeLevel`): the level the device is on after the step.
+- `runtime_version` (`str | None`): the runtime version now installed (`PREPARED`) or running
+  (`STARTED`). Set exactly when `outcome` is `PREPARED` or `STARTED` (validator); min 1, max 32.
+- `warden_pid` (`int | None`): the started Warden's process id on the device, for the packet's own
+  supervision of it. Set exactly when `outcome` is `STARTED` (validator); at least 1.
+- `reason` (`str`): what happened, especially why a step failed.
+
+#### Observe
+
+Ask a device's packet what the device looks like, read-only (`PROTOCOL_MINOR` 13): a request from
+the Warden of a level 0 device (whose Warden lives on the Hive Stand) to the device's Pollen
+Packet. The packet answers with one correlated `Observation`, built from a fixed set of collectors
+it runs itself: no lease, and no command a request could shape; the request chooses among the
+collectors and names the roots to look inside, nothing more. The packet checks the sender's watch
+capability for the Cell (`watch:<cell_id>`) before it collects anything and refuses with a
+`control.error` `pollen.capability_denied` otherwise.
+
+- `device_id` (`DeviceId`): the device asked; the packet's own.
+- `kinds` (`tuple[ObservationKind, ...]`): what to report. Min 1, max 4, each kind at most once
+  (validator).
+- `roots` (`tuple[str, ...]`): directories to read logs from and watch for file changes, each
+  inside what the Cell's watch capability and access level allow. Max 16, each min 1 and max 256
+  (`MAX_OBSERVED_PATH_CHARS`, the bound of the paths reported under a root, so no root asks for
+  what could never be reported back); non-empty exactly when `kinds` includes `LOGS` or
+  `FILE_CHANGES` (validator).
+- `since_at` (`datetime | None`): the file-change cursor: report only changes after this instant.
+  Only with `FILE_CHANGES` (validator); None asks for the packet's own recent window.
+- `max_items` (`int`): the most items to return in each of the process list, the file changes and
+  the log lines (the last further capped at 200). Between 1 and 500, default 200.
+- `reason` (`str`): why the Warden looks now (a scheduled sample, a Patrol).
+
+#### Observation
+
+Report what a device looks like (`PROTOCOL_MINOR` 13): the packet's answer to an `Observe`, correlated
+to it. Only the parts that were asked for are filled; the rest are empty or None. Everything in it
+describes the operator's own machine and is `C2` on arrival: the Warden stores it as Bee Bread
+(the warm memory tier) at that label, and it never travels further as it is. The bounds are
+chosen so that a maximal answer of ordinary text encodes to well under `MAX_FRAME_BYTES`
+(about 620 KB, signature included); the packet sizes by the encoded frame (section 5), leaves out
+what does not fit and says so in `is_truncated`.
+
+- `device_id` (`DeviceId`): the device observed.
+- `observed_at` (`datetime`): when the packet took the sample.
+- `processes` (`tuple[ProcessSample, ...]`): the process list when `PROCESS_LIST` was asked for,
+  busiest first, so a cut at `max_items` loses the least busy. Max 500.
+- `resources` (`ResourceSample | None`): resource use when `RESOURCE_USE` was asked for; None
+  otherwise.
+- `log_lines` (`tuple[LogLine, ...]`): the newest log lines when `LOGS` was asked for, oldest of
+  them first. Max 200.
+- `file_changes` (`tuple[FileChange, ...]`): changes after the cursor when `FILE_CHANGES` was
+  asked for, oldest first, so the last one's time is the next request's `since_at` with nothing
+  missed. Max 500.
+- `is_truncated` (`bool`): true when the packet left something out to stay within a bound: more
+  items than `max_items` or the caps allow, a path over its bound (a cut path would name another
+  file, so it is skipped), or a frame that would be too large; the Warden then knows the sample is
+  a lower bound.
+- `reason` (`str`): what the packet did, especially why a part is missing.
 
 ### 8.11 control (`messages/control/`)
 

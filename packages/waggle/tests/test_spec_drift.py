@@ -34,11 +34,13 @@ SPEC_PATH = Path(__file__).resolve().parents[3] / "docs" / "waggle" / "spec.md"
 CATALOGUE_HEADING = "## 8. Message catalogue"  # The section whose first table is the catalogue.
 TABLE_HEADER = "| Kind | Class | Shape | Replies to | Direction | Summary |"
 COLUMN_COUNT = 6  # The header's columns; a row with any other count is a broken table.
-EXPECTED_ROWS = 81  # The catalogue's size; a new kind bumps this with the spec (66 in protocol
+EXPECTED_ROWS = 89  # The catalogue's size; a new kind bumps this with the spec (66 in protocol
 # 1.0, 70 from PROTOCOL_MINOR 5's own four cell.snapshot_*/cell.rollback_* additions, 71 from
 # PROTOCOL_MINOR 10's cell.taint_order, 74 from PROTOCOL_MINOR 11's three forage.source_*, 81 from
 # PROTOCOL_MINOR 12's four basket.* kinds and three tool.quarantine/tool.quarantine_report/
-# tool.retired kinds).
+# tool.retired kinds, 89 from PROTOCOL_MINOR 13's three session.delete_file/session.process/
+# session.process_state kinds and five swarm.node_update/colonize/colonized/observe/observation
+# kinds).
 
 _KIND_CELL = re.compile(r"^`([a-z][a-z_]*\.[a-z][a-z_]*)`$")  # `<family>.<snake_name>`
 _CLASS_CELL = re.compile(r"^`([A-Z][A-Za-z]*)`$")  # `PascalCase`, the class name.

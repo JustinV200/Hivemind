@@ -4,8 +4,9 @@ Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins for both classes construction with every
     stream or outcome, the base64 round trip of a chunk holding every byte value, the bounds,
     and every validator spec section 8.6 names for SessionExit: the outcome-against-request_kind
-    matrix in full, and the exit_code, signal_name, size_bytes and sha256 exactly-when rules in
-    both directions. The family's EXAMPLES live in test_commands.py.
+    matrix in full (a DELETE_FILE exit behaves like an OPEN's: it completes and carries no
+    figures), and the exit_code, signal_name, size_bytes and sha256 exactly-when rules in both
+    directions. The family's EXAMPLES live in test_commands.py.
 
 Key invariants:
     - None: this module holds tests only.
@@ -149,6 +150,7 @@ def test_session_exit_round_trips_each_consistent_shape() -> None:
         _exit(outcome="TIMED_OUT", exit_code=None),
         _exit(outcome="KILLED", exit_code=None, duration_s=0),
         _exit(request_kind="OPEN", outcome="COMPLETED", exit_code=None),
+        _exit(request_kind="DELETE_FILE", outcome="COMPLETED", exit_code=None),
         _exit(
             request_kind="PUT_FILE",
             outcome="COMPLETED",
@@ -186,6 +188,27 @@ def test_session_exit_round_trips_each_consistent_shape() -> None:
         ),
         ({"size_bytes": 3}, "size_bytes is set"),
         ({"sha256": DIGEST}, "sha256 is set"),
+        # A delete moved no file: it carries neither figure, however plausible they look.
+        (
+            {
+                "request_kind": "DELETE_FILE",
+                "outcome": "COMPLETED",
+                "exit_code": None,
+                "size_bytes": 3,
+                "sha256": DIGEST,
+            },
+            "size_bytes is set",
+        ),
+        (
+            {
+                "request_kind": "DELETE_FILE",
+                "outcome": "COMPLETED",
+                "exit_code": None,
+                "sha256": DIGEST,
+            },
+            "sha256 is set",
+        ),
+        ({"request_kind": "DELETE_FILE"}, "does not fit request_kind"),
         (
             {
                 "request_kind": "GET_FILE",

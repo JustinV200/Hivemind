@@ -8,12 +8,14 @@ Pollen Packet (the thin gateway on an enrolled device) exactly as it would a loc
 session is identified by its lease (the Hive's temporary hold on a Real Cell), one session per
 lease; concurrency lives at the exec level, each exec keyed by its request's MessageId, and a
 command is always an argument list, never a shell string. This file holds the family's enums,
-its ``EnvVar`` value model and the four messages a Warden sends; what the packet sends back
-(``SessionOutput``, ``SessionExit``) lives in ``waggle.messages.session.output`` and the file
-transfers in ``waggle.messages.session.files``, split out by responsibility so each file stays
-under the codingrules 5.1 size limit. Stdin bytes and environment values are possible secrets:
-redacted from logs and the Pheromone Trail (the append-only audit log) and never in a repr.
-Every bound is a named constant here; the number, not the name, is normative.
+its ``EnvVar`` value model, the two checks every command line shares (``check_argv_total`` and
+``check_env_names_unique``) and the four messages a Warden sends; what the packet sends back
+(``SessionOutput``, ``SessionExit``) lives in ``waggle.messages.session.output``, the file
+transfers and deletes in ``waggle.messages.session.files`` and the background-process control in
+``waggle.messages.session.process``, split out by responsibility so each file stays under the
+codingrules 5.1 size limit. Stdin bytes and environment values are possible secrets: redacted from
+logs and the Pheromone Trail (the append-only audit log) and never in a repr. Every bound is a
+named constant here; the number, not the name, is normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -32,7 +34,8 @@ See Also:
     - docs/waggle/spec.md section 8.6 for the normative fields, bounds and validators.
     - docs/waggle/spec.md section 3 (the session rule) for which exit answers which request.
     - waggle.messages.session.output for SessionOutput and SessionExit.
-    - waggle.messages.session.files for SessionPutFile and SessionGetFile.
+    - waggle.messages.session.files for SessionPutFile, SessionGetFile and SessionDeleteFile.
+    - waggle.messages.session.process for SessionProcess and SessionProcessState.
     - waggle.messages.registry for the kinds these classes are registered under.
 """
 
@@ -85,6 +88,8 @@ __all__ = [
     "SessionRequestKind",
     "SessionStdin",
     "SessionStream",
+    "check_argv_total",
+    "check_env_names_unique",
 ]
 
 
@@ -126,6 +131,9 @@ class SessionRequestKind(Enum):
     EXEC = "EXEC"
     PUT_FILE = "PUT_FILE"
     GET_FILE = "GET_FILE"
+    # PROTOCOL_MINOR 13 (roadmap phase 11): a delete moves no bytes and runs no process, so its
+    # exit follows the same rules as an open's (COMPLETED, no size, no digest).
+    DELETE_FILE = "DELETE_FILE"
 
 
 # A reason field, as the catalogue conventions fix it: always named `reason`, always bounded by
@@ -153,6 +161,54 @@ class EnvVar(BaseModel):
         description="The value; a possible secret, redacted from logs and the trail, which "
         "record names only.",
     )
+
+
+def check_argv_total(owner: str, argv: tuple[str, ...]) -> tuple[str, ...]:
+    """Return ``argv`` unchanged unless its arguments together exceed MAX_ARGV_TOTAL_CHARS.
+
+    Shared by every message that carries a command line (``SessionExec`` and, in
+    ``waggle.messages.session.process``, ``SessionProcess`` and ``SessionProcessState``), so the
+    rule has one home and one wording.
+
+    Args:
+        owner: The message class name, for the error message.
+        argv: The command line to check.
+
+    Returns:
+        ``argv``, unchanged.
+
+    Raises:
+        ValueError: The arguments together are longer than MAX_ARGV_TOTAL_CHARS.
+    """
+    # The per-item and per-count bounds alone allow half a megabyte of command line; the
+    # total keeps a request well inside one frame once JSON-escaped.
+    total = sum(len(item) for item in argv)
+    if total > MAX_ARGV_TOTAL_CHARS:
+        raise ValueError(
+            f"{owner} argv totals {total} characters, more than the {MAX_ARGV_TOTAL_CHARS} allowed."
+        )
+    return argv
+
+
+def check_env_names_unique(owner: str, env: tuple[EnvVar, ...]) -> tuple[EnvVar, ...]:
+    """Return ``env`` unchanged unless it overlays one variable twice.
+
+    Args:
+        owner: The message class name, for the error message.
+        env: The overlay to check.
+
+    Returns:
+        ``env``, unchanged.
+
+    Raises:
+        ValueError: Two variables share a name.
+    """
+    # Two values for one name would leave the packet to pick a winner; refusing the overlay
+    # keeps the process's environment exactly what the Warden asked for.
+    names = [variable.name for variable in env]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{owner} env names must be unique.")
+    return env
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -221,26 +277,13 @@ class SessionExec(WaggleMessage):
     @classmethod
     def _argv_total_within_limit(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         """Reject a command line whose arguments together exceed MAX_ARGV_TOTAL_CHARS."""
-        # The per-item and per-count bounds alone allow half a megabyte of command line; the
-        # total keeps an exec request well inside one frame once JSON-escaped.
-        total = sum(len(item) for item in value)
-        if total > MAX_ARGV_TOTAL_CHARS:
-            raise ValueError(
-                f"SessionExec argv totals {total} characters, more than the "
-                f"{MAX_ARGV_TOTAL_CHARS} allowed."
-            )
-        return value
+        return check_argv_total("SessionExec", value)
 
     @field_validator("env")
     @classmethod
     def _env_names_unique(cls, value: tuple[EnvVar, ...]) -> tuple[EnvVar, ...]:
         """Reject a variable overlaid twice."""
-        # Two values for one name would leave the packet to pick a winner; refusing the overlay
-        # keeps the process's environment exactly what the Warden asked for.
-        names = [variable.name for variable in value]
-        if len(set(names)) != len(names):
-            raise ValueError("SessionExec env names must be unique.")
-        return value
+        return check_env_names_unique("SessionExec", value)
 
 
 class SessionStdin(WaggleMessage):

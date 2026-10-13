@@ -5,9 +5,11 @@ the terminal over Waggle through which a Warden (the always-on supervisor of one
 Stand drives a remote Real Cell, a borrowed device carrying a Pollen Packet (the thin gateway that
 speaks the protocol). ``commands`` holds what the Warden sends (open, exec, stdin, close) and the
 session enums; ``output`` what the device sends back (an output chunk and the exit); ``files`` the
-file transfers in both directions. This package is the family's face: a caller imports any of its
-messages, enums or value models from here without knowing which module defines them. The bounds
-each module names stay in that module, because the spec makes the number normative, not the name.
+file transfers in both directions and the delete of a file; ``process`` the control of a
+background process (PROTOCOL_MINOR 13). This package is the family's face: a caller imports any of
+its messages, enums or value models from here without knowing which module defines them. The
+bounds each module names stay in that module, because the spec makes the number normative, not the
+name.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -22,14 +24,15 @@ Key invariants:
 
 See Also:
     - docs/waggle/spec.md section 8.6 for the family's normative fields and rules.
-    - waggle.messages.session.commands, waggle.messages.session.output and
-      waggle.messages.session.files for the definitions.
+    - waggle.messages.session.commands, waggle.messages.session.output,
+      waggle.messages.session.files and waggle.messages.session.process for the definitions.
 
 Public API:
     - Commands (commands): EnvVar, ProcessSignal, SessionClose, SessionExec, SessionOpen,
       SessionOutcome, SessionRequestKind, SessionStdin, SessionStream.
     - Output (output): SessionExit, SessionOutput.
-    - Files (files): SessionGetFile, SessionPutFile.
+    - Files (files): SessionDeleteFile, SessionGetFile, SessionPutFile.
+    - Process (process): ProcessAction, SessionProcess, SessionProcessState.
 """
 
 from waggle.messages.session.commands import (
@@ -43,19 +46,24 @@ from waggle.messages.session.commands import (
     SessionStdin,
     SessionStream,
 )
-from waggle.messages.session.files import SessionGetFile, SessionPutFile
+from waggle.messages.session.files import SessionDeleteFile, SessionGetFile, SessionPutFile
 from waggle.messages.session.output import SessionExit, SessionOutput
+from waggle.messages.session.process import ProcessAction, SessionProcess, SessionProcessState
 
 __all__ = [
     "EnvVar",
+    "ProcessAction",
     "ProcessSignal",
     "SessionClose",
+    "SessionDeleteFile",
     "SessionExec",
     "SessionExit",
     "SessionGetFile",
     "SessionOpen",
     "SessionOutcome",
     "SessionOutput",
+    "SessionProcess",
+    "SessionProcessState",
     "SessionPutFile",
     "SessionRequestKind",
     "SessionStdin",

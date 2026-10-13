@@ -97,6 +97,10 @@ class AlarmKind(Enum):
     # PROTOCOL_MINOR 9 (roadmap steps 10.6 and 10.6c, ADR-0043): a security event, such as a bee
     # quarantined by its Warden; it always goes up to the Queen and on to the human.
     SECURITY = "SECURITY"
+    # PROTOCOL_MINOR 13 (roadmap phase 11, ADR-0054): a Warden's Patrol (its scheduled read-only
+    # review of an idle Cell) found something worth a human's eyes; it escalates to the Queen,
+    # who posts it to the human.
+    PATROL_ANOMALY = "PATROL_ANOMALY"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 

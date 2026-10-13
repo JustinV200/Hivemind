@@ -7,10 +7,12 @@ found) through its Pollen Packet (the thin gateway on an enrolled device). The t
 what the packet sends back, split out of ``waggle.messages.session.commands`` by responsibility so
 each file stays under the codingrules 5.1 size limit: ``SessionOutput`` streams one chunk of an
 exec's stdout or stderr, or of a file being read, and ``SessionExit`` is the terminal event of every
-session request (an open, an exec, a put-file or a get-file), the one message the session rule of
-spec section 3 says each request ends in. Because an exit's ``request_kind`` is on the model, every
-rule about which fields it carries is decidable without the request it answers. Every bound is a
-named constant here; the number, not the name, is normative.
+session request (an open, an exec, a put-file, a get-file or, from PROTOCOL_MINOR 13, a
+delete-file), the one message the session rule of spec section 3 says each request ends in. Because
+an exit's ``request_kind`` is on the model, every rule about which fields it carries is decidable
+without the request it answers; a delete-file exit follows the rules of an open's (it completes,
+and it moved no file). Every bound is a named constant here; the number, not the name, is
+normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
@@ -55,7 +57,7 @@ MAX_SIGNAL_NAME_CHARS = 16  # SIGKILL, SIGTERM, CTRL_BREAK_EVENT: a platform sig
 
 __all__ = ["MAX_SIGNAL_NAME_CHARS", "SessionExit", "SessionOutput"]
 
-# The outcomes only a process can end with; an open or a transfer only ever COMPLETES.
+# The outcomes only a process can end with; an open, a transfer or a delete only ever COMPLETES.
 _EXEC_OUTCOMES = frozenset(
     {
         SessionOutcome.EXITED,
@@ -64,7 +66,8 @@ _EXEC_OUTCOMES = frozenset(
         SessionOutcome.KILLED,
     }
 )
-# The requests that move a whole file, so their exit carries the file's size and digest.
+# The requests that move a whole file, so their exit carries the file's size and digest. A delete
+# is deliberately absent: it removes a file rather than moving one, so its exit has no figures.
 _FILE_REQUEST_KINDS = frozenset({SessionRequestKind.PUT_FILE, SessionRequestKind.GET_FILE})
 
 # A reason field, as the catalogue conventions fix it: always named `reason`, always bounded by
@@ -100,8 +103,8 @@ class SessionOutput(WaggleMessage):
 class SessionExit(WaggleMessage):
     """The terminal event of one session request (session.exit, an event).
 
-    An exec's exit status, or the completion of an open, put-file or get-file; request_kind
-    says which, so every rule below is decidable on the model alone.
+    An exec's exit status, or the completion of an open, put-file, get-file or delete-file;
+    request_kind says which, so every rule below is decidable on the model alone.
     """
 
     lease_id: LeaseIdField = Field(description="The session the request ran in.")
@@ -109,10 +112,12 @@ class SessionExit(WaggleMessage):
         description="Envelope id of the request this ends (for a put-file, its transfer_id); "
         "also the envelope's correlation_id."
     )
-    request_kind: SessionRequestKind = Field(description="Which request this ends.")
+    request_kind: SessionRequestKind = Field(
+        description="Which request this ends: OPEN, EXEC, PUT_FILE, GET_FILE or DELETE_FILE."
+    )
     outcome: SessionOutcome = Field(
         description="How it ended; EXITED, SIGNALED, TIMED_OUT and KILLED only when "
-        "request_kind is EXEC, COMPLETED only otherwise."
+        "request_kind is EXEC, COMPLETED only otherwise (an OPEN or a DELETE_FILE included)."
     )
     exit_code: int | None = Field(
         description="The process's exit status; set exactly when outcome is EXITED."
@@ -135,8 +140,9 @@ class SessionExit(WaggleMessage):
     @model_validator(mode="after")
     def _outcome_matches_request_kind(self) -> SessionExit:
         """Allow a process's four outcomes only for EXEC, and COMPLETED only for the rest."""
-        # An open or a transfer has no process to exit or be signalled, and an exec never merely
-        # completes: request_kind alone decides the outcome set, so a mismatch is a sender bug.
+        # An open, a transfer or a delete has no process to exit or be signalled, and an exec never
+        # merely completes: request_kind alone decides the outcome set, so a mismatch is a sender
+        # bug.
         if (self.request_kind is SessionRequestKind.EXEC) != (self.outcome in _EXEC_OUTCOMES):
             raise ValueError(
                 f"SessionExit outcome {self.outcome.value} does not fit request_kind "
@@ -165,7 +171,8 @@ class SessionExit(WaggleMessage):
     def _file_fields_match_request_kind(self) -> SessionExit:
         """Require size_bytes and sha256 exactly for a put-file or get-file."""
         # The receiver verifies a transfer against these two figures, so a transfer must carry
-        # them; an open or an exec moved no file, so for them the figures would be invented.
+        # them; an open, an exec or a delete moved no file, so for them the figures would be
+        # invented (a deleted file's old size is not a transfer's size).
         is_file = self.request_kind in _FILE_REQUEST_KINDS
         when = "request_kind is PUT_FILE or GET_FILE"
         _check_set_exactly_when("size_bytes", self.size_bytes, is_file, when)

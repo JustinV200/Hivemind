@@ -37,6 +37,12 @@ quarantine is ordered on a Guard request, or by an operator's own row.
 and every `PolicyAction` through both autopilot tables, so a member without its row fails there
 rather than as a `KeyError` in a tick.
 
+Roadmap phase 11 (Waggle 1.13, ADR-0054) adds the `PATROL_ANOMALY` kind and its one row, the same
+shape as `SECURITY`'s: `ESCALATE` from the first attempt. A watching Warden's Patrol (its scheduled
+read-only review of an idle Cell) raises it when something deserves a person's eyes; nothing about
+it can be retried, respawned or rebound, so a Warden sends it to the Queen, who posts it to the
+human.
+
 The manifest's `[supervision] policy_file` (roadmap step 3.1) is unset by default, which is what
 selects the shipped table; setting it to a path, resolved against the manifest's own directory,
 overrides it with an operator's own. The Queen and each Warden load their own `EscalationPolicy`

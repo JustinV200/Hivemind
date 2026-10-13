@@ -4,7 +4,8 @@ Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). For CellTeardownRequest, CellRequest,
     LeaseOpened and LeaseReleased it pins construction in every form the spec allows, the JSON
     round trip, the rejection of an extra field, every bound, and every validator spec section
-    8.5 names in both directions. The family's EXAMPLES live in test_status.py.
+    8.5 names in both directions, and that CellRequest's scratch quota (PROTOCOL_MINOR 13) is
+    optional and never negative. The family's EXAMPLES live in test_status.py.
 
 Key invariants:
     - None: this module holds tests only.
@@ -172,6 +173,18 @@ def test_cell_request_takes_the_placement_form_or_the_named_form() -> None:
     assert all(_round_trips(request) for request in (placement, named, named_with_needs))
 
 
+def test_cell_request_scratch_quota_defaults_to_none_and_accepts_zero_and_large_figures() -> None:
+    named = _named()
+    older_peer = {k: v for k, v in named.model_dump().items() if k != "scratch_quota_bytes"}
+
+    assert named.scratch_quota_bytes is None
+    assert CellRequest.model_validate(older_peer) == named
+    # 0 is a real quota (no scratch bytes at all); a multi-terabyte one is as valid as a small one.
+    quotas = [_named(scratch_quota_bytes=quota) for quota in (0, 1, 10 * 1024**4)]
+    assert [request.scratch_quota_bytes for request in quotas] == [0, 1, 10 * 1024**4]
+    assert all(_round_trips(request) for request in quotas)
+
+
 @pytest.mark.parametrize(
     ("builder", "changes", "reason"),
     [
@@ -179,6 +192,8 @@ def test_cell_request_takes_the_placement_form_or_the_named_form() -> None:
         (_placement, {"holder": WARDEN_ID}, "holder is required exactly when cell_id is set"),
         (_named, {"holder": None}, "holder is required exactly when cell_id is set"),
         (_placement, {"lifetime_s": 0.0}, "greater than 0"),
+        (_placement, {"scratch_quota_bytes": -1}, "greater than or equal to 0"),
+        (_named, {"scratch_quota_bytes": "lots"}, "scratch_quota_bytes"),
         (_placement, {"task_id": CELL_ID}, "task_"),
         (_named, {"holder": TASK_ID}, "warden_"),
         (_placement, {"priority": 1}, "extra"),

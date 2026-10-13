@@ -92,6 +92,7 @@ RESOLVED = AlarmResolved(
                 "QUOTA_EXCEEDED",
                 "EXOSKELETON_FAILED",
                 "SECURITY",
+                "PATROL_ANOMALY",
                 "OTHER",
             ],
         ),

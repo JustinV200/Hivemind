@@ -105,6 +105,10 @@ class AlarmKind(Enum):
     # Waggle 1.9 (roadmap steps 10.6 and 10.6c, ADR-0043): a security event, such as a bee its
     # Warden quarantined. Every shipped policy row sends it up the chain, never retried or rebound.
     SECURITY = "SECURITY"
+    # Waggle 1.13 (roadmap phase 11, ADR-0054): a Warden's Patrol (its scheduled read-only review
+    # of an idle Cell) found something worth a human's eyes. The shipped policy sends it up the
+    # chain: a Warden to the Queen, and the Queen on to the human.
+    PATROL_ANOMALY = "PATROL_ANOMALY"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 

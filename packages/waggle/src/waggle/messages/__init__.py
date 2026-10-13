@@ -49,14 +49,15 @@ Public API:
       CellSnapshotRequest, CellSnapshotReply, CellRollbackRequest, CellRollbackReply,
       CellTaintOrder.
     - Session (session): SessionOpen, SessionExec, SessionStdin,
-      SessionOutput, SessionExit, SessionPutFile, SessionGetFile, SessionClose.
+      SessionOutput, SessionExit, SessionPutFile, SessionGetFile, SessionClose,
+      SessionDeleteFile, SessionProcess, SessionProcessState.
     - Honey (honey): NectarDeposit, HoneyQuery, HoneyResponse.
     - Tool (tool): ToolRequest, ToolPromoted, ToolInvoke, ToolResult, ToolQuarantine,
       ToolQuarantineReport, ToolRetired.
     - Capping (capping): ProposalSubmitted, CheckResult, Verdict,
       PostconditionResult, RollbackDone.
     - Swarm (swarm): EnrolRequest, EnrolAccept, DeviceHeartbeat, NucPromote,
-      NucPromoted, TrailSegmentSync.
+      NucPromoted, TrailSegmentSync, NodeUpdate, Colonize, Colonized, Observe, Observation.
     - Control (control): Ping, Pong, ErrorMessage, Shutdown, Cluster, Wake,
       HumanMessage, MaskOverride, QueenMoved.
     - Basket (basket): BasketOffer, BasketChunk, BasketAck, BasketRefuse.
@@ -144,11 +145,14 @@ from waggle.messages.reports import (
 )
 from waggle.messages.session import (
     SessionClose,
+    SessionDeleteFile,
     SessionExec,
     SessionExit,
     SessionGetFile,
     SessionOpen,
     SessionOutput,
+    SessionProcess,
+    SessionProcessState,
     SessionPutFile,
     SessionStdin,
 )
@@ -163,11 +167,16 @@ from waggle.messages.supervision import (
     Question,
 )
 from waggle.messages.swarm import (
+    Colonize,
+    Colonized,
     DeviceHeartbeat,
     EnrolAccept,
     EnrolRequest,
+    NodeUpdate,
     NucPromote,
     NucPromoted,
+    Observation,
+    Observe,
     TrailSegmentSync,
 )
 from waggle.messages.task import (
@@ -217,6 +226,8 @@ __all__ = [
     "CellWaxWritten",
     "CheckResult",
     "Cluster",
+    "Colonize",
+    "Colonized",
     "CombShieldLevel",
     "DeviceHeartbeat",
     "EnrolAccept",
@@ -244,8 +255,11 @@ __all__ = [
     "MessageShape",
     "MessageSpec",
     "NectarDeposit",
+    "NodeUpdate",
     "NucPromote",
     "NucPromoted",
+    "Observation",
+    "Observe",
     "OsFamily",
     "Ping",
     "PlanWritten",
@@ -260,11 +274,14 @@ __all__ = [
     "Question",
     "RollbackDone",
     "SessionClose",
+    "SessionDeleteFile",
     "SessionExec",
     "SessionExit",
     "SessionGetFile",
     "SessionOpen",
     "SessionOutput",
+    "SessionProcess",
+    "SessionProcessState",
     "SessionPutFile",
     "SessionStdin",
     "Shutdown",

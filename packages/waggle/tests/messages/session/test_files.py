@@ -1,11 +1,12 @@
-"""Tests for waggle.messages.session.files: SessionPutFile and SessionGetFile.
+"""Tests for waggle.messages.session.files: SessionPutFile, SessionGetFile and SessionDeleteFile.
 
 Fits into the Hive:
-    Layer 0 (test infrastructure, not shipped). Pins for both classes construction, the JSON
-    round trip (a chunk holding every byte value included), the defaults, the bounds and the id
-    kinds, and both validators spec section 8.6 names for SessionPutFile (the digest exactly on
-    the final chunk, and offset plus chunk never past total_bytes) in both directions. The
-    family's EXAMPLES live in test_commands.py.
+    Layer 0 (test infrastructure, not shipped). Pins for the three classes construction, the
+    JSON round trip (a chunk holding every byte value included), the defaults, the bounds and the
+    id kinds, both validators spec section 8.6 names for SessionPutFile (the digest exactly on
+    the final chunk, and offset plus chunk never past total_bytes) in both directions, and that a
+    SessionDeleteFile names one path and nothing that could widen it. The family's EXAMPLES live
+    in test_commands.py.
 
 Key invariants:
     - None: this module holds tests only.
@@ -23,7 +24,12 @@ from pydantic import ValidationError
 from waggle.clock import FakeClock
 from waggle.ids import IdKind, new_id
 from waggle.messages.base import DEFAULT_MAX_OUTPUT_BYTES, MAX_CHUNK_BYTES, MAX_PATH_CHARS
-from waggle.messages.session.files import SessionGetFile, SessionPutFile
+from waggle.messages.session.files import (
+    MIN_DELETE_PATH_CHARS,
+    SessionDeleteFile,
+    SessionGetFile,
+    SessionPutFile,
+)
 
 CLOCK = FakeClock()
 LEASE_ID = new_id(IdKind.LEASE, CLOCK)
@@ -57,6 +63,17 @@ def _get(**overrides: object) -> SessionGetFile:
         "worker_id": None,
     }
     return SessionGetFile.model_validate({**fields, **overrides})
+
+
+def _delete(**overrides: object) -> SessionDeleteFile:
+    """A delete of one scratch file for no particular task, then ``overrides``."""
+    fields: dict[str, object] = {
+        "lease_id": LEASE_ID,
+        "path": "notes/old-plan.md",
+        "task_id": None,
+        "worker_id": None,
+    }
+    return SessionDeleteFile.model_validate({**fields, **overrides})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -153,3 +170,35 @@ def test_session_get_file_constructs_round_trips_and_defaults_its_cap() -> None:
 def test_session_get_file_validators(changes: dict[str, object], reason: str) -> None:
     with pytest.raises(ValidationError, match=reason):
         _get(**changes)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SessionDeleteFile
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_session_delete_file_constructs_round_trips_and_names_only_a_path() -> None:
+    plain = _delete()
+    for_task = _delete(task_id=new_id(IdKind.TASK, CLOCK), worker_id=new_id(IdKind.WORKER, CLOCK))
+
+    assert SessionDeleteFile.model_validate(plain.model_dump(mode="json")) == plain
+    assert SessionDeleteFile.model_validate(for_task.model_dump(mode="json")) == for_task
+    # One message removes one file: no glob, recursion or force flag exists to widen it.
+    assert set(SessionDeleteFile.model_fields) == {"lease_id", "path", "task_id", "worker_id"}
+    assert _delete(path="x" * MAX_PATH_CHARS).path == "x" * MAX_PATH_CHARS
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        ({"path": ""}, f"at least {MIN_DELETE_PATH_CHARS}"),
+        ({"path": "x" * (MAX_PATH_CHARS + 1)}, f"at most {MAX_PATH_CHARS}"),
+        ({"lease_id": TRANSFER_ID}, "lease_"),
+        ({"task_id": LEASE_ID}, "task_"),
+        ({"worker_id": LEASE_ID}, "worker_"),
+        ({"recursive": True}, "extra"),
+    ],
+)
+def test_session_delete_file_validators(changes: dict[str, object], reason: str) -> None:
+    with pytest.raises(ValidationError, match=reason):
+        _delete(**changes)

@@ -21,7 +21,7 @@ Fits into the Hive:
 Key invariants:
     - CATALOGUE holds one row per kind of the spec's catalogue table, in the table's order,
       with the table's class, shape and replies_to; tests/test_spec_drift.py fails until the
-      two list the same eighty-one kinds in both directions.
+      two list the same eighty-nine kinds in both directions.
     - This module is data only: the registry checks the kind pattern, uniqueness and dangling
       replies when it indexes the rows, and refuses to import otherwise.
     - control.error is a reply with no replies_to: it answers any kind (spec section 8.11).
@@ -86,11 +86,14 @@ from waggle.messages.forage import (
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.session import (
     SessionClose,
+    SessionDeleteFile,
     SessionExec,
     SessionExit,
     SessionGetFile,
     SessionOpen,
     SessionOutput,
+    SessionProcess,
+    SessionProcessState,
     SessionPutFile,
     SessionStdin,
 )
@@ -105,11 +108,16 @@ from waggle.messages.supervision import (
     Question,
 )
 from waggle.messages.swarm import (
+    Colonize,
+    Colonized,
     DeviceHeartbeat,
     EnrolAccept,
     EnrolRequest,
+    NodeUpdate,
     NucPromote,
     NucPromoted,
+    Observation,
+    Observe,
     TrailSegmentSync,
 )
 from waggle.messages.task import (
@@ -204,6 +212,12 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("session.put_file", SessionPutFile, _EVENT, None),
     ("session.get_file", SessionGetFile, _REQUEST, None),
     ("session.close", SessionClose, _EVENT, None),
+    # PROTOCOL_MINOR 13 (phase 11, ADR-0051): remove one file, and start, stop or query a
+    # background process. A delete ends in a session.exit like the other session requests, so it
+    # registers no reply kind of its own; a process request is answered by its state.
+    ("session.delete_file", SessionDeleteFile, _REQUEST, None),
+    ("session.process", SessionProcess, _REQUEST, None),
+    ("session.process_state", SessionProcessState, _REPLY, "session.process"),
     # honey (spec section 8.7): raw Nectar in, distilled Honey out.
     ("honey.nectar_deposit", NectarDeposit, _EVENT, None),
     ("honey.query", HoneyQuery, _REQUEST, None),
@@ -233,6 +247,14 @@ CATALOGUE: tuple[CatalogueRow, ...] = (
     ("swarm.nuc_promote", NucPromote, _REQUEST, None),
     ("swarm.nuc_promoted", NucPromoted, _REPLY, "swarm.nuc_promote"),
     ("swarm.trail_segment_sync", TrailSegmentSync, _EVENT, None),
+    # PROTOCOL_MINOR 13 (phase 11, ADR-0051 to ADR-0054): the Queen amends an enrolled device's
+    # terms (an event: nothing is asked back), orders the steps that move its Warden onto it and
+    # is answered; a Warden asks a device's packet what the device looks like, read-only.
+    ("swarm.node_update", NodeUpdate, _EVENT, None),
+    ("swarm.colonize", Colonize, _REQUEST, None),
+    ("swarm.colonized", Colonized, _REPLY, "swarm.colonize"),
+    ("swarm.observe", Observe, _REQUEST, None),
+    ("swarm.observation", Observation, _REPLY, "swarm.observe"),
     # basket (spec section 8.12, PROTOCOL_MINOR 12, ADR-0048): content-addressed blobs offered,
     # streamed, acknowledged or refused; placed before control so the table still closes on the
     # Hive-wide orders. A BasketAck answers an offer or a chunk, but a reply has one registered

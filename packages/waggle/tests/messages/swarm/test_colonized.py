@@ -6,8 +6,9 @@ Fits into the Hive:
     and every validator spec section 8.10 names in both directions: NucPromote's server_id and
     initial_models against its action, NucPromoted's outcome-against-action matrix in full and
     its server_id and loaded_models against the outcome, and TrailSegmentSync's to_at against
-    from_at and its digest exactly on the final chunk. The family's EXAMPLES live in
-    test_enrolment.py.
+    from_at, its digest exactly on the final chunk and its segment signature on the final chunk
+    only, with the bytes that signature covers (segment_signing_bytes) pinned to the byte and
+    checked against a real Ed25519 signature. The family's EXAMPLES live in test_enrolment.py.
 
 Key invariants:
     - None: this module holds tests only.
@@ -31,11 +32,14 @@ from waggle.messages.swarm.colonized import (
     MAX_MODEL_ID_CHARS,
     MAX_MODELS,
     MAX_SERVER_ID_CHARS,
+    SEGMENT_SIGNING_DOMAIN,
     NucPromote,
     NucPromoted,
     TrailSegmentSync,
+    segment_signing_bytes,
 )
 from waggle.messages.swarm.enrolment import NucAction, NucOutcome, RuntimeLevel
+from waggle.signing import Ed25519Signer, Ed25519Verifier
 
 CLOCK = FakeClock()
 NOW = CLOCK.now()
@@ -45,6 +49,8 @@ DEVICE_ID = new_id(IdKind.DEVICE, CLOCK)
 NODE_ID = new_id(IdKind.NODE, CLOCK)
 CELL_ID = new_id(IdKind.CELL, CLOCK)
 WARDEN_ID = new_id(IdKind.WARDEN, CLOCK)
+FIRST_EVENT_ID = new_id(IdKind.EVENT, CLOCK)
+LAST_EVENT_ID = new_id(IdKind.EVENT, CLOCK)
 # The one success outcome each action can report; FAILED answers either.
 SUCCESS_FOR_ACTION = {NucAction.PROMOTE: NucOutcome.PROMOTED, NucAction.DEMOTE: NucOutcome.DEMOTED}
 
@@ -86,8 +92,8 @@ def _sync(**overrides: object) -> TrailSegmentSync:
         "warden_id": WARDEN_ID,
         "from_at": NOW,
         "to_at": LATER,
-        "first_event_id": new_id(IdKind.EVENT, CLOCK),
-        "last_event_id": new_id(IdKind.EVENT, CLOCK),
+        "first_event_id": FIRST_EVENT_ID,
+        "last_event_id": LAST_EVENT_ID,
         "event_count": 12,
         "segment_format_version": 1,
         "chunk": b"{}\n",
@@ -256,3 +262,108 @@ def test_trail_segment_sync_requires_the_digest_exactly_on_the_final_chunk() -> 
 def test_trail_segment_sync_validators(changes: dict[str, object], reason: str) -> None:
     with pytest.raises(ValidationError, match=reason):
         _sync(**changes)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TrailSegmentSync.segment_signature and segment_signing_bytes
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _signing_bytes(**overrides: object) -> bytes:
+    """The bytes a node signs for the default segment, with some identifying fields replaced."""
+    fields: dict[str, object] = {
+        "node_id": NODE_ID,
+        "first_event_id": FIRST_EVENT_ID,
+        "last_event_id": LAST_EVENT_ID,
+        "event_count": 12,
+        "sha256": DIGEST,
+    }
+    fields.update(overrides)
+    return segment_signing_bytes(
+        str(fields["node_id"]),
+        str(fields["first_event_id"]),
+        str(fields["last_event_id"]),
+        int(str(fields["event_count"])),
+        str(fields["sha256"]),
+    )
+
+
+def test_segment_signing_bytes_is_the_domain_tag_and_the_five_fields_one_per_line() -> None:
+    signed = _signing_bytes()
+
+    lines = ["waggle-trail-segment-v1", NODE_ID, FIRST_EVENT_ID, LAST_EVENT_ID, "12", DIGEST]
+    assert signed == "\n".join(lines).encode("utf-8")
+    assert SEGMENT_SIGNING_DOMAIN == "waggle-trail-segment-v1"
+    # An envelope's canonical bytes are JSON and start with "{", so the two can never collide.
+    assert not signed.startswith(b"{")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"node_id": new_id(IdKind.NODE, CLOCK)},
+        {"first_event_id": new_id(IdKind.EVENT, CLOCK)},
+        {"last_event_id": new_id(IdKind.EVENT, CLOCK)},
+        {"event_count": 13},
+        {"sha256": "f" * 64},
+        # The same two ids swapped are a different segment, not the same one.
+        {"first_event_id": LAST_EVENT_ID, "last_event_id": FIRST_EVENT_ID},
+    ],
+)
+def test_segment_signing_bytes_change_when_any_identifying_field_changes(
+    changes: dict[str, object],
+) -> None:
+    assert _signing_bytes(**changes) != _signing_bytes()
+
+
+def test_a_real_signature_over_the_segment_fits_the_field_and_verifies() -> None:
+    signer = Ed25519Signer.generate()
+    verifier = Ed25519Verifier({NODE_ID: signer.public_key_bytes})
+    signature = signer.sign(_signing_bytes())
+
+    sync = _sync(segment_signature=signature)
+
+    assert sync.segment_signature == signature
+    assert TrailSegmentSync.model_validate(sync.model_dump(mode="json")) == sync
+    # The Queen verifies against the bytes it rebuilds from the chunk's own fields.
+    verifier.verify(
+        NODE_ID,
+        segment_signing_bytes(
+            sync.node_id, sync.first_event_id, sync.last_event_id, sync.event_count, DIGEST
+        ),
+        signature,
+    )
+
+
+def test_trail_segment_sync_signature_defaults_to_none_and_is_optional_on_the_final_chunk() -> None:
+    assert _sync().segment_signature is None
+    assert _sync(final=False, sha256=None).segment_signature is None
+    assert _sync(segment_signature=None).segment_signature is None
+
+
+def test_trail_segment_sync_signature_is_allowed_only_on_the_final_chunk() -> None:
+    signature = Ed25519Signer.generate().sign(_signing_bytes())
+
+    assert _sync(final=True, segment_signature=signature).segment_signature == signature
+    with pytest.raises(ValidationError, match="allowed only on the final chunk"):
+        _sync(final=False, sha256=None, segment_signature=signature)
+
+
+@pytest.mark.parametrize(
+    "signature",
+    [
+        "",
+        "A" * 86 + "=",  # One pad character short.
+        "A" * 87 + "==",  # Too long.
+        "A" * 85 + "==",  # Too short.
+        "A" * 88,  # Unpadded.
+        "A" * 84 + "-_==",  # The URL-safe alphabet; the field is standard base64.
+        "A" * 84 + "!!==",  # Not base64 at all.
+        "A" * 86 + "==\n",
+    ],
+)
+def test_trail_segment_sync_rejects_a_signature_that_is_not_padded_standard_base64(
+    signature: str,
+) -> None:
+    with pytest.raises(ValidationError, match="pattern"):
+        _sync(segment_signature=signature)

@@ -1,4 +1,4 @@
-"""Tests for the full Waggle catalogue: eighty-one kinds, one example of each, the package face.
+"""Tests for the full Waggle catalogue: eighty-nine kinds, one example of each, the package face.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Pins the registry's kind order to the spec's
@@ -31,7 +31,7 @@ import pytest
 from waggle import messages
 from waggle.clock import FakeClock
 from waggle.codec import Codec
-from waggle.envelope import Envelope
+from waggle.envelope import PROTOCOL_MINOR, PROTOCOL_VERSION, Envelope
 from waggle.ids import new_message_id
 from waggle.messages.base import MessageShape, WaggleMessage
 from waggle.messages.registry import MESSAGE_SPECS, all_kinds, kind_for, spec_for
@@ -103,6 +103,9 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "session.put_file",
     "session.get_file",
     "session.close",
+    "session.delete_file",
+    "session.process",
+    "session.process_state",
     "honey.nectar_deposit",
     "honey.query",
     "honey.response",
@@ -124,6 +127,11 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "swarm.nuc_promote",
     "swarm.nuc_promoted",
     "swarm.trail_segment_sync",
+    "swarm.node_update",
+    "swarm.colonize",
+    "swarm.colonized",
+    "swarm.observe",
+    "swarm.observation",
     "basket.offer",
     "basket.chunk",
     "basket.ack",
@@ -138,6 +146,21 @@ CATALOGUE_KINDS: tuple[str, ...] = (
     "control.mask_override",
     "control.queen_moved",
 )
+
+
+# The eight kinds Waggle 1.13 (phase 11, the Swarm) added, each with the class, shape and reply the
+# design fixed (.claude/phase-11-handoff.md section 3.1), written out here independently of the
+# catalogue so a wrong shape in both the catalogue and the spec table cannot pass unnoticed.
+PHASE_11_KINDS: dict[str, tuple[str, MessageShape, str | None]] = {
+    "session.delete_file": ("SessionDeleteFile", MessageShape.REQUEST, None),
+    "session.process": ("SessionProcess", MessageShape.REQUEST, None),
+    "session.process_state": ("SessionProcessState", MessageShape.REPLY, "session.process"),
+    "swarm.node_update": ("NodeUpdate", MessageShape.EVENT, None),
+    "swarm.colonize": ("Colonize", MessageShape.REQUEST, None),
+    "swarm.colonized": ("Colonized", MessageShape.REPLY, "swarm.colonize"),
+    "swarm.observe": ("Observe", MessageShape.REQUEST, None),
+    "swarm.observation": ("Observation", MessageShape.REPLY, "swarm.observe"),
+}
 
 
 def _load_examples(family: str) -> tuple[WaggleMessage, ...]:
@@ -180,8 +203,26 @@ ALL_EXAMPLES: tuple[WaggleMessage, ...] = tuple(
 
 
 def test_all_kinds_lists_the_catalogue_kinds_in_table_order() -> None:
-    assert len(CATALOGUE_KINDS) == 81
+    assert len(CATALOGUE_KINDS) == 89
     assert all_kinds() == CATALOGUE_KINDS
+
+
+@pytest.mark.parametrize("kind", sorted(PHASE_11_KINDS))
+def test_each_phase_11_kind_is_registered_with_its_designed_class_shape_and_reply(
+    kind: str,
+) -> None:
+    class_name, shape, replies_to = PHASE_11_KINDS[kind]
+    spec = spec_for(kind)
+
+    assert (spec.model.__name__, spec.shape, spec.replies_to) == (class_name, shape, replies_to)
+    # Appended to the end of their family's block, so no earlier kind moved.
+    assert getattr(messages, class_name) is spec.model
+
+
+def test_the_protocol_is_at_least_minor_13_so_the_phase_11_kinds_are_stamped_as_such() -> None:
+    # A floor, not an equality: the next minor must not have to touch this test.
+    assert PROTOCOL_MINOR >= 13
+    assert f"1.{PROTOCOL_MINOR}" == PROTOCOL_VERSION
 
 
 def test_every_registered_model_is_a_distinct_waggle_message_subclass() -> None:

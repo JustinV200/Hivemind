@@ -1,19 +1,19 @@
-"""Tests for the session family: EXAMPLES of all eight classes, and waggle.messages.session.
+"""Tests for the session family: EXAMPLES of all eleven classes, and waggle.messages.session.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Holds EXAMPLES, one valid instance of every
-    session class across the family's three modules, which the registry step later loads by
+    session class across the family's four modules, which the registry step later loads by
     file path to seed its per-family checks; pins for every class construction, the JSON round
     trip (bytes included), the rejection of an extra field, the lease id kind and the shared
     reason and chunk bounds; then the four enums, EnvVar and every rule spec section 8.6 names
-    for SessionOpen, SessionExec, SessionStdin and SessionClose. The other four classes' own
-    rules are pinned in test_output.py and test_files.py.
+    for SessionOpen, SessionExec, SessionStdin and SessionClose. The other seven classes' own
+    rules are pinned in test_output.py, test_files.py and test_process.py.
 
 Key invariants:
-    - EXAMPLES holds exactly one instance of each of the eight session classes.
+    - EXAMPLES holds exactly one instance of each of the eleven session classes.
 
 See Also:
-    - waggle.messages.session.commands, output and files for the modules under test.
+    - waggle.messages.session.commands, output, files and process for the modules under test.
     - docs/waggle/spec.md section 8.6 for the fields, bounds and validators pinned here.
 """
 
@@ -48,8 +48,9 @@ from waggle.messages.session.commands import (
     SessionStdin,
     SessionStream,
 )
-from waggle.messages.session.files import SessionGetFile, SessionPutFile
+from waggle.messages.session.files import SessionDeleteFile, SessionGetFile, SessionPutFile
 from waggle.messages.session.output import SessionExit, SessionOutput
+from waggle.messages.session.process import ProcessAction, SessionProcess, SessionProcessState
 
 CLOCK = FakeClock()
 LEASE_ID = new_id(IdKind.LEASE, CLOCK)
@@ -64,6 +65,9 @@ SESSION_CLASSES: tuple[type[WaggleMessage], ...] = (
     SessionPutFile,
     SessionGetFile,
     SessionClose,
+    SessionDeleteFile,
+    SessionProcess,
+    SessionProcessState,
 )
 
 # One valid instance of every session class, in catalogue order; the registry step loads this
@@ -114,6 +118,28 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
     ),
     SessionGetFile(lease_id=LEASE_ID, path="/var/log/hive.log", task_id=None, worker_id=None),
     SessionClose(lease_id=LEASE_ID, reason="The lease is being released."),
+    SessionDeleteFile(lease_id=LEASE_ID, path="notes/old-plan.md", task_id=None, worker_id=None),
+    SessionProcess(
+        lease_id=LEASE_ID,
+        action=ProcessAction.START,
+        argv=("Xvfb", ":99"),
+        cwd=None,
+        env=(),
+        log_path="xvfb.log",
+        pid=None,
+        task_id=None,
+        worker_id=None,
+    ),
+    SessionProcessState(
+        lease_id=LEASE_ID,
+        action=ProcessAction.START,
+        pid=4242,
+        argv=("Xvfb", ":99"),
+        log_path="/var/lib/pollen/scratch/xvfb.log",
+        is_running=True,
+        was_running=None,
+        reason="The display server started and holds :99.",
+    ),
 )
 
 
@@ -190,6 +216,7 @@ def test_session_enums_list_exactly_the_spec_members() -> None:
         "EXEC",
         "PUT_FILE",
         "GET_FILE",
+        "DELETE_FILE",
     ]
     for enum in (SessionStream, SessionOutcome, ProcessSignal, SessionRequestKind):
         assert all(member.name == member.value for member in enum)
