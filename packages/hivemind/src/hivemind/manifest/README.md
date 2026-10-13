@@ -15,7 +15,11 @@ enums rather than the hivemind-side mirrors those two packages own.
   `ProviderSpec`, `CapabilityOverrides`, `SlotBinding`, `ServerSpec` (`schema.llm`, a sub-package:
   `providers`, `section`, `floors`, `servers`); `ForageSection`
   (`schema.forage`, embedding `hivemind.forage`'s `RoleFootprint`, `ModelSourceSpec` and
-  `RoyalReserve` directly); `SupervisionSection`, `MemorySection` (`schema.supervision`);
+  `RoyalReserve` directly); `SupervisionSection` + `ReconnectBudgetSection` + `WatchSection`,
+  `MemorySection` (`schema.supervision`; the first two are phase 11's `[supervision.
+  reconnect_budget]` and `[supervision.watch]`); `SwarmSection` + `SwarmLadderSection` +
+  `SwarmNucSection` (`schema.swarm`, phase 11: the swarm listener, invites, liveness and the
+  ladder's thresholds, disabled by default);
   `SecuritySection` + `TierProfile`, `HoneySection` + `HoneyClearanceSection` + `ClearanceMatrix`
   (`schema.security.tiers`, using `waggle.messages.CombShieldLevel`/`HoneyClearance` rather than
   `hivemind.cell.tiers`'s mirror, since `manifest` may not import `hivemind.cell`); `GuardSection`

@@ -115,9 +115,53 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "guard.envelope_refused",
         "guard.segment_refused",
         "guard.basket_integrity_failed",  # Phase 9 (ADR-0048).
+        "guard.frame_ceiling",  # Phase 11 (ADR-0055): a connection over its frame ceiling.
+        "guard.replay_refused",  # Phase 11 (ADR-0055): an envelope id repeated in the window.
     } | {f"guard.entrance_{edge}" for edge in edges} == GuardEvent.KINDS
 
 
 def test_warden_event_kinds_include_the_quarantine_record() -> None:
     # Roadmap step 10.6c (ADR-0043): a quarantine is the one intervention a Warden records itself.
     assert "warden.intervened" in WardenEvent.KINDS
+
+
+def test_warden_event_kinds_include_the_patrol_and_the_diagnosis_records() -> None:
+    # Phase 11: a Real Cell's Warden records each Patrol it runs (ADR-0054) and the outcome of a
+    # diagnostic Drone it spawned for a lost link (ADR-0056).
+    assert {"warden.patrol", "warden.diagnosed"} <= WardenEvent.KINDS
+
+
+@pytest.mark.parametrize("kind", ["warden.patrol", "warden.diagnosed"])
+def test_warden_event_accepts_each_phase_11_kind_and_round_trips(kind: str) -> None:
+    clock = FakeClock()
+    event = WardenEvent(
+        id=new_id(IdKind.EVENT, clock),
+        hive_id=new_id(IdKind.HIVE, clock),
+        node_id=new_id(IdKind.NODE, clock),
+        at=clock.now(),
+        actor="system",
+        kind=kind,
+        subject_id=new_id(IdKind.WARDEN, clock),
+        payload={"outcome": "NOTHING", "observations": 12},
+    )
+
+    assert event.family == "warden"
+    assert WardenEvent.model_validate(event.model_dump(mode="json")) == event
+
+
+@pytest.mark.parametrize("kind", ["guard.frame_ceiling", "guard.replay_refused"])
+def test_guard_event_accepts_each_phase_11_transport_refusal_and_round_trips(kind: str) -> None:
+    clock = FakeClock()
+    event = GuardEvent(
+        id=new_id(IdKind.EVENT, clock),
+        hive_id=new_id(IdKind.HIVE, clock),
+        node_id=new_id(IdKind.NODE, clock),
+        at=clock.now(),
+        actor="system",
+        kind=kind,
+        subject_id=new_id(IdKind.NODE, clock),
+        payload={"peer_node_id": new_id(IdKind.NODE, clock)},
+    )
+
+    assert event.family == "guard"
+    assert GuardEvent.model_validate(event.model_dump(mode="json")) == event

@@ -82,6 +82,10 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("swarm.promoted", P.NUC_PROMOTION),
     ("swarm.demoted", P.NUC_PROMOTION),
     ("swarm.command_sent", P.DEVICE_COMMAND),
+    # Phase 11: the operator's console changing a device's standing terms, like the invite and
+    # the revocation above; the Queen only carries the change out (swarm.node_update).
+    ("swarm.access_changed", P.ENTRANCE_ROUTE),
+    ("swarm.shield_changed", P.ENTRANCE_ROUTE),
     ("capping.applied", P.TOOL_INVOCATION),  # A tool's proposed effect, capped then applied.
     ("llm.rebound", P.SLOT_BINDING),
     ("worker.spawned", P.SLOT_BINDING),  # A sub-bee starts on its first, checked binding.
@@ -261,6 +265,18 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("basket.refused", _REFUSAL),  # A blob not kept changes nothing.
     ("basket.evicted", _NARROWING),  # Frees a resident copy: it only takes holdings away.
     ("basket.retired", _NARROWING),  # A retired blob is never shipped or loaded again.
+    # Phase 11 (the Swarm, ADR-0051 to ADR-0056): what the Queen and the gateway see and decide
+    # around a device, none of which is itself an action that needed its own check.
+    ("swarm.enrol_refused", _REFUSAL),  # A denied enrolment changes nothing.
+    ("swarm.online", _LIFECYCLE),  # The packet connected; its node's state moved.
+    ("swarm.unreachable", _LIFECYCLE),  # The link was lost; its node's state moved.
+    ("swarm.shield_verified", _OBSERVATION),  # A PROPOLIS device's tunnel checks, seen to pass.
+    ("swarm.shield_refused", _REFUSAL),  # They failed: the lease was released, nothing placed.
+    ("swarm.node_held", _DECISION),  # Holding a lost node's tasks; what follows records itself.
+    ("warden.patrol", _OBSERVATION),  # A read-only review; an Alarm or Wax it raises is its own.
+    ("warden.diagnosed", _OUTCOME),  # How a diagnostic Drone's scratch-only run ended.
+    ("guard.frame_ceiling", _NARROWING),  # A connection closed for flooding: authority removed.
+    ("guard.replay_refused", _REFUSAL),  # A repeated envelope id is dropped; nothing is handled.
 )
 
 # Points whose subsystem is not built yet, with the roadmap step or phase that wires each one.

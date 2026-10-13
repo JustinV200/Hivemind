@@ -211,3 +211,25 @@ a `basket` directory beside `[hive] db`), the largest blob, the shipment chunk s
 whether a promoted tool is shipped at once. Both sections have a default for every key, so neither
 needs to appear in a manifest; `full.toml` shows every key. Neither holds a secret: the key that
 signs blobs is the Hive key in the secret store.
+
+## `[swarm]` and the `[supervision]` additions (roadmap phase 11)
+
+`[swarm]` configures the Swarm, the mesh of devices running a Pollen Packet
+(`docs/adr/0051-pollen-packet-is-a-gateway-and-the-trust-model.md`). It is off by default
+(`enabled = false`) and loopback-only (`listen_host = "127.0.0.1"`), so a manifest that never
+mentions it has no listener and no devices. It names the swarm listener the packets dial
+(`listen_host`, `listen_port`) and the URL a device is told to dial in its invite
+(`advertise_url`, empty to derive it); any `listen_host` that is not a loopback address serves
+`wss://`, so it needs both `tls_cert` and `tls_key` (both or neither; a self-signed certificate is
+fine, because an invite carries its fingerprint and the packet pins that). It sets the invite's
+lifetime (`invite_ttl_minutes`), how a device's liveness is judged (`heartbeat_interval_s`,
+`heartbeat_miss_limit`, the dead-man switch's `dead_man_s` and the Queen's `unreachable_grace_s`)
+and the access level an invite gets when `hive swarm invite` names none (`default_access`:
+`READ_ONLY`, `SCRATCH` or `FULL`, spelled like `[hive_stand] access_level`). `[swarm.ladder]` and
+`[swarm.nuc]` hold the thresholds that decide when moving a device's Warden onto it, or giving it
+a model server, is worth doing. `[supervision]` gains two sub-tables: `[supervision.reconnect_
+budget]` (diagnostic Drones a Warden may send, and for how long, to find out why its link was
+lost; its `wall_clock_s` must be below `max_offline_s`, so a manifest that lowers
+`max_offline_s` to 300 seconds or less must lower the budget with it) and `[supervision.watch]`
+(the sampling interval, retention, Patrol interval and alarm thresholds of a Real Cell's watch
+mode, ADR-0054). Neither section holds a secret; `full.toml` shows every key.

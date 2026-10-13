@@ -42,7 +42,12 @@ Vocabulary (family -> kind -> when it is recorded):
         moved to another host, a Supersedure or promotion step); stopped (it is shutting down);
         intervened (it quarantined one of its bees: checkpointed, cancelled, killed, its slice of
         the grant revoked and its memory from the suspect episode on tainted; carries the task, the
-        bee, the action and that episode id, roadmap step 10.6c, ADR-0043).
+        bee, the action and that episode id, roadmap step 10.6c, ADR-0043). Phase 11 adds two
+        (ADR-0053, ADR-0054, ADR-0056): patrol (a Real Cell's Warden finished one Patrol, its
+        scheduled read-only review of the observations since the last one; carries the outcome,
+        ALARM, NECTAR, WAX or NOTHING, and the counts it covered, never an observation's content);
+        diagnosed (a diagnostic Drone, spawned to find out why a link was lost, reported its
+        outcome: FIXED, DIAGNOSED or NO_CAUSE).
     capping: proposed (a Proposal entered CHECKING); checked (one tier check ran, pass or fail);
         capped (every required check passed, CAPPED); applied (the proposal's side effect ran);
         verified (postconditions held after applying); rejected (a check failed, before applying);
@@ -85,7 +90,14 @@ Vocabulary (family -> kind -> when it is recorded):
         an unknown format, or bytes that do not match what it declared). Phase 9 adds
         basket_integrity_failed (a Basket transfer's assembled bytes did not hash to the offered
         digest, or the manifest signature failed: the hash, the sender and the reason, never the
-        bytes, and the temp file is deleted, ADR-0048). The design documents'
+        bytes, and the temp file is deleted, ADR-0048). Phase 11 adds two transport refusals, each
+        naming the node and never a frame: frame_ceiling (a connection sent more frames per minute
+        than its ceiling and was closed with code 4029, ADR-0055); replay_refused (a frame repeated
+        an envelope id already seen inside the replay window, other than the expected duplicate
+        after a reconnection, ADR-0055); and `segment_refused` gains the reasons `unsigned` and
+        `bad_signature` (a Swarm node's segment without the Ed25519 signature Waggle 1.13 carries,
+        or with one that does not verify against the node's registered key, ADR-0053). The design
+        documents'
         `guard.entrance.*` is spelled `guard.entrance_*` here because a kind has exactly one dot
         (KIND_PATTERN, the shape waggle shares), just as the Cell Wax kinds are `memory.wax_*`.
 
@@ -168,6 +180,8 @@ class WardenEvent(PheromoneEvent):
             "warden.migrated",
             "warden.stopped",
             "warden.intervened",  # Roadmap step 10.6c: a bee quarantined (ADR-0043).
+            "warden.patrol",  # Phase 11 (ADR-0054): one Patrol ran, with its outcome and counts.
+            "warden.diagnosed",  # Phase 11 (ADR-0056): a diagnostic Drone reported its outcome.
         }
     )
 
@@ -225,5 +239,9 @@ class GuardEvent(PheromoneEvent):
             "guard.envelope_refused",  # Roadmap step 10.6: a node-integrity refusal at the gate.
             "guard.segment_refused",
             "guard.basket_integrity_failed",  # Phase 9 (ADR-0048): a blob failed verification.
+            # Phase 11 (ADR-0055): the Waggle transport's two protections, recorded by the
+            # listener wrapper (waggle itself writes no trail), each naming the node.
+            "guard.frame_ceiling",  # A connection exceeded its frames-per-minute ceiling.
+            "guard.replay_refused",  # A frame repeated an envelope id inside the replay window.
         }
     )

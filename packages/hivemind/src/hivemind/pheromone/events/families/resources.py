@@ -58,9 +58,20 @@ Vocabulary (family -> kind -> when it is recorded):
         absconding removed it); retired (a blob was marked RETIRED: never shipped or loaded
         again); shipped (the last chunk of a shipment was acknowledged complete).
     swarm: invited (a device invite was minted); enrolled (a device completed enrolment); promoted
-        (a Real Cell was colonized or became a Nuc); demoted (a Nuc lost its model server, or a
-        colonized Cell was demoted); revoked (a device's enrolment was revoked); command_sent (a
-        signed Waggle command was sent to a device).
+        (a Real Cell was colonized or became a Nuc; from phase 11 it covers every rung, with the
+        payload's `from_level` and `to_level`); demoted (a Nuc lost its model server, or a
+        colonized Cell was demoted; the same payload); revoked (a device's enrolment was revoked);
+        command_sent (a signed Waggle command was sent to a device: the lease, request and task
+        ids, the program's basename and an argument count, never an argument or any content).
+        Phase 11 (the Swarm, ADR-0051 to ADR-0056) adds eight: enrol_refused (an enrolment was
+        denied: ids and a reason code, never the invite token); online (a device's packet
+        connected and its node is ONLINE); unreachable (a device's link was lost: the Queen
+        marked its node UNREACHABLE); access_changed (the operator changed a device's access
+        level); shield_changed (the operator changed its Comb Shield tier); shield_verified (a
+        PROPOLIS device's tunnel checks passed before a lease was kept, with each check's
+        result); shield_refused (they failed, so the lease was released at once and nothing was
+        placed on the device, with each check's result); node_held (the Queen held a lost
+        device's tasks for the grace period rather than failing or re-placing them).
     llm: call (one model call completed; carries the normalised Usage, slot and provider);
         rebound (a sub-bee was rebound to another binding inside its grant, by its Warden's own
         REBIND or a Queen-sent Intervene(REBIND), once the slot_binding point allowed it, roadmap
@@ -217,6 +228,16 @@ class SwarmEvent(PheromoneEvent):
             "swarm.demoted",
             "swarm.revoked",
             "swarm.command_sent",
+            # Phase 11 (ADR-0051 to ADR-0056). A Swarm Cell is never Night Veil, so none of
+            # these ever meets the Night Veil teardown boundary (codingrules section 12).
+            "swarm.enrol_refused",  # An enrolment was denied; ids and a reason code only.
+            "swarm.online",  # A device's packet connected and its Cell is schedulable.
+            "swarm.unreachable",  # A device's link was lost; its tasks are held, not failed.
+            "swarm.access_changed",  # The operator changed a device's access level.
+            "swarm.shield_changed",  # The operator changed a device's Comb Shield tier.
+            "swarm.shield_verified",  # A PROPOLIS device's tunnel checks passed before a lease.
+            "swarm.shield_refused",  # They failed: the lease was released and the task not placed.
+            "swarm.node_held",  # The Queen held a lost device's tasks for the grace period.
         }
     )
 

@@ -24,6 +24,7 @@ from hivemind.pheromone.events.families import (
     GuardEvent,
     LlmEvent,
     MemoryEvent,
+    SwarmEvent,
     ToolEvent,
 )
 from waggle.clock import FakeClock
@@ -193,3 +194,45 @@ def test_guard_event_kinds_include_the_basket_integrity_failure() -> None:
     # Phase 9 (ADR-0048): a transfer whose bytes or manifest failed verification is a guard event,
     # so the Guard Bee's rules can follow it beside the other node-integrity refusals.
     assert "guard.basket_integrity_failed" in GuardEvent.KINDS
+
+
+_ORIGINAL_SWARM_KINDS = {
+    "swarm.invited",
+    "swarm.enrolled",
+    "swarm.promoted",
+    "swarm.demoted",
+    "swarm.revoked",
+    "swarm.command_sent",
+}
+# Phase 11 (ADR-0051 to ADR-0056): what the gateway and the Queen record around a device.
+_PHASE_11_SWARM_KINDS = {
+    "swarm.enrol_refused",
+    "swarm.online",
+    "swarm.unreachable",
+    "swarm.access_changed",
+    "swarm.shield_changed",
+    "swarm.shield_verified",
+    "swarm.shield_refused",
+    "swarm.node_held",
+}
+
+
+def test_swarm_event_kinds_keep_the_six_original_kinds_and_gain_the_phase_11_eight() -> None:
+    # The original six are unchanged, so a stored event of an old kind still decodes.
+    assert SwarmEvent.FAMILY == "swarm"
+    assert _ORIGINAL_SWARM_KINDS | _PHASE_11_SWARM_KINDS == SwarmEvent.KINDS
+    assert len(SwarmEvent.KINDS) == 14
+
+
+@pytest.mark.parametrize("kind", sorted(_ORIGINAL_SWARM_KINDS | _PHASE_11_SWARM_KINDS))
+def test_swarm_event_accepts_each_kind_and_round_trips(kind: str) -> None:
+    event = SwarmEvent(kind=kind, **_base_kwargs(FakeClock()))
+
+    assert event.family == "swarm"
+    assert SwarmEvent.model_validate(event.model_dump(mode="json")) == event
+
+
+@pytest.mark.parametrize("kind", ["swarm.nonexistent", "device.online", "guard.online"])
+def test_swarm_event_rejects_a_kind_outside_its_family(kind: str) -> None:
+    with pytest.raises(ValidationError):
+        SwarmEvent(kind=kind, **_base_kwargs(FakeClock()))

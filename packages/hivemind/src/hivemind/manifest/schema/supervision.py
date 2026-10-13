@@ -8,10 +8,14 @@ and warm memory tiers (codingrules section 6.1): how much of a bee's context bud
 retrieved and hot-state content versus the model's own reply, when a Handoff (the document a bee
 writes before its context resets) is written, how long Cell Wax (Queen-written per-Cell cautions)
 and episodes are kept, and how often a House Bee sweep (demotion, then compaction) runs. Both
-sections are grouped in one file because each is a short, flat table of scalars with no embedded
-sub-models and no cross-field validation of its own
+sections are grouped in one file because each is a short table of scalars
 (codingrules section 5.2: one file per responsibility, not one file per bracket header, once
-either responsibility would need more than that).
+either responsibility would need more than that). Phase 11 (the Swarm) gives ``[supervision]``
+two small sub-tables: ``[supervision.reconnect_budget]``, how long a Warden that lost its link
+may spend investigating it with a diagnostic Drone (a short-lived Worker) before it falls back to
+the Clustering the offline limit already guarantees, and ``[supervision.watch]``, the cadence,
+retention and alarm thresholds of a Real Cell's watch mode and its Patrol (a scheduled read-only
+review of what the watching Warden observed).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -29,6 +33,9 @@ Key invariants:
       ``HiveManifest.resolve_path``, never read here: this module only names the paths, since
       reading a file at schema-validation time would make loading a manifest depend on the
       filesystem layout of whatever loads it next.
+    - ``reconnect_budget.wall_clock_s`` is below ``max_offline_s``: the budget is carved out of the
+      offline limit, never added to it, so investigating a lost link can never keep a Warden
+      holding its grant longer than the limit already allows.
     - ``MemorySection.budget_fraction`` and ``handoff_threshold`` are both fractions in (0, 1]: a
       value of 0 would starve the model of any context and both quantities are "portion of
       something", never a raw count.
@@ -38,6 +45,9 @@ See Also:
     - .claude/codingrules.md section 6.1 for the memory-tier vocabulary (Hot State, Handoff,
       Cell Wax) this section's field names follow.
     - hivemind.supervision.policy for load_policy, the reader of policy_file.
+    - docs/adr/0054-access-levels-watch-mode-and-the-patrol.md for the watch mode `watch` tunes.
+    - docs/adr/0056-active-reconnection-diagnostic-drones.md for the budget `reconnect_budget`
+      sets.
     - hivemind.supervision.defaults for the two tables an unset field falls back to.
     - hivemind.manifest.schema.manifest for resolve_path, which turns these into absolute paths.
 """
@@ -46,7 +56,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from waggle.messages.cell.wax import MAX_WAX_TEXT_CHARS
 
@@ -86,11 +96,22 @@ DEFAULT_SWEEP_INTERVAL_S = 3_600.0
 # note's text, reused as this section's own default so a manifest that never sets
 # wax_text_cap_chars gets exactly the wire limit, never a silently different number.
 DEFAULT_WAX_TEXT_CAP_CHARS = MAX_WAX_TEXT_CHARS
+DEFAULT_RECONNECT_ATTEMPTS = 2  # Two tries at diagnosing a lost link: one fix, one second look.
+# Five minutes: half the default offline limit, so a diagnostic Drone gets a real chance without
+# the Warden holding a grant it may lose any longer than max_offline_s allows (ADR-0056).
+DEFAULT_RECONNECT_WALL_CLOCK_S = 300.0
+DEFAULT_WATCH_INTERVAL_S = 300.0  # Five minutes between observation samples of a watched Cell.
+DEFAULT_WATCH_RETENTION_S = 86_400.0  # A day: observations are C2 and short-lived on purpose.
+DEFAULT_PATROL_INTERVAL_S = 3_600.0  # An hour between Patrols (one awake episode each).
+DEFAULT_CPU_SHARE_ALARM = 0.5  # A new process using half the device's CPU is worth a look.
+DEFAULT_DISK_FILL_ALARM = 0.95  # A disk 95% full is about to break something.
 
 __all__ = [
     "DEFAULT_ALARM_ATTEMPT_LIMIT",
     "DEFAULT_BUDGET_FRACTION",
     "DEFAULT_CELL_WAX_CAP",
+    "DEFAULT_CPU_SHARE_ALARM",
+    "DEFAULT_DISK_FILL_ALARM",
     "DEFAULT_EPISODE_RETENTION_S",
     "DEFAULT_EXPIRY_S",
     "DEFAULT_HANDOFF_THRESHOLD",
@@ -100,14 +121,83 @@ __all__ = [
     "DEFAULT_ITEM_CAP_CHARS",
     "DEFAULT_MAX_OFFLINE_S",
     "DEFAULT_OUTPUT_RESERVE_TOKENS",
+    "DEFAULT_PATROL_INTERVAL_S",
+    "DEFAULT_RECONNECT_ATTEMPTS",
+    "DEFAULT_RECONNECT_WALL_CLOCK_S",
     "DEFAULT_SWEEP_INTERVAL_S",
+    "DEFAULT_WATCH_INTERVAL_S",
+    "DEFAULT_WATCH_RETENTION_S",
     "DEFAULT_WAX_TEXT_CAP_CHARS",
     "MemorySection",
+    "ReconnectBudgetSection",
     "SupervisionSection",
+    "WatchSection",
 ]
 
 # A frozen, extras-forbidding config matching every other section model (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
+
+
+class ReconnectBudgetSection(BaseModel):
+    """``[supervision.reconnect_budget]``: what a Warden may spend diagnosing a lost link."""
+
+    model_config = _MODEL_CONFIG
+
+    attempts: int = Field(
+        default=DEFAULT_RECONNECT_ATTEMPTS,
+        ge=1,
+        description="Diagnostic Drones a Warden may send, one after another, to find out why "
+        "its link to the Queen (or a device's, for the Queen's own Warden) was lost and fix it "
+        "if it can; at least 1.",
+    )
+    wall_clock_s: float = Field(
+        default=DEFAULT_RECONNECT_WALL_CLOCK_S,
+        gt=0,
+        description="Seconds all those attempts may take together. It is carved out of "
+        "max_offline_s, never added to it, so it must be below it; when it runs out the Warden "
+        "falls back to Clustering, which keeps the same deadline as a backstop.",
+    )
+
+
+class WatchSection(BaseModel):
+    """``[supervision.watch]``: a watching Warden's sampling, retention, Patrol and alarms."""
+
+    model_config = _MODEL_CONFIG
+
+    interval_s: float = Field(
+        default=DEFAULT_WATCH_INTERVAL_S,
+        gt=0,
+        description="Seconds between two observation samples (processes, resources, logs, file "
+        "changes) of a Real Cell the Warden watches while it has no bees working.",
+    )
+    retention_s: float = Field(
+        default=DEFAULT_WATCH_RETENTION_S,
+        gt=0,
+        description="Seconds an observation is kept in Bee Bread (labelled C2) before the sweep "
+        "may purge it; keep it at least patrol_interval_s, or a Patrol reviews only the newest "
+        "part of what it covers.",
+    )
+    patrol_interval_s: float = Field(
+        default=DEFAULT_PATROL_INTERVAL_S,
+        gt=0,
+        description="Seconds between two Patrols: one awake episode over the observations since "
+        "the last, which raises an Alarm, deposits Nectar, proposes Cell Wax or finds nothing "
+        "notable.",
+    )
+    cpu_share_alarm: float = Field(
+        default=DEFAULT_CPU_SHARE_ALARM,
+        gt=0,
+        le=1,
+        description="The share of the device's CPU, between 0 and 1, above which a newly seen "
+        "process is labelled a fact for the Patrol to weigh.",
+    )
+    disk_fill_alarm: float = Field(
+        default=DEFAULT_DISK_FILL_ALARM,
+        gt=0,
+        le=1,
+        description="The fraction of the device's disk, between 0 and 1, above which the Patrol "
+        "is told the disk is nearly full.",
+    )
 
 
 class SupervisionSection(BaseModel):
@@ -148,6 +238,30 @@ class SupervisionSection(BaseModel):
         gt=0,
         description="A ceiling on attempts an escalation policy row is expected to need.",
     )
+    reconnect_budget: ReconnectBudgetSection = Field(
+        default_factory=ReconnectBudgetSection,
+        description="What a Warden that lost its link may spend diagnosing it before it falls "
+        "back to Clustering; carved out of max_offline_s.",
+    )
+    watch: WatchSection = Field(
+        default_factory=WatchSection,
+        description="A Real Cell's watch mode and Patrol: sampling, retention and alarm "
+        "thresholds.",
+    )
+
+    @model_validator(mode="after")
+    def _reconnect_budget_fits_inside_max_offline(self) -> SupervisionSection:
+        """Reject a reconnection budget that is not shorter than the offline limit."""
+        # The budget is part of the offline limit, not extra time on top of it: a Warden that
+        # spent as long diagnosing as the limit allows would have nothing left to cluster with.
+        if self.reconnect_budget.wall_clock_s >= self.max_offline_s:
+            raise ValueError(
+                f"[supervision.reconnect_budget] wall_clock_s "
+                f"({self.reconnect_budget.wall_clock_s:g}) must be below [supervision] "
+                f"max_offline_s ({self.max_offline_s:g}): the budget is carved out of the offline "
+                "limit. Lower wall_clock_s or raise max_offline_s."
+            )
+        return self
 
 
 class MemorySection(BaseModel):

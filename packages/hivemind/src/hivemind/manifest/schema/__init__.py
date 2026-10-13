@@ -1,10 +1,12 @@
 """Re-export the Hive Manifest schema: every TOML section, as one frozen pydantic model tree.
 
-Seventeen documented sections is more than one module can hold under codingrules section 5.1's
+Eighteen documented sections is more than one module can hold under codingrules section 5.1's
 300-line limit, so the schema is a package: ``core`` (identity and lifecycle: ``[hive]``,
 ``[queen]``, ``[hive_stand]``, ``[brood_chamber]``, ``[pheromone]``), ``llm`` (``[llm]`` and its
 provider and slot-binding tables), ``forage`` (``[forage]`` and its role, map and reserve tables),
-``supervision`` (``[supervision]`` and ``[memory]``), ``security`` (a sub-package: ``tiers`` for
+``supervision`` (``[supervision]``, with its ``[supervision.reconnect_budget]`` and
+``[supervision.watch]``, and ``[memory]``), ``swarm`` (``[swarm]`` with ``[swarm.ladder]`` and
+``[swarm.nuc]``, phase 11), ``security`` (a sub-package: ``tiers`` for
 ``[security]`` and ``[honey.clearance]``, ``guard`` for ``[guard]``, the Guard policy's overrides,
 roadmap step 10.2), ``honey`` (``[honey.store]``, ``[honey.ripening]`` and ``[honey.retrieval]``,
 roadmap phase 7), ``placement`` (``[placement]`` and ``[virtual_cells]``, roadmap step 5.7),
@@ -37,7 +39,9 @@ Public API:
       DEFAULT_DIRE_PATTERNS.
     - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
       EntrancePushSection, EntranceVoiceSection, EntranceAndroidSection.
-    - Supervision and memory (supervision): SupervisionSection, MemorySection.
+    - Supervision and memory (supervision): SupervisionSection, ReconnectBudgetSection,
+      WatchSection, MemorySection.
+    - The Swarm (swarm): SwarmSection, SwarmLadderSection, SwarmNucSection.
     - Security and clearance (security.tiers): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
     - The Honey Store (honey): HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection,
@@ -108,7 +112,13 @@ from hivemind.manifest.schema.security.tiers import (
     SecuritySection,
     TierProfile,
 )
-from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
+from hivemind.manifest.schema.supervision import (
+    MemorySection,
+    ReconnectBudgetSection,
+    SupervisionSection,
+    WatchSection,
+)
+from hivemind.manifest.schema.swarm import SwarmLadderSection, SwarmNucSection, SwarmSection
 
 __all__ = [
     "DEFAULT_DIRE_PATTERNS",
@@ -146,13 +156,18 @@ __all__ = [
     "ProviderSpec",
     "QuarantineLimitsSection",
     "QueenSection",
+    "ReconnectBudgetSection",
     "RoyalJellySection",
     "SandboxKind",
     "SecuritySection",
     "ServerSpec",
     "SlotBinding",
     "SupervisionSection",
+    "SwarmLadderSection",
+    "SwarmNucSection",
+    "SwarmSection",
     "TierProfile",
     "VirtualCellsOverwinterSection",
     "VirtualCellsSection",
+    "WatchSection",
 ]

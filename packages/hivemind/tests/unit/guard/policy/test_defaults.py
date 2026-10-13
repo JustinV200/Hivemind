@@ -141,7 +141,22 @@ def test_warden_default_is_the_adrs_list_plus_its_scratch_writes() -> None:
         "honey:write",
         "honey:clearance:c2",
         "tactic:*",
+        # Phase 11 (ADR-0054, handoff 3.3): the Warden may watch, capped per Cell downstream.
+        "watch:*",
     }
+
+
+def test_only_the_two_roots_and_the_warden_hold_the_watch_family() -> None:
+    holders = {role for role in POLICY_ROLES if CapabilityFamily.WATCH in _families(role)}
+
+    # No Worker watches (it works inside its lease), and a device acts for nobody (ADR-0051).
+    assert holders == {"operator", "queen", "warden"}
+
+
+def test_the_swarm_device_role_holds_nothing_at_all() -> None:
+    # A Pollen Packet is a gateway: it checks the strings its enrolment granted, locally, and
+    # executes what a signed request asks. Its Warden is the principal that acts and watches.
+    assert role_set(load_guard_policy(), "swarm_device", _SCRATCH).as_strings() == ()
 
 
 def test_drone_default_keeps_phase_three_access_and_adds_its_slot() -> None:

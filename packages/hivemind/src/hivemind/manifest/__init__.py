@@ -43,7 +43,8 @@ Public API:
       PlacementRoleOverride, VirtualCellsSection, VirtualCellsOverwinterSection (phase 5),
       ExoskeletonSection (phase 6), EntranceSection, EntranceExposure, GuardSection,
       GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), RoyalJellySection,
-      QuarantineLimitsSection, SandboxKind, BasketSection (phase 9).
+      QuarantineLimitsSection, SandboxKind, BasketSection (phase 9), SwarmSection,
+      SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection (phase 11).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
@@ -92,15 +93,20 @@ from hivemind.manifest.schema import (
     ProviderSpec,
     QuarantineLimitsSection,
     QueenSection,
+    ReconnectBudgetSection,
     RoyalJellySection,
     SandboxKind,
     SecuritySection,
     ServerSpec,
     SlotBinding,
     SupervisionSection,
+    SwarmLadderSection,
+    SwarmNucSection,
+    SwarmSection,
     TierProfile,
     VirtualCellsOverwinterSection,
     VirtualCellsSection,
+    WatchSection,
 )
 
 __all__ = [
@@ -138,15 +144,20 @@ __all__ = [
     "ProviderSpec",
     "QuarantineLimitsSection",
     "QueenSection",
+    "ReconnectBudgetSection",
     "RoyalJellySection",
     "SandboxKind",
     "SecuritySection",
     "ServerSpec",
     "SlotBinding",
     "SupervisionSection",
+    "SwarmLadderSection",
+    "SwarmNucSection",
+    "SwarmSection",
     "TierProfile",
     "VirtualCellsOverwinterSection",
     "VirtualCellsSection",
+    "WatchSection",
     "apply_env",
     "load_manifest",
     "provider_api_key",

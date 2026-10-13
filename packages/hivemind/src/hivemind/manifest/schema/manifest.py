@@ -3,12 +3,13 @@
 ``HiveManifest`` gathers every section (``[hive]``, ``[queen]``, ``[hive_stand]``, ``[llm]``,
 ``[forage]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
 ``[brood_chamber]``, ``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``,
-``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]``) into one frozen value. Every section
-but ``[hive]`` has a ``default_factory``, so a manifest may omit ``[queen]``, ``[hive_stand]``,
-``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``, ``[brood_chamber]``,
-``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``, ``[entrance]``,
-``[guard]``, ``[royal_jelly]`` and ``[basket]`` entirely and still validate; ``[hive]`` alone has
-no default, because an id and a node id are never guessed on a Hive's behalf
+``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]``, ``[swarm]``) into one frozen value.
+Every section but ``[hive]`` has a ``default_factory``, so a manifest may omit ``[queen]``,
+``[hive_stand]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
+``[brood_chamber]``, ``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``,
+``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]`` and ``[swarm]`` entirely and still
+validate (an omitted ``[swarm]`` is the disabled default: no listener, no devices); ``[hive]``
+alone has no default, because an id and a node id are never guessed on a Hive's behalf
 (``hivemind.manifest.schema.core.HiveSection``). Omitting ``[virtual_cells]`` (or its own
 ``backend`` key) leaves placement
 Real-only, exactly as before roadmap step 5.7 (``hivemind.manifest.schema.placement.
@@ -79,6 +80,7 @@ from hivemind.manifest.schema.royal_jelly import BasketSection, RoyalJellySectio
 from hivemind.manifest.schema.security.guard import GuardSection
 from hivemind.manifest.schema.security.tiers import HoneySection, SecuritySection
 from hivemind.manifest.schema.supervision import MemorySection, SupervisionSection
+from hivemind.manifest.schema.swarm import SwarmSection
 
 __all__ = ["HiveManifest"]
 
@@ -162,6 +164,12 @@ class HiveManifest(BaseModel):
         default_factory=BasketSection,
         description="The Basket: where blob bytes live, size bounds and shipping policy "
         "(roadmap phase 9, ADR-0048).",
+    )
+    swarm: SwarmSection = Field(
+        default_factory=SwarmSection,
+        description="The Swarm: the listener Pollen Packets dial, device invites and liveness, "
+        "and the thresholds that colonize a device or promote it to a Nuc (roadmap phase 11, "
+        "ADR-0051 to ADR-0053); disabled by default.",
     )
     source_path: Path | None = Field(
         default=None,

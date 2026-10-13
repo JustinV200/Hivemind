@@ -398,6 +398,36 @@ max_offline_s = 600.0
 # A ceiling on attempts an escalation policy row is expected to need.
 alarm_attempt_limit = 3
 
+[supervision.reconnect_budget]
+# What a Warden that lost its link (a Virtual Cell's, a colonized device's, or the Queen's own for
+# a lost device) may spend diagnosing it with a short-lived diagnostic Drone before it falls back
+# to Clustering (roadmap step 11.9a, ADR-0056). It is carved out of max_offline_s, never added to
+# it: wall_clock_s must be below max_offline_s, or the manifest does not load.
+# Diagnostic Drones sent one after another; at least 1.
+attempts = 2
+# Seconds all those attempts may take together (five minutes here, half of max_offline_s).
+wall_clock_s = 300.0
+
+[supervision.watch]
+# Watch mode and the Patrol (roadmap step 11.10, ADR-0054): a Real Cell's Warden with no bees
+# working observes the device read-only and, on a schedule, reviews what it saw. Observations are
+# C2 (they describe the operator's own machine) and live in Bee Bread.
+# Seconds between two observation samples: processes, resources, logs, file changes.
+interval_s = 300.0
+# Seconds an observation is kept before the sweep may purge it (a day here). Keep it at least
+# patrol_interval_s, or a Patrol reviews only the newest part of what it covers.
+retention_s = 86400.0
+# Seconds between two Patrols, each one awake episode over the observations since the last: it
+# raises an Alarm (PATROL_ANOMALY), deposits Nectar, proposes Cell Wax, or finds nothing notable
+# and discards what it covered.
+patrol_interval_s = 3600.0
+# The share of the device's CPU, between 0 and 1, above which a newly seen process is handed to
+# the Patrol as a fact (half the machine here).
+cpu_share_alarm = 0.5
+# The fraction of the device's disk, between 0 and 1, above which the Patrol is told the disk is
+# nearly full.
+disk_fill_alarm = 0.95
+
 [memory]
 # Fraction of a request's context window reserved for assembled (retrieved/hot-state) content.
 budget_fraction = 0.6
@@ -884,3 +914,59 @@ default_resident_ceiling_bytes = 2147483648
 # Whether a newly promoted tool's package is shipped at once to every Cell that can run it; false
 # ships it on first use.
 ship_on_promotion = true
+
+[swarm]
+# The Swarm (roadmap phase 11, ADR-0051 to ADR-0053): the mesh of enrolled devices, each running a
+# Pollen Packet that dials the Hive Stand. Everything here defaults to off or to loopback, so a
+# manifest that never mentions [swarm] has no listener and no devices.
+# Whether the Hive accepts Pollen Packets at all. False starts no listener and enrols no device.
+enabled = true
+# The address the swarm listener binds: an IP literal or a host name. Anything but loopback
+# (127.0.0.1, ::1, localhost) serves wss:// and needs tls_cert and tls_key. Here, an overlay
+# address, as in [entrance] remote_bind above.
+listen_host = "100.101.102.103"
+# The TCP port the swarm listener binds. A different port from [hive_stand] address (8720) here,
+# because both listen on this machine.
+listen_port = 8721
+# The URL a device is told to dial, printed in its invite: wss:// anywhere, ws:// only on
+# loopback. Empty derives it from listen_host and listen_port; set it when devices reach the Hive
+# Stand under another name, as here.
+advertise_url = "wss://hivestand.example-tailnet.ts.net:8721"
+# Paths to the certificate chain and key the listener serves, resolved relative to this file's
+# directory. Both or neither. A self-signed certificate is fine: an invite carries its
+# fingerprint and the packet pins that instead of trusting a certificate authority.
+tls_cert = "tls/swarm.crt"
+tls_key = "tls/swarm.key"
+# Minutes a device invite stays valid; an invite is also single use.
+invite_ttl_minutes = 15.0
+# Seconds between a packet's device heartbeats, and the number of them the Queen lets a device miss
+# before it marks the device unreachable.
+heartbeat_interval_s = 15.0
+heartbeat_miss_limit = 4
+# Seconds a device with no Warden on it may be out of contact before its packet kills what its
+# leases started, removes their scratch and releases them (the dead-man switch). Sent to the
+# device in its enrolment.
+dead_man_s = 120.0
+# Seconds the Queen holds an unreachable device's tasks, neither failed nor re-placed, before
+# deciding what to do with them; 0 decides at once.
+unreachable_grace_s = 300.0
+# The access level an invite grants when `hive swarm invite` names none: READ_ONLY, SCRATCH or
+# FULL. A cap, never a promise: the operator may grant less when approving.
+default_access = "FULL"
+
+[swarm.ladder]
+# When is moving a device's Warden onto the device (colonizing it) worth it? Only when the device
+# can hold a Warden plus one sub-bee, and the Hive Stand needs relief, a task must survive short
+# outages, or the operator asked for it.
+# Hive Stand seat or memory pressure, as a fraction of capacity, past which it needs relief.
+relief_pressure = 0.75
+# Free memory, in bytes, a device must report before a Warden is moved onto it (1 GiB here); 0
+# turns the floor off and leaves the Forage footprint as the only test.
+min_free_memory_bytes = 1073741824
+
+[swarm.nuc]
+# When is giving a colonized device a model server of its own (promoting it to a Nuc) worth it?
+# Only when the device declared a server whose models fit its free VRAM, and the Hive Stand's model
+# seats are under pressure, a task must keep working offline, or the operator asked for it.
+# Hive Stand model-seat pressure, as a fraction of its seats, past which a Nuc is worth building.
+seat_pressure = 0.75

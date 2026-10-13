@@ -171,6 +171,12 @@ allow = [
     "honey:clearance:c2",
     # A Warden may invoke Pheromone Mask tactics for a bounded task segment (codingrules 8.8).
     "tactic:*",
+    # Watch mode (roadmap steps 10.7 and 11.10, ADR-0054): a Real Cell's Warden with no active
+    # bees observes its own Cell read-only. The family is named at its widest here and capped per
+    # Cell by the Warden's set (`watch:<cell_id>`), so a Warden may watch its own Cell and no
+    # other; the operator and the Queen keep `watch:*` themselves. What a watcher may see is
+    # bounded by the READ_ONLY ceiling (hivemind.guard.watch), whatever this entry says.
+    "watch:*",
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -358,6 +364,11 @@ proposed = [
     "question:human",
 ]
 
-# A Real Cell enrolled through a Pollen Packet. Nothing until phase 11 says what one may do.
+# A Real Cell enrolled through a Pollen Packet. Empty by design (phase 11, ADR-0051): a packet is a
+# gateway that acts for nobody. It executes only what a signed request from a trusted node asks,
+# inside a lease and after its own local capability check against the strings its enrolment
+# granted, so there is nothing for this role to hold. Its Warden (on the Hive Stand at level 0,
+# on the device from level 1) holds the Warden role above, capped by the Cell's access level, and
+# is the one that acts, watches included.
 [roles.swarm_device]
 allow = []
