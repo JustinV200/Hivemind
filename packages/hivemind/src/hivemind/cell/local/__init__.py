@@ -35,8 +35,8 @@ See Also:
 Public API:
     - HiveStandConfig: the Hive Stand's own settings, resolved once from the manifest
       (hivemind.cell.local.config).
-    - ProbeResult, probe_host, refresh_live, DEFAULT_MAX_SUB_BEES: this host's platform,
-      capabilities and capacity (hivemind.cell.local.probe).
+    - ProbeResult, probe_host, refresh_live, host_platform, DEFAULT_MAX_SUB_BEES: this host's
+      platform, capabilities and capacity (hivemind.cell.local.probe).
     - ScratchQuota, DirectorySizer, QUOTA_SAMPLE_INTERVAL_S, directory_size_bytes: how a lease's
       scratch usage is measured and capped (hivemind.cell.local.quota).
     - LocalProcessSession: a CellSession over a real OS process (hivemind.cell.local.session).
@@ -48,7 +48,13 @@ Public API:
 """
 
 from hivemind.cell.local.config import HiveStandConfig
-from hivemind.cell.local.probe import DEFAULT_MAX_SUB_BEES, ProbeResult, probe_host, refresh_live
+from hivemind.cell.local.probe import (
+    DEFAULT_MAX_SUB_BEES,
+    ProbeResult,
+    host_platform,
+    probe_host,
+    refresh_live,
+)
 from hivemind.cell.local.quota import (
     QUOTA_SAMPLE_INTERVAL_S,
     DirectorySizer,
@@ -73,6 +79,7 @@ __all__ = [
     "ScratchQuota",
     "directory_size_bytes",
     "hive_stand_cell_id",
+    "host_platform",
     "kill_process_tree",
     "probe_host",
     "refresh_live",

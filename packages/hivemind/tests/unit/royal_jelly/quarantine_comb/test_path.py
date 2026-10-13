@@ -55,5 +55,22 @@ def test_decide_path_chooses_the_sandbox_only_for_the_sandbox_image_platform(
     assert decide_path(_platform(os, distribution), sandbox) is expected
 
 
+@pytest.mark.parametrize(
+    ("os", "sandbox_os", "expected"),
+    [
+        (OsFamily.WINDOWS, OsFamily.WINDOWS, QuarantinePath.SANDBOX_CELL),
+        (OsFamily.MACOS, OsFamily.MACOS, QuarantinePath.SANDBOX_CELL),
+        (OsFamily.LINUX, OsFamily.WINDOWS, QuarantinePath.REAL_CELL),
+        (OsFamily.WINDOWS, OsFamily.MACOS, QuarantinePath.REAL_CELL),
+    ],
+)
+def test_a_non_linux_sandbox_takes_its_own_family_and_nothing_else(
+    os: OsFamily, sandbox_os: OsFamily, expected: QuarantinePath
+) -> None:
+    # Only the development subprocess sandbox is ever non-Linux: it is the host, so the family
+    # is the whole platform and no distribution label is compared.
+    assert decide_path(_platform(os, None), "ubuntu", sandbox_os) is expected
+
+
 def test_every_route_has_a_rationale() -> None:
     assert set(PATH_RATIONALE) == set(QuarantinePath)

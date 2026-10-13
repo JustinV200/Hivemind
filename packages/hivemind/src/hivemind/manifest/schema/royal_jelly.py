@@ -154,7 +154,8 @@ class RoyalJellySection(BaseModel):
         default=DEFAULT_SANDBOX_DISTRIBUTION,
         min_length=1,
         description="The Linux distribution of sandbox_image; a tool aimed at any other platform "
-        "is also tested on a Real Cell of that platform (ADR-0047).",
+        "is also tested on a Real Cell of that platform (ADR-0047). Unset with the subprocess "
+        "sandbox, it is this host's own distribution, because that sandbox is this host.",
     )
     limits: QuarantineLimitsSection = Field(
         default_factory=QuarantineLimitsSection,

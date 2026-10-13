@@ -88,6 +88,7 @@ __all__ = [
     "WINDOW_MANAGERS",
     "X11_DISPLAY_PROGRAMS",
     "ProbeResult",
+    "host_platform",
     "probe_host",
     "refresh_live",
 ]
@@ -194,6 +195,19 @@ def _probe_cores() -> int:
 def _wire_os_family() -> WireOsFamily:
     """Return the waggle wire OsFamily for this host, the type `HostCapacity.os` carries."""
     return WireOsFamily(_os_family_value())
+
+
+def host_platform() -> tuple[WireOsFamily, str | None]:
+    """Return this host's OS family and distribution label, as its own capabilities carry them.
+
+    The label is os-release's PRETTY_NAME on Linux and the macOS version on Darwin, exactly what
+    `probe_host` writes into the Hive Stand's `CellCapabilities.distribution`; None on Windows,
+    which has no distribution. The Royal Jelly Lab's development subprocess sandbox is this host,
+    so its path decision compares a target with these two facts rather than with the image a
+    Virtual Cell sandbox would boot.
+    """
+    system = platform.system()
+    return _wire_os_family(), None if sys.platform == "win32" else _posix_distribution(system)
 
 
 def _os_family_value() -> str:

@@ -25,6 +25,7 @@ from structlog.testing import capture_logs
 
 from hivemind.basket import HoneyRecord, MediaKind
 from hivemind.cell import HoneyClearance, hive_stand_cell_id
+from hivemind.cell.local import host_platform
 from hivemind.cli.compose.deps import HiveStores, build_fanner, open_default_stores
 from hivemind.cli.compose.honey import build_honey_access
 from hivemind.cli.compose.royal_jelly import (
@@ -214,6 +215,32 @@ def test_the_subprocess_sandbox_logs_a_dev_only_warning(tmp_path: Path) -> None:
     assert access.sandbox_kind is SandboxKind.SUBPROCESS
     warnings = [e for e in logs if e["event"] == "royal_jelly.subprocess_sandbox"]
     assert len(warnings) == 1 and "dev only" in warnings[0]["note"]
+
+
+def test_the_subprocess_sandbox_is_this_host_so_the_path_compares_with_it(tmp_path: Path) -> None:
+    base = load_manifest(fake_manifest(tmp_path), {})
+    config = base.royal_jelly.model_copy(update={"sandbox": SandboxKind.SUBPROCESS})
+    family, distribution = host_platform()
+
+    access = _Kit(tmp_path, base.model_copy(update={"royal_jelly": config})).access()
+
+    # The dev sandbox runs on the Hive Stand, so a tool for this very platform takes the sandbox
+    # route whatever distribution the manifest's default image names (an Arch host is not Ubuntu).
+    assert access.sandbox_os is family
+    assert access.config.sandbox_distribution == (distribution or "ubuntu")
+
+
+def test_an_explicit_sandbox_distribution_is_kept_for_the_subprocess_sandbox(
+    tmp_path: Path,
+) -> None:
+    base = load_manifest(fake_manifest(tmp_path), {})
+    config = base.royal_jelly.model_copy(
+        update={"sandbox": SandboxKind.SUBPROCESS, "sandbox_distribution": "debian"}
+    )
+
+    access = _Kit(tmp_path, base.model_copy(update={"royal_jelly": config})).access()
+
+    assert access.config.sandbox_distribution == "debian"
 
 
 def test_a_virtual_sandbox_logs_no_dev_warning(tmp_path: Path) -> None:
