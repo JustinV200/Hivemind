@@ -122,8 +122,9 @@ def test_server_id_is_bounded_like_the_capacity_report_s(message: WaggleMessage)
         _rebuild(message, server_id="s" * (MAX_SERVER_ID_CHARS + 1))
 
 
-def test_the_kinds_are_events_registered_at_minor_eleven() -> None:
-    assert (PROTOCOL_VERSION, PROTOCOL_MINOR) == ("1.11", 11)
+def test_the_kinds_are_events_registered_since_minor_eleven() -> None:
+    # The forage.source_* kinds arrived in 1.11; later minors keep them, so the check is a floor.
+    assert PROTOCOL_MINOR >= 11 and f"1.{PROTOCOL_MINOR}" == PROTOCOL_VERSION
     expected: dict[str, type[WaggleMessage]] = {
         "forage.source_added": SourceAdded,
         "forage.source_removed": SourceRemoved,
