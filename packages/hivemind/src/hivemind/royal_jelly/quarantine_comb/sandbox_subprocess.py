@@ -32,6 +32,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import shutil
 import signal
@@ -158,6 +159,11 @@ class SandboxSubprocess:
         except TimeoutError:
             timed_out = True
             await _kill_group(process)
+            # The pumps died with the wait: read what is left so each pipe reaches EOF and its
+            # transport closes (one left open warns when the loop closes), bounded in case a
+            # grandchild the kill missed still holds the pipe's far end.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(_drain_and_wait(process, output), timeout=_REAP_GRACE_S)
         code = TIMED_OUT_EXIT_CODE if timed_out else (process.returncode or 0)
         return output.result(code, self._clock.monotonic() - started)
 

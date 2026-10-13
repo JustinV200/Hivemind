@@ -75,7 +75,9 @@ _PATH_EVENTS = frozenset(
     }
 )
 _INET_FAMILIES = (socket.AF_INET, socket.AF_INET6)  # A socket of these families is network access.
-_ALWAYS_READABLE = ("/dev/null",)  # A path every program may open; reading it reveals nothing.
+# Paths every program may open, as `_resolved` renders them: reading the null device reveals
+# nothing (`subprocess` opens it for DEVNULL); on Windows it resolves to `\\\\.\\NUL`.
+_ALWAYS_READABLE = frozenset({"/dev/null", os.path.realpath(os.devnull)})
 _MAX_PATH_CHARS = 200  # How much of an offending path the report keeps.
 
 __all__ = [

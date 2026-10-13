@@ -14,6 +14,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import tempfile
 import uuid
@@ -43,7 +44,9 @@ async def run(session, arguments):
 # one this module writes beside the sandboxes (the system temp directory lies under no allowed
 # root), because `linecache` opens nothing for a path that does not exist, and no one system
 # file exists on every platform.
-_OUTSIDE_FILE = Path(tempfile.gettempdir()) / f"hivemind-comb-outside-{uuid.uuid4().hex}.txt"
+_OUTSIDE_FILE = Path(os.path.realpath(tempfile.gettempdir())) / (
+    f"hivemind-comb-outside-{uuid.uuid4().hex}.txt"  # Real path: the hook names resolved paths.
+)
 _OUTSIDE_TOOL = f"""\
 import linecache
 

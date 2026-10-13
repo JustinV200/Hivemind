@@ -30,8 +30,9 @@ from hivemind.royal_jelly.quarantine_comb.runner.hooks import (
 
 # Native separators throughout: the policy compares `root + os.sep` prefixes, so a frame written
 # with `/` on Windows would never match the root it is meant to lie under.
-_STDLIB = str(Path("/usr/lib/python3.12"))
-_VENV = str(Path("/opt/venv"))
+# Resolved as `_resolved` resolves an event's path, so on Windows they carry the drive too.
+_STDLIB = os.path.realpath(os.path.join(os.sep, "usr", "lib", "python3.12"))
+_VENV = os.path.realpath(os.path.join(os.sep, "opt", "venv"))
 _TOOL_FRAME = ("{pkg}" + os.sep + "tool.py", 7)
 _STDLIB_FRAME = (os.path.join(_STDLIB, "subprocess.py"), 1_900)
 _HIVE_FRAME = (
@@ -88,11 +89,12 @@ def test_every_process_event_is_forbidden_to_the_tool(tmp_path: Path, event: str
 def test_opening_a_file_outside_every_allowed_root_names_the_path(tmp_path: Path) -> None:
     policy = _policy(tmp_path)
 
-    hit = classify("open", ("/etc/passwd", "r", 0), _frames(policy, _TOOL_FRAME), policy)
+    outside = str(tmp_path.resolve().parent / "outside.txt")  # Beside the root: not under it.
+    hit = classify("open", (outside, "r", 0), _frames(policy, _TOOL_FRAME), policy)
 
     assert hit is not None
     assert hit.kind == "open"
-    assert "/etc/passwd" in hit.detail
+    assert outside in hit.detail
 
 
 @pytest.mark.parametrize(

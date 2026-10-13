@@ -102,7 +102,7 @@ async def test_the_runner_command_line_can_be_replaced() -> None:
     comb = QuarantineComb(FakeClock(), runner_argv_builder=build)
     await comb.run(make_package(spec=spec), spec, sandbox, _LIMITS)
 
-    assert sandbox.execs == [("python3", "run.py", "/sandbox/pkg")]
+    assert sandbox.execs == [("python3", "run.py", str(sandbox.root / "pkg"))]
 
 
 async def test_a_package_the_static_gate_refuses_never_reaches_the_sandbox() -> None:
