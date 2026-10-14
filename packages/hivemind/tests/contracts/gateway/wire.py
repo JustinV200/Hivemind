@@ -10,7 +10,9 @@ and writes whole frames: `signed` builds a frame the way the Hive Stand's codec 
 frame is exactly a good frame), `send` puts any bytes or text on the wire, `next_envelope`
 decodes what the gateway sent with the gateway's own public key, and `closed_code` reports the
 WebSocket close code the gateway ended the connection with. `give_back` restarts the real
-listener on the same port.
+listener on the same port. A Hive Stand that serves `wss://` is replaced by a bare server that
+serves it with the same certificate, so a gateway that pins it (one in a container, say) dials the
+stand-in exactly as it dialled the listener.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.3), not shipped. Used by the resilience part of
@@ -47,6 +49,7 @@ from waggle.ids import DeviceId, MessageId, new_message_id
 from waggle.messages.base import WaggleMessage
 from waggle.messages.registry import kind_for
 from waggle.signing import Ed25519Verifier
+from waggle.transport.tls import server_ssl_context
 
 DIAL_TIMEOUT_S = 30.0  # How long the gateway may take to dial the address after the swap.
 FRAME_TIMEOUT_S = 15.0  # How long a frame the gateway owes may take to arrive.
@@ -87,7 +90,14 @@ class RawHive:
         """Stop the real listener, serve its address by hand and wait for the gateway's dial."""
         await self.hive.stop()
         config = self.hive.config
-        self._server = await serve(self._accept, config.host, config.port)
+        # The listener's own certificate and key, so a gateway pinning the certificate still
+        # trusts what it dials; plaintext only where the real listener was.
+        tls = (
+            server_ssl_context(config.tls_cert, config.tls_key)
+            if config.tls_cert is not None and config.tls_key is not None
+            else None
+        )
+        self._server = await serve(self._accept, config.host, config.port, ssl=tls)
         return await self.next_connection()
 
     async def next_connection(self) -> ServerConnection:

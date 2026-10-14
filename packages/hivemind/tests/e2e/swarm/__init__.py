@@ -37,6 +37,13 @@ Public API:
       (a real `pollen` packet run in the test's own process) and `hive` (a Hive built from a
       manifest with `[swarm] enabled = true`, and reads of what it recorded), used by
       tests/e2e/test_swarm_level0.py.
+    - The phase 11 exit scenarios (tests/e2e/test_phase11_exit_*.py) put a whole Hive in front of
+      a container and import their helpers by module as well: `bridge` (that Hive, as a `Door`),
+      `drone` (the work a device is given), `snapshots` (a device compared with itself), `tunnel`
+      (the operator's VPN) and `operator` (`hive cells list` as typed); `enrolled.enrol_device`
+      with its `DeviceOptions` (what the container is enrolled as and started with) is the
+      enrolment `enrol_container` is a shorthand for, and `image.device_image_or_skip` is a
+      module fixture's skip.
 """
 
 from e2e.swarm.binary import (

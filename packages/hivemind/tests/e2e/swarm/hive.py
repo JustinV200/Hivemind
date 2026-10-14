@@ -49,6 +49,7 @@ from hivemind.llm import LLMRequest, LLMResponse
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.swarm import NodeStatus, SwarmNode, SwarmRecorder
+from hivemind.wardens import Warden, WardenState
 from waggle.clock import SystemClock
 from waggle.ids import DeviceId
 
@@ -76,11 +77,13 @@ __all__ = [
     "REPORT_FILE",
     "STRAY",
     "attached_warden_ids",
+    "device_warden",
     "device_worker_turn",
     "enrolled_node",
     "revoke",
     "swarm_hive",
     "trail_events",
+    "warden_is_idle",
 ]
 
 
@@ -127,6 +130,22 @@ async def enrolled_node(hive: Hive) -> SwarmNode:
 def attached_warden_ids(hive: Hive) -> Sequence[str]:
     """Every Warden the Queen has attached right now, the Hive Stand's included."""
     return [link.warden_id for link in hive.queen.wardens]
+
+
+def device_warden(hive: Hive, node: SwarmNode) -> Warden | None:
+    """The Warden the gate serves a device with; None before it is started and after it is gone."""
+    assert hive.swarm is not None
+    served = hive.swarm.gate.wardens.get(node.device_id)
+    return None if served is None else served.warden
+
+
+def warden_is_idle(hive: Hive, node: SwarmNode) -> bool:
+    """Whether the device's Warden is up, in WATCH and holds no lease.
+
+    That is the state a device is left as found in: nothing of the Hive's is on it.
+    """
+    warden = device_warden(hive, node)
+    return warden is not None and warden.state is WardenState.WATCH and warden.lease is None
 
 
 async def trail_events(hive: Hive, kind: str | None = None) -> list[PheromoneEvent]:

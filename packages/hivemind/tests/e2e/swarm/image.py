@@ -50,7 +50,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from e2e.swarm.container import LABEL, LABEL_VALUE, CommandError, docker, run
+import pytest
+from e2e.swarm.container import LABEL, LABEL_VALUE, CommandError, daemon_answers, docker, run
 from packaging.requirements import Requirement
 
 IMAGE_VARIABLE = "HIVEMIND_TEST_DEVICE_IMAGE"  # An image to use as it is, instead of building.
@@ -96,6 +97,7 @@ __all__ = [
     "IMAGE_VARIABLE",
     "ImageUnavailableError",
     "device_image",
+    "device_image_or_skip",
     "device_pins",
     "image_digest",
     "proxy_flags",
@@ -140,6 +142,26 @@ def device_image(extra_packages: tuple[str, ...] = ()) -> str:
         if not _image_exists(tag):
             _build(tag, context, extra_packages)
     return tag
+
+
+def device_image_or_skip(extra_packages: tuple[str, ...] = ()) -> str:
+    """Return the device image's tag, or skip the test when it cannot be had.
+
+    The one place a scenario's fixture learns that a second machine is not to be had here: no
+    docker daemon answers, or `HIVEMIND_TEST_DEVICE_IMAGE` names an image the daemon lacks.
+
+    Args:
+        extra_packages: apt packages to install besides the plain device's; see `device_image`.
+
+    Returns:
+        The image to start device containers from.
+    """
+    if not daemon_answers():
+        pytest.skip("no Docker daemon reachable")
+    try:
+        return device_image(extra_packages)
+    except ImageUnavailableError as missing:
+        pytest.skip(str(missing))
 
 
 def wheelhouse(destination: Path) -> Path:

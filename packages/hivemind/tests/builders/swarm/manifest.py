@@ -26,9 +26,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from builders.cli import fake_manifest
+from builders.cli import ManifestTuning, fake_manifest
 
-__all__ = ["swarm_manifest"]
+__all__ = ["swarm_manifest", "tuned_swarm_manifest"]
 
 
 def swarm_manifest(tmp_path: Path, **swarm: bool | int | float | str) -> Path:
@@ -42,7 +42,27 @@ def swarm_manifest(tmp_path: Path, **swarm: bool | int | float | str) -> Path:
     Returns:
         The written manifest's path.
     """
-    path = fake_manifest(tmp_path)
+    return tuned_swarm_manifest(tmp_path, None, **swarm)
+
+
+def tuned_swarm_manifest(
+    tmp_path: Path, tuning: ManifestTuning | None, **swarm: bool | int | float | str
+) -> Path:
+    """Write the same manifest as `swarm_manifest`, with the rest of it tuned.
+
+    A separate function, not a keyword of `swarm_manifest`, because that one's keywords are
+    `[swarm]` keys that callers pass on from a dict, and a `tuning` among them would read as one.
+
+    Args:
+        tmp_path: A test's own tmp_path; the manifest, the Hive's database and its scratch go there.
+        tuning: The manifest's rarely-needed overrides (`builders.cli.ManifestTuning`: a watch
+            table, the Drone's footprint); every default when None.
+        **swarm: `[swarm]` keys to set, beyond `enabled = true`.
+
+    Returns:
+        The written manifest's path.
+    """
+    path = fake_manifest(tmp_path, tuning=tuning)
     keys: dict[str, bool | int | float | str] = {"enabled": True, **swarm}
     lines = "\n".join(f"{key} = {_toml(value)}" for key, value in keys.items())
     path.write_text(f"{path.read_text(encoding='utf-8')}\n[swarm]\n{lines}\n", encoding="utf-8")

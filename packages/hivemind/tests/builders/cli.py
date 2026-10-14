@@ -98,6 +98,7 @@ _MODEL_ID = "test-model"  # Neutral (codingrules 8.6); never a real vendor id.
 _STRONG_MODEL_ID = "test-model-strong"  # worker_fallback=True's own second binding's model id.
 _SOURCE_ID = "fake_default"  # The one [forage.map.<source_id>] entry every slot's binding prices.
 _DEFAULT_HEARTBEAT_INTERVAL_S = 0.05  # This suite's usual cadence; fake_manifest's own default.
+_DEFAULT_DRONE_CPU_CORES = 0.5  # What one Drone costs its Cell in `[forage.roles.drone]`.
 
 # Every hivemind.forage.slots.ModelSlot's own lowercase manifest key (hivemind.manifest.schema.llm.
 # LlmSection's own validator requires every one of these to resolve).
@@ -157,12 +158,17 @@ class ManifestTuning:
         watch_table: When given, the body of a `[supervision.watch]` table (`interval_s = 0.2`,
             `roots = [...]`), written after `[supervision]`; omitted writes none, so watch mode
             keeps its documented defaults (roadmap step 11.10's tests compress the intervals).
+        drone_cpu_cores: The `cpu_cores` of `[forage.roles.drone]` (normally `0.5`). A Drone on a
+            borrowed device is granted the device's free cores, and a container reports its host's
+            load average, which a shared build machine does not control; `0` is a bee that costs
+            its Cell no core, so the Forage never holds the task back for want of one.
     """
 
     worker_fallback: bool = False
     handoff_threshold: float | None = None
     heartbeat_interval_s: float | None = None
     watch_table: str = ""
+    drone_cpu_cores: float = _DEFAULT_DRONE_CPU_CORES
 
 
 def fake_manifest(
@@ -202,6 +208,7 @@ def fake_manifest(
         handoff_threshold=active_tuning.handoff_threshold,
         heartbeat_interval_s=active_tuning.heartbeat_interval_s,
         watch_table=active_tuning.watch_table,
+        drone_cpu_cores=active_tuning.drone_cpu_cores,
     )
     manifest_path = tmp_path / "hive.toml"
     manifest_path.write_text(_render(spec), encoding="utf-8")
@@ -221,6 +228,7 @@ class _ManifestSpec:
     handoff_threshold: float | None
     heartbeat_interval_s: float | None
     watch_table: str = ""
+    drone_cpu_cores: float = _DEFAULT_DRONE_CPU_CORES
 
 
 def _render(spec: _ManifestSpec) -> str:
@@ -235,7 +243,7 @@ def _render(spec: _ManifestSpec) -> str:
         _queen_and_hive_stand_section(spec.scratch_root, heartbeat_s),
         _provider_section(spec.capabilities),
         _slots_section(worker_fallback=spec.worker_fallback),
-        _forage_section(),
+        _forage_section(spec.drone_cpu_cores),
         _supervision_section(heartbeat_s, spec.watch_table),
         _memory_section(spec.handoff_threshold),
     ]
@@ -288,7 +296,7 @@ def _memory_section(handoff_threshold: float | None) -> str:
     return f"[memory]\nhandoff_threshold = {handoff_threshold}\n"
 
 
-def _forage_section() -> str:
+def _forage_section(drone_cpu_cores: float) -> str:
     """Build `[forage.map.<source>]` (priced, graded) and the required `[forage.roles.drone]`.
 
     `seats = 4` on the map entry (`ModelSourceSpec.seats` otherwise defaults to 1) matters more
@@ -299,7 +307,7 @@ def _forage_section() -> str:
     return (
         f'[forage.map.{_SOURCE_ID}]\nprovider = "fake"\nmodel = "{_MODEL_ID}"\ngrade = 3\n'
         "context_window = 8192\nseats = 4\n\n"
-        "[forage.roles.drone]\ncpu_cores = 0.5\nmemory_bytes = 268435456\n"
+        f"[forage.roles.drone]\ncpu_cores = {drone_cpu_cores}\nmemory_bytes = 268435456\n"
         "token_rate_per_minute = 20000\n"
     )
 

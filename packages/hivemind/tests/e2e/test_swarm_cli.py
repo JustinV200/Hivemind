@@ -32,20 +32,16 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 from e2e.kernel_helpers import wait_until
 from e2e.scripted_openai import Scenario, free_port, serve_in_thread, write_manifest
 from e2e.swarm.device import EnrolledDevice, enrol, running
 from e2e.swarm.hive import attached_warden_ids, enrolled_node, trail_events
-from structlog.testing import capture_logs
-from typer.testing import CliRunner, Result
+from e2e.swarm.operator import cell_rows, device_rows, swarm
 
 from hivemind.cell import AccessLevel
-from hivemind.cli.app import app
 from hivemind.cli.compose import Hive, build_hive, run_hive
 from hivemind.cli.stores import open_trail
 from hivemind.manifest import load_manifest
@@ -69,51 +65,14 @@ def _manifest(directory: Path, base_url: str) -> Path:
     """Write a Hive Manifest on the scripted model server, its Swarm on a free loopback port."""
     clock = SystemClock()
     path = write_manifest(directory, base_url, (new_hive_id(clock), new_node_id(clock)))
-    swarm = f"\n[swarm]\nenabled = true\nlisten_port = {free_port()}\nheartbeat_interval_s = 0.25\n"
-    path.write_text(path.read_text(encoding="utf-8") + swarm, encoding="utf-8")
+    table = f"\n[swarm]\nenabled = true\nlisten_port = {free_port()}\nheartbeat_interval_s = 0.25\n"
+    path.write_text(path.read_text(encoding="utf-8") + table, encoding="utf-8")
     return path
 
 
 def _hive(manifest: Path) -> Hive:
     """Build the Hive a manifest describes, as `hive serve` does; not yet started."""
     return build_hive(load_manifest(manifest, {}), environ={}, clock=SystemClock())
-
-
-async def _operator(*command: str) -> Result:
-    """Run one `hive` command as the operator types it, off the loop the packet runs on.
-
-    The commands that build a Hive run their own event loop, which a worker thread has and this
-    thread does not. Structlog's lines are captured so that standard output holds only what the
-    command prints.
-    """
-
-    def invoke() -> Result:
-        with capture_logs():
-            return CliRunner().invoke(app, list(command))
-
-    return await asyncio.to_thread(invoke)
-
-
-async def _swarm(manifest: Path, *arguments: str) -> Result:
-    """Run `hive swarm --manifest M ARGUMENTS`."""
-    return await _operator("swarm", "--manifest", str(manifest), *arguments)
-
-
-def _rows_of(result: Result) -> list[dict[str, Any]]:
-    """The rows a listing printed with `--json`; the command must have succeeded."""
-    assert result.exit_code == 0, result.stderr
-    rows: list[dict[str, Any]] = json.loads(result.stdout)
-    return rows
-
-
-async def _devices(manifest: Path) -> list[dict[str, Any]]:
-    """The rows of `hive swarm list --json`."""
-    return _rows_of(await _swarm(manifest, "list", "--json"))
-
-
-async def _cells(manifest: Path) -> list[dict[str, Any]]:
-    """The rows of `hive cells list --json`."""
-    return _rows_of(await _operator("cells", "list", "--manifest", str(manifest), "--json"))
 
 
 def _read_events(manifest: Path, kind: str) -> list[PheromoneEvent]:
@@ -131,7 +90,7 @@ async def _invite_and_enrol(
     manifest: Path, hive: Hive, data_dir: Path, access: str
 ) -> EnrolledDevice:
     """Mint an invite with `hive swarm invite`, enrol a packet with it and return the device."""
-    invited = await _swarm(manifest, "invite", "--access", access, "--label", _LABEL)
+    invited = await swarm(manifest, "invite", "--access", access, "--label", _LABEL)
     assert invited.exit_code == 0, invited.stderr
     # The string is the only thing on standard output; everything else the command says is on
     # standard error, so that `hive swarm invite > file` keeps the secret alone.
@@ -171,7 +130,7 @@ async def _online(hive: Hive, node: SwarmNode) -> bool:
 
 async def _the_listings_show_the_device_as_it_is(manifest: Path, node: SwarmNode) -> None:
     """`hive swarm list` and `hive cells list` agree with what enrolment made."""
-    (listed,) = await _devices(manifest)
+    (listed,) = await device_rows(manifest)
     assert (listed["device_id"], listed["label"], listed["cell_id"]) == (
         node.device_id,
         _LABEL,
@@ -183,7 +142,7 @@ async def _the_listings_show_the_device_as_it_is(manifest: Path, node: SwarmNode
         "SCRATCH",
     )
 
-    cells = {row["source"]: row for row in await _cells(manifest)}
+    cells = {row["source"]: row for row in await cell_rows(manifest)}
     # The device is a Real Cell of source swarm, its Warden still on the Hive Stand at this rung.
     assert set(cells) == {"hive_stand", "swarm"}
     device = cells["swarm"]
@@ -199,7 +158,7 @@ async def _access_reaches_the_packet(
     manifest: Path, hive: Hive, device: EnrolledDevice, node: SwarmNode
 ) -> None:
     """`hive swarm access` writes the registry and trail, and the running Hive tells the packet."""
-    changed = await _swarm(manifest, "access", _LABEL, "read_only")
+    changed = await swarm(manifest, "access", _LABEL, "read_only")
     assert changed.exit_code == 0, changed.stderr
 
     assert hive.swarm is not None
@@ -221,7 +180,7 @@ async def _access_reaches_the_packet(
     await wait_until(
         lambda: _idle_warden_built_for(hive, node, AccessLevel.READ_ONLY), timeout_s=_WAIT_S
     )
-    (listed,) = await _devices(manifest)
+    (listed,) = await device_rows(manifest)
     assert listed["access_level"] == "READ_ONLY"
 
 
@@ -244,7 +203,7 @@ async def _revoking_cuts_the_device_off(manifest: Path, hive: Hive, node: SwarmN
     assert served is not None
     warden = served.warden
 
-    revoked = await _swarm(manifest, "revoke", _LABEL)
+    revoked = await swarm(manifest, "revoke", _LABEL)
     assert revoked.exit_code == 0, revoked.stderr
 
     # The running Hive, not the command, ends the link: the gate's next pass sees the status.
@@ -255,10 +214,10 @@ async def _revoking_cuts_the_device_off(manifest: Path, hive: Hive, node: SwarmN
     assert hive.warden_link.warden_id in attached_warden_ids(hive)  # The Hive Stand's carries on.
     (event,) = await trail_events(hive, "swarm.revoked")
     assert event.payload["device_id"] == node.device_id
-    (listed,) = await _devices(manifest)
+    (listed,) = await device_rows(manifest)
     assert listed["status"] == NodeStatus.REVOKED.value
     # A revoked device is no longer a Cell, though the audit still lists it.
-    assert [row["source"] for row in await _cells(manifest)] == ["hive_stand"]
+    assert [row["source"] for row in await cell_rows(manifest)] == ["hive_stand"]
 
 
 def test_hive_swarm_run_places_the_goal_on_the_named_device_and_runs_it_there(
@@ -280,7 +239,7 @@ async def _enrol_then_run(manifest: Path, hive: Hive, data_dir: Path) -> None:
     # `hive swarm run`, which builds the Hive of its own the goal runs in; the packet, started now,
     # dials whichever listener answers on the address its invite named.
     async with running(device):
-        ran = await _swarm(manifest, "run", _LABEL, _GOAL, "--timeout", str(_GOAL_TIMEOUT_S))
+        ran = await swarm(manifest, "run", _LABEL, _GOAL, "--timeout", str(_GOAL_TIMEOUT_S))
 
     assert ran.exit_code == 0, ran.stdout + ran.stderr
     assert "succeeded" in ran.stdout
