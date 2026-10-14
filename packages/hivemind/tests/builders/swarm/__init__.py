@@ -37,6 +37,10 @@ Public API:
       real time and real sockets, for a real gateway to dial (live).
     - LeasedDevice, lease_device, real_guard: lease a connected device with the real Guard in
       front and open its session (leasing).
+    - swarm_manifest: a Hive Manifest with the Swarm on, its listener on a free loopback port
+      (manifest).
+    - GateRig, IdleDevice, RecordingFactory, SpyListener, make_gate_rig: the Queen's swarm
+      gate over a Queen, a registry, a hub, silent links and real Wardens (gate).
 """
 
 from builders.swarm.client import DeviceClient
@@ -58,6 +62,7 @@ from builders.swarm.enrolment import (
     make_rules,
     make_swarm_invite,
 )
+from builders.swarm.gate import GateRig, IdleDevice, RecordingFactory, SpyListener, make_gate_rig
 from builders.swarm.guards import RecordingGuard
 from builders.swarm.hive import HiveRig, HubLog, WardenHandlerLog, make_hive_rig
 from builders.swarm.leasing import LeasedDevice, lease_device, real_guard
@@ -68,6 +73,7 @@ from builders.swarm.live import (
     free_port,
     start_live_hive,
 )
+from builders.swarm.manifest import swarm_manifest
 from builders.swarm.parties import (
     DeviceParty,
     HiveParty,
@@ -101,19 +107,23 @@ __all__ = [
     "DeviceState",
     "Dialled",
     "ExecScript",
+    "GateRig",
     "HiveParty",
     "HiveRig",
     "HubLog",
+    "IdleDevice",
     "LeasedDevice",
     "LinkRig",
     "LiveHive",
     "LiveHiveOptions",
     "RawLink",
+    "RecordingFactory",
     "RecordingGuard",
     "ReleaseScript",
     "RouteRow",
     "RouterRig",
     "ScriptedDevice",
+    "SpyListener",
     "TamperableSigner",
     "TlsMaterial",
     "WardenHandlerLog",
@@ -131,6 +141,7 @@ __all__ = [
     "make_endpoint",
     "make_enrol_envelope",
     "make_enrol_request",
+    "make_gate_rig",
     "make_heartbeat",
     "make_hive_party",
     "make_hive_rig",
@@ -147,4 +158,5 @@ __all__ = [
     "resolv_conf",
     "scutil_dns",
     "start_live_hive",
+    "swarm_manifest",
 ]

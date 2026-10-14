@@ -340,6 +340,42 @@ Roadmap steps 10.3a-d add the tiers' floors (`hivemind.guard.policy.floors`):
   location capability (`planner.location`, `NightVeilLocationError`, one `guard.denied` each); the
   intake settles it REFUSED like any other planning failure.
 
+## The swarm gate (roadmap step 11.6)
+
+`swarm_gate/` is the Queen's side of the Swarm: the devices an operator enrolled (existing machines
+the Hive borrows as Real Cells and leaves exactly as found, each running a Pollen Packet that dials
+the Hive Stand). The swarm listener (`hivemind.swarm`, Layer 3) admits and routes them and tells its
+hub who is connected; it supervises nothing, and Layer 3 cannot import the Queen. So the part that
+turns a connected device into a Cell the Queen can place work on lives here.
+
+- `SwarmGate` (`gate.py`) owns the listener and is the hub's `HubListener`. `start(queen)` binds
+  the Wardens to her and opens the listener; `run()` is a `TaskGroup` holding the gate's loop and
+  every device Warden's run task; `stop()` ends the loop, stops every Warden (each releases its
+  lease over the packet's link, so the device is left as found) and only then closes the listener.
+  `on_online` and `on_offline` run in the task that reads a device's link, so they only note what
+  happened and wake the loop; the loop does the work, every `[swarm] heartbeat_interval_s` and at
+  once when woken.
+- `DeviceWardens` (`wardens.py`) is the table of Level 0 Wardens, one per device, built by an
+  injected `DeviceWardenFactory` (`hivemind.cli.compose.swarm`). `serve` attaches a Warden to the
+  Queen (her `warden_spawn` point), starts it (it leases the device) and runs it; `stop` reverses
+  that in an order that leaves the device as found. A device already served is never served
+  twice, so one that drops and returns keeps its Warden. A Warden whose run loop ends on a device
+  error ends only itself, and the next pass replaces it.
+- `DeviceReconciler` (`reconcile.py`) is the rule, applied per node and level-triggered (each pass
+  reads the registry and the hub afresh, so a missed or repeated notice costs nothing): a revoked
+  node is disconnected, its Warden stopped and its key distrusted; a reachable GATEWAY-rung node
+  gets a Warden, keeps it, or (its access level or tier changed) is sent `swarm.node_update` and
+  gets a rebuilt Warden so its Cell carries the new values; a node that is not reachable is
+  reported lost to its Warden.
+- `UnreachableDevices` (`unreachable.py`) tells a Warden its device's link is lost
+  (`Warden.cell_lost`: one `CELL_UNREACHABLE` Alarm per loss, the lease held and not released) and
+  found again (`Warden.cell_found`). Holding the device's tasks for `[swarm] unreachable_grace_s`
+  and deciding what then happens to them are the next step's.
+
+A Level 0 Warden runs here, in the Queen's own process, over an in-memory link, with its hands on
+the device through `PollenSession`; it gives its lease back whenever it settles with nothing to do
+(`WardenDeps.device`, `DeviceDeps`), and leases again for the next task.
+
 ## How to test this
 
 Every module is tested against fakes: `hivemind.brood_chamber.MemoryTaskStore`-backed
