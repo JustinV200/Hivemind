@@ -737,6 +737,19 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   could write its Handoff (moves now wait up to `HANDOFF_PATIENCE_S`, 30 s); and the stretch of
   trail before a pulled cable is noticed never reached the Hive (the segment rewinds by
   `UNNOTICED` on reconnection).
+- **Wave 4C (landed).** The diagnostic Drones on real containers
+  (`tests/e2e/test_phase11_exit_diagnose.py`, eleven tests, about nine minutes): (a) a Nuc whose
+  link breaks on a planted wrong `/etc/hosts` line has its Drone mend it well inside the budget,
+  `warden.diagnosed` FIXED, the task finishing on its own bee and the Nectar arriving after the
+  reconnect, with no operator command and no `guard.*` event (the Hive Stand's own look at the lost
+  device, ADR-0056, is the only Queen task); (b) with the network gone the Drone ends DIAGNOSED at
+  its budget and the Warden clusters fully at `max_offline_s`, its findings delivered from the
+  outbox once the cable is back; (c) an unplugged colonized device gets W0's Drone, whose Nectar is
+  stored before the hold's `queen.decided`. A device manifest now carries `[supervision]`
+  (`max_offline_s`, `[supervision.reconnect_budget]`) for its Warden. Two defects fixed: an
+  unplugged colonized device got no Hive Stand diagnosis (its Warden's link closed before the door
+  said why, so the hold read "no live link"), and a quiet cut-off Warden overshot its search
+  budget and offline limit by up to a heartbeat (it now wakes at its own deadlines).
 - **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
   that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
   tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested
