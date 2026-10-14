@@ -296,6 +296,21 @@ Drone's grant without a free core.
   refused as `tool.load_refused`. `royal_jelly_runs.py` holds the scripts, the manifest and `run_lab`
   the two files share. (The fourth criterion, the `local_llm` scaffold run, is
   `tests/evals/scaffold`.)
+- `test_phase11_exit_*.py` (`@pytest.mark.e2e`; each skips without a Docker daemon) -- phase 11's
+  exit criteria that need only a Level 0 device, each a whole Hive (`swarm/bridge.py`: the real
+  Queen, Wardens and trail, a scripted model, the swarm listener on the container network over
+  `wss://`) with a container enrolled on it (see "The swarm's second machine"). `level0`: the
+  device listed by `hive cells list` as a Real Cell, a Drone's work on it, the device left as
+  found. `deadman`: the cable pulled mid-command, so the packet lets go on its own, the device's
+  Warden raises the Alarm and the release arrives on return (about eighty seconds, nearly all of it
+  the websocket keepalive). `watch`: an idle device watched, a planted CPU hog surfacing as the
+  next Patrol's Alarm, no write on the device. `propolis`: a task held until the device's own
+  tunnel exists (and a Night Veil goal never placed on it). `replay`: a captured `session.exec`
+  sent again runs once, a frame with a broken signature closes the link. `swarm/drone.py` scripts
+  the work a device is given, `swarm/snapshots.py` takes the process, file and writable-layer
+  snapshots that show a device was left as found, `swarm/tunnel.py` plays the operator's VPN. A
+  container reports the load of the machine under it, so `bridge_hive` gives the Drone a footprint
+  of no cores and the Hive a slow beat; neither is the subject of these scenarios.
 
 ## Budget
 
