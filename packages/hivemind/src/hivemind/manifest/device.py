@@ -11,11 +11,16 @@ Warden (`pollen install --warden-manifest`). `DeviceManifest` is that file's mod
 `load_device_manifest` its loader: the section is the same `LlmSection` the Hive Manifest embeds, so
 every rule that keeps a slot table honest holds here unchanged, and any other section is refused
 rather than ignored, because a key the Warden would silently not read is a mistake worth surfacing.
-The one thing besides `[llm]` is `[forage.map]`, and only the rows the device's own servers list:
+Beside `[llm]` there is `[forage.map]`, and only the rows the device's own servers list:
 a server names the Forage map entries (models) it may load by id, and the Warden that starts it
 must know what each one is (which provider and model it serves, its context window, the VRAM it
 needs), which the Hive's manifest knows and the device has no copy of, so the operator copies
-those rows across, exactly as they copy the `[llm]` section.
+those rows across, exactly as they copy the `[llm]` section. And there is `[supervision]`, only
+the two things a Warden that dials the Queen from a device acts on (`max_offline_s`, how long its
+link may stay down before it clusters fully, and `[supervision.reconnect_budget]`, how much of that
+it may spend sending a Drone to find out why): the Hive's manifest keeps them on the Hive Stand,
+where the device's Warden cannot read them, so the device keeps its own, and the rule that holds
+them in step is the Hive's (the budget is carved out of the offline limit, ADR-0056).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by `hivemind.cli.in_cell.borrowed`,
@@ -23,8 +28,11 @@ Fits into the Hive:
     `hivemind.manifest.schema` only.
 
 Key invariants:
-    - The sections are `[llm]` and `[forage.map]`; an unknown top-level key fails validation
-      (`extra="forbid"`).
+    - The sections are `[llm]`, `[forage.map]` and `[supervision]`; an unknown top-level key fails
+      validation (`extra="forbid"`), and so does a `[supervision]` key the Warden does not read.
+    - `[supervision]` may be left out: a device then waits as long and spends as much on a
+      diagnosis as the Hive's shipped defaults say, and a budget that is not below its offline
+      limit is refused at load, exactly as the Hive's own manifest refuses it.
     - Every source an `[llm.servers]` row lists has its `[forage.map]` row, served by that server's
       provider, and every row is listed by some server: a model the Warden could not describe, or
       a row nothing reads, is refused at load and not at the first promotion.
@@ -38,6 +46,7 @@ Key invariants:
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for "the device carries its own
       configuration".
+    - docs/adr/0056-active-reconnection-diagnostic-drones.md for the budget `[supervision]` sets.
     - docs/manifests/device.toml for an annotated example.
     - hivemind.manifest.loader for `load_manifest`, the Hive Manifest's own loader.
 """
@@ -51,11 +60,20 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from hivemind.forage import ModelSourceSpec
 from hivemind.manifest.errors import ManifestError
-from hivemind.manifest.schema import LlmSection
+from hivemind.manifest.schema import LlmSection, ReconnectBudgetSection
 from hivemind.manifest.schema.llm.providers import ManifestKey
 from hivemind.manifest.schema.llm.servers import check_server_sources
+from hivemind.manifest.schema.supervision import (
+    DEFAULT_MAX_OFFLINE_S,
+    require_budget_inside_offline_limit,
+)
 
-__all__ = ["DeviceForageSection", "DeviceManifest", "load_device_manifest"]
+__all__ = [
+    "DeviceForageSection",
+    "DeviceManifest",
+    "DeviceSupervisionSection",
+    "load_device_manifest",
+]
 
 
 class DeviceForageSection(BaseModel):
@@ -71,8 +89,34 @@ class DeviceForageSection(BaseModel):
     )
 
 
+class DeviceSupervisionSection(BaseModel):
+    """`[supervision]` in a device manifest: how long its Warden waits when cut off, and spends."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_offline_s: float = Field(
+        default=DEFAULT_MAX_OFFLINE_S,
+        gt=0,
+        description="Seconds this device's Warden may stay cut off from the Queen before it "
+        "clusters fully (pauses every bee and gives up its shared grants). The Queen keeps her "
+        "own `[supervision] max_offline_s` on the Hive Stand for how long she waits for a Nuc; "
+        "an operator keeps the two in step.",
+    )
+    reconnect_budget: ReconnectBudgetSection = Field(
+        default_factory=ReconnectBudgetSection,
+        description="What this device's Warden may spend sending a diagnostic Drone to find out "
+        "why its link to the Queen went; carved out of max_offline_s, so it must be below it.",
+    )
+
+    @model_validator(mode="after")
+    def _budget_is_carved_out_of_the_limit(self) -> DeviceSupervisionSection:
+        """Reject a budget that is not shorter than the offline limit, as the Hive's does."""
+        require_budget_inside_offline_limit(self.reconnect_budget, self.max_offline_s)
+        return self
+
+
 class DeviceManifest(BaseModel):
-    """What a colonized device's Warden is configured from: `[llm]` and its servers' map rows.
+    """What a colonized device's Warden is configured from: `[llm]`, map rows and `[supervision]`.
 
     Read once at the Warden's start from a file on the device. It crosses no boundary after that:
     `hivemind.cli.in_cell.borrowed` converts it into the provider, slot and server tables the
@@ -89,6 +133,11 @@ class DeviceManifest(BaseModel):
         default_factory=DeviceForageSection,
         description="The [forage.map] rows of the models those servers may load; empty for a "
         "device that declares no server.",
+    )
+    supervision: DeviceSupervisionSection = Field(
+        default_factory=DeviceSupervisionSection,
+        description="How long this device's Warden waits for the Queen before it clusters fully, "
+        "and the budget it may spend diagnosing the cut; the Hive's shipped defaults when absent.",
     )
 
     @model_validator(mode="after")

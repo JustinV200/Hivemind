@@ -133,6 +133,7 @@ __all__ = [
     "ReconnectBudgetSection",
     "SupervisionSection",
     "WatchSection",
+    "require_budget_inside_offline_limit",
 ]
 
 # A frozen, extras-forbidding config matching every other section model (codingrules section 8.5).
@@ -158,6 +159,33 @@ class ReconnectBudgetSection(BaseModel):
         "max_offline_s, never added to it, so it must be below it; when it runs out the Warden "
         "falls back to Clustering, which keeps the same deadline as a backstop.",
     )
+
+
+def require_budget_inside_offline_limit(
+    budget: ReconnectBudgetSection, max_offline_s: float
+) -> None:
+    """Raise unless `budget` is carved out of `max_offline_s` rather than added to it.
+
+    The one rule both the Hive's ``[supervision]`` and a device manifest's hold the budget to
+    (ADR-0056), kept in one place so the two can never disagree about what "carved out" means.
+
+    Args:
+        budget: The ``[supervision.reconnect_budget]`` table being validated.
+        max_offline_s: The ``[supervision] max_offline_s`` it sits beside.
+
+    Raises:
+        ValueError: The budget's wall clock is not below the offline limit; the message names both
+            figures so an operator can see which to change.
+    """
+    # The budget is part of the offline limit, not extra time on top of it: a Warden that
+    # spent as long diagnosing as the limit allows would have nothing left to cluster with.
+    if budget.wall_clock_s >= max_offline_s:
+        raise ValueError(
+            f"[supervision.reconnect_budget] wall_clock_s "
+            f"({budget.wall_clock_s:g}) must be below [supervision] "
+            f"max_offline_s ({max_offline_s:g}): the budget is carved out of the offline "
+            "limit. Lower wall_clock_s or raise max_offline_s."
+        )
 
 
 class WatchSection(BaseModel):
@@ -272,15 +300,7 @@ class SupervisionSection(BaseModel):
     @model_validator(mode="after")
     def _reconnect_budget_fits_inside_max_offline(self) -> SupervisionSection:
         """Reject a reconnection budget that is not shorter than the offline limit."""
-        # The budget is part of the offline limit, not extra time on top of it: a Warden that
-        # spent as long diagnosing as the limit allows would have nothing left to cluster with.
-        if self.reconnect_budget.wall_clock_s >= self.max_offline_s:
-            raise ValueError(
-                f"[supervision.reconnect_budget] wall_clock_s "
-                f"({self.reconnect_budget.wall_clock_s:g}) must be below [supervision] "
-                f"max_offline_s ({self.max_offline_s:g}): the budget is carved out of the offline "
-                "limit. Lower wall_clock_s or raise max_offline_s."
-            )
+        require_budget_inside_offline_limit(self.reconnect_budget, self.max_offline_s)
         return self
 
 

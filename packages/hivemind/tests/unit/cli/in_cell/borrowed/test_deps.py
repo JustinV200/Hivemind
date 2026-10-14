@@ -33,23 +33,27 @@ from hivemind.cli.in_cell.borrowed import (
     build_device_link,
     open_device_stores,
 )
-from hivemind.cli.in_cell.borrowed.config import DEVICE_MAX_OFFLINE_S, DEVICE_RECONNECT_BUDGET
 from hivemind.cli.in_cell.deps import VIRTUAL_CELL_LEASE
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.manifest import read_in_cell_env
 from hivemind.memory import SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
 from hivemind.wardens.deps import WardenDeps
-from hivemind.wardens.offline import LinkPhase, Outage, ReconnectingQueenLink
+from hivemind.wardens.offline import LinkPhase, Outage, ReconnectBudget, ReconnectingQueenLink
 from waggle.clock import SystemClock
 
 _CLOCK = SystemClock()
+# What the device manifest says its Warden waits and spends, so the test can tell it from a default.
+_SUPERVISION = (
+    "[supervision]\nmax_offline_s = 90\n"
+    "[supervision.reconnect_budget]\nattempts = 3\nwall_clock_s = 40\n"
+)
 
 
 @pytest.fixture
 async def built(tmp_path: Path) -> AsyncIterator[tuple[BorrowedKit, BorrowedConfig, WardenDeps]]:
     """A device Warden's real deps over real stores, nothing started or connected."""
-    kit = make_kit(tmp_path, "ws://127.0.0.1:8720", with_server=True)
+    kit = make_kit(tmp_path, "ws://127.0.0.1:8720", with_server=True, supervision=_SUPERVISION)
     config = build_borrowed_config(read_in_cell_env(kit.environ), _CLOCK)
     stores = await open_device_stores(config.state_dir, _CLOCK)
     runtime = config.runtime
@@ -100,8 +104,9 @@ async def test_it_is_a_device_wardens_that_dials_the_queen(
     link = deps.queen_link
     assert isinstance(link, ReconnectingQueenLink)  # The Warden's link redials and replays.
     assert device.remote.link is link
-    assert device.remote.max_offline_s == DEVICE_MAX_OFFLINE_S
-    assert device.remote.reconnect_budget == DEVICE_RECONNECT_BUDGET  # It searches for why.
+    assert device.remote.max_offline_s == config.max_offline_s == 90.0  # The manifest's own.
+    # It searches for why, with the budget the manifest gave it.
+    assert device.remote.reconnect_budget == ReconnectBudget(attempts=3, wall_clock_s=40.0)
     assert device.remote.peer == config.queen_host
     assert link.phase is LinkPhase.OFFLINE  # Built unconnected: the run connects it.
 

@@ -6,8 +6,10 @@
 # It holds [llm], in exactly the shape the Hive Manifest's own [llm] section has
 # (docs/manifests/full.toml documents every field), so an operator can copy the section from the
 # Hive's manifest and change the base URLs to what the device can reach, and, for a device that
-# could become a Nuc, the [forage.map] rows of the models its servers may load (below). Any other
-# section is refused rather than ignored. The rules that keep a Hive Manifest's slot table honest
+# could become a Nuc, the [forage.map] rows of the models its servers may load (below). It may also
+# hold [supervision] (last in this file): how long the Warden waits for the Queen when its link is
+# cut, and how much of that wait it may spend finding out why. Any other section is refused rather
+# than ignored. The rules that keep a Hive Manifest's slot table honest
 # apply here too: every model slot is bound, every binding names a declared provider, and
 # `offline = true` accepts only loopback providers.
 #
@@ -123,3 +125,23 @@ seats = 2
 # About 8 GiB of VRAM; leave it out for a model that runs on the CPU and needs none. The Queen
 # promotes a device only if this fits the VRAM it has free.
 vram_bytes_required = 8589934592
+
+# How long this device's Warden waits when its link to the Queen is cut, and what it may spend of
+# that wait finding out why (roadmap 11.9a, ADR-0056). Leave the table out and the Hive's shipped
+# defaults hold: ten minutes, and a budget of two Drones in five. The Queen keeps her own
+# `[supervision] max_offline_s` in the Hive's manifest (how long she waits for a Nuc before she
+# places its tasks afresh); this one is the device's, read only by its Warden, and an operator who
+# changes one should look at the other.
+[supervision]
+# Seconds the link may stay down before the Warden clusters fully: every bee paused at a Handoff
+# and its shared grants given up, whatever the Warden is still able to think with.
+max_offline_s = 600.0
+
+# Carved out of max_offline_s, never added to it: wall_clock_s must be below the limit above, or
+# the file is refused at load. A Warden with a model server of its own sends a diagnostic Drone
+# when it finds its link gone, up to `attempts` of them one after another; the whole search ends
+# `wall_clock_s` after the link went, whatever it has found, so clustering keeps the deadline the
+# limit above sets.
+[supervision.reconnect_budget]
+attempts = 2
+wall_clock_s = 300.0

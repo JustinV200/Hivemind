@@ -26,14 +26,10 @@ from hivemind.cli.in_cell.borrowed import (
     build_borrowed_config,
     is_borrowed,
 )
-from hivemind.cli.in_cell.borrowed.config import (
-    DEVICE_MAX_OFFLINE_S,
-    DEVICE_RECONNECT_BUDGET,
-    SCRATCH_DIR,
-    SOURCE_NAME,
-)
+from hivemind.cli.in_cell.borrowed.config import SCRATCH_DIR, SOURCE_NAME
 from hivemind.common.errors import ConfigurationError
 from hivemind.manifest import ManifestError, read_in_cell_env
+from hivemind.wardens.offline import ReconnectBudget
 from waggle.clock import SystemClock
 from waggle.codec import canonical_bytes
 
@@ -223,15 +219,37 @@ def test_a_lease_mode_nobody_knows_is_refused_not_run_as_a_virtual_cell(tmp_path
         is_borrowed(read_in_cell_env({**kit.environ, "HIVEMIND_CELL_LEASE": "rented"}))
 
 
-def test_the_budget_for_finding_out_why_the_link_went_is_carved_out_of_the_offline_limit(
+def test_a_manifest_with_no_supervision_waits_and_spends_what_the_hive_ships(
     tmp_path: Path,
 ) -> None:
     config = _config(make_kit(tmp_path, _URL))
 
-    # The shipped defaults of `[supervision] reconnect_budget`, which a device manifest lacks.
-    assert config.reconnect_budget is DEVICE_RECONNECT_BUDGET
-    assert (config.reconnect_budget.attempts, config.reconnect_budget.wall_clock_s) == (2, 300.0)
-    assert config.reconnect_budget.wall_clock_s < DEVICE_MAX_OFFLINE_S == config.max_offline_s
+    # The shipped defaults of `[supervision]`: ten minutes' wait, a budget of two Drones in five.
+    assert config.max_offline_s == 600.0
+    assert config.reconnect_budget == ReconnectBudget(attempts=2, wall_clock_s=300.0)
+    assert config.reconnect_budget.wall_clock_s < config.max_offline_s
+
+
+def test_the_manifests_supervision_sets_the_offline_limit_and_the_budget_carved_out_of_it(
+    tmp_path: Path,
+) -> None:
+    table = "[supervision]\nmax_offline_s = 90\n[supervision.reconnect_budget]\n"
+    table += "attempts = 3\nwall_clock_s = 40\n"
+
+    config = _config(make_kit(tmp_path, _URL, supervision=table))
+
+    # A scenario that cuts a device off waits seconds, not the ten minutes the defaults give.
+    assert config.max_offline_s == 90.0
+    assert config.reconnect_budget == ReconnectBudget(attempts=3, wall_clock_s=40.0)
+
+
+def test_a_budget_that_is_not_below_the_offline_limit_stops_the_warden_before_it_starts(
+    tmp_path: Path,
+) -> None:
+    table = "[supervision]\nmax_offline_s = 60\n[supervision.reconnect_budget]\nwall_clock_s = 60\n"
+
+    with pytest.raises(ManifestError, match=r"wall_clock_s \(60\) must be below .*max_offline_s"):
+        _config(make_kit(tmp_path, _URL, supervision=table))
 
 
 def test_the_diagnostic_drone_is_told_the_queens_host_and_nothing_else_of_her_address(

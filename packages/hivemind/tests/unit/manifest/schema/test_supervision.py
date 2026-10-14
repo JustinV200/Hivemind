@@ -30,6 +30,7 @@ from hivemind.manifest.schema.supervision import (
     ReconnectBudgetSection,
     SupervisionSection,
     WatchSection,
+    require_budget_inside_offline_limit,
 )
 from waggle.messages.cell.wax import MAX_WAX_TEXT_CHARS
 from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS
@@ -164,6 +165,15 @@ def test_the_reconnect_budget_must_be_shorter_than_the_offline_limit() -> None:
         SupervisionSection(
             max_offline_s=600.0, reconnect_budget=ReconnectBudgetSection(wall_clock_s=600.0)
         )
+
+
+def test_the_rule_both_the_hive_and_a_device_hold_the_budget_to_names_both_figures() -> None:
+    # The one function a device manifest's own `[supervision]` calls too, so the two cannot drift.
+    budget = ReconnectBudgetSection(wall_clock_s=45.0)
+
+    require_budget_inside_offline_limit(budget, 46.0)  # Strictly below: allowed.
+    with pytest.raises(ValueError, match=r"\(45\) must be below .*max_offline_s \(45\)"):
+        require_budget_inside_offline_limit(budget, 45.0)
 
 
 def test_lowering_the_budget_makes_a_short_offline_limit_valid() -> None:

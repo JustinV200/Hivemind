@@ -8,8 +8,10 @@ text), the level the Queen granted the device, the swarm listener's URL and cert
 directory its stores live in, and the device manifest. It reuses `build_runtime_config`, which
 every Virtual Cell's Warden is validated by, for everything the two share (the Queen's ids and key,
 the URL, the tier), then replaces what is the device's alone: the ids, the model tables, which come
-from the device manifest and not from a bootstrap, and a source configuration for the machine
-(`HiveStandConfig` named for a Swarm device, the same lease machinery the Hive Stand uses).
+from the device manifest and not from a bootstrap, a source configuration for the machine
+(`HiveStandConfig` named for a Swarm device, the same lease machinery the Hive Stand uses), and the
+offline limit and the budget for a diagnostic Drone, which the device manifest's `[supervision]`
+sets (the Hive's shipped defaults when it has none).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Called by
@@ -51,13 +53,8 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.cli.in_cell.borrowed.llm import DeviceLlm, device_llm
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.common.errors import ConfigurationError
-from hivemind.manifest import InCellEnv, load_device_manifest
+from hivemind.manifest import DeviceSupervisionSection, InCellEnv, load_device_manifest
 from hivemind.manifest.schema.core import DEFAULT_DISK_RESERVE_MB, DEFAULT_SCRATCH_QUOTA_MB
-from hivemind.manifest.schema.supervision import (
-    DEFAULT_MAX_OFFLINE_S,
-    DEFAULT_RECONNECT_ATTEMPTS,
-    DEFAULT_RECONNECT_WALL_CLOCK_S,
-)
 from hivemind.wardens.offline import ReconnectBudget
 from waggle.clock import Clock
 from waggle.errors import InvalidIdError
@@ -73,18 +70,10 @@ SOURCE_NAME = (
 CELL_NAME = "swarm-device"  # Its human-readable label; the Queen names the node herself.
 SCRATCH_DIR = "scratch"  # Under the state directory: every lease's own scratch subdirectory.
 NODE_KEY_BYTES = 32  # An Ed25519 seed, which is what the packet's key file holds.
-DEVICE_MAX_OFFLINE_S = DEFAULT_MAX_OFFLINE_S  # `[supervision] max_offline_s`, which a device lacks.
-# `[supervision] reconnect_budget`, which a device lacks too: the shipped defaults, carved out of
-# the offline limit above as the manifest's own validator requires (300 s against 600 s).
-DEVICE_RECONNECT_BUDGET = ReconnectBudget(
-    attempts=DEFAULT_RECONNECT_ATTEMPTS, wall_clock_s=DEFAULT_RECONNECT_WALL_CLOCK_S
-)
 
 __all__ = [
     "BORROWED",
     "CELL_NAME",
-    "DEVICE_MAX_OFFLINE_S",
-    "DEVICE_RECONNECT_BUDGET",
     "OWNED",
     "SCRATCH_DIR",
     "SOURCE_NAME",
@@ -106,8 +95,10 @@ class BorrowedConfig:
         state_dir: Where the Warden keeps its SQLite stores, outbox and scratch.
         tls_pin: The swarm listener's certificate pin, for a `wss://` URL; None for `ws://`.
         llm: The device manifest's model tables and the servers it declares.
-        max_offline_s: How long the link may stay down before the Warden clusters fully.
-        reconnect_budget: What it may spend, carved out of that, finding out why the link went.
+        max_offline_s: How long the link may stay down before the Warden clusters fully
+            (`[supervision] max_offline_s` of the device manifest).
+        reconnect_budget: What it may spend, carved out of that, finding out why the link went
+            (`[supervision.reconnect_budget]` of the device manifest).
         queen_host: The Queen's host, as the diagnostic Drone's objective names it; no port, no
             path, no credential.
     """
@@ -118,7 +109,7 @@ class BorrowedConfig:
     tls_pin: str | None
     llm: DeviceLlm
     max_offline_s: float
-    reconnect_budget: ReconnectBudget = DEVICE_RECONNECT_BUDGET
+    reconnect_budget: ReconnectBudget
     queen_host: str = ""
 
 
@@ -183,7 +174,8 @@ def build_borrowed_config(env: InCellEnv, clock: Clock) -> BorrowedConfig:
         state_dir=state_dir,
         tls_pin=env.tls_pin,
         llm=llm,
-        max_offline_s=DEVICE_MAX_OFFLINE_S,
+        max_offline_s=manifest.supervision.max_offline_s,
+        reconnect_budget=_reconnect_budget(manifest.supervision),
         queen_host=urlsplit(base.queen_waggle_url).hostname or "",
     )
 
@@ -223,6 +215,14 @@ def _device_cell(base: InCellRuntimeConfig, env: InCellEnv, llm: DeviceLlm) -> H
         # Whether the machine could host a model server: only if the operator declared one.
         can_host_model=bool(llm.servers),
     )
+
+
+def _reconnect_budget(section: DeviceSupervisionSection) -> ReconnectBudget:
+    """Turn the manifest's budget table into the value the Warden's search is bounded by."""
+    # The manifest already refused a budget that is not below the offline limit, so the two
+    # figures are handed over as they are and nothing here can make the search outlast it.
+    budget = section.reconnect_budget
+    return ReconnectBudget(attempts=budget.attempts, wall_clock_s=budget.wall_clock_s)
 
 
 def _check_tier(tier: CombShieldLevel) -> None:

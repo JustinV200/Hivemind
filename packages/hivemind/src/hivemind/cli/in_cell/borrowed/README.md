@@ -32,10 +32,11 @@ and a reconnection announces the Cell again.
 - **Composition** (`deps`): `build_device_link`, `build_borrowed_warden_deps`, `BorrowedParts`. The
   deps are `hivemind.cli.in_cell.deps.build_core_deps` plus: the SQLite memory store, a lease
   capability `cell:real:<cell id>`, and the `DeviceDeps` group (idle release, an `Outage`, a
-  `RemoteDeps` with the offline limit, the budget for a diagnostic Drone when the link goes
-  (`DEVICE_RECONNECT_BUDGET`, the shipped defaults of `[supervision.reconnect_budget]`) and the
-  Queen's host the Drone is told to reach). None of a Virtual Cell's extras (snapshotter, resident Basket, Exoskeleton wiring);
-  the declared model servers are known to the Warden but never started until a promotion.
+  `RemoteDeps` with the offline limit, the budget for a diagnostic Drone when the link goes (both
+  from the device manifest's `[supervision]`, the Hive's shipped defaults when it has none) and the
+  Queen's host the Drone is told to reach). None of a Virtual Cell's extras (snapshotter, resident
+  Basket, Exoskeleton wiring); the declared model servers are known to the Warden but never started
+  until a promotion.
 - **Run** (`run`): `run_borrowed_warden(env, clock, *, on_deps_built, stop)` and `stop_on_signals`.
 
 ## The environment the packet gives the Warden
@@ -52,7 +53,7 @@ and a reconnection announces the Cell again.
 | `HIVEMIND_HIVE_ID`, `HIVEMIND_QUEEN_NODE_ID`, `HIVEMIND_QUEEN_VERIFY_KEY` | The Queen's address, node and public key |
 | `HIVEMIND_ACCESS_LEVEL`, `HIVEMIND_COMB_SHIELD` | What the Queen granted the device |
 | `HIVEMIND_STATE_DIR` | Where the Warden's SQLite files, outbox and scratch live |
-| `HIVEMIND_DEVICE_MANIFEST` | The device manifest (`[llm]` only; `docs/manifests/device.toml`) |
+| `HIVEMIND_DEVICE_MANIFEST` | The device manifest (`[llm]`, `[forage.map]`, `[supervision]`; `docs/manifests/device.toml`) |
 
 Provider API keys are read from the device's own environment, in the variable each provider's
 `api_key_env` names, and never from the wire. `tests/contracts/test_pollen_warden_env.py` checks

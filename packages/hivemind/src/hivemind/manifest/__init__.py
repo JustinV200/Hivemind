@@ -47,15 +47,20 @@ Public API:
       SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection (phase 11).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - The device manifest (`hivemind.manifest.device`, roadmap steps 11.6a and 11.8):
-      DeviceManifest, DeviceForageSection and load_device_manifest, the file a colonized Swarm
-      device's Warden reads: its `[llm]` section and the `[forage.map]` rows its servers' models
-      are.
+      DeviceManifest, DeviceForageSection, DeviceSupervisionSection and load_device_manifest, the
+      file a colonized Swarm device's Warden reads: its `[llm]` section, the `[forage.map]` rows its
+      servers' models are and its `[supervision]` (the offline limit and the diagnosis budget).
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
 """
 
-from hivemind.manifest.device import DeviceForageSection, DeviceManifest, load_device_manifest
+from hivemind.manifest.device import (
+    DeviceForageSection,
+    DeviceManifest,
+    DeviceSupervisionSection,
+    load_device_manifest,
+)
 from hivemind.manifest.env import (
     EnvOverrides,
     InCellEnv,
@@ -123,6 +128,7 @@ __all__ = [
     "ClearanceMatrix",
     "DeviceForageSection",
     "DeviceManifest",
+    "DeviceSupervisionSection",
     "EntranceExposure",
     "EntranceSection",
     "EnvOverrides",

@@ -70,8 +70,14 @@ class BorrowedKit:
         return Ed25519Verifier({self.node_id: self.device_signer.public_key_bytes})
 
 
-def device_manifest_text(*, with_server: bool = False) -> str:
-    """Return a complete device manifest's text: one shared provider, every slot bound to it."""
+def device_manifest_text(*, with_server: bool = False, supervision: str = "") -> str:
+    """Return a complete device manifest's text: one shared provider, every slot bound to it.
+
+    Args:
+        with_server: Whether the manifest declares a model server and the model it loads.
+        supervision: The body of a ``[supervision]`` table (its keys and sub-tables, with the
+            header included); none leaves the Hive's shipped defaults in force.
+    """
     lines = ["[llm]", "", "[llm.providers.shared]", 'kind = "openai_compat"']
     lines += ['base_url = "http://hive.example.lan:1234/v1"', "seats = 2", ""]
     for slot in ModelSlot:
@@ -87,11 +93,18 @@ def device_manifest_text(*, with_server: bool = False) -> str:
         lines += ["port = 8081", f'sources = ["{SOURCE_ID}"]', "load_on_start = false", ""]
         lines += [f"[forage.map.{SOURCE_ID}]", 'provider = "local"', f'model = "{LOCAL_MODEL}"']
         lines += ["grade = 2", "context_window = 4096", "seats = 2", ""]
+    if supervision:
+        lines += [supervision, ""]
     return "\n".join(lines)
 
 
 def make_kit(
-    tmp_path: Path, url: str, *, access_level: str = "SCRATCH", with_server: bool = False
+    tmp_path: Path,
+    url: str,
+    *,
+    access_level: str = "SCRATCH",
+    with_server: bool = False,
+    supervision: str = "",
 ) -> BorrowedKit:
     """Write a device's key and manifest under `tmp_path` and return its environment and keys.
 
@@ -100,6 +113,7 @@ def make_kit(
         url: The swarm listener's URL (a scripted `WebSocketServer`'s `uri`).
         access_level: The level the Queen granted the device.
         with_server: Whether the manifest declares a model server.
+        supervision: A ``[supervision]`` table for the manifest (see `device_manifest_text`).
 
     Returns:
         The kit; `environ` is what the packet would set, ready for `read_in_cell_env`.
@@ -109,7 +123,9 @@ def make_kit(
     key_path = tmp_path / "node.ed25519"
     key_path.write_bytes(device_signer.private_key_bytes)  # Raw seed, as the packet writes it.
     manifest_path = tmp_path / "warden.toml"
-    manifest_path.write_text(device_manifest_text(with_server=with_server), encoding="utf-8")
+    manifest_path.write_text(
+        device_manifest_text(with_server=with_server, supervision=supervision), encoding="utf-8"
+    )
     kit = BorrowedKit(
         environ={},
         state_dir=tmp_path / "state",

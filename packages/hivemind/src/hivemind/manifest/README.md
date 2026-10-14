@@ -33,7 +33,12 @@ enums rather than the hivemind-side mirrors those two packages own.
   Warden reads: `[llm]`, in the Hive Manifest's own shape (so every slot-table rule below holds),
   and `[forage.map]`, only the rows the device's own `[llm.servers]` list (the models a Nuc may
   load, copied from the Hive Manifest, each served by its server's provider and naming no host
-  Cell). Any other section is refused. `docs/manifests/device.toml` is the annotated example.
+  Cell). It also holds `[supervision]` (roadmap 11.9a): `max_offline_s` and
+  `[supervision.reconnect_budget]`, the two figures the device's Warden acts on when its link is
+  cut, checked by the rule the Hive's own `[supervision]` uses (`require_budget_inside_offline_limit`:
+  the budget is carved out of the offline limit) and defaulting to the Hive's shipped values when the
+  table is absent. Any other section, or any other `[supervision]` key, is refused.
+  `docs/manifests/device.toml` is the annotated example.
 - **Environment** (`hivemind.manifest.env`), the one place `HIVEMIND_*` is read: `EnvOverrides`,
   `read_env(environ) -> EnvOverrides`, `apply_env(manifest, overrides) -> HiveManifest`,
   `provider_api_key(name, spec, environ) -> SecretStr | None`, and `InCellEnv`/`read_in_cell_env`

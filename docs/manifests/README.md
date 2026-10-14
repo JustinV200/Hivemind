@@ -52,16 +52,20 @@ take the schema's repo-root-relative default.
 - **`device.toml`** -- not a Hive Manifest: the file the Warden on a colonized Swarm device reads
   (roadmap steps 11.6a and 11.8, ADR-0052), recorded with `pollen install --warden-manifest`. It is
   loaded by `hivemind.manifest.load_device_manifest`, not `load_manifest`, and refuses any section
-  but `[llm]` and `[forage.map]`. The model providers it names are the ones the Hive's grants name,
-  resolved to addresses this device can reach; a declared `[llm.servers.*]` row is reported to the
+  but `[llm]`, `[forage.map]` and `[supervision]`. The model providers it names are the ones the
+  Hive's grants name, resolved to addresses this device can reach; a declared `[llm.servers.*]` row is reported to the
   Queen (not started) so she can later promote the device to a Nuc, and the `[forage.map]` rows
   beside it, copied from the Hive's manifest, describe the models that server may load. The Hive's
   own manifest must list the same server id in `[llm.servers]` (with `load_on_start = false`) for
   the Queen to promote the device. API keys come from the device's own environment, as everywhere
-  else. A device manifest has no `[supervision]`, so its Warden's offline limit and its budget for
-  sending a Drone to find out why its link went (roadmap 11.9a, ADR-0056) are the shipped defaults
-  (`max_offline_s` and `[supervision.reconnect_budget]`), and the Drone runs on a model the device
-  serves itself, never on one that needs the Queen.
+  else. Its `[supervision]` holds the two figures its Warden acts on when the link is cut:
+  `max_offline_s`, how long it waits before it clusters fully, and `[supervision.reconnect_budget]`,
+  how much of that wait it may spend sending a Drone to find out why the link went (roadmap 11.9a,
+  ADR-0056). They are the device's own because the Hive's manifest lives on the Hive Stand, where
+  the device's Warden cannot read it; both default to the Hive's shipped values (ten minutes, and
+  two Drones in five) when the table is left out, and the budget is refused unless it is below the
+  limit, exactly as in the Hive's manifest. The Drone runs on a model the device serves itself,
+  never on one that needs the Queen.
 
 ## The transcriber and `kind = "whisper_local"` (roadmap step 6.5a)
 

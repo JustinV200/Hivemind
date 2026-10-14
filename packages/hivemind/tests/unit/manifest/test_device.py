@@ -19,7 +19,12 @@ from pathlib import Path
 import pytest
 
 from hivemind.forage import ModelSlot
-from hivemind.manifest import DeviceManifest, ManifestError, load_device_manifest
+from hivemind.manifest import (
+    DeviceManifest,
+    DeviceSupervisionSection,
+    ManifestError,
+    load_device_manifest,
+)
 
 # The repository root, five parents up from this test file
 # (packages/hivemind/tests/unit/manifest/test_device.py), as test_loader.py finds it.
@@ -62,6 +67,8 @@ def test_the_shipped_example_loads_and_declares_a_server() -> None:
     assert set(manifest.llm.servers) == {"local_llama"}
     assert set(manifest.forage.map) == {"local_llama"}  # The model that server may load.
     assert all(slot.manifest_key in manifest.llm.slots for slot in ModelSlot)
+    # It states the shipped defaults, so an operator sees the figures they would be changing.
+    assert manifest.supervision == DeviceSupervisionSection()
 
 
 def test_a_complete_llm_section_is_a_device_manifest(tmp_path: Path) -> None:
@@ -152,3 +159,80 @@ def test_a_forage_section_may_hold_nothing_but_the_map(tmp_path: Path) -> None:
     # the rest of `[forage]` stay on the Hive Stand, and a key the Warden would not read is refused.
     with pytest.raises(ManifestError, match=r"forage\.roles.*Extra inputs are not permitted"):
         load_device_manifest(_write(tmp_path, _server_text(_ROW) + "[forage.roles.drone]\n"))
+
+
+def test_a_manifest_with_no_supervision_waits_as_long_as_the_hive_ships(tmp_path: Path) -> None:
+    manifest = load_device_manifest(_write(tmp_path, _llm_text()))
+
+    # The Hive's own defaults: ten minutes, and two Drones in five of them.
+    assert manifest.supervision.max_offline_s == 600.0
+    assert manifest.supervision.reconnect_budget.attempts == 2
+    assert manifest.supervision.reconnect_budget.wall_clock_s == 300.0
+
+
+def test_supervision_sets_the_offline_limit_and_the_budget_carved_out_of_it(tmp_path: Path) -> None:
+    table = "[supervision]\nmax_offline_s = 90\n[supervision.reconnect_budget]\n"
+    table += "attempts = 3\nwall_clock_s = 40\n"
+
+    manifest = load_device_manifest(_write(tmp_path, _llm_text() + table))
+
+    assert manifest.supervision.max_offline_s == 90.0
+    assert manifest.supervision.reconnect_budget.attempts == 3
+    assert manifest.supervision.reconnect_budget.wall_clock_s == 40.0
+
+
+def test_a_limit_alone_is_enough_when_the_default_budget_still_fits_inside_it(
+    tmp_path: Path,
+) -> None:
+    manifest = load_device_manifest(
+        _write(tmp_path, _llm_text("[supervision]\nmax_offline_s=900\n"))
+    )
+
+    assert manifest.supervision.max_offline_s == 900.0
+    assert manifest.supervision.reconnect_budget.wall_clock_s == 300.0  # Left as shipped.
+
+
+@pytest.mark.parametrize(
+    ("limit", "budget"),
+    [(300, 300), (200, 300)],  # Equal is as bad as longer: nothing would be left to cluster with.
+)
+def test_a_budget_not_below_the_offline_limit_is_refused_as_the_hives_is(
+    tmp_path: Path, limit: int, budget: int
+) -> None:
+    table = f"[supervision]\nmax_offline_s = {limit}\n"
+    table += f"[supervision.reconnect_budget]\nwall_clock_s = {budget}\n"
+
+    with pytest.raises(ManifestError, match=r"must be below \[supervision\] max_offline_s"):
+        load_device_manifest(_write(tmp_path, _llm_text() + table))
+
+
+def test_a_lowered_limit_with_the_default_budget_is_refused_naming_both_figures(
+    tmp_path: Path,
+) -> None:
+    # The mistake an operator makes first: they shorten the wait and forget the budget beside it.
+    path = _write(tmp_path, _llm_text("[supervision]\nmax_offline_s = 120\n"))
+
+    with pytest.raises(ManifestError, match=r"wall_clock_s \(300\).*max_offline_s \(120\)"):
+        load_device_manifest(path)
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["max_offline_s = 0", "max_offline_s = -5", "policy_file = 'policy.toml'", "watch = 1"],
+)
+def test_a_supervision_key_the_warden_does_not_read_or_cannot_use_is_refused(
+    tmp_path: Path, line: str
+) -> None:
+    # A key the Warden would silently not read is a mistake worth surfacing, as for any section.
+    with pytest.raises(ManifestError, match="supervision"):
+        load_device_manifest(_write(tmp_path, _llm_text(f"[supervision]\n{line}\n")))
+
+
+@pytest.mark.parametrize("line", ["attempts = 0", "wall_clock_s = 0", "wall_clock_s = -1"])
+def test_a_reconnect_budget_figure_that_is_not_positive_is_refused(
+    tmp_path: Path, line: str
+) -> None:
+    table = f"[supervision]\nmax_offline_s = 90\n[supervision.reconnect_budget]\n{line}\n"
+
+    with pytest.raises(ManifestError, match="reconnect_budget"):
+        load_device_manifest(_write(tmp_path, _llm_text() + table))
