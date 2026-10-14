@@ -8,7 +8,9 @@ segment out of a Night Veil Cell's ephemeral segment and a Night Veil Cell's off
 (the receiver routes by the chunk's Cell); an unknown format and a digest that does not match are
 refused as `format` and `corrupt`; nothing of a refused chunk is merged. Each reason is recorded
 once per link, a signature failure is recorded by its code's last word, and a proved chunk merges
-and records nothing.
+and records nothing. The listener's transport refusals (roadmap steps 11.3a and 11.3b) are
+recorded as `guard.frame_ceiling` and `guard.replay_refused` with the node's id, and with no
+recorder the limits still apply but nothing is written.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/cell_gate/refusals.py (codingrules section 3).
@@ -39,6 +41,8 @@ from hivemind.queen.cell_gate import (
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
     SegmentRefusal,
+    transport_options,
+    transport_refusals,
 )
 from hivemind.queen.trail import TrailSegmentReceiver
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
@@ -58,6 +62,7 @@ from waggle.ids import (
     new_warden_id,
 )
 from waggle.messages.swarm import TrailSegmentSync
+from waggle.transport.limits import ConnectionRefusal, RefusalKind
 from waggle.transport.memory import MemoryTransport
 
 
@@ -278,3 +283,58 @@ async def test_without_a_recorder_the_chunk_is_still_refused_and_nothing_recorde
 
     assert await _merged(link) == 0
     assert await link.refused() == []
+
+
+def _refusal(clock: FakeClock, kind: RefusalKind, node_id: str | None) -> ConnectionRefusal:
+    """One refusal as waggle's transport hands it over: a replayed id, or a flood."""
+    envelope_id = str(new_event_id(clock)) if kind is RefusalKind.REPLAY else None
+    return ConnectionRefusal(node_id=node_id, kind=kind, envelope_id=envelope_id, at=clock.now())
+
+
+async def test_a_replayed_envelope_id_is_recorded_as_guard_replay_refused_naming_the_node() -> None:
+    link = _link()
+    recorder = TrailRecorder(link.queen_trail, link.clock, link.hive_id, new_node_id(link.clock))
+    handler = transport_refusals(recorder)
+    assert handler is not None
+    refusal = _refusal(link.clock, RefusalKind.REPLAY, link.node_id)
+
+    await handler(refusal)
+
+    [event] = await link.queen_trail.query(TrailQuery(kind="guard.replay_refused"))
+    assert event.subject_id == link.node_id
+    assert event.payload == {"node_id": link.node_id, "envelope_id": refusal.envelope_id}
+    assert event.node_id == recorder.node_id  # The Queen's own record, never the Cell's segment.
+
+
+async def test_a_frame_flood_is_recorded_as_guard_frame_ceiling_naming_the_node() -> None:
+    link = _link()
+    recorder = TrailRecorder(link.queen_trail, link.clock, link.hive_id, new_node_id(link.clock))
+    handler = transport_refusals(recorder)
+    assert handler is not None
+
+    await handler(_refusal(link.clock, RefusalKind.FRAME_CEILING, link.node_id))
+
+    [event] = await link.queen_trail.query(TrailQuery(kind="guard.frame_ceiling"))
+    assert event.subject_id == link.node_id
+    assert event.payload == {"node_id": link.node_id, "envelope_id": None}
+
+
+async def test_a_flood_before_any_node_was_named_is_recorded_against_the_hive() -> None:
+    link = _link()
+    recorder = TrailRecorder(link.queen_trail, link.clock, link.hive_id, new_node_id(link.clock))
+    handler = transport_refusals(recorder)
+    assert handler is not None
+
+    await handler(_refusal(link.clock, RefusalKind.FRAME_CEILING, None))
+
+    [event] = await link.queen_trail.query(TrailQuery(kind="guard.frame_ceiling"))
+    assert event.subject_id == link.hive_id
+
+
+def test_without_a_recorder_the_listener_records_nothing_but_still_applies_the_limits() -> None:
+    assert transport_refusals(None) is None
+
+    options = transport_options(None, FakeClock())
+
+    assert options["limits"] is not None  # Both limits are on, at waggle's defaults.
+    assert options["on_refusal"] is None

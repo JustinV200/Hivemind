@@ -8,7 +8,9 @@ signed `CellReady` then `CellHeartbeat`, and this module checks the listener att
 connection ends. Roadmap step 10.6: a frame that fails its signature on an attached link closes it
 and is `guard.envelope_refused` on the Queen's trail, and a segment chunk shipped as another node
 is refused (`guard.segment_refused`) while the link stays up; the Guard Bee reads that refusal and
-files a request through the running Queen's own door, and she isolates the Cell by rule.
+files a request through the running Queen's own door, and she isolates the Cell by rule. Roadmap
+steps 11.3a and 11.3b: the transport's own limits are on, so a frame flood closes the link (code
+4029) and a replayed envelope id is dropped, each recorded as a guard event naming the Cell's node.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/listener.py
@@ -65,10 +67,13 @@ from waggle.messages.labels import AccessLevel as WireAccessLevel
 from waggle.messages.labels import CombShieldLevel as WireCombShieldLevel
 from waggle.messages.swarm import TrailSegmentSync
 from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_hex
+from waggle.transport.ceiling import DEFAULT_CEILING_LIMITS
 from waggle.transport.memory import MemoryTransport
 from waggle.transport.websocket_client import WebSocketClientTransport
 
 WAIT_S = 5.0  # Bounds every await that could hang; loopback answers in milliseconds.
+# The frames a connection may send at once before the ceiling closes it (waggle's own default).
+CEILING_BURST_FRAMES = DEFAULT_CEILING_LIMITS.burst
 
 
 def _cell_ready(cell_id: CellId, warden_id: WardenId) -> CellReady:
@@ -434,3 +439,55 @@ async def _until_async(condition: object) -> None:
     assert callable(condition)
     while not await condition():  # noqa: ASYNC110 - polling shared state, see _until's docstring.
         await asyncio.sleep(0.01)
+
+
+async def test_a_replayed_envelope_id_is_dropped_and_recorded_with_the_nodes_id() -> None:
+    scenario = await _build_scenario()
+    cell, transport = await _attach(scenario)
+    beat = CellHeartbeat(
+        cell_id=cell.cell_id,
+        mode=CellMode.ACTIVE,
+        lease_ids=(),
+        worker_count=0,
+        is_shield_verified=True,
+        interval_s=15.0,
+    )
+    envelope = wrap(beat, cell._hop(scenario.hive_id), clock=FakeClock())
+
+    await transport.send(envelope)
+    await transport.send(envelope)  # The same envelope id again: a replay, not a second beat.
+
+    async def _recorded() -> bool:
+        return bool(await scenario.trail.query(TrailQuery(kind="guard.replay_refused")))
+
+    await asyncio.wait_for(_until_async(_recorded), WAIT_S)
+    [refused] = await scenario.trail.query(TrailQuery(kind="guard.replay_refused"))
+    assert refused.subject_id == cell.node_id
+    assert refused.payload == {"node_id": cell.node_id, "envelope_id": envelope.id}
+    assert cell.warden_id in _attached_ids(scenario.queen)  # A replay costs the Cell nothing more.
+    await transport.close()
+    await scenario.listener.stop()
+
+
+async def test_a_frame_flood_closes_the_link_and_is_recorded_with_the_nodes_id() -> None:
+    scenario = await _build_scenario()
+    cell, transport = await _attach(scenario)
+    # A snapshot request is answered inline by the listener's pump, with no handler bound here
+    # dropped there: unlike a Heartbeat it never waits in the Queen's queue, so nothing slows the
+    # flood by backpressure and the ceiling is what ends it.
+    request = CellSnapshotRequest(cell_id=cell.cell_id, purpose="flood")
+
+    # The listener's clock never advances here, so the bucket never refills: the burst allowance
+    # is all the connection gets, and the two handshake frames already spent two of it. Exactly a
+    # burst's worth more crosses the line by one frame and no further, so the close handshake the
+    # listener starts then is answered at once instead of waiting behind a long unread flood.
+    for _ in range(CEILING_BURST_FRAMES):
+        await transport.send(wrap(request, cell._hop(scenario.hive_id), clock=FakeClock()))
+
+    await asyncio.wait_for(
+        _until(lambda: cell.warden_id not in _attached_ids(scenario.queen)), WAIT_S
+    )
+    [refused] = await scenario.trail.query(TrailQuery(kind="guard.frame_ceiling"))
+    assert refused.subject_id == cell.node_id
+    assert refused.payload["node_id"] == cell.node_id
+    await scenario.listener.stop()

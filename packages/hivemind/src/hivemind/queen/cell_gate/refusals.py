@@ -20,11 +20,21 @@ a reason, never the frame. A frame that fails before its link is attached proves
 dialled may have named any Cell's id), so the listener closes that connection and records nothing
 against anyone.
 
+The transport has two limits of its own (ADR-0055, roadmap steps 11.3a and 11.3b), switched on for
+this listener as they are for the swarm's: a connection that sends frames faster than its ceiling
+is closed with code 4029, and an envelope whose id was already seen inside the replay window is
+dropped before anything handles it. Waggle writes no trail, so `transport_refusals` builds the
+callback that records each as `guard.frame_ceiling` or `guard.replay_refused` with the node id,
+the same record the swarm listener's `TransportRefusals` writes (and is reused for it here, so
+the two listeners cannot drift apart).
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.cell_gate`.
-    Built by `.listener` once per attached link. Calls into `hivemind.common.logging`,
+    Built by `.listener`: `LinkRefusals` once per attached link, `transport_refusals` once per
+    listener. Calls into `hivemind.cell` (CellIdentity), `hivemind.common.logging`,
     `hivemind.pheromone` (GuardEvent, TrailRecorder), `hivemind.queen.trail` (the receiver and
-    its errors) and waggle (envelope, errors, ids, messages) only.
+    its errors), `hivemind.swarm` (the swarm listener's transport refusals) and waggle (envelope,
+    errors, ids, messages, transport limits) only.
 
 Key invariants:
     - A link records each kind and reason at most once, so no Cell can flood the trail by
@@ -32,6 +42,8 @@ Key invariants:
     - A chunk that breaks the receiver rule, or names a Cell its link did not prove, never
       reaches the receiver, so nothing it carries is merged or veiled.
     - Nothing is recorded without a recorder: a listener built without one refuses the same way.
+    - A flood is always recorded and a repeated envelope id always is: a Virtual Cell's Warden
+      does not reconnect yet, so no duplicate is expected and none is silent.
 
 See Also:
     - hivemind.queen.cell_gate.listener for the link this records about.
@@ -43,6 +55,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from hivemind.cell import CellIdentity
 from hivemind.common.logging import get_logger
 from hivemind.pheromone import GuardEvent, TrailRecorder
 from hivemind.queen.trail import (
@@ -51,17 +64,64 @@ from hivemind.queen.trail import (
     TrailSegmentReceiver,
     UnknownSegmentFormatError,
 )
+from hivemind.swarm import SwarmRecorder
+from hivemind.swarm.gateway import GatewayHub, TransportRefusals
+from waggle.clock import Clock
 from waggle.envelope import Envelope
 from waggle.errors import SignatureError
 from waggle.ids import CellId, NodeId, new_event_id
 from waggle.messages.swarm import TrailSegmentSync
+from waggle.transport.limits import RefusalHandler, ServerLimits
+from waggle.transport.websocket_server import ServerOptions
 
 log = get_logger(__name__)
 
 ENVELOPE_REFUSED_KIND = "guard.envelope_refused"
 SEGMENT_REFUSED_KIND = "guard.segment_refused"
 
-__all__ = ["ENVELOPE_REFUSED_KIND", "SEGMENT_REFUSED_KIND", "LinkRefusals", "SegmentRefusal"]
+__all__ = [
+    "ENVELOPE_REFUSED_KIND",
+    "SEGMENT_REFUSED_KIND",
+    "LinkRefusals",
+    "SegmentRefusal",
+    "transport_options",
+    "transport_refusals",
+]
+
+
+def transport_options(recorder: TrailRecorder | None, clock: Clock) -> ServerOptions:
+    """Build the options the Cell listener's server runs with: the limits and their record.
+
+    Args:
+        recorder: The Queen's trail and identity; None records nothing.
+        clock: The injected clock the limits read time from.
+
+    Returns:
+        The frame ceiling and replay window switched on at their defaults (ADR-0055), the callback
+        that records each refusal, and `clock`.
+    """
+    return {"limits": ServerLimits(), "on_refusal": transport_refusals(recorder), "clock": clock}
+
+
+def transport_refusals(recorder: TrailRecorder | None) -> RefusalHandler | None:
+    """Build the callback that records what this listener's frame ceiling and replay window refuse.
+
+    Args:
+        recorder: The Queen's trail and identity; None records nothing, and the limits then
+            refuse in silence.
+
+    Returns:
+        The handler to give the listener's `WebSocketServer` as `on_refusal`, or None.
+    """
+    if recorder is None:
+        return None
+    identity = CellIdentity(hive_id=recorder.hive_id, node_id=recorder.node_id, actor="system")
+    swarm_recorder = SwarmRecorder(recorder.trail, recorder.clock, identity)
+    # The swarm's handler stays silent for a duplicate shortly after a device's link attached (an
+    # outbox replay after a reconnection), reading when links attached from a hub. A Virtual
+    # Cell's Warden has no reconnection yet, so no duplicate is expected here: an empty hub, which
+    # has seen no link attach, makes every repeated id count as the refusal it is.
+    return TransportRefusals(swarm_recorder, GatewayHub(recorder.clock), recorder.hive_id)
 
 
 class SegmentRefusal(StrEnum):

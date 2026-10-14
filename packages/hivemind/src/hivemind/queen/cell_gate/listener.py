@@ -69,6 +69,9 @@ Key invariants:
     - At most `FANOUT_QUEUE_SIZE` envelopes wait in one connection's fan-out for the Queen's
       reader: past that its pump stops reading the socket, so a Queen that is not reading backs
       the Cell's own sends up (backpressure), rather than the Queen's memory growing with them.
+    - The server runs with the transport's default limits (roadmap steps 11.3a and 11.3b): a
+      connection over its frame ceiling is closed and a replayed envelope id is dropped, each
+      recorded as a guard event naming the node (`.refusals.transport_refusals`).
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -92,7 +95,7 @@ from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.refusals import LinkRefusals
+from hivemind.queen.cell_gate.refusals import LinkRefusals, transport_options
 from hivemind.queen.deps import WardenLink, send_guarded
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.queen import Queen
@@ -100,7 +103,13 @@ from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
-from waggle.errors import CodecError, ConnectionLostError, SignatureError, UnknownSignerError
+from waggle.errors import (
+    CodecError,
+    ConnectionLostError,
+    FrameCeilingError,
+    SignatureError,
+    UnknownSignerError,
+)
 from waggle.ids import CellId, HiveId, IdKind, NodeId, WardenId, parse_id
 from waggle.messages.cell.snapshot import (
     CellRollbackReply,
@@ -204,7 +213,10 @@ class CellListener:
         self._clock = clock
         self._deps = deps
         codec = Codec(signer=deps.queen_signer, verifier=_GateVerifier(deps.gate))
-        self._server = WebSocketServer(codec, host=deps.host, port=deps.port)
+        # The transport's own defences (ADR-0055), on as they are on the swarm listener: a flood
+        # closes the connection (4029), a replayed envelope id is dropped, and each is recorded.
+        options = transport_options(deps.recorder, clock)
+        self._server = WebSocketServer(codec, host=deps.host, port=deps.port, **options)
         self._accept_task: asyncio.Task[None] | None = None
         self._handlers: set[asyncio.Task[None]] = set()
         self._queen: Queen | None = None
@@ -505,6 +517,10 @@ class _FanoutTransport:
                     self._queue.put_nowait(envelope)
         except (ConnectionLostError, CodecError, SignatureError) as exc:
             self._closed_exc = exc
+        except FrameCeilingError:
+            # The listener's own transport closed a flooding Cell (code 4029) and has already
+            # recorded it; to the Queen that is a link that ended, so nothing is re-raised to her.
+            pass
         finally:
             # Never waits for room (the queue itself is unbounded): the stream still ends when
             # nobody reads it, and a cancelled pump never parks here in its own finally.
