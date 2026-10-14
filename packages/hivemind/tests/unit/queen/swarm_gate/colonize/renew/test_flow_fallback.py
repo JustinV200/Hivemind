@@ -43,6 +43,11 @@ async def _decisions(rig: GateRig) -> list[tuple[str, str]]:
     return [(str(e.payload.get("reason")), str(e.payload.get("detail"))) for e in events]
 
 
+def _orders(scenario: RenewalScenario) -> list[str]:
+    """The `swarm.colonize` orders the packet got, in order (its node updates left out)."""
+    return [entry for entry in scenario.packet.log if entry.startswith("colonize:")]
+
+
 async def _fell_back(rig: GateRig, scenario: RenewalScenario, word: str) -> None:
     """Assert the device is a Level 0 one, served here, its task running and `word` recorded."""
     row = await scenario.node()
@@ -75,7 +80,7 @@ async def test_a_packet_that_will_not_stop_the_warden_leaves_the_device_a_level_
         )
         assert "withdraw_failed" in str(demoted.payload["reason"])
         # Asked again to stop whatever it started, since the first answer left it unknown.
-        assert scenario.packet.log == ["update", "colonize:WITHDRAW", "colonize:WITHDRAW"]
+        assert _orders(scenario) == ["colonize:WITHDRAW", "colonize:WITHDRAW"]
         await scenario.close()
 
 
@@ -142,7 +147,7 @@ async def test_a_packet_that_cannot_be_reached_is_not_asked_again(
 
         await _fell_back(rig, scenario, "packet_silent")
         # A second WITHDRAW would only wait out another deadline for a packet that cannot answer.
-        assert scenario.packet.log == ["update", "colonize:WITHDRAW"]
+        assert _orders(scenario) == ["colonize:WITHDRAW"]
         await scenario.close()
 
 

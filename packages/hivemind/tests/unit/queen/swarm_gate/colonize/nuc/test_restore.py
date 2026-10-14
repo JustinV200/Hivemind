@@ -21,7 +21,7 @@ See Also:
 from __future__ import annotations
 
 import pytest
-from builders.quarantine import settle
+from builders.quarantine import settle, settle_for
 from builders.swarm import GateRig, NucDevice, make_nuc_device, restart_nuc_warden
 from builders.swarm.nuc import gpu_capacity
 
@@ -54,7 +54,7 @@ async def _row(rig: GateRig, device: NucDevice) -> SwarmNode:
 async def _restored(rig: GateRig, device: NucDevice) -> bool:
     """Ask for the restoration and wait for the flow to end; whether one began."""
     started = await rig.colonizer.restore(await _row(rig, device))
-    await settle(lambda: not rig.colonizer.busy(device.node.device_id), _FLOW_ROUNDS)
+    await settle_for(lambda: not rig.colonizer.busy(device.node.device_id))
     return started
 
 

@@ -62,6 +62,7 @@ __all__ = [
     "make_grant_issued",
     "queen_hears",
     "settle",
+    "settle_for",
     "start_scene",
     "stop_scene",
     "wait_for_event",
@@ -218,6 +219,28 @@ async def settle(condition: Callable[[], bool], rounds: int = _SETTLE_ROUNDS) ->
             return
         await asyncio.sleep(0)
     raise AssertionError("The condition never held within the settle budget.")
+
+
+async def settle_for(
+    condition: Callable[[], bool], timeout_s: float = 5.0, step_s: float = 0.005
+) -> None:
+    """Wait in real time until `condition()` holds; for one that waits on a real timeout.
+
+    `settle` counts scheduling yields, which a fast loop spends in less time than a short real
+    deadline takes to pass; a condition that depends on one (a silent peer given up on) waits here.
+
+    Args:
+        condition: Checked before each wait.
+        timeout_s: How long to wait, in real seconds, before failing.
+        step_s: How long each wait lasts.
+
+    Raises:
+        TimeoutError: `condition()` still did not hold.
+    """
+    async with asyncio.timeout(timeout_s):
+        # A poll, on purpose: the condition is the state of someone else's flow, not an event.
+        while not condition():  # noqa: ASYNC110
+            await asyncio.sleep(step_s)
 
 
 async def queen_hears(scene: QuarantineScene, condition: Callable[[], bool]) -> None:

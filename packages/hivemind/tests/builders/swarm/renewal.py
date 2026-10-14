@@ -33,7 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from builders.isolation import place_running
-from builders.quarantine import settle
+from builders.quarantine import settle, settle_for
 from builders.swarm.colonizing import ScriptedPacket, dial_warden
 from builders.swarm.gate import GateRig
 from builders.swarm.nuc import NucDevice, ScriptedNucWarden, make_nuc_device
@@ -86,8 +86,8 @@ class RenewalScenario:
         return await self.rig.colonizer.renew(await self.node())
 
     async def finish(self) -> None:
-        """Wait until no flow owns the device any more."""
-        await settle(lambda: not self.rig.colonizer.busy(self.device.node.device_id), _FLOW_ROUNDS)
+        """Wait until no flow owns the device any more (in real time: a packet may be silent)."""
+        await settle_for(lambda: not self.rig.colonizer.busy(self.device.node.device_id))
 
     async def stop_old(self, order: Colonize) -> None:
         """End the running Warden's connection, as its process does when the packet stops it."""
