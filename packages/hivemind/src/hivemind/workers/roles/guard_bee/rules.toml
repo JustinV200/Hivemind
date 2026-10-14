@@ -12,11 +12,12 @@
 # `threshold` events it `counts`.
 #
 # Keys. `group_by` is hive (everything together), bee (one worker id: a worker id is minted per
-# spawn, so it names one attempt of one task, one episode), task, cell, grant, device, address or
-# tier. The Guard Bee reads each from the event itself (its subject and id fields) or joins it
-# through the ids other events carry: a Capping proposal's task, Cell and tier from its
-# capping.proposed, a task's bee from worker.spawned, its Cell from queen.assigned and its grant
-# from forage.granted.
+# spawn, so it names one attempt of one task, one episode), task, cell, grant, device, address,
+# tier or node (a Waggle peer, which a transport refusal names and no Cell). The Guard Bee reads
+# each from the event itself (its subject and id fields) or joins it through the ids other events
+# carry: a Capping proposal's task, Cell and tier from its capping.proposed, a task's bee from
+# worker.spawned, its Cell from queen.assigned, its grant from forage.granted, and a node's Cell
+# from the warden.spawned or warden.reconnected that bound the two.
 #
 # Matchers. Each entry of counts, of and first is a trail kind and, optionally, `where`: payload
 # fields that must hold one of the listed values. `capability_family` is a guard.denied
@@ -38,12 +39,14 @@
 # guard.alert and nothing more. `judgement = true` hands a finding to one awake episode on the
 # judge slot first, which may change the confidence and the action (to observe or a request).
 #
-# Node integrity seams (no rule yet, because no step has built what records them): Waggle replay
-# refusal (11.3b, guard.replay_refused), repeated frame-ceiling closes (11.3a,
-# guard.frame_ceiling) and a capability report that changed without re-enrolment (13.4a). Each
-# becomes one table here with its kind. A segment whose signature does not verify against its
-# node's registered key (11.9) is already one: guard.segment_refused, reason bad_signature, below.
-# A frame that fails its signature before its link is attached proves no Cell and is not recorded.
+# Node integrity seam still open (no rule yet, because no step has built what records it): a
+# capability report that changed without re-enrolment (13.4a), which becomes one table here with
+# its kind. A segment whose signature does not verify against its node's registered key (11.9) is
+# already a rule: guard.segment_refused, reason bad_signature, below, and so are Waggle's own two
+# refusals, repeated frame-ceiling closes (11.3a, guard.frame_ceiling) and a burst of replayed
+# envelope ids (11.3b, guard.replay_refused), counted per node. A frame that fails its signature
+# before its link is attached proves no Cell and is not recorded; neither is a refusal on a
+# connection that named no node, since there is no node to count it against.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # A bee's own behaviour
@@ -265,6 +268,35 @@ counts = [
 group_by = "cell"
 window_s = 3600.0
 threshold = 1
+confidence = "high"
+action = "isolate_cell"
+
+# A node whose connection was closed for flooding again and again (guard.frame_ceiling, recorded by
+# the Hive Stand's listeners with the node's id, 11.3a, ADR-0055). The ceiling is lax on purpose (a
+# hundred frames a second), so one close can be a bug and three in ten minutes is a peer that means
+# to flood. The Cell is the node's own when the Queen's warden.spawned bound the two, and a request
+# to isolate it is filed; a node nothing binds (a device whose Warden is still on the Hive Stand)
+# is observed. Isolation keeps the socket open and only a Sting Cut invalidates the node's keys, so
+# 13.4a builds the dire pattern on this count; until then the Queen decides the request.
+[rules.frame_ceiling_repeats]
+title = "repeated frame-ceiling closes from one node"
+counts = [{ kind = "guard.frame_ceiling" }]
+group_by = "node"
+window_s = 600.0
+threshold = 3
+confidence = "high"
+action = "isolate_cell"
+
+# A node repeating envelope ids the Hive Stand already handled, outside the grace after its Warden
+# reconnected (guard.replay_refused, 11.3b, ADR-0055): the duplicates a lost acknowledgement and an
+# outbox replay make are expected and silent, so a burst of the rest is someone replaying a
+# captured frame. The node-to-Cell reading is the frame ceiling's.
+[rules.replay_refusal_burst]
+title = "a burst of replayed envelope ids from one node"
+counts = [{ kind = "guard.replay_refused" }]
+group_by = "node"
+window_s = 300.0
+threshold = 5
 confidence = "high"
 action = "isolate_cell"
 

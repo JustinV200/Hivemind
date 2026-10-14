@@ -27,6 +27,8 @@ __all__ = ["SHIPPED_RULE_SEEDERS", "Seeder"]
 
 Seeder = Callable[[GuardBeeRig, bool], Awaitable[None]]
 _TIER = "SCRATCH_WRITE"  # The tier every Capping seed here proposes at.
+_FRAME_CEILING = "guard.frame_ceiling"  # What a listener records for a flooding connection.
+_REPLAY_REFUSED = "guard.replay_refused"  # What it records for an id repeated in its window.
 _HOUR_AND_A_SECOND = 3_601.0  # Past every one-hour window: a lone refusal has aged out of it.
 
 
@@ -147,6 +149,16 @@ async def _segment_unmergeable(rig: GuardBeeRig, fire: bool) -> None:
     await _refused_once(rig, fire, "guard.segment_refused", "corrupt")
 
 
+async def _frame_ceiling_repeats(rig: GuardBeeRig, fire: bool) -> None:
+    node = new_node_id(rig.clock)
+    await _repeat(3 if fire else 2, lambda: rig.seed.transport_refusal(_FRAME_CEILING, node))
+
+
+async def _replay_refusal_burst(rig: GuardBeeRig, fire: bool) -> None:
+    node = new_node_id(rig.clock)
+    await _repeat(5 if fire else 4, lambda: rig.seed.transport_refusal(_REPLAY_REFUSED, node))
+
+
 async def _request_forgery(rig: GuardBeeRig, fire: bool) -> None:
     for reason in ["request_replay", "request_signature"][: 2 if fire else 1]:
         await rig.seed.entrance("guard.entrance_login_failed", reason=reason, listener="remote")
@@ -199,6 +211,8 @@ SHIPPED_RULE_SEEDERS: dict[str, Seeder] = {
     "envelope_forgery": _envelope_forgery,
     "segment_forgery": _segment_forgery,
     "segment_unmergeable": _segment_unmergeable,
+    "frame_ceiling_repeats": _frame_ceiling_repeats,
+    "replay_refusal_burst": _replay_refusal_burst,
     "request_forgery": _request_forgery,
     "login_failure_burst": _login_failure_burst,
     "lockouts_across_devices": _lockouts_across_devices,

@@ -7,9 +7,11 @@ ids: its subject (a worker, a Cell, a proposal, a device, ...) and a few payload
 rules' matchers read, and nothing else: rules count ids and kinds, never content. `EpisodeIndex`
 joins what one event cannot say by itself, from the events that do: a Capping proposal's task,
 Cell and tier (from `capping.proposed`), a task's bee (from `worker.spawned`, the newest spawn at
-or before the moment asked about, since a worker id is minted per attempt), a bee's task, and a
-task's Cell (`queen.assigned`) and grant (`forage.granted`). So a `capping.rejected`, whose only id
-is its proposal, still names the bee whose episode it happened in.
+or before the moment asked about, since a worker id is minted per attempt), a bee's task, a task's
+Cell (`queen.assigned`) and grant (`forage.granted`), and the Cell a node speaks for (the
+`warden.spawned` or `warden.reconnected` that bound the two). So a `capping.rejected`, whose only
+id is its proposal, still names the bee whose episode it happened in, and a `guard.frame_ceiling`,
+which names only the peer's node, the Cell it speaks for.
 
 It also attributes every fact (roadmap step 10.6): a Virtual Cell's Warden ships its own trail
 segment, so a compromised Cell can record anything on its own node, naming any bee, task or Cell.
@@ -223,8 +225,8 @@ class EpisodeIndex:
             fact: A fact being counted.
 
         Returns:
-            Its own ids, plus its proposal's task, Cell and tier, its grant's or bee's task, its
-            task's bee at the fact's own moment, and its task's Cell and grant, where known.
+            Its own ids, plus what the index can join: a proposal's task, Cell and tier, a grant's
+            or bee's task, a task's bee (at the fact's own moment), Cell and grant, a node's Cell.
         """
         ids = dict(fact.ids)
         for key, value in self._claim_of(ids.get("proposal"), fact.node_id).items():
@@ -236,6 +238,9 @@ class EpisodeIndex:
             ids.update(self._bee_at(ids["task"], fact))
         self._fill(ids, "cell", ("task_cell", ids.get("task")))
         self._fill(ids, "grant", ("task_grant", ids.get("task")))
+        # A transport refusal names a node and no Cell: the Cell is the one the Queen bound it to.
+        if (home := self._cells.get(ids.get("node", ""))) is not None:
+            ids.setdefault("cell", home)  # An unbound node stays Cell-less: none is guessed.
         return ids
 
     def attribute(self, fact: TrailFact) -> tuple[Attribution, str | None]:

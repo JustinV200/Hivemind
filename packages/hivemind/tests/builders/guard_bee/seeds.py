@@ -143,6 +143,19 @@ class TrailSeeder:
         payload = {"cell_id": cell, "node_id": _CELL_NODE, "reason": reason}
         return await self.record(GuardEvent, kind, cell, payload)
 
+    async def transport_refusal(self, kind: str, node: str | None) -> PheromoneEvent:
+        """A listener's transport refusal about `node`'s connection (roadmap 11.3a and 11.3b).
+
+        As `hivemind.swarm.gateway.TransportRefusals` writes it: the node is the event's subject
+        and its payload names it with the envelope id, which a frame flood has none of; a refusal
+        of a connection that named no node is about the Hive itself and names none.
+        """
+        subject = node if node is not None else self.identity.hive_id
+        envelope = None if kind == "guard.frame_ceiling" else new_message_id(self.clock)
+        return await self.record(
+            GuardEvent, kind, subject, {"node_id": node, "envelope_id": envelope}
+        )
+
     async def entrance(self, kind: str, subject: str | None = None, **payload: object) -> str:
         """One guard.entrance_* event about `subject` (a fresh device by default); its subject."""
         device = subject if subject is not None else new_device_id(self.clock)

@@ -337,11 +337,12 @@ def _mark_of(payload: Mapping[str, JsonValue]) -> Mark | None:
 
 
 def _subject(report: GuardReport, finding: Finding, identity: CellIdentity) -> str:
-    """Return what an alert is about: its Cell, bee, task or device, else the Hive itself."""
+    """Return what an alert is about: its Cell, bee, task, device or node, else the Hive itself."""
     for candidate in (report.cell_id, *report.bee_ids, *report.task_ids):
         if candidate is not None:
             return candidate
-    if finding.rule.group_by is GroupKey.DEVICE:
+    # A rule keyed by a device or a Waggle peer's node names it even when no Cell is known.
+    if finding.rule.group_by in (GroupKey.DEVICE, GroupKey.NODE):
         return finding.key
     return identity.hive_id
 

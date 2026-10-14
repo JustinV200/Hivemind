@@ -99,6 +99,7 @@ class GroupKey(Enum):
     DEVICE = "device"  # An enrolled client device, at the Hive Entrance.
     ADDRESS = "address"  # A peer address as the Entrance records it on the trail.
     TIER = "tier"  # A Capping risk tier.
+    NODE = "node"  # A Waggle peer: the node a transport refusal (ceiling, replay) names.
 
 
 class Measure(Enum):

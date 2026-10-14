@@ -75,12 +75,13 @@ values, grouped by one key, inside a sliding window. Three shapes:
 - **sequence**: a `first` event, then `threshold` events it counts after it, for one key.
 
 Keys: `hive` (everything together), `bee` (a worker id; one is minted per spawn, so a bee id names
-one attempt at one task: one episode), `task`, `cell`, `grant`, `device`, `address`, `tier`. A key
-is read from the event (its subject and the ids its payload carries) or joined through other
-events: a Capping proposal's task, Cell and tier from its `capping.proposed`, a task's bee from
-`worker.spawned`, its Cell from `queen.assigned`, its grant from `forage.granted`. Rules count ids
-and kinds, never content: the trail carries none. Every rule counts only what the Guard Bee can
-attribute ([who may speak for what](#who-may-speak-for-what)).
+one attempt at one task: one episode), `task`, `cell`, `grant`, `device`, `address`, `tier`, `node`
+(a Waggle peer). A key is read from the event (its subject and the ids its payload carries) or
+joined through other events: a Capping proposal's task, Cell and tier from its `capping.proposed`,
+a task's bee from `worker.spawned`, its Cell from `queen.assigned`, its grant from
+`forage.granted`, a node's Cell from the `warden.spawned` or `warden.reconnected` that bound the
+two. Rules count ids and kinds, never content: the trail carries none. Every rule counts only what
+the Guard Bee can attribute ([who may speak for what](#who-may-speak-for-what)).
 
 A rule fires once for what it has counted. Its next finding for the same key counts only events
 after the moment the last one counted up to.
@@ -129,6 +130,8 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_forgery` | `guard.segment_refused` for `another_node`, `another_cell` or `bad_signature` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_unmergeable` | `guard.segment_refused` for `format`, `corrupt` or `unsigned` | cell | 1 h | 1 | `isolate_cell`, high | no |
+| `frame_ceiling_repeats` | `guard.frame_ceiling`: a connection closed for sending frames past its ceiling | node | 10 min | 3 | `isolate_cell`, high | no |
+| `replay_refusal_burst` | `guard.replay_refused`: an envelope id repeated inside the replay window, outside the reconnection grace | node | 5 min | 5 | `isolate_cell`, high | no |
 | `request_forgery` | `guard.entrance_login_failed` for `request_signature` or `request_replay` | hive | 10 min | 2 | `reduce_entrance`, high | no |
 
 The Queen's two gates, the Cell gate (`hivemind.queen.cell_gate`, the listener every Virtual Cell's
@@ -168,10 +171,25 @@ since a Warden can come back on a link that proves another node (it moves onto i
 is colonized, ADR-0052), from `warden.reconnected` as well. Both are believed from the Hive Stand's
 node alone, so a node cannot claim a Cell by recording either itself.
 
-`request_forgery` is someone holding a session token without its device's key. The node-integrity
-failures later steps add become rules once each has a trail kind: Waggle replay refusal
-(`guard.replay_refused`, 11.3b), repeated frame-ceiling closes (`guard.frame_ceiling`, 11.3a), and
-a capability report that changed without re-enrolment (13.4a).
+`request_forgery` is someone holding a session token without its device's key.
+
+The last two rows count what the Hive Stand's own listeners (the Cell listener and the swarm
+listener, through one `TransportRefusals`) record of a Waggle peer, ADR-0055. A connection that
+sends more frames a minute than its ceiling is closed with code 4029 and recorded as
+`guard.frame_ceiling`; the ceiling is lax on purpose (a hundred frames a second), so one close can
+be a bug, and three in ten minutes from one node is a peer that means to flood. An envelope id the
+listener already handled is dropped unhandled; a duplicate shortly after the node's Warden
+reconnected is its outbox replaying and is silent, and any other is `guard.replay_refused`, so five
+in five minutes is someone replaying a captured frame. Both name the node, and the rules count them
+per node: the same refusals spread over several nodes are nobody's pattern. A refusal on a
+connection that had named no node yet is recorded against the Hive and counted against no one. The
+node's Cell is the one the Queen's `warden.spawned` or `warden.reconnected` bound it to, and then
+the request names that Cell; a node nothing binds, such as a device whose Warden still runs on the
+Hive Stand, is only observed. Only the Hive Stand's node can make these counts: a Cell's own node
+writing them about another node names no Cell it owns, so it is not counted. Isolation keeps the
+socket open and only a Sting Cut invalidates the node's keys, so repeated frame-ceiling closes are a
+dire pattern for 13.4a to list; today the Queen decides the request like any other. A capability
+report that changed without re-enrolment (13.4a) becomes a rule once something records it.
 
 ### The Hive Entrance
 

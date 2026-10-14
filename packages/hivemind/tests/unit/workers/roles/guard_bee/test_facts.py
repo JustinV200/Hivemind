@@ -17,12 +17,12 @@ See Also:
 
 from __future__ import annotations
 
-from builders.guard_bee import TrailSeeder, make_guard_bee, seed_episode
+from builders.guard_bee import TrailSeeder, bind_cell, make_guard_bee, seed_episode
 
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import GuardEvent, TrailQuery
 from hivemind.workers.roles.guard_bee import EpisodeIndex, TrailFact, fact_from_event
 from waggle.clock import FakeClock
-from waggle.ids import new_task_id
+from waggle.ids import new_cell_id, new_node_id, new_task_id
 
 _EVERYTHING = TrailQuery(limit=1_000)  # Every event a test here seeds, oldest first.
 _NEWEST = TrailQuery(limit=1, newest_first=True)  # The event a test just seeded.
@@ -145,6 +145,43 @@ async def test_a_fact_never_has_an_id_of_its_own_replaced_by_a_join() -> None:
     ids = index.resolve(fact_from_event(await seed.injection(episode.bee, other_task), _WATCHED))
 
     assert ids["task"] == other_task
+
+
+async def test_a_fact_about_a_node_joins_to_the_cell_that_node_speaks_for() -> None:
+    seed = _seeder()
+    index = EpisodeIndex(seed.identity.node_id)
+    node, stranger = new_node_id(seed.clock), new_node_id(seed.clock)
+    cell = await bind_cell(seed, node)  # As the Queen records a Warden attaching for the Cell.
+    for event in await seed.trail.query(_EVERYTHING):
+        index.learn(fact_from_event(event, _WATCHED))
+
+    flooded = await seed.transport_refusal("guard.frame_ceiling", node)
+    unbound = await seed.transport_refusal("guard.frame_ceiling", stranger)
+
+    assert index.resolve(fact_from_event(flooded, _WATCHED)) == {"node": node, "cell": cell}
+    # No Warden ever bound the stranger's node, so no Cell is guessed for it.
+    assert index.resolve(fact_from_event(unbound, _WATCHED)) == {"node": stranger}
+
+
+async def test_a_fact_that_names_its_own_cell_keeps_it_over_its_nodes() -> None:
+    seed = _seeder()
+    index = EpisodeIndex(seed.identity.node_id)
+    node = new_node_id(seed.clock)
+    bound = await bind_cell(seed, node)
+    for event in await seed.trail.query(_EVERYTHING):
+        index.learn(fact_from_event(event, _WATCHED))
+    named = new_cell_id(seed.clock)
+    # A refusal about `named`, as the Cell gate writes it, naming the node the bound Cell speaks as.
+    refusal = await seed.record(
+        GuardEvent,
+        "guard.envelope_refused",
+        named,
+        {"cell_id": named, "node_id": node, "reason": "invalid"},
+    )
+
+    ids = index.resolve(fact_from_event(refusal, _WATCHED))
+
+    assert ids["cell"] == named != bound
 
 
 async def test_pruning_forgets_joins_learnt_before_the_horizon() -> None:

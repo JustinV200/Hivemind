@@ -1845,10 +1845,12 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   *Landed as `hivemind.workers.roles.guard_bee`, composed into every Hive `hive run` and `hive
   serve` build (`hivemind.cli.compose.guard`) and filing through the Queen's own door; C2
   deposits are a named seam (`GuardReportSink`, in memory until then) that phase 7's Nectar
-  intake fills. Node integrity counts what the Hive records today (a forged Entrance request, and
-  a forged frame or an unmerged segment at the Cell gate); Waggle replay refusal (11.3b),
-  frame-ceiling closes (11.3a), key-verified merges (11.9) and capability reports (13.4a) each
-  become one rule when their step records its kind.*
+  intake fills. Node integrity counts what the Hive records today (a forged Entrance request, a
+  forged frame or an unmerged segment at the Cell gate, a connection closed for flooding and a
+  replayed envelope id at the Hive Stand's listeners, the last two per node as
+  `frame_ceiling_repeats` and `replay_refusal_burst`); key-verified merges (11.9) are
+  `segment_forgery`'s `bad_signature`, and capability reports (13.4a) become one rule when their
+  step records its kind.*
 - [x] **10.6a Cell isolation, Queen-only.** `queen/isolation.py`: the Queen's action on one Cell,
   never a Guard Bee's or a Warden's: revoke the Warden's grant, checkpoint and pause every bee on
   the Cell, write a `BLOCK` Cell Wax so nothing is placed there, set a Virtual Cell's network
@@ -2043,7 +2045,10 @@ promotion, `hive swarm` CLI.
   **Built 2026-10-13.** `waggle/transport/ceiling.py`: 6,000 frames a minute per connection with a
   burst of 600; over it the server closes with code 4029 and the node reconnects with its own
   backoff. The Hive Stand's swarm listener and Virtual Cell listener record `guard.frame_ceiling`
-  with the node id on each close (`waggle` writes no trail); the Guard Bee counts the events.
+  with the node id on each close (`waggle` writes no trail); the Guard Bee counts the events per
+  node (`frame_ceiling_repeats`: three closes of one node in ten minutes, a request to isolate the
+  Cell the node speaks for, or an observation when none is bound), which 13.4a lists as a dire
+  pattern.
 - [x] **11.3b Replay window.** ADR-0005 leaves deduplication to receivers that care; every
   receiver now must. The server half keeps the envelope ids seen per node over a bounded window
   (`replay_window_minutes`, default 10, and a cap on ids kept) and drops a duplicate without
@@ -2057,10 +2062,11 @@ promotion, `hive swarm` CLI.
   `replay_window_minutes` knob), capped at 50,000 ids and shared by every connection of one server,
   so a duplicate is dropped unhandled whichever connection carries it. Inside the reconnection grace
   (`RECONNECT_GRACE_S`, 120 s, counted from the link's attach, before its first frame is read) a
-  duplicate is silent; any other is `guard.replay_refused` with the node id. `docs/waggle/spec.md`
-  states the obligation and the gateway contract (11.7a) carries it. Proved across a container
-  boundary: a replayed `session.exec` runs once and a frame with a broken signature closes the link
-  with 1008 (`tests/e2e/test_phase11_exit_replay.py`).
+  duplicate is silent; any other is `guard.replay_refused` with the node id, which the Guard Bee
+  counts per node (`replay_refusal_burst`: five in five minutes). `docs/waggle/spec.md` states the
+  obligation and the gateway contract (11.7a) carries it. Proved across a container boundary: a
+  replayed `session.exec` runs once and a frame with a broken signature closes the link with 1008
+  (`tests/e2e/test_phase11_exit_replay.py`).
 - [x] **11.4 Device-side lease, executors and dead-man switch.** `pollen/lease/` (scratch dir
   under the quota the node's `Ceilings` carry, enforced the way 3.11 does on the Hive Stand;
   started pids, restore; **dead-man**: when the link is lost longer than the enrolled limit and no

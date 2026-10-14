@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from hivemind.guard import GuardAction, GuardConfidence
-from hivemind.manifest.schema.security.guard import GuardBeeRuleOverride
+from hivemind.manifest.schema.security.guard import DEFAULT_DIRE_PATTERNS, GuardBeeRuleOverride
 from hivemind.workers.roles.guard_bee import (
     NARROWING_ACTIONS,
     SUBJECT_FORGED_KIND,
@@ -45,6 +45,8 @@ _FAMILIES = {
     "signature or replay failures": "guard.entrance_login_failed",
     "a Cell's forged frames": "guard.envelope_refused",
     "refused segment merges": "guard.segment_refused",
+    "a node's connection closed for flooding": "guard.frame_ceiling",
+    "a node's replayed envelope ids": "guard.replay_refused",
     "records forged about another Cell": SUBJECT_FORGED_KIND,
     "lockouts": "guard.entrance_locked",
     "invite-route abuse": "guard.entrance_redeem_failed",
@@ -68,7 +70,7 @@ def test_the_shipped_rules_load_and_count_every_family_the_roadmap_names() -> No
 
     counted = {matcher.kind for rule in rules.enabled for matcher in rule.matchers}
 
-    assert len(rules.rules) == 20
+    assert len(rules.rules) == 22
     assert {family: kind in counted for family, kind in _FAMILIES.items()} == dict.fromkeys(
         _FAMILIES, True
     )
@@ -85,6 +87,27 @@ def test_every_narrowing_rule_decides_alone_and_every_raise_names_a_tier() -> No
         for rule in narrowing
         if rule.action is GuardAction.RAISE_AUDIT_RATE
     )
+
+
+@pytest.mark.parametrize(
+    ("key", "kind", "threshold", "window_s"),
+    [
+        ("frame_ceiling_repeats", "guard.frame_ceiling", 3.0, 600.0),
+        ("replay_refusal_burst", "guard.replay_refused", 5.0, 300.0),
+    ],
+)
+def test_a_waggle_peers_refusals_are_counted_per_node_and_ask_to_isolate_its_cell(
+    key: str, kind: str, threshold: float, window_s: float
+) -> None:
+    rule = next(r for r in load_guard_rules().rules if r.key == key)
+
+    # One kind, counted for the node it names, in a window; a repeat or a burst, never a single
+    # refusal, and a request the Queen decides rather than a dire pattern (13.4a's to make).
+    assert rule.counts == (Matcher(kind=kind),)
+    assert rule.shape is RuleShape.COUNT and rule.group_by is GroupKey.NODE
+    assert (rule.threshold, rule.window_s) == (threshold, window_s)
+    assert rule.action is GuardAction.ISOLATE_CELL and rule.confidence is GuardConfidence.HIGH
+    assert not rule.judgement and key not in DEFAULT_DIRE_PATTERNS
 
 
 def test_the_injection_correlation_counts_a_lease_boundary_refusal_as_a_denial() -> None:
