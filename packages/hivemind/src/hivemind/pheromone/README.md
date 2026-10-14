@@ -92,11 +92,11 @@ While the Cell lives, nothing about it reaches the durable trail beyond the skel
   nothing else.
 
 The skeleton, with the payload each kind keeps (`retention/skeleton.py`): `cell.provisioned`
-(backend, image, tier), `cell.attested` (the verdict, the red checks, and each check's PASS or
-FAIL without its detail), `queen.placed` (the human request's id), `forage.granted` (task id,
-sub-bee count), `forage.plan_written` (revision, slot count), `cell.sting_cut`, every task kind
-(nothing beyond the task id), `capping.summary` (tier and the approved, rejected and rolled-back
-counts) and `cell.destroyed` (the Undertaker's cleanup counts).
+(backend, image, tier), `cell.attested` (the verdict, the red checks, the tier it attests, and each
+check's PASS or FAIL without its detail), `queen.placed` (the human request's id), `forage.granted`
+(task id, sub-bee count), `forage.plan_written` (revision, slot count), `cell.sting_cut`, every task
+kind (nothing beyond the task id), `capping.summary` (tier and the approved, rejected and
+rolled-back counts) and `cell.destroyed` (the Undertaker's cleanup counts).
 
 Every path a Night Veil Cell ends runs `NightVeilTeardownPurge.purge`: a lifecycle teardown (the
 task finished, a provision failed after the Cell existed, the Hive shut down), an Absconding
