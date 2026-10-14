@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hivemind.cell.local.config import HiveStandConfig
+import pytest
+from builders.cells import make_hive_stand_config
+from pydantic import ValidationError
+
+from hivemind.cell.local.config import DEFAULT_CELL_NAME, DEFAULT_SOURCE_NAME, HiveStandConfig
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.manifest.schema.core import HiveStandSection
 from waggle.messages.labels import AccessLevel as WireAccessLevel
@@ -107,6 +111,23 @@ def test_comb_shield_defaults_to_meadow() -> None:
     )
 
     assert config.comb_shield is CombShieldLevel.MEADOW
+
+
+def test_from_section_names_the_hive_stands_own_cell_by_default(tmp_path: Path) -> None:
+    # Roadmap step 11.6a: the three naming fields exist for a Swarm device's Warden; the manifest
+    # section has no such fields, so every Hive Stand config keeps the Hive Stand's own identity.
+    config = HiveStandConfig.from_section(HiveStandSection(), tmp_path)
+
+    assert config.cell_id is None
+    assert (config.source_name, config.cell_name) == (DEFAULT_SOURCE_NAME, DEFAULT_CELL_NAME)
+    assert (DEFAULT_SOURCE_NAME, DEFAULT_CELL_NAME) == ("hive_stand", "hive-stand")
+
+
+def test_a_cell_or_source_name_cannot_be_empty() -> None:
+    with pytest.raises(ValidationError):
+        make_hive_stand_config(Path("/scratch"), source_name="")
+    with pytest.raises(ValidationError):
+        make_hive_stand_config(Path("/scratch"), cell_name="")
 
 
 def test_from_section_never_claims_model_hosting_for_the_machine(tmp_path: Path) -> None:

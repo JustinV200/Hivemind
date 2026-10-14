@@ -20,6 +20,11 @@ Key invariants:
     - `comb_shield` defaults to MEADOW and `from_section` never overrides it: the Hive Stand's own
       `[hive_stand]` section carries no comb_shield field this phase (codingrules section 8.7's
       "operator-set at enrolment" is a later phase's `[hive_stand]` addition).
+    - `cell_id`, `source_name` and `cell_name` default to the Hive Stand's own (derived id,
+      `hive_stand`, `hive-stand`), so `from_section` and every existing caller behave exactly as
+      before. A Swarm device's Warden running on the device (roadmap step 11.6a, `hivemind.cli.
+      in_cell` in borrowed mode) builds its config directly and sets all three, plus its access
+      level and tier, so the same source leases the device as the Cell the Queen knows it by.
 
 See Also:
     - .claude/roadmap.md step 3.11 for the Hive Stand's own manifest-derived settings.
@@ -37,8 +42,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.manifest.schema.core import HiveStandSection
+from waggle.ids import CellId
 
-__all__ = ["HiveStandConfig"]
+DEFAULT_SOURCE_NAME = "hive_stand"  # The `source` of the Hive Stand's Cell: what the Queen reads.
+DEFAULT_CELL_NAME = "hive-stand"  # Its human-readable label; codingrules 6.1's own example.
+
+__all__ = ["DEFAULT_CELL_NAME", "DEFAULT_SOURCE_NAME", "HiveStandConfig"]
 
 # A frozen, extras-forbidding config every model in this module shares (codingrules section 8.5).
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -77,6 +86,26 @@ class HiveStandConfig(BaseModel):
     )
     comb_shield: CombShieldLevel = Field(
         default=CombShieldLevel.MEADOW, description="The Hive Stand's own security tier."
+    )
+    cell_id: CellId | None = Field(
+        default=None,
+        description="Roadmap step 11.6a: the id of the Cell this source hands out, when it is not "
+        "the Hive Stand's own. None derives it from the node id (`hive_stand_cell_id`), as it "
+        "always was; a Swarm device's Warden running on the device itself names the Cell the "
+        "Queen minted for it, so a lease is requested and recorded under that id.",
+    )
+    source_name: str = Field(
+        default=DEFAULT_SOURCE_NAME,
+        min_length=1,
+        description="Roadmap step 11.6a: the `source` every Cell this source hands out carries. "
+        "The Queen tells the Hive Stand from a device by it, so a device's Warden names its own "
+        "(`swarm`), never the Hive Stand's.",
+    )
+    cell_name: str = Field(
+        default=DEFAULT_CELL_NAME,
+        min_length=1,
+        description="Roadmap step 11.6a: the human-readable label of the Cell this source hands "
+        "out.",
     )
     keep_scratch: bool = Field(
         default=False,

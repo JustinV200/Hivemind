@@ -1,7 +1,9 @@
 """Define HiveStandSource: the machine the Queen runs on, as a RealCellSource with one Cell.
 
 `HiveStandSource` is `hivemind.cell.local`'s implementation of `hivemind.cell.source.
-RealCellSource`: it hands out exactly one Cell, named `"hive-stand"`, whose id is derived, not
+RealCellSource`: it hands out exactly one Cell, named `"hive-stand"` (unless the config names
+another: a Swarm device's Warden on the device itself leases it as the Cell the Queen minted for
+it, under the source name `swarm`), whose id is derived, not
 minted, from this node's own identity (`hive_stand_cell_id`, this module's other public name) so
 it stays the same across every process this node runs, not only across calls within one of them
 (phase 7 handoff section 8 item 4: a freshly minted id on every `hive run` used to strand
@@ -49,7 +51,7 @@ from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.lease import LeaseFacts, LeaseRequest, RealCellLease
 from hivemind.cell.lease_state import LeaseState
 from hivemind.cell.leavings import LeavingsStore
-from hivemind.cell.local.config import HiveStandConfig
+from hivemind.cell.local.config import DEFAULT_SOURCE_NAME, HiveStandConfig
 from hivemind.cell.local.probe import ProbeResult, probe_host, refresh_live
 from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.releaser import HiveStandLeaseReleaser
@@ -61,8 +63,8 @@ from hivemind.pheromone import PheromoneTrail
 from waggle.clock import Clock
 from waggle.ids import CellId, IdKind, NodeId, new_lease_id, parse_id
 
-HIVE_STAND_SOURCE = "hive_stand"  # The `source` field every Cell this source hands out carries.
-_CELL_NAME = "hive-stand"  # The human-readable label; codingrules 6.1's own example.
+# The `source` field the Hive Stand's own Cell carries; what a Swarm device's Warden overrides.
+HIVE_STAND_SOURCE = DEFAULT_SOURCE_NAME
 _BYTES_PER_MB = 1024 * 1024  # Manifest quota/reserve figures are MB; this package works in bytes.
 
 __all__ = ["HIVE_STAND_SOURCE", "HiveStandSource", "hive_stand_cell_id"]
@@ -125,15 +127,18 @@ class HiveStandSource:
         self._trail = trail
         self._clock = clock
         self._leavings = leavings
-        # Derived, not minted (module docstring): stable across every process on this node.
-        self._cell_id: CellId = hive_stand_cell_id(identity.node_id)
+        # Derived, not minted (module docstring): stable across every process on this node. A
+        # device's Warden names the Cell the Queen minted for it instead (config.cell_id).
+        self._cell_id: CellId = (
+            config.cell_id if config.cell_id is not None else hive_stand_cell_id(identity.node_id)
+        )
         self._static: ProbeResult = probe_host(config)
         self._active_lease: RealCellLease | None = None
 
     @property
     def name(self) -> str:
-        """This source's name, `"hive_stand"`, the value its one Cell carries as `source`."""
-        return HIVE_STAND_SOURCE
+        """This source's name (`"hive_stand"` unless configured), the `source` its Cell carries."""
+        return self._config.source_name
 
     async def cells(self) -> tuple[Cell, ...]:
         """Return the Hive Stand's one Cell, with live capacity figures refreshed.
@@ -145,8 +150,8 @@ class HiveStandSource:
         cell = Cell(
             id=self._cell_id,
             kind=CellKind.REAL,
-            name=_CELL_NAME,
-            source=HIVE_STAND_SOURCE,
+            name=self._config.cell_name,
+            source=self._config.source_name,
             capabilities=self._static.capabilities,
             capacity=capacity,
             access_level=self._config.access_level,

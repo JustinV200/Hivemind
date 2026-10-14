@@ -28,10 +28,10 @@ from builders.cells import make_hive_stand_config, make_identity, make_lease_req
 from hivemind.cell import SCRATCH_DIR_MODE
 from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.leavings import InMemoryLeavingsStore
-from hivemind.cell.local.source import HiveStandSource, hive_stand_cell_id
+from hivemind.cell.local.source import HIVE_STAND_SOURCE, HiveStandSource, hive_stand_cell_id
 from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock
-from waggle.ids import IdKind, NodeId, new_node_id, parse_id
+from waggle.ids import IdKind, NodeId, new_cell_id, new_node_id, parse_id
 
 
 def _leavings(clock: FakeClock) -> InMemoryLeavingsStore:
@@ -209,3 +209,68 @@ async def test_two_sources_built_from_the_same_node_id_report_the_same_cell_id(
     (first_cell,) = await first.cells()
     (second_cell,) = await second.cells()
     assert first_cell.id == second_cell.id
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# A device's Warden names its own Cell (roadmap step 11.6a): the same source, another identity
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def test_by_default_the_cell_is_the_hive_stands_own_in_name_and_source(
+    tmp_path: Path,
+) -> None:
+    """Nothing in the config renames the Cell, so the Queen still tells the Hive Stand by it."""
+    clock = FakeClock()
+    source = _source(tmp_path, clock, new_node_id(clock))
+
+    (cell,) = await source.cells()
+
+    assert (source.name, cell.source, cell.name) == (HIVE_STAND_SOURCE, "hive_stand", "hive-stand")
+
+
+async def test_a_configured_cell_carries_its_own_id_source_and_name(tmp_path: Path) -> None:
+    # A device's Warden leases the device as the Cell the Queen minted for it, under the source
+    # name `swarm`: the Hive Stand's source name on it would make the Queen read it as herself.
+    clock = FakeClock()
+    cell_id = new_cell_id(clock)
+    source = HiveStandSource(
+        make_hive_stand_config(
+            tmp_path, cell_id=cell_id, source_name="swarm", cell_name="laptop-1"
+        ),
+        make_identity(clock=clock),
+        MemoryPheromoneTrail(clock),
+        clock,
+        _leavings(clock),
+    )
+
+    (cell,) = await source.cells()
+
+    assert (source.name, cell.id, cell.source, cell.name) == (
+        "swarm",
+        cell_id,
+        "swarm",
+        "laptop-1",
+    )
+
+
+async def test_a_lease_is_taken_under_the_configured_cell_id_and_no_other(tmp_path: Path) -> None:
+    # The configured id replaces the derived one outright: a request for the id the node would
+    # have derived names a Cell this source does not have.
+    clock = FakeClock()
+    identity = make_identity(clock=clock)
+    cell_id = new_cell_id(clock)
+    source = HiveStandSource(
+        make_hive_stand_config(tmp_path, cell_id=cell_id, source_name="swarm"),
+        identity,
+        MemoryPheromoneTrail(clock),
+        clock,
+        _leavings(clock),
+    )
+
+    with pytest.raises(LeaseRefusedError, match="no such Cell"):
+        await source.lease(
+            make_lease_request(clock=clock, cell_id=hive_stand_cell_id(identity.node_id))
+        )
+    lease = await source.lease(make_lease_request(clock=clock, cell_id=cell_id))
+
+    assert lease.cell_id == cell_id

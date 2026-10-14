@@ -12,6 +12,12 @@ beyond the standard library.
   `real_display_allowed`, the operator's opt-in to let the Hive drive this machine's own screen),
   resolved once from the
   manifest's `[hive_stand]` section by `HiveStandConfig.from_section(section, manifest_dir)`.
+  Since roadmap step 11.6a it also carries `cell_id`, `source_name` and `cell_name`, which
+  default to the Hive Stand's own (`None` meaning "derive from the node id", `"hive_stand"`,
+  `"hive-stand"`) and which only a Swarm device's Warden running on the device itself
+  (`hivemind.cli.in_cell`, borrowed mode) sets, to lease the device as the Cell the Queen minted
+  for it under the source name `swarm`. `from_section` never sets them, so the Hive Stand is
+  unchanged.
 - **Probe** (`hivemind.cell.local.probe`): `probe_host(config) -> ProbeResult` -- this host's
   `CellCapabilities` and `ForageCapacity`, POSIX and Windows shims side by side, best effort
   everywhere except zero usable cores (`ProbeError`); `can_start_display` and `has_audio` report

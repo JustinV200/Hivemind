@@ -33,8 +33,9 @@ See Also:
       this package's classes implement or build on.
 
 Public API:
-    - HiveStandConfig: the Hive Stand's own settings, resolved once from the manifest
-      (hivemind.cell.local.config).
+    - HiveStandConfig, DEFAULT_SOURCE_NAME, DEFAULT_CELL_NAME: the Hive Stand's own settings,
+      resolved once from the manifest, and the `source` and label its one Cell carries unless a
+      Swarm device's Warden names another (hivemind.cell.local.config).
     - ProbeResult, probe_host, refresh_live, DEFAULT_MAX_SUB_BEES: this host's platform,
       capabilities and capacity (hivemind.cell.local.probe).
     - ScratchQuota, DirectorySizer, QUOTA_SAMPLE_INTERVAL_S, directory_size_bytes: how a lease's
@@ -47,7 +48,7 @@ Public API:
       from the node id (hivemind.cell.local.source).
 """
 
-from hivemind.cell.local.config import HiveStandConfig
+from hivemind.cell.local.config import DEFAULT_CELL_NAME, DEFAULT_SOURCE_NAME, HiveStandConfig
 from hivemind.cell.local.probe import DEFAULT_MAX_SUB_BEES, ProbeResult, probe_host, refresh_live
 from hivemind.cell.local.quota import (
     QUOTA_SAMPLE_INTERVAL_S,
@@ -60,7 +61,9 @@ from hivemind.cell.local.session import LocalProcessSession
 from hivemind.cell.local.source import HIVE_STAND_SOURCE, HiveStandSource, hive_stand_cell_id
 
 __all__ = [
+    "DEFAULT_CELL_NAME",
     "DEFAULT_MAX_SUB_BEES",
+    "DEFAULT_SOURCE_NAME",
     "HIVE_STAND_SOURCE",
     "KILL_GRACE_S",
     "QUOTA_SAMPLE_INTERVAL_S",
