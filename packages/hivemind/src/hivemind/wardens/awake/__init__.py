@@ -25,6 +25,10 @@ Public API (roadmap step 3.19):
     - MAX_BINDING_CHARS, MAX_REASON_CHARS, WardenDecision: the one structured decision (decision).
     - AWAKE_MAX_OUTPUT_TOKENS, AWAKE_OUTPUT_RESERVE_TOKENS, WARDEN_BUDGET_FRACTION, decide_awake:
       the episode itself (episode).
+
+Public API (roadmap step 11.10):
+    - PATROL_TRIGGER_KIND, decide_patrol: a watching Warden's Patrol, one stateless episode on the
+      same slot whose output is a `hivemind.wardens.watch.PatrolDecision` (patrol).
 """
 
 from hivemind.wardens.awake.decision import MAX_BINDING_CHARS, MAX_REASON_CHARS, WardenDecision
@@ -34,13 +38,16 @@ from hivemind.wardens.awake.episode import (
     WARDEN_BUDGET_FRACTION,
     decide_awake,
 )
+from hivemind.wardens.awake.patrol import PATROL_TRIGGER_KIND, decide_patrol
 
 __all__ = [
     "AWAKE_MAX_OUTPUT_TOKENS",
     "AWAKE_OUTPUT_RESERVE_TOKENS",
     "MAX_BINDING_CHARS",
     "MAX_REASON_CHARS",
+    "PATROL_TRIGGER_KIND",
     "WARDEN_BUDGET_FRACTION",
     "WardenDecision",
     "decide_awake",
+    "decide_patrol",
 ]

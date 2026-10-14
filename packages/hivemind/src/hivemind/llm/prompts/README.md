@@ -70,7 +70,10 @@ text can always tell durable state and retrieved content apart from an instructi
   label, the deposit shown only as untrusted RETRIEVED data and never the proposer's reason or any
   id; `TAINT_REVIEW` -- roadmap step 10.6d, `hivemind.memory.taint.judge.ModelTaintJudge`'s one
   structured call: the taint rubric, and the tainted item's own text, kind, setter and reason
-  alone, never the bee that wrote it).
+  alone, never the bee that wrote it; `PATROL` -- roadmap step 11.10,
+  `hivemind.wardens.awake.patrol.decide_patrol`'s one structured call on the `WARDEN` slot: a
+  watching Warden's hourly review of an idle Cell, one of four outcomes, the observations shown
+  only as a fenced block of untrusted facts inside the event).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works

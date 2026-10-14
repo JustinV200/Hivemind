@@ -4,8 +4,8 @@ A **prompt asset** is one of the plain-markdown files shipped beside this module
 (``queen_system.md``, ``decompose_goal.md``, ``warden_system.md``, ``drone_system.md``,
 ``attendant_triage.md``, ``compact_records.md``, ``judge_review.md``, ``forager_system.md``,
 ``scout_system.md``, ``ripen_nectar.md``, ``judge_clearance.md``, ``taint_review.md``,
-``guard_review.md``, ``scaffold_tool.md``): the system text a bee's awake episode (a bounded,
-stateless turn where a bee is allowed to think with a model) opens with.
+``guard_review.md``, ``scaffold_tool.md``, ``patrol.md``): the system text a bee's awake episode
+(a bounded, stateless turn where a bee is allowed to think with a model) opens with.
 :func:`load_prompt` reads one such file through ``importlib.resources`` rather than a filesystem
 path built from ``__file__``, so it works the same way from an installed wheel as from a checkout.
 :func:`render` then appends whatever durable state
@@ -89,6 +89,7 @@ class PromptName(Enum):
     SCAFFOLD_TOOL = (
         "scaffold_tool"  # royal_jelly.scaffold: a requested tool's tests and source (9.3).
     )
+    PATROL = "patrol"  # wardens/awake/patrol: one idle Cell's hourly review, four outcomes (11.10).
 
 
 class SectionLabel(Enum):
