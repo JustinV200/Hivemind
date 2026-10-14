@@ -26,6 +26,8 @@ Public API:
     - PlatformFacts, ProcessRef, SpawnSpec, ServicePlan, ServiceResult, CommandResult: its values.
     - select_shim: choose the shim for the host.
     - launch_command: the argv that starts ``pollen run`` the way this process started.
+    - child_environment: what a program the packet starts inherits; a frozen build's unpacked
+      library path is not part of it.
     - EXIT_NO_RESTART: the exit status that tells a service manager not to restart the packet.
     - LinuxShim, MacOsShim, WindowsShim: the three implementations.
 """
@@ -39,6 +41,7 @@ from pollen.platform.base import (
     ServicePlan,
     ServiceResult,
     SpawnSpec,
+    child_environment,
     launch_command,
 )
 from pollen.platform.linux import LinuxShim
@@ -58,6 +61,7 @@ __all__ = [
     "ServiceResult",
     "SpawnSpec",
     "WindowsShim",
+    "child_environment",
     "launch_command",
     "select_shim",
 ]

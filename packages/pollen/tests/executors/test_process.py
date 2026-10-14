@@ -124,6 +124,22 @@ async def test_output_goes_to_the_log_path_and_nowhere_else(live: Live) -> None:
     await eventually(lambda: log.exists() and b"to the log" in log.read_bytes())
 
 
+async def test_a_process_a_frozen_packet_starts_gets_the_devices_loader_path_not_the_unpacked_one(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What a single-file build's bootloader does to its own environment, and keeps a copy of.
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/unpacked/_MEI123")
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/opt/lib")
+    code = "import os; print(os.environ.get('LD_LIBRARY_PATH'), flush=True)"
+
+    state = await _start(live, python_argv(code), log_path="loader.log")
+
+    assert state.log_path is not None
+    log = Path(state.log_path)
+    await eventually(lambda: log.exists() and log.read_bytes() == b"/opt/lib\n")
+
+
 async def test_a_pid_the_lease_did_not_start_is_not_found(live: Live) -> None:
     for action in (ProcessAction.QUERY, ProcessAction.STOP):
         assert await _refused(live, _request(live, action, pid=1)) == "pollen.not_found"

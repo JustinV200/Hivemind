@@ -452,8 +452,13 @@ implements them exactly, because a Warden does not know which kind of Cell it is
   `argv` is itself a shell (`["sh", "-c", ...]`), which then needs `exec:sh`. `argv[0]` is looked up
   the platform's usual way if it has no path separator.
 - **Directory and environment.** `cwd` defaults to the lease's scratch directory. The child's
-  environment is the gateway's own with the request's `env` overlaid for that process only. Values
-  in `env` and bytes in `stdin` are possible secrets and are never logged.
+  environment is the gateway's own with the request's `env` overlaid for that process only. A
+  gateway that is itself a packaged program removes what its packaging added to its own environment
+  first, above all a loader path that points at the libraries it unpacked for itself (the Python
+  packet's single-file build restores the value that was there before, and tells a single-file
+  program it starts, itself included, to run as an instance of its own): the child runs on the
+  device's libraries, not the gateway's. Values in `env` and bytes in `stdin` are possible secrets
+  and are never logged.
 - **A program that cannot start** (not found, not executable, no permission, a bad format) is not an
   error reply: the exec ends with outcome `EXITED` and exit code **127**, after one line on the
   stderr stream saying what failed. A request that is refused for a reason of ours (capability,

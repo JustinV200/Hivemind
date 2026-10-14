@@ -38,14 +38,13 @@ Public API:
     - ColonizeService: the executor that serves ``swarm.colonize`` (service).
     - WardenKeeper, BootstrapTimings, stop_recorded, warden_environment: the on-device Warden's
       process, its waits, stopping a recorded one, and the environment it is started with (warden).
-    - prepare_runtime, installed_version, entry_point, child_environment, VERSION_PATTERN,
-      ENTRY_POINT: the runtime's environment (runtime).
+    - prepare_runtime, installed_version, entry_point, VERSION_PATTERN, ENTRY_POINT: the
+      runtime's environment (runtime).
 """
 
 from pollen.bootstrap.runtime import (
     ENTRY_POINT,
     VERSION_PATTERN,
-    child_environment,
     entry_point,
     installed_version,
     prepare_runtime,
@@ -64,7 +63,6 @@ __all__ = [
     "BootstrapTimings",
     "ColonizeService",
     "WardenKeeper",
-    "child_environment",
     "entry_point",
     "installed_version",
     "prepare_runtime",

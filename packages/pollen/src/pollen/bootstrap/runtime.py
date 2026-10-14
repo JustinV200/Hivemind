@@ -42,14 +42,13 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import IO
 
 from pollen.errors import ColonizeFailedError
 from pollen.executors.base import ExecutorDeps
-from pollen.platform.base import ProcessRef, SpawnSpec, stop_group
+from pollen.platform.base import ProcessRef, SpawnSpec, child_environment, stop_group
 from pollen.state import PRIVATE_DIR_MODE, PRIVATE_FILE_MODE, InstallSettings
 
 MIN_PYTHON = (3, 12)  # The oldest interpreter the hivemind runtime supports.
@@ -60,10 +59,6 @@ VENV_TIMEOUT_S = 300.0  # Making an environment, ensurepip included, on a small 
 PIP_TIMEOUT_S = 3600.0  # An install from an index over a slow link; the Queen's deadline cuts it.
 REAP_WAIT_S = 5.0  # How long an ended process may take to be reaped before it is left.
 
-# Variables that make a child interpreter use the packet's libraries instead of its own.
-_INTERPRETER_VARIABLES = frozenset({"PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "PYTHONSTARTUP"})
-# What a single-file build's bootloader changes for its children, and where it keeps the original.
-_LOADER_VARIABLES = ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBPATH")
 _PROBE_CODE = "import sys; print(sys.version_info[0], sys.version_info[1])"
 _VERSION_CODE = "from importlib.metadata import version; print(version('hivemind'))"
 
@@ -71,34 +66,10 @@ __all__ = [
     "ENTRY_POINT",
     "MIN_PYTHON",
     "VERSION_PATTERN",
-    "child_environment",
     "entry_point",
     "installed_version",
     "prepare_runtime",
 ]
-
-
-def child_environment(base: Mapping[str, str]) -> dict[str, str]:
-    """Return the environment a program the packet starts runs with.
-
-    Args:
-        base: The packet's own environment.
-
-    Returns:
-        A copy without the variables that would point a child interpreter at the packet's
-        libraries and, for a frozen build, with the loader paths its bootloader set put back.
-    """
-    env = {name: value for name, value in base.items() if name not in _INTERPRETER_VARIABLES}
-    # A single-file build points the dynamic loader at the libraries it unpacked and keeps the
-    # original value in NAME_ORIG; a system Python started with the unpacked ones can fail to load.
-    if getattr(sys, "frozen", False):
-        for name in _LOADER_VARIABLES:
-            original = env.pop(f"{name}_ORIG", None)
-            if original is not None:
-                env[name] = original
-            else:
-                env.pop(name, None)
-    return env
 
 
 def entry_point(deps: ExecutorDeps) -> Path:

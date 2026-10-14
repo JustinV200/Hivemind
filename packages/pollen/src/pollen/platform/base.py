@@ -10,7 +10,16 @@ at login, and, for colonization, which commands might start a Python interpreter
 virtual environment keeps its programs. No other pollen module branches on the operating system,
 and the single place that picks an implementation is ``pollen.platform.select``. External commands
 (``systemctl``, ``launchctl``, ``schtasks``) go through an injected ``CommandRunner`` so the
-install logic is tested on any host by recording the commands it would run.
+install logic is tested on any host by recording the commands it would run. The one thing that
+differs by how the packet was built rather than by operating system sits here too, beside
+``launch_command`` and ``own_interpreter``: ``child_environment``, what a program the packet
+starts inherits. A single-file build's bootloader points the dynamic loader at the libraries it
+unpacked for itself, and a system program started with that path loads the packet's copies of
+OpenSSL, zlib and the rest instead of the device's own, which fails on a distribution whose
+versions differ from the ones the packet was built with. Taking the path away is not the whole
+job, because the bootloader's other bookkeeping tells a single-file program started below it (the
+packet itself, run by an operator's command) that it belongs to this instance, so it must be told
+to start on its own.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Implemented by the Linux,
@@ -24,6 +33,9 @@ Key invariants:
     - ``run_command`` never raises for a missing program or a hung one: it reports a result with a
       return code, so an absent service manager is a branch, not a crash.
     - Nothing here runs a command through a shell or builds one from request text.
+    - A program the packet starts, for a lease or for itself, is given ``child_environment`` of the
+      packet's own environment (with a request's variables laid over it), never that environment
+      as it is: the device's programs see the device's loader path, not the packet's.
 
 See Also:
     - docs/waggle/gateway-contract.md sections 3 and 11 for the process model a gateway needs.
@@ -33,6 +45,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -50,6 +63,13 @@ KILL_GRACE_S = 0.5  # How long a graceful stop waits for a group to leave before
 GROUP_POLL_S = 0.05  # How often a stop looks to see whether the group has gone.
 GROUP_REAP_WAIT_S = 2.0  # The longest a forced stop waits for the kernel to finish the group.
 EXIT_NO_RESTART = 78  # sysexits EX_CONFIG: the packet stopped for a reason a restart cannot fix.
+# Variables that make a child interpreter use the packet's libraries instead of its own.
+_INTERPRETER_VARIABLES = frozenset({"PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "PYTHONSTARTUP"})
+# What a single-file build's bootloader changes for its children, and where it keeps the original.
+_LOADER_VARIABLES = ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBPATH")
+# PyInstaller's documented switch (6.9 and later; the build pins its version) for a single-file
+# program started by another one: set, the child starts as an instance of its own.
+_FROZEN_RESET = "PYINSTALLER_RESET_ENVIRONMENT"
 
 __all__ = [
     "COMMAND_TIMEOUT_S",
@@ -66,6 +86,7 @@ __all__ = [
     "ServicePlan",
     "ServiceResult",
     "SpawnSpec",
+    "child_environment",
     "launch_command",
     "own_interpreter",
     "run_command",
@@ -151,12 +172,51 @@ def run_command(argv: Sequence[str]) -> CommandResult:
     """
     try:
         # Local, fast service-manager command with a bounded wait; a hang is reported below.
+        # The device's own systemctl must load the device's libraries, not the ones a frozen
+        # packet unpacked for itself.
         completed = subprocess.run(  # noqa: S603  # SAFETY: argv list, no shell, fixed programs.
-            list(argv), capture_output=True, text=True, timeout=COMMAND_TIMEOUT_S, check=False
+            list(argv),
+            capture_output=True,
+            text=True,
+            timeout=COMMAND_TIMEOUT_S,
+            check=False,
+            env=child_environment(os.environ),
         )
     except (OSError, subprocess.SubprocessError):
         return CommandResult(returncode=COMMAND_UNAVAILABLE, output="")
     return CommandResult(completed.returncode, f"{completed.stdout}{completed.stderr}".strip())
+
+
+def child_environment(base: Mapping[str, str]) -> dict[str, str]:
+    """Return the environment a program the packet starts runs with.
+
+    Args:
+        base: The packet's own environment. A request's variables are laid over the result, not
+            over this, so a loader path a request names is the request's own choice and is kept.
+
+    Returns:
+        A copy without the variables that would point a child interpreter at the packet's
+        libraries and, for a frozen build, with the loader paths its bootloader set put back and
+        a program that is itself a single-file build told to start as an instance of its own.
+    """
+    env = {name: value for name, value in base.items() if name not in _INTERPRETER_VARIABLES}
+    # A single-file build points the dynamic loader at the libraries it unpacked and keeps the
+    # original value in NAME_ORIG; a system program started with the unpacked ones can fail to
+    # load, or load the packet's copy of a library where it needs the device's.
+    if getattr(sys, "frozen", False):
+        for name in _LOADER_VARIABLES:
+            original = env.pop(f"{name}_ORIG", None)
+            if original is not None:
+                env[name] = original
+            else:
+                env.pop(name, None)
+        # The bootloader also leaves bookkeeping that makes another single-file program started
+        # below it (the packet itself, run by an operator's command in a lease) believe it is a
+        # worker of this instance: it then reuses these unpacked libraries through the very
+        # loader path removed above, and fails to import its own. PyInstaller's documented
+        # switch starts such a program as an independent instance.
+        env[_FROZEN_RESET] = "1"
+    return env
 
 
 def launch_command(data_dir: Path) -> tuple[str, ...]:

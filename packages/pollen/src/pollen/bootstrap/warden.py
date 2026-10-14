@@ -49,15 +49,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
-from pollen.bootstrap.runtime import (
-    REAP_WAIT_S,
-    child_environment,
-    entry_point,
-    installed_version,
-)
+from pollen.bootstrap.runtime import REAP_WAIT_S, entry_point, installed_version
 from pollen.errors import ColonizeFailedError
 from pollen.executors.base import ExecutorDeps
-from pollen.platform.base import PlatformShim, ProcessRef, SpawnSpec, stop_group
+from pollen.platform.base import (
+    PlatformShim,
+    ProcessRef,
+    SpawnSpec,
+    child_environment,
+    stop_group,
+)
 from pollen.state import PRIVATE_DIR_MODE, PRIVATE_FILE_MODE, PacketState, WardenRecord
 from waggle.clock import Clock
 from waggle.messages.swarm import RuntimeLevel

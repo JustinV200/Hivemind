@@ -8,14 +8,18 @@ that is missing as a status rather than an exception; ``launch_command`` is the 
 unit runs; ``stop_group`` ends a whole process group, politely first when asked and by force
 after a grace that the caller may lengthen (a lease's program gets a short one, the on-device
 Warden, which has a lease to give back, a long one), so a program's children never outlive it;
-``own_interpreter`` offers the running interpreter as one to build a runtime with. Most of these
-tests run real programs; the length of the grace is checked against a group that never leaves.
+``own_interpreter`` offers the running interpreter as one to build a runtime with;
+``child_environment`` is the environment every program the packet starts inherits, which in a
+single-file build must not carry the loader path of the libraries the build unpacked for itself.
+Most of these tests run real programs; the length of the grace is checked against a group that
+never leaves.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.platform.base.
 
 Key invariants:
     - A command that cannot run is a status of 127, never an exception.
+    - A program started by a frozen packet sees the device's own loader path, never the packet's.
     - A stopped group has no live member afterwards, even one that ignored the polite signal.
     - A graceful stop waits the grace it is given and not longer than a group takes to leave.
 
@@ -43,6 +47,7 @@ from pollen.platform import (
 from pollen.platform.base import (
     COMMAND_UNAVAILABLE,
     KILL_GRACE_S,
+    child_environment,
     own_interpreter,
     run_command,
     stop_group,
@@ -65,6 +70,53 @@ def test_a_command_reports_its_status_and_output() -> None:
 
 def test_a_command_that_is_not_there_is_a_status_not_an_exception() -> None:
     assert run_command(["/definitely/not/a/program"]) == CommandResult(COMMAND_UNAVAILABLE, "")
+
+
+def test_a_service_command_in_a_frozen_build_runs_with_the_devices_loader_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/unpacked/_MEI123")  # What the bootloader set,
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/opt/lib")  # and what it was before.
+    code = "import os; print(os.environ.get('LD_LIBRARY_PATH'))"
+
+    assert run_command([sys.executable, "-c", code]).output == "/opt/lib"
+
+
+def test_a_child_does_not_inherit_the_variables_that_point_at_the_packets_libraries() -> None:
+    base = {"PATH": "/usr/bin", "PYTHONPATH": "/x", "PYTHONHOME": "/y", "VIRTUAL_ENV": "/v"}
+
+    assert child_environment(base) == {"PATH": "/usr/bin"}
+
+
+def test_a_frozen_builds_loader_paths_are_put_back_for_a_system_program(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    base = {
+        "LD_LIBRARY_PATH": "/unpacked/_MEI123",  # What the bootloader set,
+        "LD_LIBRARY_PATH_ORIG": "/opt/lib",  # and what it was before.
+        "DYLD_LIBRARY_PATH": "/unpacked/_MEI123",  # Set with nothing before it: to be removed.
+        "HOME": "/home/me",
+    }
+
+    env = child_environment(base)
+
+    # A single-file program started below the packet, the packet itself among them, must not take
+    # itself for a worker of this instance: with the loader path gone it could not import.
+    assert env == {
+        "LD_LIBRARY_PATH": "/opt/lib",
+        "HOME": "/home/me",
+        "PYINSTALLER_RESET_ENVIRONMENT": "1",
+    }
+
+
+def test_an_ordinary_install_keeps_its_loader_paths_and_adds_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    assert child_environment({"LD_LIBRARY_PATH": "/opt/lib"}) == {"LD_LIBRARY_PATH": "/opt/lib"}
 
 
 def test_a_command_that_hangs_is_reported_after_its_time(monkeypatch: pytest.MonkeyPatch) -> None:

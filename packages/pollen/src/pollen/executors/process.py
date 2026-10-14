@@ -19,6 +19,8 @@ Key invariants:
     - The pid is in the lease table before ``session.process_state`` is sent for a START.
     - A pid the lease did not start is never signalled, queried or reported.
     - A log file outside scratch is recorded before it is created, like any outside write.
+    - A process starts in the packet's environment as ``child_environment`` leaves it, with the
+      request's variables laid over it: a frozen packet's own library path is not inherited.
     - Every process this executor started is either tracked here or reaped.
 
 See Also:
@@ -46,7 +48,7 @@ from pollen.executors.base import (
 from pollen.executors.paths import is_within, resolve_path, write_needs
 from pollen.lease.lease import DeviceLease, ProcessKind, ProcessRecord
 from pollen.lease.restore import record_before_change
-from pollen.platform.base import ProcessRef, SpawnSpec, stop_group
+from pollen.platform.base import ProcessRef, SpawnSpec, child_environment, stop_group
 from waggle.envelope import Envelope
 from waggle.ids import LeaseId
 from waggle.messages.base import WaggleMessage
@@ -158,12 +160,15 @@ class ProcessExecutor:
         if len(lease.processes) >= MAX_TRACKED_PROCESSES:
             raise StartFailedError(f"Lease {lease.lease_id} already tracks too many processes.")
         log_file = await _open_log(self._deps, lease, log_path)
+        # The device's environment with the request's overlaid, not the packet's own: a frozen
+        # packet's unpacked library path must not reach a program that has libraries of its own.
+        env = {**child_environment(os.environ), **{v.name: v.value for v in payload.env}}
         try:
             process = await self._deps.shim.spawn(
                 SpawnSpec(
                     argv=payload.argv,
                     cwd=cwd,
-                    env={**os.environ, **{v.name: v.value for v in payload.env}},
+                    env=env,
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_file if log_file is not None else asyncio.subprocess.DEVNULL,
                     stderr=log_file if log_file is not None else asyncio.subprocess.DEVNULL,

@@ -21,6 +21,8 @@ Key invariants:
     - The pid is recorded in the lease table before the first output frame is sent.
     - Exactly one ``session.exit`` ends a run, after both streams' final chunks.
     - A program the packet could not record in the lease table does not run.
+    - A program runs in the packet's environment as ``child_environment`` leaves it, with the
+      request's variables laid over it: a frozen packet's own library path is not inherited.
     - A cancelled run leaves no process behind.
 
 See Also:
@@ -40,7 +42,7 @@ from pollen.executors.run.control import RunControl, RunResult
 from pollen.executors.run.plan import ExecPlan
 from pollen.executors.run.streams import OutputSink, StdinFeeder
 from pollen.lease.lease import ProcessKind, ProcessRecord
-from pollen.platform.base import ProcessRef, SpawnSpec, stop_group
+from pollen.platform.base import ProcessRef, SpawnSpec, child_environment, stop_group
 from waggle.messages.session import (
     SessionExit,
     SessionOutcome,
@@ -182,7 +184,10 @@ class ExecRun:
         spec = SpawnSpec(
             argv=plan.argv,
             cwd=plan.cwd,
-            env={**os.environ, **plan.env},
+            # The device's environment with the request's overlaid, not the packet's own: a
+            # frozen packet's unpacked library path must not reach a program that has libraries
+            # of its own (gateway-contract section 11).
+            env={**child_environment(os.environ), **plan.env},
             stdin=asyncio.subprocess.PIPE if plan.has_stdin else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

@@ -22,7 +22,9 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 
 import psutil
@@ -148,6 +150,59 @@ async def test_a_program_streams_its_output_and_ends_with_one_durable_exit(rig: 
     assert last.payload is ended and last.is_durable
     assert last.correlation_id == ended.request_id and last.to == rig.kit.state.warden_id
     assert run.finished.is_set() and rig.recorded() == ()  # The whole group is gone: forgotten.
+
+
+SHOW_LOADER = "import os; print(os.environ.get('LD_LIBRARY_PATH'))"
+REQUESTED = {"LD_LIBRARY_PATH": "/requested"}  # An ``env`` entry of a ``session.exec`` request.
+
+
+async def test_a_program_a_frozen_packet_starts_gets_the_devices_loader_path_not_the_unpacked_one(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # What a single-file build's bootloader does to its own environment, and keeps a copy of.
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/unpacked/_MEI123")
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/opt/lib")
+
+    await rig.finish(rig.run(SHOW_LOADER))
+
+    assert rig.text(SessionStream.STDOUT) == b"/opt/lib\n"
+
+
+async def test_a_program_a_frozen_packet_starts_has_no_loader_path_when_the_device_had_none(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/unpacked/_MEI123")  # Nothing before it: no copy kept.
+    monkeypatch.delenv("LD_LIBRARY_PATH_ORIG", raising=False)
+
+    await rig.finish(rig.run(SHOW_LOADER))
+
+    assert rig.text(SessionStream.STDOUT) == b"None\n"
+
+
+async def test_a_single_file_program_a_frozen_packet_starts_runs_as_an_instance_of_its_own(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    code = "import os; print(os.environ.get('PYINSTALLER_RESET_ENVIRONMENT'))"
+
+    await rig.finish(rig.run(code))
+
+    # The packet itself, run by a command in a lease, would otherwise take itself for a worker.
+    assert rig.text(SessionStream.STDOUT) == b"1\n"
+
+
+async def test_the_loader_path_a_request_names_still_reaches_its_program(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/unpacked/_MEI123")
+    plan = replace(make_plan(rig.kit, CLOCK, rig.lease, python_argv(SHOW_LOADER)), env=REQUESTED)
+
+    await rig.finish(ExecRun(plan, rig.kit.deps))
+
+    assert rig.text(SessionStream.STDOUT) == b"/requested\n"  # The overlay is the request's own.
 
 
 async def test_the_process_is_in_the_lease_table_before_its_first_output(rig: Rig) -> None:

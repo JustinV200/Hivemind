@@ -36,12 +36,7 @@ from executor_kit import Kit, make_kit
 from runtime_kit import STUB_VERSION, build_wheelhouse, wait_for_file
 
 from pollen.bootstrap import runtime
-from pollen.bootstrap.runtime import (
-    child_environment,
-    entry_point,
-    installed_version,
-    prepare_runtime,
-)
+from pollen.bootstrap.runtime import entry_point, installed_version, prepare_runtime
 from pollen.errors import ColonizeFailedError
 from pollen.state import InstallSettings
 from waggle.clock import Clock
@@ -61,39 +56,6 @@ def _script(path: Path, body: str) -> Path:
     path.write_text(f"#!{sys.executable}\nimport os, sys, time\n{body}\n", encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
     return path
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# The environment programs run with
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_a_child_does_not_inherit_the_variables_that_point_at_the_packets_libraries() -> None:
-    base = {"PATH": "/usr/bin", "PYTHONPATH": "/x", "PYTHONHOME": "/y", "VIRTUAL_ENV": "/v"}
-
-    assert child_environment(base) == {"PATH": "/usr/bin"}
-
-
-def test_a_frozen_builds_loader_paths_are_put_back_for_a_system_python(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(sys, "frozen", True, raising=False)
-    base = {
-        "LD_LIBRARY_PATH": "/unpacked/_MEI123",  # What the bootloader set,
-        "LD_LIBRARY_PATH_ORIG": "/opt/lib",  # and what it was before.
-        "DYLD_LIBRARY_PATH": "/unpacked/_MEI123",  # Set with nothing before it: to be removed.
-        "HOME": "/home/me",
-    }
-
-    env = child_environment(base)
-
-    assert env == {"LD_LIBRARY_PATH": "/opt/lib", "HOME": "/home/me"}
-
-
-def test_an_ordinary_install_keeps_its_loader_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delattr(sys, "frozen", raising=False)
-
-    assert child_environment({"LD_LIBRARY_PATH": "/opt/lib"}) == {"LD_LIBRARY_PATH": "/opt/lib"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
