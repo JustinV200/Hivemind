@@ -5,11 +5,12 @@ firewall kill-switch active, default route via VPN tunnel, Tor daemon healthy, T
 installed and launchable, the Hive Stand's Waggle hidden service reachable and the Waggle client's
 socket routed through the Tor SOCKS proxy (not the VPN interface), DNS leak checks passing, and
 direct egress blocked... geolocation APIs denied, metadata endpoints unreachable, timezone pinned
-to UTC, locale pinned to profile, and WebRTC local-IP leak test blocked." One Protocol method per
-requirement, each returning a `hivemind.hive.night_veil.results.CheckResult`, so a caller (`hive.
-night_veil.trail.attest_cell`) can run every one and hand the collected mapping to `hive.
-night_veil.results.attest` without knowing which implementation it is talking to (codingrules
-section 8.1: "Protocols at every seam").
+to UTC, locale pinned to profile, randomized hostname confirmed, and WebRTC local-IP leak test
+blocked." One Protocol method per requirement, each returning a
+`hivemind.hive.night_veil.results.CheckResult`, so a caller (`hive.night_veil.trail.attest_cell`)
+can run every one and hand the collected mapping to `hive.night_veil.results.attest` without
+knowing which implementation it is talking to (codingrules section 8.1: "Protocols at every
+seam").
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hive.night_veil`. Implemented by `hive.night_veil.fake.
@@ -101,12 +102,16 @@ class NightVeilProbe(Protocol):
         """Check the Cell's own locale matches the configured Night Veil profile."""
         ...
 
-    async def webrtc_leak_blocked(self) -> CheckResult:
-        """Check a WebRTC local-IP leak probe is blocked.
+    async def randomized_hostname(self) -> CheckResult:
+        """Check the Cell's hostname is random: not an image's default, not the Hive Stand's."""
+        ...
 
-        May return `CheckResult(status=CheckStatus.NOT_APPLICABLE, ...)` when no browser
-        automation exists yet to run the probe against (roadmap step 5.7b's own documented
-        exception; `hive.night_veil.results.attest` treats this as clearing the check, not as a
-        silent downgrade -- see that module's own docstring).
+    async def webrtc_leak_blocked(self) -> CheckResult:
+        """Check the browser's profile switches WebRTC off, so it cannot leak a local address.
+
+        May return `CheckResult(status=CheckStatus.NOT_APPLICABLE, ...)` only when the Cell has no
+        browser at all, so no profile to hold the setting (`hive.night_veil.results.attest`
+        treats that as clearing the check, not as a silent downgrade -- see that module's own
+        docstring). A Cell that has a browser is always judged.
         """
         ...

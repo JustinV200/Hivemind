@@ -3,23 +3,30 @@
 Roadmap step 5.7b: "SessionNightVeilProbe that runs each check as a fixed, documented shell command
 through a CellSession." Every check calls `hivemind.cell.session.run` with one of `hive.night_veil.
 session_commands`'s own named commands, then judges the `CompletedCommand` with one of that same
-module's pure `judge_*` helpers. `webrtc_leak_blocked` is the one documented exception: it runs no
-command at all, because no headless browser automation exists yet to drive Tor Browser through a
-WebRTC probe (roadmap step 5.7b's own words), and returns `CheckStatus.NOT_APPLICABLE` instead.
+module's pure `judge_*` helpers. Four checks conclude from more than a word in one command's output
+and use the pure judges in `hive.night_veil.judges`: the hidden service must answer a plain GET with
+a WebSocket endpoint's own `426`, the DNS resolver must be Tor's or behind the tunnel (read from the
+resolver file, both routing tables and the torrc), the hostname must be of the random shape, and the
+browser profile must switch WebRTC off. The multi-file reads go through `hivemind.cell.tunnel`'s
+bounded, fail-closed `read_command`, so a file that cannot be read makes its check red. The WebRTC
+check does not apply (`NOT_APPLICABLE`) only on a Cell with no browser at all, where there is no
+profile to hold the setting; a Cell with a browser is always judged.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hive.night_veil`. Implements `hive.night_veil.probe.
     NightVeilProbe`. Constructed by whichever composition root wires a real Night Veil attestation
     (a report item: the call site sits in `hivemind.queen.cell_gate.provider`, outside this
     dispatch's file list). Calls into `hivemind.cell` (CellSession, ExecSpec, run),
-    `hive.night_veil.results` (CheckResult, CheckStatus) and `hive.night_veil.session_commands`
-    (every command and judge function) only.
+    `hivemind.cell.tunnel` (read_command), `hive.night_veil.results` (CheckResult, CheckStatus),
+    `hive.night_veil.judges` and `hive.night_veil.session_commands` (every command and judge
+    function) only.
 
 Key invariants:
-    - Every check runs at most one command on `self._session`, with `_TIMEOUT_S` as its own
-      `ExecSpec.timeout_s`: a hung probe command must never hang attestation itself indefinitely.
-    - `webrtc_leak_blocked` never calls `self._session.exec`: it is the one check this
-      implementation answers without touching the Cell at all (module docstring).
+    - Every command runs on `self._session` with `_TIMEOUT_S` (or the tunnel reader's own bound) as
+      its `ExecSpec.timeout_s`: a hung probe command must never hang attestation itself
+      indefinitely.
+    - Every command is fixed, read-only and named in `session_commands`; nothing is built from what
+      the Cell printed.
 
 See Also:
     - .claude/roadmap.md step 5.7b for this module's own roadmap bullet.
@@ -33,17 +40,27 @@ See Also:
 from __future__ import annotations
 
 from hivemind.cell import CellSession, ExecSpec, run
+from hivemind.cell.tunnel import ProbeCommand, read_command
+from hivemind.hive.night_veil.judges import (
+    WEBSOCKET_PROBE_STATUS,
+    judge_hostname,
+    judge_http_status,
+    judge_resolver,
+    judge_webrtc,
+)
 from hivemind.hive.night_veil.results import CheckResult, CheckStatus
 from hivemind.hive.night_veil.session_commands import (
     CMD_DEFAULT_ROUTE,
-    CMD_DNS_PROBE,
     CMD_GEOLOCATION_SERVICE,
+    CMD_HOSTNAME,
     CMD_KILL_SWITCH,
     CMD_LOCALE,
     CMD_TIMEZONE,
     CMD_TOR_BROWSER,
     CMD_TOR_HEALTHY,
     CMD_WAGGLE_SOCKET,
+    DNS_COMMANDS,
+    WEBRTC_COMMANDS,
     SessionProbeConfig,
     direct_egress_cmd,
     hidden_service_cmd,
@@ -54,9 +71,8 @@ from hivemind.hive.night_veil.session_commands import (
 )
 
 _TIMEOUT_S = 15.0  # Generous for an nft/ip/curl query; a probe must never hang attestation.
-_WEBRTC_NOT_APPLICABLE_DETAIL = (
-    "no headless browser automation available yet; WebRTC leak probe deferred (roadmap 5.7b)."
-)
+# The one case WebRTC does not apply: no browser on the Cell at all, so no profile holds a setting.
+_NO_BROWSER_DETAIL = "no browser in this image, so there is no profile to hold the WebRTC setting."
 
 __all__ = ["SessionNightVeilProbe"]
 
@@ -95,10 +111,14 @@ class SessionNightVeilProbe:
         return judge_exit_zero(completed, ok_detail="tor-browser is on PATH")
 
     async def hidden_service_reachable(self) -> CheckResult:
-        """See `NightVeilProbe.hidden_service_reachable`: curls through the SOCKS proxy."""
+        """See `NightVeilProbe.hidden_service_reachable`: a plain GET, through the SOCKS proxy."""
         argv = hidden_service_cmd(self._config)
         completed = await run(self._session, ExecSpec(argv=argv, timeout_s=_TIMEOUT_S))
-        return judge_contains(completed, "2", ok_detail="hidden service answered 2xx/3xx")
+        return judge_http_status(
+            completed,
+            expected=WEBSOCKET_PROBE_STATUS,
+            ok_detail="hidden service answered 426, a WebSocket endpoint's reply",
+        )
 
     async def waggle_socket_via_socks(self) -> CheckResult:
         """See `NightVeilProbe.waggle_socket_via_socks`: runs CMD_WAGGLE_SOCKET."""
@@ -110,9 +130,11 @@ class SessionNightVeilProbe:
         )
 
     async def dns_leak_free(self) -> CheckResult:
-        """See `NightVeilProbe.dns_leak_free`: runs CMD_DNS_PROBE."""
-        completed = await run(self._session, ExecSpec(argv=CMD_DNS_PROBE, timeout_s=_TIMEOUT_S))
-        return judge_exit_zero(completed, ok_detail="resolv.conf read; no direct resolver found")
+        """See `NightVeilProbe.dns_leak_free`: places every resolver from four fixed reads."""
+        texts = {
+            command.key: await read_command(self._session, command) for command in DNS_COMMANDS
+        }
+        return judge_resolver(texts)
 
     async def direct_egress_blocked(self) -> CheckResult:
         """See `NightVeilProbe.direct_egress_blocked`: a direct curl that must fail."""
@@ -145,7 +167,19 @@ class SessionNightVeilProbe:
             completed, self._config.locale_profile, ok_detail="locale matches the profile"
         )
 
+    async def randomized_hostname(self) -> CheckResult:
+        """See `NightVeilProbe.randomized_hostname`: reads the kernel's hostname."""
+        texts = await read_command(self._session, ProbeCommand("hostname", CMD_HOSTNAME))
+        return judge_hostname(texts, stand_hostname=self._config.stand_hostname)
+
     async def webrtc_leak_blocked(self) -> CheckResult:
-        """See `NightVeilProbe.webrtc_leak_blocked`: always NOT_APPLICABLE (module docstring)."""
-        # Module docstring: the one check answered without touching the Cell at all.
-        return CheckResult(status=CheckStatus.NOT_APPLICABLE, detail=_WEBRTC_NOT_APPLICABLE_DETAIL)
+        """See `NightVeilProbe.webrtc_leak_blocked`: reads the browser profile's preferences."""
+        browser = await run(self._session, ExecSpec(argv=CMD_TOR_BROWSER, timeout_s=_TIMEOUT_S))
+        if browser.exit_code != 0:
+            # No browser on the Cell at all: the one case this check does not apply to. A Cell that
+            # has one is judged below, and a Night Veil image without one fails launchable anyway.
+            return CheckResult(status=CheckStatus.NOT_APPLICABLE, detail=_NO_BROWSER_DETAIL)
+        files = {
+            command.key: await read_command(self._session, command) for command in WEBRTC_COMMANDS
+        }
+        return judge_webrtc(files["user_js"], files["prefs_js"])

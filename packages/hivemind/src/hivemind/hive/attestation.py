@@ -3,7 +3,7 @@
 A Virtual Cell is attested from its image before it is ready, and what that means depends on the
 tier it was provisioned at (ADR-0030, ADR-0057): a MEADOW Cell is not attested at all; a PROPOLIS
 Cell is attested by the tunnel checks and Tor's absence (`hivemind.hive.propolis`); a NIGHT_VEIL
-Cell by Night Veil's thirteen (`hivemind.hive.night_veil`). `CellAttestation` is that choice, made
+Cell by Night Veil's fourteen (`hivemind.hive.night_veil`). `CellAttestation` is that choice, made
 once and by tier: a table from the tier to the function that attests it, so the provider
 (`hivemind.queen.cell_gate.provider`) asks one question of a Cell, "attest this", and never learns
 which tier needs what, and a tier added later is one more entry and not another branch. Each tier

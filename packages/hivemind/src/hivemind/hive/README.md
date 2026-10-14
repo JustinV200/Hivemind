@@ -46,9 +46,13 @@ VPN-only one) and the Overwintering pool that keeps a dormant Cell around for fa
   `FakeNightVeilProbe` / `SessionProbeConfig` / `SessionNightVeilProbe` / `run_checks` /
   `attest_cell` (`night_veil/`, roadmap step 5.7b): deterministic Night Veil bootstrap attestation
   before `CellReady` -- one `NightVeilProbe` check per codingrules 8.7 requirement, `attest` the
-  pure all-or-nothing judgement (a documented `NOT_APPLICABLE` for `webrtc_leak_blocked` until
-  browser automation exists, never a silent downgrade), `attest_cell` the effectful edge that runs
-  every check and records exactly one `cell.attested` trail event, win or lose. `FakeNightVeilProbe`
+  pure all-or-nothing judgement (a documented `NOT_APPLICABLE` for `webrtc_leak_blocked` only on a
+  Cell with no browser at all, never a silent downgrade), `attest_cell` the effectful edge that runs
+  every check and records exactly one `cell.attested` trail event, win or lose. Four checks conclude
+  from text through the pure judges of `night_veil/judges/`: the hidden service must answer a plain
+  GET with a WebSocket endpoint's `426`, the DNS resolver must be Tor's own or behind the tunnel,
+  the hostname must be of the random shape a backend and the image's boot service both give, and the
+  browser profile must switch WebRTC off. `FakeNightVeilProbe`
   is what a composition root uses until `images/night-veil-ubuntu` (5.3a) is attestable for real;
   `SessionNightVeilProbe` runs each check as a fixed, documented command over a `CellSession`.
   `record_attestation` is the recording half every tier shares: the one `cell.attested` event names

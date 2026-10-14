@@ -12,7 +12,7 @@ See Also:
 
 from __future__ import annotations
 
-from hivemind.hive.night_veil.results import CHECK_NAMES, CheckResult, CheckStatus, attest
+from hivemind.hive.night_veil.results import CHECK_NAMES, CheckResult, CheckStatus, attest, verdict
 
 _GREEN = CheckResult(status=CheckStatus.PASS, detail="ok")
 _RED = CheckResult(status=CheckStatus.FAIL, detail="bad")
@@ -47,6 +47,22 @@ def test_a_single_red_check_fails_the_whole_attestation() -> None:
 
     assert attestation.passed is False
     assert attestation.red == ("kill_switch_active",)
+
+
+def test_the_randomized_hostname_check_is_attested_and_a_red_one_fails_the_cell_alone() -> None:
+    # Added after a tester found a Night Veil Cell could carry its image's or its Cell id's name.
+    results = dict.fromkeys(CHECK_NAMES, _GREEN)
+    results["randomized_hostname"] = _RED
+
+    attestation = attest(results)
+
+    assert "randomized_hostname" in CHECK_NAMES
+    assert (attestation.passed, attestation.red) == (False, ("randomized_hostname",))
+
+
+def test_verdict_builds_the_pass_or_fail_a_pure_judge_returns() -> None:
+    assert verdict(passed=True, detail="ok") == CheckResult(status=CheckStatus.PASS, detail="ok")
+    assert verdict(passed=False, detail="bad") == CheckResult(status=CheckStatus.FAIL, detail="bad")
 
 
 def test_every_check_can_be_red_at_once() -> None:

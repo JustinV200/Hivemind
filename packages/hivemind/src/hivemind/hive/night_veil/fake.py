@@ -7,7 +7,7 @@ composition root can run the whole Night Veil provision-and-attest path against 
 image depends on desktop-ubuntu (6.1)... attestation is developed against a fake probe until it
 does"). Every check defaults to `CheckStatus.PASS`; a caller flips one to red with `overrides`,
 keyed by the exact `hive.night_veil.probe.NightVeilProbe` method name it wants to fail, rather than
-this class taking thirteen keyword parameters (codingrules section 5.1's parameter limit).
+this class taking fourteen keyword parameters (codingrules section 5.1's parameter limit).
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hive.night_veil`. Implements `hive.night_veil.probe.
@@ -17,7 +17,7 @@ Fits into the Hive:
 
 Key invariants:
     - `FakeNightVeilProbe()` (no overrides) passes every check: the permissive default a caller
-      building a happy-path test wants without naming all thirteen.
+      building a happy-path test wants without naming all fourteen.
     - `overrides` is validated against `CHECK_NAMES` at construction: an unknown key is a caller
       bug (a typo'd check name) worth failing loudly on, not silently ignoring.
     - Calling a check twice returns the same CheckResult both times: this fake holds no mutable
@@ -110,6 +110,10 @@ class FakeNightVeilProbe:
     async def locale_pinned(self) -> CheckResult:
         """See `NightVeilProbe.locale_pinned`."""
         return self._result("locale_pinned")
+
+    async def randomized_hostname(self) -> CheckResult:
+        """See `NightVeilProbe.randomized_hostname`."""
+        return self._result("randomized_hostname")
 
     async def webrtc_leak_blocked(self) -> CheckResult:
         """See `NightVeilProbe.webrtc_leak_blocked`."""

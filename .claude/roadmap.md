@@ -989,8 +989,21 @@ keeps in its own store are the Basket (9.2a), a separate thing.
   Hive Stand's Waggle hidden service reachable and the Waggle client's socket routed through the
   Tor SOCKS proxy (not the VPN interface), DNS leak
   checks passing, and direct egress blocked. Location-blind checks must also pass: geolocation APIs
-  denied, metadata endpoints unreachable, timezone pinned to UTC, locale pinned to profile, and
-  WebRTC local-IP leak test blocked. Fail placement if any check is red.
+  denied, metadata endpoints unreachable, timezone pinned to UTC, locale pinned to profile,
+  randomized hostname confirmed, and WebRTC local-IP leak test blocked. Fail placement if any check
+  is red.
+  **Judged properly 2026-10-14 (phase 11 review).** Four checks had passed on too little, and a
+  fourteenth was missing. `hidden_service_reachable` required a `2` anywhere in curl's output and so
+  passed on `502` or on the listener's own `426` by accident; it now requires exactly `426`, a
+  WebSocket endpoint's answer to a plain GET. `dns_leak_free` passed on any readable `resolv.conf`;
+  it now places every resolver, Tor's own `DNSPort` on loopback or an address reached by a tunnel
+  (the Propolis tier's judge and readers, `cell/tunnel/`). `randomized_hostname` is new: a name of
+  the `night-veil-<8 hex>` shape that is neither an image's default nor the Hive Stand's, which the
+  Docker backend now gives a Night Veil container (it carried the daemon's container id). And
+  `webrtc_leak_blocked` was always `NOT_APPLICABLE`: it now reads the Tor Browser profile and
+  requires `media.peerconnection.enabled` false, baked into the image (`tor-browser-user.js`), and
+  does not apply only on a Cell with no browser at all. `hive/night_veil/judges/` holds the pure
+  judges.
 - [x] **5.8 Undertaker role.** `workers/roles/undertaker.py`: destroys Virtual Cells idempotently,
   releases Real Cell leases idempotently, revokes their grants, retires a destroyed Virtual Cell's
   Cell Wax (handed to ripening once phase 7 lands; a Real Cell's wax outlives its leases), retries

@@ -48,7 +48,7 @@ edge, so nothing is left tracked for a sweep to find.
 `_acquire_provision` asks its `hivemind.hive.attestation.CellAttestation` to attest it after the
 link is found but before `mark_ready` -- "readiness is attestation of an image, never
 configuration of a Cell" (ADR-0030). What that means is the tier's, and is `CellAttestation`'s
-business and not this module's: a NIGHT_VEIL Cell is attested by Night Veil's thirteen checks, a
+business and not this module's: a NIGHT_VEIL Cell is attested by Night Veil's fourteen checks, a
 PROPOLIS Cell by the Real Cell's four tunnel checks and Tor's absence, a MEADOW Cell by nothing.
 Any red check, a tier with no probe configured, or the attestation failing to run, tears the Cell
 down and raises `CellProvisionError` naming why; a passed one (or none) falls through to

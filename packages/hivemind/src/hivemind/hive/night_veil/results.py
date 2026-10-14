@@ -1,15 +1,14 @@
-"""Define CheckStatus, CheckResult, Attestation, CHECK_NAMES and attest.
+"""Define CheckStatus, CheckResult, Attestation, CHECK_NAMES, verdict and attest.
 
 Roadmap step 5.7b / ADR-0030: "attest the night-veil-ubuntu image deterministically... Any red
 check fails the placement... There is no degraded mode and no retry that skips a check." `attest`
 is that all-or-nothing judgement, pure (codingrules section 8.3): given the same `results` mapping
 it always returns the same `Attestation`. `CheckStatus` has a third member beyond PASS/FAIL,
-NOT_APPLICABLE, for exactly one documented case (`webrtc_leak_blocked`, roadmap step 5.7b: "a
-documented not_applicable when no browser automation exists yet"); `attest` treats NOT_APPLICABLE
-as passing, never as a silent downgrade -- the Attestation's own `results` mapping still records it
-by name, so `hive trail`/an operator can see exactly which check was skipped and why, and a later
-phase that adds real browser automation only has to change what `webrtc_leak_blocked` returns, not
-this module's own all-or-nothing rule.
+NOT_APPLICABLE, for exactly one documented case (`webrtc_leak_blocked` on a Cell with no browser at
+all, so no profile to hold the setting); `attest` treats NOT_APPLICABLE as passing, never as a
+silent downgrade -- the Attestation's own `results` mapping still records it by name, so `hive
+trail`/an operator can see exactly which check was skipped and why. A Cell with a browser is always
+judged: its profile must switch WebRTC off.
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hive.night_veil`. Called by `hivemind.hive.night_veil.trail.
@@ -57,10 +56,19 @@ CHECK_NAMES: tuple[str, ...] = (
     "metadata_unreachable",
     "timezone_utc",
     "locale_pinned",
+    "randomized_hostname",
     "webrtc_leak_blocked",
 )
 
-__all__ = ["CHECK_NAMES", "MAX_DETAIL_CHARS", "Attestation", "CheckResult", "CheckStatus", "attest"]
+__all__ = [
+    "CHECK_NAMES",
+    "MAX_DETAIL_CHARS",
+    "Attestation",
+    "CheckResult",
+    "CheckStatus",
+    "attest",
+    "verdict",
+]
 
 # codingrules 8.5: frozen, extra-forbidding config every model in this module shares.
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
@@ -105,6 +113,19 @@ class Attestation(BaseModel):
     results: Mapping[str, CheckResult] = Field(description="Every check's own result, by name.")
     passed: bool = Field(description="True iff results holds zero FAIL entries.")
     red: tuple[str, ...] = Field(description="Every FAILing check's name; empty when passed.")
+
+
+def verdict(*, passed: bool, detail: str) -> CheckResult:
+    """Build the PASS or FAIL result a pure judge returns, with its short stable `detail`.
+
+    Args:
+        passed: Whether the check positively cleared.
+        detail: A fixed word or sentence saying why, never text the Cell produced.
+
+    Returns:
+        A PASS result when `passed`, else a FAIL.
+    """
+    return CheckResult(status=CheckStatus.PASS if passed else CheckStatus.FAIL, detail=detail)
 
 
 def attest(results: Mapping[str, CheckResult]) -> Attestation:

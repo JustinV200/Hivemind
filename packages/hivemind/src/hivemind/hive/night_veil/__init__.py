@@ -5,10 +5,13 @@ every piece of that attestation: `results` (`CheckStatus`, `CheckResult`, `Attes
 `CHECK_NAMES`, `attest`) is the pure judgement; `probe` (`NightVeilProbe`) is the Protocol one check
 per codingrules 8.7 requirement implements; `fake` (`FakeNightVeilProbe`) and `session_probe`
 (`SessionNightVeilProbe`, over `session_commands`' own fixed, documented commands) are its two
-implementations; `runner` (`run_checks`) calls every check on a probe; `trail` (`attest_cell`) is
-the effectful edge that runs the checks, judges them and records one `cell.attested` event, win or
-lose. Nothing here installs anything: every check reads the Cell's own already-provisioned state
-(codingrules section 8.7: "attestation checks an image rather than configuring a Cell at runtime").
+implementations; `judges` holds the pure conclusions that need more than a word in one command's
+output (the hidden service's HTTP status, where the DNS resolver is, the hostname's random shape,
+the browser profile's WebRTC setting); `runner` (`run_checks`) calls every check on a probe; `trail`
+(`attest_cell`) is the effectful edge that runs the checks, judges them and records one
+`cell.attested` event, win or lose. Nothing here installs anything: every check reads the Cell's
+own already-provisioned state (codingrules section 8.7: "attestation checks an image rather than
+configuring a Cell at runtime").
 `boundary` (`NightVeilBoundary`) is the tier's other hive-side half, its retention boundary
 (codingrules section 12): it opens a Night Veil Cell's ephemeral segment when the lifecycle
 provisions one, purges it on every path the Cell ends, and sweeps the ones a Queen restart finds
@@ -35,11 +38,14 @@ See Also:
     - .claude/roadmap.md step 5.7b for this package's own roadmap bullet.
 
 Public API:
-    - CheckStatus, CheckResult, Attestation, CHECK_NAMES, attest: the pure judgement (results).
+    - CheckStatus, CheckResult, Attestation, CHECK_NAMES, attest, verdict: the pure judgement
+      (results).
     - NightVeilProbe: the Protocol every check implements (probe).
     - FakeNightVeilProbe: an in-memory, all-green-by-default implementation (fake).
     - SessionProbeConfig, SessionNightVeilProbe: the real implementation, over a CellSession
       (session_commands, session_probe).
+    - new_night_veil_hostname, HOSTNAME_PREFIX: mint a random hostname of the shape the
+      `randomized_hostname` check accepts, for a backend giving a Night Veil Cell its name (judges).
     - run_checks: call every check on a probe, collecting results by name (runner).
     - attest_cell: the effectful edge -- run, judge, record one cell.attested event (trail).
     - record_attestation: the recording half every tier's attestation shares; the event names
@@ -63,6 +69,7 @@ from hivemind.hive.night_veil.boundary import (
     with_tier_label,
 )
 from hivemind.hive.night_veil.fake import FakeNightVeilProbe
+from hivemind.hive.night_veil.judges import HOSTNAME_PREFIX, new_night_veil_hostname
 from hivemind.hive.night_veil.probe import NightVeilProbe
 from hivemind.hive.night_veil.results import (
     CHECK_NAMES,
@@ -70,6 +77,7 @@ from hivemind.hive.night_veil.results import (
     CheckResult,
     CheckStatus,
     attest,
+    verdict,
 )
 from hivemind.hive.night_veil.runner import run_checks
 from hivemind.hive.night_veil.session_commands import SessionProbeConfig
@@ -78,6 +86,7 @@ from hivemind.hive.night_veil.trail import attest_cell, record_attestation
 
 __all__ = [
     "CHECK_NAMES",
+    "HOSTNAME_PREFIX",
     "TIER_LABEL",
     "Attestation",
     "CheckResult",
@@ -93,11 +102,13 @@ __all__ = [
     "end_night_veil",
     "failure_facts",
     "is_night_veil_cell",
+    "new_night_veil_hostname",
     "night_veil_cells",
     "provisioned_facts",
     "record_attestation",
     "run_checks",
     "sweep_night_veil",
     "tier_from_labels",
+    "verdict",
     "with_tier_label",
 ]

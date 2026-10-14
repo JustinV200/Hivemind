@@ -762,8 +762,10 @@ this distinction central; the code makes it invisible to Workers.
   Queen or a Warden.
 - **Night Veil is deterministic and strict.** A `NIGHT_VEIL` Cell is Virtual-only and may be marked
   `READY` only after attestation of: VPN tunnel up, Tor up, Tor Browser presence, default route via
-  the tunnel, the Waggle client reaching the Hive Stand's hidden-service address through Tor, DNS
-  leak checks green, and direct egress blocked by kill-switch rules. Night Veil
+  the tunnel, the Waggle client reaching the Hive Stand's hidden-service address through Tor (a
+  plain GET answered with a WebSocket endpoint's `426`), DNS leak checks green (every resolver is
+  Tor's own DNS port on loopback or reached only through the tunnel), and direct egress blocked by
+  kill-switch rules. Night Veil
   model bindings are local-only and may not spill to hosted or Hive-Stand sources.
 - **Night Veil's control channel has no clearnet destination.** The Warden's Waggle link to the
   Hive Stand goes over Tor to a `.onion` hidden service rather than the VPN tunnel or any clearnet
@@ -781,7 +783,9 @@ this distinction central; the code makes it invisible to Workers.
   UTC timezone, fixed locale profile, and randomized hostname per boot.
 - **Location-blind checks are part of readiness.** `NIGHT_VEIL` attestation fails closed unless
   geolocation APIs are denied, metadata endpoints are unreachable, timezone equals UTC, locale
-  matches policy, and WebRTC local-IP leak probes are blocked.
+  matches policy, the hostname is randomized (of the `night-veil-<8 hex>` shape, neither an image's
+  default nor the Hive Stand's), and the browser profile switches WebRTC off so it cannot leak a
+  local address (not applicable only on a Cell with no browser at all).
 - **Night Veil lifecycle is teardown-only.** A `NIGHT_VEIL` Cell is created just in time, never
   Overwintered, and must be destroyed immediately when its task completes. It boots from
   `images/night-veil-ubuntu`, which carries the OpenVPN client, Tor, Tor Browser and the

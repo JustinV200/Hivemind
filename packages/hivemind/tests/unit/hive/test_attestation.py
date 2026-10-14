@@ -3,7 +3,7 @@
 Fits into the Hive:
     Mirrors src/hivemind/hive/attestation.py (codingrules section 3). A Cell is attested at the
     tier it was provisioned at and by that tier's probe alone: MEADOW by nothing, PROPOLIS by the
-    tunnel checks and Tor's absence, NIGHT_VEIL by Night Veil's thirteen. A tier that needs a
+    tunnel checks and Tor's absence, NIGHT_VEIL by Night Veil's fourteen. A tier that needs a
     probe and has none is refused, and each Cell gets a probe built for it.
 
 Key invariants:
@@ -95,7 +95,7 @@ async def test_a_night_veil_cell_is_attested_by_the_night_veil_probe_and_names_i
     assert attestation is not None and attestation.passed
     [event] = await trail.query(TrailQuery(kind="cell.attested"))
     assert event.payload["comb_shield"] == "NIGHT_VEIL"
-    assert "kill_switch_active" in event.payload  # Night Veil's thirteen, not Propolis's five.
+    assert "kill_switch_active" in event.payload  # Night Veil's fourteen, not Propolis's five.
 
 
 async def test_a_propolis_cell_with_no_probe_configured_is_refused_not_passed() -> None:
