@@ -59,6 +59,44 @@ async def test_a_packet_is_sent_the_new_terms_at_once_even_while_its_warden_is_a
         await packet.close()
 
 
+async def test_a_packet_is_sent_the_directories_its_warden_is_to_watch_at_once(
+    rig: GateRig,
+) -> None:
+    async with rig.serving():
+        node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+        device = await rig.connect(node)
+        packet = ScriptedPacket(device, rig.clock, rig.hive.voice.hive_id)
+        desk = OperatorDesk(rig.hive.registry, rig.hive.recorder)
+        # Only the directories differ: the level and the tier are what the hub already holds.
+        changed = (await desk.set_watch_roots(node, ["/var/log/app"])).node
+
+        await rig.reconciler.sync(changed)
+        await settle(lambda: bool(packet.updates))
+
+        [update] = packet.updates
+        assert update.watch_roots == ("/var/log/app",)
+        hub_node = rig.hive.hub.node(node.device_id)
+        assert hub_node is not None and hub_node.watch_roots == ("/var/log/app",)
+        await packet.close()
+
+
+async def test_a_packet_that_already_has_the_directories_is_not_told_again(rig: GateRig) -> None:
+    async with rig.serving():
+        node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+        device = await rig.connect(node)
+        packet = ScriptedPacket(device, rig.clock, rig.hive.voice.hive_id)
+        desk = OperatorDesk(rig.hive.registry, rig.hive.recorder)
+        changed = (await desk.set_watch_roots(node, ["/var/log/app"])).node
+        await rig.reconciler.sync(changed)
+
+        await rig.reconciler.sync(changed)
+        await rig.reconciler.sync(changed)
+
+        await settle(lambda: bool(packet.updates))
+        assert len(packet.updates) == 1
+        await packet.close()
+
+
 async def test_a_packet_that_already_has_the_terms_is_not_told_again(rig: GateRig) -> None:
     async with rig.serving():
         node = await rig.enrol(level=RuntimeLevel.COLONIZED)

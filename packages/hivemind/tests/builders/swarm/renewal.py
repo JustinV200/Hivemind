@@ -4,11 +4,11 @@ A colonized device's Warden holds the terms it was started under, so when the op
 the Queen has its packet stop that Warden and start it again. The scenario is the whole device: a
 colonized (or Nuc) device with its own Warden dialled into the gate's door, a task running on it,
 and a scripted packet that behaves as the real one does when the Queen orders the restart. On
-WITHDRAW the old Warden's connection ends, as its process does when the packet stops it; on START
-a new Warden dials in under the same id, started under whatever terms the registry holds at that
+WITHDRAW the old Warden's connection ends, as its process does when the packet stops it; on START a
+new Warden dials in under the same id, started under whatever terms the registry holds at that
 moment, as a packet that was told them would build it. A test changes the script (a refused
-WITHDRAW, a Warden that never arrives, one that comes up under the old terms) to see the renewal
-fall back, and reads the Wardens the packet started off `started`.
+WITHDRAW, a Warden that never arrives, one that comes up under the old terms or the old directories
+to watch) to see the renewal fall back, and reads the Wardens the packet started off `started`.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the terms renewal tests
@@ -40,7 +40,7 @@ from builders.swarm.nuc import NucDevice, ScriptedNucWarden, make_nuc_device
 
 from hivemind.brood_chamber import Task
 from hivemind.cell import AccessLevel, CombShieldLevel
-from hivemind.swarm import SwarmNode
+from hivemind.swarm import SwarmNode, readable_roots
 from hivemind.swarm.operator import OperatorDesk
 from waggle.messages.swarm import Colonize, ColonizeAction, NucAction, NucOutcome
 
@@ -81,6 +81,12 @@ class RenewalScenario:
         desk = OperatorDesk(self.rig.hive.registry, self.rig.hive.recorder)
         return (await desk.set_shield(self.terms_before, tier)).node
 
+    async def rewatch(self, roots: tuple[str, ...]) -> SwarmNode:
+        """The operator names the directories its Warden watches (`hive swarm watch`)."""
+        self.terms_before = await self.node()
+        desk = OperatorDesk(self.rig.hive.registry, self.rig.hive.recorder)
+        return (await desk.set_watch_roots(self.terms_before, roots)).node
+
     async def renew(self) -> bool:
         """Ask the colonizer to renew the device's Warden; whether a flow began."""
         return await self.rig.colonizer.renew(await self.node())
@@ -99,7 +105,13 @@ class RenewalScenario:
         before = self.terms_before
         if self.stale_terms and before is not None:
             old = before.access_level.to_wire(), before.comb_shield.to_wire()
-            dialled = await dial_warden(self.rig, fresh, access_level=old[0], comb_shield=old[1])
+            dialled = await dial_warden(
+                self.rig,
+                fresh,
+                access_level=old[0],
+                comb_shield=old[1],
+                watch_roots=readable_roots(before),
+            )
         else:
             dialled = await dial_warden(self.rig, fresh)
         warden = ScriptedNucWarden(dialled, fresh, self.rig.clock, self.rig.hive.voice.hive_id)

@@ -1,21 +1,21 @@
 """Define NucDesk: what the gate hears from device Wardens about themselves and their servers.
 
 A colonized device's Warden announces itself twice over the connection it dials. Its `cell.ready`,
-the connection's first frame, says the access level and Comb Shield tier it was started under, and
-the Queen keeps them (`reported`) to tell whether the operator has changed the device's terms since:
-a Warden holds the terms in its environment, so one that was started under the old ones is still
-running under them. A new connection is also a Warden that has not yet shown it runs the model
-server a Nuc is meant to have, since a Warden that restarted starts none, so every `cell.ready`
-makes the device unproven (`is_proven`) until a flow of the Queen's has seen the server answer
-(`prove`). Its capacity report names the model servers its own manifest declares (it starts none
-until the Queen promotes the device), and she needs that list to decide a promotion, since she can
-only start what the operator put on the device. The desk also carries the one question she asks a
-Warden that expects an answer: `ask` sends a `swarm.nuc_promote` over the Warden's link and waits,
-bounded, for the `swarm.nuc_promoted` that answers it. The answer is claimed by the envelope id of
-the order it is correlated to, and is the gate's, not the Queen's: it is consumed at the door so it
-never reaches her inbox, where a kind her autopilot has no rule for would wake a model. A Warden
-speaks only for its own device, so a frame that names another, or a reply that answers nothing
-anyone waits on, is dropped and logged or not noted.
+the connection's first frame, says the access level and Comb Shield tier it was started under and
+the directories it watches, and the Queen keeps them (`reported`) to tell whether the operator has
+changed the device's terms since: a Warden holds the terms in its environment, so one that was
+started under the old ones is still running under them. A new connection is also a Warden that has
+not yet shown it runs the model server a Nuc is meant to have, since a Warden that restarted starts
+none, so every `cell.ready` makes the device unproven (`is_proven`) until a flow of the Queen's has
+seen the server answer (`prove`). Its capacity report names the model servers its own manifest
+declares (it starts none until the Queen promotes the device), and she needs that list to decide a
+promotion, since she can only start what the operator put on the device. The desk also carries the
+one question she asks a Warden that expects an answer: `ask` sends a `swarm.nuc_promote` over the
+Warden's link and waits, bounded, for the `swarm.nuc_promoted` that answers it. The answer is
+claimed by the envelope id of the order it is correlated to, and is the gate's, not the Queen's: it
+is consumed at the door so it never reaches her inbox, where a kind her autopilot has no rule for
+would wake a model. A Warden speaks only for its own device, so a frame that names another, or a
+reply that answers nothing anyone waits on, is dropped and logged or not noted.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
@@ -80,10 +80,13 @@ class Reported:
     Attributes:
         access_level: The access level the Warden was started with.
         comb_shield: The Comb Shield tier the Warden was started with.
+        watch_roots: The directories the Warden was started to watch, as the packet handed them
+            over; none for a Warden started before the operator named any.
     """
 
     access_level: AccessLevel
     comb_shield: CombShieldLevel
+    watch_roots: tuple[str, ...] = ()
 
 
 class NucDesk:
@@ -181,7 +184,9 @@ class NucDesk:
     def _connected(self, node: SwarmNode, ready: CellReady) -> None:
         """Note the terms a Warden connected with; a new connection has proved nothing yet."""
         self._reported[node.device_id] = Reported(
-            AccessLevel.from_wire(ready.access_level), CombShieldLevel.from_wire(ready.comb_shield)
+            AccessLevel.from_wire(ready.access_level),
+            CombShieldLevel.from_wire(ready.comb_shield),
+            ready.watch_roots,
         )
         self._proven.discard(node.device_id)
 

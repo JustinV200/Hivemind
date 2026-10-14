@@ -246,6 +246,7 @@ async def tell_terms(hub: GatewayHub, link: DeviceLink, node: SwarmNode, reason:
         known is not None
         and known.access_level is node.access_level
         and known.comb_shield is node.comb_shield
+        and known.watch_roots == node.watch_roots
     ):
         return True
     if not await send_terms(link, node, reason):

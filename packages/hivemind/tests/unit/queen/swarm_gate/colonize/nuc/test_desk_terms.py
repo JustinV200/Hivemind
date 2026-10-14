@@ -69,6 +69,25 @@ def test_the_terms_a_warden_connects_with_are_noted_and_the_frame_goes_on_to_the
     assert desk.reported(node.device_id) == Reported(AccessLevel.FULL, CombShieldLevel.MEADOW)
 
 
+def test_the_directories_a_warden_was_started_to_watch_are_noted_with_its_terms() -> None:
+    desk, node, party = _scene()
+    roots = ("/var/log/app", "/srv/data")
+
+    desk.heard(node, _ready(node, party, watch_roots=roots))
+
+    reported = desk.reported(node.device_id)
+    assert reported is not None and reported.watch_roots == roots
+
+
+def test_a_warden_that_names_no_directories_has_reported_none() -> None:
+    desk, node, party = _scene()
+
+    desk.heard(node, _ready(node, party))  # The default `cell.ready`, as an older Warden sends.
+
+    reported = desk.reported(node.device_id)
+    assert reported is not None and reported.watch_roots == ()
+
+
 def test_a_tier_above_the_meadow_is_noted_too() -> None:
     desk, node, party = _scene()
     check = AttestationCheck(name="tunnel", has_passed=True, detail="The tunnel carries the route.")

@@ -1,7 +1,8 @@
 """Define Renewal: restart a colonized device's Warden so it runs under the terms the operator set.
 
-The operator changes a device's access level or Comb Shield tier with `hive swarm access` or
-`shield`, and it must reach the device promptly, a narrowing above all. A device whose Warden runs
+The operator changes a device's access level, Comb Shield tier or the directories its Warden
+watches with `hive swarm access`, `shield` or `watch`, and it must reach the device promptly, a
+narrowing above all. A device whose Warden runs
 on it is told in two parts, because the two things on it hold the terms differently. The packet
 persists the terms it is sent and its own checks apply them from the next request, so it is sent
 `swarm.node_update` at once. The Warden holds the terms it was started with in its environment and
@@ -84,7 +85,9 @@ from hivemind.swarm import DeviceLink, RuntimeLevel, SwarmError, SwarmNode
 from waggle.messages.swarm import ColonizeAction, ColonizeOutcome
 
 # What the packet is told, and so what the operator sees if the device's own log is read.
-TERMS_CHANGED_REASON = "The operator changed this device's access level or Comb Shield tier."
+TERMS_CHANGED_REASON = (
+    "The operator changed this device's access level, Comb Shield tier or watched directories."
+)
 
 log = get_logger(__name__)
 

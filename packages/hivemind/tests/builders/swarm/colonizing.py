@@ -43,7 +43,7 @@ from builders.swarm.parties import DeviceParty, make_cell_ready
 from hivemind.brood_chamber import Task
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.swarm_gate import DeviceWardenDoor
-from hivemind.swarm import SwarmNode, WardenConnection
+from hivemind.swarm import SwarmNode, WardenConnection, readable_roots
 from hivemind.swarm.enrolment import node_update_for
 from waggle.clock import FakeClock
 from waggle.codec import Codec
@@ -241,6 +241,8 @@ async def dial_warden(
     terms: dict[str, object] = {
         "access_level": node.access_level.to_wire(),
         "comb_shield": node.comb_shield.to_wire(),
+        # The directories the packet was told, which it hands to the Warden it starts.
+        "watch_roots": readable_roots(node),
     }
     first = wrap(make_cell_ready(party, **{**terms, **ready}), hop, clock=rig.clock)
     connection = WardenConnection(node, queen_end, first, _frames(queen_end))
