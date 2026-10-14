@@ -23,7 +23,9 @@ the prompt's Handoff says is already done, and a tool the request did not offer)
 is the in-process control panel: an outage that answers 503, a hold that parks one Drone call, and
 a recorder that keeps only the shape of each chat request (never a body). `Scenario.closing` is
 what a Drone says when its rounds are done, so a diagnostic Drone (roadmap 11.9a) can end with the
-`CAUSE:` line its Warden reads; a scenario file scripts `steps` as JSON objects.
+`CAUSE:` line its Warden reads; a scenario file scripts `steps` as JSON objects. A step can name the
+words a conversation must hold (`when`), which is how one server answers the task's Drone and the
+Drone its Warden sends to look into a lost link, both asking as the same model.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 10 exit-criteria
@@ -138,11 +140,14 @@ class Step:
         arguments: Its arguments.
         only_if_offered: Make the call only when the request offered this tool, as a model that
             looks at its tools would (a screenshot only when the binding can see).
+        when: Make the call only in a conversation whose messages hold these words, such as a
+            sentence of the objective only this Drone was given; empty makes it in any.
     """
 
     tool: str
     arguments: Mapping[str, object] = field(default_factory=dict)
     only_if_offered: bool = False
+    when: str = ""
 
 
 @dataclass(frozen=True)
@@ -500,13 +505,14 @@ def _step_calls(
     done: int,
 ) -> list[tuple[str, dict[str, object]]]:
     """The one call round `done` makes: the steps in order, less those this request rules out."""
-    offered = _offered(body)
-    landed = set(_REDO.findall("\n".join(_text_of(message) for message in messages)))
+    offered, words = _offered(body), "\n".join(_text_of(message) for message in messages)
+    landed = set(_REDO.findall(words))
     live = [
         step
         for step in steps
         if (offered is None or not step.only_if_offered or step.tool in offered)
         and not (step.tool == "write_file" and step.arguments.get("path") in landed)
+        and step.when in words  # An empty `when` is held by every conversation.
     ]
     return [(live[done].tool, dict(live[done].arguments))] if done < len(live) else []
 

@@ -140,7 +140,11 @@ def shared_model(network: Network, scenario: Scenario) -> Iterator[str]:
 
 
 def colonizable(
-    directory: Path, network: Network, shared_url: str, local: Mapping[str, object]
+    directory: Path,
+    network: Network,
+    shared_url: str,
+    local: Mapping[str, object],
+    supervision: str = "",
 ) -> DeviceOptions:
     """Write a colonizable device's files and return the options that enrol it with them.
 
@@ -150,6 +154,7 @@ def colonizable(
         network: The container network the device is started on.
         shared_url: The shared model server's `/v1` URL as the container reaches it.
         local: The rounds the device's own model server makes (`models.local_scenario`).
+        supervision: A `[supervision]` table for the device's manifest (see `device_manifest`).
 
     Returns:
         Options that copy the manifest, the server's source and its rounds into the container, and
@@ -157,7 +162,7 @@ def colonizable(
         and promoted.
     """
     manifest = directory / "warden.toml"
-    manifest.write_text(device_manifest(shared_url), encoding="utf-8")
+    manifest.write_text(device_manifest(shared_url, supervision=supervision), encoding="utf-8")
     rounds = directory / "local-scenario.json"
     rounds.write_text(scenario_text(dict(local)), encoding="utf-8")
     source = Path(__file__).resolve().parents[2] / "scripted_openai.py"

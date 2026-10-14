@@ -201,6 +201,27 @@ def test_a_colonizable_devices_options_copy_three_files_in_and_install_the_packe
     assert options.network is network
 
 
+def test_a_devices_manifest_carries_the_supervision_a_scenario_gives_it(tmp_path: Path) -> None:
+    table = "[supervision]\nmax_offline_s = 90\n[supervision.reconnect_budget]\nwall_clock_s = 40\n"
+    options = colonizable(tmp_path, Network("test-net"), URL, local_scenario(2, 1, REPORT), table)
+
+    manifest = load_device_manifest(options.files[WARDEN_MANIFEST])
+
+    # What lets a scenario cut a device off and see the outcome in seconds, not in ten minutes.
+    assert manifest.supervision.max_offline_s == 90.0
+    assert manifest.supervision.reconnect_budget.wall_clock_s == 40.0
+
+
+def test_a_manifest_with_no_supervision_given_has_none_and_so_the_shipped_defaults(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "warden.toml"
+    path.write_text(device_manifest(URL), encoding="utf-8")
+
+    assert "[supervision]" not in path.read_text("utf-8")
+    assert load_device_manifest(path).supervision.max_offline_s == 600.0
+
+
 def test_the_command_of_a_plain_device_is_the_one_every_scenario_has_always_run() -> None:
     assert _command(()) == ENROL_AND_RUN
 

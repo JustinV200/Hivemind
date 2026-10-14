@@ -117,13 +117,17 @@ def hive_tables() -> str:
     return "\n".join(lines)
 
 
-def device_manifest(shared_url: str, sources: Sequence[str] = (*ALLOWED, ROGUE)) -> str:
+def device_manifest(
+    shared_url: str, sources: Sequence[str] = (*ALLOWED, ROGUE), supervision: str = ""
+) -> str:
     """The device's `warden.toml`: the Hive's side of the cable, its own model and its server.
 
     Args:
         shared_url: The `/v1` base URL of the scripted model server on the Hive Stand's side of
             the cable, as the device reaches it.
         sources: The Forage map sources the device's server may load, in order.
+        supervision: A `[supervision]` table (header included) for a scenario that cuts the device
+            off and cannot wait the ten minutes the shipped defaults give; none leaves them.
 
     Returns:
         The manifest's text.
@@ -152,6 +156,8 @@ def device_manifest(shared_url: str, sources: Sequence[str] = (*ALLOWED, ROGUE))
     lines += ["load_on_start = false", ""]
     for source in sources:
         lines += _map_row(source)
+    if supervision:
+        lines += [supervision, ""]
     return "\n".join(lines)
 
 
