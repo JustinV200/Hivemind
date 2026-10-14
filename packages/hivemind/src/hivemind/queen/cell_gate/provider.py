@@ -52,8 +52,11 @@ business and not this module's: a NIGHT_VEIL Cell is attested by Night Veil's th
 PROPOLIS Cell by the Real Cell's four tunnel checks and Tor's absence, a MEADOW Cell by nothing.
 Any red check, a tier with no probe configured, or the attestation failing to run, tears the Cell
 down and raises `CellProvisionError` naming why; a passed one (or none) falls through to
-`mark_ready`. The probe factories are injected through that object, never defaulted to a fake here
-(codingrules 14.4's fakes are for tests, never a silent production default): the composition root
+`mark_ready`. A resumed dormant Cell is attested again the same way before its link is returned,
+because an attestation is a look at one moment and a tunnel can drop while a Cell sleeps (a
+NIGHT_VEIL Cell is never Overwintered, so in practice that is PROPOLIS). The probe factories are
+injected through that object, never defaulted to a fake here (codingrules 14.4's fakes are for
+tests, never a silent production default): the composition root
 (`hivemind.cli.compose.virtual_cells`) supplies them, and today supplies ones that fail closed with
 a clear error, because `WardenLink` (`hivemind.queen.deps`) carries a Waggle `Transport`, not a
 `hivemind.cell.CellSession` a session probe needs -- no session-opening seam exists yet from the
@@ -99,6 +102,7 @@ Key invariants:
     - A NIGHT_VEIL or PROPOLIS Cell never reaches `mark_ready` without a passed attestation first
       (ADR-0030, ADR-0057): a red check, a tier with no probe, or the attestation failing to run
       tears the Cell down the same way any other post-provision failure does, whatever ended it.
+      A resumed Cell's link is never returned without that same attestation passing again.
     - A task handed a NIGHT_VEIL Cell's link is bound to that Cell's segment before `acquire`
       returns it.
 
@@ -238,7 +242,7 @@ class LifecycleVirtualCellProvider:
         # ADR-0030: "readiness is attestation of an image, never configuration of a Cell." Runs
         # after the link is found (attestation needs nothing from it) but strictly before
         # mark_ready, so a Cell that fails attestation is never handed to placement.
-        await self._attest_or_teardown(cell, placement)
+        await self._attest_or_teardown(cell, placement.backend, placement.spec.image)
         await self._lifecycle.mark_ready(cell.id, link.warden_id)
         return link
 
@@ -280,8 +284,13 @@ class LifecycleVirtualCellProvider:
             f"{cell.comb_shield.value}",
         )
 
-    async def _attest_or_teardown(self, cell: Cell, placement: ProvisionVirtual) -> None:
+    async def _attest_or_teardown(self, cell: Cell, source: str, what: str) -> None:
         """Attest `cell` at its tier (MEADOW needs none); anything but a pass tears it down.
+
+        Args:
+            cell: The Cell to attest, freshly provisioned or just resumed.
+            source: Where it came from, for the error: its backend, or the dormant pool.
+            what: What it was made from, for the error: its image, or its own id when resumed.
 
         Raises:
             CellProvisionError: A check was red, the tier has no probe, or the attestation could
@@ -303,7 +312,7 @@ class LifecycleVirtualCellProvider:
             if refusal is not None:
                 await self._teardown_best_effort(cell.id)
         if refusal is not None:
-            raise CellProvisionError(placement.backend, placement.spec.image, refusal)
+            raise CellProvisionError(source, what, refusal)
 
     async def _acquire_dormant(self, placement: ReuseDormant) -> WardenLink:
         """Resume `placement.cell_id`, wait for its Warden, and return its link."""
@@ -321,6 +330,8 @@ class LifecycleVirtualCellProvider:
             raise CellProvisionError(
                 "pool", cell_id, f"dormant Cell never became reachable again: {exc}"
             ) from exc
+        # A look at one moment (ADR-0057): a tunnel can drop while a Cell sleeps, so look again.
+        await self._attest_or_teardown(link.cell, "pool", cell_id)
         return link
 
     def _require_link(self, cell_id: CellId) -> WardenLink:
