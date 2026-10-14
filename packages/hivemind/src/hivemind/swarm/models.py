@@ -21,7 +21,7 @@ Fits into the Hive:
 Key invariants:
     - A node's `comb_shield` is never NIGHT_VEIL (a Real Cell cannot hold the virtual-only tier).
     - `revoked_at` is set exactly when `status` is REVOKED, and `desired_level` is None or a rung
-      the node is not already on.
+      the node is not already on. `ceiling` is any rung or None: a device may sit on its ceiling.
     - A node's `platform` is derived from its `capabilities`, so the two cannot disagree.
     - An invite stores only its token's hash, and `device_id` is set exactly when it is REDEEMED.
 
@@ -244,6 +244,13 @@ class SwarmNode(BaseModel):
         default=None,
         description="A rung the operator asked for with `promote` or `demote` and the Queen has "
         "not yet reached; None when nothing is pending.",
+    )
+    ceiling: RuntimeLevel | None = Field(
+        default=None,
+        description="The highest rung the Queen may take this device to on her own. The "
+        "operator's `demote` sets it to the rung the device lands on, which pins it there; their "
+        "`promote` clears it. None leaves her free to climb as far as her own reasons carry "
+        "her. It never limits the operator.",
     )
     granted_capabilities: tuple[Annotated[str, Field(max_length=MAX_CAPABILITY_CHARS)], ...] = (
         Field(

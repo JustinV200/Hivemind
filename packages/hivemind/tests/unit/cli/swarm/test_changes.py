@@ -5,7 +5,7 @@ Fits into the Hive:
     against a real manifest and registry file (`harness`); each act is read back through the real
     registry and trail the way a running Hive would find it. The properties are the commands': an
     act is written with its trail event as `human`, a repeat writes and records nothing, a refusal
-    (a revoked device, Night Veil, the end of the ladder, a label that names two devices) exits 1
+    (a revoked device, Night Veil, the top of the ladder, a label that names two devices) exits 1
     with its stable code and leaves registry and trail exactly as they were, and a rung request
     records nothing until the Queen acts.
 
@@ -174,6 +174,8 @@ def test_promote_and_demote_write_the_adjacent_rung_as_the_wish_and_record_nothi
     assert f"is on {level.name}; asked for {expected.name}" in result.stdout
     after = stored(manifest, node)
     assert (after.level, after.desired_level) == (level, expected)
+    # A descent pins the device on the rung it lands on; a climb leaves the Queen free.
+    assert after.ceiling is (expected if command == "demote" else None)
     assert trail_events(manifest, "swarm.promoted") == []
     assert trail_events(manifest, "swarm.demoted") == []
 
@@ -188,21 +190,61 @@ def test_promote_asked_twice_is_one_wish(tmp_path: Path) -> None:
     assert again.exit_code == 0 and "nothing changed" in again.stdout
 
 
-@pytest.mark.parametrize(
-    ("command", "level", "end"),
-    [("promote", RuntimeLevel.NUC, "top"), ("demote", RuntimeLevel.GATEWAY, "bottom")],
-)
-def test_promote_and_demote_past_the_end_of_the_ladder_are_refused_with_the_reason(
-    tmp_path: Path, command: str, level: RuntimeLevel, end: str
-) -> None:
+def test_promote_past_the_top_of_the_ladder_is_refused_with_the_reason(tmp_path: Path) -> None:
     manifest = make_hive(tmp_path)
-    node = enrol(manifest, label="kitchen-pi", level=level)
+    node = enrol(manifest, label="kitchen-pi", level=RuntimeLevel.NUC)
 
-    result = invoke(manifest, command, "kitchen-pi")
+    result = invoke(manifest, "promote", "kitchen-pi")
 
     assert result.exit_code == 1 and result.stderr.startswith("hive.swarm.rung_unavailable")
-    assert f"the {end} of the ladder" in result.stderr
+    assert "the top of the ladder" in result.stderr
     assert stored(manifest, node).desired_level is None
+
+
+def test_demote_of_a_gateway_pins_it_so_the_queen_does_not_colonize_it_herself(
+    tmp_path: Path,
+) -> None:
+    manifest = make_hive(tmp_path)
+    node = enrol(manifest, label="kitchen-pi")
+
+    result = invoke(manifest, "demote", "kitchen-pi")
+
+    assert result.exit_code == 0, result.stderr
+    assert "pinned on GATEWAY, the bottom rung" in result.stdout
+    after = stored(manifest, node)
+    assert after.ceiling is RuntimeLevel.GATEWAY and after.desired_level is None
+
+
+def test_demote_of_a_pinned_gateway_says_so_and_changes_nothing(tmp_path: Path) -> None:
+    manifest = make_hive(tmp_path)
+    node = enrol(manifest, label="kitchen-pi")
+    invoke(manifest, "demote", "kitchen-pi")
+
+    again = invoke(manifest, "demote", "kitchen-pi")
+
+    assert again.exit_code == 0 and "already pinned on GATEWAY" in again.stdout
+    assert stored(manifest, node).ceiling is RuntimeLevel.GATEWAY
+
+
+def test_promote_lifts_a_pin_and_says_the_queen_may_climb_again(tmp_path: Path) -> None:
+    manifest = make_hive(tmp_path)
+    node = enrol(manifest, label="kitchen-pi")
+    invoke(manifest, "demote", "kitchen-pi")
+
+    result = invoke(manifest, "promote", "kitchen-pi")
+
+    assert result.exit_code == 0 and "Its pin is lifted" in result.stdout
+    after = stored(manifest, node)
+    assert after.ceiling is None and after.desired_level is RuntimeLevel.COLONIZED
+
+
+def test_demote_of_a_colonized_device_says_it_is_pinned_where_it_lands(tmp_path: Path) -> None:
+    manifest = make_hive(tmp_path)
+    enrol(manifest, label="kitchen-pi", level=RuntimeLevel.COLONIZED)
+
+    result = invoke(manifest, "demote", "kitchen-pi")
+
+    assert "It is pinned there: the Queen will not take it higher on her own." in result.stdout
 
 
 @pytest.mark.parametrize(

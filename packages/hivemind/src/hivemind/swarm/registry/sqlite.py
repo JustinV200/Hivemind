@@ -214,6 +214,10 @@ class SqliteSwarmRegistry:
             device_id, lambda node: rules.with_desired_level(node, level), None
         )
 
+    async def set_ceiling(self, device_id: DeviceId, ceiling: RuntimeLevel | None) -> SwarmNode:
+        """Set or clear the Queen's ceiling on a device; see `SwarmRegistry.set_ceiling`."""
+        return await self._change(device_id, lambda node: rules.with_ceiling(node, ceiling), None)
+
     async def set_access(
         self,
         device_id: DeviceId,

@@ -50,23 +50,25 @@ def test_list_prints_one_row_per_device_with_its_ids_rung_status_terms_and_last_
         "CELL",
         "LEVEL",
         "WANTS",
+        "PIN",
         "STATUS",
         "ACCESS",
         "TIER",
         "LAST",
         "SEEN",
     ]
-    assert row.split()[:8] == [
+    assert row.split()[:9] == [
         node.device_id,
         "kitchen-pi",
         node.cell_id,
         "GATEWAY",
         "-",
+        "-",
         "ONLINE",
         "READ_ONLY",
         "PROPOLIS",
     ]
-    assert row.split()[8].endswith("Z")  # A time, in UTC.
+    assert row.split()[9].endswith("Z")  # A time, in UTC.
 
 
 def test_list_json_prints_the_same_fields_as_an_array(tmp_path: Path) -> None:
@@ -82,6 +84,7 @@ def test_list_json_prints_the_same_fields_as_an_array(tmp_path: Path) -> None:
         "cell_id",
         "level",
         "desired_level",
+        "ceiling",
         "status",
         "access_level",
         "comb_shield",
@@ -89,7 +92,8 @@ def test_list_json_prints_the_same_fields_as_an_array(tmp_path: Path) -> None:
     }
     assert row["device_id"] == node.device_id and row["label"] == "kitchen-pi"
     assert row["cell_id"] == node.cell_id and row["level"] == "GATEWAY"
-    assert row["desired_level"] is None and row["status"] == "ONLINE"
+    assert row["desired_level"] is None and row["ceiling"] is None
+    assert row["status"] == "ONLINE"
 
 
 def test_list_keeps_a_revoked_device_in_the_table_marked_revoked(tmp_path: Path) -> None:
@@ -114,6 +118,19 @@ def test_list_shows_the_rung_the_operator_asked_for(tmp_path: Path) -> None:
 
     row = result.stdout.splitlines()[1].split()
     assert row[0] == node.device_id and row[3:5] == ["COLONIZED", "NUC"]
+
+
+def test_list_shows_the_rung_the_operator_pinned_a_device_at(tmp_path: Path) -> None:
+    manifest = make_hive(tmp_path)
+    enrol(manifest, label="kitchen-pi")
+    invoke(manifest, "demote", "kitchen-pi")
+
+    table = invoke(manifest, "list").stdout.splitlines()[1].split()
+    rows = json.loads(invoke(manifest, "list", "--json").stdout)
+
+    # The pin sits after the wish: LEVEL, WANTS ("-" for none), then PIN.
+    assert table[3:6] == ["GATEWAY", "-", "GATEWAY"]
+    assert rows[0]["ceiling"] == "GATEWAY"
 
 
 def test_list_of_an_empty_registry_prints_the_header_and_says_how_to_enrol_on_stderr(

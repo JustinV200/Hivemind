@@ -86,7 +86,10 @@ class AmbiguousNodeError(NodeReferenceError, ConflictError):
 
 
 class RungUnavailableError(SwarmError, ConflictError):
-    """Raise when `promote` or `demote` asks for a rung beyond either end of the ladder."""
+    """Raise when `promote` asks for a rung above the top of the ladder (a Nuc is the top).
+
+    `demote` on the bottom rung is not an error: it pins the device as a gateway.
+    """
 
     code: ClassVar[str] = "hive.swarm.rung_unavailable"
 

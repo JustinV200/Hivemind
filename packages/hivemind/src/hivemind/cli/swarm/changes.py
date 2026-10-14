@@ -8,6 +8,9 @@ LEVEL` sets how much of the device the Hive may touch (`read_only`, `scratch` or
 `night_veil` is refused, with the reason, because a borrowed device is never torn down).
 `promote NODE` and `demote NODE` ask the Queen to move the device's Warden one rung up or down
 the runtime ladder (GATEWAY, COLONIZED, NUC): they write the wish, and the running Hive acts on it.
+The Queen also moves devices on her own, and the operator always wins against her: `demote` pins
+the device at the rung it lands on (on the bottom rung it pins the device as a gateway and asks
+for nothing), so she does not climb back by herself, and `promote` lets the pin go.
 All five write the Hive's own database, so a Hive that is running applies them on its next beat and
 one that is not applies them when it starts; each records its trail event (`swarm.revoked`,
 `swarm.access_changed`, `swarm.shield_changed`) as the actor `human`, except a rung request, which
@@ -48,7 +51,7 @@ from hivemind.cli.swarm.context import (
 )
 from hivemind.cli.swarm.render import describe
 from hivemind.cli.tools.context import run_or_exit
-from hivemind.swarm import SwarmNode
+from hivemind.swarm import RuntimeLevel, SwarmNode
 from hivemind.swarm.operator import NodeChange, OperatorDesk
 
 LevelArgument = Annotated[
@@ -125,12 +128,12 @@ def shield_command(ctx: typer.Context, node: NodeArgument, tier: TierArgument) -
 
 
 def promote_command(ctx: typer.Context, node: NodeArgument) -> None:
-    """Ask for the rung above the device's: move its Warden onto it, or give it a model server."""
+    """Ask for the rung above the device's, and let the Queen take it higher on her own again."""
     _move(ctx, node, promote=True)
 
 
 def demote_command(ctx: typer.Context, node: NodeArgument) -> None:
-    """Ask for the rung below the device's: stop its model server, or move its Warden off it."""
+    """Ask for the rung below the device's, and pin it there so the Queen does not climb back."""
     _move(ctx, node, promote=False)
 
 
@@ -139,13 +142,28 @@ def _move(ctx: typer.Context, reference: str, *, promote: bool) -> None:
     desk = open_desk(cli_context(ctx))
     done = run_or_exit(_ask_rung(desk, reference, promote=promote))
     node = done.change.node
+    name = describe(node)
+    if not promote and node.level is RuntimeLevel.GATEWAY:
+        # Nothing to carry out: a demotion of a gateway only pins it where it is.
+        said = "pinned" if done.change.is_changed else "already pinned"
+        typer.echo(
+            f"{name} is {said} on {node.level.name}, the bottom rung: the Queen will not "
+            "colonize it on her own. `hive swarm promote` lets her go."
+        )
+        return
     asked = node.desired_level.name if node.desired_level is not None else "nothing"
     if not done.change.is_changed:
-        typer.echo(f"{describe(node)} already has {asked} asked for; nothing changed.")
+        typer.echo(f"{name} already has {asked} asked for; nothing changed.")
         return
+    held = done.before.ceiling is not None
+    tail = (
+        " It is pinned there: the Queen will not take it higher on her own."
+        if not promote
+        else (" Its pin is lifted: the Queen may take it higher on her own." if held else "")
+    )
     typer.echo(
-        f"{describe(node)} is on {node.level.name}; asked for {asked}. Nothing is recorded until "
-        "the running Hive acts: it moves the device's Warden on its next beat."
+        f"{name} is on {node.level.name}; asked for {asked}. Nothing is recorded until the "
+        f"running Hive acts: it moves the device's Warden on its next beat.{tail}"
     )
 
 

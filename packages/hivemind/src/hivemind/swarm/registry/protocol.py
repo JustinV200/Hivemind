@@ -233,6 +233,25 @@ class NodeRegistry(Protocol):
         """
         ...
 
+    async def set_ceiling(self, device_id: DeviceId, ceiling: RuntimeLevel | None) -> SwarmNode:
+        """Set the highest rung the Queen may take a device to on her own, or clear it.
+
+        The operator's `demote` pins a device at the rung it lands on and their `promote` lets
+        it go; the Queen's own rung decisions never climb past it.
+
+        Args:
+            device_id: The device.
+            ceiling: The rung to hold the device at or below, or None for no limit.
+
+        Returns:
+            The node carrying the ceiling.
+
+        Raises:
+            NodeNotFoundError: No such device.
+            NodeRevokedError: The node is revoked.
+        """
+        ...
+
     async def set_access(
         self,
         device_id: DeviceId,

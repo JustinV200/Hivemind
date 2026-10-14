@@ -2,8 +2,9 @@
 
 `hive swarm list` shows one row per enrolled device (an existing machine the Hive borrows as a
 Real Cell): its device id, the label the operator gave it, its Cell id, the rung of the runtime
-ladder it is on (and the rung the operator asked for, if the Queen has not got there yet), whether
-the Hive can reach it, its access level and Comb Shield tier, and when it last spoke. `NodeRow` is
+ladder it is on (and the rung the operator asked for, if the Queen has not got there yet, and the
+rung the operator pinned it at, if any), whether the Hive can reach it, its access level and Comb
+Shield tier, and when it last spoke. `NodeRow` is
 that row as a model, so the table and `--json` print the same fields, and nothing a device could
 use to impersonate itself (its public key, its granted capability strings) is ever among them.
 `describe` is the short way every other command names a device in its one-line answers.
@@ -33,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivemind.swarm import SwarmNode
 
-_NEVER = "-"  # What a column shows when there is nothing to show: no label, no wish, never seen.
+_NEVER = "-"  # What a column shows when there is nothing to show: no label, wish or pin.
 _LABEL_WIDTH = 16  # A label is the operator's own short name; longer ones are cut in the table.
 _TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"  # Seconds, in UTC: a heartbeat is never finer than that.
 
@@ -52,6 +53,10 @@ class NodeRow(BaseModel):
     desired_level: str | None = Field(
         description="The rung the operator asked for with promote or demote and the Queen has "
         "not reached yet; null when nothing is pending."
+    )
+    ceiling: str | None = Field(
+        description="The highest rung the Queen may take the device to on her own, when the "
+        "operator pinned it with demote; null when she is free to climb."
     )
     status: str = Field(description="ONLINE, UNREACHABLE or REVOKED.")
     access_level: str = Field(description="How much of the device the Hive may touch.")
@@ -77,6 +82,7 @@ def node_row(node: SwarmNode) -> NodeRow:
         cell_id=node.cell_id,
         level=node.level.value,
         desired_level=wanted.value if wanted is not None else None,
+        ceiling=node.ceiling.value if node.ceiling is not None else None,
         status=node.status.value,
         access_level=node.access_level.value,
         comb_shield=node.comb_shield.value,
@@ -112,12 +118,13 @@ def print_nodes(nodes: Sequence[SwarmNode], *, as_json: bool) -> None:
         typer.echo("No device is enrolled yet: mint an invite with `hive swarm invite`.", err=True)
     typer.echo(
         f"{'DEVICE':<33}  {'LABEL':<{_LABEL_WIDTH}}  {'CELL':<31}  {'LEVEL':<10}  {'WANTS':<10}  "
-        f"{'STATUS':<11}  {'ACCESS':<9}  {'TIER':<9}  LAST SEEN"
+        f"{'PIN':<10}  {'STATUS':<11}  {'ACCESS':<9}  {'TIER':<9}  LAST SEEN"
     )
     for row in rows:
         seen = row.last_seen_at.strftime(_TIME_FORMAT) if row.last_seen_at else _NEVER
         typer.echo(
             f"{row.device_id:<33}  {(row.label or _NEVER):<{_LABEL_WIDTH}.{_LABEL_WIDTH}}  "
             f"{row.cell_id:<31}  {row.level:<10}  {(row.desired_level or _NEVER):<10}  "
-            f"{row.status:<11}  {row.access_level:<9}  {row.comb_shield:<9}  {seen}"
+            f"{(row.ceiling or _NEVER):<10}  {row.status:<11}  {row.access_level:<9}  "
+            f"{row.comb_shield:<9}  {seen}"
         )

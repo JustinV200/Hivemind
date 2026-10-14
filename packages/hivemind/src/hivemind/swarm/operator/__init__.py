@@ -4,7 +4,9 @@ An enrolled device (an existing machine the Hive borrows as a Real Cell, a unit 
 named by the operator with a device id, a Cell id or a label, and then revoked, given another
 access level or Comb Shield tier (a security tier), or asked to move one rung up or down the
 runtime ladder. `lookup` is the one rule for what a name means, `desk` makes each act and records
-its trail event in the same transaction, and `errors` holds the ways a name or an act is refused.
+its trail event in the same transaction, `rung` writes the wish and the ceiling that a promote or a
+demote stands for (a demote pins the device where it lands, so the Queen does not climb back), and
+`errors` holds the ways a name or an act is refused.
 This file is the package's face: a caller writes `from hivemind.swarm.operator import
 OperatorDesk` without knowing the split (codingrules 5.2, 5.4).
 
@@ -25,6 +27,7 @@ Public API:
     - OperatorDesk, NodeChange: the acts (revoke, set_access, set_shield, move) and their result
       (desk).
     - find_node: the rule that turns an id or a label into the one device it names (lookup).
+    - ask_for_rung: the wish and the ceiling a promote or a demote writes (rung).
     - NodeReferenceError, UnknownNodeError, AmbiguousNodeError, RungUnavailableError,
       TierRefusedError: the ways a name or an act is refused (errors).
 """
@@ -38,6 +41,7 @@ from hivemind.swarm.operator.errors import (
     UnknownNodeError,
 )
 from hivemind.swarm.operator.lookup import find_node
+from hivemind.swarm.operator.rung import ask_for_rung
 
 __all__ = [
     "AmbiguousNodeError",
@@ -47,5 +51,6 @@ __all__ = [
     "RungUnavailableError",
     "TierRefusedError",
     "UnknownNodeError",
+    "ask_for_rung",
     "find_node",
 ]

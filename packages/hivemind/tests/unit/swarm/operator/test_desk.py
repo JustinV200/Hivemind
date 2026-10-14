@@ -67,6 +67,25 @@ class _FlappingRegistry(MemorySwarmRegistry):
         return await super().set_status(device_id, expected, new, at, event)
 
 
+class _RecordingRegistry(MemorySwarmRegistry):
+    """A registry that remembers the order in which a rung request's two writes arrived."""
+
+    def __init__(self, trail: MemoryPheromoneTrail) -> None:
+        """Build the registry with nothing written yet."""
+        super().__init__(trail)
+        self.writes: list[str] = []
+
+    async def set_ceiling(self, device_id: DeviceId, ceiling: RuntimeLevel | None) -> SwarmNode:
+        """Note the ceiling write, then make it."""
+        self.writes.append("ceiling")
+        return await super().set_ceiling(device_id, ceiling)
+
+    async def set_desired_level(self, device_id: DeviceId, level: RuntimeLevel | None) -> SwarmNode:
+        """Note the wish write, then make it."""
+        self.writes.append("wish")
+        return await super().set_desired_level(device_id, level)
+
+
 @dataclass
 class _Rig:
     """The desk, the registry it writes and the trail the events land on."""
@@ -249,6 +268,8 @@ async def test_move_asks_for_the_adjacent_rung_and_records_nothing_yet(
 
     assert change.is_changed and change.node.desired_level is expected
     assert change.node.level is level  # Only the wish is written; the Queen moves the device.
+    # A climb lets the Queen climb further herself; a descent pins the device where it lands.
+    assert change.node.ceiling is (None if promote else expected)
     assert await rig.trail.query(TrailQuery(family="swarm")) == ()
 
 
@@ -272,21 +293,73 @@ async def test_move_the_other_way_replaces_the_pending_wish() -> None:
     assert changed.is_changed and changed.node.desired_level is RuntimeLevel.GATEWAY
 
 
-@pytest.mark.parametrize(
-    ("level", "promote", "end"),
-    [(RuntimeLevel.NUC, True, "top"), (RuntimeLevel.GATEWAY, False, "bottom")],
-)
-async def test_move_past_either_end_of_the_ladder_is_refused_with_the_reason(
-    level: RuntimeLevel, promote: bool, end: str
-) -> None:
+async def test_promote_past_the_top_of_the_ladder_is_refused_with_the_reason() -> None:
     rig = _rig()
-    node = await rig.enrol(level=level)
+    node = await rig.enrol(level=RuntimeLevel.NUC)
 
     with pytest.raises(RungUnavailableError) as refused:
-        await rig.desk.move(node, promote=promote)
+        await rig.desk.move(node, promote=True)
 
-    assert f"the {end} of the ladder" in str(refused.value)
-    assert (await rig.stored(node)).desired_level is None
+    assert "the top of the ladder" in str(refused.value)
+    stored = await rig.stored(node)
+    assert stored.desired_level is None and stored.ceiling is None
+
+
+async def test_demote_of_a_gateway_pins_it_there_and_asks_for_nothing() -> None:
+    rig = _rig()
+    node = await rig.enrol()
+
+    pinned = await rig.desk.move(node, promote=False)
+
+    assert pinned.is_changed
+    assert pinned.node.ceiling is RuntimeLevel.GATEWAY and pinned.node.desired_level is None
+    assert await rig.trail.query(TrailQuery(family="swarm")) == ()
+
+
+async def test_demote_of_a_pinned_gateway_changes_nothing() -> None:
+    rig = _rig()
+    node = await rig.enrol()
+    await rig.desk.move(node, promote=False)
+
+    again = await rig.desk.move(node, promote=False)
+
+    assert not again.is_changed and again.node.ceiling is RuntimeLevel.GATEWAY
+
+
+async def test_demote_of_a_gateway_withdraws_a_pending_climb() -> None:
+    rig = _rig()
+    node = await rig.enrol()
+    await rig.desk.move(node, promote=True)
+
+    pinned = await rig.desk.move(node, promote=False)
+
+    # The operator now says the opposite: the wish to climb goes with the pin.
+    assert pinned.node.desired_level is None and pinned.node.ceiling is RuntimeLevel.GATEWAY
+
+
+async def test_promote_lifts_the_pin_it_is_asked_over() -> None:
+    rig = _rig()
+    node = await rig.enrol()
+    await rig.desk.move(node, promote=False)
+
+    climbing = await rig.desk.move(node, promote=True)
+
+    assert climbing.is_changed
+    assert climbing.node.ceiling is None and climbing.node.desired_level is RuntimeLevel.COLONIZED
+
+
+async def test_demote_sets_the_ceiling_before_it_writes_the_wish() -> None:
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    registry = _RecordingRegistry(trail)
+    recorder = SwarmRecorder(trail, clock, make_identity(clock, actor="human"))
+    rig = _Rig(clock, registry, trail, OperatorDesk(registry, recorder))
+    node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+
+    await rig.desk.move(node, promote=False)
+
+    # A Queen reading between the two writes must already find the device held.
+    assert registry.writes == ["ceiling", "wish"]
 
 
 async def test_a_revoked_device_accepts_no_change() -> None:

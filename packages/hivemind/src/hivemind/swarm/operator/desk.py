@@ -12,7 +12,11 @@ It never talks to a device: the running Hive's swarm gate reads the registry on 
 does the work (closing a revoked device's link, sending the device its new terms, moving its
 Warden), so the same commands work whether or not a Hive is running. A rung request is only a
 wish written on the node (`desired_level`); nothing is recorded until the Queen acts on it,
-because only then has anything happened.
+because only then has anything happened. The Queen also moves devices on her own (relief, a task
+that must survive a lost link), and the operator always wins against her: a `demote` also sets
+the node's `ceiling` to the rung the device lands on, which pins it there so she does not climb
+back by herself (on the bottom rung it pins the device as a gateway and asks for nothing), and a
+`promote` lifts the ceiling.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.operator`.
@@ -27,6 +31,8 @@ Key invariants:
       written and no event is recorded, so a repeated command leaves the trail alone.
     - A revoked device accepts no change at all; `revoke` on one is the only act that returns.
     - A rung request is always one step from the rung the device is on, up or down, never a jump.
+    - A `demote` sets the ceiling before it writes the wish, so a Queen reading between the two
+      writes finds the device pinned, never free to climb back.
     - An event carries ids, tier and level names, and a reason code; never a key or a token.
 
 See Also:
@@ -43,14 +49,13 @@ from hivemind.cell import AccessLevel, CombShieldLevel
 from hivemind.swarm.enrolment import granted_capabilities
 from hivemind.swarm.errors import NodeNotFoundError, NodeRevokedError, NodeStatusConflictError
 from hivemind.swarm.events import SwarmRecorder
-from hivemind.swarm.level import TRANSITIONS, is_promotion
 from hivemind.swarm.models import SwarmNode
 from hivemind.swarm.node_state import NodeStatus
-from hivemind.swarm.operator.errors import RungUnavailableError, TierRefusedError
+from hivemind.swarm.operator.errors import TierRefusedError
 from hivemind.swarm.operator.lookup import find_node
+from hivemind.swarm.operator.rung import ask_for_rung
 from hivemind.swarm.registry import SwarmRegistry
 from waggle.ids import DeviceId
-from waggle.messages.swarm import RuntimeLevel
 
 # How many times a revocation re-reads and retries when the node's status moved under it. The
 # heartbeat monitor flips a device between ONLINE and UNREACHABLE only when its link changes, so a
@@ -213,29 +218,30 @@ class OperatorDesk:
         return NodeChange(changed, is_changed=True)
 
     async def move(self, node: SwarmNode, *, promote: bool) -> NodeChange:
-        """Ask for the rung above (or below) the one the device is on.
+        """Ask for the rung above (or below) the one the device is on, and set its ceiling.
 
         Only the wish is written (`desired_level`); the running Hive's swarm gate acts on it, and
-        records `swarm.promoted` or `swarm.demoted` when it does, so nothing is recorded here.
+        records `swarm.promoted` or `swarm.demoted` when it does, so nothing is recorded here. The
+        ceiling (the highest rung the Queen may take the device to on her own) goes with it: a
+        `promote` lifts it, a `demote` sets it to the rung the device is being lowered to. A
+        `demote` on the bottom rung has nothing to lower: it pins the device there.
 
         Args:
             node: The device, as found by `find`.
             promote: True to climb (`promote`), False to descend (`demote`).
 
         Returns:
-            The device carrying the wish; `is_changed` is False when that rung already was asked.
+            The device carrying the wish and the ceiling; `is_changed` is False when both
+            already were as asked.
 
         Raises:
             NodeNotFoundError: The device is no longer in the registry.
             NodeRevokedError: The device is revoked.
-            RungUnavailableError: The device is already on the top (or bottom) rung.
+            RungUnavailableError: A `promote` of a device already on the top rung.
         """
         current = await self._live(node.device_id)
-        target = _adjacent_rung(current, promote=promote)
-        if current.desired_level is target:
-            return NodeChange(current, is_changed=False)
-        changed = await self._registry.set_desired_level(current.device_id, target)
-        return NodeChange(changed, is_changed=True)
+        found, is_changed = await ask_for_rung(self._registry, current, promote=promote)
+        return NodeChange(found, is_changed=is_changed)
 
     async def _revoke_once(self, device_id: DeviceId) -> NodeChange:
         """Read the device and revoke it on the status just read; one attempt of `revoke`."""
@@ -271,15 +277,3 @@ class OperatorDesk:
         if found.status is NodeStatus.REVOKED:
             raise NodeRevokedError(device_id)
         return found
-
-
-def _adjacent_rung(node: SwarmNode, *, promote: bool) -> RuntimeLevel:
-    """Return the one rung up (or down) from the rung `node` is on, from the ladder's own table."""
-    # The ladder is a line, so exactly one rung lies in each direction from the middle and at most
-    # one from an end; reading it from TRANSITIONS keeps one table deciding which moves exist.
-    candidates = [
-        rung for rung in TRANSITIONS[node.level] if is_promotion(node.level, rung) == promote
-    ]
-    if not candidates:
-        raise RungUnavailableError(node.device_id, node.level, is_promotion=promote)
-    return candidates[0]

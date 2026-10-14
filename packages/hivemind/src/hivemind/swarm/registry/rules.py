@@ -57,6 +57,7 @@ __all__ = [
     "revoked_invite",
     "touched",
     "with_access",
+    "with_ceiling",
     "with_desired_level",
     "with_facts",
     "with_level",
@@ -228,6 +229,24 @@ def with_desired_level(node: SwarmNode, level: RuntimeLevel | None) -> SwarmNode
     _require_not_revoked(node)
     # Asking for the rung the node is on asks for nothing.
     return replaced(node, desired_level=None if level is node.level else level)
+
+
+def with_ceiling(node: SwarmNode, ceiling: RuntimeLevel | None) -> SwarmNode:
+    """Return `node` with the highest rung the Queen may take it to on her own set, or cleared.
+
+    Args:
+        node: The node as the registry holds it; not revoked.
+        ceiling: The rung to hold the device at or below, or None to let the Queen climb freely.
+
+    Returns:
+        The node carrying the ceiling. A ceiling equal to the node's own rung is allowed: that is
+        exactly a device pinned where it is.
+
+    Raises:
+        NodeRevokedError: The node is revoked.
+    """
+    _require_not_revoked(node)
+    return replaced(node, ceiling=ceiling)
 
 
 def with_access(node: SwarmNode, level: AccessLevel, granted: tuple[str, ...]) -> SwarmNode:
