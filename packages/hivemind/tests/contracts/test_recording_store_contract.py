@@ -4,10 +4,11 @@ Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Each test states one clause of the
     hivemind.exoskeleton.recorder.store.RecordingStore contract (the flight recorder's store,
     roadmap step 6.6) and runs against both implementations that ship:
-    hivemind.exoskeleton.recorder.store.InMemoryRecordingStore and
-    hivemind.exoskeleton.recorder.sqlite.SqliteRecordingStore (on a real tmp_path SQLite file). A
-    new implementation joins the fixture's params and must pass here before it is used anywhere
-    else (codingrules 14.3).
+    hivemind.exoskeleton.recorder.store.InMemoryRecordingStore (plain, and given a retention long
+    enough that it never forgets anything here, which is how a colonized device's Warden builds
+    it) and hivemind.exoskeleton.recorder.sqlite.SqliteRecordingStore (on a real tmp_path SQLite
+    file). A new implementation joins the fixture's params and must pass here before it is used
+    anywhere else (codingrules 14.3).
 
 Key invariants:
     - None: this module holds tests only.
@@ -37,12 +38,14 @@ from hivemind.exoskeleton.recorder import (
     Evidence,
     InMemoryRecordingStore,
     RecordingStore,
+    Retention,
     SqliteRecordingStore,
 )
 from waggle.clock import FakeClock
 from waggle.messages.capping import GuiOp
 
-_STORE_KINDS = ("memory", "sqlite")
+_STORE_KINDS = ("memory", "memory_retained", "sqlite")
+_FOREVER = timedelta(days=36500)  # A retention window no test's clock ever gets past.
 _HOUR = timedelta(hours=1)
 
 
@@ -51,6 +54,8 @@ async def store(request: pytest.FixtureRequest, tmp_path: Path) -> RecordingStor
     """A RecordingStore of the parametrised kind; the SQLite one on a fresh file."""
     if request.param == "memory":
         return InMemoryRecordingStore()
+    if request.param == "memory_retained":
+        return InMemoryRecordingStore(Retention(FakeClock(), _FOREVER))
     return await SqliteRecordingStore.create(connect(tmp_path / "hive.sqlite3"), FakeClock())
 
 

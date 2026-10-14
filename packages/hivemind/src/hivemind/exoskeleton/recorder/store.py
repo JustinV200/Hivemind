@@ -4,8 +4,11 @@ A flight recording (roadmap step 6.6) is a header (`RecordingInfo`, one per atta
 `RecordedAction`s made under it, frames included. Until the Honey Store's Nectar intake exists
 (phase 7), the store is the recording's Nectar body (ADR-0032): the SQLite implementation keeps it
 in two tables of the Hive's own database file, and a Bee Bread entry references it. This module is
-the protocol every implementation follows and the in-memory one tests and fakes use; the contract
-suite holds both to the same behaviour.
+the protocol every implementation follows and the in-memory one tests, fakes and the Wardens of
+Cells without a database use; the contract suite holds both to the same behaviour. A Warden that
+lives for months (a colonized device's) would otherwise keep the frames of every GUI task it ever
+ran, so the in-memory store may be given a `Retention`, and then forgets a stale recording as the
+next one opens.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside
@@ -18,6 +21,8 @@ Key invariants:
     - `purge_cell` removes every recording of that Cell and everything under it (a Night Veil
       Cell's recordings go with the Cell, ADR-0032).
     - `prune_before` never removes a recording with an action finished at or after the cutoff.
+    - A `Retention` only ever does what `prune_before` does, at the moment a recording opens, so
+      a recording being written (it has an action newer than the window) is never forgotten.
     - Owns mutable state (codingrules 8.5, InMemoryRecordingStore): the two dicts, changed only
       through the protocol methods.
 
@@ -27,15 +32,17 @@ See Also:
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from hivemind.exoskeleton.errors import RecordingNotFoundError
 from hivemind.exoskeleton.recorder.models import RecordedAction, RecordingInfo
+from waggle.clock import Clock
 
 DEFAULT_LIST_LIMIT = 50  # Recordings listed at once, newest first.
 
-__all__ = ["DEFAULT_LIST_LIMIT", "InMemoryRecordingStore", "RecordingStore"]
+__all__ = ["DEFAULT_LIST_LIMIT", "InMemoryRecordingStore", "RecordingStore", "Retention"]
 
 
 class RecordingStore(Protocol):
@@ -88,16 +95,36 @@ class RecordingStore(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class Retention:
+    """How long an in-memory store keeps a recording that nothing has been added to."""
+
+    clock: Clock  # Supplies "now" for the sweep that runs as each recording opens.
+    window: timedelta  # A recording with nothing in it newer than this is forgotten.
+
+
 class InMemoryRecordingStore:
     """A RecordingStore in two dicts: for tests, fakes and a Hive with no database."""
 
-    def __init__(self) -> None:
-        """Build an empty store."""
+    def __init__(self, retention: Retention | None = None) -> None:
+        """Build an empty store.
+
+        Args:
+            retention: When given, each `open` first forgets the recordings `prune_before` would
+                at `retention.window` before now, so a Warden that runs for months holds the
+                last window's recordings and not every one it ever made. None keeps them all,
+                which is right for a store that lives as long as one test or one Cell.
+        """
         self._infos: dict[str, RecordingInfo] = {}
         self._actions: dict[str, list[RecordedAction]] = {}
+        self._retention = retention
 
     async def open(self, info: RecordingInfo) -> None:
-        """Start a recording; see RecordingStore."""
+        """Start a recording, after forgetting the stale ones if a retention was given."""
+        if self._retention is not None:
+            # Swept as a recording opens, not on a timer: an idle Warden does no work, and a busy
+            # one is bounded by its window. The recording about to open is newer than the cutoff.
+            await self.prune_before(self._retention.clock.now() - self._retention.window)
         self._infos.setdefault(info.recording_id, info)
         self._actions.setdefault(info.recording_id, [])
 

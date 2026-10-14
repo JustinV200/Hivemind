@@ -24,7 +24,7 @@ See Also:
 Public API:
     - Evidence, RecordedAction, RecordedPostcondition, RecordingInfo, MAX_SNAPSHOT_CHARS (models).
     - MASK, redact_step, scrub_text, scrub_url (redact).
-    - RecordingStore, InMemoryRecordingStore, DEFAULT_LIST_LIMIT (store).
+    - RecordingStore, InMemoryRecordingStore, Retention, DEFAULT_LIST_LIMIT (store).
     - SqliteRecordingStore, apply_recording_migrations (sqlite): the durable store.
     - FlightRecorder, scrubbed_evidence, MAX_EXPECTED_CHARS (recorder).
     - render_html, summarize, RecordingSummary, ActionSummary, SideSummary, FrameRef,
@@ -59,6 +59,7 @@ from hivemind.exoskeleton.recorder.store import (
     DEFAULT_LIST_LIMIT,
     InMemoryRecordingStore,
     RecordingStore,
+    Retention,
 )
 
 __all__ = [
@@ -78,6 +79,7 @@ __all__ = [
     "RecordingInfo",
     "RecordingStore",
     "RecordingSummary",
+    "Retention",
     "SideSummary",
     "SqliteRecordingStore",
     "apply_recording_migrations",
