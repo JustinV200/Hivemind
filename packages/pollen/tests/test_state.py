@@ -8,7 +8,9 @@ honoured. Every write is write-new, flush, replace-old, so a crash leaves the ol
 new one. ``StateStore`` is the one owner of the mutable copy: an update is validated, written, and
 only then visible. The state is a boundary model, so it round-trips and refuses what the link rules
 refuse (a plaintext address without a loopback host, a pin on a plain link, a tier a Real Cell
-cannot hold).
+cannot hold). It also records the rung of the runtime ladder the device is on and the Warden that
+lives on the device when it is above the bottom one; the two are written together and may never
+disagree, because the dead-man switch stands down exactly while a Warden lives there.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.state.
@@ -16,6 +18,7 @@ Fits into the Hive:
 Key invariants:
     - A failed write leaves the old file; a failed validation leaves the old value.
     - The key file holds exactly the 32-byte seed and is private.
+    - A Warden is recorded exactly when the level is above GATEWAY, in both directions.
 
 See Also:
     - docs/waggle/gateway-contract.md section 4.
@@ -40,6 +43,7 @@ from pollen.state import (
     PacketState,
     QueenMove,
     StateStore,
+    WardenRecord,
     create_key,
     load_signer,
     load_state,
@@ -49,6 +53,7 @@ from pollen.state import (
 from waggle.clock import FakeClock
 from waggle.ids import new_lease_id, new_node_id
 from waggle.messages.labels import CombShieldLevel
+from waggle.messages.swarm import RuntimeLevel
 
 CLOCK = FakeClock()
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
@@ -64,6 +69,15 @@ def test_every_file_has_one_name_under_the_data_directory(tmp_path: Path) -> Non
     layout.ensure()
     layout.ensure()
     assert layout.root.is_dir()
+
+
+def test_the_runtime_lives_in_one_folder_of_the_data_directory(tmp_path: Path) -> None:
+    layout = DataLayout(tmp_path / "pollen")
+    assert layout.runtime == layout.root / "runtime"
+    assert layout.venv.parent == layout.warden_state.parent == layout.runtime
+    assert layout.warden_log.parent == layout.prepare_log.parent == layout.runtime
+    assert len({layout.venv, layout.warden_state, layout.warden_log, layout.prepare_log}) == 4
+    assert layout.runtime not in {layout.state, layout.key, layout.outbox, layout.status}
 
 
 @posix_only
@@ -97,11 +111,61 @@ def test_a_relocation_record_round_trips_and_a_wrong_key_is_refused() -> None:
         QueenMove.model_validate({**move.model_dump(), "sequence": 0})
 
 
+def _warden(**changes: object) -> WardenRecord:
+    """A recorded Warden; ``changes`` replace fields."""
+    values: dict[str, object] = {
+        "pid": 4242,
+        "created": 1_700_000_000.5,
+        "runtime_version": "1.4.0",
+        "started_at": CLOCK.now(),
+    }
+    values.update(changes)
+    return WardenRecord(**values)
+
+
+def test_a_warden_is_recorded_exactly_when_the_level_is_above_gateway() -> None:
+    colonized = sample_state(CLOCK, level=RuntimeLevel.COLONIZED, warden=_warden())
+    assert PacketState.model_validate_json(colonized.model_dump_json()) == colonized
+    assert colonized.warden is not None and colonized.warden.pid == 4242
+    assert sample_state(CLOCK).warden is None and sample_state(CLOCK).level is RuntimeLevel.GATEWAY
+    with pytest.raises(ValidationError, match="exactly when the level is above GATEWAY"):
+        sample_state(CLOCK, level=RuntimeLevel.COLONIZED)  # Above the bottom rung, no Warden.
+    with pytest.raises(ValidationError, match="exactly when the level is above GATEWAY"):
+        sample_state(CLOCK, warden=_warden())  # A Warden on the bottom rung.
+    with pytest.raises(ValidationError, match="exactly when the level is above GATEWAY"):
+        sample_state(CLOCK, level=RuntimeLevel.NUC)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"pid": 0}, {"created": -1.0}, {"runtime_version": ""}, {"surprise": 1}],
+)
+def test_a_warden_record_refuses_what_cannot_name_a_process(changes: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        _warden(**changes)
+
+
+def test_a_state_written_before_colonization_existed_still_loads() -> None:
+    old = sample_state(CLOCK).model_dump(mode="json")
+    del old["warden"], old["install"]["runtime_python"]
+    loaded = PacketState.model_validate(old)
+    assert loaded.warden is None and loaded.install.runtime_python is None
+    assert loaded.level is RuntimeLevel.GATEWAY
+
+
 def test_install_settings_round_trip_and_refuse_two_runtime_sources() -> None:
     settings = InstallSettings(runtime_wheelhouse="/opt/wheels", warden_manifest="/etc/w.toml")
     assert InstallSettings.model_validate_json(settings.model_dump_json()) == settings
     with pytest.raises(ValidationError, match="not both"):
         InstallSettings(runtime_wheelhouse="/opt/wheels", runtime_index="https://x.example")
+
+
+def test_install_settings_record_the_interpreter_the_runtime_is_built_with() -> None:
+    settings = InstallSettings(
+        runtime_index="https://x.example/simple", runtime_python="/usr/bin/p"
+    )
+    assert InstallSettings.model_validate_json(settings.model_dump_json()) == settings
+    assert InstallSettings().runtime_python is None
 
 
 @pytest.mark.parametrize(
@@ -232,6 +296,23 @@ async def test_an_update_that_fails_validation_or_writing_changes_nothing(
     with pytest.raises(StateError):
         await store.update(offline_limit_s=5.0)
     assert store.current == first and load_state(path) == first
+
+
+async def test_the_level_and_the_warden_change_in_one_write_or_not_at_all(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "state.json"
+    store = StateStore(path, sample_state(CLOCK))
+    with pytest.raises(StateError, match="validation"):
+        await store.update(level=RuntimeLevel.COLONIZED)  # The level alone would disagree.
+    assert store.current.level is RuntimeLevel.GATEWAY and not path.exists()
+    record = _warden()
+    await store.update(level=RuntimeLevel.COLONIZED, warden=record)
+    assert (load_state(path).level, load_state(path).warden) == (RuntimeLevel.COLONIZED, record)
+    with pytest.raises(StateError, match="validation"):
+        await store.update(warden=None)  # Nor may the record go while the level stays.
+    await store.update(level=RuntimeLevel.GATEWAY, warden=None)
+    assert load_state(path).warden is None
 
 
 async def test_concurrent_updates_do_not_lose_each_other(tmp_path: Path) -> None:

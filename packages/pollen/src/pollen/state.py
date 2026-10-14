@@ -9,7 +9,12 @@ write is write-new, flush, replace-old, so a crash leaves the old document or th
 never a torn one (gateway-contract section 4); ``write_atomic`` is the one routine that does it
 and the lease table and the status file reuse it. ``StateStore`` is the one owner of the mutable
 copy: an update is validated, written to disk first and only then becomes the value tasks read.
-``DataLayout`` names every file and directory under the data directory in one place.
+``DataLayout`` names every file and directory under the data directory in one place, the folder the
+Hive runtime and its Warden live in included. The state also says which rung of the runtime ladder
+the device is on and, above the first, records the Warden that lives on it (``WardenRecord``: its
+pid and creation time, so a restarted packet adopts it and a recycled pid is never mistaken for
+it); the level and the record are validated as a pair because the dead-man switch stands down
+exactly while a Warden lives on the device.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Written by the enrolment
@@ -22,6 +27,8 @@ Key invariants:
     - The key file holds the raw 32-byte seed and nothing else; no state document, log line or
       error message ever carries it.
     - ``StateStore.current`` only ever changes to a value that validated and reached the disk.
+    - A Warden is recorded exactly when the level is above GATEWAY, so the two are always written
+      in one update.
 
 See Also:
     - docs/waggle/gateway-contract.md section 4 for what a gateway persists.
@@ -75,6 +82,7 @@ __all__ = [
     "PacketState",
     "QueenMove",
     "StateStore",
+    "WardenRecord",
     "create_key",
     "load_signer",
     "load_state",
@@ -116,6 +124,31 @@ class DataLayout:
     def status(self) -> Path:
         """The diagnostic status document ``pollen status`` reads."""
         return self.root / "status.json"
+
+    @property
+    def runtime(self) -> Path:
+        """Where the Hive runtime lives: the venv, the Warden's state and its logs."""
+        return self.root / "runtime"
+
+    @property
+    def venv(self) -> Path:
+        """The virtual environment ``pollen.bootstrap`` installs the pinned runtime into."""
+        return self.runtime / "venv"
+
+    @property
+    def warden_state(self) -> Path:
+        """The on-device Warden's state directory: its stores, outbox and scratch."""
+        return self.runtime / "state"
+
+    @property
+    def warden_log(self) -> Path:
+        """Where the on-device Warden's output goes; the previous run's is kept beside it."""
+        return self.runtime / "warden.log"
+
+    @property
+    def prepare_log(self) -> Path:
+        """Where the output of the last runtime installation goes."""
+        return self.runtime / "prepare.log"
 
     def scratch(self, lease_id: LeaseIdField) -> Path:
         """Return the scratch directory of ``lease_id``: ``<data_dir>/leases/<lease_id>``."""
@@ -167,6 +200,9 @@ class InstallSettings(BaseModel):
     warden_manifest: str | None = Field(
         default=None, description="The device's local manifest for an on-device Warden."
     )
+    runtime_python: str | None = Field(
+        default=None, description="A Python 3.12 or newer the runtime's environment is made with."
+    )
 
     @model_validator(mode="after")
     def _one_runtime_source(self) -> InstallSettings:
@@ -175,6 +211,19 @@ class InstallSettings(BaseModel):
         if self.runtime_wheelhouse is not None and self.runtime_index is not None:
             raise ValueError("Name a runtime wheelhouse or a runtime index, not both.")
         return self
+
+
+class WardenRecord(BaseModel):
+    """The on-device Warden the packet started, so a restarted packet finds it again."""
+
+    model_config = _MODEL_CONFIG
+
+    pid: int = Field(ge=1, description="The Warden's process id, also its process-group id.")
+    created: float = Field(
+        ge=0, description="The process's creation time, so a recycled pid is not taken for it."
+    )
+    runtime_version: str = Field(min_length=1, description="The hivemind version that is running.")
+    started_at: UtcDatetime = Field(description="When the packet started it.")
 
 
 class PacketState(BaseModel):
@@ -229,6 +278,9 @@ class PacketState(BaseModel):
     install: InstallSettings = Field(
         default_factory=InstallSettings, description="What pollen install recorded."
     )
+    warden: WardenRecord | None = Field(
+        default=None, description="The on-device Warden, set exactly when level is above GATEWAY."
+    )
 
     @model_validator(mode="after")
     def _link_rules(self) -> PacketState:
@@ -240,6 +292,10 @@ class PacketState(BaseModel):
             raise ValueError("A wss:// address needs a certificate pin and a ws:// one has none.")
         if self.comb_shield is CombShieldLevel.NIGHT_VEIL:
             raise ValueError("A Real Cell never holds the NIGHT_VEIL tier.")
+        # The dead-man switch stands down exactly while a Warden lives on the device, so the
+        # level and the record that says one does may never disagree (ADR-0052).
+        if (self.level is RuntimeLevel.GATEWAY) != (self.warden is None):
+            raise ValueError("A Warden is recorded exactly when the level is above GATEWAY.")
         return self
 
 
