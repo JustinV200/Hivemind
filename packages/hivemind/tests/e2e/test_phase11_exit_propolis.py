@@ -18,8 +18,15 @@ tunnel exists `swarm.shield_verified` follows, the task is placed and completes;
 changed nothing to get there: no command it sent wrote outside scratch, the routes and resolver
 are exactly the operator's, the container's writable layer gained nothing outside the packet's
 directory after the operator's setup, the scratch is gone and the process table is as it was. The
-second scenario is the other half of step 11.8a: a Night Veil goal pinned to the device is denied
-by the Guard at the placement point and never placed on it.
+second scenario is the other half of step 11.8a: a human's own Night Veil request, whose ceiling
+names only the device's Cell, is refused at placement and never placed on it. The request is the
+human's in every way (origin HUMAN, the tier named on a stored goal request, the Hive's Night Veil
+tier profile configured), so who asked and how the Hive would reach a Night Veil Cell are not what
+stops it; what does is that Night Veil work is Virtual-only and this ceiling admits a Real Cell
+alone (the Queen's own words: "goal lacks cell:virtual"). The same scenario run with a goal that
+had no stored request (`submit_pinned`) was refused by the initiation floor instead, which proved
+nothing about Real Cells; the Guard's own `night_veil_virtual_only` floor, a backstop for a Real
+Cell need that placement never makes for this tier, is covered by its unit tests.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped. Needs a docker daemon and skips
@@ -46,9 +53,16 @@ from typing import NamedTuple
 
 import pytest
 from e2e.kernel_helpers import wait_until
-from e2e.swarm.bridge import BridgeHive, bridge_hive
+from e2e.swarm.bridge import BridgeHive, BridgeTerms, bridge_hive
 from e2e.swarm.container import Container, Janitor, Network
-from e2e.swarm.drone import Script, command_turn, finished, plan_for, submit_pinned
+from e2e.swarm.drone import (
+    Script,
+    command_turn,
+    finished,
+    plan_for,
+    request_pinned,
+    submit_pinned,
+)
 from e2e.swarm.enrolled import DATA_DIR, ContainerDevice, DeviceOptions, enrol_device
 from e2e.swarm.hive import trail_events, warden_is_idle
 from e2e.swarm.image import device_image_or_skip
@@ -75,6 +89,18 @@ _REFUSALS = 3  # How many refusals the device is seen to make before its tunnel 
 _COMMAND = ("sh", "-c", "echo hello from the Hive")
 _FAILING = ["default_route_via_tunnel", "dns_via_tunnel", "direct_egress_refused"]
 _NIGHT_VEIL = {"comb_shield": "NIGHT_VEIL", "isolation": "REQUIRED"}
+# The tier profile a Hive needs before it will place Night Veil work at all (roadmap 10.3a): its own
+# hidden service and the Tor SOCKS proxy a Night Veil Cell dials it through. Without it the
+# placement policy refuses every Night Veil request first, for want of a profile, which would
+# again prove nothing about Real Cells.
+_NIGHT_VEIL_TIER = """
+[security.tiers.NIGHT_VEIL]
+egress_profile = "vpn_tor"
+control_channel = "tor_hidden_service"
+hidden_service_address = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion:8710"
+tor_socks = "socks5h://127.0.0.1:9050"
+locale_profile = "C.UTF-8"
+"""
 
 
 @pytest.fixture(scope="module")
@@ -215,14 +241,15 @@ def _without_resolver(files: dict[str, WrittenFile | str]) -> dict[str, WrittenF
     return {path: entry for path, entry in files.items() if path != RESOLVER_FILE}
 
 
-def test_a_night_veil_goal_pinned_to_a_device_is_denied_at_placement_and_never_placed(
+def test_a_humans_night_veil_request_pinned_to_a_device_is_refused_and_never_placed_on_it(
     image: str, tmp_path: Path
 ) -> None:
     janitor = Janitor()
     try:
         network = janitor.network()
         script = Script(command_turn(_COMMAND), plan_for(_NIGHT_VEIL))
-        hive = bridge_hive(tmp_path, network, script.responder)
+        terms = BridgeTerms(tables=_NIGHT_VEIL_TIER)
+        hive = bridge_hive(tmp_path, network, script.responder, terms)
 
         asyncio.run(_night_veil(hive, janitor, image, network))
     finally:
@@ -230,7 +257,7 @@ def test_a_night_veil_goal_pinned_to_a_device_is_denied_at_placement_and_never_p
 
 
 async def _night_veil(hive: Hive, janitor: Janitor, image: str, network: Network) -> None:
-    """Pin a Night Veil goal to a device: the Guard denies it at placement and nothing lands."""
+    """Pin a human's Night Veil request to a device: it is refused at placement, nothing lands."""
     async with run_hive(hive):
         device = await enrol_device(
             BridgeHive(hive), janitor, image, DeviceOptions(network=network)
@@ -238,15 +265,37 @@ async def _night_veil(hive: Hive, janitor: Janitor, image: str, network: Network
         await wait_until(lambda: warden_is_idle(hive, device.node), timeout_s=_WAIT_S)
         leases = len(await trail_events(hive, "cell.leased"))
 
-        goal_id = await submit_pinned(hive, device.node)
+        # A durable request of the human's own naming NIGHT_VEIL, whose ceiling is the device.
+        goal_id = await request_pinned(hive, device.node, CombShieldLevel.NIGHT_VEIL)
         task = await finished(hive, goal_id)
 
         assert task.status is TaskStatus.CANCELLED
-        [denied] = await trail_events(hive, "guard.denied")
-        assert denied.payload["point"] == "placement"
-        assert str(denied.payload["rule"]).startswith("guard.tier_floor.night_veil")
+        await _refused_for_the_device_being_real(hive, task)
         # Never placed: no assignment, no placement record, no lease, no command on the device.
         assert not await trail_events(hive, "task.assigned")
         assert not await trail_events(hive, "queen.placed")
         assert len(await trail_events(hive, "cell.leased")) == leases
         assert not await trail_events(hive, "swarm.command_sent")
+
+
+async def _refused_for_the_device_being_real(hive: Hive, task: Task) -> None:
+    """The request was a human's, and what refused it was that Night Veil work is Virtual-only."""
+    [received] = await trail_events(hive, "queen.goal_request_received")
+    assert received.payload["origin"] == "HUMAN"
+    assert received.payload["comb_shield"] == "NIGHT_VEIL"
+    # The Queen's own reason: the ceiling admits the device's Real Cell alone, and a Night Veil
+    # task runs only on a fresh Virtual Cell, so the goal lacks the `cell:virtual` it would need.
+    # Neither a missing profile nor an unknown asker, the other two ways a request is refused.
+    [decided] = [
+        event
+        for event in await trail_events(hive, "queen.decided")
+        if event.subject_id == task.id and event.payload["reason"] == "placement_failed"
+    ]
+    assert str(decided.payload["detail"]).startswith(
+        "NIGHT_VEIL placement refused: goal lacks cell:virtual"
+    )
+    assert task.outcome is not None and "lacks cell:virtual" in task.outcome.summary
+    # The Guard was asked, at the placement point, for the Virtual Cell the goal does not allow.
+    [denied] = await trail_events(hive, "guard.denied")
+    assert denied.payload["point"] == "placement"
+    assert denied.payload["capability"] == "cell:virtual"

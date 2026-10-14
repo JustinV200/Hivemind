@@ -13,7 +13,9 @@ one Hive can be given a Propolis goal and then a Night Veil one, every Drone tur
 it was built with, and the Drone the Hive Stand's own Warden sends to look into a lost device (a
 task of the Hive's, not the scenario's) with a script of its own. `submit_pinned` puts a goal to
 the Queen whose ceiling names the device's Cell and no other, so the Queen's placement can choose
-nothing else, and `finished` waits for its task to end.
+nothing else; `request_pinned` does the same as a human's own durable goal request that names a
+tier (the only way a goal can initiate Night Veil work, ADR-0039), and `finished` waits for its
+task to end.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 11 end-to-end
@@ -41,6 +43,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 
+from builders.human import make_goal_request
 from e2e.kernel_helpers import (
     HaikuScript,
     WorkerTurn,
@@ -55,12 +58,14 @@ from e2e.scripted_openai import PLANNER_TAG
 from e2e.swarm.hive import HELLO, REPORT_FILE
 
 from hivemind.brood_chamber import Task, TaskFilter, is_terminal
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.cli.compose import Hive
 from hivemind.forage import ModelSlot
 from hivemind.llm import LLMRequest, LLMResponse, TextPart, ToolResultPart
+from hivemind.queen.intake import GoalRequestState
 from hivemind.queen.swarm_gate.unreachable.hive_stand import FINDINGS_FILE
 from hivemind.swarm import SwarmNode
+from waggle.clock import SystemClock
 from waggle.ids import TaskId
 
 GOAL_TEXT = "write a report on the borrowed device"
@@ -103,6 +108,7 @@ __all__ = [
     "is_check_of_a_lost_device",
     "pinned_ceiling",
     "plan_for",
+    "request_pinned",
     "request_text",
     "submit_pinned",
 ]
@@ -316,6 +322,44 @@ async def submit_pinned(hive: Hive, node: SwarmNode, goal: str = GOAL_TEXT) -> T
     """
     ceiling = pinned_ceiling(node.cell_id)
     return await hive.queen.submit_goal(goal, clearance=HoneyClearance.C1, capabilities=ceiling)
+
+
+async def request_pinned(
+    hive: Hive, node: SwarmNode, comb_shield: CombShieldLevel, goal: str = GOAL_TEXT
+) -> TaskId:
+    """Put a human's own durable goal request naming `comb_shield` to the Queen, pinned to `node`.
+
+    Unlike `submit_pinned`, whose goal has no durable request behind it, this one is what the
+    Hive Entrance writes for a human's ask: origin HUMAN, the tier named and stored, and the
+    ceiling that names `node`'s Cell and no other. So when `comb_shield` is NIGHT_VEIL every
+    initiation fact (ADR-0039) holds, and the only floor left to refuse the placement is the one
+    about where Night Veil work may run.
+
+    Args:
+        hive: The running Hive.
+        node: The device the goal may be placed on.
+        comb_shield: The tier the human asks for.
+        goal: The goal's words.
+
+    Returns:
+        The goal's id, the id of its first task, once the Queen has planned the request.
+    """
+    request = make_goal_request(
+        SystemClock(),
+        text=goal,
+        comb_shield=comb_shield,
+        capabilities=pinned_ceiling(node.cell_id),
+    )
+    await hive.queen.request_goal(request)
+
+    async def planned() -> bool:
+        return (await hive.stores.goal_requests.get(request.id)).state is GoalRequestState.PLANNED
+
+    # The Queen plans a durable request on her own tick, so the goal exists a moment after this.
+    await wait_until(planned, timeout_s=FINISH_S)
+    goal_id = (await hive.stores.goal_requests.get(request.id)).goal_id
+    assert goal_id is not None  # PLANNED is exactly when the row carries its goal's id.
+    return goal_id
 
 
 async def finished(hive: Hive, goal_id: TaskId, timeout_s: float = FINISH_S) -> Task:
