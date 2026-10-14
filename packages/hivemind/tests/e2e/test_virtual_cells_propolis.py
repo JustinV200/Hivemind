@@ -10,6 +10,8 @@ environment a backend renders for the Cell back through the Cell's own configura
 halves of the tier are shown to agree. The second half drives the Queen's own planning and
 dispatch over the same real provider, lifecycle and gate: a task that needs PROPOLIS runs only on a
 Cell whose attestation passed, and a Cell that failed it is torn down and never assigned a task.
+The Virtual side lists a single spec, at PROPOLIS; matching a task's tier to a spec's is
+placement's business and is not what this proves.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.

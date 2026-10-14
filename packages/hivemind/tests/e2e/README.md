@@ -177,6 +177,16 @@ Drone's grant without a free core.
   (`guard.tier_floor.night_veil_initiation`) before any Cell is provisioned; a Night Veil goal
   whose plan needs the cloud metadata endpoint is refused before anything is persisted
   (`guard.tier_floor.night_veil_location`).
+- `test_virtual_cells_propolis.py` (`@pytest.mark.e2e`) -- phase 11's exit criterion that on a
+  Virtual Cell the Propolis checks run against the image, beside
+  `test_virtual_cells_night_veil.py`: at the real `LifecycleVirtualCellProvider` a PROPOLIS Cell is
+  ready only after a passed attestation (provisioned, attested, ready, in that order on the
+  trail), is torn down and never ready after a red one (a running Tor, here), is refused when the
+  Hive has no PROPOLIS probe (the composition root's own default), and the environment a backend
+  renders for it is what the Cell's own configuration accepts. Through a running Queen over the
+  same provider a PROPOLIS task is assigned to the very Cell that was attested, and a Cell that
+  failed is torn down and never given a task. The rig is `builders.attested_cells`; the real
+  container version of the checks is `tests/integration/test_docker_propolis.py`.
 - `test_night_veil_link.py` (`@pytest.mark.e2e`) -- roadmap step 10.3a's exit bullet through a
   whole Hive (`build_hive`/`run_hive`): a human's Night Veil request is provisioned on the phase 5
   suite's container-spawning fake backend, whose real in-Cell Warden reads its tier, the onion
