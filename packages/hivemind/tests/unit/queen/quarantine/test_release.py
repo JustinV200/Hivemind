@@ -19,6 +19,8 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
+
 from builders.isolation import isolation_site, place_running, queen_order
 from builders.queen import make_queen_deps
 
@@ -29,7 +31,7 @@ from hivemind.queen.guard_requests import GuardDeps
 from hivemind.queen.isolation import isolate_cell
 from hivemind.queen.quarantine import resume_cleared
 from waggle.clock import FakeClock
-from waggle.ids import EventId, TaskId, new_event_id
+from waggle.ids import EventId, TaskId, new_event_id, new_node_id
 
 
 async def _quarantined(deps: QueenDeps, link: WardenLink) -> tuple[TaskId, EventId]:
@@ -82,6 +84,26 @@ async def test_a_cleared_checkpoint_lets_its_task_out_from_exactly_that_checkpoi
     assert assignment.resume_from is not None and assignment.resume_from.event_id == checkpoint
     assert warden_end.received_kinds.index("grant") < warden_end.received_kinds.index("assignment")
     assert await resume_cleared(deps, (link,)) == ()  # RUNNING now: never resumed twice.
+    await warden_end.close()
+
+
+async def test_a_cleared_checkpoint_reaches_a_remote_warden_as_a_reference_to_read_there() -> None:
+    clock = FakeClock()
+    deps, link, warden_end = make_queen_deps(clock)
+    remote = dataclasses.replace(link, node_id=new_node_id(clock))  # A Virtual Cell's Warden.
+    # The checkpoint was written in the Cell's own store: the Queen's holds nothing under its id.
+    task_id, checkpoint = await _quarantined(deps, remote)
+    clock.advance(1.0)
+    await _clear(deps, checkpoint)
+
+    resumed = await resume_cleared(deps, (remote,))
+
+    assert resumed == (task_id,)
+    assignment = await warden_end.wait_for_assignment()
+    # Its gate admits a quarantined task only by this reference ("resumes only from {checkpoint}"):
+    # dropped, the way out would never open for any task on a Virtual Cell.
+    assert assignment.resume_from is not None and assignment.resume_from.event_id == checkpoint
+    assert assignment.handoff is None
     await warden_end.close()
 
 

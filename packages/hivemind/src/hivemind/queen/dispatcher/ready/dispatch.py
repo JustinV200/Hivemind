@@ -287,7 +287,8 @@ async def resume_paused(
     await deps.chamber.resume(task_id, reason)
     # A fresh bee (TaskAssign.resume_from's own field docstring: "a fresh one for a fresh bee");
     # the Queen owns the attempt number on every Queen-to-Warden hop. A Warden that cannot read
-    # her memory store is sent the Handoff itself (`.handoff`).
+    # her memory store is sent the Handoff itself (`.handoff`) when she holds it, and the
+    # reference alone otherwise, for it to read from its own.
     plan = await resume_plan(deps, link, task, resume_from)
     terms = AssignmentTerms(
         attempt=task.attempt + 1, resume_from=plan.resume_from, handoff=plan.handoff

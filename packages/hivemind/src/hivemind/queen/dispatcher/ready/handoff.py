@@ -1,20 +1,26 @@
 """Define resume_plan and fit_in_frame: the Handoff a resuming task carries, inline when it must.
 
 A task resumes from a Handoff (the structured document a bee writes before its context is reset)
-named by a `HandoffRef`, the trail event that recorded it. A Warden that shares the Queen's memory
-store finds the document there. One that does not cannot: a Warden that migrated onto a colonized
-device (ADR-0052), a Virtual Cell's, or any Warden on another node than the one the Handoff was
-written on, so the Queen reads the document from her own store and carries it in
-`TaskAssign.handoff` (Waggle 1.13). Whether the target shares her store is read off its link: a
-Warden whose link proved a node other than the Queen's is remote, and a migration resume always
-lands on one, so it always carries the document.
+named by a `HandoffRef`, the trail event that recorded it. Where the document lives depends on who
+wrote it. A Warden that shares the Queen's memory store (the Hive Stand's, a Level 0 device's) and
+its bees wrote it where the Queen reads it, so it needs the reference alone. One that does not (a
+Virtual Cell's in-Cell Warden, a colonized device's, any Warden on another node than the Queen's,
+told apart by the node its link proved) keeps its own bees' Handoffs in its own store, which is
+where its resume reads them. The Queen holds a copy only when one reached her, as it does when a
+Warden migrates onto a device: the Handoff is written on the Hive Stand before the Warden moves
+(ADR-0052). So for a remote Warden: when she holds the document she carries it in
+`TaskAssign.handoff` (Waggle 1.13), because the Warden cannot read her store; when she does not,
+she sends the reference alone and the Warden reads its own store. A Warden whose store lacks it too
+has its bee start fresh (`hivemind.workers.runtime.attempt.begin_attempt`), so a task resumes fresh
+only when nobody can supply the document.
 
 Three things stop a Handoff travelling, and each one resumes the task fresh instead, with the
 reason recorded as `queen.decided` (a stable word, never the document): the Queen's own read
-refuses it (it is tainted, or above the task's clearance, which no bee may resume from), her store
-does not hold it (so the remote Warden cannot have it either), or the assignment would not fit one
-frame with the document in it. A fresh start loses the progress; a Handoff nobody may read, or
-cannot receive, would lose the task.
+refuses it (it is tainted, or above the task's clearance, which no bee may resume from, so she
+sends no reference to it either), or the assignment would not fit one frame with the document in
+it. A fresh start loses the progress; a Handoff nobody may read, or cannot receive, would lose the
+task. Her store merely not holding a Handoff is none of these: it says nothing about the
+Warden's, and used to resume every task on a Virtual Cell or a colonized device from nothing.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher.ready`
@@ -24,12 +30,14 @@ Fits into the Hive:
     messages) only.
 
 Key invariants:
-    - A tainted Handoff, one above the task's clearance and one the Queen cannot read never travel;
-      the task resumes fresh and says why on the trail.
+    - A tainted Handoff and one above the task's clearance never travel, as a document or as a
+      reference; the task resumes fresh and says why on the trail.
     - A Warden that shares the Queen's store is sent the reference alone, exactly as before.
+    - A remote Warden is sent the document with the reference when the Queen holds it, and the
+      reference alone when she does not: her store lacking a Handoff says nothing about the
+      Warden's own, which is where a Cell's or a device's bees wrote it.
     - An assignment whose frame, signed, would exceed `MAX_FRAME_BYTES` is sent without the
-      document and without the reference: the receiver is never handed a reference it cannot
-      resolve.
+      document and without the reference.
     - Nothing here logs or records the document, its text or its size; the reason is a word.
 
 See Also:
@@ -56,7 +64,6 @@ REASON_TAINTED = (
     "handoff_tainted"  # The Queen's read refuses a tainted Handoff, whatever its label.
 )
 REASON_ABOVE_CLEARANCE = "handoff_above_clearance"  # Above the label the task's bee may read.
-REASON_NOT_HELD = "handoff_not_held"  # Not in her store, so a remote Warden lacks it too.
 REASON_TOO_LARGE = "handoff_too_large"  # The assignment with the document would not fit a frame.
 
 # The largest unsigned frame the Queen builds, so that once signed it still fits the codec's limit.
@@ -64,7 +71,6 @@ UNSIGNED_FRAME_BYTES = MAX_FRAME_BYTES - SIGNATURE_OVERHEAD_BYTES
 
 __all__ = [
     "REASON_ABOVE_CLEARANCE",
-    "REASON_NOT_HELD",
     "REASON_TAINTED",
     "REASON_TOO_LARGE",
     "UNSIGNED_FRAME_BYTES",
@@ -100,9 +106,10 @@ async def resume_plan(
         ref: The Handoff to resume from, or None for a fresh start.
 
     Returns:
-        The reference alone for a Warden that shares her store; the reference and the document
-        for a remote one; nothing at all (a fresh start, with the reason on the trail) when the
-        Handoff may not or cannot travel.
+        The reference alone for a Warden that shares her store, and for a remote one when she
+        holds no copy (it reads its own store); the reference and the document for a remote one
+        when she does; nothing at all (a fresh start, with the reason on the trail) when the
+        Handoff may not be used.
     """
     if ref is None:
         return ResumePlan()
@@ -110,12 +117,16 @@ async def resume_plan(
         return ResumePlan(resume_from=ref)  # It reads the same store the Queen does.
     try:
         handoff = await read_handoff(deps.memory, ref, task.spec.clearance)
+    except HandoffNotFoundError:
+        # No copy here, which says nothing about the Warden's store: its bees wrote their
+        # Handoffs there (a Virtual Cell's, a colonized device's), and a resume reads them there.
+        # The reference travels alone for it to resolve; dropping it resumed every such task from
+        # nothing, and gave the Cell's own taint gate no reference to refuse a tainted one by.
+        return ResumePlan(resume_from=ref)
     except TaintedMemoryError:
         return await _fresh(deps, task, REASON_TAINTED)
     except ClearanceError:
         return await _fresh(deps, task, REASON_ABOVE_CLEARANCE)
-    except HandoffNotFoundError:
-        return await _fresh(deps, task, REASON_NOT_HELD)
     # The taint label is the Queen's own bookkeeping and never travels: a CLEARED one is clean.
     document = HandoffDocument.model_validate(handoff.model_dump(mode="json", exclude={"tainted"}))
     return ResumePlan(resume_from=ref, handoff=document)

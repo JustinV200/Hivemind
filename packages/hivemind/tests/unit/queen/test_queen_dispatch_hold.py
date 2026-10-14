@@ -6,7 +6,10 @@ held Cell is not chosen for a fresh placement, a retry or a resume addressed to 
 and the work picks up again when the hold ends. A task the Queen takes back from a device she gave
 up on is placed afresh, and resumes from the Handoff she held for it (`DispatchBook.resumes`):
 the reference alone for a Warden that shares her memory store, the document too for a remote one
-(a device's Warden that cannot read her store).
+(a device's Warden that cannot read her store). A resume of a task on a remote Warden whose Cell
+wrote the Handoff in its own store, which she never held, sends the reference alone for the Cell to
+read: that is every resume on a Virtual Cell (an isolation lift, `hive wake`), and it is proved
+here with nothing seeded in her store.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/dispatcher/ready/dispatch.py (codingrules section 3); split by
@@ -35,8 +38,9 @@ from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, redispatch, resume_paused
 from hivemind.queen.queen import Queen
-from waggle.ids import TaskId, new_node_id
+from waggle.ids import TaskId, new_event_id, new_node_id
 from waggle.messages import HandoffRef
+from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 
 
 def _plan(goal: str) -> dict[str, object]:
@@ -204,3 +208,30 @@ async def test_a_task_taken_back_without_a_handoff_starts_fresh() -> None:
 
     await end.pump_until(lambda: len(end.assignments) > first)
     assert end.assignments[-1].resume_from is None
+
+
+async def test_a_resume_on_a_remote_warden_sends_the_reference_her_store_never_held() -> None:
+    queen, _link, end = await _queen(remote=True)
+    task = await _running(queen, end, await _submit(queen))
+    first = len(end.assignments)
+    deps = _deps(queen)
+    # The Cell's bee checkpointed in the Cell's own store; all she has is the reference its
+    # `memory.checkpoint` event names (nothing is written to her memory store here).
+    cells_own = HandoffRef(
+        event_id=new_event_id(deps.clock),
+        written_at=deps.clock.now(),
+        clearance=WireHoneyClearance.C1,
+    )
+    await deps.chamber.pause(task.id, "isolated")
+
+    await resume_paused(deps, queen.wardens, task.id, cells_own, "the human lifted the isolation")
+
+    await end.pump_until(lambda: len(end.assignments) > first)
+    assignment = end.assignments[-1]
+    # The Cell's own taint gate and its Worker's loader both read this reference in the Cell's
+    # store; before, the Queen resumed such a task fresh and gave them nothing to read.
+    assert assignment.resume_from == cells_own
+    assert assignment.handoff is None
+    assert (await deps.chamber.get(task.id)).status is TaskStatus.RUNNING
+    decided = await deps.trail.query(TrailQuery(kind="queen.decided"))
+    assert "resume_fresh" not in [event.payload.get("reason") for event in decided]

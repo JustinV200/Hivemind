@@ -1,12 +1,14 @@
 """Unit tests for hivemind.queen.dispatcher.ready.handoff: the Handoff a resuming task carries.
 
 A task resumes from a Handoff named by a reference; a Warden that does not share the Queen's
-memory store cannot read it, so the Queen carries the document inline (ADR-0052, Waggle 1.13). The
-cases walk the rule with a real memory store and real checkpoints: a Warden on the Queen's own
-node is sent the reference alone; a remote one (a migrated device's, a Virtual Cell's) is sent the
-document as well, equal to what she stored; a tainted Handoff, one above the task's clearance and
-one her store does not hold never travel (the task resumes fresh and says why on the trail); a
-Handoff whose assignment would not fit a frame is dropped with its reference.
+memory store cannot read it there, so the Queen carries the document inline when she holds it
+(ADR-0052, Waggle 1.13). The cases walk the rule with a real memory store and real checkpoints: a
+Warden on the Queen's own node is sent the reference alone; a remote one (a migrated device's, a
+Virtual Cell's) is sent the document as well, equal to what she stored, when she holds it, and the
+reference alone when she does not (its Cell wrote the Handoff in its own store, where its resume
+reads it: the scene with `held=False` seeds nothing in hers, as a Virtual Cell's Handoff never is);
+a tainted Handoff and one above the task's clearance never travel (the task resumes fresh and says
+why on the trail); a Handoff whose assignment would not fit a frame is dropped with its reference.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/dispatcher/ready/handoff.py (codingrules section 3); the assignment
@@ -38,7 +40,6 @@ from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.ready.assign import AssignmentTerms, _task_assign
 from hivemind.queen.dispatcher.ready.handoff import (
     REASON_ABOVE_CLEARANCE,
-    REASON_NOT_HELD,
     REASON_TAINTED,
     REASON_TOO_LARGE,
     ResumePlan,
@@ -51,12 +52,27 @@ from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.task import HandoffDocument, TaskAssign
 
 
-async def _scene(*, remote: bool) -> tuple[QueenDeps, WardenLink, Task, HandoffRef]:
-    """A Queen, the link a task is on (remote: signing as another node) and a stored Handoff."""
+async def _scene(
+    *, remote: bool, held: bool = True
+) -> tuple[QueenDeps, WardenLink, Task, HandoffRef]:
+    """A Queen, the link a task is on (remote: signing as another node) and a Handoff's reference.
+
+    With `held` the Handoff is in her memory store; without it nothing is, and the reference is
+    one a Cell's own bee made in the Cell's own store, as a Virtual Cell's and a colonized
+    device's are: the `memory.checkpoint` event its trail shipped to her names it, and that is
+    all she has.
+    """
     deps, link, _end = make_queen_deps()
     task = await place_running(deps, link)
     if remote:
         link = dataclasses.replace(link, node_id=new_node_id(deps.clock))
+    if not held:
+        cells_own = HandoffRef(
+            event_id=new_event_id(deps.clock),
+            written_at=deps.clock.now(),
+            clearance=WireHoneyClearance.C1,
+        )
+        return deps, link, task, cells_own
     ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
     handoff = make_handoff(deps.clock, written_by=link.warden_id, task_id=task.id)
     return deps, link, task, await write_checkpoint(handoff, task.id, ctx)
@@ -134,18 +150,14 @@ async def test_a_handoff_above_the_tasks_clearance_never_travels() -> None:
     assert await _fresh_reasons(deps) == [REASON_ABOVE_CLEARANCE]
 
 
-async def test_a_handoff_her_store_lacks_is_a_fresh_start_for_a_remote_warden() -> None:
-    deps, link, task, _ref = await _scene(remote=True)
-    unknown = HandoffRef(
-        event_id=new_event_id(deps.clock),
-        written_at=deps.clock.now(),
-        clearance=WireHoneyClearance.C1,
-    )
+async def test_a_handoff_her_store_lacks_is_sent_by_reference_alone_to_a_remote_warden() -> None:
+    deps, link, task, cells_own = await _scene(remote=True, held=False)
 
-    plan = await resume_plan(deps, link, task, unknown)
+    plan = await resume_plan(deps, link, task, cells_own)
 
-    assert plan == ResumePlan()
-    assert await _fresh_reasons(deps) == [REASON_NOT_HELD]
+    # Its Warden reads it from its own store, where its bee wrote it; she is not the one to say no.
+    assert plan == ResumePlan(resume_from=cells_own, handoff=None)
+    assert await _fresh_reasons(deps) == []
 
 
 async def test_a_local_warden_is_sent_a_reference_it_may_find_in_the_store_it_shares() -> None:
