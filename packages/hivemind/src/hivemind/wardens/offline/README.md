@@ -36,7 +36,7 @@ One pure table (`policy.decide_offline`), tested row by row:
 
 | Message | While cut off |
 |---|---|
-| `task.result`, `task.progress` at a checkpoint or a pause, `supervision.alarm_raised`, `forage.request`, `cell.lease_released` | QUEUE: durably, in order, sent after the reconnection |
+| `task.result`, `task.progress` at a checkpoint or a pause, `supervision.alarm_raised`, `forage.request`, `cell.lease_released`, `honey.nectar_deposit` | QUEUE: durably, in order, sent after the reconnection |
 | `supervision.question` | HOLD: in memory, sent after the queue; its sub-bee stays blocked |
 | `cell.request` | REFUSE: `OfflineRefusedError` (a `ConnectionLostError`), because an offline Warden cannot grow |
 | `supervision.heartbeat`, `cell.heartbeat`, `task.progress` at any other stage | DROP: stale when the link returns |

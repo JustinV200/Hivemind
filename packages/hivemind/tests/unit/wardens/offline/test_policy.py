@@ -22,11 +22,14 @@ import pytest
 from builders.offline import Wire, make_wire
 
 from hivemind.wardens.offline import OfflineAction, OfflineRefusedError, decide_offline, owes_reply
+from hivemind.workers.nectar import DepositMeta, split_deposit
 from waggle.clock import FakeClock
 from waggle.envelope import Envelope
 from waggle.errors import ConnectionLostError
 from waggle.ids import new_cell_id, new_device_id
+from waggle.messages import CombShieldLevel, HoneyClearance
 from waggle.messages.control import Ping
+from waggle.messages.honey import NectarKind
 from waggle.messages.swarm import NucAction, NucOutcome, NucPromoted, RuntimeLevel
 from waggle.messages.task import TaskStage
 
@@ -112,3 +115,25 @@ def test_the_answer_to_a_promotion_order_is_dropped_not_kept_for_the_return() ->
     )
 
     assert decide_offline(reply) is OfflineAction.DROP
+
+
+def test_a_chunk_of_nectar_is_kept_for_the_return_under_its_own_id() -> None:
+    # What a diagnostic Drone found about the lost link (ADR-0056) is the Hive's to learn once the
+    # link is back; a chunk is an event, so it is replayed under the id it was queued with.
+    clock = FakeClock()
+    meta = DepositMeta(
+        kind=NectarKind.FINDING,
+        media_type="text/markdown",
+        title="Why the link to the Queen was lost",
+        task_id=None,
+        cell_id=new_cell_id(clock),
+        worker_id=None,
+        observed_at=clock.now(),
+        clearance=HoneyClearance.C2,
+        origin_tier=CombShieldLevel.MEADOW,
+    )
+    [chunk] = split_deposit(b"The name did not resolve.", meta)
+    envelope = make_wire().wrap(chunk)
+
+    assert decide_offline(chunk) is OfflineAction.QUEUE
+    assert owes_reply(envelope.kind) is False

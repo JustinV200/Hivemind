@@ -46,6 +46,7 @@ from waggle.messages.base import MessageShape, WaggleMessage
 from waggle.messages.cell import CellRequest, LeaseReleased
 from waggle.messages.cell.status import CellHeartbeat
 from waggle.messages.forage import ForageRequest
+from waggle.messages.honey import NectarDeposit
 from waggle.messages.registry import spec_for
 from waggle.messages.supervision import AlarmRaised, Heartbeat, Question
 from waggle.messages.swarm import NucPromoted
@@ -74,13 +75,15 @@ class OfflineRefusedError(ConnectionLostError):
 
 
 # The payload types the table names, each with its action. Results, Alarms, a request for more
-# shared Forage and a lease's release are all things the Queen must learn eventually; the question
-# is the one message that waits for the link instead of the disk.
+# shared Forage, a lease's release and a chunk of Nectar (what a diagnostic Drone found about the
+# lost link, ADR-0056, or a Patrol's summary) are all things the Queen must learn eventually; the
+# question is the one message that waits for the link instead of the disk.
 _BY_TYPE: dict[type[WaggleMessage], OfflineAction] = {
     TaskResult: OfflineAction.QUEUE,
     AlarmRaised: OfflineAction.QUEUE,
     ForageRequest: OfflineAction.QUEUE,
     LeaseReleased: OfflineAction.QUEUE,
+    NectarDeposit: OfflineAction.QUEUE,
     Question: OfflineAction.HOLD,
     CellRequest: OfflineAction.REFUSE,
     Heartbeat: OfflineAction.DROP,
