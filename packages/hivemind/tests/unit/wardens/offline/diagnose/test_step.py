@@ -65,6 +65,16 @@ async def _past(scene: OfflineScene, seconds: float) -> None:
     scene.outage.nudge()
 
 
+async def _elapse(scene: OfflineScene, seconds: float) -> None:
+    """Let `seconds` of the Warden's clock pass and tell it nothing: its own deadline must wake it.
+
+    Unlike `_past`, which nudges the tick: nothing nudges a real Warden when a deadline falls
+    between two heartbeats, so a search waiting on the clock is found only by a wake of its own.
+    """
+    scene.clock.advance(seconds)
+    await drain()
+
+
 async def test_a_drone_that_names_a_cause_and_a_link_that_returns_is_fixed() -> None:
     scene = await start_nuc_scene(says(_CAUSE))
     await _cut(scene)
@@ -142,6 +152,43 @@ async def test_a_drone_still_working_when_the_budget_runs_out_is_stopped() -> No
     assert (event.payload["outcome"], event.payload["reason"]) == ("NO_CAUSE", "no_cause")
     spent = event.payload["spent_s"]
     assert isinstance(spent, float) and spent >= 60.0
+    await scene.stop()
+
+
+async def test_the_budget_ends_a_causes_wait_when_it_runs_out_and_not_at_the_next_heartbeat() -> (
+    None
+):
+    budget = ReconnectBudget(2, WARDEN_BEAT_S * 1.5)  # It runs out between two heartbeats.
+    scene = await start_nuc_scene(says(_CAUSE), budget=budget)
+    await _cut(scene)
+    await settle(lambda: _phase(scene) is Phase.VERIFYING)  # No Drone is left to send a frame.
+
+    await _elapse(scene, budget.wall_clock_s - 1.0)
+    waiting = _phase(scene) is Phase.VERIFYING
+    await _elapse(scene, 1.0)
+    await settle(lambda: _phase(scene) is Phase.OVER)
+
+    [event] = await diagnosed(scene)
+    assert waiting and event.payload["outcome"] == "DIAGNOSED"
+    assert event.payload["spent_s"] == budget.wall_clock_s  # Not a heartbeat later.
+    await scene.stop()
+
+
+async def test_a_cause_that_did_not_bring_the_link_back_is_diagnosed_when_its_wait_is_over() -> (
+    None
+):
+    scene = await start_nuc_scene(says(_CAUSE))
+    await _cut(scene)
+    await settle(lambda: _phase(scene) is Phase.VERIFYING)
+
+    await _elapse(scene, VERIFY_S - 1.0)
+    waiting = _phase(scene) is Phase.VERIFYING
+    await _elapse(scene, 1.0)
+    await settle(lambda: _phase(scene) is Phase.OVER)
+
+    [event] = await diagnosed(scene)
+    assert waiting and event.payload["outcome"] == "DIAGNOSED"
+    assert event.payload["spent_s"] == VERIFY_S  # The wait began when the Drone named the cause.
     await scene.stop()
 
 

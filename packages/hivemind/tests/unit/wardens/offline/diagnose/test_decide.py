@@ -33,6 +33,7 @@ from hivemind.wardens.offline.diagnose import (
     decide_move,
     decide_verdict,
     local_binding,
+    next_deadline_s,
     read_finding,
 )
 
@@ -108,6 +109,57 @@ _ROWS: list[tuple[str, Snapshot, Move]] = [
 )
 def test_each_state_of_the_search_has_its_next_move(snapshot: Snapshot, move: Move) -> None:
     assert decide_move(snapshot) is move
+
+
+_BUDGET_LEFT = _BUDGET.wall_clock_s - 10.0  # What `_snapshot` leaves of the budget by default.
+_DEADLINES: list[tuple[str, Snapshot, float | None]] = [
+    ("running, working: the budget", _snapshot(Phase.RUNNING), _BUDGET_LEFT),
+    ("running, ended: collected now", _snapshot(Phase.RUNNING, ended=True), _BUDGET_LEFT),
+    (
+        "running, link back: the write-up ends first",
+        _snapshot(Phase.RUNNING, link_up_for_s=LINGER_S - 5),
+        5.0,
+    ),
+    (
+        "running, link back late in the budget: the budget ends first",
+        _snapshot(Phase.RUNNING, link_up_for_s=0.0, elapsed_s=_BUDGET.wall_clock_s - 1),
+        1.0,
+    ),
+    (
+        "running, out of time: acted on already",
+        _snapshot(Phase.RUNNING, **_PAST_BUDGET, link_up_for_s=LINGER_S),
+        None,
+    ),
+    (
+        "verifying: the wait for the link ends first",
+        _snapshot(Phase.VERIFYING, verifying_s=VERIFY_S - 7),
+        7.0,
+    ),
+    (
+        "verifying, late in the budget: the budget ends first",
+        _snapshot(Phase.VERIFYING, elapsed_s=_BUDGET.wall_clock_s - 2),
+        2.0,
+    ),
+    ("idle, no slot yet: the budget", _snapshot(Phase.IDLE), _BUDGET_LEFT),
+    ("over: nothing", _snapshot(Phase.OVER), None),
+]
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "wait"), [(r[1], r[2]) for r in _DEADLINES], ids=[r[0] for r in _DEADLINES]
+)
+def test_the_clock_alone_ends_a_search_at_the_soonest_of_its_deadlines(
+    snapshot: Snapshot, wait: float | None
+) -> None:
+    assert next_deadline_s(snapshot) == wait
+
+
+@pytest.mark.parametrize("row", [r[1] for r in _ROWS], ids=[r[0] for r in _ROWS])
+def test_a_deadline_is_never_one_that_has_already_passed(row: Snapshot) -> None:
+    deadline = next_deadline_s(row)
+
+    # A tick woken for a deadline in the past would find it acted on and wake itself again at once.
+    assert deadline is None or deadline > 0
 
 
 @pytest.mark.parametrize(

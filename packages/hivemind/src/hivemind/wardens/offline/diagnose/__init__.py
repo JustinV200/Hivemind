@@ -39,7 +39,8 @@ See Also:
 Public API (roadmap step 11.9a):
     - investigate: the tick's one call; drives the search a notch (step).
     - Verdict, Phase, Move, Finding, Snapshot, LocalBinding, decide_move, decide_verdict,
-      local_binding, read_finding, and the waits VERIFY_S and LINGER_S: the pure judgement (decide).
+      next_deadline_s, local_binding, read_finding, and the waits VERIFY_S and LINGER_S: the pure
+      judgement (decide).
     - Investigation: the record of one outage's search (state).
     - CEILING, LocalPlan, diagnosis_objective, local_assignment: the Drone's task and grant
       (assign).
@@ -65,6 +66,7 @@ from hivemind.wardens.offline.diagnose.decide import (
     decide_move,
     decide_verdict,
     local_binding,
+    next_deadline_s,
     read_finding,
 )
 from hivemind.wardens.offline.diagnose.drone import (
@@ -107,6 +109,7 @@ __all__ = [
     "investigate",
     "local_assignment",
     "local_binding",
+    "next_deadline_s",
     "read_finding",
     "record_verdict",
     "start_drone",

@@ -116,7 +116,9 @@ pool with the objective "diagnose and, if possible, restore the link to the Quee
 - **The budget.** `[supervision] reconnect_budget` (`attempts`, `wall_clock_s`) is carved out of
   `max_offline_s`, never added to it: the search is over by `wall_clock_s` after the link went, and
   Clustering keeps its deadline as the backstop. Another Drone is sent only after one that named no
-  cause.
+  cause. Neither deadline is announced by a frame, so `reconcile` leaves the tick a wake for each
+  (`Outage.wake_in`, raced by `wake_future`): a Warden with nothing else to hear would otherwise
+  sleep through them to its next heartbeat, and the verdict and the Clustering would come that late.
 - **How it ends.** The link, not the Drone's word, decides: FIXED when the link is back and a cause
   was named, DIAGNOSED when a cause is known and the link is still down 45 s later, NO_CAUSE
   otherwise. A Drone that fixed the link is given 30 s after it returns to write up what it did.

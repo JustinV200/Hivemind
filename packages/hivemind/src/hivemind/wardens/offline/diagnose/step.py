@@ -25,7 +25,9 @@ Key invariants:
       any other, and this function only reads what the tick has already put on its row.
     - The search never outlasts `wall_clock_s` from the moment the link went, and the Warden
       clusters fully past `max_offline_s` whatever the search is doing, so the budget is carved
-      out of the offline limit and never added to it.
+      out of the offline limit and never added to it. Nothing but a deadline passing may end it
+      late, which is why `investigate` says when the next one falls: a tick that nothing else
+      wakes would otherwise sleep through the budget to the next heartbeat.
     - A search is finished exactly once, whichever way it ends: a Drone still in flight is retired,
       `warden.diagnosed` is recorded once, and the Nectar is deposited once.
     - A search left over from an earlier outage is finished before a new one begins.
@@ -47,6 +49,7 @@ from hivemind.wardens.offline.diagnose.decide import (
     Verdict,
     decide_move,
     decide_verdict,
+    next_deadline_s,
 )
 from hivemind.wardens.offline.diagnose.drone import (
     Start,
@@ -73,24 +76,31 @@ NO_SLOT_REASON = "no_slot"  # Why a search that wanted a Drone and never had a s
 __all__ = ["MAX_MOVES", "NO_SLOT_REASON", "investigate"]
 
 
-async def investigate(warden: Warden, outage: Outage, remote: RemoteDeps) -> None:
+async def investigate(warden: Warden, outage: Outage, remote: RemoteDeps) -> float | None:
     """Take the search for why the link went as far as this tick's facts allow.
 
     Args:
         warden: The Warden whose tick is running (read and written directly).
         outage: Its outage, which holds the search.
         remote: Its link, the offline limit, the budget and the Queen's host.
+
+    Returns:
+        Seconds until the clock alone next changes what the search does (its budget running out,
+        a cause's wait or a Drone's write-up ending), for the caller to wake the tick at; None
+        when the search waits on events alone or there is none.
     """
     budget = remote.reconnect_budget
     if budget is None:
-        return  # This Warden investigates nothing.
+        return None  # This Warden investigates nothing.
     search = await _search_of(warden, outage, remote)
     if search is None or search.phase is Phase.OVER:
-        return
+        return None
     for _ in range(MAX_MOVES):
         move = decide_move(_snapshot(warden, remote, budget, search))
         if move is Move.WAIT or not await _apply(warden, outage, remote, search, move):
-            return
+            break
+    # Read again, after the moves: a search just finished has no deadline, one just begun has all.
+    return next_deadline_s(_snapshot(warden, remote, budget, search))
 
 
 async def _search_of(warden: Warden, outage: Outage, remote: RemoteDeps) -> Investigation | None:

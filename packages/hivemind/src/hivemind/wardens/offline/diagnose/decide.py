@@ -8,9 +8,10 @@ there is a model to send it with (`local_binding`): a `[llm.slots]` key that ser
 slot, whose whole fallback chain runs on this machine, and whose model a server of this Warden's
 is serving right now. What a Drone said (`read_finding`): by convention its closing text opens with
 one line, `CAUSE: <the cause>` or `CAUSE: none found`. What to do next (`decide_move`): wait, send
-a Drone, collect one that has ended, stop one that has run out of time, or finish. And how it ended
-(`decide_verdict`), judged by the link and not by the Drone's word: FIXED when the link is back
-and a cause was named, DIAGNOSED when a cause is known and the link is still down, NO_CAUSE
+a Drone, collect one that has ended, stop one that has run out of time, or finish; and, for the
+moves only the clock changes, how long until the next one is due (`next_deadline_s`). And how it
+ended (`decide_verdict`), judged by the link and not by the Drone's word: FIXED when the link is
+back and a cause was named, DIAGNOSED when a cause is known and the link is still down, NO_CAUSE
 otherwise.
 
 Fits into the Hive:
@@ -67,6 +68,7 @@ __all__ = [
     "decide_move",
     "decide_verdict",
     "local_binding",
+    "next_deadline_s",
     "read_finding",
 ]
 
@@ -177,6 +179,35 @@ def decide_move(facts: Snapshot) -> Move:
         done = back or over or facts.attempts >= facts.budget.attempts
         return Move.FINISH if done else Move.START
     return Move.WAIT  # OVER: decided and recorded, nothing more to do.
+
+
+def next_deadline_s(facts: Snapshot) -> float | None:
+    """Return how long until the clock alone changes what `decide_move` says.
+
+    A Warden's tick runs when something arrives or its heartbeat falls due, and the search's own
+    deadlines are neither: a budget that runs out, a cause that has had its time to prove itself,
+    a Drone that has had its time to write up. Whoever drives the search wakes the tick at this
+    moment, or each of those would be noticed only at the next beat, up to a whole interval late.
+
+    Args:
+        facts: The search's state after the moves due now have been made.
+
+    Returns:
+        Seconds from the facts' moment to the soonest deadline still ahead; None when the search is
+        over or waits on events alone (a Drone to end, a link to return).
+    """
+    if facts.phase is Phase.OVER:
+        return None
+    waits = [facts.budget.wall_clock_s - facts.elapsed_s]  # The budget is spent from the cut.
+    if facts.phase is Phase.RUNNING and facts.link_up_for_s is not None:
+        waits.append(
+            LINGER_S - facts.link_up_for_s
+        )  # The Drone that fixed it has this to write up.
+    if facts.phase is Phase.VERIFYING:
+        waits.append(VERIFY_S - facts.verifying_s)  # A named cause has this to bring the link back.
+    # A deadline already behind is one `decide_move` has just acted on, so it is not waited for.
+    ahead = [wait for wait in waits if wait > 0]
+    return min(ahead) if ahead else None
 
 
 def decide_verdict(*, link_up: bool, cause: str | None) -> tuple[Verdict, str]:

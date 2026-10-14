@@ -9,7 +9,9 @@ resumes them when the link is back. `Outage` is what it must remember meanwhile,
 the Warden itself (whose class is at its size limit) and handed to it in `DeviceDeps`: the tasks it
 paused, each with the Handoff its bee wrote (`HeldTask`); when the cut began; whether its lease
 belongs to a link that has gone; and an event that wakes the Warden's tick the instant something
-changes, because the Warden would otherwise notice only on its next heartbeat. `RemoteDeps` is the
+changes, because the Warden would otherwise notice only on its next heartbeat, and the moment the
+clock alone will next change what it must do (`due_at`: its search's budget running out, the
+offline limit passing), because nothing arrives to wake the tick at those. `RemoteDeps` is the
 other half, for a Warden on the device: the reconnecting link it asks "are you up", the limit past
 which it gives up waiting and clusters fully, and, for a Warden that investigates why its link went
 (ADR-0056), the budget it may spend on that and the host it is trying to reach. The `Outage` holds
@@ -28,7 +30,9 @@ Key invariants:
       tasks. The swarm gate and the reconnecting link only call `nudge`, from their own tasks.
     - A task is held under its id exactly once; holding it again replaces the earlier entry.
     - `wake_future` always returns something the tick can reap, so a Warden with no outage waits
-      exactly as before.
+      exactly as before; one with a `due_at` is woken when it arrives as well as on a nudge.
+    - `due_at` is only ever set by `reconcile`, after it has acted on everything already due, so
+      it is None or ahead of the clock: a tick it wakes has work to find, and none it cannot do.
     - `investigation` is cleared only by the search itself, never by `begin` or `end`, so ending
       the outage does not lose a Drone's finding; a new outage replaces a search left over.
 
@@ -43,10 +47,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Protocol
 
+from hivemind.common.tasks import reaping
 from hivemind.wardens.deps import device_outage
+from waggle.clock import Clock
 from waggle.ids import TaskId
 from waggle.messages import HandoffRef
 from waggle.messages.task import TaskAssign
@@ -143,6 +149,7 @@ class Outage:
         self.retry_after: datetime | None = None  # Not before this does a failed resume try again.
         self.frozen_grants: dict[str, int] = {}  # grant id -> revision held when the cut began.
         self.investigation: Investigation | None = None  # The search for why it went (11.9a).
+        self.due_at: datetime | None = None  # When the clock alone next needs the tick (wake_in).
         self._held: dict[TaskId, HeldTask] = {}
         self._wake = asyncio.Event()
 
@@ -223,16 +230,48 @@ class Outage:
         """Wake the Warden's tick: something it must look at has changed. Safe from any task."""
         self._wake.set()
 
-    def waiter(self) -> asyncio.Future[bool]:
-        """Return a throwaway future that resolves when `nudge` is called.
+    def wake_in(self, now: datetime, *waits: float | None) -> None:
+        """Have the tick woken when the soonest of `waits` has passed, or by nothing but a nudge.
+
+        Args:
+            now: The moment the waits were counted from.
+            *waits: Seconds until each thing the clock alone will change; None or not ahead means
+                there is nothing to wait for on that account (what was due has been acted on).
+        """
+        ahead = [wait for wait in waits if wait is not None and wait > 0]
+        self.due_at = now + timedelta(seconds=min(ahead)) if ahead else None
+
+    def waiter(self, clock: Clock) -> asyncio.Future[bool]:
+        """Return a throwaway future that resolves on `nudge`, or when `due_at` arrives.
 
         The tick races it against its other waits and reaps it, as it does its stop future.
+
+        Args:
+            clock: The Warden's own clock, which the wait for `due_at` is made on.
         """
-        return asyncio.ensure_future(self._wake.wait())
+        return asyncio.ensure_future(self._wait(clock))
+
+    async def _wait(self, clock: Clock) -> bool:
+        """Return once nudged, or once `due_at` has come if there is one, whichever is first."""
+        due = self.due_at
+        if due is None:
+            return await self._wake.wait()
+        woken = asyncio.ensure_future(self._wake.wait())
+        late = asyncio.ensure_future(_until(due, clock))
+        # Both reaped however this ends, the tick's cancelling the waiter included, so neither is
+        # left pending after the tick that raced them has gone.
+        async with reaping(woken), reaping(late):
+            await asyncio.wait({woken, late}, return_when=asyncio.FIRST_COMPLETED)
+        return True
 
     def acknowledge(self) -> None:
         """Clear the wake: everything it signalled is about to be looked at."""
         self._wake.clear()
+
+
+async def _until(due: datetime, clock: Clock) -> None:
+    """Sleep on `clock` until `due`, counted from the moment this starts; at once if it is past."""
+    await clock.sleep((due - clock.now()).total_seconds())
 
 
 def outage_of(warden: Warden) -> Outage | None:
@@ -287,4 +326,4 @@ def wake_future(warden: Warden) -> asyncio.Future[bool]:
     outage = outage_of(warden)
     if outage is None:
         return asyncio.get_running_loop().create_future()
-    return outage.waiter()
+    return outage.waiter(warden._deps.clock)

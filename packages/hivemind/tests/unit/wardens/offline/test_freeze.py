@@ -19,6 +19,8 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from builders.offline_warden import WARDEN_BEAT_S, WORKER_BEAT_S, pausable, start_offline_scene
 from builders.quarantine import drain, settle
 
@@ -148,6 +150,44 @@ async def test_an_outage_past_the_limit_clusters_the_warden_fully() -> None:
     [event] = await _events(scene.deps, "warden.clustered")
     assert event.payload["paused"] == 1
     assert scene.warden.state is WardenState.CLUSTERED  # Retiring its bee did not undo it.
+    await scene.stop()
+
+
+async def test_the_limit_clusters_the_warden_when_it_passes_and_not_at_the_next_heartbeat() -> None:
+    limit = (
+        WARDEN_BEAT_S / 2
+    )  # It passes between two heartbeats, so only the Warden's own wake can meet it.
+    scene = await start_offline_scene(pausable([]), max_offline_s=limit)
+    cut_at = scene.clock.now()
+    scene.cut()
+    await settle(lambda: scene.warden.state is WardenState.OFFLINE)
+
+    scene.clock.advance(limit - 1.0)
+    await drain()
+    early = scene.outage.is_clustered_fully
+    scene.clock.advance(
+        1.0
+    )  # Nothing is sent or nudged: the limit is the only thing that has come.
+    await settle(lambda: scene.warden.state is WardenState.CLUSTERED)
+
+    [event] = await _events(scene.deps, "warden.clustered")
+    assert not early and event.at - cut_at == timedelta(seconds=limit)
+    await scene.stop()
+
+
+async def test_the_tick_is_told_when_the_limit_falls_and_nothing_once_it_has_passed() -> None:
+    scene = await start_offline_scene(pausable([]), max_offline_s=30.0)
+    cut_at = scene.clock.now()
+    scene.cut()
+    await settle(lambda: scene.warden.state is WardenState.OFFLINE)
+    ahead = scene.outage.due_at
+
+    scene.clock.advance(30.0)
+    await settle(lambda: scene.outage.due_at is None)
+
+    # Acted on, so there is nothing left to wake the tick for: it would find nothing and wake again.
+    assert ahead == cut_at + timedelta(seconds=30.0)
+    assert scene.outage.is_clustered_fully
     await scene.stop()
 
 

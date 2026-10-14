@@ -12,7 +12,10 @@ with no sub-bee running). The tasks it paused start again a moment later, and th
 makes it ACTIVE then. A Warden that clustered fully stays CLUSTERED, its tasks the Queen's to
 resume with a fresh TaskAssign. A Warden that holds a model of its own also searches for why its
 link went (`hivemind.wardens.offline.diagnose`, roadmap 11.9a), driven from the same pass; the
-search never changes what the pass does about the link, the Cell or the tasks it paused.
+search never changes what the pass does about the link, the Cell or the tasks it paused. Having
+acted on what is due, the pass also says when it must run again with nothing having arrived
+(`Outage.wake_in`): the search's budget and the offline limit are deadlines of the clock, which no
+frame announces.
 
 Resuming a paused task is the same act as any TaskAssign for it: the assignment, with
 `resume_from` set to the Handoff its bee wrote, goes back through `handle_assign` and the two gates
@@ -94,7 +97,10 @@ async def reconcile(warden: Warden) -> None:
     if remote is not None:
         await _follow_link(warden, outage, remote)
         # After the link is read, so a search for why it went begins in the tick that finds it down.
-        await investigate(warden, outage, remote)
+        search_wait = await investigate(warden, outage, remote)
+        # Nothing arrives when a budget runs out or the offline limit passes, so the tick is told
+        # to wake then, rather than at the heartbeat that happens to follow.
+        outage.wake_in(warden._deps.clock.now(), search_wait, _until_limit(warden, outage, remote))
     await _follow_cell(warden, outage)
     await _resume_held(warden, outage)
 
@@ -150,6 +156,13 @@ async def _follow_cell(warden: Warden, outage: Outage) -> None:
         # Queen's end hears it first, or the Warden's own release would reach the device before the
         # report did, and the lease would be recorded as released without a word of what was killed.
         _pause_resume(warden, outage, RESUME_SETTLE_S)
+
+
+def _until_limit(warden: Warden, outage: Outage, remote: RemoteDeps) -> float | None:
+    """Return the seconds until the Warden clusters fully; None with no outage or once it has."""
+    if outage.cut_since is None or outage.is_clustered_fully:
+        return None
+    return remote.max_offline_s - _outage_s(warden, outage)
 
 
 def _outage_s(warden: Warden, outage: Outage) -> float:

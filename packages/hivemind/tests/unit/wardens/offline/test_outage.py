@@ -3,9 +3,9 @@
 Fits into the Hive:
     Mirrors src/hivemind/wardens/offline/outage.py (codingrules section 3). The held tasks (one per
     task, replaced when held again, dropped when the Queen takes the task back), the Handoff a
-    stopped bee leaves with its task, the clock of the cut, the wake that ends a tick's wait, and
-    the three questions a Warden asks its deps: is there an outage, does it dial the Queen, is its
-    link down.
+    stopped bee leaves with its task, the clock of the cut, the wake that ends a tick's wait (a
+    nudge, or a deadline of the clock that nothing announces), and the three questions a Warden asks
+    its deps: is there an outage, does it dial the Queen, is its link down.
 
 Key invariants:
     - None: this module holds tests only.
@@ -17,6 +17,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 from builders.quarantine import settle
 from builders.wardens import make_warden_deps
@@ -115,8 +116,8 @@ def test_the_cut_is_dated_and_ended() -> None:
 
 
 async def test_a_nudge_ends_a_wait_and_acknowledging_it_starts_the_next_one() -> None:
-    outage = Outage()
-    first = outage.waiter()
+    clock, outage = FakeClock(), Outage()
+    first = outage.waiter(clock)
     await asyncio.sleep(0)
     assert not first.done()  # Nothing has changed: the tick keeps waiting.
 
@@ -125,13 +126,81 @@ async def test_a_nudge_ends_a_wait_and_acknowledging_it_starts_the_next_one() ->
 
     assert first.result() is True
     outage.nudge()  # A change while no tick waited is not lost: the next waiter returns at once.
-    second = outage.waiter()
+    second = outage.waiter(clock)
     await settle(second.done)
     outage.acknowledge()
-    third = outage.waiter()
+    third = outage.waiter(clock)
     await asyncio.sleep(0)
     assert not third.done()
     third.cancel()
+
+
+async def _arm() -> None:
+    """Give a waiter a few turns of the loop, enough for each half of it to begin its wait."""
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+def test_the_tick_is_woken_at_the_soonest_wait_still_ahead_and_at_none_when_nothing_is() -> None:
+    clock, outage = FakeClock(), Outage()
+
+    outage.wake_in(clock.now(), 90.0, None, 40.0, -5.0, 0.0)
+    soonest = outage.due_at
+    outage.wake_in(clock.now(), None, -1.0, 0.0)  # What was due has been acted on: none is left.
+
+    assert soonest == clock.now() + timedelta(seconds=40.0)
+    assert outage.due_at is None
+
+
+async def test_a_wait_ends_when_the_deadline_comes_with_nothing_sent_and_nothing_nudged() -> None:
+    clock, outage = FakeClock(), Outage()
+    outage.wake_in(clock.now(), 25.0)
+    wait = outage.waiter(clock)
+    await _arm()
+
+    clock.advance(24.0)
+    await _arm()
+    early = wait.done()
+    clock.advance(1.0)
+    await settle(wait.done)
+
+    assert not early and wait.result() is True
+
+
+async def test_a_nudge_ends_a_wait_that_has_a_deadline_and_both_halves_are_reaped() -> None:
+    clock, outage = FakeClock(), Outage()
+    outage.wake_in(clock.now(), 25.0)
+    wait = outage.waiter(clock)
+    await _arm()
+
+    outage.nudge()
+    await settle(wait.done)
+
+    assert wait.result() is True
+    await settle(lambda: asyncio.all_tasks() == {asyncio.current_task()})  # No half left behind.
+
+
+async def test_a_wait_the_tick_cancels_leaves_no_task_behind() -> None:
+    clock, outage = FakeClock(), Outage()
+    outage.wake_in(clock.now(), 25.0)
+    wait = outage.waiter(clock)
+    await _arm()
+
+    wait.cancel()
+
+    await settle(lambda: asyncio.all_tasks() == {asyncio.current_task()})
+    assert wait.cancelled()
+
+
+async def test_a_deadline_already_behind_ends_the_wait_at_once() -> None:
+    clock, outage = FakeClock(), Outage()
+    outage.wake_in(clock.now(), 5.0)
+    clock.advance(30.0)  # The tick was busy past it: whatever was due is looked at on this wake.
+
+    wait = outage.waiter(clock)
+    await settle(wait.done)
+
+    assert wait.result() is True
 
 
 def test_a_warden_asks_its_deps_for_the_outage_and_the_link() -> None:
