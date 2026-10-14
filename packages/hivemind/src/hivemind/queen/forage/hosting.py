@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     # on why QueenDeps/WardenLink cannot be real imports inside hivemind.queen.forage.
     from hivemind.queen.deps import QueenDeps, WardenLink
 
-__all__ = ["PlanReason", "write_hosting_plan"]
+__all__ = ["PlanReason", "resend_plan", "write_hosting_plan"]
 
 _DEFAULT_TEMPO = Tempo()  # NORMAL accuracy, no latency budget; see the module docstring.
 MAX_PLAN_FALLBACKS = 8  # Mirrors waggle.messages.forage.capacity.MAX_FALLBACKS.
@@ -150,9 +150,30 @@ async def write_hosting_plan(
     return plan
 
 
+async def resend_plan(warden: WardenLink, deps: QueenDeps) -> bool:
+    """Send a Warden's Cell's hosting plan again, as the ledger holds it (roadmap 11.9).
+
+    The sibling of `hivemind.queen.forage.ceilings.resend_ceilings`, for the same reason: a
+    Warden that re-attaches cannot be assumed to remember the plan it was sent. Nothing is
+    written to the ledger or the trail: the Queen decided this plan once, and only delivers it.
+
+    Args:
+        warden: The re-attached Warden and its own Waggle link.
+        deps: The Queen's collaborators; her ledger and Forage map are read.
+
+    Returns:
+        True when the ledger held a plan for the Warden's Cell and it was sent; False when it
+        held none.
+    """
+    plan = deps.ledger.decisions.plan_for(warden.cell.id)
+    if plan is None:
+        return False
+    return await _send_plan(warden, plan, deps.map.sources(), deps)
+
+
 async def _send_plan(
     warden: WardenLink, plan: HostingPlan, sources: tuple[ModelSource, ...], deps: QueenDeps
-) -> None:
+) -> bool:
     """Send `plan` to `warden` as a PlanWritten (the send `write_hosting_plan` used to skip)."""
     by_id = {source.source_id: source for source in sources}
     message = PlanWritten(
@@ -162,9 +183,9 @@ async def _send_plan(
         default=plan.default.to_wire(by_id),
         reason=plan.reason,
     )
-    # Same residual gap as hivemind.queen.forage.ceilings.set_ceilings: the plan is already
-    # recorded, and an unreachable Warden is not re-sent it until it is dispatched to again.
-    await warden.send(wrap(message, warden.hop, clock=deps.clock))
+    # The plan is already recorded; an unreachable Warden misses this message and is sent the
+    # ledger's plan again when it re-attaches (`resend_plan`).
+    return await warden.send(wrap(message, warden.hop, clock=deps.clock))
 
 
 @dataclass(frozen=True, slots=True)

@@ -24,6 +24,8 @@ Key invariants:
     - Listeners are called in subscription order, one at a time, and a listener's exception
       propagates to the caller: a bug in a listener is loud, not swallowed.
     - `link` and `link_for_cell` return only links that are still open.
+    - `attached_at_for_node` answers with the latest of a node's link attach and its noted
+      reconnection, so the transport's duplicate-frame grace follows either.
 
 See Also:
     - hivemind.swarm.gateway.link for the connection a hub entry holds.
@@ -104,6 +106,9 @@ class GatewayHub:
         """
         self._clock = clock
         self._entries: dict[DeviceId, _Entry] = {}
+        # When a node last attached without a link of its own to show for it (a Warden that dialled
+        # a gate again): by node id, read by `attached_at_for_node` beside the links' own.
+        self._noted: dict[str, datetime] = {}
         self._listeners: list[HubListener] = []
         self._changed = asyncio.Condition()  # Woken by every attach, for `wait_for`.
 
@@ -143,11 +148,26 @@ class GatewayHub:
         return entry.attached_at if entry is not None else None
 
     def attached_at_for_node(self, node_id: str) -> datetime | None:
-        """Return when the current link of the device with this node id attached, or None."""
-        for entry in self._entries.values():
-            if entry.node.node_id == node_id:
-                return entry.attached_at
-        return None
+        """Return when this node last attached (a link, or a noted reconnection), or None."""
+        attached = [
+            entry.attached_at for entry in self._entries.values() if entry.node.node_id == node_id
+        ]
+        noted = self._noted.get(node_id)
+        known = [*attached, *([noted] if noted is not None else [])]
+        return max(known) if known else None
+
+    def note_attach(self, node_id: str) -> None:
+        """Note that a node's Warden just reconnected, so a duplicate frame is expected for a while.
+
+        A Warden that dials a gate again replays its outbox, whose first frames the Queen may
+        already have handled and acknowledged too late (ADR-0055). Its connection is no
+        `DeviceLink`, so it cannot attach here as a link does; this notes the instant instead, and
+        the transport's refusal handler reads it with `attached_at_for_node`.
+
+        Args:
+            node_id: The node whose Warden attached.
+        """
+        self._noted[node_id] = self._clock.now()
 
     def entries(self) -> tuple[tuple[SwarmNode, DeviceLink], ...]:
         """Return every attached device with its link, in no particular order."""

@@ -147,6 +147,7 @@ class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
         super().__init__(deps.clock)
         self._deps = deps
         self._wardens: dict[WardenId, WardenLink] = {}
+        self._seen: set[WardenId] = set()  # Ever attached in this life: a return is a reconnection.
         self._links = LinkReaders()  # One reader task per attached link (hivemind.queen.attach).
         self._liveness: dict[WardenId, WardenLiveness] = {}
         self._last_heartbeat: dict[WardenId, Heartbeat] = {}
@@ -166,9 +167,8 @@ class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
         # cell_id), so a leave Question for the same goal and Cell answers herself, once, instead
         # of asking the human again for every later file (hivemind.queen.leave_memory).
         self._leave_memory: dict[tuple[TaskId, CellId], leave_memory.LeaveMemoryEntry] = {}
-        # A task's own retry count, since hivemind.brood_chamber.task.state.TRANSITIONS has no
-        # edge back from RUNNING that would let `Task.attempt` itself track this (module docstring
-        # of hivemind.queen.dispatcher.redispatch); absent means "on its first attempt" (1).
+        # A task's own retry count: TRANSITIONS has no edge back from RUNNING for `Task.attempt` to
+        # track it (see hivemind.queen.dispatcher.redispatch); absent means its first attempt (1).
         self._attempts: dict[TaskId, int] = {}
         # The Alarm behind a still-outstanding REBIND/RETRY_TASK, so a later COMPLETE_TASK for the
         # same task can record alarm.resolved (this dispatch's own fix 3d); populated by
@@ -192,20 +192,23 @@ class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
         """The pending questions and Alarms currently waiting on the human."""
         return self._human_inbox
 
-    async def attach_warden(self, link: WardenLink) -> None:
+    async def attach_warden(self, link: WardenLink) -> bool:
         """Attach one Warden's own link, once her set holds `warden:spawn` (roadmap step 10.3).
 
         The Queen never creates Wardens or Cells (CLAUDE.md): this only admits an already-built
-        link, records `warden.spawned`, and starts draining it on the next tick
-        (`hivemind.queen.attach.attach_warden`, this method's own body).
+        link, records `warden.spawned` (`warden.reconnected` for a returning one), and starts
+        draining it on the next tick (`hivemind.queen.attach.attach_warden`, the real body).
 
         Args:
             link: The Warden's own address, Cell and Waggle link.
 
+        Returns:
+            True when the Warden was a reconnection, False when it is new to her.
+
         Raises:
             WardenSpawnRefusedError: The Guard refused `warden:spawn`; nothing was attached.
         """
-        await attach.attach_warden(self, link)
+        return await attach.attach_warden(self, link)
 
     async def submit_goal(
         self, goal: str, *, clearance: HoneyClearance, capabilities: tuple[str, ...] | None = None

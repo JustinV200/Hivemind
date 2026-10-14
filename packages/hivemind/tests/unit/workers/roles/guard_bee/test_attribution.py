@@ -136,6 +136,36 @@ async def test_a_node_no_cell_speaks_for_is_not_counted() -> None:
     assert (rig.door.filed, await rig.alerts()) == ([], [])
 
 
+async def test_a_node_that_took_over_a_cells_warden_speaks_for_that_cell() -> None:
+    # A Warden that moved onto its device (ADR-0053) comes back as the device's node: the Queen
+    # records `warden.reconnected` naming it, and what that node ships counts for the Cell.
+    rig = make_guard_bee()
+    cell, _hive_stand_side = await _cell(rig)
+    device = _node(rig)
+    await bind_cell(rig.seed, device.identity.node_id, cell, kind="warden.reconnected")
+    episode = await cell_episode(rig.seed, device, cell)
+    await _lure(device, episode.bee, episode.task)
+
+    await rig.bee.tick()
+
+    [report] = rig.door.filed
+    assert (report.rule, report.cell_id) == ("injection_then_denial", cell)
+
+
+async def test_a_reconnection_a_cells_own_node_records_binds_nothing() -> None:
+    # Only the Hive Stand's record binds a node to a Cell: a node cannot claim a Cell for itself.
+    rig = make_guard_bee()
+    cell, _hive_stand_side = await _cell(rig)
+    claimant = _node(rig)
+    await bind_cell(claimant, claimant.identity.node_id, cell, kind="warden.reconnected")
+    episode = await seed_episode(claimant)
+    await _lure(claimant, episode.bee, episode.task)
+
+    await rig.bee.tick()
+
+    assert (rig.door.filed, await rig.alerts()) == ([], [])
+
+
 async def test_a_task_placed_on_two_cells_in_turn_is_either_ones_own() -> None:
     rig = make_guard_bee()
     first_cell, first_seed = await _cell(rig)

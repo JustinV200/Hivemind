@@ -103,6 +103,15 @@ class DecisionBook:
         """Return the ceilings currently set for `holder`, or None if none have been set yet."""
         return self._ceilings.get(holder)
 
+    def ceilings_revision(self, holder: WardenId) -> int:
+        """Return the revision `holder`'s current ceilings were sent under; 0 when unknown.
+
+        The revision is in memory only (see `__init__`), so a Queen restored from her stores
+        reads 0 for ceilings she holds: sending them again under 0 is what a Warden that never saw
+        a revision expects, and a Warden stores whatever it is sent.
+        """
+        return max(self._ceilings_revision.get(holder, 0), 0)
+
     def forget(self, rows: CellRows) -> int:
         """Drop the Cell's plan and its Wardens' ceilings from memory; return how many went.
 

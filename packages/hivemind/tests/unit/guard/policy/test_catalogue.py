@@ -41,7 +41,7 @@ _CALL_SITES: dict[EnforcementPoint, tuple[str, ...]] = {
     EnforcementPoint.LEASE_CREATION: ("hivemind.wardens.ticks.lease:_may_lease",),
     EnforcementPoint.GRANT_ISSUE: ("hivemind.queen.dispatcher.grants:_binding_allowed",),
     EnforcementPoint.FORAGE_REQUEST: ("hivemind.queen.ticks.forage:_authorize_request",),
-    EnforcementPoint.WARDEN_SPAWN: ("hivemind.queen.attach:attach_warden",),
+    EnforcementPoint.WARDEN_SPAWN: ("hivemind.queen.attach.admit:_admit",),
     EnforcementPoint.TOOL_INVOCATION: (
         "hivemind.workers.tools.registry:ToolRegistry.execute",
         "hivemind.workers.tools.http:http_request",

@@ -81,7 +81,7 @@ class _DiallingBackend:
         )
         self.delegate = FakeCellBackend(deps.clock, endpoint=endpoint)
         self._deps, self._gate = deps, gate
-        self.attach: Callable[[WardenLink], Awaitable[None]] | None = None
+        self.attach: Callable[[WardenLink], Awaitable[object]] | None = None
 
     @property
     def name(self) -> str:

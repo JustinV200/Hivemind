@@ -143,6 +143,36 @@ async def test_the_hub_remembers_when_a_link_attached(raw: RawLink) -> None:
     assert hub.attached_at_for_node(raw.hive.node_id) is None
 
 
+async def test_a_noted_reconnection_is_when_the_node_last_attached(raw: RawLink) -> None:
+    # A Warden that dials a gate again has no DeviceLink to attach, but its outbox replay is as
+    # expected as a link's (ADR-0055), so the instant is noted by node id.
+    clock = FakeClock()
+    hub, node = GatewayHub(clock), _node(raw)
+    clock.advance(30.0)
+
+    hub.note_attach(node.node_id)
+
+    assert hub.attached_at_for_node(node.node_id) == clock.now()
+    assert hub.attached_at(node.device_id) is None  # It is no link, so no link attached.
+    assert hub.attached_at_for_node(raw.hive.node_id) is None
+
+
+async def test_the_latest_of_a_links_attach_and_a_noted_reconnection_wins(raw: RawLink) -> None:
+    clock = FakeClock()
+    hub, node = GatewayHub(clock), _node(raw)
+    await hub.attach(node, raw.link)
+    clock.advance(30.0)
+    hub.note_attach(node.node_id)
+    noted_at = clock.now()
+    clock.advance(30.0)
+
+    assert hub.attached_at_for_node(node.node_id) == noted_at
+
+    await hub.attach(node, raw.link)  # The link attaches again, later than the note.
+
+    assert hub.attached_at_for_node(node.node_id) == clock.now()
+
+
 async def test_update_node_refreshes_an_attached_device_and_ignores_a_stranger(
     raw: RawLink,
 ) -> None:

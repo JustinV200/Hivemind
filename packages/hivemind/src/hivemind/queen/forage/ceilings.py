@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     # on why QueenDeps/WardenLink cannot be real imports inside hivemind.queen.forage.
     from hivemind.queen.deps import QueenDeps, WardenLink
 
-__all__ = ["change_ceilings", "set_ceilings"]
+__all__ = ["change_ceilings", "resend_ceilings", "set_ceilings"]
 
 
 async def set_ceilings(warden: WardenLink, ceilings: Ceilings, deps: QueenDeps) -> None:
@@ -81,6 +81,36 @@ async def change_ceilings(warden: WardenLink, ceilings: Ceilings, deps: QueenDep
     )
 
 
+async def resend_ceilings(warden: WardenLink, deps: QueenDeps) -> bool:
+    """Send a Warden the ceilings the ledger holds for it again, changing nothing (roadmap 11.9).
+
+    A Warden that re-attaches (its link was lost, it restarted, or a restarted Queen met it for the
+    first time) cannot be assumed to remember them: ceilings were once sent only with the first
+    dispatch to a Warden, a gap this closes. Nothing is written to the ledger and no revision is
+    spent, and no `forage.ceilings_set` is recorded: this is not a Queen decision, only the
+    delivery of the one she already made.
+
+    Args:
+        warden: The re-attached Warden and its own Waggle link.
+        deps: The Queen's collaborators.
+
+    Returns:
+        True when the ledger held ceilings for the Warden and they were sent; False when it held
+        none (a Warden she has never provisioned gets its first with its first dispatch).
+    """
+    ceilings = deps.ledger.decisions.ceilings_for(warden.warden_id)
+    if ceilings is None:
+        return False
+    message = CeilingsSet(
+        cell_id=warden.cell.id,
+        holder=warden.warden_id,
+        revision=deps.ledger.decisions.ceilings_revision(warden.warden_id),
+        ceilings=ceilings.to_wire(),
+        reason="The Warden re-attached: its current ceilings, sent again.",
+    )
+    return await warden.send(wrap(message, warden.hop, clock=deps.clock))
+
+
 async def _apply(
     warden: WardenLink, ceilings: Ceilings, deps: QueenDeps, *, old: Ceilings | None, reason: str
 ) -> None:
@@ -93,10 +123,8 @@ async def _apply(
         ceilings=ceilings.to_wire(),
         reason=reason,
     )
-    # The ledger write above is already durable; an unreachable Warden simply never provisions from
-    # this one message and is re-sent nothing else until it is dispatched to again
-    # (hivemind.queen.dispatcher.ready.assign._ensure_warden_provisioned only runs once per
-    # attachment, a residual gap this dispatch reports rather than widens the scope to fix).
+    # The ledger write above is already durable; an unreachable Warden misses this one message and
+    # is sent the ledger's ceilings again when it re-attaches (`resend_ceilings`).
     await warden.send(wrap(message, warden.hop, clock=deps.clock))
     await record_forage_event(
         deps,

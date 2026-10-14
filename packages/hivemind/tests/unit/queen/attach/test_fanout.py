@@ -1,21 +1,23 @@
-"""Tests for hivemind.queen.cell_gate.listener's fan-out: backpressure from the Queen to the Cell.
+"""Tests for hivemind.queen.attach.fanout: backpressure from the Queen to a remote Warden.
 
-A Virtual Cell's connection is read by one pump that hands the Queen's envelopes to her link's
+A remote Warden's connection is read by one pump that hands the Queen's envelopes to her link's
 reader. Its queue used to be unbounded, so while the Queen was not reading, the pump went on
 reading the socket into memory and no backpressure ever reached the Cell. The fan-out now holds
-at most `FANOUT_QUEUE_SIZE` unread; past that the pump parks and leaves the socket unread. The
-"socket" here is a real `MemoryTransport` pair behind a wrapper that counts what the pump reads
-off it; waiting is on that count, never on a timer.
+at most `FANOUT_QUEUE_SIZE` unread; past that the pump parks and leaves the socket unread. The pump
+reads the frame iterator it is handed, so a gate that already read a handshake from the connection
+passes the very iterator on. The "socket" here is a real `MemoryTransport` pair behind a wrapper
+that counts what the pump reads off it; waiting is on that count, never on a timer.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/cell_gate/listener.py (codingrules section 3); split by feature
-    (14.2) from test_listener.py, which drives the whole listener over a real loopback WebSocket.
+    Mirrors src/hivemind/queen/attach/fanout.py (codingrules section 3); the Cell listener's own
+    tests (tests/unit/queen/cell_gate/test_listener.py) drive the whole path over a real loopback
+    WebSocket.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.queen.cell_gate.listener for _FanoutTransport and FANOUT_QUEUE_SIZE.
+    - hivemind.queen.attach.fanout for FanoutTransport and FANOUT_QUEUE_SIZE.
     - hivemind.queen.inbox.links for the Queen's own per-link reader downstream of it.
 """
 
@@ -27,7 +29,7 @@ from collections.abc import AsyncIterator, Callable
 import pytest
 from builders.supervision import make_telemetry
 
-from hivemind.queen.cell_gate.listener import FANOUT_QUEUE_SIZE, _FanoutTransport
+from hivemind.queen.attach import FANOUT_QUEUE_SIZE, FanoutTransport
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
@@ -116,7 +118,7 @@ async def test_the_fan_out_stops_reading_the_socket_while_the_queen_is_not_readi
     # Arrange: the Cell sends four fan-outs' worth before the Queen's reader takes a single one.
     queen_end, cell_end = MemoryTransport.pair(Codec(), Codec())
     socket = _CountingTransport(queen_end)
-    fanout = _FanoutTransport(socket, _never_dispatched)
+    fanout = FanoutTransport(socket, _never_dispatched)
     sent = await _cell_sends(cell_end, 4 * FANOUT_QUEUE_SIZE)
 
     # The pump fills the fan-out, holds one more in hand, and parks: the rest stay in the socket.
@@ -144,7 +146,7 @@ async def test_a_full_fan_out_still_ends_when_the_connection_is_lost() -> None:
     # waiting for room to say so, and she hears the loss once she drains what was queued.
     queen_end, cell_end = MemoryTransport.pair(Codec(), Codec())
     socket = _CountingTransport(queen_end)
-    fanout = _FanoutTransport(socket, _never_dispatched)
+    fanout = FanoutTransport(socket, _never_dispatched)
     sent = await _cell_sends(cell_end, FANOUT_QUEUE_SIZE)
     await _until(lambda: socket.read == FANOUT_QUEUE_SIZE)
 
@@ -163,7 +165,7 @@ async def test_a_parked_pump_is_reaped_at_once_when_its_handler_is_cancelled() -
     # fan-out, must end at that cancel rather than park again in its own finally.
     queen_end, cell_end = MemoryTransport.pair(Codec(), Codec())
     socket = _CountingTransport(queen_end)
-    fanout = _FanoutTransport(socket, _never_dispatched)
+    fanout = FanoutTransport(socket, _never_dispatched)
     await _cell_sends(cell_end, 2 * FANOUT_QUEUE_SIZE)
     await _until(lambda: socket.read == FANOUT_QUEUE_SIZE + 1)
 

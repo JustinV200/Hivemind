@@ -124,6 +124,7 @@ from hivemind.queen.cluster.health import HealthPoller
 from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.queen.guard_requests import GuardDeps
+from hivemind.queen.holds import HeldCells, ResumeHints
 from hivemind.queen.intake import GoalRequestStore
 from hivemind.queen.placement import (
     DormantCandidate,
@@ -668,6 +669,10 @@ class DispatchBook:
         provisions: Virtual Cells being acquired beside her tick (`ProvisionLane`).
         backoff: Virtual backends held back after failed provisions (`ProvisionBackoff`),
             changed by the acquisitions themselves, beside her tick.
+        held: The Cells whose node is away (roadmap 11.9): the dispatcher neither retries, resumes
+            nor places on one, and the Queen does not fail its tasks (`HeldCells`); the swarm gate
+            holds and releases them.
+        resumes: Where each re-placed task resumes from at its next placement (`ResumeHints`).
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -675,6 +680,8 @@ class DispatchBook:
     unplaced: dict[TaskId, str] = field(default_factory=dict)
     provisions: ProvisionLane = field(default_factory=ProvisionLane)
     backoff: ProvisionBackoff = field(default_factory=ProvisionBackoff)
+    held: HeldCells = field(default_factory=HeldCells)
+    resumes: ResumeHints = field(default_factory=ResumeHints)
 
 
 def _set_event() -> asyncio.Event:

@@ -14,8 +14,10 @@ is its proposal, still names the bee whose episode it happened in.
 It also attributes every fact (roadmap step 10.6): a Virtual Cell's Warden ships its own trail
 segment, so a compromised Cell can record anything on its own node, naming any bee, task or Cell.
 The index knows who owns what from the Queen's own records, learnt from the Hive Stand's node
-alone: `warden.spawned` binds a Warden and the node its link proved to a Cell, `queen.assigned` a
-task to every Cell it was placed on, `forage.granted` a grant to its task. A bee or a proposal is
+alone: `warden.spawned` binds a Warden and the node its link proved to a Cell (so does
+`warden.reconnected`, which names the node a returning Warden's new link proved: a Warden that
+moved onto its device speaks as the device's node from then on), `queen.assigned` a task to every
+Cell it was placed on, `forage.granted` a grant to its task. A bee or a proposal is
 owned through the claim its Cell's node made (`worker.spawned`, `capping.proposed`), which holds
 only when the task it names was placed on that Cell. A fact the Hive Stand recorded is OWN; one a
 Cell's node recorded is OWN when that Cell owns everything it names, FORGED when another Cell owns
@@ -41,7 +43,8 @@ Key invariants:
 See Also:
     - hivemind.workers.roles.guard_bee.rules for the matchers whose fields a fact keeps.
     - hivemind.pheromone.events.families for the payload each kind carries.
-    - hivemind.queen.attach for `warden.spawned`, which names the node a link proved.
+    - hivemind.queen.attach for `warden.spawned` and `warden.reconnected`, which name the node a
+      link proved.
 """
 
 from __future__ import annotations
@@ -57,7 +60,7 @@ from hivemind.pheromone import LlmEvent, PheromoneEvent
 
 # Which id kind a prefixed id names, as the Guard Bee's rules group by it; `msg_` is a Capping
 # proposal's id, which the rules never group by but the index joins through, and `node_` the node
-# a Warden speaks as, which `warden.spawned` binds to its Cell.
+# a Warden speaks as, which `warden.spawned` (or `warden.reconnected`) binds to its Cell.
 _PREFIXES: tuple[tuple[str, str], ...] = (
     ("worker_", "bee"),
     ("warden_", "bee"),
@@ -74,12 +77,15 @@ _ID_FIELDS = ("principal_id", "consumer", "task_id", "cell_id", "grant_id", "nod
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 CAPABILITY_FAMILY = "capability_family"  # Derived: a guard.denied capability's family.
 # The kinds the index learns from, and the one kind whose payload tier is a Capping risk tier.
+# A Warden's two records of attaching: the first time, and every time it comes back (its node may
+# differ then: a device's Warden speaks as the device once it has moved there).
+_WARDEN_KINDS = frozenset({"warden.spawned", "warden.reconnected"})
 INDEX_KINDS = frozenset(
-    {"capping.proposed", "worker.spawned", "queen.assigned", "forage.granted", "warden.spawned"}
+    {"capping.proposed", "worker.spawned", "queen.assigned", "forage.granted"} | _WARDEN_KINDS
 )
 _CAPPING_FAMILY = "capping"
 # The Queen's own records of what belongs where: believed from the Hive Stand's node alone.
-BINDING_KINDS = frozenset({"warden.spawned", "queen.assigned", "forage.granted"})
+BINDING_KINDS = frozenset({"queen.assigned", "forage.granted"} | _WARDEN_KINDS)
 # The id kinds one Cell owns: itself, its Warden and bees, its tasks, their grants, its proposals.
 OWNED_KINDS = ("cell", "bee", "task", "grant", "proposal")
 # What a claim introduces rather than names: the claim is what gives it an owner.
@@ -200,7 +206,7 @@ class EpisodeIndex:
         elif fact.kind == "forage.granted" and "task" in ids and "grant" in ids:
             self._links[("task_grant", ids["task"])] = (fact.at, ids["grant"])
             self._links[("grant_task", ids["grant"])] = (fact.at, ids["task"])
-        elif fact.kind == "warden.spawned" and "bee" in ids and "cell" in ids:
+        elif fact.kind in _WARDEN_KINDS and "bee" in ids and "cell" in ids:
             for member in (ids["bee"], ids.get("node")):
                 if member is not None:
                     self._cells.setdefault(member, ids["cell"])  # A node speaks for one Cell.

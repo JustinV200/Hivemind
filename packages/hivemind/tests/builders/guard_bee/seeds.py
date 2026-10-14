@@ -176,11 +176,16 @@ async def seed_episode(seed: TrailSeeder, task: str | None = None) -> Episode:
     return episode
 
 
-async def bind_cell(stand: TrailSeeder, node: str, cell: str | None = None) -> str:
-    """Record, as the Queen, a Warden attaching for a Cell whose link proved `node`; the Cell."""
+async def bind_cell(
+    stand: TrailSeeder, node: str, cell: str | None = None, kind: str = "warden.spawned"
+) -> str:
+    """Record, as the Queen, a Warden attaching for a Cell whose link proved `node`; the Cell.
+
+    `kind` is `warden.reconnected` for a Warden coming back on a link that proved another node.
+    """
     cell_id = cell if cell is not None else new_cell_id(stand.clock)
     payload = {"cell_id": cell_id, "node_id": node}
-    await stand.record(WardenEvent, "warden.spawned", new_warden_id(stand.clock), payload)
+    await stand.record(WardenEvent, kind, new_warden_id(stand.clock), payload)
     return cell_id
 
 

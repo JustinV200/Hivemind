@@ -12,7 +12,8 @@ within headroom by autopilot, contested by awake). Roadmap step 4.8 adds `hostin
 shared-seat, per-goal-spend, hosting-plan and ceilings tables `requests` now reads for its
 SHARED_SEATS and SPEND checks. Roadmap step 8.3 adds `evict` (`evict_source`, the Queen's one order
 to a Warden's model server, only to reclaim seats she exported); the Warden's reports of what its
-server loaded are handled in `hivemind.queen.ticks.sources`.
+server loaded are handled in `hivemind.queen.ticks.sources`. Roadmap 11.9 adds `resend`
+(`resend_state`, what the ledger holds for a Warden that re-attaches, sent to it again).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
@@ -43,6 +44,8 @@ Public API (roadmap steps 4.7-4.8):
       plan checks (roadmap step 5.7a; night_veil).
     - set_ceilings, change_ceilings: a Warden's local-pool bounds (ceilings).
     - evict_source: take back seats she exported from a Warden's model server (evict; roadmap 8.3).
+    - Resent, resend_state: the ceilings, plan and live grants a re-attached Warden is sent again
+      (resend; roadmap 11.9).
 """
 
 from hivemind.queen.forage.ceilings import change_ceilings, set_ceilings
@@ -79,6 +82,7 @@ from hivemind.queen.forage.requests import (
     grant_wanted,
     handle_forage_request_for_kind,
 )
+from hivemind.queen.forage.resend import Resent, resend_state
 
 __all__ = [
     "DecisionBook",
@@ -91,6 +95,7 @@ __all__ = [
     "LocalPoolReport",
     "NightVeilPlanError",
     "PlanReason",
+    "Resent",
     "SeatBook",
     "SpendBook",
     "SqliteLedgerStore",
@@ -103,6 +108,7 @@ __all__ = [
     "night_veil_local_only",
     "release_finished",
     "renew_grants_for_warden",
+    "resend_state",
     "restrict_to_local",
     "revise",
     "revoke",

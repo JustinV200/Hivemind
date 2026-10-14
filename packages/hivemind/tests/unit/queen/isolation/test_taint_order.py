@@ -10,8 +10,8 @@ its segment, where alone they are recorded, and the Hive's tables get no label o
 12: a label's `memory.tainted` record would outlive the Cell).
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/isolation/taint.py and its call from src/hivemind/queen/attach.py
-    (codingrules section 3).
+    Mirrors src/hivemind/queen/isolation/taint.py and its call from
+    src/hivemind/queen/attach/admit.py (codingrules section 3).
 
 Key invariants:
     - None: this module holds tests only.
