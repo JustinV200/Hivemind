@@ -174,6 +174,7 @@ async def test_the_holds_own_clock_still_decides_whatever_the_diagnosis_does(
         # A task on the device, so the hold has someone waiting on the diagnosis's answer.
         node = (await place_on_device(rig)).node
         rig.unreachable.use_diagnosis(_diagnosis(rig))
+        rig.unreachable.note(node.device_id, "missed_heartbeats")  # A loss somebody saw.
 
         await rig.unreachable.lost(node)
         rig.clock.advance(GRACE_S + 1.0)

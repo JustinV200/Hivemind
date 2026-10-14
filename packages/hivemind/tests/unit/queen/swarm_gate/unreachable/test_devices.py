@@ -262,11 +262,36 @@ async def test_a_hold_with_no_task_asks_for_no_diagnosis(rig: GateRig) -> None:
         assert diagnosis.ended == []
 
 
+async def test_a_hold_on_a_device_nobody_saw_go_asks_for_no_diagnosis_even_with_a_task(
+    rig: GateRig,
+) -> None:
+    diagnosis = _RecordingDiagnosis()
+    rig.unreachable.use_diagnosis(diagnosis)
+    async with rig.serving():
+        # A task is on the device, but the hub gave no reason because nothing went: the Hive
+        # restarted without a notice, or the packet has not dialled yet. It is not lost, only not
+        # here yet.
+        placed = await place_on_device(rig)
+
+        await rig.unreachable.lost(placed.node)
+        await rig.unreachable.lost(placed.node)
+        rig.clock.advance(GRACE_S + 1.0)
+        await rig.unreachable.lost(placed.node)  # The grace ends with the device still not here.
+
+        # It is held and decided on like any device that is not reachable ...
+        [held] = await rig.hive.events("swarm.node_held")
+        assert held.payload["reason"] == NO_LINK_REASON and held.payload["tasks"] == 1
+        assert "unreachable_decision" in {reason for reason, _detail in await _decisions(rig)}
+        # ... but nobody was asked to look into it, then or when the hold ended.
+        assert diagnosis.begun == [] and diagnosis.ended == []
+
+
 async def test_forget_ends_a_hold_with_no_decision(rig: GateRig) -> None:
     diagnosis = _RecordingDiagnosis()
     rig.unreachable.use_diagnosis(diagnosis)
     async with rig.serving():
         placed = await place_on_device(rig)
+        rig.unreachable.note(placed.node.device_id, "closed")
         await rig.unreachable.lost(placed.node)
 
         await rig.unreachable.forget(placed.node)

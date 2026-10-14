@@ -18,7 +18,9 @@ Fits into the Hive:
 
 Key invariants:
     - `begin` and `end` are called once per hold each, in that order; `end` is called whether the
-      device came back or the Queen decided.
+      device came back or the Queen decided. Neither is called for a hold on a device nobody saw
+      go (just enrolled, or one the Hive restarted without): that device is not lost, only not
+      here yet, and a diagnosis of it would cost a model run for nothing.
     - Neither may raise for a diagnosis that finds nothing: the hold's timeline never depends on
       the diagnosis succeeding.
     - A diagnosis learns a node and a reason word, never an address, a key or a path.
