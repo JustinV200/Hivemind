@@ -277,6 +277,10 @@ class QueenSession:
         """Close the connection from the Queen's side."""
         await self._connection.close(code, reason)
 
+    def drop(self) -> None:
+        """End the connection with no close frame, as a Queen that vanished ends it for the peer."""
+        self._connection.transport.abort()
+
 
 class QueenDouble:
     """The scripted Queen: identity, keys, listener and the sessions it has seen."""

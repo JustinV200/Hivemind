@@ -12,6 +12,14 @@ acknowledged once sent, and replayed after a reconnection (gateway-contract sect
 courier owns the outbox and the lock that orders appends and the replay, and it is the single
 place a frame is built for the wire, so there is exactly one path by which the packet speaks.
 
+"Acknowledged once sent" is the outbox's rule, and a send that returned has only put the frame on a
+connection. A cable pulled out from under the device leaves the connection looking alive for about
+forty seconds, and a release or an exit sent in that time is acknowledged, gone from the outbox and
+lost. So the courier also keeps, in memory and bounded, each durable frame it sent live in the last
+stretch, and after a reconnection sends those again (`resend_recent`), in order and under their own
+ids, ahead of the outbox: the Queen's replay window drops what she already held, so a frame is
+neither lost nor handled twice (gateway-contract section 14).
+
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Built by the composition root;
     attached to each Link by pollen.agent.packet; used by every executor through the Reporter
@@ -23,6 +31,9 @@ Key invariants:
       receiver drops, never a second command.
     - Appends and the replay never run at once: one lock orders every outbox operation.
     - A live frame with no link is dropped, never queued.
+    - A durable frame is remembered once its send returned, and what the last connection may have
+      swallowed goes out first on the next, before the outbox, under the ids it had; a Queen who
+      said goodbye with a close frame is owed nothing again (`forget_recent`).
 
 See Also:
     - docs/waggle/gateway-contract.md sections 8 and 14 (what is sent, and the outbox).
@@ -44,6 +55,7 @@ from waggle.errors import TransportError
 from waggle.ids import DeviceId, HiveId, MessageId, NodeId
 from waggle.messages.base import WaggleMessage
 from waggle.outbox import Outbox, ReplayReport, expire_older_than, replay_outbox
+from waggle.transport.recent import RecentFrames, RememberingTransport, every_frame
 
 log = logging.getLogger(__name__)
 
@@ -66,18 +78,24 @@ class Courier:
     ``asyncio.Lock`` that orders every operation on the outbox (append, ack, replay).
     """
 
-    def __init__(self, identity: Identity, clock: Clock, outbox: Outbox) -> None:
+    def __init__(
+        self, identity: Identity, clock: Clock, outbox: Outbox, recent: RecentFrames | None = None
+    ) -> None:
         """Bind the courier to the packet's identity, clock and outbox.
 
         Args:
             identity: Who the packet is on the wire.
             clock: Stamps ids and ``sent_at``.
             outbox: The durable queue of frames that must reach the Queen.
+            recent: The memory of the durable frames sent live, for a connection that died
+                unnoticed; a ring with the default bounds when omitted.
         """
         self._identity = identity
         self._clock = clock
         self._outbox = outbox
+        self._recent = recent if recent is not None else RecentFrames()
         self._link: Link | None = None
+        self._lost_at: float | None = None  # When the last connection ended; None before any.
         self._outbox_lock = asyncio.Lock()
 
     @property
@@ -102,6 +120,12 @@ class Courier:
     def detach(self) -> None:
         """Stop sending on the current link (it ended); live frames are then dropped."""
         self._link = None
+        # What the ring is asked, on the next connection, is what went out before this moment.
+        self._lost_at = self._clock.monotonic()
+
+    def forget_recent(self) -> None:
+        """Forget the frames sent live: the Queen closed with a close frame, so she read them."""
+        self._recent.clear()
 
     def envelope(
         self, payload: WaggleMessage, *, to: str, correlation_id: MessageId | None = None
@@ -162,6 +186,9 @@ class Courier:
             await link.send(envelope)
         except (TransportError, TimeoutError):
             return  # Sent or not, it is still pending; a duplicate is harmless (same id).
+        # Sent is not heard: the connection may have been dead for forty seconds already, and the
+        # ack below would then be the end of the frame. Held, it is sent again on the next one.
+        self._recent.remember(envelope, self._clock.monotonic())
         async with self._outbox_lock:
             await asyncio.to_thread(self._outbox.ack, envelope.id)
 
@@ -177,6 +204,24 @@ class Courier:
         if not answered:
             log.debug("pollen.error_reply_dropped code=%s", error.code)
 
+    async def resend_recent(self, link: Link) -> int:
+        """Send again the durable frames the last connection may have swallowed, before the outbox.
+
+        Args:
+            link: The connection that has just announced itself.
+
+        Returns:
+            How many frames were sent again; 0 before the packet has lost a connection.
+
+        Raises:
+            waggle.errors.TransportError: ``link`` failed part way; every frame is still held,
+                and the next connection sends them all again from the start.
+            TimeoutError: ``link`` took no frame in time.
+        """
+        if self._lost_at is None:
+            return 0  # The first connection: nothing was sent before it.
+        return await self._remembering(link).resend(self._lost_at)
+
     async def flush(self, link: Link) -> ReplayReport:
         """Drain the outbox through ``link`` in order, after dropping what is too old.
 
@@ -188,4 +233,9 @@ class Courier:
         """
         async with self._outbox_lock:
             await asyncio.to_thread(expire_older_than, self._outbox, self._clock)
-            return await replay_outbox(self._outbox, link)
+            # Through the ring, so a replay that went into a dead connection is held for the next.
+            return await replay_outbox(self._outbox, self._remembering(link))
+
+    def _remembering(self, link: Link) -> RememberingTransport:
+        """Wrap ``link`` so what it sends is remembered: every frame here is a durable one."""
+        return RememberingTransport(link, self._recent, self._clock, every_frame)

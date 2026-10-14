@@ -4,7 +4,8 @@ The Pollen Packet (the thin gateway program on a device the Hive borrows) has on
 folds any finished relocation window into the state, dials the Queen's persisted address (the
 Hive's central orchestrator, and nobody else) with the certificate pin from the invite, and on
 success sends the signed ``swarm.device_heartbeat`` as the very first frame, then a capacity report
-with trigger RECONNECTED, then replays the outbox in order. From then on three tasks serve the
+with trigger RECONNECTED, then sends again the durable frames the last connection may have
+swallowed, then replays the outbox in order. From then on three tasks serve the
 connection: the reader hands each verified frame to the dispatcher, the pulse beats, and a stop
 watcher ends it all on shutdown. A connection that ends, or never opens, is retried with the
 capped backoff of waggle's ``TickLoop`` (0.5 s doubling to 30 s); one that lived a minute resets
@@ -21,7 +22,8 @@ Fits into the Hive:
 
 Key invariants:
     - The first frame of every connection is a signed heartbeat; the courier is attached, and live
-      frames flow, only after the outbox has been replayed behind it.
+      frames flow, only after the frames the last connection may have swallowed have been sent
+      again and the outbox replayed behind them.
     - A dial is made to the Queen's persisted address or its relocation plan, never to an address
       that arrived in any other message.
     - Every await on the network has a timeout from a named constant (in pollen.agent.link).
@@ -264,6 +266,9 @@ class PollenPacket(TickLoop):
         """Send the first frame and the capacity report, replay the outbox, then go live."""
         parts = self._parts
         await parts.pulse.announce(link)
+        # Before the outbox: what the last connection may have swallowed was sent before anything
+        # that waited in it, under the ids it had, and the Queen's window drops what she held.
+        await parts.courier.resend_recent(link)
         await self._flush(link)
         parts.courier.attach(link)
         # Anything queued between the first flush and the attach is behind the replay's end.
@@ -308,7 +313,10 @@ class PollenPacket(TickLoop):
             try:
                 async for envelope in link.receive():
                     await dispatcher.handle(envelope)
-                return  # The Queen closed the connection normally.
+                # The Queen closed the connection normally: she read everything sent before her
+                # close frame, and owes the packet nothing again.
+                self._parts.courier.forget_recent()
+                return
             except InvalidPayloadError as error:
                 # A frame with a readable id but a bad payload leaves the connection open.
                 await dispatcher.refuse_invalid(error)

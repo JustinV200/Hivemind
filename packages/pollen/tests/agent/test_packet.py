@@ -27,7 +27,7 @@ import asyncio
 import logging
 
 import pytest
-from device_kit import FAST_TIMINGS, Device, running
+from device_kit import FAST_TIMINGS, Device, live_lease, running
 from fast_clock import FastClock
 from queen_double import QueenDouble
 
@@ -39,8 +39,10 @@ from pollen.platform import select_shim
 from waggle.clock import Clock
 from waggle.loop import INITIAL_BACKOFF_S
 from waggle.messages.base import MAX_REASON_CHARS
+from waggle.messages.cell import CellTeardownRequest, LeaseReleased, ReleaseCause
 from waggle.messages.control import ErrorMessage, Ping, Pong, Wake
 from waggle.messages.forage import CapacityReport, CapacityTrigger
+from waggle.messages.labels import Urgency
 from waggle.messages.swarm import DeviceHeartbeat, RuntimeLevel
 
 
@@ -79,6 +81,60 @@ async def test_the_packet_dials_again_when_the_queen_drops_the_link(
         second = await queen.next_session()
         assert second is not first
         assert isinstance(second.frames[0].payload, DeviceHeartbeat)
+
+
+async def test_a_durable_frame_sent_into_a_link_that_died_unheard_comes_again_before_the_outbox(
+    queen: QueenDouble, device: Device, clock: Clock
+) -> None:
+    async with live_lease(queen, device, clock) as live:
+        asked = await live.session.send(
+            CellTeardownRequest(
+                cell_id=queen.cell_id,
+                lease_id=live.lease.lease_id,
+                urgency=Urgency.IMMEDIATE,
+                cause=ReleaseCause.COMPLETED,
+                reason="The task is over.",
+            ),
+            sender=queen.warden_id,
+        )
+        released = await live.session.expect(
+            LeaseReleased, where=lambda e: e.correlation_id == asked.id
+        )
+
+        # The Queen never read it (the cable was out): the packet cannot know, and no close frame
+        # came. The packet dials again, and its second connection opens with the frame, same id.
+        live.session.drop()
+        again = await queen.next_session()
+
+        resent = await again.expect(LeaseReleased)
+        assert resent.id == released.id and resent.payload.lease_id == live.lease.lease_id
+        order = [type(e.payload) for e in again.frames]
+        assert (
+            order.index(DeviceHeartbeat) < order.index(CapacityReport) < order.index(LeaseReleased)
+        )
+
+
+async def test_a_queen_that_closed_with_a_close_frame_is_not_sent_the_frame_again(
+    queen: QueenDouble, device: Device, clock: Clock
+) -> None:
+    async with live_lease(queen, device, clock) as live:
+        asked = await live.session.send(
+            CellTeardownRequest(
+                cell_id=queen.cell_id,
+                lease_id=live.lease.lease_id,
+                urgency=Urgency.IMMEDIATE,
+                cause=ReleaseCause.COMPLETED,
+                reason="The task is over.",
+            ),
+            sender=queen.warden_id,
+        )
+        await live.session.expect(LeaseReleased, where=lambda e: e.correlation_id == asked.id)
+
+        await live.session.close(1000)  # A goodbye: she read everything before it.
+        again = await queen.next_session()
+
+        await again.expect(CapacityReport)
+        await again.expect_none(LeaseReleased)
 
 
 async def test_a_ping_is_answered_with_a_pong_that_carries_the_protocol_version(
