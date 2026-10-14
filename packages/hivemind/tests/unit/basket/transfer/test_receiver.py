@@ -15,6 +15,7 @@ See Also:
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,6 +126,7 @@ async def test_a_blob_goes_from_sender_to_receiver_in_three_chunks(tmp_path: Pat
     assert rig.receiver.integrity_failures == ()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows files carry no POSIX mode bits")
 async def test_the_spool_file_and_directory_are_owner_only(tmp_path: Path) -> None:
     rig = _rig(tmp_path)
     await rig.accept()

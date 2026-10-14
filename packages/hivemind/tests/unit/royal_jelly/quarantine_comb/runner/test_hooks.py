@@ -13,11 +13,13 @@ See Also:
 
 from __future__ import annotations
 
+import os
 import socket
 from pathlib import Path
 
 import pytest
 
+import hivemind.royal_jelly.quarantine_comb.runner.hooks as hooks_module
 from hivemind.royal_jelly.quarantine_comb.runner.hooks import (
     AuditPolicy,
     AuditRecorder,
@@ -26,10 +28,17 @@ from hivemind.royal_jelly.quarantine_comb.runner.hooks import (
     classify,
 )
 
-_STDLIB = "/usr/lib/python3.12"
-_TOOL_FRAME = ("{pkg}/tool.py", 7)
-_STDLIB_FRAME = (f"{_STDLIB}/subprocess.py", 1_900)
-_HIVE_FRAME = ("/opt/venv/lib/python3.12/site-packages/hivemind/cell/local/process.py", 240)
+# Native separators throughout: the policy compares `root + os.sep` prefixes, so a frame written
+# with `/` on Windows would never match the root it is meant to lie under.
+# Resolved as `_resolved` resolves an event's path, so on Windows they carry the drive too.
+_STDLIB = os.path.realpath(os.path.join(os.sep, "usr", "lib", "python3.12"))
+_VENV = os.path.realpath(os.path.join(os.sep, "opt", "venv"))
+_TOOL_FRAME = ("{pkg}" + os.sep + "tool.py", 7)
+_STDLIB_FRAME = (os.path.join(_STDLIB, "subprocess.py"), 1_900)
+_HIVE_FRAME = (
+    os.path.join(_VENV, "lib", "python3.12", "site-packages", "hivemind", "cell", "process.py"),
+    240,
+)
 
 
 def _policy(tmp_path: Path) -> AuditPolicy:
@@ -37,7 +46,7 @@ def _policy(tmp_path: Path) -> AuditPolicy:
     root = tmp_path.resolve()
     return AuditPolicy(
         package_dir=str(root / "pkg"),
-        allowed_roots=(str(root), "/opt/venv"),
+        allowed_roots=(str(root), _VENV),
         stdlib_roots=(_STDLIB,),
     )
 
@@ -80,16 +89,24 @@ def test_every_process_event_is_forbidden_to_the_tool(tmp_path: Path, event: str
 def test_opening_a_file_outside_every_allowed_root_names_the_path(tmp_path: Path) -> None:
     policy = _policy(tmp_path)
 
-    hit = classify("open", ("/etc/passwd", "r", 0), _frames(policy, _TOOL_FRAME), policy)
+    outside = str(tmp_path.resolve().parent / "outside.txt")  # Beside the root: not under it.
+    hit = classify("open", (outside, "r", 0), _frames(policy, _TOOL_FRAME), policy)
 
     assert hit is not None
     assert hit.kind == "open"
-    assert "/etc/passwd" in hit.detail
+    assert outside in hit.detail
 
 
 @pytest.mark.parametrize(
     "path",
-    ["{root}/scratch/notes.txt", "{root}/pkg/tool.py", "/opt/venv/lib/x.py", "/dev/null", 3, None],
+    [
+        os.path.join("{root}", "scratch", "notes.txt"),
+        os.path.join("{root}", "pkg", "tool.py"),
+        os.path.join(_VENV, "lib", "x.py"),
+        os.devnull,
+        3,
+        None,
+    ],
 )
 def test_opening_inside_the_package_scratch_or_prefix_is_fine(tmp_path: Path, path: object) -> None:
     policy = _policy(tmp_path)
@@ -130,7 +147,9 @@ def test_asyncios_own_unix_socket_pair_is_not_network_use(tmp_path: Path) -> Non
     policy = _policy(tmp_path)
     frames = _frames(policy, _TOOL_FRAME)
 
-    assert classify("socket.__new__", (object(), socket.AF_UNIX, 1, 0), frames, policy) is None
+    # AF_UNIX is absent on Windows; any family outside the internet ones reads the same way.
+    unix_family = getattr(socket, "AF_UNIX", 1)
+    assert classify("socket.__new__", (object(), unix_family, 1, 0), frames, policy) is None
     assert classify("socket.__new__", (object(), socket.AF_INET, 1, 0), frames, policy) is not None
     assert classify("socket.connect", (object(), ("example.org", 80)), frames, policy) is not None
     assert classify("socket.getaddrinfo", ("example.org", 80), frames, policy) is not None
@@ -159,13 +178,34 @@ def test_events_the_hook_does_not_watch_are_ignored(tmp_path: Path, event: str) 
     assert classify(event, ("x",), _frames(policy, _TOOL_FRAME), policy) is None
 
 
+def test_the_recorder_exempts_socket_events_raised_inside_socketpair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # On Windows `socket.socketpair` is Python code making two loopback AF_INET sockets for
+    # asyncio's wake-up; this function stands in for it, so the test runs on every platform.
+    here = Path(__file__).resolve().parent
+    recorder = AuditRecorder(
+        AuditPolicy(package_dir=str(here), allowed_roots=(str(here),), stdlib_roots=())
+    )
+
+    def stand_in_for_socketpair() -> None:
+        recorder("socket.__new__", (object(), socket.AF_INET, 1, 0))
+        recorder("socket.connect", (object(), ("127.0.0.1", 1)))
+
+    with pytest.raises(SandboxViolationError):
+        stand_in_for_socketpair()
+    monkeypatch.setattr(hooks_module, "_SOCKETPAIR_CODE", stand_in_for_socketpair.__code__)
+
+    stand_in_for_socketpair()
+
+    assert len(recorder.violations) == 1  # Only the unexempted call above was recorded.
+
+
 def test_the_recorder_raises_and_records_when_the_caller_is_in_the_package() -> None:
     # This test file stands in for the tool: the recorder walks the real stack from here.
     here = Path(__file__).resolve().parent
     recorder = AuditRecorder(
-        AuditPolicy(
-            package_dir=str(here), allowed_roots=(str(here),), stdlib_roots=("/usr/lib/python3.12",)
-        )
+        AuditPolicy(package_dir=str(here), allowed_roots=(str(here),), stdlib_roots=(_STDLIB,))
     )
     recorder.phase = "fuzz"
 

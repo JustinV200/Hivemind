@@ -127,6 +127,15 @@ async def _run_goal_and_check_the_trail(hive: Hive) -> GoalReport:
     return report
 
 
+def _trail_summary(events: tuple[PheromoneEvent, ...]) -> dict[str, object]:
+    """Return the trail's kinds in order and the payload of every alarm and denial on it."""
+    telling = {"alarm.raised", "forage.denied", "task.failed"}
+    return {
+        "kinds": [event.kind for event in events],
+        "telling": [(event.kind, dict(event.payload)) for event in events if event.kind in telling],
+    }
+
+
 class _HostLoad:
     """The one-minute load average `os.getloadavg` reports here; the test moves it."""
 
@@ -163,7 +172,9 @@ def test_a_goal_waits_out_a_busy_hive_stand_and_finishes_once_the_load_drops(
 
     report, events = asyncio.run(pump_until_done(clock, _wait_out_the_busy_moment(hive, host)))
 
-    assert report.succeeded is True, report
+    # On failure, say what the trail saw: the report alone cannot tell a stalled Worker from a
+    # denied grant, and this scenario has failed on a slow Windows runner for reasons it hid.
+    assert report.succeeded is True, (report, _trail_summary(events))
     [wait] = [event for event in events if event.kind == "forage.denied"]
     assert wait.payload["deferred"] is True
     assert wait.payload["limited_by"] == "free_cores"

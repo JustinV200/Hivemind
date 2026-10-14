@@ -14,8 +14,13 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable
+import os
+import sys
+import tempfile
+import uuid
+from collections.abc import Awaitable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from builders.royal_jelly import make_package, make_tool_files, make_tool_spec
@@ -25,21 +30,29 @@ from hivemind.royal_jelly.spec import GATE_ORDER, QuarantineLimits, QuarantineRe
 from waggle.clock import SystemClock
 
 # A tool that asks the operating system for a process by way of a standard-library helper: the
-# static scan cannot see it (nothing banned is named), so only the runner's audit hook can.
+# static scan cannot see it (nothing banned is named), so only the runner's audit hook can. The
+# program is this very interpreter, the one executable every host and container has.
 _SPAWN_TOOL = """\
+import sys
 import uuid
 
 
 async def run(session, arguments):
-    return {"out": str(uuid._get_command_stdout("true"))}
+    return {"out": str(uuid._get_command_stdout(sys.executable, "-c", "pass"))}
 """
-# A tool that reads a file outside its package through a standard-library helper.
-_OUTSIDE_TOOL = """\
+# A tool that reads a file outside its package through a standard-library helper. The file is
+# one this module writes beside the sandboxes (the system temp directory lies under no allowed
+# root), because `linecache` opens nothing for a path that does not exist, and no one system
+# file exists on every platform.
+_OUTSIDE_FILE = Path(os.path.realpath(tempfile.gettempdir())) / (
+    f"hivemind-comb-outside-{uuid.uuid4().hex}.txt"  # Real path: the hook names resolved paths.
+)
+_OUTSIDE_TOOL = f"""\
 import linecache
 
 
 async def run(session, arguments):
-    return {"lines": len(linecache.getlines("/etc/passwd"))}
+    return {{"lines": len(linecache.getlines({str(_OUTSIDE_FILE)!r}))}}
 """
 _SLEEP_TOOL = """\
 import asyncio
@@ -57,13 +70,14 @@ async def run(session, arguments):
     time.sleep(30)
     return {}
 """
-_LS_TOOL = """\
+# `hostname` exists on Linux, macOS and Windows alike; `ls` and `true` do not.
+_HOSTNAME_TOOL = """\
 from hivemind.cell.session import ExecSpec
 
 
 async def run(session, arguments):
     kinds = []
-    async for event in session.exec(ExecSpec(argv=("ls",))):
+    async for event in session.exec(ExecSpec(argv=("hostname",))):
         kinds.append(type(event).__name__)
     return {"events": kinds}
 """
@@ -75,13 +89,14 @@ async def run(session, arguments):
     return {"status": os.system("true")}
 """
 _SPAWNING_TEST = """\
+import sys
 import unittest
 import uuid
 
 
 class ToolTest(unittest.TestCase):
     def test_spawns(self):
-        uuid._get_command_stdout("true")
+        uuid._get_command_stdout(sys.executable, "-c", "pass")
 """
 _SESSION_TEST = """\
 import asyncio
@@ -116,8 +131,10 @@ _SCENARIOS = {
     "reads_outside": _Scenario(_OUTSIDE_TOOL),
     "sleeps": _Scenario(_SLEEP_TOOL, limits=_SHORT),
     "blocks": _Scenario(_BLOCKING_TOOL, limits=_SHORT),
-    "ls_undeclared": _Scenario(_LS_TOOL, _SESSION_TEST),
-    "ls_declared": _Scenario(_LS_TOOL, _SESSION_TEST, caps=("fs:read:*", "exec:ls")),
+    "hostname_undeclared": _Scenario(_HOSTNAME_TOOL, _SESSION_TEST),
+    "hostname_declared": _Scenario(
+        _HOSTNAME_TOOL, _SESSION_TEST, caps=("fs:read:*", "exec:hostname")
+    ),
     "spawning_tests": _Scenario(test_source=_SPAWNING_TEST),
     "hook_without_static": _Scenario(_OS_SYSTEM_TOOL, skip_static=True),
 }
@@ -144,9 +161,13 @@ async def _run_all() -> dict[str, QuarantineReport]:
 
 
 @pytest.fixture(scope="module")
-def reports() -> dict[str, QuarantineReport]:
+def reports() -> Iterator[dict[str, QuarantineReport]]:
     """Run every tool through the real Comb once for the whole module."""
-    return asyncio.run(_run_all())
+    _OUTSIDE_FILE.write_text("outside the sandbox\n", encoding="utf-8")
+    try:
+        yield asyncio.run(_run_all())
+    finally:
+        _OUTSIDE_FILE.unlink(missing_ok=True)
 
 
 def test_the_echo_tool_passes_all_six_gates_in_order(reports: dict[str, QuarantineReport]) -> None:
@@ -185,7 +206,7 @@ def test_reading_outside_the_package_fails_with_the_path_named(
     report = reports["reads_outside"]
 
     assert report.failing_gate == "fuzz"
-    assert "/etc/passwd" in report.gates[-1].reason
+    assert str(_OUTSIDE_FILE) in report.gates[-1].reason
 
 
 def test_a_tool_that_sleeps_past_the_limit_fails_the_fuzz_gate_as_timed_out(
@@ -202,27 +223,29 @@ def test_a_tool_that_blocks_the_loop_is_cut_by_the_wall_deadline(
 ) -> None:
     report = reports["blocks"]
 
-    assert report.failing_gate == "fuzz"
+    # Windows has no interval timer, so the runner cannot interrupt a blocking call itself; the
+    # Comb's own kill at the wall limit is the only bound there, charged to the resources gate.
+    assert report.failing_gate == ("resources" if sys.platform == "win32" else "fuzz")
     assert "wall-clock limit" in report.gates[-1].reason
 
 
 def test_a_session_exec_the_spec_does_not_declare_fails_the_capabilities_gate(
     reports: dict[str, QuarantineReport],
 ) -> None:
-    report = reports["ls_undeclared"]
+    report = reports["hostname_undeclared"]
 
     assert report.failing_gate == "capabilities"
     assert [gate.name for gate in report.gates][-1] == "capabilities"
-    assert "exec:ls" in report.gates[-1].reason
+    assert "exec:hostname" in report.gates[-1].reason
 
 
 def test_the_same_exec_passes_once_declared_and_the_session_spawn_is_not_a_violation(
     reports: dict[str, QuarantineReport],
 ) -> None:
-    report = reports["ls_declared"]
+    report = reports["hostname_declared"]
 
     assert report.passed
-    assert "exec:ls" not in report.gates[-1].reason
+    assert "exec:hostname" not in report.gates[-1].reason
 
 
 def test_a_test_that_spawns_a_process_fails_the_tests_gate_with_the_violation(

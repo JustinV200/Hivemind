@@ -32,7 +32,7 @@ _MIB = 1024 * 1024
 
 def test_rlimit_plan_adds_the_budget_to_the_baseline() -> None:
     limits = QuarantineLimits(cpu_s=10, memory_bytes=100 * _MIB)
-    baseline = Baseline(cpu_s=1.5, address_space_bytes=300 * _MIB, process_count=200)
+    baseline = Baseline(cpu_s=1.5, address_space_bytes=300 * _MIB, task_count=200)
 
     plan = rlimit_plan(limits, baseline).limits
 
@@ -43,7 +43,7 @@ def test_rlimit_plan_adds_the_budget_to_the_baseline() -> None:
 
 
 def test_rlimit_plan_skips_what_the_platform_could_not_measure() -> None:
-    baseline = Baseline(cpu_s=0.0, address_space_bytes=0, process_count=0)
+    baseline = Baseline(cpu_s=0.0, address_space_bytes=0, task_count=0)
 
     plan = rlimit_plan(QuarantineLimits(), baseline).limits
 
@@ -51,7 +51,7 @@ def test_rlimit_plan_skips_what_the_platform_could_not_measure() -> None:
 
 
 def test_rlimit_plan_never_caps_below_the_baseline() -> None:
-    baseline = Baseline(cpu_s=5.0, address_space_bytes=900 * _MIB, process_count=10)
+    baseline = Baseline(cpu_s=5.0, address_space_bytes=900 * _MIB, task_count=10)
 
     plan = rlimit_plan(QuarantineLimits(cpu_s=1, memory_bytes=16 * _MIB), baseline).limits
 

@@ -75,7 +75,9 @@ _PATH_EVENTS = frozenset(
     }
 )
 _INET_FAMILIES = (socket.AF_INET, socket.AF_INET6)  # A socket of these families is network access.
-_ALWAYS_READABLE = ("/dev/null",)  # A path every program may open; reading it reveals nothing.
+# Paths every program may open, as `_resolved` renders them: reading the null device reveals
+# nothing (`subprocess` opens it for DEVNULL); on Windows it resolves to `\\\\.\\NUL`.
+_ALWAYS_READABLE = frozenset({"/dev/null", os.path.realpath(os.devnull)})
 _MAX_PATH_CHARS = 200  # How much of an offending path the report keeps.
 
 __all__ = [
@@ -189,7 +191,8 @@ def _forbidden_what(
     if event in _NATIVE_EVENTS:
         return "native", f"loaded a shared library ({event})"
     if event.startswith("socket."):
-        # asyncio makes AF_UNIX socket pairs for its own wake-up; only network families count.
+        # asyncio makes AF_UNIX socket pairs for its own wake-up; only network families count
+        # (on Windows the pair is AF_INET over loopback, and the recorder exempts it by frame).
         if event == "socket.__new__" and (len(args) < 2 or args[1] not in _INET_FAMILIES):
             return None
         return "socket", f"used the network ({event})"
@@ -272,10 +275,13 @@ class AuditRecorder:
             return
         self._guard.busy = True
         try:
+            start = sys._getframe(1)  # The frame that triggered the event.
+            if event.startswith("socket.") and _inside_socketpair(start):
+                return  # The event loop's own wake-up pair, never the tool's network use.
             hit = classify(
                 event,
                 args,
-                _frames(sys._getframe(1)),  # The frame that triggered the event.
+                _frames(start),
                 self.policy,
                 in_thread=threading.current_thread() is not threading.main_thread(),
             )
@@ -293,6 +299,24 @@ class AuditRecorder:
 def install_audit_hook(recorder: AuditRecorder) -> None:
     """Register `recorder` as an audit hook; it cannot be removed for the life of the process."""
     sys.addaudithook(recorder)
+
+
+# Where `socket.socketpair` is Python code (Windows), the code object of that function; asyncio
+# makes its wake-up pair through it from two loopback AF_INET sockets, which look like network
+# use to the family check. Elsewhere the pair is AF_UNIX from C and the family check exempts it.
+_SOCKETPAIR_CODE = getattr(socket.socketpair, "__code__", None)
+
+
+def _inside_socketpair(start: FrameType | None) -> bool:
+    """Return whether a frame from `start` outward is `socket.socketpair`'s own Python body."""
+    if _SOCKETPAIR_CODE is None:
+        return False
+    frame = start
+    while frame is not None:
+        if frame.f_code is _SOCKETPAIR_CODE:
+            return True
+        frame = frame.f_back
+    return False
 
 
 def _frames(start: FrameType | None) -> Iterator[tuple[str, int]]:

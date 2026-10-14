@@ -42,6 +42,7 @@ from hivemind.llm import BoundModel
 from hivemind.manifest import BasketSection, QuarantineLimitsSection, RoyalJellySection, SandboxKind
 from hivemind.royal_jelly.registry import CombRegistry
 from hivemind.royal_jelly.spec import QuarantineLimits
+from waggle.messages.labels import OsFamily
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 
 __all__ = ["RoyalJellyAccess", "limits_from_section"]
@@ -64,6 +65,8 @@ class RoyalJellyAccess:
         limits: What one Quarantine Comb run may spend, from ``[royal_jelly.limits]``.
         sandbox_kind: Where the Comb runs (``config.sandbox``, repeated for a reader's ease).
         scaffolder_bound: The model on the SCAFFOLDER slot; None when no binding resolves.
+        sandbox_os: The sandbox's OS family, which the path decision compares a target with:
+            Linux for a Virtual Cell image; the Hive Stand's own for the subprocess sandbox.
     """
 
     registry: CombRegistry
@@ -78,6 +81,7 @@ class RoyalJellyAccess:
     limits: QuarantineLimits
     sandbox_kind: SandboxKind
     scaffolder_bound: BoundModel | None = None
+    sandbox_os: OsFamily = OsFamily.LINUX
 
 
 def limits_from_section(section: QuarantineLimitsSection) -> QuarantineLimits:

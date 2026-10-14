@@ -13,8 +13,8 @@ See Also:
 
 from __future__ import annotations
 
-import resource
 import signal
+import threading
 import time
 
 import pytest
@@ -29,6 +29,11 @@ from hivemind.royal_jelly.quarantine_comb.runner.usage import (
     disarm_deadline,
     take_baseline,
 )
+
+# The runner never runs on Windows (its sandbox is a POSIX host): `resource` and SIGALRM do not
+# exist there, so the module skips itself before it names either.
+resource = pytest.importorskip("resource", reason="the runner's limits are POSIX only")
+_SIGALRM = getattr(signal, "SIGALRM", 0)
 
 
 def test_the_counting_writer_counts_bytes_and_keeps_a_tail() -> None:
@@ -60,7 +65,9 @@ def test_the_baseline_reads_this_process() -> None:
 
     assert baseline.cpu_s > 0
     assert baseline.address_space_bytes >= 0
-    assert baseline.process_count >= 0
+    # RLIMIT_NPROC counts the user's threads too, so the baseline must count at least this
+    # process's own, or a cap built on it would fail the next thread at once (CI runners do).
+    assert baseline.task_count >= threading.active_count()
 
 
 def test_apply_limits_sets_known_limits_and_skips_unknown_ones(
@@ -100,21 +107,21 @@ def test_apply_limits_does_not_raise_a_hard_limit(monkeypatch: pytest.MonkeyPatc
 
 
 def test_the_deadline_interrupts_a_blocking_sleep() -> None:
-    previous = signal.getsignal(signal.SIGALRM)
+    previous = signal.getsignal(_SIGALRM)
     try:
         assert arm_deadline(0.05)
         with pytest.raises(DeadlineExceededError):
             time.sleep(5)
     finally:
         disarm_deadline()
-        signal.signal(signal.SIGALRM, previous)
+        signal.signal(_SIGALRM, previous)
 
 
 def test_a_disarmed_deadline_never_fires() -> None:
-    previous = signal.getsignal(signal.SIGALRM)
+    previous = signal.getsignal(_SIGALRM)
     try:
         arm_deadline(0.05)
         disarm_deadline()
         time.sleep(0.15)
     finally:
-        signal.signal(signal.SIGALRM, previous)
+        signal.signal(_SIGALRM, previous)

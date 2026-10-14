@@ -241,7 +241,9 @@ def build_ports(
         registry=access.registry,
         honey=QueenHoneyDeposit(deps),
         announcer=QueenAnnouncer(deps, wardens),
-        path_for=lambda platform: decide_path(platform, access.config.sandbox_distribution),
+        path_for=lambda platform: decide_path(
+            platform, access.config.sandbox_distribution, access.sandbox_os
+        ),
         reviewer=QueenReviewer(deps),
     )
 

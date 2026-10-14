@@ -44,7 +44,10 @@ and its session, runs under a fresh directory below the session's scratch and re
 Cell, so a Real Cell can never be the sandbox. The subprocess implementation is for development
 only: a temporary directory, a scrubbed environment, the running interpreter; it is selected only
 by an explicit manifest setting and logs a warning at build. It is the one place in the Royal Jelly
-package that may start a process.
+package that may start a process. Because it runs on the Hive Stand itself, the platform the path
+decision compares a target with is the host's own (its OS family, and its distribution unless the
+manifest names one), not the Ubuntu image a Virtual Cell sandbox would boot: a tool for the host's
+own platform takes the sandbox route on any host, and the real-Cell route is for other platforms.
 
 **Six gates, in this order, and the first failure ends the run.** The static gate is pure analysis
 of the source tree: banned imports and names, declared dependencies, the entry point present, tests

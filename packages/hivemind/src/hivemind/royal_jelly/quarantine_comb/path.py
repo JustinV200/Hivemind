@@ -5,8 +5,9 @@ Linux distribution cannot be fully exercised in it. ADR-0047 therefore gives the
 routes: the sandbox route (every gate runs in the sandbox) when the target is the sandbox
 image's own platform, and the real-cell route (static, schema and fuzz gates in the sandbox, the
 tests gate on a Real Cell of the target platform) for everything else. The decision is a pure
-function of the target's platform facts and the sandbox image's distribution name, so it is
-decided once, here, and recorded on the report.
+function of the target's platform facts and the sandbox's own platform (the image's distribution
+name, and its OS family: Linux for an image, this host's for the development subprocess sandbox,
+which is the Hive Stand itself), so it is decided once, here, and recorded on the report.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside royal_jelly.quarantine_comb.
@@ -14,8 +15,9 @@ Fits into the Hive:
     names a target platform. Calls into waggle's platform report and labels only.
 
 Key invariants:
-    - SANDBOX_CELL exactly when the target is Linux and its distribution is the sandbox image's;
-      every other target, including a Linux with no distribution label, is REAL_CELL.
+    - SANDBOX_CELL exactly when the target is the sandbox's own platform: for a Linux sandbox,
+      Linux of the image's distribution (a Linux with no distribution label is REAL_CELL); for a
+      Windows or macOS one (only ever the development subprocess), the same family.
     - Pure: no I/O, no clock.
 
 See Also:
@@ -43,20 +45,28 @@ PATH_RATIONALE = {
 }
 
 
-def decide_path(platform: PlatformReport, sandbox_distribution: str) -> QuarantinePath:
+def decide_path(
+    platform: PlatformReport, sandbox_distribution: str, sandbox_os: OsFamily = OsFamily.LINUX
+) -> QuarantinePath:
     """Choose the sandbox route or the real-cell route for a target platform.
 
     Args:
         platform: What the tool's target Cell runs (OS family and distribution label).
         sandbox_distribution: The sandbox image's distribution name, from the manifest
             (`[royal_jelly] sandbox_distribution`, default `ubuntu`). Compared case-insensitively.
+        sandbox_os: The sandbox's OS family: Linux for every image, and this host's for the
+            development subprocess sandbox, which runs on the Hive Stand itself.
 
     Returns:
-        `SANDBOX_CELL` when `platform` is Linux of that distribution, otherwise `REAL_CELL`.
+        `SANDBOX_CELL` when `platform` is the sandbox's own (Linux of that distribution, or the
+        same non-Linux family), otherwise `REAL_CELL`.
     """
-    # Anything but Linux is a different kernel and userland from the Ubuntu sandbox.
-    if platform.os is not OsFamily.LINUX:
+    # Another family is a different kernel and userland from the sandbox's.
+    if platform.os is not sandbox_os:
         return QuarantinePath.REAL_CELL
+    # Windows and macOS carry no distribution: the family is the whole platform there.
+    if sandbox_os is not OsFamily.LINUX:
+        return QuarantinePath.SANDBOX_CELL
     # A Linux with no label cannot be shown to match, and an unproven match is not a match.
     label = (platform.distribution or "").strip().lower()
     wanted = sandbox_distribution.strip().lower()

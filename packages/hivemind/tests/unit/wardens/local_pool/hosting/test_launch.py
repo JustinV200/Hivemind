@@ -24,9 +24,11 @@ from waggle.clock import FakeClock
 def test_launch_spec_substitutes_the_port_and_scratch_placeholders() -> None:
     config = make_server_config(port=18_090)
 
-    spec = launch_spec(config, Path("/scratch/x"))
+    scratch = Path("/scratch/x")
 
-    assert spec.argv == ("scripted-server", "--port", "18090", "--scratch", "/scratch/x")
+    spec = launch_spec(config, scratch)
+
+    assert spec.argv == ("scripted-server", "--port", "18090", "--scratch", str(scratch))
     assert spec.log_path == Path("model-server-box.log")
 
 

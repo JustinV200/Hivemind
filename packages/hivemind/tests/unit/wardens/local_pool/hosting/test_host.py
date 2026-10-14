@@ -47,7 +47,7 @@ async def test_start_runs_the_server_and_offers_every_source_on_this_cell() -> N
     # The process: argv substituted, started through the session, logging into scratch.
     (spec,) = rig.session.started
     assert spec.argv[0] == PROGRAM and "18080" in spec.argv
-    assert "/fake-scratch/host" in spec.argv
+    assert str(rig.session.scratch_dir) in spec.argv
     # The provider was registered, and both sources are on the map hosted on this Cell.
     assert rig.door.registered == ["local-prov"]
     assert {s.source_id: s.spec.host_cell_id for s in rig.forage_map.sources()} == {

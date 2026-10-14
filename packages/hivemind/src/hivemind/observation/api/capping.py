@@ -251,12 +251,31 @@ def _apply(tracks: dict[str, _Track], event: PheromoneEvent) -> None:
             )
         )
         tracks[event.subject_id] = track
-    update: dict[str, object] = {"state": _KIND_STATE[event.kind], "updated_at": event.at}
+        update: dict[str, object] = {}
+    elif event.kind == "capping.proposed":
+        # Tied on `at`, the trail can hand a verdict before its own proposal (two ids minted in
+        # the same clock tick order at random), so the proposal only says what the verdict could
+        # not, and never moves the state back to PROPOSED.
+        update = _proposal_facts(event, track)
+    else:
+        update = {"state": _KIND_STATE[event.kind], "updated_at": event.at}
     if payload.get("tier") and not track.row.tier:
         update["tier"] = str(payload["tier"])
     track.judge_error = track.judge_error or payload.get("judge_error") is True
     _kind_fields(event, track, update)
     track.row = track.row.model_copy(update=update)
+
+
+def _proposal_facts(event: PheromoneEvent, track: _Track) -> dict[str, object]:
+    """Return what a late-sorted proposal adds to a track a later event already made."""
+    payload, row = event.payload, track.row
+    task, cell = payload.get("task_id"), payload.get("cell_id")
+    facts: dict[str, object] = {"proposed_at": min(row.proposed_at, event.at)}
+    if row.task_id is None and isinstance(task, str):
+        facts["task_id"] = task
+    if row.cell_id is None and isinstance(cell, str):
+        facts["cell_id"] = cell
+    return facts
 
 
 def _kind_fields(event: PheromoneEvent, track: _Track, update: dict[str, object]) -> None:

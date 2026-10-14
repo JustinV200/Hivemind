@@ -115,6 +115,37 @@ def test_each_proposal_ends_in_the_state_its_newest_event_reached() -> None:
     assert next(row for row in view.finished if row.id == ok).action_kind == "DIFF"
 
 
+def test_a_verdict_sorted_ahead_of_its_tied_proposal_still_finishes_the_proposal() -> None:
+    # Both events carry the same instant, as two records in one clock tick do on a coarse clock;
+    # the trail then orders them by id, which says nothing about which came first.
+    cell, task, pid = new_cell_id(_CLOCK), new_task_id(_CLOCK), new_message_id(_CLOCK)
+    proposed = make_event(
+        "capping.proposed",
+        pid,
+        after(1),
+        actor=_BEE,
+        payload={"task_id": task, "cell_id": cell, "tier": "READ_ONLY"},
+    )
+    rejected = make_event(
+        "capping.rejected",
+        pid,
+        after(1),
+        actor=_BEE,
+        payload={"tier": "READ_ONLY", "failing_check": "SCOPE"},
+    )
+
+    view = capping_view([rejected, proposed])
+
+    [row] = view.finished
+    assert (row.state, row.failing_check, row.task_id, row.cell_id) == (
+        ProposalState.REJECTED,
+        "SCOPE",
+        task,
+        cell,
+    )
+    assert view.in_flight == []
+
+
 def test_verdicts_carry_the_failing_check_and_whether_the_judge_answered() -> None:
     cell, task = new_cell_id(_CLOCK), new_task_id(_CLOCK)
     bad, good = new_message_id(_CLOCK), new_message_id(_CLOCK)

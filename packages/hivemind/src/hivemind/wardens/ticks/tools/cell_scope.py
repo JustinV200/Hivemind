@@ -222,10 +222,11 @@ def _grant_of(warden: Warden, sub_bee: SubBee) -> GrantIssued | None:
 
 
 def _path_for(warden: Warden, platform: PlatformReport) -> QuarantinePath:
-    """Decide the quarantine route for a target platform with the sandbox image's distribution."""
+    """Decide the quarantine route for a target platform against the sandbox's own platform."""
     access = warden._deps.royal_jelly
-    distribution = access.config.sandbox_distribution if access else DEFAULT_SANDBOX_DISTRIBUTION
-    return decide_path(platform, distribution)
+    if access is None:
+        return decide_path(platform, DEFAULT_SANDBOX_DISTRIBUTION)
+    return decide_path(platform, access.config.sandbox_distribution, access.sandbox_os)
 
 
 async def _run(warden: Warden, started: _Started, asker: Asker) -> None:

@@ -28,6 +28,7 @@ See Also:
 from __future__ import annotations
 
 import secrets
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -51,13 +52,12 @@ from hivemind.royal_jelly.quarantine_comb.sandbox import (
 from waggle.clock import Clock
 from waggle.ids import CellId
 
-DEFAULT_INTERPRETER = "python3"  # The Ubuntu Virtual Cell image's Python; the venv is not on PATH.
 _ROOT_PREFIX = "comb-"  # Marks a Comb directory so a stray one is recognisable in scratch.
 _MARKER = ".sandbox"  # Empty file whose only job is to make the root directory exist.
 _ROOT_ENTROPY_BYTES = 6  # 48 random bits: unique among the few sandboxes one session ever hosts.
 _CLEANUP_TIMEOUT_S = 30.0  # Removing a directory tree is quick; a stuck rm must not hang teardown.
 
-__all__ = ["DEFAULT_INTERPRETER", "SandboxCell"]
+__all__ = ["SandboxCell"]
 
 
 class SandboxCell:
@@ -70,7 +70,7 @@ class SandboxCell:
         clock: Clock,
         *,
         output_bytes: int = DEFAULT_OUTPUT_BYTES,
-        interpreter: str = DEFAULT_INTERPRETER,
+        interpreter: str | None = None,
     ) -> None:
         """Build a sandbox over `cell` and its `session`.
 
@@ -79,7 +79,10 @@ class SandboxCell:
             session: The Cell's terminal; its scratch directory holds the sandbox root.
             clock: Measures how long a command ran; never `datetime.now()`.
             output_bytes: Cap on the stdout and stderr one `exec` keeps (`QuarantineLimits`).
-            interpreter: The command that starts Python in this Cell.
+            interpreter: The command that starts Python in this Cell. None means the interpreter
+                running this Warden (`sys.executable`): the Warden lives on the Cell it sandboxes,
+                and its own interpreter is the one with the Hive installed, where a bare `python3`
+                need not be (a Windows venv ships no `python3.exe`; an image's venv is off PATH).
 
         Raises:
             SandboxRefusedError: `cell` is borrowed (a Real Cell).
@@ -93,7 +96,7 @@ class SandboxCell:
         self._session = session
         self._clock = clock
         self._output_bytes = output_bytes
-        self._interpreter = interpreter
+        self._interpreter = interpreter or sys.executable
         # Random rather than clock-derived: two sandboxes made in one tick must not collide.
         self._root = session.scratch_dir / f"{_ROOT_PREFIX}{secrets.token_hex(_ROOT_ENTROPY_BYTES)}"
         self._created = False  # Whether the root directory exists yet (the first write makes it).

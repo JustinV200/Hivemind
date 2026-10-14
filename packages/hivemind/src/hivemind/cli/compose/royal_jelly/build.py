@@ -40,6 +40,7 @@ import asyncio
 
 from hivemind.basket import BasketDeposits, DepositWiring, HoneyRecordPort, ResidentBasket
 from hivemind.cell import CellIdentity, hive_stand_cell_id
+from hivemind.cell.local import host_platform
 from hivemind.cli.compose.deps import HiveStores
 from hivemind.cli.compose.guard import build_content_scanner
 from hivemind.cli.compose.royal_jelly.honey_port import NectarHoneyPort, NullHoneyPort
@@ -50,10 +51,11 @@ from hivemind.forage import ModelSlot
 from hivemind.guard.scanner import ScanRecorder
 from hivemind.honey_store.access import HoneyAccess
 from hivemind.llm import BoundModel, ProviderRegistry
-from hivemind.manifest import HiveManifest, SandboxKind
+from hivemind.manifest import HiveManifest, RoyalJellySection, SandboxKind
 from hivemind.royal_jelly.access import RoyalJellyAccess, limits_from_section
 from waggle.clock import Clock
 from waggle.ids import CellId
+from waggle.messages.labels import OsFamily
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 
 __all__ = ["build_royal_jelly", "resolve_scaffolder"]
@@ -83,10 +85,7 @@ def build_royal_jelly(
     """
     if stores.comb_registry is None or stores.basket is None:
         return None
-    config = manifest.royal_jelly
-    if config.sandbox is SandboxKind.SUBPROCESS:
-        # ADR-0047: the dev sandbox shares the Hive Stand's machine with no isolation to speak of.
-        log.warning("royal_jelly.subprocess_sandbox", note="dev only; never for a real Hive")
+    config, sandbox_os = _sandbox_platform(manifest.royal_jelly)
     signer = _hive_signer(manifest)
     signer_id = manifest.hive.node_id
     stand = hive_stand_cell_id(signer_id)
@@ -110,7 +109,26 @@ def build_royal_jelly(
         limits=limits_from_section(config.limits),
         sandbox_kind=config.sandbox,
         scaffolder_bound=resolve_scaffolder(registry),
+        sandbox_os=sandbox_os,
     )
+
+
+def _sandbox_platform(config: RoyalJellySection) -> tuple[RoyalJellySection, OsFamily]:
+    """Return the section and the sandbox's OS family; the subprocess sandbox is this host.
+
+    ADR-0047's sandbox is an Ubuntu Virtual Cell, so ``[royal_jelly] sandbox_distribution``
+    names the image's distribution and the family is Linux. The development subprocess sandbox
+    runs on the Hive Stand itself, so the platform the path decision compares a target with is
+    this host's own: its family, and its distribution label unless the operator wrote one.
+    """
+    if config.sandbox is not SandboxKind.SUBPROCESS:
+        return config, OsFamily.LINUX
+    # ADR-0047: the dev sandbox shares the Hive Stand's machine with no isolation to speak of.
+    log.warning("royal_jelly.subprocess_sandbox", note="dev only; never for a real Hive")
+    family, distribution = host_platform()
+    if distribution is not None and "sandbox_distribution" not in config.model_fields_set:
+        config = config.model_copy(update={"sandbox_distribution": distribution})
+    return config, family
 
 
 def _hive_signer(manifest: HiveManifest) -> Ed25519Signer:

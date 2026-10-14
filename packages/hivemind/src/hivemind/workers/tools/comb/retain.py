@@ -61,6 +61,9 @@ MAX_RETAIN_SUMMARY_CHARS = 1_000  # A paragraph for the Honey record, as a Honey
 MEDIA_KIND_PATTERN = r"^[a-z][a-z0-9_]{0,31}$"  # A descriptive tag: wheel, archive, dataset, text.
 STAGING_DIR = "retained"  # Under scratch: where a verified file waits for its Warden.
 DEFAULT_MEDIA_TYPE = "application/octet-stream"  # When the file's name tells nothing.
+# Windows reads media types from its registry, which names some differently from the IANA
+# type every other host guesses; a Honey record must not depend on the host that kept the file.
+_MEDIA_TYPE_ALIASES = {"application/x-zip-compressed": "application/zip"}
 _KIND_RE = re.compile(MEDIA_KIND_PATTERN)
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
@@ -173,7 +176,7 @@ def _deposit(staged: str, words: tuple[str, str, str], file: tuple[str, bytes]) 
         title=title,
         summary=summary,
         media_kind=media_kind,
-        media_type=mimetypes.guess_type(staged)[0] or DEFAULT_MEDIA_TYPE,
+        media_type=_media_type_of(staged),
         sha256=digest,
         size_bytes=len(content),
     )
@@ -246,3 +249,9 @@ def _build_request(path: str, staged: str, file: tuple[str, int]) -> ProposalReq
         postconditions=postconditions,
         reason=f"Drone retain {path} for the Basket",
     )
+
+
+def _media_type_of(path: str) -> str:
+    """Guess the file's media type from its name, the same way on every host."""
+    guessed = mimetypes.guess_type(path)[0] or DEFAULT_MEDIA_TYPE
+    return _MEDIA_TYPE_ALIASES.get(guessed, guessed)

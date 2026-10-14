@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import struct
+import sys
 import zipfile
 
 import pytest
@@ -38,7 +39,12 @@ def _zip(entries: list[tuple[str, bytes]], *, compression: int = zipfile.ZIP_DEF
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression) as archive:
         for name, content in entries:
-            archive.writestr(name, content)
+            # ZipInfo turns the host's separator into `/` at construction, so a backslash would
+            # vanish on Windows; the name is set afterwards to reach the archive untouched.
+            info = zipfile.ZipInfo("placeholder")
+            info.filename = name
+            info.compress_type = compression  # A ZipInfo ignores the archive's default.
+            archive.writestr(info, content)
     return buffer.getvalue()
 
 
@@ -118,6 +124,10 @@ def test_required_files_present_names_the_missing_ones() -> None:
 def test_pack_and_unpack_both_refuse_an_unsafe_path(path: str) -> None:
     with pytest.raises(PackageError):
         pack({path: b"x"})
+    if "\\" in path and sys.platform == "win32":
+        # zipfile turns a backslash into `/` when it reads an entry name on Windows, so unpack
+        # is handed `a/b.py`, which is safe, and the check cannot be reached there.
+        return
     with pytest.raises(PackageError):
         unpack(_zip([(path, b"x")]))
 

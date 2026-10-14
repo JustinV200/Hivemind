@@ -87,8 +87,8 @@ async def test_the_package_is_put_under_pkg_and_the_runner_is_started_once() -> 
     assert len(sandbox.execs) == 1
     argv = sandbox.execs[0]
     assert argv[:3] == ("python3", "-m", RUNNER_MODULE)
-    assert argv[3] == "/sandbox/pkg"
-    assert argv[4] == "/sandbox/report.json"
+    assert argv[3] == str(sandbox.root / "pkg")  # Rendered as this host renders paths.
+    assert argv[4] == str(sandbox.root / "report.json")
     assert QuarantineLimits.from_json(argv[5]) == _LIMITS
 
 
@@ -102,7 +102,7 @@ async def test_the_runner_command_line_can_be_replaced() -> None:
     comb = QuarantineComb(FakeClock(), runner_argv_builder=build)
     await comb.run(make_package(spec=spec), spec, sandbox, _LIMITS)
 
-    assert sandbox.execs == [("python3", "run.py", "/sandbox/pkg")]
+    assert sandbox.execs == [("python3", "run.py", str(sandbox.root / "pkg"))]
 
 
 async def test_a_package_the_static_gate_refuses_never_reaches_the_sandbox() -> None:

@@ -38,10 +38,5 @@
     "typescript-eslint": "^8.69.0",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "source-map-js": ">=1.2.2"
-    }
   }
 }
