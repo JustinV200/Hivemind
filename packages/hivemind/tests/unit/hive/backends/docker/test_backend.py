@@ -36,6 +36,8 @@ from hivemind.hive.backends.docker.network import network_name
 from hivemind.hive.backends.fake import FakeReadinessGate
 from hivemind.hive.errors import CellDestroyError, CellProvisionError
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.night_veil import CheckStatus
+from hivemind.hive.night_veil.judges import judge_hostname
 from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
 
@@ -211,6 +213,28 @@ async def test_a_night_veil_container_keeps_no_daemon_log_and_any_other_the_defa
 
     # Codingrules 12: nothing a Night Veil Cell prints reaches a daemon log that outlives it.
     assert [spec.log_driver for spec in client.create_container_calls] == ["none", None]
+
+
+async def test_a_night_veil_container_is_named_at_random_in_the_shape_attestation_accepts() -> None:
+    backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    await backend.provision(_night_veil_spec())
+    await backend.provision(_night_veil_spec())
+
+    names = [spec.hostname for spec in client.create_container_calls]
+    # Codingrules 8.7: a hostname of its own, fresh per container, and of the shape the `randomized_
+    # hostname` check judges green, so a Cell the backend named never fails attestation for it.
+    assert all(name and judge_hostname(name).status is CheckStatus.PASS for name in names)
+    assert len(set(names)) == len(names)
+
+
+async def test_a_container_that_is_not_night_veil_keeps_the_daemons_own_hostname() -> None:
+    backend, client, _ = _make_backend(FakeClock(), night_veil=_LINK)
+
+    await backend.provision(_make_spec())
+    await backend.provision(_make_spec(network_policy=NetworkPolicy.EGRESS_ONLY))
+
+    assert [spec.hostname for spec in client.create_container_calls] == [None, None]
 
 
 async def test_a_night_veil_container_dials_the_hidden_service_through_tor() -> None:

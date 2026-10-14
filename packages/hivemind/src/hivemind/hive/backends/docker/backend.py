@@ -33,6 +33,9 @@ Key invariants:
       `_volume_name`), never looked up in a table this instance might not still hold.
     - A Night Veil Cell's container runs with the `none` log driver: nothing it prints reaches a
       daemon log (`docker logs`, a json-file on the host) that would outlive it (codingrules 12).
+    - A Night Veil Cell's container is given a fresh random hostname, `night-veil-` and eight hex
+      digits, minted per container and derived from nothing the Queen knows (codingrules 8.7);
+      every other tier keeps the daemon's own default.
     - `spec.disk_bytes` is not enforced: Docker's per-container disk quota
       (`storage_opt={"size": ...}`) needs a storage driver most default installs -- Docker Desktop
       over WSL2 included, the dev host ADR-0026 names -- do not provide, so setting it would break
@@ -89,6 +92,7 @@ from hivemind.hive.errors import (
     CellProvisionError,
 )
 from hivemind.hive.models import NetworkPolicy, VirtualCellSpec
+from hivemind.hive.night_veil import new_night_veil_hostname
 from waggle.clock import Clock
 from waggle.ids import CellId, HiveId
 
@@ -412,6 +416,13 @@ def _build_container_spec(
         read_only_rootfs=spec.read_only_rootfs,
         tmpfs={_TMP_MOUNT_PATH: ""},
         log_driver=_NIGHT_VEIL_LOG_DRIVER
+        if spec.comb_shield is CombShieldLevel.NIGHT_VEIL
+        else None,
+        # Codingrules 8.7: a Night Veil Cell's hostname is random per boot and carries nothing the
+        # Queen knows. The image's own boot service renames it too, but a container the daemon
+        # names itself (its container id) is not of the shape attestation accepts, and a name
+        # derived from the Cell's id would be the Queen's own; so the backend gives it one.
+        hostname=new_night_veil_hostname()
         if spec.comb_shield is CombShieldLevel.NIGHT_VEIL
         else None,
     )

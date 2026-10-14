@@ -126,6 +126,11 @@ class ContainerSpec:
         log_driver: The container's log driver, or None for the daemon's own default: `"none"`
             for a Night Veil Cell, whose output must reach no daemon log that outlives it
             (codingrules section 12).
+        hostname: The container's hostname, or None for the daemon's own default (the container
+            id's first twelve hex digits): a Night Veil Cell's is a fresh random
+            `night-veil-<8 hex>` the backend mints, so its name is the same shape whichever of the
+            backend and the image's boot service named it (codingrules section 8.7, "randomized
+            hostname per boot").
     """
 
     name: str
@@ -145,6 +150,7 @@ class ContainerSpec:
     tmpfs: Mapping[str, str] = field(default_factory=dict)
     cap_add: tuple[str, ...] = ()
     log_driver: str | None = None
+    hostname: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

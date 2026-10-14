@@ -35,7 +35,11 @@ Key invariants:
       delete and never shredded; no roadmap step promises Night Veil on QEMU (5.3a builds the
       tier's image for Docker only). A later step lifts this by meeting the rule: a verified
       delete of the VM directory, the overlay on a RAM disk or encrypted with a key shredded at
-      teardown, no serial log on disk, and volatile journald inside the guest.
+      teardown, no serial log on disk, and volatile journald inside the guest. It must also give
+      the guest a random hostname: `cloud_init.render_meta_data` names every Cell after its id
+      (`local-hostname`), which cloud-init applies after the image's own boot service has
+      randomized it, and a Night Veil Cell's name must carry nothing the Queen knows (the Docker
+      backend gives one with `hivemind.hive.night_veil.new_night_veil_hostname`).
     - destroy() is idempotent even after this backend's own process restarted with no in-memory
       state: `hivemind.hive.backends.qemu.runner.vm_dir_for` recomputes every VM's own directory
       from `cell_id` alone, never a table this instance might not still hold.

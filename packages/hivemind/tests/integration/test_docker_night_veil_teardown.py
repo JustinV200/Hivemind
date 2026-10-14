@@ -6,7 +6,10 @@ the two things only a real one can prove: a Night Veil container is created with
 driver (so `docker logs` and the host's json-file log hold nothing of it), and every snapshot image
 committed of a Cell is found again by the label the commit stamped on it, from a fresh client in
 another object (as a teardown in another process would), and removed, while another Cell's
-snapshot image stays. No Warden boots here: the container is created and committed, never started.
+snapshot image stays. A third test is codingrules 8.7 against a real daemon: the random hostname
+the backend gives a Night Veil container is the one the daemon reports, and a rollback (which
+recreates the container) keeps it. No Warden boots here: the container is created and committed,
+never started (a rollback starts the recreated one, which the small image ends at once).
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises hive/backends/docker/sdk_client/ and
@@ -25,6 +28,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 
 import pytest
 from builders.cells import make_cell
@@ -34,6 +38,7 @@ from hivemind.cell import Cell, CellKind
 from hivemind.hive.backends.docker import SdkDockerClient
 from hivemind.hive.backends.docker.backend import container_name
 from hivemind.hive.backends.docker.client import ContainerSpec, NetworkSpec
+from hivemind.hive.night_veil import new_night_veil_hostname
 from hivemind.hive.snapshot import DockerSnapshotImages, DockerSnapshotter, SnapshotLedger
 from waggle.clock import SystemClock
 
@@ -98,6 +103,14 @@ def _log_driver(cell: Cell) -> str:
     return str(attrs["HostConfig"]["LogConfig"]["Type"])
 
 
+def _hostname(cell: Cell) -> str:
+    """The hostname the daemon itself reports for `cell`'s container."""
+    import docker
+
+    attrs = docker.from_env().containers.get(container_name(cell.id)).attrs
+    return str(attrs["Config"]["Hostname"])
+
+
 async def test_a_night_veil_container_logs_nowhere_and_its_snapshot_images_go_with_it() -> None:
     _skip_unless_docker()
     clock = SystemClock()
@@ -117,3 +130,28 @@ async def test_a_night_veil_container_logs_nowhere_and_its_snapshot_images_go_wi
         assert removed == 2
         assert await client.list_images({_SNAPSHOT_OF: str(night_veil.id)}) == ()
         assert len(await client.list_images({_SNAPSHOT_OF: str(meadow.id)})) == 1
+
+
+async def test_a_night_veil_container_has_its_random_hostname_and_a_rollback_keeps_it() -> None:
+    _skip_unless_docker()
+    clock = SystemClock()
+    client = SdkDockerClient()
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    named = new_night_veil_hostname()
+    network = f"hivemind-test-{cell.id}"
+    await client.create_network(NetworkSpec(name=network, internal=True, labels={}))
+    try:
+        await client.create_container(replace(_spec(cell, network, "none"), hostname=named))
+        assert _hostname(cell) == named  # What the backend asked is what the daemon applied.
+
+        snapshotter = DockerSnapshotter(client, SnapshotLedger(), clock)
+        await snapshotter.rollback(cell, await snapshotter.snapshot(cell))
+
+        # The recreated container is a new one, which the daemon would name after its own id; it
+        # must come back with the name the Cell was attested with.
+        assert _hostname(cell) == named
+    finally:
+        await client.remove_container(container_name(cell.id), force=True)
+        for image in await client.list_images({_SNAPSHOT_OF: str(cell.id)}):
+            await client.remove_image(image)  # Whatever the test left, it made itself.
+        await client.remove_network(network)

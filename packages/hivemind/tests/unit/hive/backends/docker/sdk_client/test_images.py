@@ -63,6 +63,15 @@ def test_recreate_spec_tolerates_missing_optional_sections() -> None:
     assert spec["read_only"] is False
 
 
+def test_recreate_spec_keeps_the_hostname_a_night_veil_cell_was_attested_with() -> None:
+    # Without it the daemon names the recreated container after its own id, which is not the
+    # random shape the Cell passed attestation with (codingrules 8.7).
+    attrs = {"Config": {"Hostname": "night-veil-0123abcd"}}
+
+    assert recreate_spec(attrs, "hivemind-snapshot:abc")["hostname"] == "night-veil-0123abcd"
+    assert recreate_spec({}, "hivemind-snapshot:abc")["hostname"] is None
+
+
 def test_recreate_spec_keeps_the_first_network_its_hosts_entries_and_added_capabilities() -> None:
     attrs: dict[str, object] = {
         "HostConfig": {

@@ -218,6 +218,7 @@ class SdkDockerClient:
                 security_opt=list(spec.security_opt),
                 read_only=spec.read_only_rootfs,
                 log_config=_log_config(spec.log_driver),
+                hostname=spec.hostname,
                 # No `ports`/`publish_all_ports`: a Virtual Cell publishes no inbound port under
                 # any network policy (codingrules section 15); the image's own USER (images/
                 # base-ubuntu's Dockerfile) supplies the non-root user, so `user` stays unset here

@@ -135,4 +135,7 @@ def recreate_spec(attrs: dict[str, Any], image: str) -> dict[str, Any]:
         "security_opt": host_config.get("SecurityOpt") or None,
         "read_only": bool(host_config.get("ReadonlyRootfs", False)),
         "tmpfs": host_config.get("Tmpfs") or {},
+        # The name it had, not the daemon's default for a new container: a rolled-back Night Veil
+        # Cell keeps the random hostname it was attested with.
+        "hostname": config.get("Hostname") or None,
     }
