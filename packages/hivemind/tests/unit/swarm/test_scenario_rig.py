@@ -24,6 +24,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
@@ -32,9 +33,11 @@ from builders.cli import ManifestTuning
 from builders.llm import make_request, make_tool
 from builders.swarm.manifest import swarm_manifest, tuned_swarm_manifest
 from e2e.kernel_helpers import text_response
+from e2e.scripted_openai import PLANNER_TAG
 from e2e.swarm.bridge import BRIDGE_BEAT_S, BridgeTerms, bridge_hive, bridge_manifest
 from e2e.swarm.container import CommandResult, Container, FileEntry, Network
 from e2e.swarm.drone import (
+    AWAKE_DECISION,
     CHECK_MARK,
     Script,
     command_turn,
@@ -277,13 +280,32 @@ def test_a_plan_carries_the_needs_the_test_chose_and_each_plan_is_its_own() -> N
     assert REPORT_FILE in str(plain["tasks"])  # What the Warden looks for to accept the task.
 
 
+def _said(response: LLMResponse) -> str:
+    """The words of a response, joined."""
+    return "".join(getattr(part, "text", "") for part in response.parts)
+
+
 def test_a_script_plans_the_goal_with_the_plan_the_test_holds_when_the_queen_asks() -> None:
     script = Script(command_turn(("true",)), plan_for())
     script.plan = plan_for({"comb_shield": "NIGHT_VEIL"})
+    goal = Message.text(Role.USER, f"{PLANNER_TAG}\nWrite a report on the device.")
 
-    planned = script.responder(make_request(slot=ModelSlot.QUEEN))
+    planned = script.responder(make_request(slot=ModelSlot.QUEEN, messages=(goal,)))
 
-    assert "NIGHT_VEIL" in "".join(getattr(part, "text", "") for part in planned.parts)
+    assert "NIGHT_VEIL" in _said(planned)
+
+
+def test_a_script_leaves_the_queens_awake_episodes_to_the_human() -> None:
+    # A device that is moved up the ladder and cut off makes the Queen wake for frames she has no
+    # rule for. Her model has no opinion of its own to give, and answering with the plan (as every
+    # Queen call was answered when only goals were planned) ended her tick on a decision that was
+    # not one.
+    script = Script(command_turn(("true",)))
+    asked = Message.text(Role.USER, "A message arrived that no rule covers: what is to be done?")
+
+    decided = script.responder(make_request(slot=ModelSlot.QUEEN, messages=(asked,)))
+
+    assert json.loads(_said(decided)) == AWAKE_DECISION
 
 
 def test_the_hive_stands_check_of_a_lost_device_has_its_own_script() -> None:

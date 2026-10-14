@@ -46,6 +46,10 @@ Public API:
       with its `DeviceOptions` (what the container is enrolled as and started with) is the
       enrolment `enrol_container` is a shorthand for, and `image.device_image_or_skip` is a
       module fixture's skip.
+    - A device whose Warden moves onto it and which becomes a Nuc (test_phase11_exit_nuc.py) has
+      a package of its own, `colony`: the manifests the Hive and the device agree on, the
+      container made colonizable, a tap on the Queen's door, reads of the Hive's trail, bounded
+      waits, and the run that tells the whole story (colony, with its own face).
 """
 
 from e2e.swarm.binary import CleanDevice, binary_digest, build_binary, start_clean

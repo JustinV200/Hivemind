@@ -38,6 +38,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 
 from e2e.kernel_helpers import (
@@ -50,6 +51,7 @@ from e2e.kernel_helpers import (
     wait_until,
     write_call,
 )
+from e2e.scripted_openai import PLANNER_TAG
 from e2e.swarm.hive import HELLO, REPORT_FILE
 
 from hivemind.brood_chamber import Task, TaskFilter, is_terminal
@@ -67,6 +69,8 @@ FINISH_S = 90.0  # Longest a goal on a device takes to end, scratch and a held l
 # (`hivemind.queen.swarm_gate.unreachable.hive_stand.diagnosis_draft`): how a request for that
 # Drone is told from a scenario's own.
 CHECK_MARK = "Check reachability of device"
+ORDINARY_TITLE = "Do the ordinary work"  # The titles of `exacting_plan`'s two tasks.
+EXACTING_TITLE = "Do the exacting work"
 INSPECT_FILE = "inspect.txt"  # What `DeviceDrone`'s command leaves in scratch, and it reads back.
 # What `DeviceDrone`'s one command reports: the device's own operating system and name, what the
 # packet's loader left in the environment of a program it started, and what the packet itself says
@@ -78,17 +82,23 @@ INSPECT = (
     'echo "nested=$(pollen version 2>&1)"'
 )
 _ACTED_AND_READ = 3  # Tool results seen once the first round's two calls and the read are done.
+# What the Queen's awake episode decides when the script has no opinion: it is the human's to say.
+AWAKE_DECISION = {"action": "ESCALATE_TO_HUMAN", "reason": "Scripted: the human decides."}
 
 __all__ = [
     "CHECK_MARK",
+    "EXACTING_TITLE",
     "FINISH_S",
     "GOAL_TEXT",
     "INSPECT",
     "INSPECT_FILE",
+    "ORDINARY_TITLE",
     "DeviceDrone",
     "Script",
+    "busy_turn",
     "check_turn",
     "command_turn",
+    "exacting_plan",
     "finished",
     "is_check_of_a_lost_device",
     "pinned_ceiling",
@@ -124,6 +134,43 @@ def command_turn(*attempts: Sequence[str]) -> WorkerTurn:
         return tool_response(request, (command, write_call(REPORT_FILE, HELLO)))
 
     return turn
+
+
+def busy_turn(*argv: str) -> WorkerTurn:
+    """Build the Drone of a task that does not end by itself: one command after another.
+
+    It only stops when it is told to, which is how a long task is kept running on a device until
+    the Queen moves its Warden: the bee obeys the order to write a Handoff between two commands.
+
+    Args:
+        *argv: The command to run every round, in a program the device has.
+
+    Returns:
+        A worker turn for `HaikuScript`/`Script`.
+    """
+
+    def turn(request: LLMRequest) -> LLMResponse:
+        return tool_response(request, (("go_on", "run_command", {"argv": list(argv)}),))
+
+    return turn
+
+
+def exacting_plan() -> dict[str, object]:
+    """Build a plan of two independent tasks, the second of which asks for the best model there is.
+
+    Both write the report file in their own scratch; the second one's accuracy bar is CRITICAL,
+    which no local model of a Nuc can meet, so its sub-bee must think on a shared source.
+    """
+    plan = single_task_plan(REPORT_FILE, key="ordinary", title=ORDINARY_TITLE)
+    tasks = plan["tasks"]
+    assert isinstance(tasks, list)
+    second = single_task_plan(REPORT_FILE, key="exacting", title=EXACTING_TITLE)["tasks"]
+    assert isinstance(second, list)
+    exacting = second[0]
+    assert isinstance(exacting, dict)
+    exacting["needs"] = {"tempo": {"latency_budget_s": None, "accuracy": "CRITICAL"}}
+    tasks.append(exacting)
+    return plan
 
 
 class DeviceDrone:
@@ -227,6 +274,11 @@ class Script:
         # or run its commands, which belong on the device.
         if is_check_of_a_lost_device(request):
             return check_turn(request)
+        # The Queen's other call is her awake episode: a message that needs judgement. The kernel
+        # suite never has one (it answers every Queen call with the plan); a device that is moved
+        # up the ladder and cut off does, and what the human is to decide is the human's.
+        if request.slot is ModelSlot.QUEEN and PLANNER_TAG not in request_text(request):
+            return text_response(json.dumps(AWAKE_DECISION))
         return HaikuScript(self._worker_turn, plan=self.plan).responder(request)
 
 

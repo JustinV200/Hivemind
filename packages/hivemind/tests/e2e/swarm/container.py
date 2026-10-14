@@ -178,6 +178,9 @@ class ContainerSpec:
     environment: Mapping[str, str] = field(default_factory=dict)
     network: str | None = None  # A network to join instead of the default bridge.
     capabilities: tuple[str, ...] = ()  # Linux capabilities to add, such as NET_ADMIN.
+    # Files on this machine copied into the container before its command starts, by the absolute
+    # path they take there (the directory must exist in the image): what the command reads first.
+    files: Mapping[str, Path] = field(default_factory=dict)
 
 
 class Container:
@@ -329,7 +332,7 @@ class Janitor:
         """
         self._started += 1
         name = f"hivemind-test-{self.run_id}-{self._started}"
-        args = ["run", "--detach", "--init", "--name", name, *self._labels()]
+        args = ["--init", "--name", name, *self._labels()]
         args += ["--network", spec.network] if spec.network else []
         for host, address in spec.hosts.items():
             args += ["--add-host", f"{host}:{address}"]
@@ -337,7 +340,15 @@ class Janitor:
             args += ["--env", f"{variable}={value}"]
         for capability in spec.capabilities:
             args += ["--cap-add", capability]
-        docker(*args, spec.image, *spec.command, timeout_s=START_TIMEOUT_S)
+        if not spec.files:
+            docker("run", "--detach", *args, spec.image, *spec.command, timeout_s=START_TIMEOUT_S)
+            return Container(name)
+        # Created, filled and then started: a file `docker cp` puts in a container that has
+        # already run its command is too late for the command that reads it first.
+        docker("create", *args, spec.image, *spec.command, timeout_s=START_TIMEOUT_S)
+        for target, source in spec.files.items():
+            docker("cp", str(source), f"{name}:{target}")
+        docker("start", name, timeout_s=START_TIMEOUT_S)
         return Container(name)
 
     def network(self) -> Network:

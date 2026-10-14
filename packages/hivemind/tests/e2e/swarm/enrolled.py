@@ -33,8 +33,10 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import shlex
 import uuid
-from dataclasses import dataclass, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -92,12 +94,20 @@ class DeviceOptions:
         shield: The Comb Shield tier the operator vouches for at enrolment.
         capabilities: Linux capabilities the container is started with, such as `NET_ADMIN` for a
             device whose operator runs a tunnel on it.
+        files: Files copied into the container before its packet starts, by the path they take
+            there: the device manifest and whatever model server it declares.
+        install: The arguments of the `pollen install` the packet's command runs between enrolling
+            and running, which is how an operator makes a device colonizable (the wheelhouse the
+            Hive runtime installs from, the device manifest the Warden reads); none runs no
+            install, and the device is a plain Level 0 one.
     """
 
     network: Network = BRIDGE
     access: AccessLevel = AccessLevel.FULL
     shield: CombShieldLevel = CombShieldLevel.MEADOW
     capabilities: tuple[str, ...] = ()
+    files: Mapping[str, Path] = field(default_factory=dict)
+    install: tuple[str, ...] = ()
 
 
 class Door(Protocol):
@@ -195,11 +205,12 @@ async def enrol_device(
     minted = await hive.mint(chosen.access, chosen.shield, label)
     spec = ContainerSpec(
         image=image,
-        command=("sh", "-c", ENROL_AND_RUN),
+        command=("sh", "-c", _command(chosen.install)),
         hosts={HIVE_HOSTNAME: network.gateway},
         environment={"POLLEN_INVITE": minted.invite_string, "POLLEN_DATA_DIR": DATA_DIR},
         network=None if network is BRIDGE else network.name,
         capabilities=chosen.capabilities,
+        files=chosen.files,
     )
     # Off the loop: `docker run` takes a second or two, and a Hive running on this loop must not
     # stall for it (its heartbeats and its ticks would all arrive late).
@@ -211,6 +222,15 @@ async def enrol_device(
         output = await asyncio.to_thread(container.logs)
         raise DeviceStartError(f"{failed}\nThe container's output:\n{output}") from failed
     return ContainerDevice(container, node)
+
+
+def _command(install: tuple[str, ...]) -> str:
+    """The container's shell command: enrol, then (for a colonizable device) install, then run."""
+    if not install:
+        return ENROL_AND_RUN
+    arguments = shlex.join(install)
+    enrol, run = ENROL_AND_RUN.split(" && ")
+    return f'{enrol} && pollen install --data-dir "$POLLEN_DATA_DIR" {arguments} && {run}'
 
 
 async def _enrolled_node(hive: Door, label: str, container: Container) -> SwarmNode:
