@@ -61,7 +61,10 @@ grows domain logic of its own.
   `reap_all(tasks)` does the same over a whole collection, for a `stop()`/`aclose()` that owns
   several persistent waiters at once; `reaping(task)` is an async context manager wrapping the
   same guarantee around an `asyncio.wait` race, reaping `task` in a `finally` whether the block
-  returns, raises, or is cancelled. Used by the Queen, every Warden and every Worker runtime.
+  returns, raises, or is cancelled. `reap` raises `CancelledError` for the caller's own
+  cancellation only when that cancel arrives while it waits, so a `stop()` run from the `finally`
+  of an already-cancelled task reaps every waiter it owns instead of stopping at the first.
+  Used by the Queen, every Warden and every Worker runtime.
 
 ## How to test this
 

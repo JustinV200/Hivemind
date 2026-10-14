@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
+import pytest
 from builders.cells import make_cell
 from builders.memory import make_handoff
 from builders.wardens import make_warden_deps
@@ -154,6 +155,42 @@ async def test_stop_ends_a_concurrently_running_run_loop() -> None:
 
     await asyncio.wait_for(run_task, timeout=5.0)
     assert warden.state is WardenState.STOPPED
+
+
+async def test_stop_called_from_the_cleanup_of_a_cancelled_run_stops_all_the_way() -> None:
+    """A run cancelled from outside and stopped in its `finally` still ends completely.
+
+    This is how an in-Cell Warden ends when its backend destroys the Cell
+    (`hivemind.cli.in_cell.main`). The cancel was delivered before `stop()` began, so `stop()`
+    must not take it for a new one at the first waiter it reaps: that left the lease held, the
+    Queen link's receive task running (a mending link goes on redialing through it) and
+    `warden.stopped` unrecorded.
+    """
+    deps, _queen_end, warden_id = make_warden_deps()
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    lease = warden.lease
+    assert lease is not None
+    before = asyncio.all_tasks() - {asyncio.current_task()}
+
+    async def run_then_stop() -> None:
+        try:
+            await warden.run()
+        finally:
+            await warden.stop()
+
+    task = asyncio.ensure_future(run_then_stop())
+    await _settle()  # Let the first tick start its receive and heartbeat waiters.
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=5.0)
+
+    assert warden.state is WardenState.STOPPED
+    assert lease.state.value == "RELEASED"
+    assert asyncio.all_tasks() - {asyncio.current_task()} == before  # No waiter left pending.
+    events = await deps.trail.query(TrailQuery(subject_id=warden_id))
+    assert [event.kind for event in events][-1] == "warden.stopped"
 
 
 async def test_stop_leaves_no_pending_tasks_behind_a_still_running_sub_bee() -> None:

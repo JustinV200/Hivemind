@@ -68,6 +68,74 @@ async def test_reap_keeps_the_reaping_tasks_own_cancellation() -> None:
         await asyncio.wait_for(outer, timeout=2.0)
 
 
+async def test_reap_discards_every_waiter_of_a_task_already_cancelled_and_cleaning_up() -> None:
+    """A cancelled task cleaning up in its `finally` reaps waiter after waiter, to the end.
+
+    A Warden's `stop()`, called on the way out of a cancelled run, is this shape: the cancel was
+    delivered before the cleanup began, so it must not be taken for a new one that lands in the
+    first `reap`, or everything the cleanup still has to do (the rest of the waiters, the lease,
+    the link) is abandoned at that waiter.
+    """
+    waiters = [asyncio.ensure_future(asyncio.Event().wait()) for _ in range(2)]
+    cleaned: list[str] = []
+
+    async def run() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            for waiter in waiters:
+                await reap(waiter)
+                cleaned.append("reaped")
+            cleaned.append("finished")
+
+    task = asyncio.ensure_future(run())
+    await asyncio.sleep(0)  # Let it block.
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2.0)  # It still ends cancelled, as it was asked.
+
+    assert cleaned == ["reaped", "reaped", "finished"]
+    assert all(waiter.cancelled() for waiter in waiters)
+
+
+async def test_reap_keeps_a_second_cancel_of_a_task_already_cleaning_up() -> None:
+    """A cancel that arrives while a cancelled task is reaping still ends it.
+
+    The first cancel started the cleanup; a second (a caller giving up on a slow stop) is a new
+    request and must not be mistaken for the first and swallowed.
+    """
+    reaping_now = asyncio.Event()
+    cleaned: list[str] = []
+
+    async def unwinds_slowly() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0.2)  # Cleanup of its own that takes a moment, then it ends.
+
+    slow = asyncio.ensure_future(unwinds_slowly())
+
+    async def run() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            reaping_now.set()
+            await reap(slow)
+            cleaned.append("finished")  # Never reached: the second cancel ends the cleanup.
+
+    task = asyncio.ensure_future(run())
+    await asyncio.sleep(0)  # Let both the slow waiter and the task block.
+    task.cancel()
+    await reaping_now.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2.0)
+
+    assert cleaned == []
+
+
 def _slow_to_cancel(inner: asyncio.Future[Any]) -> asyncio.Task[None]:
     async def body() -> None:
         try:

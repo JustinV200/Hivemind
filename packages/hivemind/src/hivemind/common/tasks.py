@@ -20,6 +20,10 @@ Fits into the Hive:
 Key invariants:
     - ``reap`` never raises ``CancelledError`` for the task it reaps; a task that finished with
       any other exception re-raises it, since a real failure must never be swallowed here.
+    - ``reap`` raises ``CancelledError`` for the reaping task's own cancellation only when that
+      cancel arrives while it waits. A task already cancelled and now cleaning up in a ``finally``
+      (a ``stop()`` its owner calls on the way out) reaps as freely as any other, so its cleanup
+      runs to the end instead of stopping at the first waiter it discards.
     - A task that is already done is left as it is: reaping is idempotent.
     - ``reap_all`` reaps every task in order, one at a time: a real failure on an earlier task
       still stops it before reaching the rest, the same way an unhandled exception would anywhere
@@ -52,20 +56,26 @@ async def reap(task: asyncio.Future[Any]) -> None:
 
     Raises:
         Exception: Whatever `task` itself raised, other than its own cancellation.
-        asyncio.CancelledError: The current task was itself cancelled while reaping.
+        asyncio.CancelledError: The current task was cancelled (again) while reaping.
     """
+    # How many cancels this task had been asked for before it began waiting. A cancel stays
+    # counted after it has been delivered and handled, so a task cleaning up in a `finally` after
+    # one (a Warden's `stop()` called on the way out of a cancelled run) has a count above zero
+    # for the whole cleanup; only a count that rises while waiting means a new cancel landed here.
+    current = asyncio.current_task()
+    asked = current.cancelling() if current is not None else 0
     if not task.done():
         task.cancel()
     try:
         await task
     except asyncio.CancelledError:
-        # `task`'s own cancellation is the expected outcome and is swallowed. The caller's own
-        # cancellation is not: if this task was itself cancelled while waiting here, the request
-        # lands on this very `await` and must keep propagating, or a loop that reaps a throwaway
-        # waiter on every tick (a Warden whose Queen link has closed spins exactly that way) would
-        # swallow every cancel ever sent to it and never finish.
-        current = asyncio.current_task()
-        if current is not None and current.cancelling():
+        # `task`'s own cancellation is the expected outcome and is swallowed. A new cancel of the
+        # caller is not: if this task was itself cancelled while waiting here, the request lands on
+        # this very `await` and must keep propagating, or a loop that reaps a throwaway waiter on
+        # every tick (a Warden whose Queen link has closed spins exactly that way) would swallow
+        # every cancel ever sent to it and never finish. An earlier cancel is not new: re-raising
+        # it would abandon the cleanup it started at the first waiter, leaving the rest undone.
+        if current is not None and current.cancelling() > asked:
             raise
 
 
