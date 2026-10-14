@@ -21,6 +21,8 @@ Key invariants:
       failure up to MAX_BACKOFF_S, and resets to INITIAL_BACKOFF_S after the next successful tick.
     - Every sleep this loop performs, including backoff, goes through the injected Clock, never
       asyncio.sleep directly, so tests can drive it with a FakeClock.
+    - The backoff wait is the one overridable step (``_wait_before_retry``): a subclass may end it
+      early on a stop request, and the default never does.
 
 See Also:
     - .claude/codingrules.md section 11 for the loop shape this class implements.
@@ -92,7 +94,7 @@ class TickLoop(ABC):
                 await self._on_tick_failed(error)
                 # Every sleep here goes through the injected Clock so a test can advance it
                 # instead of waiting on a real timer (codingrules section 14.5).
-                await self._clock.sleep(backoff)
+                await self._wait_before_retry(backoff)
                 backoff = min(backoff * BACKOFF_FACTOR, MAX_BACKOFF_S)
                 continue
             # A tick that did not raise is a success: the next failure, if any, starts backing
@@ -109,6 +111,22 @@ class TickLoop(ABC):
             None.
         """
         self._stop.set()
+
+    async def _wait_before_retry(self, seconds: float) -> None:
+        """Wait out a backoff before the next tick; a subclass may end the wait early.
+
+        The default sleeps on the injected clock and nothing more, so a ``stop()`` takes effect
+        only after the wait, which is at most MAX_BACKOFF_S. A loop whose process a service
+        manager gives only seconds to exit (the Pollen Packet, which must also release its leases
+        on the way out) overrides this to wake as soon as ``_stop`` is set.
+
+        Args:
+            seconds: The backoff, in seconds of the injected clock.
+
+        Returns:
+            None, once the wait is over.
+        """
+        await self._clock.sleep(seconds)
 
     @abstractmethod
     async def _tick(self) -> None:

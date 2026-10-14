@@ -181,3 +181,25 @@ async def test_tick_loop_default_on_tick_failed_hook_is_a_no_op() -> None:
 
     # stop() was already set before the failure, so the loop exits after the one backoff sleep
     # instead of ticking again; reaching here at all proves the default hook did not raise.
+
+
+class _EagerLoop(ScriptedLoop):
+    """A loop whose backoff wait is overridden to record the wait and not take it."""
+
+    def __init__(self, clock: Clock, outcomes: list[str]) -> None:
+        """Create the loop with an empty record of the waits it was asked to make."""
+        super().__init__(clock, outcomes)
+        self.waited: list[float] = []
+
+    async def _wait_before_retry(self, seconds: float) -> None:
+        self.waited.append(seconds)
+
+
+async def test_tick_loop_backoff_wait_is_the_one_step_a_subclass_may_replace() -> None:
+    clock = FakeClock()  # Never advanced: the default wait would never end.
+    loop = _EagerLoop(clock, ["fail", "fail", "stop"])
+
+    await asyncio.wait_for(loop.run(), timeout=5)
+
+    assert loop.waited == [0.5, 1.0]  # The documented sequence still decides how long.
+    assert loop.tick_count == 3

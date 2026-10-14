@@ -28,6 +28,7 @@ Key invariants:
     - An unexpected bug inside a connection ends that connection and is retried; it never ends
       the packet.
     - No lease, program or scratch directory outlives the packet: the loop's exit releases them.
+    - A stop is heard during a reconnection backoff, not after it.
 
 See Also:
     - docs/waggle/gateway-contract.md sections 5, 8 and 14.
@@ -204,10 +205,30 @@ class PollenPacket(TickLoop):
             return
         if self._clock.monotonic() - began >= self._timings.stable_link_s:
             # A long-lived link resets the backoff (the base does, on a normal return), but the
-            # first wait after a lost connection is still the initial one.
-            await self._clock.sleep(INITIAL_BACKOFF_S)
+            # first wait after a lost connection is still the initial one, and a stop ends it too.
+            await self._wait_before_retry(INITIAL_BACKOFF_S)
             return
         raise LinkLostError("The connection ended soon after it began.")
+
+    async def _wait_before_retry(self, seconds: float) -> None:
+        """Wait out the reconnection backoff, but not past a request to stop.
+
+        A packet that is down for a while waits up to half a minute between dials, and a service
+        manager that asks it to stop gives it seconds: a stop that waited for the backoff would be
+        killed before the shutdown sweep released the leases. So the wait ends when the stop
+        event is set, whichever comes first.
+
+        Args:
+            seconds: The backoff, in seconds of the packet's clock.
+        """
+        sleeper = asyncio.ensure_future(self._clock.sleep(seconds))
+        stopper = asyncio.ensure_future(self._stop.wait())
+        try:
+            await asyncio.wait({sleeper, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for waiter in (sleeper, stopper):
+                waiter.cancel()
+            await asyncio.gather(sleeper, stopper, return_exceptions=True)
 
     async def _on_tick_failed(self, error: Exception) -> None:
         """Record why the connection is down, for ``pollen status``."""
