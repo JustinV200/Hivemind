@@ -750,6 +750,24 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   unplugged colonized device got no Hive Stand diagnosis (its Warden's link closed before the door
   said why, so the hold read "no live link"), and a quiet cut-off Warden overshot its search
   budget and offline limit by up to a heartbeat (it now wakes at its own deadlines).
+- **Wave 4G (landed).** What a dead link swallowed before anyone noticed it (wave 4B's open
+  item): `waggle.transport.recent` keeps a bounded ring (256 frames, 4 MiB) of the frames a node
+  sent that must arrive (the offline table's QUEUE and HOLD rows, `policy.must_arrive`), and on
+  reconnection, before the outbox, sends again those sent less than `UNNOTICED` before the loss and
+  less than 540 s before the redial (the Queen's 600 s replay window less a minute), under their own
+  ids; the packet's `Courier` does the same for `session.exit` and `cell.lease_released`. The
+  Queen's replay window drops what she already had. Two Queen-side defects fixed with it: the
+  reconnection grace began at `warden.reconnected`, after the trail merge, so a slow merge turned
+  the re-sent stretch into `guard.replay_refused` records (it now begins at attach), and frames a
+  replaced link had read but the tick had not drained were dropped (they carry over). Proved on a
+  real container (`tests/e2e/test_phase11_exit_unnoticed.py`): a result sent seven seconds after
+  the cable was pulled, before the loss was noticed, heard once after it came back; the same
+  scenario fails without the ring. Left open: after a Queen restart her window is empty, so an
+  Alarm or a question sent again can repeat; an outage longer than about nine minutes re-sends
+  nothing from its unnoticed stretch.
+- **Main merged in (5ad2814).** `origin/main` gained ten Windows-portability fixes to phase 8, 9 and
+  12 code after this branch was cut; they are merged, the one conflict (the face of
+  `hivemind.cell.local`) resolved by keeping both sides' names, so main is an ancestor again.
 - **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
   that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
   tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested

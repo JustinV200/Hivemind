@@ -2094,7 +2094,7 @@ promotion, `hive swarm` CLI.
   device refuses (an unverified Propolis tunnel) keeps its task parked and retried, not dropped. The
   documented limits stand: remote exec latency, and no autonomy when the link drops. Proved in a
   container (`tests/e2e/test_phase11_exit_level0.py`).
-- [ ] **11.6a Level 1: the Warden moves onto the device (colonization).** `swarm/level.py` +
+- [x] **11.6a Level 1: the Warden moves onto the device (colonization).** `swarm/level.py` +
   `pollen/bootstrap/`:
   when the Queen decides the device should carry its own Warden (its Forage suffices and the Hive
   Stand needs relief, or the task needs to survive short outages), the packet installs the
@@ -2102,6 +2102,20 @@ promotion, `hive swarm` CLI.
   device and resumes from the Handoff, its sub-bees are respawned beside it, and the Queen sets
   its `Ceilings`. Models still come from the hosting plan's shared sources. `warden.migrated`.
   The Warden is always the first bee to move; a device never runs sub-bees without their Warden.
+  **Built 2026-10-14.** `swarm/level.py` (`decide_colonize`: the device's Python and free memory
+  against the role footprint, and a reason: the operator's `desired_level`, the Hive Stand's relief
+  pressure, or a task that must survive a lost link), `queen/swarm_gate/colonize/` (Guard-checked at
+  `NUC_PROMOTION`: the packet PREPAREs a venv runtime from its wheelhouse and STARTs the Warden in
+  `hive in-cell` borrowed mode under the same id, `pollen/bootstrap/` and `cli/in_cell/borrowed/`;
+  each running task is checkpointed into a Handoff, a move waiting up to 30 s for a bee inside a
+  command, and resumes on the device from it, carried inline on `TaskAssign.handoff`; any failure
+  rolls back to a Warden on the Hive Stand; `swarm.promoted`, `warden.migrated`; the way down only
+  while idle). The Queen moves a device on her own (`queen/swarm_gate/rungs/`: relief and seat
+  pressure defined in `pressure.py`, `TaskNeeds.survives_link_loss`, a device lowered only after its
+  reason has gone and while idle, a failed attempt backed off), and the operator's `desired_level`
+  always wins (`demote` at GATEWAY pins a device). A terms change on a colonized device restarts its
+  Warden through the packet with its tasks checkpointed (ADR-0053). Proved on a real container
+  (`tests/e2e/test_phase11_exit_nuc.py`).
 - [x] **11.7 Platform shims and packaging.** `pollen/platform/{linux,windows,macos}.py` (any
   Linux distro through generic systemd and XDG paths, with Arch and Ubuntu tested; Windows; macOS);
   `pollen install|uninstall`; single-file builds in CI for Linux x86-64 and ARM64 (Raspberry Pi),
@@ -2128,13 +2142,27 @@ promotion, `hive swarm` CLI.
   **Built 2026-10-13.** `docs/waggle/gateway-contract.md` and the conformance suite
   `tests/contracts/test_gateway_contract*.py`, which runs against any gateway named by
   `HIVEMIND_GATEWAY_COMMAND` (the Python packet by default) over a real WebSocket.
-- [ ] **11.8 Level 2: Nuc promotion.** `swarm/nuc.py`: on a Level 1 device the Queen decides
+- [x] **11.8 Level 2: Nuc promotion.** `swarm/nuc.py`: on a Level 1 device the Queen decides
   from the device's free VRAM, the Hive Stand's seat pressure and the tasks' autonomy needs; she
   writes a hosting plan with local sources first, sets the model ceilings, and sends `NucPromote`.
   The device's Warden starts a model server through 8.3, loads allowlisted models within its
   ceilings, and reports the new sources; from then on its local pool includes seats. Demotion is
   the reverse. Guard-gated. A device cannot go straight from Level 0 to Level 2; the Warden moves
   first.
+  **Built 2026-10-14.** `swarm/nuc.py` (`decide_nuc`: colonized, a model server declared in the
+  Warden's capacity report, allowlisted models that fit the free VRAM (a CPU model needs none), and
+  a reason: the operator's `desired_level`, the shared pool's seat pressure past `[swarm.nuc]
+  seat_pressure`, or a task that must survive a lost link), the Queen's flows in
+  `queen/swarm_gate/colonize/nuc/` (Guard-checked at `NUC_PROMOTION`: ceilings, `swarm.nuc_promote`,
+  `swarm.nuc_promoted`, `swarm.promoted`, then a hosting plan with the device's local sources first
+  and the shared ones behind them; demotion the reverse; never GATEWAY straight to NUC), and the
+  device Warden's `ticks/nuc/` (starts and stops its server through 8.3's hosting and reports
+  `forage.source_added`). A later load of an allowlisted model within the ceiling is the Warden's
+  own and leaves only a new source; one outside the allowlist is `guard.denied` at SLOT_BINDING. A
+  Nuc whose Warden comes back without its server is promoted again or lowered cleanly. Config: the
+  Hive manifest lists the server id with `load_on_start=false`, and the device manifest carries the
+  `[forage.map]` rows its servers load. Proved on a real container with a scripted model server
+  inside it (`tests/e2e/test_phase11_exit_nuc.py`).
 - [x] **11.8a Real Cell Comb Shield is operator-set.** `swarm/enrolment.py` records the tier the
   operator chose at enrolment, Meadow or Propolis, changed only by `hive swarm shield <node>`;
   placement never changes a Real Cell's tier. For Propolis the Warden verifies the device's own
@@ -2153,7 +2181,7 @@ promotion, `hive swarm` CLI.
   the same checks plus `tor_disabled` before it is ready, and again when resumed (ADR-0057). Proved
   in containers (`tests/e2e/test_phase11_exit_propolis.py`,
   `tests/integration/test_docker_propolis.py`).
-- [ ] **11.9 Offline Wardens.** `wardens/offline/`: on link loss a device Warden keeps working
+- [x] **11.9 Offline Wardens.** `wardens/offline/`: on link loss a device Warden keeps working
   with what it owns. A Nuc keeps its sub-bees running on its local pool, and shared grants are
   frozen; a Level 1 Warden clusters its sub-bees at once, since it has no models to think with, and
   keeps them warm. Both queue results, Alarms and any `ForageRequest` in the outbox, write a local
@@ -2165,7 +2193,32 @@ promotion, `hive swarm` CLI.
   since ADR-0007 covers order and dedupe on merge, not authenticity. The Queen's side: mark
   unreachable, hold the node's tasks for a grace period, spawn the diagnostic Drone below, then
   decide.
-- [ ] **11.9a Active reconnection: a diagnostic Drone on both ends.** Retry-with-backoff (11.9) is
+  **Built 2026-10-14.** `wardens/offline/`: a Warden that dials the Queen keeps working on link loss
+  with what it owns. A Nuc keeps its sub-bees on its local pool with shared grants frozen; a Level 1
+  Warden clusters its sub-bees at once and keeps them warm; both queue results, Alarms, Nectar and
+  `ForageRequest`s in the outbox, write a local trail segment (its final chunk signed with the node
+  key), retry with backoff, refuse what needs the Queen, and cluster fully past `max_offline_s`
+  (waking at that deadline, not at the next beat). The frames that must arrive and were sent in the
+  stretch before a dead link is noticed (up to `UNNOTICED`) are kept in a bounded ring
+  (`waggle.transport.recent`) and sent again under their own ids on reconnection, before the outbox;
+  the receiver's replay window drops what it already had, and the packet does the same for
+  `session.exit` and `cell.lease_released`. On reconnection: that ring, the outbox, the segment
+  rewound by `UNNOTICED` and synced, grants, ceilings and plan re-sent by the Queen's one attach
+  path (`queen/attach/`), the local pool reported, `warden.reconnected`; tasks the outage paused
+  resume after `RESUME_SETTLE_S`, the Queen's word first. The Queen verifies a merged segment's
+  signature over its events before insertion and refuses one that fails (`guard.*`). A Level 0
+  device's Warden, which lives on the Hive Stand, holds a task whose bee died with the Cell's link
+  in its outage with the Handoff it had, instead of counting a crash. The Queen's side
+  (`queen/swarm_gate/unreachable/`): the lost device's Cell is held for `[swarm]
+  unreachable_grace_s`, the Hive Stand's diagnosis (11.9a) is asked for when the hold holds tasks
+  and the loss was seen, then she decides by rung (Level 0 and 1 tasks taken back from their
+  Handoffs, a Nuc's kept waiting up to `max_offline_s`). Proved on real containers
+  (`test_phase11_exit_nuc.py`, `test_phase11_exit_unnoticed.py`, `test_phase11_exit_deadman.py`,
+  `test_phase11_exit_diagnose.py`). Left open: after a Queen restart her replay window is empty, so
+  an Alarm or a question sent again from an unnoticed stretch can repeat (results and Nectar stay
+  idempotent), and after an outage longer than about nine minutes nothing from that stretch is sent
+  again.
+- [x] **11.9a Active reconnection: a diagnostic Drone on both ends.** Retry-with-backoff (11.9) is
   the floor for every offline Cell, but wherever a model is actually reachable to do the thinking,
   the Warden does not just wait on it. A Nuc's Warden (it has its own model server) spawns a
   short-lived **Drone** from its own local pool — no Cell, Forage or permission needed from the
@@ -2186,6 +2239,23 @@ promotion, `hive swarm` CLI.
   access than being connected would. It reports back to its Warden — fixed, diagnosed but can't
   fix, or no cause found — and deposits its findings as Nectar either way, then 11.9's existing
   timeline resumes untouched.
+  **Built 2026-10-14.** `wardens/offline/diagnose/`: a Warden that goes OFFLINE while it holds a
+  local model binding (a Nuc) spawns one short-lived Drone from its own local pool, on a task it
+  mints itself (`RequestOrigin.WARDEN`, never sent up as a task) that takes no grant slot, bounded
+  by `max_sub_bees` and `[supervision.reconnect_budget]` (attempts and wall clock, carved out of
+  `max_offline_s`; a device manifest sets both), and held to the Cell's access level and the Capping
+  gate like any Drone. The Warden wakes at the budget's and the offline limit's deadlines, judges
+  FIXED, DIAGNOSED or NO_CAUSE from the Drone's closing `CAUSE:` line, records `warden.diagnosed`,
+  and queues the findings as Nectar until it reconnects; 11.9's timeline then runs untouched. A
+  Warden with no local model spawns none. On the Hive Stand side, a lost device whose hold holds
+  tasks, and whose loss was seen, gets an ordinary Queen task pinned to the Hive Stand
+  (`queen/swarm_gate/unreachable/hive_stand.py`, "check reachability of device <cell> from the Hive
+  Stand"), run by W0's Drone and deposited as Nectar before the hold decides. Neither touches the
+  Royal Jelly Lab or the Quarantine Comb. Proved on real containers
+  (`tests/e2e/test_phase11_exit_diagnose.py`: a planted resolver fault mended in budget with the
+  task completing untouched; the network gone, the Drone giving up in budget and the Warden
+  clustering at its limit; an unplugged colonized device's W0 finding deposited before the hold
+  decides) and in process (`tests/e2e/test_hive_stand_diagnosis.py`).
 - [x] **11.10 Watch mode and the hourly Patrol.** Real Cells stay enrolled between sessions, so
   their Wardens are long-lived. `wardens/watch/`: when a Real Cell has no active bees its Warden
   enters `WATCH`, a read-only autopilot state that observes within the Cell's access level
