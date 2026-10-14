@@ -13,6 +13,8 @@ package may import hivemind.llm.
   the wire `attempts` field (see `table.py`'s own docstring for why). Roadmap step 7.8: a
   `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.error` whose `failed_kind` is
   `honey.nectar_deposit`, map to `FORWARD_HONEY` -- relayed or logged, never a model call.
+  Roadmap step 11.8: a Queen-sent `swarm.nuc_promote` maps to `NUC_PROMOTE` -- the device's
+  model server starts or stops as ordered, never a judgement call.
 
 ## How to test this
 

@@ -42,6 +42,10 @@ Public API (roadmap phase 9, steps 9.2a, 9.6, 9.7):
       run the Quarantine Comb on this Cell, receive and ship Basket blobs and deposit what a
       sub-bee retains. Sub-packages rather than modules because this directory is at its
       codingrules 5.6 fan-out limit.
+
+Public API (roadmap step 11.8):
+    - nuc: the sub-package that starts and stops a device's model server on the Queen's
+      `swarm.nuc_promote` and answers with `swarm.nuc_promoted`.
 """
 
 from hivemind.wardens.ticks import (
@@ -53,6 +57,7 @@ from hivemind.wardens.ticks import (
     heartbeat,
     honey,
     lease,
+    nuc,
     questions,
     results,
     tools,
@@ -67,6 +72,7 @@ __all__ = [
     "heartbeat",
     "honey",
     "lease",
+    "nuc",
     "questions",
     "results",
     "tools",

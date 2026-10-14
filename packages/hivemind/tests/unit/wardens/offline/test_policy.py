@@ -22,9 +22,12 @@ import pytest
 from builders.offline import Wire, make_wire
 
 from hivemind.wardens.offline import OfflineAction, OfflineRefusedError, decide_offline, owes_reply
+from waggle.clock import FakeClock
 from waggle.envelope import Envelope
 from waggle.errors import ConnectionLostError
+from waggle.ids import new_cell_id, new_device_id
 from waggle.messages.control import Ping
+from waggle.messages.swarm import NucAction, NucOutcome, NucPromoted, RuntimeLevel
 from waggle.messages.task import TaskStage
 
 _Build = Callable[[Wire], Envelope]
@@ -91,3 +94,21 @@ def test_a_refusal_reads_as_a_lost_connection_to_every_guarded_send() -> None:
     # Every send already guarded against a dead link (`wardens.links.send_guarded`) catches it.
     assert isinstance(refusal, ConnectionLostError)
     assert OfflineRefusedError.code == "hive.wardens.offline_refused"
+
+
+def test_the_answer_to_a_promotion_order_is_dropped_not_kept_for_the_return() -> None:
+    # The Queen waits a bounded time for it; one sent after the link came back describes a move
+    # she has already undone, so it is forgotten, not replayed.
+    clock = FakeClock()
+    reply = NucPromoted(
+        cell_id=new_cell_id(clock),
+        device_id=new_device_id(clock),
+        action=NucAction.DEMOTE,
+        outcome=NucOutcome.DEMOTED,
+        level=RuntimeLevel.COLONIZED,
+        server_id=None,
+        loaded_models=(),
+        reason="No model server runs on this Cell.",
+    )
+
+    assert decide_offline(reply) is OfflineAction.DROP

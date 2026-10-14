@@ -25,7 +25,9 @@ the seats she exported, or ignores the order for a source that is not this Warde
 up, the Queen's `ToolPromoted` or `control.error` (`failed_kind` `tool.*`) down, and the report
 answering this Warden's own sandbox request -- and `RUN_QUARANTINE` runs a Queen-sent
 `ToolQuarantine` order on this Warden's own Cell; `BASKET` handles every `basket.*` payload (a
-shipment arriving, or the Queen's answers to one this Warden sent);
+shipment arriving, or the Queen's answers to one this Warden sent); `NUC_PROMOTE` (roadmap step
+11.8) starts or stops this Cell's model server on a Queen-sent `NucPromote`, which makes the device
+a Nuc or an ordinary colonized Cell again;
 `NEEDS_JUDGEMENT` is the one signal that hands the item to `hivemind.wardens.awake` instead.
 
 Fits into the Hive:
@@ -78,4 +80,6 @@ class WardenAction(Enum):
     FORWARD_TOOL = "FORWARD_TOOL"  # ToolRequest up; ToolPromoted, a tool.* error or a report down.
     RUN_QUARANTINE = "RUN_QUARANTINE"  # A Queen-sent ToolQuarantine: run the Comb on this Cell.
     BASKET = "BASKET"  # Any basket.* payload: a shipment in, or an answer to a shipment out (9.2a).
+    NUC_PROMOTE = "NUC_PROMOTE"  # A Queen-sent NucPromote: start or stop this Cell's model server
+    # (hivemind.wardens.ticks.nuc). Roadmap step 11.8.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to wardens.awake.

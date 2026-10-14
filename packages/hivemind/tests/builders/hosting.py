@@ -37,7 +37,7 @@ from hivemind.cell import Cell
 from hivemind.cell.fake import FakeSession
 from hivemind.forage import Ceilings, ForageMap, ModelSource
 from hivemind.llm import FakeLLMProvider, LLMProvider, ProviderConfig
-from hivemind.wardens import Warden, WardenDeps
+from hivemind.wardens import DeviceDeps, Warden, WardenDeps
 from hivemind.wardens.local_pool.hosting import (
     HostedCell,
     ModelServerHost,
@@ -170,14 +170,23 @@ def make_hosting_rig(
 
 
 def make_hosting_warden(
-    *, can_host_model: bool = True, with_servers: bool = True
+    *,
+    can_host_model: bool = True,
+    with_servers: bool = True,
+    load_on_start: bool = True,
+    sources: tuple[ModelSource, ...] | None = None,
+    device: DeviceDeps | None = None,
 ) -> tuple[Warden, WardenDeps, QueenEnd, ForageMap, RegistryDoor]:
-    """Build a Warden (not yet started) on a Cell that may host `make_server_config()`'s server."""
+    """Build a Warden (not yet started) on a Cell that may host `make_server_config()`'s server.
+
+    A device's Warden declares its server and starts it only when the Queen promotes the device,
+    which is `load_on_start=False`.
+    """
     clock = FakeClock()
     cell = make_cell(clock=clock, capabilities=make_capabilities(can_host_model=can_host_model))
     door = RegistryDoor(FakeLLMProvider(name=PROVIDER_NAME))
     forage_map = ForageMap((), clock=clock)
-    config = make_server_config()
+    config = make_server_config(sources=sources, load_on_start=load_on_start)
     deps, queen_end, warden_id = make_warden_deps(
         clock,
         cells=(cell,),
@@ -185,6 +194,7 @@ def make_hosting_warden(
         map=forage_map,
         register_provider=door.register,
         unregister_provider=door.unregister,
+        device=device,
     )
     return Warden(warden_id, deps), deps, queen_end, forage_map, door
 

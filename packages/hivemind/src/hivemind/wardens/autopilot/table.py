@@ -19,7 +19,8 @@ QUARANTINE` row maps to `QUARANTINE` too, and to `ESCALATE` when the Alarm names
 Warden still supervises; a `CellSnapshotReply`/`CellRollbackReply` (roadmap step 5.10's own
 follow-up gap) maps to `RECORD`, resolved by this Warden's own `RelaySnapshotter`; a Queen-sent
 `CellTaintOrder` (roadmap step 10.6a) maps to `TAINT_MEMORY`; a Queen-sent `SourceEvict` (roadmap
-step 8.3) maps to `EVICT_SOURCE`; the Honey Store's traffic (roadmap
+step 8.3) maps to `EVICT_SOURCE`; a Queen-sent `NucPromote` (roadmap step 11.8) maps to
+`NUC_PROMOTE`; the Honey Store's traffic (roadmap
 step 7.8) -- a `HoneyQuery`, `NectarDeposit` or `HoneyResponse`, and a `control.error` whose
 `failed_kind` is `honey.nectar_deposit` -- maps to `FORWARD_HONEY`, which
 `hivemind.wardens.ticks.honey` relays or logs; the Royal Jelly Lab's and the Basket's traffic
@@ -80,6 +81,7 @@ from waggle.messages.supervision import (
     InterventionAction,
     Question,
 )
+from waggle.messages.swarm import NucPromote
 from waggle.messages.task import (
     TaskAssign,
     TaskCancel,
@@ -219,6 +221,15 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
         # Roadmap step 5.10's own follow-up gap (the snapshot relay): resolved by this Warden's
         # own RelaySnapshotter, never a judgement call.
         return WardenAction.RECORD
+    order = _decide_cell_order(payload)
+    if order is not None:
+        return order
+    honey = _decide_honey(payload)
+    return honey if honey is not None else _decide_tool_or_basket(payload)
+
+
+def _decide_cell_order(payload: object) -> WardenAction | None:
+    """Return the WardenAction for a Queen-sent order about this Warden's Cell; None otherwise."""
     if isinstance(payload, CellTaintOrder):
         # Roadmap step 10.6a: the Queen isolated this Cell; labelling is never a judgement call.
         return WardenAction.TAINT_MEMORY
@@ -226,8 +237,12 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
         # Roadmap step 8.3: reclaiming seats she exported is a rule (the handler checks the source
         # is this Warden's own and exported), never a judgement call.
         return WardenAction.EVICT_SOURCE
-    honey = _decide_honey(payload)
-    return honey if honey is not None else _decide_tool_or_basket(payload)
+    if isinstance(payload, NucPromote):
+        # Roadmap step 11.8: starting or stopping this Cell's model server is carried out as
+        # ordered (the handler checks who ordered it, for which Cell and against which ceilings),
+        # never a judgement call.
+        return WardenAction.NUC_PROMOTE
+    return None
 
 
 def _decide_tool_or_basket(payload: object) -> WardenAction | None:

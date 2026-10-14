@@ -168,10 +168,12 @@ async def release_idle_lease(warden: Warden) -> None:
 
     Called at the end of every tick by `hivemind.wardens.ticks.assign.settle_after_tick`; it does
     nothing unless `WardenDeps.device` asks for it and the Warden is idle, so a Hive Stand's or a
-    Virtual Cell's Warden is untouched. Idle means WATCH, no sub-bee and no assignment parked for
-    a grant that is still to arrive (that one is about to start, so the lease stays). The next
-    TaskAssign finds no lease and leases again (`hivemind.wardens.ticks.assign`'s own retry). A
-    release the device cannot confirm leaves the lease ORPHANED and held; the next tick retries.
+    Virtual Cell's Warden is untouched. Idle means WATCH, no sub-bee, no assignment parked for
+    a grant that is still to arrive (that one is about to start, so the lease stays), no job the
+    Warden owns in flight and no model server running (a Nuc keeps its Cell while it hosts one).
+    The next TaskAssign finds no lease and leases again (`hivemind.wardens.ticks.assign`'s own
+    retry). A release the device cannot confirm leaves the lease ORPHANED and held; the next tick
+    retries.
 
     Args:
         warden: The owning Warden (read and written directly; see the module docstring).
@@ -183,6 +185,10 @@ async def release_idle_lease(warden: Warden) -> None:
     if warden._state is not WardenState.WATCH or warden._cell_lost:
         return
     if warden._sub_bees or warden._pending:
+        return
+    # A job in flight (a promotion starting this device's model server, a sandbox run) works on
+    # this very lease, and a model server that runs dies with it: neither is idle work.
+    if warden._tool_jobs or (warden._models is not None and warden._models.running):
         return
     # Tasks an outage paused resume on this very lease once the link is back (`offline.resume`).
     outage = device_outage(warden._deps)

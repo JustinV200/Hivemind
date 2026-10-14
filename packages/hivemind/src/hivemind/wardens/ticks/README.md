@@ -50,6 +50,15 @@ every decided action to one of these; none of them is a general-purpose module o
   named model source only when this Warden hosts it and its ceilings let it export seats, and
   ignores the order (logged) otherwise; `RELEASE_LEASE` also stops any model server the Warden
   started, since it would die with the lease.
+- `nuc` (roadmap step 11.8, a sub-package): `handle_nuc_promote` accepts a `swarm.nuc_promote`
+  from the Queen's link only and starts a job the Warden owns (`basket.jobs.start_job`, reaped by
+  `Warden.stop`), because a model server takes seconds to turn healthy and no tick waits.
+  `run_order` is the job: PROMOTE starts the named server (one the device's manifest declares)
+  through `ModelServerHost.start(only=initial_models, deadline_s=...)` within the ceilings, failing
+  closed without them, leasing the Cell again if the idle release gave it back; DEMOTE stops every
+  server. `reply` builds and sends `swarm.nuc_promoted`, correlated to the order, with the rung
+  the device is on afterwards. `lease.release_idle_lease` no longer releases a lease while a job is
+  in flight or a model server runs.
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
   Heartbeat says it has ended with nothing more to send, leaving its Handoff with the outage if the
   outage paused it, or starting its successor when the Warden's own context check had ordered it

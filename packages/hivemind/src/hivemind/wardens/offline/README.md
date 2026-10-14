@@ -40,6 +40,7 @@ One pure table (`policy.decide_offline`), tested row by row:
 | `supervision.question` | HOLD: in memory, sent after the queue; its sub-bee stays blocked |
 | `cell.request` | REFUSE: `OfflineRefusedError` (a `ConnectionLostError`), because an offline Warden cannot grow |
 | `supervision.heartbeat`, `cell.heartbeat`, `task.progress` at any other stage | DROP: stale when the link returns |
+| `swarm.nuc_promoted` | DROP: the answer to an order the Queen only waits a bounded time for |
 | anything the table does not name | REFUSE, as on a dead link |
 
 A queued *event* is replayed under the id it was queued with, so the Queen's replay window drops it

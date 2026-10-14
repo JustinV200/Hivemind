@@ -8,8 +8,9 @@ that does the work -- spawn (`assign`), acceptance (`results`), an Alarm's lever
 relays between the Queen and a sub-bee (`questions`, `control`, and `honey` for the Honey Store's
 traffic, roadmap step 7.8), the Royal Jelly Lab's and the Basket's traffic (the `tools` and
 `basket` sub-packages, roadmap phase 9), the routine records (`heartbeat`, `control`, and `assign`
-for a grant or its revocation) and the Queen's orders that end or narrow this Warden, or reclaim a
-model server's seats (`control`). It lived in `hivemind.wardens.warden` as `_act`; it moved here,
+for a grant or its revocation) and the Queen's orders that end or narrow this Warden, reclaim a
+model server's seats (`control`) or start and stop its model server (`nuc`, roadmap step 11.8). It
+lived in `hivemind.wardens.warden` as `_act`; it moved here,
 unchanged in behaviour, so that module stays within codingrules 5.1's size limit as the table
 grows, the same reason every other tick handler lives in this package. Roadmap phase 10's
 isolation orders (a quarantine, a memory taint) and the gates a spawn passes first stay in
@@ -20,7 +21,7 @@ Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     ticks sub-package. Called once per decided item by `hivemind.wardens.warden.Warden`'s own
     tick. Calls into this package's `alarms`, `assign`, `control`, `heartbeat`, `honey`,
-    `questions` and `results`, `hivemind.wardens.autopilot` (WardenAction),
+    `nuc`, `questions` and `results`, `hivemind.wardens.autopilot` (WardenAction),
     `hivemind.supervision.attendant` (InboxItem) and waggle only.
 
 Key invariants:
@@ -47,6 +48,7 @@ from hivemind.wardens.ticks import (
     control,
     heartbeat,
     honey,
+    nuc,
     questions,
     results,
     tools,
@@ -55,6 +57,7 @@ from waggle.ids import MessageId
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten, SourceEvict
 from waggle.messages.supervision import AlarmRaised, Answer, Heartbeat, Intervene, Question
+from waggle.messages.swarm import NucPromote
 from waggle.messages.task import (
     TaskAssign,
     TaskCancel,
@@ -75,6 +78,16 @@ _ALARM_ACTIONS = frozenset(
 # The actions of the Royal Jelly Lab and the Basket (roadmap phase 9), routed together below.
 _TOOL_BASKET_ACTIONS = frozenset(
     {WardenAction.FORWARD_TOOL, WardenAction.RUN_QUARANTINE, WardenAction.BASKET}
+)
+# The Queen's orders about this Warden itself: end it, give its lease back, reclaim seats it
+# exported, or start and stop its model server.
+_ORDER_ACTIONS = frozenset(
+    {
+        WardenAction.STOP,
+        WardenAction.RELEASE_LEASE,
+        WardenAction.EVICT_SOURCE,
+        WardenAction.NUC_PROMOTE,
+    }
 )
 # The actions that relay a message between the Queen and a sub-bee rather than act on it.
 _RELAY_ACTIONS = frozenset(
@@ -118,7 +131,14 @@ async def act(
         await results.handle_accept(warden, sub_bee, payload)
     elif action in _ALARM_ACTIONS and sub_bee is not None and isinstance(payload, AlarmRaised):
         await alarms.handle_alarm_action(warden, sub_bee, payload, action, binding)
-    elif action is WardenAction.STOP:
+    elif action in _ORDER_ACTIONS:
+        await _queen_order(warden, action, item)
+
+
+async def _queen_order(warden: Warden, action: WardenAction, item: InboxItem) -> None:
+    """Carry out one of the Queen's orders about this Warden itself."""
+    payload = item.payload
+    if action is WardenAction.STOP:
         # ADR-0027 / roadmap step 5.3: the Queen's own Shutdown or CellTeardownRequest. `stop()`
         # already stops every sub-bee, releases the lease and sets the loop's own stop flag, so
         # the Warden's `_run_tick` returns straight after this and `run()` ends on its next check.
@@ -132,6 +152,10 @@ async def act(
         # Roadmap step 8.3: the Queen reclaiming seats she exported; the handler gives them back
         # only for a source this Warden hosts and exported, and ignores the order otherwise.
         await control.handle_source_evict(warden, payload)
+    elif action is WardenAction.NUC_PROMOTE and isinstance(payload, NucPromote):
+        # Roadmap step 11.8: start or stop this Cell's model server. The handler only starts a
+        # job (a server takes seconds to turn healthy), so the tick does not wait on it.
+        nuc.handle_nuc_promote(warden, item, payload)
 
 
 async def _tool_or_basket(

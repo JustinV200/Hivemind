@@ -9,7 +9,8 @@ of four actions: QUEUE it in the durable outbox and send it, in order, once the 
 it in memory and send it after the reconnection (a `supervision.question` is for a human, whom only
 the Queen may ask, and its sub-bee stays blocked meanwhile); REFUSE it by raising a typed error the
 sender handles (a `cell.request`: an offline Warden cannot get a new Cell); or DROP it, because the
-news is stale by the time the link returns (a heartbeat). Anything the table does not name is
+news is stale by the time the link returns (a heartbeat, or the answer to an order the Queen has
+given up on once her deadline passed). Anything the table does not name is
 REFUSED, so a new kind of message behaves exactly as it does on a dead link until someone decides
 otherwise.
 
@@ -47,6 +48,7 @@ from waggle.messages.cell.status import CellHeartbeat
 from waggle.messages.forage import ForageRequest
 from waggle.messages.registry import spec_for
 from waggle.messages.supervision import AlarmRaised, Heartbeat, Question
+from waggle.messages.swarm import NucPromoted
 from waggle.messages.task import TaskProgress, TaskResult, TaskStage
 
 __all__ = ["OfflineAction", "OfflineRefusedError", "decide_offline", "owes_reply"]
@@ -83,6 +85,9 @@ _BY_TYPE: dict[type[WaggleMessage], OfflineAction] = {
     CellRequest: OfflineAction.REFUSE,
     Heartbeat: OfflineAction.DROP,
     CellHeartbeat: OfflineAction.DROP,
+    # The answer to a promotion order: the Queen waits a bounded time for it, so one that could not
+    # be sent in time describes a move she has already undone.
+    NucPromoted: OfflineAction.DROP,
 }
 
 # The task.progress stages worth keeping: each carries (or follows) a Handoff the Queen resumes

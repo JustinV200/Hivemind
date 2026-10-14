@@ -27,6 +27,7 @@ from waggle.clock import FakeClock
 from waggle.ids import (
     new_alarm_id,
     new_cell_id,
+    new_device_id,
     new_grant_id,
     new_message_id,
     new_task_id,
@@ -54,6 +55,7 @@ from waggle.messages.supervision import (
     Question,
 )
 from waggle.messages.supervision import WorkerState as WireWorkerState
+from waggle.messages.swarm import NucAction, NucPromote
 from waggle.messages.task import (
     TaskAssign,
     TaskCancel,
@@ -340,3 +342,21 @@ def test_decide_maps_a_source_evict_to_evict_source() -> None:
     action = decide(make_inbox_item(payload=order, principal="queen"), None, make_policy())
 
     assert action is WardenAction.EVICT_SOURCE
+
+
+def test_decide_maps_a_nuc_promote_to_nuc_promote() -> None:
+    # Roadmap step 11.8: starting or stopping this Cell's model server is a rule the handler
+    # applies (who ordered it, for which Cell, against which ceilings), not a judgement.
+    order = NucPromote(
+        cell_id=new_cell_id(_CLOCK),
+        device_id=new_device_id(_CLOCK),
+        action=NucAction.PROMOTE,
+        server_id="box",
+        initial_models=("small",),
+        deadline_s=30.0,
+        reason="The operator asked.",
+    )
+
+    action = decide(make_inbox_item(payload=order, principal="queen"), None, make_policy())
+
+    assert action is WardenAction.NUC_PROMOTE

@@ -16,7 +16,9 @@ depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate` (no
 is the Queen-side mirror of `builders.workers.WardenEnd`: it wraps the Queen's own end of the
 pair, `send`s an order (`TaskAssign`/`GrantIssued`/`TaskCancel`/`Intervene`) or an `answer` to a
 pending `Question`, and sorts every report the Warden sends back into `heartbeats`/`results`/
-`alarms`/`questions`/`forage_requests`/`lease_released`/`progress`/`nectar`/`wax_proposed`.
+`alarms`/`questions`/`forage_requests`/`lease_released`/`progress`/`nectar`/`wax_proposed`, and
+keeps whole the envelope of each `swarm.nuc_promoted` reply (`nuc_replies`), since what matters
+about one is the order it answers.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -76,6 +78,7 @@ from waggle.messages.forage import ForageRequest, SourceAdded, SourceRemoved
 from waggle.messages.honey import NectarDeposit
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmRaised, Answer, AnswerSource, Heartbeat, Question
+from waggle.messages.swarm import NucPromoted
 from waggle.messages.task import TaskProgress, TaskResult, WorkerRole
 from waggle.transport.memory import MemoryTransport
 
@@ -321,6 +324,7 @@ class QueenEnd:
         self.source_removed: list[SourceRemoved] = []  # Roadmap step 8.3: one gone, with cause.
         self.nectar: list[NectarDeposit] = []  # Roadmap step 11.10: a Patrol's summary chunks.
         self.wax_proposed: list[CellWaxProposed] = []  # Roadmap step 11.10: a Patrol's note.
+        self.nuc_replies: list[Envelope] = []  # Roadmap step 11.8: a promotion's reply, whole.
         # Which bucket each payload type lands in, so `_sort` is one lookup and not a branch each.
         self._buckets: tuple[tuple[type[WaggleMessage], list[Any]], ...] = (
             (Heartbeat, self.heartbeats),
@@ -457,6 +461,8 @@ class QueenEnd:
         payload = envelope.payload
         if isinstance(payload, Question):
             self._question_envelope_ids[payload.question_id] = envelope.id
+        if isinstance(payload, NucPromoted):
+            self.nuc_replies.append(envelope)
         for kind, bucket in self._buckets:
             if isinstance(payload, kind):
                 bucket.append(payload)

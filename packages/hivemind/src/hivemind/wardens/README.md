@@ -95,7 +95,13 @@ Warden never provisions Cells itself.
   heartbeat tick sweeps for a server that died, and a Queen-sent `forage.source_evict` (autopilot
   `WardenAction.EVICT_SOURCE`, `ticks.control.handle_source_evict`) withdraws a source only when
   this Warden exported its seats. `WardenDeps` gained `servers`, `register_provider` and
-  `unregister_provider` for it.
+  `unregister_provider` for it. Roadmap step 11.8 (a Nuc, Level 2 of the runtime ladder): a
+  Queen-sent `swarm.nuc_promote` (autopilot `WardenAction.NUC_PROMOTE`, `ticks.nuc`) starts the
+  server the device's own manifest names, with the models the order lists, within the ceilings the
+  Queen set (and fails closed without them), or stops every server on DEMOTE; the job answers with
+  `swarm.nuc_promoted`. A device Warden that hosts a server (or has a job in flight) keeps its
+  lease instead of giving it back when idle, and a model it loads afterwards, within the
+  ceilings, is only a new source; one outside them is refused and recorded as a `guard.denied`.
 - `wardens.ticks`: `assign`, `results`, `alarms`, `questions`, `control`, `heartbeat`, `honey` --
   one of `Warden`'s own tick handlers each, split out only to stay within codingrules 5.1's size
   limits -- and `dispatch`, whose `act` hands each decided `WardenAction` to the one that does it
