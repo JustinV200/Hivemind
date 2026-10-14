@@ -29,7 +29,8 @@ Public API:
     - PollenSession: the session (session).
     - CommandGuard, DeviceCommand, EnforcedCommandGuard, COMMAND_SENT_KIND: the check and record
       in front of every command (guard).
-    - DevicePaths: path resolution and reach on the device (paths).
+    - DevicePathRule, DevicePaths: the device's path rules, as a lease's rule and for a session
+      (paths).
     - ErrorContext, translate, exit_code_for: the device's codes as session errors (codes).
 """
 
@@ -40,13 +41,14 @@ from hivemind.swarm.session.guard import (
     DeviceCommand,
     EnforcedCommandGuard,
 )
-from hivemind.swarm.session.paths import DevicePaths
+from hivemind.swarm.session.paths import DevicePathRule, DevicePaths
 from hivemind.swarm.session.session import PollenSession
 
 __all__ = [
     "COMMAND_SENT_KIND",
     "CommandGuard",
     "DeviceCommand",
+    "DevicePathRule",
     "DevicePaths",
     "EnforcedCommandGuard",
     "ErrorContext",

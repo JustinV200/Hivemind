@@ -16,11 +16,16 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from builders.cells import make_real_cell_lease
+from builders.cells import make_identity, make_lease_request, make_real_cell_lease
 
 from hivemind.cell.errors import PathNotAllowedError
-from hivemind.cell.lease import RealCellLease
-from hivemind.swarm.session.paths import DevicePaths
+from hivemind.cell.fake import FakeLeaseReleaser
+from hivemind.cell.lease import LeaseFacts, RealCellLease
+from hivemind.cell.tiers import AccessLevel, CombShieldLevel
+from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.swarm.session.paths import DevicePathRule, DevicePaths
+from waggle.clock import FakeClock
+from waggle.ids import new_lease_id
 
 _POSIX_SCRATCH = Path("/pollen/scratch/lease_1")
 _WINDOWS_SCRATCH = Path("C:\\Users\\op\\scratch\\lease_1")
@@ -119,3 +124,95 @@ def test_a_relative_allowed_path_never_matches() -> None:
     paths, _ = _paths(_POSIX_SCRATCH, Path("relative/dir"))
 
     assert not paths.is_reachable("/relative/dir/file")
+
+
+def _device_lease(scratch: Path) -> RealCellLease:
+    """A lease on a device: scratch root `scratch`, paths judged by the device's own rule."""
+    clock = FakeClock()
+    request = make_lease_request(clock=clock)
+    facts = LeaseFacts(
+        id=new_lease_id(clock),
+        cell_id=request.cell_id,
+        holder=request.holder,
+        task_id=None,
+        scratch_root=scratch,
+        access_level=AccessLevel.SCRATCH,
+        comb_shield=CombShieldLevel.MEADOW,
+        allowed_paths=(),
+        paths=DevicePathRule(str(scratch)),
+    )
+    return RealCellLease(
+        facts,
+        trail=MemoryPheromoneTrail(clock),
+        clock=clock,
+        identity=make_identity(clock=clock),
+        releaser=FakeLeaseReleaser(),
+    )
+
+
+def test_the_rule_reads_a_relative_path_under_the_devices_scratch_without_a_disk() -> None:
+    rule = DevicePathRule(str(_POSIX_SCRATCH))
+
+    assert rule.resolve(Path("a/../b.txt")) == Path("/pollen/scratch/lease_1/b.txt")
+    assert rule.resolve(Path("/etc//hosts")) == Path("/etc/hosts")
+
+
+def test_the_rule_resolves_a_windows_path_in_the_devices_own_spelling() -> None:
+    rule = DevicePathRule(str(_WINDOWS_SCRATCH))
+
+    resolved = rule.resolve(Path("C:\\Users\\op\\scratch\\lease_1\\a\\..\\b.txt"))
+
+    assert str(resolved) == "C:\\Users\\op\\scratch\\lease_1\\b.txt"
+    assert str(rule.resolve(Path("notes.txt"))) == "C:\\Users\\op\\scratch\\lease_1\\notes.txt"
+
+
+def test_the_rule_says_within_by_the_devices_case_rules() -> None:
+    posix, windows = DevicePathRule(str(_POSIX_SCRATCH)), DevicePathRule(str(_WINDOWS_SCRATCH))
+
+    assert posix.is_within(Path("/srv/work/a"), Path("/srv/work"))
+    assert not posix.is_within(Path("/srv/work2/a"), Path("/srv/work"))  # A shared prefix only.
+    assert not posix.is_within(Path("/SRV/work/a"), Path("/srv/work"))  # POSIX is case-sensitive.
+    assert windows.is_within(Path("c:\\USERS\\op\\a"), Path("C:\\Users\\op"))
+    assert not windows.is_within(Path("D:\\Users\\op\\a"), Path("C:\\Users\\op"))
+
+
+def test_the_session_and_the_lease_agree_on_what_a_path_is() -> None:
+    lease = _device_lease(_WINDOWS_SCRATCH)
+    paths = DevicePaths(lease)
+
+    for text in ("sub\\file.txt", "C:\\Windows\\..\\Temp", "a\\.\\b"):
+        assert paths.resolve(text) == str(DevicePathRule(str(_WINDOWS_SCRATCH)).resolve(Path(text)))
+
+
+def test_a_device_lease_judges_a_path_by_its_text_whatever_the_hive_stands_disk_holds(
+    tmp_path: Path,
+) -> None:
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (tmp_path / "outside").mkdir()
+    (scratch / "link").symlink_to(tmp_path / "outside")  # A link on the Hive Stand's own disk.
+    lease = _device_lease(scratch)
+
+    # On the device the link is the packet's to judge: the Hive's wall is lexical.
+    assert lease.is_path_allowed(scratch / "link" / "file")
+    assert lease.is_path_allowed(Path("notes.txt"))  # Relative: under the device's scratch.
+    assert not lease.is_path_allowed(Path("../outside/file"))
+    assert not lease.is_path_allowed(tmp_path / "outside" / "file")
+
+
+def test_a_windows_device_lease_works_whatever_this_hive_stand_is() -> None:
+    lease = _device_lease(_WINDOWS_SCRATCH)
+
+    assert lease.is_path_allowed(Path("C:\\Users\\op\\scratch\\lease_1\\x\\..\\y.txt"))
+    assert lease.is_path_allowed(Path("y.txt"))
+    assert not lease.is_path_allowed(Path("C:\\Users\\op\\other\\y.txt"))
+    assert not lease.is_path_allowed(Path("C:\\Users\\op\\scratch\\lease_1\\..\\lease_2\\y.txt"))
+
+
+def test_widening_a_device_lease_stores_the_devices_normal_form() -> None:
+    lease = _device_lease(_WINDOWS_SCRATCH)
+
+    lease.note_allowed_path(Path("C:\\Users\\op\\project\\..\\project"))
+
+    assert [str(p) for p in lease.allowed_paths] == ["C:\\Users\\op\\project"]
+    assert lease.is_path_allowed(Path("c:\\users\\OP\\project\\src\\main.py"))

@@ -38,9 +38,12 @@ Key invariants:
       to ORPHANED and re-raises, so a later call is legal (`hivemind.cell.lease_state`'s
       `RELEASING -> ORPHANED` and `ORPHANED -> RELEASING` edges) and `cell.released` is written at
       most once, only by the call that actually succeeds.
-    - `is_path_allowed` and `note_touched_path` both resolve `..` and symlinks with
-      `Path.resolve(strict=False)` before comparing, so neither can be used to sneak outside
-      scratch undetected.
+    - `is_path_allowed`, `note_allowed_path`, `note_touched_path` and `note_restore_path` all
+      resolve a path through the lease's own `PathRule` before comparing, so none can be used to
+      sneak outside scratch undetected. A lease on this machine resolves against the real
+      filesystem (`..` and symlinks); a lease on a device resolves the device's own spelling
+      lexically and never reads the Hive Stand's disk, which has nothing to say about another
+      machine's paths.
     - `note_restore_path` never records a path that resolves inside `scratch_root`: scratch is
       removed wholesale on release, so there is nothing individual to restore there.
     - `note_restore_path`'s `persist`, `approved_by` and `reason` (roadmap step 5.0a) only decide
@@ -63,7 +66,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -93,11 +96,14 @@ if TYPE_CHECKING:
 MAX_ALLOWED_PATHS = 64  # Mirrors waggle.messages.cell.leases.MAX_ALLOWED_PATHS: a generous handful.
 
 __all__ = [
+    "LOCAL_PATHS",
     "MAX_ALLOWED_PATHS",
     "LeaseFacts",
     "LeaseReleaseReport",
     "LeaseReleaser",
     "LeaseRequest",
+    "LocalPaths",
+    "PathRule",
     "RealCellLease",
     "RestoreRecord",
 ]
@@ -221,6 +227,39 @@ class LeaseReleaser(Protocol):
         ...
 
 
+class PathRule(Protocol):
+    """How a lease judges a path on the machine it leases: where it points, and what is under what.
+
+    The rule belongs to the lease's source, because only the source knows whose paths these are:
+    the Hive Stand's own, which its filesystem resolves (`..`, symbolic links, the working
+    directory), or a device's, which the Hive Stand's filesystem knows nothing about and must
+    never be asked.
+    """
+
+    def resolve(self, path: Path) -> Path:
+        """Return the absolute path `path` names on the leased machine, `..` collapsed."""
+        ...
+
+    def is_within(self, path: Path, root: Path) -> bool:
+        """Return whether `path` equals `root` or lies beneath it, both already resolved."""
+        ...
+
+
+class LocalPaths:
+    """The rule of a lease on this machine: its own filesystem decides, as it always did."""
+
+    def resolve(self, path: Path) -> Path:
+        """Resolve `path` against the real filesystem; a path that does not exist is fine."""
+        return path.resolve(strict=False)
+
+    def is_within(self, path: Path, root: Path) -> bool:
+        """Return whether `path` equals `root` or `root` is one of its parents."""
+        return path == root or root in path.parents
+
+
+LOCAL_PATHS = LocalPaths()  # Stateless, so one is shared by every lease on this machine.
+
+
 @dataclass(frozen=True, slots=True)
 class LeaseFacts:
     """The facts about a lease that never change once it is opened.
@@ -238,6 +277,7 @@ class LeaseFacts:
     access_level: AccessLevel  # The level actually granted.
     comb_shield: CombShieldLevel  # The Cell's tier the task inherits.
     allowed_paths: tuple[Path, ...]  # Paths outside scratch this lease may touch.
+    paths: PathRule = field(default=LOCAL_PATHS)  # How this lease's source judges a path.
 
 
 class RealCellLease:
@@ -272,6 +312,7 @@ class RealCellLease:
         self.access_level = facts.access_level
         self.comb_shield = facts.comb_shield
         self.allowed_paths = facts.allowed_paths
+        self._paths = facts.paths
         self.state = LeaseState.REQUESTED
         self._trail = trail
         self._clock = clock
@@ -326,7 +367,7 @@ class RealCellLease:
         Writes `cell.touched_outside_scratch` when outside `scratch_root` (codingrules 12).
         """
         # ASYNC240: Path.resolve() lives in a plain, non-async helper, never inline here.
-        resolved, within_scratch = _resolve_touched(path, self.scratch_root)
+        resolved, within_scratch = _resolve_touched(self._paths, path, self.scratch_root)
         self._touched_paths.append(resolved)
         if not within_scratch:
             await self._record(
@@ -355,7 +396,7 @@ class RealCellLease:
         Raises:
             pydantic.ValidationError: `persist`/`approved_by`/`reason` disagree (`RestoreRecord`).
         """
-        resolved, within_scratch = _resolve_touched(path, self.scratch_root)
+        resolved, within_scratch = _resolve_touched(self._paths, path, self.scratch_root)
         if not within_scratch:
             self._restore_records.append(
                 _build_restore_record(resolved, prior, persist, approved_by, reason)
@@ -363,19 +404,16 @@ class RealCellLease:
 
     def note_allowed_path(self, path: Path) -> None:
         """Widen `allowed_paths` to also cover `path` (resolved), if not already (roadmap 5.0e)."""
-        resolved = path.resolve(strict=False)
+        resolved = self._paths.resolve(path)
         if self.is_path_allowed(resolved) or len(self.allowed_paths) >= MAX_ALLOWED_PATHS:
             return  # Already reachable, or this lease has already widened as far as it may.
         self.allowed_paths = (*self.allowed_paths, resolved)
 
     def is_path_allowed(self, path: Path) -> bool:
-        """Return whether `path`, resolved (`..`/symlinks collapsed), is reachable from this lease.
-
-        True when it lands inside `scratch_root` or under one of `allowed_paths`.
-        """
-        resolved = path.resolve(strict=False)
+        """Return whether `path`, resolved by this lease's rule, is in scratch or allowed."""
+        resolved = self._paths.resolve(path)
         roots = (self.scratch_root, *self.allowed_paths)
-        return any(_is_within(resolved, root.resolve(strict=False)) for root in roots)
+        return any(self._paths.is_within(resolved, self._paths.resolve(root)) for root in roots)
 
     async def release(self) -> LeaseReleaseReport:
         """Release this lease, idempotently.
@@ -442,6 +480,16 @@ class RealCellLease:
         await self._trail.record(event)
 
 
+def _resolve_touched(rule: PathRule, path: Path, scratch_root: Path) -> tuple[Path, bool]:
+    """Resolve `path` by `rule` and report whether it lands inside `scratch_root`.
+
+    Module-level (not a `RealCellLease` method) purely to keep that class within codingrules
+    5.1's class-length limit; `note_touched_path` and `note_restore_path` are its only callers.
+    """
+    resolved = rule.resolve(path)
+    return resolved, rule.is_within(resolved, rule.resolve(scratch_root))
+
+
 def _build_restore_record(
     path: Path,
     prior: bytes | None,
@@ -453,26 +501,3 @@ def _build_restore_record(
     return RestoreRecord(
         path=path, prior=prior, persist=persist, approved_by=approved_by, reason=reason
     )
-
-
-def _resolve_touched(path: Path, scratch_root: Path) -> tuple[Path, bool]:
-    """Resolve `path` and report whether it lands inside `scratch_root`.
-
-    Module-level (not a `RealCellLease` method) purely to keep that class within codingrules
-    5.1's class-length limit; `note_touched_path` and `note_restore_path` are its only callers.
-    """
-    resolved = path.resolve(strict=False)
-    return resolved, _is_within(resolved, scratch_root.resolve(strict=False))
-
-
-def _is_within(path: Path, root: Path) -> bool:
-    """Return whether `path` equals `root` or is somewhere underneath it.
-
-    Args:
-        path: An already-resolved candidate path.
-        root: An already-resolved directory to check containment against.
-
-    Returns:
-        True if `path == root` or `root` is one of `path`'s parents.
-    """
-    return path == root or root in path.parents

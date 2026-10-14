@@ -13,6 +13,11 @@ checks again (gateway contract section 12), so this module is the Hive's first w
 one. A lease's allowed paths are read live on every question, because a lease can be widened after
 its session exists.
 
+The same text rules are the lease's own `PathRule` (`DevicePathRule`): a `RealCellLease` judges the
+paths of the machine it leases through the rule its source gave it, and a lease on a device must
+never ask the Hive Stand's filesystem about them. `DevicePaths` is built on that rule, so the
+session and the lease agree on what a path is.
+
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.session`.
     Built once per session by `PollenSession`; used by its exec, file and process operations to
@@ -21,6 +26,8 @@ Fits into the Hive:
 
 Key invariants:
     - No function here touches a filesystem, so nothing depends on the Hive Stand's own layout.
+    - The lease's rule and the session's paths are one set of rules: the same text resolves to
+      the same string through either.
     - A resolved path is absolute and has no `.` or `..` segment; two spellings of one path
       resolve to one string.
     - "Inside scratch" and "reachable" are lexical: a path reached only through a link on the
@@ -30,6 +37,7 @@ Key invariants:
 See Also:
     - docs/waggle/gateway-contract.md section 12 for the device's own resolution rules.
     - hivemind.cell.session.resolve_scratch_path for the local equivalent this mirrors.
+    - hivemind.cell.lease.PathRule for the rule a lease asks, which `DevicePathRule` answers.
 """
 
 from __future__ import annotations
@@ -48,7 +56,60 @@ from hivemind.cell.lease import RealCellLease
 # the way the device does.
 _WINDOWS_ROOT = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
-__all__ = ["DevicePaths"]
+__all__ = ["DevicePathRule", "DevicePaths"]
+
+
+class DevicePathRule:
+    """A device's text rules for paths: the `PathRule` of a lease on it."""
+
+    def __init__(self, scratch_root: str) -> None:
+        """Choose the device's path flavour from the way its scratch root is spelled.
+
+        Args:
+            scratch_root: The lease's scratch root as the device reported it.
+        """
+        self._flavor: ModuleType = ntpath if _WINDOWS_ROOT.match(scratch_root) else posixpath
+        self._scratch = str(self._flavor.normpath(scratch_root))
+
+    @property
+    def scratch_root(self) -> str:
+        """The scratch root as normalised device text."""
+        return self._scratch
+
+    def resolve(self, path: Path) -> Path:
+        """Return the device path `path` names, as a `Path` holding its normalised text.
+
+        The `PathRule` a lease asks: a relative path is read under scratch and `.` and `..` are
+        collapsed, with no read of any filesystem.
+        """
+        return Path(self.resolve_text(str(path)))
+
+    def is_within(self, path: Path, root: Path) -> bool:
+        """Whether `path` equals `root` or lies beneath it, in the device's case rules."""
+        return self.within(str(root), str(path))
+
+    def resolve_text(self, text: str) -> str:
+        """Return the absolute, normalised device path `text` names (relative: under scratch)."""
+        joined = text if self._flavor.isabs(text) else self._flavor.join(self._scratch, text)
+        return str(self._flavor.normpath(joined))
+
+    def normalise(self, text: str) -> str:
+        """Return `text` with its separators and `.`/`..` segments in the device's normal form."""
+        return str(self._flavor.normpath(text))
+
+    def basename(self, text: str) -> str:
+        """Return the last segment of a device path, in the device's own spelling."""
+        return str(self._flavor.basename(text))
+
+    def within(self, root: str, path: str) -> bool:
+        """Whether `path` equals `root` or lies beneath it, comparing in the device's case rules."""
+        normal_root = self._flavor.normcase(root)
+        normal_path = self._flavor.normcase(path)
+        try:
+            return bool(self._flavor.commonpath([normal_root, normal_path]) == normal_root)
+        except ValueError:
+            # Different drives, or an absolute path against a relative one: nothing in common.
+            return False
 
 
 class DevicePaths:
@@ -61,14 +122,12 @@ class DevicePaths:
             lease: The lease whose scratch root and (live) allowed paths bound every path.
         """
         self._lease = lease
-        root = str(lease.scratch_root)
-        self._flavor: ModuleType = ntpath if _WINDOWS_ROOT.match(root) else posixpath
-        self._scratch = str(self._flavor.normpath(root))
+        self._rule = DevicePathRule(str(lease.scratch_root))
 
     @property
     def scratch_root(self) -> str:
         """The lease's scratch root as normalised device text."""
-        return self._scratch
+        return self._rule.scratch_root
 
     def resolve(self, path: Path | str) -> str:
         """Return the absolute, normalised device path `path` names.
@@ -79,13 +138,11 @@ class DevicePaths:
         Returns:
             The path with a relative one joined under scratch and `.` and `..` collapsed.
         """
-        text = str(path)
-        joined = text if self._flavor.isabs(text) else self._flavor.join(self._scratch, text)
-        return str(self._flavor.normpath(joined))
+        return self._rule.resolve_text(str(path))
 
     def is_inside_scratch(self, resolved: str) -> bool:
         """Whether a resolved path is the scratch root or lies beneath it."""
-        return self._within(self._scratch, resolved)
+        return self._rule.within(self._rule.scratch_root, resolved)
 
     def is_reachable(self, resolved: str) -> bool:
         """Whether a resolved path is inside scratch or under a path the lease allows right now."""
@@ -94,7 +151,7 @@ class DevicePaths:
         # Read from the lease on every call: a lease widened after the session was built (a kept
         # root, a declared Leaving) must be honoured at once.
         return any(
-            self._within(self._flavor.normpath(str(allowed)), resolved)
+            self._rule.within(self._rule.normalise(str(allowed)), resolved)
             for allowed in self._lease.allowed_paths
         )
 
@@ -110,14 +167,4 @@ class DevicePaths:
 
     def basename(self, text: str) -> str:
         """Return the last segment of a device path, in the device's own spelling."""
-        return str(self._flavor.basename(text))
-
-    def _within(self, root: str, path: str) -> bool:
-        """Whether `path` equals `root` or lies beneath it, comparing in the device's case rules."""
-        normal_root = self._flavor.normcase(root)
-        normal_path = self._flavor.normcase(path)
-        try:
-            return bool(self._flavor.commonpath([normal_root, normal_path]) == normal_root)
-        except ValueError:
-            # Different drives, or an absolute path against a relative one: nothing in common.
-            return False
+        return self._rule.basename(text)

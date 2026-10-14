@@ -163,6 +163,29 @@ async def test_allowed_paths_of_the_request_are_carried_on_the_lease(rig: LinkRi
     assert lease.allowed_paths == (Path("/srv/work"),)
 
 
+async def test_the_lease_judges_a_path_by_the_devices_own_rule_not_the_hive_stands_disk(
+    rig: LinkRig,
+) -> None:
+    lease = await _lease(rig)
+    root = lease.scratch_root  # A path on the device that the Hive Stand's disk knows nothing of.
+
+    assert lease.is_path_allowed(Path("notes.txt"))  # Relative: under the device's scratch.
+    assert lease.is_path_allowed(root / "a" / ".." / "b.txt")
+    assert not lease.is_path_allowed(root / ".." / "elsewhere")
+    lease.note_allowed_path(Path("/srv/work/../work"))
+    assert lease.allowed_paths == (Path("/srv/work"),)  # Stored as the device spells it.
+
+
+async def test_a_windows_devices_lease_is_judged_in_windows_spelling(rigs: RigFactory) -> None:
+    rig = await rigs(DeviceScript(scratch_base="C:\\Pollen"))
+
+    lease = await _lease(rig)
+
+    assert lease.is_path_allowed(Path(f"{lease.scratch_root}\\sub\\..\\f.txt"))
+    assert lease.is_path_allowed(Path("f.txt"))
+    assert not lease.is_path_allowed(Path("C:\\Pollen\\..\\Other\\f.txt"))
+
+
 async def test_leasing_records_cell_leased_and_releasing_records_cell_released(
     rig: LinkRig,
 ) -> None:

@@ -59,7 +59,7 @@ from hivemind.swarm.gateway.hub import GatewayHub
 from hivemind.swarm.gateway.link import DeviceLink
 from hivemind.swarm.models import SWARM_SOURCE, SwarmNode
 from hivemind.swarm.node_state import NodeStatus
-from hivemind.swarm.session import CommandGuard, PollenSession
+from hivemind.swarm.session import CommandGuard, DevicePathRule, PollenSession
 from hivemind.swarm.session.codes import LEASE_NOT_OPEN
 from waggle.envelope import Envelope
 from waggle.messages.cell.leases import (
@@ -355,4 +355,6 @@ def _facts(opened: LeaseOpened, request: LeaseRequest, node: SwarmNode) -> Lease
         # last told, so the registry's value is the one the Guard's floors must read.
         comb_shield=CombShieldLevel(node.comb_shield.value),
         allowed_paths=request.allowed_paths,
+        # The device's paths are the device's: judged by their text, never by the Hive Stand's disk.
+        paths=DevicePathRule(opened.scratch_root),
     )

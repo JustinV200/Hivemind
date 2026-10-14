@@ -58,6 +58,9 @@ Public API:
       (hivemind.cell.lease_state).
     - LeaseRequest, LeaseFacts, LeaseReleaseReport, LeaseReleaser, RealCellLease, RestoreRecord:
       a Real Cell's tenancy (hivemind.cell.lease).
+    - PathRule, LocalPaths, LOCAL_PATHS: how a lease judges the paths of the machine it leases,
+      the real filesystem for this one and the device's own spelling for a device
+      (hivemind.cell.lease).
     - RealCellSource, CellIdentity: how Real Cells are inventoried and leased
       (hivemind.cell.source).
     - SnapshotId, Snapshotter, NoopSnapshotter, NOOP_SNAPSHOT_ID: the (usually absent) ability to
@@ -95,10 +98,13 @@ from hivemind.cell.errors import (
 from hivemind.cell.fake import FakeCellSource, FakeLeaseReleaser, FakeSession, FakeStart, Responder
 from hivemind.cell.in_cell import InCellLeaseReleaser, InCellSession
 from hivemind.cell.lease import (
+    LOCAL_PATHS,
     LeaseFacts,
     LeaseReleaser,
     LeaseReleaseReport,
     LeaseRequest,
+    LocalPaths,
+    PathRule,
     RealCellLease,
     RestoreRecord,
 )
@@ -128,6 +134,7 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel, HoneyClearance
 __all__ = [
     "DEFAULT_EXEC_TIMEOUT_S",
     "HIVE_STAND_SOURCE",
+    "LOCAL_PATHS",
     "MAX_SCOPE_CHARS",
     "NOOP_SNAPSHOT_ID",
     "SCRATCH_DIR_MODE",
@@ -163,11 +170,13 @@ __all__ = [
     "LeaseReleaser",
     "LeaseRequest",
     "LeaseState",
+    "LocalPaths",
     "NoopSnapshotter",
     "OsFamily",
     "OutputChunk",
     "OutputStream",
     "PathNotAllowedError",
+    "PathRule",
     "ProbeError",
     "RealCellLease",
     "RealCellSource",

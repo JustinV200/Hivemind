@@ -49,7 +49,11 @@ here; `swarm` for enrolled devices, a later phase).
   outside scratch, roadmap step 3.17; a path inside scratch is never recorded; roadmap step 5.0a
   grows a `persist`/`approved_by`/`reason` keyword trio so a `persist=True` record can carry what
   the Leavings ledger row `release()` writes needs) and `is_path_allowed` round out the
-  bookkeeping a Warden and the Undertaker read.
+  bookkeeping a Warden and the Undertaker read. A lease judges every path through its source's
+  `PathRule` (`LeaseFacts.paths`; `resolve`, `is_within`): `LocalPaths`, the real filesystem, unless
+  the source says otherwise, so a Swarm device's lease (whose paths live on another machine) uses
+  that machine's own spelling (`hivemind.swarm.session.DevicePathRule`) and never resolves a path
+  against the Hive Stand's disk. The lease branches on nothing: the rule is the source's.
 - **Leavings** (`hivemind.cell.leavings`, roadmap step 5.0a): the ledger of paths a task was
   allowed to keep on a Cell past its lease's release -- `Leaving`, `ApprovedBy`, `LeavingsStore`
   (`record_leaving`, `get_leaving`, `list_leavings`, `list_all_leavings` -- every Cell's active
