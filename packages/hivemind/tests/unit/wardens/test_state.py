@@ -46,6 +46,7 @@ _ALLOWED_EDGES: tuple[tuple[WardenState, WardenState], ...] = (
     (WardenState.WATCH, WardenState.CLUSTERED),
     (WardenState.WATCH, WardenState.STOPPED),
     (WardenState.OFFLINE, WardenState.ACTIVE),
+    (WardenState.OFFLINE, WardenState.WATCH),  # Roadmap 11.9: back with no sub-bee running.
     (WardenState.OFFLINE, WardenState.CLUSTERED),
     (WardenState.OFFLINE, WardenState.STOPPED),
     (WardenState.CLUSTERED, WardenState.ACTIVE),
@@ -97,6 +98,28 @@ def test_forbidden_edges_raise(from_state: WardenState, to_state: WardenState) -
         assert_transition(from_state, to_state, warden_id="warden_test")
 
 
+@pytest.mark.parametrize(
+    "to_state", [WardenState.ACTIVE, WardenState.WATCH, WardenState.CLUSTERED, WardenState.STOPPED]
+)
+def test_an_offline_warden_has_an_edge_to_every_state_a_reconnection_can_settle_in(
+    to_state: WardenState,
+) -> None:
+    assert TRANSITIONS[WardenState.OFFLINE] == {
+        WardenState.ACTIVE,
+        WardenState.WATCH,
+        WardenState.CLUSTERED,
+        WardenState.STOPPED,
+    }
+    assert can_transition(WardenState.OFFLINE, to_state)
+
+
+@pytest.mark.parametrize("to_state", [WardenState.STARTING, WardenState.MIGRATING])
+def test_an_offline_warden_still_has_no_edge_to_starting_or_migrating(
+    to_state: WardenState,
+) -> None:
+    assert not can_transition(WardenState.OFFLINE, to_state)
+
+
 def test_is_terminal_is_true_only_for_stopped() -> None:
     for member in WardenState:
         assert is_terminal(member) == (member is WardenState.STOPPED)
@@ -138,6 +161,26 @@ def test_settled_state_stays_clustered_once_every_paused_bee_has_been_retired() 
     task_id = make_assignment().task_id
 
     assert settled_state((), frozenset({task_id})) is WardenState.CLUSTERED
+
+
+@pytest.mark.parametrize("clustered_task", [False, True], ids=["unclustered", "clustered"])
+@pytest.mark.parametrize("running", [False, True], ids=["idle", "running"])
+def test_settled_state_never_moves_an_offline_warden_out_of_offline(
+    running: bool, clustered_task: bool
+) -> None:
+    # Only a reconnection ends an outage; whatever the sub-bees are doing, the answer stays OFFLINE.
+    task_id = make_assignment().task_id
+    ids = (task_id,) if running else ()
+    clustered = frozenset({task_id}) if clustered_task else frozenset()
+
+    assert settled_state(ids, clustered, WardenState.OFFLINE) is WardenState.OFFLINE
+
+
+@pytest.mark.parametrize("current", [None, WardenState.ACTIVE, WardenState.WATCH])
+def test_settled_state_decides_from_the_sub_bees_unless_the_warden_is_offline(
+    current: WardenState | None,
+) -> None:
+    assert settled_state((), frozenset(), current) is WardenState.WATCH
 
 
 def test_settled_state_is_active_when_only_some_sub_bees_are_clustered() -> None:

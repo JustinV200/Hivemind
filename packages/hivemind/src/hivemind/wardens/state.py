@@ -5,8 +5,9 @@ compute) moves through a fixed set of states from starting up to being stopped. 
 state machine codingrules section 9 requires for every machine in the Hive: one `Enum`
 (`WardenState`) plus one transition table (`TRANSITIONS`), each allowed edge commented with who
 causes it, tested edge by edge (codingrules Appendix C, the "Warden" row: "`STARTING -> ACTIVE`;
-`ACTIVE <-> WATCH` (Real Cells, no active bees); `ACTIVE / WATCH -> OFFLINE -> ACTIVE`; any ->
-`CLUSTERED -> ACTIVE`; `ACTIVE -> MIGRATING -> ACTIVE` (new host); `-> STOPPED`"). `WardenState`
+`ACTIVE <-> WATCH` (Real Cells, no active bees); `ACTIVE / WATCH -> OFFLINE -> ACTIVE`;
+`OFFLINE -> WATCH` (the link came back with no sub-bee running); any -> `CLUSTERED -> ACTIVE`;
+`ACTIVE -> MIGRATING -> ACTIVE` (new host); `-> STOPPED`"). `WardenState`
 also mirrors `waggle.messages.supervision.WardenState` member for member (codingrules section
 6.1: "a hivemind mirror of waggle's label enums" carries `from_wire`/`to_wire`), because the same
 states travel on `Heartbeat`. Nothing else in the Hive decides whether a Warden transition is legal;
@@ -106,7 +107,9 @@ class WardenState(Enum):
 # strike a Warden in any of them) and every non-terminal state can reach STOPPED (a Warden must be
 # stoppable from wherever it happens to be, the same way `waggle.loop.TickLoop.stop()` is always
 # legal to call); OFFLINE and WATCH both resolve back to ACTIVE, never to STARTING, because
-# reconnecting or a sub-bee arriving never re-runs the lease step.
+# reconnecting or a sub-bee arriving never re-runs the lease step. OFFLINE can also resolve to
+# WATCH: a Warden that was idle when its link dropped returns idle, and a detour through ACTIVE
+# would claim a sub-bee it does not have.
 TRANSITIONS: Mapping[WardenState, frozenset[WardenState]] = {
     WardenState.STARTING: frozenset(
         {
@@ -134,6 +137,9 @@ TRANSITIONS: Mapping[WardenState, frozenset[WardenState]] = {
     WardenState.OFFLINE: frozenset(
         {
             WardenState.ACTIVE,  # The link to the Queen came back, with sub-bees still running.
+            # The link came back with no sub-bee running (it was idle, or every sub-bee had
+            # finished while it was cut off): Appendix C's "OFFLINE -> WATCH".
+            WardenState.WATCH,
             WardenState.CLUSTERED,  # The outage crossed the manifest's max offline duration.
             WardenState.STOPPED,  # Warden.stop() was called while offline.
         }
@@ -210,7 +216,11 @@ SETTLED_EVENT_KINDS: dict[WardenState, str] = {
 }
 
 
-def settled_state(task_ids: Iterable[TaskId | None], clustered: Collection[TaskId]) -> WardenState:
+def settled_state(
+    task_ids: Iterable[TaskId | None],
+    clustered: Collection[TaskId],
+    current: WardenState | None = None,
+) -> WardenState:
     """Decide which of ACTIVE/WATCH/CLUSTERED a Warden belongs in, from its own sub-bees.
 
     Roadmap step 4.9 (Clustering): the pure half of `hivemind.wardens.warden.Warden`'s own
@@ -226,14 +236,24 @@ def settled_state(task_ids: Iterable[TaskId | None], clustered: Collection[TaskI
     `hivemind.wardens.ticks.assign`). Reading "no sub-bees" as WATCH there asked for CLUSTERED ->
     WATCH, which Appendix C has no edge for, and ended the Warden's own tick loop.
 
+    Roadmap step 11.9: a Warden cut off from the Queen is OFFLINE, and what its sub-bees are doing
+    never changes that: only its reconnection moves it out (`hivemind.wardens.offline`), so the
+    answer for a Warden that is OFFLINE is OFFLINE whatever the table says.
+
     Args:
         task_ids: One entry per current sub-bee, its own task id (None never matches `clustered`).
         clustered: Every task id a Queen-sent Intervene(HANDOFF) currently has paused.
+        current: The Warden's state now, or None to decide from the sub-bees alone (what a
+            reconnection does to find the state it returns to).
 
     Returns:
-        CLUSTERED when `clustered` is non-empty and every sub-bee's task (if any) is in it; ACTIVE
-        when some sub-bee's task is not; WATCH when there is neither a sub-bee nor a paused task.
+        OFFLINE when `current` is OFFLINE; otherwise CLUSTERED when `clustered` is non-empty and
+        every sub-bee's task (if any) is in it, ACTIVE when some sub-bee's task is not, and WATCH
+        when there is neither a sub-bee nor a paused task.
     """
+    # Checked first: an outage outlasts every sub-bee change that happens inside it.
+    if current is WardenState.OFFLINE:
+        return WardenState.OFFLINE
     ids = tuple(task_ids)
     if clustered and all(task_id in clustered for task_id in ids):
         return WardenState.CLUSTERED
