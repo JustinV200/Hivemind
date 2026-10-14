@@ -669,6 +669,38 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   now finds the Drone's command by its command line, 58adc82). Earlier: the packet's backoff
   ignored stop (79c330a), a frame-ceiling close in the fan-out pump, and openbox swallowing the
   first click (585dca3).
+- **Wave 4 exit scenarios (landed).** 4A, the Level 0 bullets in real containers
+  (`tests/e2e/test_phase11_exit_{level0,deadman,watch,propolis,replay}.py`, about two minutes
+  together): enrol, list, a Drone's work left as found; the dead-man release and the
+  `CELL_UNREACHABLE` Alarm; an idle device watched with no writes, a planted hog an Alarm, quiet
+  Patrols "nothing notable"; a Propolis task held until the device's own tunnel verifies, a Night
+  Veil goal denied at placement; a replayed `session.exec` run once and a tampered frame closing
+  the link (1008). It fixed a device Warden that dropped a task whose lease the device refused
+  (now parked and retried every `DeviceDeps.lease_retry_s`). 4D, "installs on a clean Raspberry Pi
+  OS" on the x86-64 stand-in (`test_phase11_exit_binary.py`): the single-file packet built as the
+  workflow builds it, run by an unprivileged account on a bare `debian:bookworm`, enrolled, a Level
+  0 task, uninstalled, the device equal to its snapshot; it fixed the packet passing PyInstaller's
+  `LD_LIBRARY_PATH` to everything it started. 4E, Propolis on a Virtual Cell (ADR-0057, accepted):
+  the tunnel judges moved down to `hivemind.cell.tunnel`, a PROPOLIS Virtual Cell is attested
+  from its image (the four tunnel checks and `tor_disabled`) before it is ready, the in-Cell
+  Warden accepts PROPOLIS, `cell.attested` names its tier; proved against containers of the base
+  image (`tests/integration/test_docker_propolis.py`, needs `hivemind/base-ubuntu:dev`).
+- **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
+  that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
+  tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested
+  again (70ce8a5); `test_swarm_level0.py` read a revoked device's link before the close that
+  follows the Warden's stop (abb5e6d).
+- **Open, found by wave 4.** A Level 0 device cut mid-command that returns inside the grace leaves
+  its task RUNNING with a crashed sub-bee (`WORKER_CRASHED`, then `guard.denied` at slot binding on
+  the respawn). The packet counts a link as proof of life only once it has been open a ping
+  interval (20 s), so a `dead_man_s` shorter than that can trip on a young healthy link. A real
+  `hive run` readies no PROPOLIS or NIGHT_VEIL Virtual Cell (no Queen-side session to a Virtual
+  Cell, the templates are MEADOW only, the Docker backend grants `NET_ADMIN` only to VPN_TOR, no
+  PROPOLIS image ships): fail-closed, ADR-0057 says so. ARM64 is proved only by the CI matrix; a
+  container has no systemd user session, so `pollen install` prints its manual command there.
+  `e2e/swarm/bridge.py` and `e2e/swarm/binary/stand.py` overlap (two whole-Hive rigs).
+  A container device reads the host's load: scenarios give their Drone no cores
+  (`ManifestTuning.drone_cpu_cores`) or a busy host defers it.
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
   Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
   the one failure (fixed above).
