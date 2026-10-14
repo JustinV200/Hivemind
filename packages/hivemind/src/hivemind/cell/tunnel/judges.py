@@ -1,33 +1,34 @@
-"""Provide the Propolis judges: four pure checks over a device's routes and DNS settings.
+"""Provide the Propolis judges: four pure checks over a Cell's routes and DNS settings.
 
-The Propolis tier means the device's traffic leaves through a VPN tunnel the operator already runs,
+The Propolis tier means the Cell's traffic leaves through a VPN tunnel the operator already runs,
 and HiveMind trusts that only after looking (it never installs, starts or reroutes one). Four
 checks decide it, each a pure function over the routes and nameservers that
-`hivemind.swarm.shield.routes` read from the device. `default_route_via_tunnel`: a packet to a
+`hivemind.cell.tunnel.routes` read from the Cell. `default_route_via_tunnel`: a packet to a
 public address in each half of the IPv4 space would leave by a tunnel interface. `dns_via_tunnel`:
-the device has nameservers, none of them a local stub resolver the check cannot see past, and
+the Cell has nameservers, none of them a local stub resolver the check cannot see past, and
 each would be reached through a tunnel. `no_direct_default_route`: no IPv6 path to the public
-internet avoids the tunnel (a device with no IPv6 route passes). `direct_egress_refused`: a spread
+internet avoids the tunnel (a Cell with no IPv6 route passes). `direct_egress_refused`: a spread
 of well-known public addresses, none of which is ever contacted, would all leave by the tunnel;
 this is a routing-table lookup rather than a packet, because sending one around the tunnel would be
 the very leak the check looks for. A check that cannot be answered (an unreadable table, no
 nameserver) fails: the tier is verified only when every check positively passes.
 
 Fits into the Hive:
-    Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.shield`.
-    Called by `PropolisChecks` with the parsed output of its fixed commands. Calls into
-    `hivemind.swarm.shield.routes` and the standard library only.
+    Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.cell.tunnel`, below
+    both `swarm` (a Real Cell's tier) and `hive` (a Virtual Cell's) so that the two judge one way.
+    Called by `hivemind.cell.tunnel.check` with the parsed output of its fixed commands. Calls
+    into `hivemind.cell.tunnel.routes` and the standard library only.
 
 Key invariants:
     - Every judge is pure and total: the same routes always give the same result, and no input
       raises.
     - A result's `reason` is a short stable word; it never holds an address, an interface name or
-      any text the device produced, because the result is recorded on the trail.
+      any text the Cell produced, because the result is recorded on the trail.
     - `ShieldReport.is_verified` is True only for a non-empty report in which every check passed.
 
 See Also:
-    - README.md "Comb Shield level" for what the Propolis tier promises on a Real Cell.
-    - hivemind.swarm.shield.propolis for the fixed commands whose output these judge.
+    - README.md "Comb Shield level" for what the Propolis tier promises.
+    - hivemind.cell.tunnel.check for the fixed commands whose output these judge.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from __future__ import annotations
 import ipaddress
 from dataclasses import dataclass
 
-from hivemind.swarm.shield.routes import (
+from hivemind.cell.tunnel.routes import (
     IpAddress,
     Route,
     effective_interface,
@@ -88,8 +89,8 @@ class CheckResult:
 
     Attributes:
         name: The check's stable name.
-        has_passed: Whether the device positively passed it.
-        reason: A short stable word saying why, never an address or device text.
+        has_passed: Whether the Cell positively passed it.
+        reason: A short stable word saying why, never an address or Cell text.
     """
 
     name: str
@@ -99,7 +100,7 @@ class CheckResult:
 
 @dataclass(frozen=True, slots=True)
 class ShieldReport:
-    """The answers of every check run on one device.
+    """The answers of every check run on one Cell.
 
     Attributes:
         checks: Each check's result, in the order they ran; empty when none could run.
@@ -130,7 +131,7 @@ def _has_ipv4(routes: tuple[Route, ...]) -> bool:
 
 
 def judge_default_route(routes: tuple[Route, ...]) -> CheckResult:
-    """Judge that both halves of the IPv4 space leave the device by a tunnel."""
+    """Judge that both halves of the IPv4 space leave the Cell by a tunnel."""
     if not _has_ipv4(routes):
         return CheckResult(CHECK_DEFAULT_ROUTE, False, "table_unreadable")
     answers = [_leaves_by_tunnel(routes, probe) for probe in HALF_PROBES]
@@ -142,7 +143,7 @@ def judge_default_route(routes: tuple[Route, ...]) -> CheckResult:
 
 
 def judge_dns(routes: tuple[Route, ...], nameservers: tuple[IpAddress, ...]) -> CheckResult:
-    """Judge that the device has nameservers and each is reached through a tunnel."""
+    """Judge that the Cell has nameservers and each is reached through a tunnel."""
     if not _has_ipv4(routes):
         return CheckResult(CHECK_DNS, False, "table_unreadable")
     if not nameservers:
@@ -174,7 +175,7 @@ def judge_egress(routes: tuple[Route, ...]) -> CheckResult:
 
 
 def judge_all(routes: tuple[Route, ...], nameservers: tuple[IpAddress, ...]) -> ShieldReport:
-    """Run the four checks over the device's routes and nameservers."""
+    """Run the four checks over the Cell's routes and nameservers."""
     return ShieldReport(
         checks=(
             judge_default_route(routes),

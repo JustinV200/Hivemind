@@ -8,15 +8,16 @@ network, a metric) and print them the way the real tools would, and `linux_probe
 bundle the commands' outputs into the `ExecScript`s a scripted device answers with.
 
 Fits into the Hive:
-    Test infrastructure (codingrules section 14.5), not shipped. Used by the shield tests.
+    Test infrastructure (codingrules section 14.5), not shipped. Used by the tunnel, shield and
+    Propolis attestation tests.
 
 Key invariants:
     - The text is what the real tools print, so a parser that passes here reads a real device.
     - Nothing here runs a command; the outputs are plain strings.
 
 See Also:
-    - hivemind.swarm.shield.routes for the parsers these feed.
-    - hivemind.swarm.shield.propolis for the commands whose output these stand in for.
+    - hivemind.cell.tunnel.routes for the parsers these feed.
+    - hivemind.cell.tunnel.check for the commands whose output these stand in for.
 """
 
 from __future__ import annotations

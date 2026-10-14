@@ -92,8 +92,10 @@ hears that release and records it, so the lease is never left looking open.
   them against the Hive Stand's own filesystem; the packet resolves symlinks on the device.
 - **Shield and watch** (`shield`, `watch`): `ShieldedSource(inner, PropolisChecks)` holds a
   Propolis device's lease back until fixed read-only commands show its tunnel carries the default
-  route and DNS; `PollenWatchProbe.observe(kinds, roots, since_at)` asks an idle device what it
-  looks like without a lease.
+  route and DNS; the commands and the judges themselves are `hivemind.cell.tunnel`'s, shared with
+  the Virtual Cell attestation (`hivemind.hive.propolis`), and `PropolisChecks` adds the
+  `swarm.shield_*` record; `PollenWatchProbe.observe(kinds, roots, since_at)` asks an idle device
+  what it looks like without a lease.
 - **Operator desk** (`operator`): what `hive swarm` does to a device that is already enrolled, with
   the trail event each write leaves. `OperatorDesk(registry, recorder)` revokes (`swarm.revoked`),
   sets access (`swarm.access_changed`, with the capability strings recomputed) and sets the tier

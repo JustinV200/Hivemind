@@ -36,15 +36,10 @@ from builders.swarm import (
 from hivemind.cell import OsFamily
 from hivemind.cell.lease import RealCellLease
 from hivemind.cell.session import CellSession
+from hivemind.cell.tunnel import CHECK_PLATFORM, COMMANDS, MAX_PROBE_BYTES
 from hivemind.pheromone import TrailQuery
 from hivemind.swarm.shield import PropolisChecks
-from hivemind.swarm.shield.propolis import (
-    CHECK_PLATFORM,
-    COMMANDS,
-    MAX_PROBE_BYTES,
-    REFUSED_KIND,
-    VERIFIED_KIND,
-)
+from hivemind.swarm.shield.propolis import REFUSED_KIND, VERIFIED_KIND
 from waggle.messages.session.commands import SessionExec
 
 _FULL_TUNNEL: list[RouteRow] = [

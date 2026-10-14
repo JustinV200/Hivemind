@@ -14,7 +14,8 @@ on a borrowed device that would change the whole machine, not just the lease.
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.shield`.
     Built by the composition root around a `SwarmSource` for each Propolis device Warden; called by
-    the Warden exactly as the source it wraps. Calls into hivemind.cell and the shield verifier.
+    the Warden exactly as the source it wraps. Calls into hivemind.cell, hivemind.cell.tunnel (the
+    report a verifier returns) and the shield verifier.
 
 Key invariants:
     - A lease on a Propolis Cell is returned only after every check passed; any other outcome
@@ -41,10 +42,10 @@ from hivemind.cell.lease import LeaseRequest, RealCellLease
 from hivemind.cell.models import Cell
 from hivemind.cell.session import CellSession
 from hivemind.cell.source import RealCellSource
+from hivemind.cell.tunnel import ShieldReport
 from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
 from hivemind.swarm.errors import ShieldUnverifiedError
-from hivemind.swarm.shield.judges import ShieldReport
 
 UNAVAILABLE_CHECK = "verification_unavailable"  # Named when the checks could not even be run.
 NO_CHECKS_RAN = "no_checks_ran"  # Named when a verifier reported nothing at all.

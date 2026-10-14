@@ -1,17 +1,17 @@
-"""Tests for hivemind.swarm.shield.routes: reading a device's routing table and DNS settings.
+"""Tests for hivemind.cell.tunnel.routes: reading a Cell's routing table and DNS settings.
 
 Fits into the Hive:
-    Mirrors src/hivemind/swarm/shield/routes.py (codingrules section 3: tests/unit mirrors src/
+    Mirrors src/hivemind/cell/tunnel/routes.py (codingrules section 3: tests/unit mirrors src/
     one-to-one). The readers are pure functions over the text real tools print, so each test
     feeds them that text (built in the formats the kernel and the BSD tools use) and reads the
     routes back. The property that matters is that a line the parser cannot read is skipped and
-    never raised, because a device's text is hostile until proven otherwise.
+    never raised, because a Cell's text is hostile until proven otherwise.
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.swarm.shield.routes for the module under test.
+    - hivemind.cell.tunnel.routes for the module under test.
 """
 
 from __future__ import annotations
@@ -27,7 +27,8 @@ from builders.swarm import (
     scutil_dns,
 )
 
-from hivemind.swarm.shield import (
+from hivemind.cell.tunnel import (
+    TUNNEL_PREFIXES,
     Route,
     effective_interface,
     is_tunnel,
@@ -36,7 +37,6 @@ from hivemind.swarm.shield import (
     parse_macos_routes,
     parse_nameservers,
 )
-from hivemind.swarm.shield.routes import TUNNEL_PREFIXES
 
 _HEADER = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT"
 

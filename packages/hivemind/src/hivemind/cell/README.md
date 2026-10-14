@@ -86,6 +86,16 @@ here; `swarm` for enrolled devices, a later phase).
   `hive run`) are re-exported from here too, since callers outside `cell.local` name a Hive Stand
   Cell by these without reaching into that sub-package's other, subprocess-carrying names.
 
+- **Tunnel** (`hivemind.cell.tunnel`): how a Cell's VPN is verified for the Propolis tier, shared
+  by the two Layer 3 subsystems that may not import each other. `check_tunnel(session, os_family)`
+  runs fixed, read-only commands (`cat /proc/net/route`, `cat /proc/net/ipv6_route`,
+  `cat /etc/resolv.conf`; `netstat -rn` and `scutil --dns` on macOS) through a Cell's session and
+  returns a `ShieldReport` of four pure judges (`default_route_via_tunnel`, `dns_via_tunnel`,
+  `no_direct_default_route`, `direct_egress_refused`) over the routes `routes` parsed, failing
+  closed on anything it could not read. A Real Cell is checked before each lease
+  (`hivemind.swarm.shield`), a Virtual Cell before it is ready (`hivemind.hive.propolis`); nothing
+  here installs, starts or reroutes a VPN.
+
 ## How to test this
 
 ```bash

@@ -69,6 +69,9 @@ Public API:
       implementation of both Protocols, background processes simulated (hivemind.cell.fake).
     - InCellSession, InCellLeaseReleaser: a CellSession for code already running inside its own
       Virtual Cell (roadmap step 5.5; hivemind.cell.in_cell).
+    - hivemind.cell.tunnel (a sub-package with a face of its own, imported from there and not
+      re-exported here): check_tunnel and the judges that verify a Cell's VPN for the Propolis
+      tier, shared by `swarm` (a Real Cell) and `hive` (a Virtual Cell).
     - CellError, LeaseRefusedError, SessionClosedError, CommandTimeoutError, PathNotAllowedError,
       SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError,
       ScratchQuotaExceededError, BackgroundStartError: this package's error tree

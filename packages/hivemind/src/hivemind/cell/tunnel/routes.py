@@ -1,9 +1,9 @@
 """Provide the routing-table readers behind the Propolis checks: pure parsers and one lookup.
 
-A device in the Propolis tier (the Comb Shield tier that requires a VPN) keeps its tunnel running
+A Cell in the Propolis tier (the Comb Shield tier that requires a VPN) keeps its tunnel running
 itself; HiveMind only looks, with read-only commands, and refuses to place work if the tunnel is
 not where it should be (README: "verify the tunnel before placing work and never install, start or
-reroute one"). What it looks at is the device's routing table and its DNS settings, as the text of
+reroute one"). What it looks at is the Cell's routing table and its DNS settings, as the text of
 fixed commands: `/proc/net/route`, `/proc/net/ipv6_route` and `/etc/resolv.conf` on Linux,
 `netstat -rn` and `scutil --dns` on macOS. This module turns that text into `Route`s and
 nameserver addresses and answers the one question every check asks, `effective_interface`: which
@@ -14,20 +14,22 @@ here is a pure function over text: no command runs, nothing is sent, and an unre
 an empty tuple, which the judges then fail closed on.
 
 Fits into the Hive:
-    Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.shield`.
-    Used by the judges in `hivemind.swarm.shield.judges`. Calls into the standard library only.
+    Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.cell.tunnel`. It sits
+    here, below both `swarm` (a Real Cell's tier) and `hive` (a Virtual Cell's), so that the two
+    Layer 3 siblings, which may not import each other, read a routing table one way. Used by the
+    judges in `hivemind.cell.tunnel.judges`. Calls into the standard library only.
 
 Key invariants:
     - Every function is pure and total over any text: a line it cannot read is skipped, never
-      raised, and no output is ever logged or recorded, since a device's routes are its own.
+      raised, and no output is ever logged or recorded, since a Cell's routes are its own.
     - A route that is down or a reject or blackhole is not a route.
     - `effective_interface` prefers the longest prefix, then the lowest metric, then the first.
     - An interface is a tunnel only if its name starts with a known tunnel prefix; an unknown
-      name is not one, so a surprising device fails the check rather than passing it.
+      name is not one, so a surprising Cell fails the check rather than passing it.
 
 See Also:
-    - README.md "Comb Shield level" for the Propolis tier on a Real Cell.
-    - hivemind.swarm.shield.judges for the checks built on these readers.
+    - README.md "Comb Shield level" for the Propolis tier.
+    - hivemind.cell.tunnel.judges for the checks built on these readers.
 """
 
 from __future__ import annotations
@@ -64,7 +66,7 @@ IpNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 @dataclass(frozen=True, slots=True)
 class Route:
-    """One usable routing-table entry: where packets to a network leave the device."""
+    """One usable routing-table entry: where packets to a network leave the Cell."""
 
     network: IpNetwork
     interface: str
@@ -80,7 +82,7 @@ def effective_interface(routes: tuple[Route, ...], address: IpAddress) -> str | 
     """Return the interface a packet to `address` would leave by, or None when no route covers it.
 
     Args:
-        routes: The device's usable routes, of one or both address families.
+        routes: The Cell's usable routes, of one or both address families.
         address: The destination.
 
     Returns:

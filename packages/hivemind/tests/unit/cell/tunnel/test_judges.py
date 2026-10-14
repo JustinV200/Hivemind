@@ -1,7 +1,7 @@
-"""Tests for hivemind.swarm.shield.judges: the four checks a Propolis device must pass.
+"""Tests for hivemind.cell.tunnel.judges: the four checks a Propolis Cell must pass.
 
 Fits into the Hive:
-    Mirrors src/hivemind/swarm/shield/judges.py (codingrules section 3: tests/unit mirrors src/
+    Mirrors src/hivemind/cell/tunnel/judges.py (codingrules section 3: tests/unit mirrors src/
     one-to-one). Each judge is a pure function over routes and nameservers, so each test builds
     the table of a device in one situation (a full tunnel, a split default, a leak, a stub
     resolver, nothing readable) and reads the verdict. The rule they all share is that a check
@@ -11,7 +11,7 @@ Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.swarm.shield.judges for the module under test.
+    - hivemind.cell.tunnel.judges for the module under test.
     - README.md "Comb Shield level" for the tier these verify.
 """
 
@@ -21,7 +21,7 @@ import ipaddress
 
 import pytest
 
-from hivemind.swarm.shield import (
+from hivemind.cell.tunnel import (
     CHECK_DEFAULT_ROUTE,
     CHECK_DNS,
     CHECK_EGRESS,
@@ -34,7 +34,7 @@ from hivemind.swarm.shield import (
     judge_egress,
     judge_ipv6,
 )
-from hivemind.swarm.shield.routes import IpAddress, Route
+from hivemind.cell.tunnel.routes import IpAddress, Route
 
 _TUNNEL_DNS = (ipaddress.ip_address("10.8.0.1"),)
 
