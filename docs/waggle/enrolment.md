@@ -406,8 +406,8 @@ kind it is accepted only from `hive_id`.
 ## 11. Revoking a device
 
 `hive swarm revoke <node>` marks the node `REVOKED`, a final state. The Queen's swarm gate then
-closes the packet's connection, stops the device's Warden, which releases its lease while the link
-is still up and leaves the device as found, and removes the node's key from her verifier. The
+stops the device's Warden, which releases its lease while the link is still up and leaves the
+device as found, closes the packet's connection, and removes the node's key from her verifier. The
 registry keeps the row, marked revoked, for the audit. From then on a dial from that device fails at
 its first frame, which is signed by a key nobody knows (`waggle.signature.unknown_node`, close code
 1008), and the packet treats it like a link that never returns: any lease it still holds is cleaned
@@ -458,7 +458,10 @@ a key or a path.
 | `swarm.invited` | An invite is minted. |
 | `swarm.enrol_refused` | The door denies a request. |
 | `swarm.enrolled` | A redemption succeeds: the node is created and its key pinned. |
-| `swarm.online`, `swarm.unreachable` | The node's status changes. |
+| `swarm.online` | A device's link is established: its first connection after enrolment, a reconnection and a connection after the Hive Stand restarted, whatever status it was in. |
+| `swarm.unreachable` | The node's status becomes `UNREACHABLE`: its link is lost, its heartbeats stop, or (for a colonized device) its Warden's link is lost. |
+| `swarm.node_held` | The Queen holds a lost device's tasks for the grace period (ids, the rung and the reason a link was lost; never an address). |
+| `swarm.promoted`, `swarm.demoted` | A device moves a rung of the runtime ladder, or a move is undone, with `from_level`, `to_level` and a reason word. |
 | `swarm.access_changed`, `swarm.shield_changed` | The operator changes the node's level or tier. |
 | `swarm.revoked` | The node is revoked. |
 

@@ -340,37 +340,61 @@ Roadmap steps 10.3a-d add the tiers' floors (`hivemind.guard.policy.floors`):
   location capability (`planner.location`, `NightVeilLocationError`, one `guard.denied` each); the
   intake settles it REFUSED like any other planning failure.
 
-## The swarm gate (roadmap step 11.6)
+## The swarm gate (roadmap steps 11.6, 11.6a, 11.9)
 
 `swarm_gate/` is the Queen's side of the Swarm: the devices an operator enrolled (existing machines
 the Hive borrows as Real Cells and leaves exactly as found, each running a Pollen Packet that dials
 the Hive Stand). The swarm listener (`hivemind.swarm`, Layer 3) admits and routes them and tells its
 hub who is connected; it supervises nothing, and Layer 3 cannot import the Queen. So the part that
-turns a connected device into a Cell the Queen can place work on lives here.
+turns a connected device into a Cell the Queen can place work on lives here, and serves it
+according to its rung of the runtime ladder (ADR-0052).
 
-- `SwarmGate` (`gate.py`) owns the listener and is the hub's `HubListener`. `start(queen)` binds
-  the Wardens to her and opens the listener; `run()` is a `TaskGroup` holding the gate's loop and
-  every device Warden's run task; `stop()` ends the loop, stops every Warden (each releases its
-  lease over the packet's link, so the device is left as found) and only then closes the listener.
-  `on_online` and `on_offline` run in the task that reads a device's link, so they only note what
-  happened and wake the loop; the loop does the work, every `[swarm] heartbeat_interval_s` and at
-  once when woken.
+- `SwarmGate` (`gate.py`) owns the listener and is the hub's `HubListener`. `start(queen, deps)`
+  binds the Wardens, the hold and the colonizer to the Queen, binds the door for device Wardens
+  on the listener and opens it; `run()` is a `TaskGroup` holding the gate's loop, every Level 0
+  Warden's run task and every colonization flow; `stop()` ends the loop, cancels the flows (each
+  puts back the tasks it paused), stops every Warden (each releases its lease over the packet's
+  link, so the device is left as found) and only then closes the listener. `on_online` and
+  `on_offline` run in the task that reads a device's link, so they only note what happened and
+  wake the loop; the loop does the work, every `[swarm] heartbeat_interval_s` and at once when woken.
 - `DeviceWardens` (`wardens.py`) is the table of Level 0 Wardens, one per device, built by an
   injected `DeviceWardenFactory` (`hivemind.cli.compose.swarm`). `serve` attaches a Warden to the
   Queen (her `warden_spawn` point), starts it (it leases the device) and runs it; `stop` reverses
   that in an order that leaves the device as found. A device already served is never served
   twice, so one that drops and returns keeps its Warden. A Warden whose run loop ends on a device
   error ends only itself, and the next pass replaces it.
+- `DeviceWardenDoor` (`attach.py`) is the other half: once a device is colonized its own Warden
+  dials the swarm listener, and the listener hands the verified connection here. The door admits it
+  only if it is the node's own Warden naming the node's own Cell, and only if the gate wants one (a
+  colonized device's, or the Level 0 device's whose colonization is waiting for it); then the
+  connection goes through the same attach path a Virtual Cell's Warden does
+  (`hivemind.queen.attach.serve_warden`): the same fan-out, `warden.spawned` or
+  `warden.reconnected`, trail segment (signed with the node's key, required), refusals. A device
+  Warden's entry stays with the Queen when its connection ends: a device comes back.
 - `DeviceReconciler` (`reconcile.py`) is the rule, applied per node and level-triggered (each pass
   reads the registry and the hub afresh, so a missed or repeated notice costs nothing): a revoked
-  node is disconnected, its Warden stopped and its key distrusted; a reachable GATEWAY-rung node
-  gets a Warden, keeps it, or (its access level or tier changed) is sent `swarm.node_update` and
-  gets a rebuilt Warden so its Cell carries the new values; a node that is not reachable is
-  reported lost to its Warden.
-- `UnreachableDevices` (`unreachable.py`) tells a Warden its device's link is lost
-  (`Warden.cell_lost`: one `CELL_UNREACHABLE` Alarm per loss, the lease held and not released) and
-  found again (`Warden.cell_found`). Holding the device's tasks for `[swarm] unreachable_grace_s`
-  and deciding what then happens to them are the next step's.
+  node has its Warden stopped (releasing its lease while the link is up), its link closed, its key
+  distrusted and its tasks taken back; a node a colonization owns is left to the flow; a reachable
+  Level 0 node gets a Warden, keeps it, or (its terms changed, or its loop died) has its tasks
+  paused and taken back and a Warden rebuilt; a node above Level 0 is reachable while its Warden's
+  link is open; a pending `desired_level` is handed to the colonizer; anything not reachable goes
+  to the hold.
+- `UnreachableDevices` (`unreachable/`) holds a lost device's tasks (`swarm.node_held`; the
+  dispatcher neither fails nor moves them, `DispatchBook.held`), tells a Level 0 Warden its Cell
+  was lost (one `CELL_UNREACHABLE` Alarm), marks a device whose own Warden is gone UNREACHABLE,
+  and asks the diagnosis seam for a reason (ADR-0056; none yet). When `[swarm] unreachable_grace_s`
+  ends it decides by the rung (`decide.py`): a Level 0 or Level 1 device's tasks are taken back
+  (`takeback.py`: paused, their newest Handoff noted, unassigned, placed afresh) and its Warden let
+  go; a Nuc's keep waiting, up to `[supervision] max_offline_s`. A device back inside the window
+  cancels the hold. Every decision is a `queen.decided`.
+- `Colonizer` (`colonize/`) carries out the rung an operator asked for, one at a time
+  (`request.py` decides, `guard.py` asks the Guard's `NUC_PROMOTION` point for every change). A
+  promotion (`promote.py`): PREPARE the runtime, pause the Level 0 Warden's tasks into Handoffs,
+  stop that Warden, START the device's, wait for it to attach (`arrivals.py`), then move the rung
+  (`swarm.promoted`), record `warden.migrated` and resume each task from its Handoff, carried
+  inline. Any failure sends WITHDRAW, rebuilds the Level 0 Warden, resumes the tasks there and
+  records `swarm.demoted` with the reason. A withdrawal (`withdraw.py`) only while the device's
+  Warden is idle. The Nuc rungs are not built yet and are refused with a reason.
 
 A Level 0 Warden runs here, in the Queen's own process, over an in-memory link, with its hands on
 the device through `PollenSession`; it gives its lease back whenever it settles with nothing to do

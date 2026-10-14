@@ -7,9 +7,10 @@ that conversation: the registry that remembers devices and invites, the enrolmen
 a device, the gateway that listens and judges whether each device is still reachable,
 `SwarmSource` that leases a device as a Real Cell, `PollenSession` that is that Cell's terminal
 carried over Waggle, the Propolis shield that verifies a device's VPN before work is placed on it,
-and the watch probe that observes an idle device read-only. Promoting a colonized device to a Nuc
-(a model server of its own) and the decision to colonize are wave 3 (`decide_colonize`, `nuc`);
-this package holds the ladder's transitions only (`level`).
+and the watch probe that observes an idle device read-only. This package holds the ladder's
+transitions and the pure decision whether a device can carry its own Warden (`level`); carrying the
+move out is the Queen's (`hivemind.queen.swarm_gate.colonize`). Promoting a colonized device to a
+Nuc (a model server of its own) is wave 3D (`nuc`).
 
 Layer 3 (sources of Cells, and capabilities handed down). It imports `guard`, `cell`, `memory`,
 `supervision`, `brood_chamber`, `basket`, `pheromone`, `forage`, `llm`, `manifest`, `common` and
@@ -55,7 +56,7 @@ for a device that enrolled and never connected), and `ONLINE` again on the next 
 heartbeat. A device with no Warden on it releases its own leases after `dead_man_s`; the source
 hears that release and records it, so the lease is never left looking open.
 
-## Public API (roadmap steps 11.1, 11.2, 11.5, 11.8a, 11.12)
+## Public API (roadmap steps 11.1, 11.2, 11.5, 11.6a, 11.8a, 11.12)
 
 - **Errors** (`errors`): `SwarmError` and its subclasses (`EnrolmentDeniedError`,
   `InviteFormatError`, `NodeRevokedError`, `LadderError`, `GatewayUnavailableError`,
@@ -65,7 +66,10 @@ hears that release and records it, so the lease is never left looking open.
   `InviteState` (ISSUED -> REDEEMED | EXPIRED | REVOKED), `NodeStatus` (ONLINE <-> UNREACHABLE ->
   REVOKED), `RuntimeLevel` and the ladder GATEWAY <-> COLONIZED <-> NUC (`can_move`,
   `assert_move`, `is_promotion`). Every machine is one transition table with a comment on each
-  edge; a forbidden edge raises.
+  edge; a forbidden edge raises. `decide_colonize(ColonizeFacts)` is the pure rule for the first
+  rung (Python 3.12 or newer, access level SCRATCH or FULL, Forage for a Warden and a sub-bee, and
+  a reason: the operator asking, the Hive Stand under pressure, or a task that must survive
+  outages): it returns a `ColonizeReason` or a refusal word, never an exception.
 - **Registry** (`registry`): the `SwarmRegistry` Protocol (invites and nodes), `SqliteSwarmRegistry`
   (migration series `swarm`), `MemorySwarmRegistry`, one contract suite
   (`tests/contracts/test_swarm_registry_contract.py`). `redeem` is atomic and single use; every
@@ -82,7 +86,10 @@ hears that release and records it, so the lease is never left looking open.
 - **Source and session** (`source`, `session`): `SwarmSource(node, hub, recorder, guard)` is a
   `RealCellSource` for one device and a `HubListener`; `PollenSession` is a full `CellSession`
   (`exec`, files, background processes); `CommandGuard` / `EnforcedCommandGuard` check every
-  device command at the `DEVICE_COMMAND` point and record `swarm.command_sent`.
+  device command at the `DEVICE_COMMAND` point and record `swarm.command_sent`. A device's lease
+  is given `DevicePathRule` (`LeaseFacts.paths`): its paths live on another machine's disk, so the
+  lease normalises them lexically by that machine's rules (POSIX or Windows) and never resolves
+  them against the Hive Stand's own filesystem; the packet resolves symlinks on the device.
 - **Shield and watch** (`shield`, `watch`): `ShieldedSource(inner, PropolisChecks)` holds a
   Propolis device's lease back until fixed read-only commands show its tunnel carries the default
   route and DNS; `PollenWatchProbe.observe(kinds, roots, since_at)` asks an idle device what it
@@ -100,7 +107,9 @@ hears that release and records it, so the lease is never left looking open.
 
 Nothing in this package supervises, and it may not import the Queen. The Queen's swarm gate
 (`hivemind.queen.swarm_gate`) subscribes to the hub, and keeps one Level 0 Warden per connected
-device (the Warden runs on the Hive Stand; its Cell is the device, reached through `PollenSession`).
+device (the Warden runs on the Hive Stand; its Cell is the device, reached through `PollenSession`),
+until the operator colonizes the device and its Warden moves onto it and dials in through the
+listener's `bind_warden_handler`.
 The composition root (`hivemind.cli.compose.swarm`) builds that Warden around a `SwarmSource`, and
 subscribes the source to the hub for the Warden's life so a dead-man release is heard. The Warden
 releases its lease whenever it is idle and leases again for the next task, so a borrowed machine
