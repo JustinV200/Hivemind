@@ -611,3 +611,34 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
 | Overnight `WATCH` and the Patrol | Real with a compressed interval: no writes (file tree snapshot), Patrol on schedule, planted CPU hog becomes an Alarm, a quiet interval records nothing notable |
 | Replayed or tampered session message; Raspberry Pi OS | Replay and tamper over a real socket; the PyInstaller binary built in a bookworm container runs in a clean `debian:bookworm` container (x86-64 stand-in; ARM64 is the CI matrix's) |
 | Diagnostic Drones | Real in the container: a wrong `/etc/hosts` entry fixed by the Nuc's Drone; a removed network gives up inside budget; an unplugged colonized device gets W0's Drone and a Nectar finding |
+
+## 6. Where things stand (handoff, written as the work lands)
+
+- **The branch.** `ccr-75a88a63-nwtvjo`, pushed after every wave. Every wave's agents worked in
+  isolated worktrees; their commits are cherry-picked onto the branch (`git log --oneline
+  a11deb3..HEAD`), each gated before the push. **No PR was opened**; the operator asked for a
+  branch.
+- **Worktree trap.** The Agent tool creates a worktree from `main`, not from this branch: every
+  brief starts with `git merge --ff-only ccr-75a88a63-nwtvjo` in the worktree. `.claude/worktrees/`
+  is git-ignored. `scripts/check_sizes.py` also scans those worktrees, so read a failure there with
+  that in mind.
+- **Waggle** is **1.13** (89 kinds). ADRs **0051 to 0056**.
+- **Wave 1 (landed).** The 1.13 wire and spec, trail kinds, `[swarm]` and `[supervision.watch]`
+  manifest sections, the warden's `watch:*`; the replay window, the frame ceiling (close 4029) and
+  pinned TLS in `waggle.transport`; the six ADRs, `docs/waggle/enrolment.md` (the invite carries
+  `hive_id`, eight keys) and `docs/waggle/gateway-contract.md`.
+- **Wave 2 (landed).** `packages/pollen` (the packet: enrolment, link, leases, executors, observe,
+  dead-man switch, shims, `pollen install`; 550 tests); `hivemind/swarm/` (registry, enrolment
+  door, TLS listener with refusals, hub and device links, `SwarmSource`, `PollenSession`, Propolis
+  checks, watch probe); `queen/swarm_gate/` (a Level 0 Warden per online device, reconcile,
+  minimal unreachable); `cli/compose/swarm/` (`build_swarm`, the device Warden factory, the
+  per-lease command guard); placement rules (a PROPOLIS task never on a MEADOW Real Cell);
+  the Virtual Cell listener's refusals; `PollenSession` passes the `CellSession` contract against
+  a real packet; the gateway conformance suite (`tests/contracts/test_gateway_contract*.py`, run
+  another gateway with `HIVEMIND_GATEWAY_COMMAND`); the container harness (`tests/e2e/swarm/`:
+  `device_image()`, `Janitor`, `start_stand`, `enrol_container`); `tests/e2e/test_swarm_level0.py`
+  (a real packet, a real Level 0 task).
+- **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
+- **Docker here.** Start `dockerd` (the default socket works in this container); the device image
+  is `ubuntu:24.04` (this sandbox blocks the Debian mirror, not Ubuntu's); cold build about 40 s,
+  cached under `~/.cache/hivemind-tests`; `HIVEMIND_TEST_DEVICE_IMAGE` overrides.
