@@ -241,10 +241,9 @@ class Warden(TickLoop):
         # Warden started on the Cell may outlive the lease, and the Queen hears each source go.
         if self._models is not None:
             await self._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
-        if self._lease is not None:
-            await self._lease.release()
+        released = await _release_lease(self)
         self._state = WardenState.STOPPED
-        await _record_event(self, "warden.stopped")
+        await _record_event(self, "warden.stopped", **released)
         # Last of all, so `warden.stopped` itself is inside the shipped segment: a Warden whose
         # trail store dies with its Cell (ADR-0027) gets one final chance to hand the Queen
         # everything it recorded. A closed or half-closed link here is not worth failing a stop
@@ -496,6 +495,23 @@ async def _record_event(warden: Warden, kind: str, **payload: JsonValue) -> None
     """Build and record one warden.* WardenEvent, subject to this Warden's own id."""
     event = WardenEvent(
         id=new_event_id(warden._deps.clock),
+async def _release_lease(warden: Warden) -> dict[str, JsonValue]:
+    """Give the lease back for `stop()`; a Cell that cannot confirm it is recorded, never raised.
+
+    A device that went away mid-run cannot confirm a release, and `stop()` has other things to end
+    (the sub-bees, the loop, the trail): the lease stays ORPHANED for the device's own dead-man
+    switch or a later sweep to settle, and `warden.stopped` says so. Returns the payload to add.
+    """
+    lease = warden._lease
+    if lease is None:
+        return {}
+    try:
+        await lease.release()
+    except ticks.lease.RELEASE_FAILURES as error:
+        return {"lease_released": False, "release_error": type(error).__name__}
+    return {}
+
+
         hive_id=warden._deps.identity.hive_id,
         node_id=warden._deps.identity.node_id,
         at=warden._deps.clock.now(),

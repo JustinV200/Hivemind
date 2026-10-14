@@ -25,6 +25,9 @@ Key invariants:
     - `retire_sub_bee` runs exactly once per TaskResult(CLAIMED) handled, whatever the outcome, so
       the local pool slot is released and the sub-bee's link is closed either way; and only after
       acceptance, so a URL_MATCHES or ELEMENT_TEXT criterion still has the task's browser to read.
+    - A device that cannot be asked (`DEVICE_ERRORS`: a closed session, a refused request, a link
+      that went) never ends this Warden's loop: nothing was verified, so nothing is accepted, and
+      the task is reported FAILED with the error's class as the reason (roadmap 11.6a).
     - `_send_acceptance_failed` records `alarm.raised` for the ACCEPTANCE_FAILED Alarm it raises,
       before sending it to the Queen (this dispatch's own fix 1).
     - Both `_send_succeeded` and `_send_acceptance_failed` copy `claim.scout_report` onto the
@@ -43,7 +46,7 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
-from hivemind.cell import CellIdentity, HoneyClearance
+from hivemind.cell import CellError, CellIdentity, HoneyClearance
 from hivemind.exoskeleton.surface import check_structural
 from hivemind.supervision import Alarm as MirroredAlarm
 from hivemind.supervision import record_alarm_event
@@ -53,6 +56,7 @@ from hivemind.wardens.ticks.alarms import retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
 from waggle.ids import new_alarm_id
+from waggle.errors import TransportError
 from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
 from waggle.messages.task import TaskOutcome, TaskResult
@@ -63,7 +67,10 @@ if TYPE_CHECKING:
 
 MAX_DETAIL_CHARS = 2_000  # Mirrors waggle.messages.supervision.alarms.MAX_DETAIL_CHARS's own bound.
 
-__all__ = ["MAX_DETAIL_CHARS", "handle_accept"]
+# What asking a device to check a criterion can fail with: a Cell error (a closed session, a device
+# that refused the request or did not answer) or a link that went. Anything else is a real bug.
+DEVICE_ERRORS = (CellError, TransportError)
+__all__ = ["DEVICE_ERRORS", "MAX_DETAIL_CHARS", "handle_accept"]
 
 
 async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> None:
@@ -77,9 +84,15 @@ async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> N
     if warden._session is None:
         return  # Defensive: unreachable once a sub-bee has spawned on this Warden's own session.
     # Before retiring: retiring detaches the Exoskeleton, and a page criterion reads its browser.
-    report = await run_acceptance(
-        warden._session, sub_bee.assignment.acceptance, _gui_check(warden, sub_bee)
-    )
+    try:
+        report = await run_acceptance(
+            warden._session, sub_bee.assignment.acceptance, _gui_check(warden, sub_bee)
+        )
+    except DEVICE_ERRORS as error:
+        # A device that went away mid-check (roadmap 11.6a, 4b): a handled outcome, not a crash
+        # of this Warden's loop with the task left RUNNING and nobody to report it.
+        await _send_unchecked(warden, sub_bee, claim, error)
+        return
     await retire_sub_bee(warden, sub_bee)
     if report.passed:
         await _send_succeeded(warden, sub_bee, claim)
@@ -92,6 +105,33 @@ def _gui_check(warden: Warden, sub_bee: SubBee) -> GuiCheck | None:
     handle = sub_bee.exoskeleton
     if handle is None:
         return None
+async def _send_unchecked(
+    warden: Warden, sub_bee: SubBee, claim: TaskResult, error: Exception
+) -> None:
+    """Report the claim FAILED because the Cell could not be asked to check it.
+
+    Nothing was verified, so nothing is accepted (codingrules 8.12): the Queen retries or
+    re-places the task, as for any FAILED result, and the swarm gate's own `CELL_UNREACHABLE`
+    Alarm says why the Cell cannot be asked. The error's class is named; its text may hold a path.
+    """
+    await retire_sub_bee(warden, sub_bee)
+    result = TaskResult(
+        task_id=claim.task_id,
+        attempt=claim.attempt,
+        outcome=TaskOutcome.FAILED,
+        summary=claim.summary,
+        clearance=claim.clearance,
+        artifacts=claim.artifacts,
+        checked_by=warden._warden_id,
+        handoff=claim.handoff,
+        spend=claim.spend,
+        reason=f"acceptance could not be checked: {type(error).__name__}",
+        scout_report=claim.scout_report,
+    )
+    await ship_trail_before_result(warden)
+    await _send_to_queen(warden, result)
+
+
     return partial(check_structural, handle.peripherals, warden._deps.clock)
 
 

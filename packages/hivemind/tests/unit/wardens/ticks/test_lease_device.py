@@ -306,3 +306,20 @@ async def test_a_release_the_cell_cannot_confirm_keeps_the_lease_for_a_later_try
 
     assert lease.state is LeaseState.RELEASED
     await _stop(warden, run_task)
+
+
+async def test_a_stop_whose_lease_the_cell_cannot_release_still_finishes_and_says_so() -> None:
+    deps, _queen_end, warden_id = make_warden_deps(device=DeviceDeps(release_lease_when_idle=False))
+    source = _FlakySource(cast(FakeCellSource, deps.source), deps)
+    source.release_error = CellError("the device is away")
+    deps = dataclasses.replace(deps, source=source)
+    warden, run_task = await _started(deps, warden_id)
+    lease = warden.lease
+    assert lease is not None
+
+    await _stop(warden, run_task)  # Must not raise: the device is gone, the Warden is not.
+
+    assert warden.state is WardenState.STOPPED
+    assert lease.state is LeaseState.ORPHANED  # Left for the device's dead-man switch or a sweep.
+    stopped = [e for e in await deps.trail.query(TrailQuery()) if e.kind == "warden.stopped"]
+    assert [e.payload for e in stopped] == [{"lease_released": False, "release_error": "CellError"}]

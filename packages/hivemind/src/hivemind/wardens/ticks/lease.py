@@ -65,11 +65,23 @@ from waggle.messages.forage import SourceRemovalCause
 from waggle.messages.supervision import AlarmKind
 
 if TYPE_CHECKING:
+from waggle.errors import TransportError
     from hivemind.wardens.warden import Warden
 
 log = get_logger(__name__)
 
-__all__ = ["clear_cell_lost", "open_lease", "release_idle_lease", "report_cell_lost"]
+# What a release can fail with when the Cell it reaches is not answering: a device error, a link
+# that went, or the machine's own I/O. Anything else is a real bug and still propagates.
+RELEASE_FAILURES = (CellError, TransportError, OSError)
+
+__all__ = [
+    "RELEASE_FAILURES",
+    "clear_cell_lost",
+    "open_lease",
+    "release_idle_lease",
+    "release_lease",
+    "report_cell_lost",
+]
 
 
 async def open_lease(warden: Warden) -> None:
@@ -125,7 +137,20 @@ async def _give_back(warden: Warden, lease: RealCellLease) -> None:
     """Release `lease` and forget it, or keep it for a retry when the Cell cannot confirm it."""
     try:
         await lease.release()
-    except CellError as error:
+    except RELEASE_FAILURES as error:
+async def release_lease(warden: Warden, lease: RealCellLease) -> None:
+    """Stop what `lease` hosts, then give it back; it stays held, ORPHANED, if the Cell is silent.
+
+    Args:
+        warden: The owning Warden, whose lease this drops once the Cell confirmed the release.
+        lease: The lease to give back (normally `warden._lease`).
+    """
+    # A model server dies with the lease that started it, so the Hive stops seeing it now.
+    if warden._models is not None:
+        await warden._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
+    await _give_back(warden, lease)
+
+
         # ORPHANED (`RealCellLease.release`): `warden._lease` keeps it, so an idle release or
         # `stop()` tries again once the Cell can answer; forgetting it here would leave it for good.
         log.warning("warden.release_unconfirmed", lease_id=lease.id, error=type(error).__name__)
