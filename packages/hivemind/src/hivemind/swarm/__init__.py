@@ -7,8 +7,10 @@ Hive's side of that: the registry that remembers nodes and invites, the enrolmen
 a device and the pure decision behind it, the gateway that listens, verifies, routes and judges
 liveness, `SwarmSource` that leases a device as a Real Cell, `PollenSession` that is the Cell's
 terminal carried over Waggle, the Propolis shield that verifies a device's VPN before work is
-placed on it, and the watch probe that observes an idle device read-only. Promoting a colonized
-device to a Nuc (giving it a model server of its own) is a later step in this phase.
+placed on it, and the watch probe that observes an idle device read-only. The two pure decisions
+of the runtime ladder live here too: whether a device's Warden should move onto it
+(`decide_colonize`) and whether a colonized device should start a model server of its own and
+become a Nuc (`decide_nuc`).
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Called by the Queen's swarm gate
@@ -42,6 +44,8 @@ Public API:
     - RuntimeLevel, can_move, is_promotion, assert_move: the runtime ladder (level).
     - decide_colonize, ColonizeFacts, ColonizeDecision, ColonizeReason: whether a device's Warden
       should move onto it (level).
+    - decide_nuc, NucFacts, NucDecision, NucReason, OfferedServer: whether a colonized device
+      should start a model server of its own, and which (nuc).
     - SwarmRecorder: the trail, clock and identity the Swarm records with (events).
     - SwarmSource, SwarmLeaseReleaser: an enrolled device as a Real Cell source (source).
     - PollenWatchProbe: read-only observation of an idle device (watch).
@@ -107,6 +111,7 @@ from hivemind.swarm.level import (
 )
 from hivemind.swarm.models import SWARM_SOURCE, InviteState, SwarmInvite, SwarmNode
 from hivemind.swarm.node_state import NodeStatus, assert_transition, can_transition
+from hivemind.swarm.nuc import NucDecision, NucFacts, NucReason, OfferedServer, decide_nuc
 from hivemind.swarm.registry import MemorySwarmRegistry, SqliteSwarmRegistry, SwarmRegistry
 from hivemind.swarm.session import (
     CommandGuard,
@@ -154,6 +159,10 @@ __all__ = [
     "NodeRevokedError",
     "NodeStatus",
     "NodeStatusConflictError",
+    "NucDecision",
+    "NucFacts",
+    "NucReason",
+    "OfferedServer",
     "PollenSession",
     "PollenWatchProbe",
     "PropolisChecks",
@@ -178,6 +187,7 @@ __all__ = [
     "can_move",
     "can_transition",
     "decide_colonize",
+    "decide_nuc",
     "is_promotion",
     "parse_invite_string",
 ]

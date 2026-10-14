@@ -8,9 +8,10 @@ a device, the gateway that listens and judges whether each device is still reach
 `SwarmSource` that leases a device as a Real Cell, `PollenSession` that is that Cell's terminal
 carried over Waggle, the Propolis shield that verifies a device's VPN before work is placed on it,
 and the watch probe that observes an idle device read-only. This package holds the ladder's
-transitions and the pure decision whether a device can carry its own Warden (`level`); carrying the
-move out is the Queen's (`hivemind.queen.swarm_gate.colonize`). Promoting a colonized device to a
-Nuc (a model server of its own) is wave 3D (`nuc`).
+transitions and the two pure decisions on it: whether a device can carry its own Warden (`level`)
+and whether a colonized device should start a model server of its own and become a Nuc (`nuc`);
+carrying the moves out is the Queen's (`hivemind.queen.swarm_gate.colonize` and
+`hivemind.queen.swarm_gate.nuc`).
 
 Layer 3 (sources of Cells, and capabilities handed down). It imports `guard`, `cell`, `memory`,
 `supervision`, `brood_chamber`, `basket`, `pheromone`, `forage`, `llm`, `manifest`, `common` and
@@ -70,6 +71,15 @@ hears that release and records it, so the lease is never left looking open.
   rung (Python 3.12 or newer, access level SCRATCH or FULL, Forage for a Warden and a sub-bee, and
   a reason: the operator asking, the Hive Stand under pressure, or a task that must survive
   outages): it returns a `ColonizeReason` or a refusal word, never an exception.
+  `decide_nuc(NucFacts)` is the pure rule for the second (`nuc`): the device is COLONIZED, its
+  Warden declared a model server in its capacity report, the Hive allows that server models (the
+  Forage map rows its manifest lists for the server id) and at least one fits the VRAM the device
+  has free (a model with no VRAM figure runs on the CPU and needs none), and something asks for
+  it: the operator's `desired_level`, the Hive Stand's seat pressure past `[swarm.nuc]
+  seat_pressure`, or a task that must survive a lost link. It returns the server, every model that
+  fits alone (the allowlist the Queen sets in the Warden's `Ceilings`), the ones that fit together
+  (loaded first) and a `NucReason`, or one refusal word (`not_asked`, `not_colonized`,
+  `no_server`, `no_allowlist`, `vram_too_small`).
 - **Registry** (`registry`): the `SwarmRegistry` Protocol (invites and nodes), `SqliteSwarmRegistry`
   (migration series `swarm`), `MemorySwarmRegistry`, one contract suite
   (`tests/contracts/test_swarm_registry_contract.py`). `redeem` is atomic and single use; every
