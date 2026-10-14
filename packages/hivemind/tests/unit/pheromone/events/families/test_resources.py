@@ -204,7 +204,8 @@ _ORIGINAL_SWARM_KINDS = {
     "swarm.revoked",
     "swarm.command_sent",
 }
-# Phase 11 (ADR-0051 to ADR-0056): what the gateway and the Queen record around a device.
+# Phase 11 (ADR-0051 to ADR-0056): what the gateway and the Queen record around a device, and the
+# operator's naming of the directories a device's Warden watches (ADR-0054's amendment).
 _PHASE_11_SWARM_KINDS = {
     "swarm.enrol_refused",
     "swarm.online",
@@ -214,14 +215,15 @@ _PHASE_11_SWARM_KINDS = {
     "swarm.shield_verified",
     "swarm.shield_refused",
     "swarm.node_held",
+    "swarm.watch_changed",
 }
 
 
-def test_swarm_event_kinds_keep_the_six_original_kinds_and_gain_the_phase_11_eight() -> None:
+def test_swarm_event_kinds_keep_the_six_original_kinds_and_gain_the_phase_11_nine() -> None:
     # The original six are unchanged, so a stored event of an old kind still decodes.
     assert SwarmEvent.FAMILY == "swarm"
     assert _ORIGINAL_SWARM_KINDS | _PHASE_11_SWARM_KINDS == SwarmEvent.KINDS
-    assert len(SwarmEvent.KINDS) == 14
+    assert len(SwarmEvent.KINDS) == 15
 
 
 @pytest.mark.parametrize("kind", sorted(_ORIGINAL_SWARM_KINDS | _PHASE_11_SWARM_KINDS))
