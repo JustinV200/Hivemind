@@ -11,8 +11,9 @@ lease, "left as found" -- on exit.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Called by
     `hivemind.cli.run`, `hivemind.cli.compose.entrance` and every end-to-end test. Calls into
-    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive) and the Queen, Warden,
-    House Bee and Swarm gate a Hive holds only.
+    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive), `hivemind.queen.attach`
+    (detach_warden, to unwind a failed start) and the Queen, Warden, House Bee and Swarm gate a
+    Hive holds only.
 
 Key invariants:
     - The House Bee's ripening loop starts after the Queen and stops before her, so she never
@@ -22,6 +23,8 @@ Key invariants:
       and stops before the Queen: its Wardens release their leases over the devices' links while
       she still hears them, and the listener closes those links only after. A Hive with
       `[swarm] enabled = false` has no gate and runs exactly as before phase 11.
+    - A start that fails part-way leaves nothing running: the gate, the Virtual side's listener,
+      the links and the Guard Bee are stopped before the failure reaches the caller.
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
       their `run()` tasks, closes the Guard Bee, the Virtual side, the Queen<->Warden link and
       then every model provider's connections, in that order, whether its `async with` block
@@ -44,6 +47,7 @@ from contextlib import asynccontextmanager
 
 from hivemind.cli.compose.guard import close_guard_bee
 from hivemind.cli.compose.hive.build import Hive
+from hivemind.queen.attach import detach_warden
 
 __all__ = ["run_hive"]
 
@@ -118,14 +122,25 @@ async def _close_links(hive: Hive) -> None:
 
 
 async def _start(hive: Hive) -> None:
-    """Attach the Hive Stand's Warden, open the Virtual side, then lease the Hive Stand's Cell.
+    """Attach the Hive Stand's Warden, open the Virtual side and the Swarm, then lease the Cell.
 
     Split out of `run_hive` for codingrules 5.1's function length only; everything here happens
-    before the Queen's and the Warden's own loops start.
+    before the Queen's and the Warden's own loops start. If a step after the first fails, what
+    the earlier ones started is stopped before the failure propagates: a port that is already
+    taken must not leave a listener, a Warden or a link behind in a process that carries on.
     """
     # Roadmap step 10.3: admitting the Hive Stand's Warden is the Queen's warden_spawn point, an
     # awaited Guard check (and a `warden.spawned` row), so it happens here, before anything runs.
     await hive.queen.attach_warden(hive.warden_link)
+    try:
+        await _open(hive)
+    except BaseException:
+        await _unwind(hive)
+        raise
+
+
+async def _open(hive: Hive) -> None:
+    """Open the Virtual side and the Swarm, then lease the Hive Stand's one Cell."""
     if hive.virtual_cells is not None:
         # Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile
         # the live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
@@ -143,8 +158,23 @@ async def _start(hive: Hive) -> None:
         # Roadmap step 11.6: after the Hive Stand's Warden is attached and the Virtual side is open,
         # so the Queen has her own Cell to place on before a device's Warden joins her; devices
         # that dial in from here on wait for `gate.run()` to serve them.
-        await hive.swarm.gate.start(hive.queen)
+        await hive.swarm.gate.start(hive.queen, hive.queen_deps)
     await hive.warden.start()
+
+
+async def _unwind(hive: Hive) -> None:
+    """Stop what `_start` had started before a later step failed: the gate, links and Guard Bee.
+
+    The gate's `stop` is safe at any point of its own start (a listener that never bound does
+    nothing). The Hive Stand's Warden, attached but never run, is detached, and the Queen, who
+    never ran either, is stopped, since attaching a Warden started readers and jobs of hers (the
+    tools she announces) that would otherwise outlive the failure.
+    """
+    if hive.swarm is not None:
+        await hive.swarm.gate.stop()
+    await detach_warden(hive.queen, hive.warden_link.warden_id)
+    await hive.queen.stop()
+    await _close_links(hive)
 
 
 async def _stop_swarm(hive: Hive, swarm_task: asyncio.Task[None] | None) -> None:

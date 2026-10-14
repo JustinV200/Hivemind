@@ -53,7 +53,7 @@ async def _online(rig: GateRig) -> SwarmNode:
 
 
 async def test_start_opens_the_listener_and_listens_to_the_hub(rig: GateRig) -> None:
-    await rig.gate.start(rig.queen)
+    await rig.gate.start(rig.queen, rig.queen_deps)
 
     assert rig.listener.uri.startswith("ws://127.0.0.1:")
     assert rig.gate in rig.hive.hub._listeners
@@ -143,9 +143,10 @@ async def test_a_device_revoked_while_the_hive_runs_is_cut_off_within_one_interv
         # A Warden's stop is many awaits (its sub-bees, its lease, its trail), and the Queen
         # forgets it only once they are done: a long settle on that, the last of them.
         await settle(lambda: rig.queen.wardens == (), rounds=_STOP_ROUNDS)
+        # The Warden goes first, releasing its lease over the link, and only then is it closed.
+        await settle(lambda: node.device_id in rig.listener.disconnected, rounds=_STOP_ROUNDS)
         assert rig.wardens.get(node.device_id) is None
         assert served.warden.state is WardenState.STOPPED
-        assert node.device_id in rig.listener.disconnected
         assert rig.queen.wardens == ()
 
 
@@ -168,7 +169,7 @@ async def test_stop_stops_every_warden_before_the_listener_closes(rig: GateRig) 
 
 
 async def test_stop_is_safe_twice_and_before_run(rig: GateRig) -> None:
-    await rig.gate.start(rig.queen)
+    await rig.gate.start(rig.queen, rig.queen_deps)
 
     await rig.gate.stop()
     await rig.gate.stop()

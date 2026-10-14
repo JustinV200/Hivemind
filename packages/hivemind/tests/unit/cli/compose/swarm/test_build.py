@@ -16,13 +16,14 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import socket
 from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest
 from builders.swarm import free_port, make_tls_material, swarm_manifest
 
-from hivemind.cell import AccessLevel, CombShieldLevel
+from hivemind.cell import AccessLevel, CellError, CombShieldLevel
 from hivemind.cli.compose import Hive, build_hive, run_hive
 from hivemind.cli.stores import open_swarm_registry
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
@@ -162,11 +163,12 @@ def test_the_gate_starts_after_the_hive_stands_warden_is_attached_and_stops_befo
     gate = hive.swarm.gate
     start, stop = gate.start, gate.stop
 
-    async def spy_start(queen: object) -> None:
+    async def spy_start(queen: object, deps: object) -> None:
         # The Hive Stand's own Warden is attached (the Queen has her own Cell) but not started.
         seen["attached_at_start"] = [link.warden_id for link in hive.queen.wardens]
         seen["warden_at_start"] = hive.warden.state.name
-        await start(queen)  # type: ignore[arg-type]
+        seen["deps"] = deps
+        await start(queen, deps)  # type: ignore[arg-type]
 
     async def spy_stop() -> None:
         # The Queen and the Hive Stand's Warden still run while the devices' Wardens stop.
@@ -183,7 +185,49 @@ def test_the_gate_starts_after_the_hive_stands_warden_is_attached_and_stops_befo
 
     asyncio.run(scenario())
 
+    assert seen["deps"] is hive.queen_deps  # The gate works with the Queen's own collaborators.
     assert seen["attached_at_start"] == [hive.warden_link.warden_id]
     assert seen["warden_at_start"] == "STARTING"
     assert seen["queen_stopped_at_stop"] is False
     assert seen["warden_at_stop"] in {"ACTIVE", "WATCH"}
+
+
+def test_a_gate_that_cannot_open_its_port_leaves_nothing_started(tmp_path: Path) -> None:
+    port = free_port()
+    hive = _hive(swarm_manifest(tmp_path, listen_port=port))
+
+    async def scenario() -> None:
+        with pytest.raises(OSError):  # The port is taken: the listener cannot bind.
+            async with run_hive(hive):
+                pass
+        # What had started is unwound: the Hive Stand's Warden is detached, no task is left.
+        assert hive.queen.wardens == ()
+        others = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        assert others == []
+
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", port))
+        taken.listen()
+        asyncio.run(scenario())
+
+
+def test_a_start_that_fails_after_the_gate_opened_closes_the_gate_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    port = free_port()
+    hive = _hive(swarm_manifest(tmp_path, listen_port=port))
+
+    async def refuse() -> None:
+        raise CellError("The Hive Stand's Cell could not be leased.")
+
+    monkeypatch.setattr(hive.warden, "start", refuse)
+
+    async def scenario() -> None:
+        with pytest.raises(CellError):
+            async with run_hive(hive):
+                pass
+        with pytest.raises(OSError):  # The gate that had opened the port closed it again.
+            await asyncio.open_connection("127.0.0.1", port)
+        assert hive.queen.wardens == ()
+
+    asyncio.run(scenario())

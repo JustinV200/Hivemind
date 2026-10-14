@@ -43,9 +43,14 @@ from builders.wardens import make_warden_deps
 from hivemind.cell import AccessLevel, RealCellSource
 from hivemind.queen import Queen, QueenDeps, WardenLink
 from hivemind.queen.swarm_gate import (
+    Colonizer,
     DeviceReconciler,
     DeviceWarden,
+    DeviceWardenDoor,
     DeviceWardens,
+    GateContext,
+    GateDoorEvents,
+    GateTerms,
     ReconcileDeps,
     SwarmGate,
     UnreachableDevices,
@@ -61,15 +66,46 @@ from waggle.ids import DeviceId
 from waggle.transport.memory import MemoryTransport
 
 __all__ = [
+    "ADVERTISE_URL",
+    "GRACE_S",
     "INTERVAL_S",
+    "MAX_OFFLINE_S",
+    "RUNTIME_VERSION",
     "GateRig",
     "IdleDevice",
     "RecordingFactory",
     "SpyListener",
+    "gate_terms",
     "make_gate_rig",
 ]
 
 INTERVAL_S = 15.0  # The gate's reconcile interval in these tests: `[swarm] heartbeat_interval_s`.
+GRACE_S = 30.0  # How long a lost device's tasks are held: `[swarm] unreachable_grace_s`.
+MAX_OFFLINE_S = 300.0  # How long a Nuc's tasks wait past that: `[supervision] max_offline_s`.
+RUNTIME_VERSION = "1.0.0"  # The runtime a colonized device installs.
+# Where a started Warden is told to dial: the rig's listener binds an OS-chosen port only on start.
+ADVERTISE_URL = "ws://127.0.0.1:47123"
+
+
+def gate_terms(**overrides: float | int | str) -> GateTerms:
+    """Build the gate's numbers as these tests use them, with any of them replaced.
+
+    Args:
+        **overrides: Fields of `GateTerms` to replace.
+
+    Returns:
+        The terms.
+    """
+    fields: dict[str, float | int | str] = {
+        "interval_s": INTERVAL_S,
+        "unreachable_grace_s": GRACE_S,
+        "max_offline_s": MAX_OFFLINE_S,
+        "runtime_version": RUNTIME_VERSION,
+        "relief_pressure": 0.8,
+        "min_free_memory_bytes": 0,
+    }
+    fields.update(overrides)
+    return GateTerms(**fields)  # type: ignore[arg-type]  # Every field is named above.
 
 
 class SpyListener(SwarmListener):
@@ -81,9 +117,11 @@ class SpyListener(SwarmListener):
         self.disconnected: list[DeviceId] = []
         self.key_syncs = 0
         self.on_stop: Callable[[], None] = lambda: None
+        self.on_disconnect: Callable[[DeviceId], None] = lambda device_id: None
 
     async def disconnect(self, device_id: DeviceId) -> bool:
-        """Note the device, then close its link as the real listener does."""
+        """Run the test's hook (the link is still up), note the device, then close its link."""
+        self.on_disconnect(device_id)
         self.disconnected.append(device_id)
         return await super().disconnect(device_id)
 
@@ -165,8 +203,11 @@ class GateRig:
     wardens: DeviceWardens
     reconciler: DeviceReconciler
     unreachable: UnreachableDevices
+    colonizer: Colonizer
+    terms: GateTerms
     gate: SwarmGate
     devices: dict[DeviceId, IdleDevice] = field(default_factory=dict)
+    door: DeviceWardenDoor | None = None
 
     async def enrol(self, **overrides: object) -> SwarmNode:
         """Add a node (ONLINE, FULL access by default) to the registry; it is not connected yet."""
@@ -197,24 +238,47 @@ class GateRig:
         self.hive.hub.detach(node.device_id, device.link)
         await device.device_end.close()
 
+    def bind(self, queen: Queen | None = None) -> DeviceWardenDoor:
+        """Bind the rig's own parts (not the gate's) to a Queen, and build the door they share.
+
+        Args:
+            queen: The Queen the parts work with; the rig's own when omitted.
+
+        Returns:
+            The door a device's own Warden dials, over the rig's hold and colonizer.
+        """
+        active = queen if queen is not None else self.queen
+        context = GateContext(active, self.queen_deps)
+        self.wardens.bind(active)
+        self.unreachable.bind(context)
+        self.colonizer.bind(context)
+        self.reconciler.bind(context)
+        events = GateDoorEvents(self.colonizer, self.unreachable, self.hive.hub, _no_wake)
+        self.door = DeviceWardenDoor(self.listener, self.hive.registry, context, events)
+        return self.door
+
     @asynccontextmanager
     async def serving(self, queen: Queen | None = None) -> AsyncIterator[None]:
-        """Run the table of device Wardens, bound to `queen`, for the length of the block.
+        """Run the table of device Wardens and the colonizer, bound to `queen`, for the block.
 
         Args:
             queen: The Queen the Wardens attach to; the rig's own when omitted.
 
         Yields:
-            Control, with the table ready to `serve` nodes; every Warden is stopped on the way out.
+            Control, with the table ready to `serve` nodes; every flow is cancelled and every
+            Warden stopped on the way out.
         """
-        self.wardens.bind(queen if queen is not None else self.queen)
+        self.bind(queen)
         async with asyncio.TaskGroup() as group:
             self.wardens.open(group)
+            self.colonizer.open(group)
             try:
                 yield
             finally:
+                await self.colonizer.stop()
                 await self.wardens.stop_all()
                 self.wardens.close()
+                self.colonizer.close()
 
     @asynccontextmanager
     async def running(self) -> AsyncIterator[None]:
@@ -223,7 +287,7 @@ class GateRig:
         Yields:
             Control, with the gate's listener open and its loop (and so every Warden) running.
         """
-        await self.gate.start(self.queen)
+        await self.gate.start(self.queen, self.queen_deps)
         task = asyncio.create_task(self.gate.run())
         try:
             yield
@@ -244,12 +308,16 @@ async def _ignore(envelope: Envelope) -> None:
     """Take a frame nobody was waiting for and do nothing with it."""
 
 
+def _no_wake() -> None:
+    """Stand in for the gate's wake-up: the rig's parts are driven by the test, not a loop."""
+
+
 def make_gate_rig() -> GateRig:
     """Build a gate over a fresh Queen, registry, hub and factory; nothing is started.
 
     Returns:
-        The rig. A test that runs the gate awaits `gate.start(rig.queen)` and runs `gate.run()`;
-        every test awaits `close()` (a fixture does).
+        The rig. A test that runs the gate awaits `gate.start(rig.queen, rig.queen_deps)` and
+        runs `gate.run()`; every test awaits `close()` (a fixture does).
     """
     clock = FakeClock()
     hive = make_hive_rig(clock)
@@ -257,7 +325,12 @@ def make_gate_rig() -> GateRig:
     queen = Queen(queen_deps)
     factory = RecordingFactory(queen_deps, clock)
     config = ListenerConfig(
-        host="127.0.0.1", port=0, tls_cert=None, tls_key=None, liveness=LivenessRules(4)
+        host="127.0.0.1",
+        port=0,
+        tls_cert=None,
+        tls_key=None,
+        liveness=LivenessRules(4),
+        advertise_url=ADVERTISE_URL,
     )
     listener = SpyListener(
         config,
@@ -266,9 +339,24 @@ def make_gate_rig() -> GateRig:
         ),
     )
     wardens = DeviceWardens(factory, hive.hub)
-    unreachable = UnreachableDevices(wardens)
-    reconciler = DeviceReconciler(ReconcileDeps(hive.registry, listener, wardens, unreachable))
-    gate = SwarmGate(listener, hive.registry, wardens, INTERVAL_S, clock)
+    terms = gate_terms()
+    unreachable = UnreachableDevices(wardens, hive.registry, hive.recorder, terms)
+    colonizer = Colonizer(wardens, hive.registry, listener, terms, _no_wake)
+    reconciler = DeviceReconciler(
+        ReconcileDeps(hive.registry, listener, wardens, unreachable, colonizer)
+    )
+    gate = SwarmGate(listener, hive.registry, wardens, terms, clock)
     return GateRig(
-        clock, hive, queen, queen_deps, factory, listener, wardens, reconciler, unreachable, gate
+        clock,
+        hive,
+        queen,
+        queen_deps,
+        factory,
+        listener,
+        wardens,
+        reconciler,
+        unreachable,
+        colonizer,
+        terms,
+        gate,
     )

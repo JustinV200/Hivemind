@@ -20,6 +20,7 @@ from builders.quarantine import settle
 from builders.swarm import GateRig
 
 from hivemind.cell import AccessLevel, CombShieldLevel
+from hivemind.cell.lease_state import LeaseState
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.swarm_gate import DeviceWarden
 from hivemind.swarm import (
@@ -150,6 +151,30 @@ async def test_a_revoked_device_is_cut_off_its_warden_stopped_and_its_key_distru
         assert rig.wardens.get(node.device_id) is None
         assert rig.queen.wardens == ()
         assert rig.listener.key_syncs == 1
+
+
+async def test_a_revoked_devices_warden_releases_its_lease_before_its_link_is_closed(
+    rig: GateRig,
+) -> None:
+    async with rig.serving():
+        node = await rig.enrol()
+        device = await rig.connect(node)
+        await rig.reconciler.sync(node)
+        served = rig.wardens.get(node.device_id)
+        assert served is not None and served.warden.lease is not None
+        lease = served.warden.lease
+        seen: list[tuple[WardenState, LeaseState, bool]] = []
+        rig.listener.on_disconnect = lambda _device_id: seen.append(
+            (served.warden.state, lease.state, device.link.is_open)
+        )
+        revoked = await _revoke(rig, node)
+
+        await rig.reconciler.sync(revoked)
+
+        # At the moment the listener closed the link the Warden was already stopped and its lease
+        # given back, over the link that was still up: the device is left as found.
+        assert seen == [(WardenState.STOPPED, LeaseState.RELEASED, True)]
+        assert not device.link.is_open
 
 
 async def test_the_keys_are_re_read_once_per_revocation_not_once_per_pass(rig: GateRig) -> None:

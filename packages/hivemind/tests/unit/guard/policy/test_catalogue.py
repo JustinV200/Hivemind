@@ -65,6 +65,9 @@ _CALL_SITES: dict[EnforcementPoint, tuple[str, ...]] = {
     EnforcementPoint.DEVICE_COMMAND: (
         "hivemind.swarm.session.guard:EnforcedCommandGuard.authorise",
     ),
+    # Every rung change of a device, up or down, passes it (ADR-0052); the Nuc promotion of a later
+    # wave adds its own call site beside this one.
+    EnforcementPoint.NUC_PROMOTION: ("hivemind.queen.swarm_gate.colonize.guard:authorise_rung",),
 }
 
 

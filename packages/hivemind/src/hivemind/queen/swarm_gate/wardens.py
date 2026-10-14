@@ -28,13 +28,16 @@ Key invariants:
       started, until `stop` begins: `stop` removes it first, then tears the Warden down, so a
       device being stopped is never served again by a second caller; the Queen forgets the Warden
       only when the teardown is done.
+    - A `stop` that is cancelled half-way puts its Warden back in the table, so `stop_all` still
+      stops it: a Warden never runs on with no entry anyone can find.
     - `stop` and `stop_all` never leave a task behind: the Warden's run task is awaited, and a
       Warden that cannot release its lease within `STOP_TIMEOUT_S` is abandoned with the lease
       ORPHANED (the device's own dead-man switch settles it), never waited on forever.
     - The hub listeners a built Warden asks for (its `SwarmSource`, which must hear a dead-man
       release) are subscribed before the Warden starts and unsubscribed when it stops.
-    - Calls are serialised by the gate (one reconcile pass at a time, under its lock); this class
-      holds no lock of its own.
+    - Calls are serialised by the gate (one reconcile pass at a time, under its lock) and by the
+      flow that owns a device (the pass leaves such a device alone), so a device is only ever
+      touched by one caller at a time; this class holds no lock of its own.
 
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for Level 0 and why the Warden is here.
@@ -50,11 +53,11 @@ from typing import TYPE_CHECKING, Protocol
 
 from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
-from hivemind.queen.attach import detach_warden
+from hivemind.queen.attach import current_link, detach_warden
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.swarm import GatewayHub, HubListener, SwarmError, SwarmNode
 from hivemind.wardens import Warden
-from waggle.ids import DeviceId
+from waggle.ids import DeviceId, WardenId
 
 if TYPE_CHECKING:
     from hivemind.queen.deps import WardenLink
@@ -159,6 +162,16 @@ class DeviceWardens:
         """Return the device's served Warden, or None when it has none."""
         return self._served.get(device_id)
 
+    def link_of(self, warden_id: WardenId) -> WardenLink | None:
+        """Return the link the Queen holds for `warden_id`, or None when she holds none.
+
+        This is the Queen's own table, not this one's: it finds a Warden that dialled in from its
+        device (Level 1 and up) as well as one served here, and a Warden whose link has ended
+        but whose entry the Queen keeps for its return.
+        """
+        queen = self._queen
+        return None if queen is None else current_link(queen, warden_id)
+
     def device_ids(self) -> tuple[DeviceId, ...]:
         """Return every device that has a Warden, in the order they were served."""
         return tuple(self._served)
@@ -204,7 +217,13 @@ class DeviceWardens:
         served = self._served.pop(device_id, None)
         if served is None:
             return False
-        await self._teardown(served)
+        try:
+            await self._teardown(served)
+        except asyncio.CancelledError:
+            # Cancelled half-way (a colonization cut short by the gate stopping): the Warden is
+            # not gone, so it goes back in the table for `stop_all` to finish stopping.
+            self._served[device_id] = served
+            raise
         return True
 
     async def stop_all(self) -> None:

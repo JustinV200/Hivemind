@@ -39,11 +39,25 @@ Public API:
       front and open its session (leasing).
     - swarm_manifest: a Hive Manifest with the Swarm on, its listener on a free loopback port
       (manifest).
-    - GateRig, IdleDevice, RecordingFactory, SpyListener, make_gate_rig: the Queen's swarm
-      gate over a Queen, a registry, a hub, silent links and real Wardens (gate).
+    - GateRig, IdleDevice, RecordingFactory, SpyListener, make_gate_rig, gate_terms: the
+      Queen's swarm gate over a Queen, a registry, a hub, silent links and real Wardens (gate).
+    - ScriptedPacket, DialledWarden, PlacedDevice, dial_warden, attach_device_warden,
+      place_on_device: the two scripted halves of a colonization, a device's packet and its own
+      Warden, and a device with a task running on it (colonizing).
+    - PromotionScenario, make_promotion: a Level 0 device with work running, asking for the
+      next rung, its packet scripted (promotion).
 """
 
 from builders.swarm.client import DeviceClient
+from builders.swarm.colonizing import (
+    DialledWarden,
+    PlacedDevice,
+    ScriptedPacket,
+    attach_device_warden,
+    dial_warden,
+    place_on_device,
+    report_state,
+)
 from builders.swarm.device import (
     DeviceLease,
     DeviceProcess,
@@ -62,7 +76,19 @@ from builders.swarm.enrolment import (
     make_rules,
     make_swarm_invite,
 )
-from builders.swarm.gate import GateRig, IdleDevice, RecordingFactory, SpyListener, make_gate_rig
+from builders.swarm.gate import (
+    ADVERTISE_URL,
+    GRACE_S,
+    INTERVAL_S,
+    MAX_OFFLINE_S,
+    RUNTIME_VERSION,
+    GateRig,
+    IdleDevice,
+    RecordingFactory,
+    SpyListener,
+    gate_terms,
+    make_gate_rig,
+)
 from builders.swarm.guards import RecordingGuard
 from builders.swarm.hive import HiveRig, HubLog, WardenHandlerLog, make_hive_rig
 from builders.swarm.leasing import LeasedDevice, lease_device, real_guard
@@ -84,6 +110,7 @@ from builders.swarm.parties import (
     make_hive_party,
     make_swarm_node,
 )
+from builders.swarm.promotion import PromotionScenario, make_promotion
 from builders.swarm.raw import RawLink, make_raw_link
 from builders.swarm.rig import LinkRig, make_link_rig, make_source, open_rig_session
 from builders.swarm.routes import (
@@ -99,6 +126,11 @@ from builders.swarm.routes import (
 from builders.swarm.tls import TlsMaterial, make_tls_material
 
 __all__ = [
+    "ADVERTISE_URL",
+    "GRACE_S",
+    "INTERVAL_S",
+    "MAX_OFFLINE_S",
+    "RUNTIME_VERSION",
     "DeviceClient",
     "DeviceLease",
     "DeviceParty",
@@ -106,6 +138,7 @@ __all__ = [
     "DeviceScript",
     "DeviceState",
     "Dialled",
+    "DialledWarden",
     "ExecScript",
     "GateRig",
     "HiveParty",
@@ -116,6 +149,8 @@ __all__ = [
     "LinkRig",
     "LiveHive",
     "LiveHiveOptions",
+    "PlacedDevice",
+    "PromotionScenario",
     "RawLink",
     "RecordingFactory",
     "RecordingGuard",
@@ -123,12 +158,16 @@ __all__ = [
     "RouteRow",
     "RouterRig",
     "ScriptedDevice",
+    "ScriptedPacket",
     "SpyListener",
     "TamperableSigner",
     "TlsMaterial",
     "WardenHandlerLog",
+    "attach_device_warden",
+    "dial_warden",
     "enrol_node",
     "free_port",
+    "gate_terms",
     "lease_device",
     "linux_probes",
     "linux_route",
@@ -146,6 +185,7 @@ __all__ = [
     "make_hive_party",
     "make_hive_rig",
     "make_link_rig",
+    "make_promotion",
     "make_raw_link",
     "make_router_rig",
     "make_rules",
@@ -154,7 +194,9 @@ __all__ = [
     "make_swarm_node",
     "make_tls_material",
     "open_rig_session",
+    "place_on_device",
     "real_guard",
+    "report_state",
     "resolv_conf",
     "scutil_dns",
     "start_live_hive",

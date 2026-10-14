@@ -288,7 +288,6 @@ PENDING_POINTS: Mapping[P, str] = MappingProxyType(
         # Phase 7 landed: the Honey Store reads `honey:read` scopes and clearances off the reader's
         # set itself; what is left is refusing through this point, on the trail.
         P.HONEY_ACCESS: "a phase 7 follow-up (the store checks the set, not the Guard)",
-        P.NUC_PROMOTION: "phase 11 (the Swarm and Nucs)",
         P.TACTIC_INVOCATION: "phase 6 (the Pheromone Mask tactics)",
         P.STING_CUT: "phase 13 (Sting Cut)",
         P.SUPERSEDURE: "phase 13 (Supersedure)",
