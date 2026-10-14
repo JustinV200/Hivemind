@@ -4,7 +4,8 @@ Fits into the Hive:
     Mirrors src/hivemind/wardens/offline/policy.py (codingrules section 3). The table is pure
     data, so every row of it is tested on its own: the messages that queue, the one that is held,
     the one that is refused, those that are dropped, and the rule that a kind nobody named is
-    refused as it is on a dead link.
+    refused as it is on a dead link. `must_arrive`, which says what a link sends again after a
+    loss it did not notice, is the same table read once more, so each row is checked against it.
 
 Key invariants:
     - None: this module holds tests only.
@@ -21,7 +22,13 @@ from collections.abc import Callable
 import pytest
 from builders.offline import Wire, make_wire
 
-from hivemind.wardens.offline import OfflineAction, OfflineRefusedError, decide_offline, owes_reply
+from hivemind.wardens.offline import (
+    OfflineAction,
+    OfflineRefusedError,
+    decide_offline,
+    must_arrive,
+    owes_reply,
+)
 from hivemind.workers.nectar import DepositMeta, split_deposit
 from waggle.clock import FakeClock
 from waggle.envelope import Envelope
@@ -137,3 +144,25 @@ def test_a_chunk_of_nectar_is_kept_for_the_return_under_its_own_id() -> None:
 
     assert decide_offline(chunk) is OfflineAction.QUEUE
     assert owes_reply(envelope.kind) is False
+
+
+@pytest.mark.parametrize(
+    ("build", "action"), [(r[1], r[2]) for r in _ROWS], ids=[r[0] for r in _ROWS]
+)
+def test_a_frame_is_sent_again_exactly_when_the_table_would_have_kept_it(
+    build: _Build, action: OfflineAction
+) -> None:
+    kept = action in (OfflineAction.QUEUE, OfflineAction.HOLD)
+
+    # What the Warden would have queued or held had it known the link was dead is what a silent
+    # death must not be allowed to swallow; what it would have dropped or refused is not worth it.
+    assert must_arrive(build(make_wire()).payload) is kept
+
+
+def test_a_nectar_chunk_must_arrive_and_a_trail_segment_does_not() -> None:
+    wire = make_wire()
+
+    # The trail is recovered by rewinding its sync, so a segment's chunks are not frames to resend.
+    assert must_arrive(wire.nectar().payload) is True
+    assert must_arrive(wire.trail_segment().payload) is False
+    assert must_arrive(wire.wrap(Ping()).payload) is False  # A kind nobody named is not pushed.

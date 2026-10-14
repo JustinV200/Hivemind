@@ -7,7 +7,9 @@ sends to the Queen in an envelope addressed the way the Warden addresses it. `Au
 FakeClock whose sleeps pass at once and are recorded, so a reconnection's whole backoff schedule
 runs in no time and the test reads the schedule back. `ScriptedQueen` is a `QueenDialer`: it hands
 out in-memory connections, collects every frame the Warden puts on them, fails the next few dials
-when asked, and drops or closes the current connection on cue. `RecordingAnnouncer` and
+when asked, and drops or closes the current connection on cue. It can also pull the cable the way
+a real one is pulled: `silence` makes the connection take frames and hear none of them, with no
+error anywhere, until `drop` is the keepalive giving up. `RecordingAnnouncer` and
 `RecordingAfter` are the announce and after-reconnect steps that remember how they were called.
 
 Fits into the Hive:
@@ -31,6 +33,8 @@ import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from builders.honey import make_nectar_deposit
 
 from hivemind.common.tasks import reap, reap_all
 from hivemind.wardens.offline import (
@@ -83,6 +87,7 @@ from waggle.messages.swarm import TrailSegmentSync
 from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
 from waggle.transport.base import Transport
 from waggle.transport.memory import MemoryTransport
+from waggle.transport.recent import RecentFrames
 
 WAIT_S = 5.0  # Bounds every wait on the link; a loopback or in-memory recovery takes milliseconds.
 
@@ -260,6 +265,14 @@ class Wire:
             )
         )
 
+    def nectar(self, **fields: object) -> Envelope:
+        """A `honey.nectar_deposit`: one chunk of findings, an event the Queen must learn of.
+
+        Args:
+            **fields: Fields of the deposit to replace, such as the Cell it was gathered on.
+        """
+        return self.wrap(make_nectar_deposit(self.clock, **fields))
+
     def trail_segment(self) -> Envelope:
         """A one-chunk `swarm.trail_segment_sync`, the message a reconnection ships."""
         body = b"{}"
@@ -320,8 +333,10 @@ class ScriptedQueen:
     ends: list[MemoryTransport] = field(default_factory=list)  # The Queen's end of each connection.
     warden_ends: list[MemoryTransport] = field(default_factory=list)  # And the Warden's.
     received: list[Envelope] = field(default_factory=list)
+    swallowed: list[Envelope] = field(default_factory=list)  # Taken while silenced, heard by none.
     _readers: list[asyncio.Task[None]] = field(default_factory=list)
     _gate: asyncio.Event = field(default_factory=asyncio.Event)
+    _silenced: bool = False
     # Set on every dial and every frame received, so a test waiting on either wakes at once.
     activity: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -356,8 +371,16 @@ class ScriptedQueen:
         """The kind of every frame received, in arrival order."""
         return [envelope.kind for envelope in self.received]
 
+    def silence(self) -> None:
+        """Pull the cable and tell nobody: sends return, frames arrive nowhere, nothing raises."""
+        self._silenced = True
+
     def drop(self) -> None:
-        """Cut the current connection the way a network does: both ends raise."""
+        """Cut the current connection the way a network does: both ends raise.
+
+        After a `silence` this is the keepalive giving up on the dead link, forty seconds later.
+        """
+        self._silenced = False
         self.ends[-1].drop()
 
     async def close_current(self) -> None:
@@ -378,7 +401,10 @@ class ScriptedQueen:
         """Read `end` until it ends or drops, keeping every frame in arrival order."""
         try:
             async for envelope in end.receive():
-                self.received.append(envelope)
+                if self._silenced:
+                    self.swallowed.append(envelope)  # Returned as sent, and heard by nobody.
+                else:
+                    self.received.append(envelope)
                 self.activity.set()
         except TransportError:
             return  # The connection was dropped: what had arrived is already kept.
@@ -428,6 +454,7 @@ class LinkRig:
         queen: ScriptedQueen | None = None,
         dialer: QueenDialer | None = None,
         clock: AutoClock | None = None,
+        recent: RecentFrames | None = None,
     ) -> None:
         """Build the link over a fresh queue under `directory`; nothing is dialled until `start`.
 
@@ -437,6 +464,7 @@ class LinkRig:
             dialer: Dials something else (a real socket) when given; `queen` then only serves as
                 the wake-up the test waits on, which whatever `dialer` talks to may also set.
             clock: The clock the link backs off on; a fresh `AutoClock` when omitted.
+            recent: The link's memory of what it sent live; the default ring when omitted.
         """
         self.clock = clock if clock is not None else AutoClock()
         self.wire = make_wire(self.clock)
@@ -447,7 +475,11 @@ class LinkRig:
         self.after = RecordingAfter()
         self.outbox = open_outbox(directory, Codec(), self.clock)
         parts = Reconnection(
-            dialer if dialer is not None else self.queen, self.announcer, self.after, self.clock
+            dialer if dialer is not None else self.queen,
+            self.announcer,
+            self.after,
+            self.clock,
+            recent if recent is not None else RecentFrames(),
         )
         self.link = ReconnectingQueenLink(parts, self.outbox)
         self.phases: list[LinkPhase] = []

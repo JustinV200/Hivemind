@@ -18,6 +18,14 @@ order after the reconnection; a human-bound question is held in memory and goes 
 too, which is what a dead link does today. A send that finds the link dead mid-flight takes the
 same road, so a result handed over a moment after the cable is pulled is queued, not lost.
 
+A cable pulled out from under a device is not found out at once: the connection looks alive until
+the WebSocket's keepalive gives up, about forty seconds, and every frame sent in that time returns
+as sent and is lost. So the link remembers, in a bounded ring, each frame the same table says must
+arrive (`must_arrive`) once its send has returned, and after a reconnection, ahead of the queue, it
+sends again those from the last `UNNOTICED` before it found the loss, in their original order and
+under the ids they had. The Queen's replay window (ADR-0055) drops what she already held, silently
+inside the reconnection grace, so what was lost arrives and what was not is not handled twice.
+
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     offline sub-package. Built by the composition root (`hivemind.cli.in_cell` in borrowed mode)
@@ -36,6 +44,9 @@ Key invariants:
     - Sends are serialised: the recovery's frames and the Warden's never interleave on the wire.
     - While recovering, only a trail-segment sync passes through to the new connection, since the
       recovery asks for exactly that; everything else is routed as if the link were still down.
+    - A frame is remembered only after its send returned, and only if `must_arrive` says so; what
+      the last connection may have swallowed goes out first on the next, before the queue, in the
+      order it was first sent and under its own ids. A re-send that fails leaves every frame held.
 
 See Also:
     - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for the decision.
@@ -51,7 +62,12 @@ from enum import Enum
 
 from hivemind.common.logging import get_logger
 from hivemind.wardens.offline.outbox import SEND_TIMEOUT_S, OfflineOutbox
-from hivemind.wardens.offline.policy import OfflineAction, OfflineRefusedError, decide_offline
+from hivemind.wardens.offline.policy import (
+    OfflineAction,
+    OfflineRefusedError,
+    decide_offline,
+    must_arrive,
+)
 from hivemind.wardens.offline.reconnect import (
     RETRYABLE,
     Reconnection,
@@ -69,9 +85,11 @@ from waggle.errors import (
 )
 from waggle.messages.swarm import TrailSegmentSync
 from waggle.transport.base import Transport
+from waggle.transport.recent import RememberingTransport
 from waggle.transport.websocket_client import RECONNECT_INITIAL_S
 
 _LOG = get_logger(__name__)
+_CLOSED_BY_QUEEN = "the Queen closed the connection"  # How a stream that ended cleanly is logged.
 # What a send on a connection that has just died can raise; the message takes the offline road.
 _SEND_FAILED = (ConnectionLostError, TransportClosedError, TimeoutError)
 
@@ -98,6 +116,8 @@ class ReconnectingQueenLink:
         """Build a link that is OFFLINE until `connect`, over a dialer and a durable queue."""
         self._reconnection = reconnection
         self._outbox = outbox
+        # Outlives each connection and is shared by the next: it is what the next one is owed.
+        self._recent = reconnection.recent
         self._inner: Transport | None = None
         self._phase = LinkPhase.OFFLINE
         self._closed = False
@@ -159,10 +179,13 @@ class ReconnectingQueenLink:
             if inner is None:
                 await self._recover()
                 continue
-            reason = "the Queen closed the connection"
+            reason = _CLOSED_BY_QUEEN
             try:
                 async for envelope in inner.receive():
                     yield envelope
+                # No error: the stream ended on the Queen's close frame. A goodbye means she read
+                # everything sent before it, so nothing the ring holds is owed to her again.
+                self._recent.clear()
             except InvalidPayloadError:
                 # A readable frame with a bad payload leaves the connection open; the Warden
                 # ignores such a frame, so skipping it here is the same thing.
@@ -243,11 +266,18 @@ class ReconnectingQueenLink:
         """Dial, catch the Queen up and go online, as often as it takes."""
         clock = self._reconnection.clock
         while not self._closed:
-            transport = await redial(self._reconnection)
+            # Whatever this connection takes that must arrive is remembered, the queue's replay
+            # and the held questions included: a connection that dies unnoticed swallows those too.
+            transport = RememberingTransport(
+                await redial(self._reconnection), self._recent, clock, must_arrive
+            )
             self._inner = transport
             self._set_phase(LinkPhase.RECOVERING)
             outage_s = max(0.0, clock.monotonic() - self._lost_at)
             try:
+                # First what the last connection may have swallowed, which was sent before
+                # anything in the queue, and so goes out before it.
+                await transport.resend(self._lost_at)
                 await rejoin(self._reconnection, self._outbox, transport, self._go_online, outage_s)
             except RETRYABLE as exc:
                 # The new link died while the Queen was being caught up: nothing unsent was lost,

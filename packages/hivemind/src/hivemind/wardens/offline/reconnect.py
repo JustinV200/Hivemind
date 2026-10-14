@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Protocol
 
@@ -59,7 +59,7 @@ from waggle.clock import Clock
 from waggle.errors import TransportError
 from waggle.ids import WardenId, new_event_id
 from waggle.transport.base import Transport
-from waggle.transport.websocket import PING_INTERVAL_S, PING_TIMEOUT_S
+from waggle.transport.recent import UNNOTICED_S, RecentFrames
 from waggle.transport.websocket_client import (
     RECONNECT_FACTOR,
     RECONNECT_INITIAL_S,
@@ -69,11 +69,10 @@ from waggle.transport.websocket_client import (
 DIAL_TIMEOUT_S = 30.0  # One dial: TCP, TLS pin and handshake; the client's own bound is shorter.
 ANNOUNCE_TIMEOUT_S = 30.0  # Three small frames to a link that has just opened.
 RETRYABLE = (TransportError, OSError, TimeoutError)  # What a network can do to the sequence.
-# How far back from its newest shipped event a Warden sends its trail again once the link is back.
-# A link whose far end vanished is declared dead by the websocket's keepalive PING_INTERVAL_S +
-# PING_TIMEOUT_S after the last traffic, and the Warden notices on its next beat after that, so
-# what it shipped in twice that long before it noticed may have gone into a connection already dead.
-UNNOTICED = timedelta(seconds=2 * (PING_INTERVAL_S + PING_TIMEOUT_S))
+# How far back from its newest shipped event a Warden sends its trail again once the link is back,
+# and (as `UNNOTICED_S`) how far back from the loss it sends its other frames again: what it sent
+# in twice the keepalive's patience before it noticed may have gone into a connection already dead.
+UNNOTICED = timedelta(seconds=UNNOTICED_S)
 
 _LOG = get_logger(__name__)
 
@@ -144,6 +143,9 @@ class Reconnection:
     announcer: Announcer  # The frames a fresh connection must start with.
     after: AfterReconnect  # The record and the trail sync.
     clock: Clock  # Paces the backoff and measures the outage.
+    # What the link sent live that must arrive, for a connection that died unnoticed: it is sent
+    # again, ahead of the queue, on the next one. One ring for the life of the link.
+    recent: RecentFrames = field(default_factory=RecentFrames)
 
 
 @dataclass(frozen=True, slots=True)

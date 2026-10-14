@@ -45,7 +45,8 @@ Public API (roadmap step 11.9):
     - ReconnectingQueenLink, LinkPhase: the Transport that mends, and where it is in doing so.
     - Reconnection, QueenDialer, Announcer, AfterReconnect, TrailReconnect, WardenRecord: the
       injected dial, announcement and after-reconnect steps, and the usual last of them.
-    - OfflineAction, OfflineRefusedError, decide_offline, owes_reply: the offline table.
+    - OfflineAction, OfflineRefusedError, decide_offline, must_arrive, owes_reply: the offline
+      table, and the frames it says a link sends again after a loss nobody noticed in time.
     - OfflineOutbox, open_outbox: the durable queue and the questions held in memory.
     - Outage, HeldTask, RemoteDeps, ReconnectBudget, QueenLinkView: what a device Warden
       remembers while cut off, and the budget it may spend finding out why (roadmap 11.9a).
@@ -72,6 +73,7 @@ from hivemind.wardens.offline.policy import (
     OfflineAction,
     OfflineRefusedError,
     decide_offline,
+    must_arrive,
     owes_reply,
 )
 from hivemind.wardens.offline.reconnect import (
@@ -114,6 +116,7 @@ __all__ = [
     "enter_offline",
     "is_link_down",
     "leave_offline",
+    "must_arrive",
     "open_outbox",
     "outage_of",
     "owes_reply",
