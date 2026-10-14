@@ -45,8 +45,10 @@ from pollen.agent import (
     Timings,
     trusted_keys,
 )
+from pollen.bootstrap import BootstrapTimings, ColonizeService, WardenKeeper
 from pollen.errors import StateError
 from pollen.executors import (
+    DeviceExecutor,
     ExecutorDeps,
     FileExecutor,
     ObserveExecutor,
@@ -66,7 +68,11 @@ __all__ = ["build_packet"]
 
 
 def build_packet(
-    layout: DataLayout, shim: PlatformShim, clock: Clock, timings: Timings | None = None
+    layout: DataLayout,
+    shim: PlatformShim,
+    clock: Clock,
+    timings: Timings | None = None,
+    bootstrap: BootstrapTimings | None = None,
 ) -> PollenPacket:
     """Build the packet from an enrolled data directory.
 
@@ -75,6 +81,7 @@ def build_packet(
         shim: The platform shim for this host.
         clock: The injected time source.
         timings: The packet's intervals; the production ones when None.
+        bootstrap: The waits of the on-device Warden's keeper; the production ones when None.
 
     Returns:
         A packet ready to ``run``.
@@ -93,11 +100,15 @@ def build_packet(
     courier = Courier(Identity(state.device_id, state.node_id, state.hive_id), clock, outbox)
     table = LeaseTable.load(layout.lease_table)
     deps = ExecutorDeps(store, table, courier, clock, shim, layout, TaskScope())
-    return _assemble(deps, courier, signer, Timings() if timings is None else timings)
+    return _assemble(deps, courier, signer, Timings() if timings is None else timings, bootstrap)
 
 
 def _assemble(
-    deps: ExecutorDeps, courier: Courier, signer: Ed25519Signer, timings: Timings
+    deps: ExecutorDeps,
+    courier: Courier,
+    signer: Ed25519Signer,
+    timings: Timings,
+    bootstrap: BootstrapTimings | None,
 ) -> PollenPacket:
     """Wire the executors, services, dispatcher and timers around the shared collaborators."""
     state, clock = deps.state, deps.clock
@@ -106,18 +117,21 @@ def _assemble(
     leases = LeaseService(deps, [session, files, process])
     verifier = LiveVerifier(trusted_keys(state.current))
     control = ControlService(deps, verifier)
+    keeper = WardenKeeper(deps, bootstrap)
+    colonize = ColonizeService(deps, keeper)
     deadman = DeadManSwitch(clock, state.current.last_heard_at)
     status = PacketStatus(clock)
     dispatch = DispatchDeps(
         state, clock, courier, deadman.heard, status.note_drop, status.note_admitted
     )
-    dispatcher = Dispatcher(dispatch, [session, files, process, observe, leases, control])
+    executors: list[DeviceExecutor] = [session, files, process, observe, leases, control, colonize]
+    dispatcher = Dispatcher(dispatch, executors)
     pulse = Pulse(PulseParts(state, deps.leases, courier, clock, deps.layout), timings)
     watch = SentinelParts(
         state, leases, deps.leases, courier, deadman, verifier, status, deps.layout, clock
     )
     parts = PacketParts(
         state, signer, verifier, courier, dispatcher, pulse, Sentinel(watch, timings),
-        leases, status, deadman, deps.scope,
+        leases, status, deadman, deps.scope, keeper,
     )  # fmt: skip
     return PollenPacket(parts, clock, timings)

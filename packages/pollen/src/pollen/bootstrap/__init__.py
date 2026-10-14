@@ -1,23 +1,73 @@
-"""Install the full hivemind runtime onto a device promoted to a Nuc.
+"""Install the hivemind runtime on a device and run its own Warden: colonization (Level 1).
 
-A Nuc is a Real Cell with its own model server, and this package carries a colonized Real Cell
-through the Queen's promotion of it to that role.
+A Pollen Packet is a gateway at Level 0: the device's Warden runs on the Hive Stand and reaches the
+device through the packet. When the Queen decides the device should carry its own Warden (ADR-0052)
+she orders it in three steps, one ``swarm.colonize`` each, and this package is how the packet does
+them. PREPARE installs the pinned ``hivemind`` version into a virtual environment under the data
+directory, from the wheelhouse or index the operator recorded at ``pollen install`` and never from
+anything on the wire (``runtime``). START launches ``hivemind-in-cell`` from that environment as a
+long-lived background process, in a process group of its own and not part of any lease, with the
+device's key file, the listener's URL and pin, its Warden and Cell ids, its access level and tier
+and the device manifest in its environment, and records it with the new level, COLONIZED, so the
+dead-man switch stands down while the Warden lives (``warden``). WITHDRAW stops it and puts the
+level back to GATEWAY. ``ColonizeService`` is the ``DeviceExecutor`` that answers the Queen with
+``swarm.colonized`` (``service``); ``WardenKeeper`` adopts a Warden that outlived a restart of the
+packet and notices one that died. The packet stays a gateway throughout: it installs files and
+starts and stops one process, and it imports nothing from ``hivemind``.
 
 Fits into the Hive:
-    Parallel to hivemind's layer table, inside the pollen package. Handles installing the full
-    hivemind runtime when a device is promoted to a Nuc. Called by pollen's public API on behalf
-    of whatever calls pollen itself; calls into waggle only.
+    Parallel to hivemind's layer table, inside the pollen package. Built by ``pollen.build`` and
+    consulted by ``pollen.agent.dispatch``; its keeper runs as a task of the packet's scope. Calls
+    into the platform shim, ``pollen.state``, ``pollen.executors.base`` and waggle only.
 
 Key invariants:
-    - None yet: this package holds no code beyond this docstring, and `__all__` stays empty,
-      until phase 11 adds its first public name.
+    - The runtime is installed only from the source the operator recorded, and the order pins a
+      version, never a place.
+    - The level and the Warden record are written together; the dead-man switch is off exactly
+      while a Warden is recorded and alive.
+    - The packet never starts a second Warden, and never claims one that has died.
+    - Nothing here imports ``hivemind``; the environment names it sets are a contract checked by a
+      test on the hivemind side.
 
 See Also:
-    - .claude/codingrules.md section 3 for where this sub-package sits under pollen.
-    - .claude/roadmap.md phase 11 for the work that first populates it.
+    - docs/adr/0052-runtime-ladder-warden-moves-first.md for the ladder and the three actions.
+    - docs/waggle/gateway-contract.md section 17 for what an implementing gateway does.
+    - hivemind.cli.in_cell.borrowed for the Warden this starts.
 
-Public API: none yet; first populated in phase 11.
+Public API:
+    - ColonizeService: the executor that serves ``swarm.colonize`` (service).
+    - WardenKeeper, BootstrapTimings, stop_recorded, warden_environment: the on-device Warden's
+      process, its waits, stopping a recorded one, and the environment it is started with (warden).
+    - prepare_runtime, installed_version, entry_point, child_environment, VERSION_PATTERN,
+      ENTRY_POINT: the runtime's environment (runtime).
 """
 
-# Appendix A.3: nothing is re-exported yet; phase 11 adds the first public name.
-__all__: list[str] = []
+from pollen.bootstrap.runtime import (
+    ENTRY_POINT,
+    VERSION_PATTERN,
+    child_environment,
+    entry_point,
+    installed_version,
+    prepare_runtime,
+)
+from pollen.bootstrap.service import ColonizeService
+from pollen.bootstrap.warden import (
+    BootstrapTimings,
+    WardenKeeper,
+    stop_recorded,
+    warden_environment,
+)
+
+__all__ = [
+    "ENTRY_POINT",
+    "VERSION_PATTERN",
+    "BootstrapTimings",
+    "ColonizeService",
+    "WardenKeeper",
+    "child_environment",
+    "entry_point",
+    "installed_version",
+    "prepare_runtime",
+    "stop_recorded",
+    "warden_environment",
+]

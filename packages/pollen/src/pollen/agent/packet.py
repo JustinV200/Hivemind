@@ -50,6 +50,7 @@ from pollen.agent.leases import LeaseService
 from pollen.agent.link import Link, LiveVerifier
 from pollen.agent.moved import dial_plan
 from pollen.agent.status import PacketStatus
+from pollen.bootstrap import WardenKeeper
 from pollen.errors import LinkLostError, PollenError, ProtocolMismatchError
 from pollen.executors.base import TaskScope
 from pollen.lease import DeadManSwitch
@@ -108,6 +109,7 @@ class PacketParts:
     status: PacketStatus  # Diagnostics.
     deadman: DeadManSwitch  # The silence clock, started from the persisted last-heard.
     scope: TaskScope  # Owns every task that outlives a request.
+    warden: WardenKeeper  # Adopts the on-device Warden at start and watches it while running.
 
 
 def failure_code(error: BaseException) -> str:
@@ -159,7 +161,13 @@ class PollenPacket(TickLoop):
         parts = self._parts
         async with parts.scope:
             await self._sweep()
+            # A Warden that outlived the packet's last run is adopted (or forgotten, if it died)
+            # before anything is dialled, so the first heartbeat and the dead-man switch already
+            # know which level the device is on.
+            with contextlib.suppress(PollenError, OSError):
+                await parts.warden.reconcile()
             parts.scope.spawn(parts.sentinel.run(), "sentinel")
+            parts.scope.spawn(parts.warden.watch(), "warden-watch")
             try:
                 await super().run()
             finally:

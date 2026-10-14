@@ -12,7 +12,9 @@ pollen, waggle and third-party libraries.
   pinned self-signed certificate), `device_kit.py` writes what an enrolment leaves and runs a
   packet on it, `scenarios.py` speaks the Warden's half of a conversation (open a lease, run, put,
   get, release), and `executor_kit.py` and `states.py` build the collaborators the unit tests need
-  without a packet.
+  without a packet. `runtime_kit.py` builds a tiny local wheelhouse holding a dummy `hivemind`
+  wheel whose console script is a stub Warden, so colonization is tested with a real virtual
+  environment and a real `pip` but nothing of the real runtime.
 - Tests prefer a real packet against the scripted Queen, running real programs, to a mock; a fake
   is used only where the real thing cannot be made to fail (a table that cannot be written, an
   answer too big for one frame).

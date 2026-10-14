@@ -9,8 +9,9 @@ capabilities, dead-man limit, heartbeat interval, Warden) and is persisted befor
 the *next* request: a request already running is not interrupted. A ``control.queen_moved`` is the
 Queen announcing that the Hive Stand, the machine she runs on, is moving; the packet honours it
 only by the rules of ``pollen.agent.moved`` and, when it does, swaps the keys its verifier trusts.
-The runtime level in a node update is ignored: this packet is a gateway at Level 0 and only the
-colonization step, which it does not implement, could change that (gateway-contract section 17).
+The runtime level in a node update is ignored: only a colonization step (``pollen.bootstrap``,
+gateway-contract section 17) changes the level this packet is on, because the level must agree with
+whether a Warden is actually running on the device.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. A DeviceExecutor consulted by
@@ -109,7 +110,8 @@ class ControlService:
 
     async def _apply_update(self, update: NodeUpdate) -> None:
         """Persist the new terms; they apply from the next request."""
-        # The level is deliberately not copied: only colonization moves a device up the ladder.
+        # The level is deliberately not copied: only colonization (pollen.bootstrap) moves a device
+        # up the ladder, and it moves it together with the record of the Warden it started.
         await self._deps.state.update(
             warden_id=update.warden_id,
             access_level=update.access_level,

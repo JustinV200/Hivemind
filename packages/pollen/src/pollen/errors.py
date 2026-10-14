@@ -35,6 +35,7 @@ from typing import ClassVar
 __all__ = [
     "WIRE_CODES",
     "CapabilityDeniedError",
+    "ColonizeFailedError",
     "EnrolmentDeniedError",
     "EnrolmentError",
     "InternalError",
@@ -189,6 +190,17 @@ class InvalidTransitionError(PollenError):
     """A lease was asked to take a state edge its transition table does not allow."""
 
     code: ClassVar[str] = "pollen.lease.invalid_transition"
+
+
+class ColonizeFailedError(PollenError):
+    """A colonization step could not be completed; the sentence is what the Queen is told.
+
+    Raised by ``pollen.bootstrap`` while it prepares the runtime, starts the Warden or withdraws
+    it. It never crosses the wire as a ``control.error``: the service turns it into a
+    ``swarm.colonized`` with outcome FAILED and this sentence as its reason.
+    """
+
+    code: ClassVar[str] = "pollen.colonize.failed"
 
 
 class LinkLostError(PollenError):
