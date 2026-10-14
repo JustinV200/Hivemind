@@ -79,8 +79,9 @@ async def _context(
     seen: dict[str, ExoskeletonHandle | None],
     capabilities: object = _DESKTOP,
     recording_store: InMemoryRecordingStore | None = None,
+    access_level: AccessLevel = AccessLevel.FULL,
 ) -> tuple[WardenCellContext, Clock]:
-    cell = make_cell(kind=CellKind.REAL, access_level=AccessLevel.FULL, capabilities=capabilities)
+    cell = make_cell(kind=CellKind.REAL, access_level=access_level, capabilities=capabilities)
     deps, _queen_end, warden_id = make_warden_deps(
         cells=(cell,), worker_factory=_recording(seen), recording_store=recording_store
     )
@@ -156,6 +157,21 @@ async def test_a_cell_that_cannot_equip_the_task_refuses_before_any_runtime_star
         await spawn_sub_bee(ctx, assignment, _grant(clock, assignment.grant_id))
 
     assert seen == {}  # The role never ran.
+    assert ctx.session.started == ()  # type: ignore[attr-defined]
+
+
+async def test_a_real_cell_whose_access_level_grants_no_display_refuses_a_desktop_task() -> None:
+    seen: dict[str, ExoskeletonHandle | None] = {}
+    # A device that could start a display (its programs are on its PATH) but whose operator
+    # granted SCRATCH, which lets a bee drive the browser fast path and no display (ADR-0054).
+    ctx, clock = await _context(seen, access_level=AccessLevel.SCRATCH)
+    assignment = make_assignment(clock=clock, exoskeleton=ExoskeletonNeed())
+
+    with pytest.raises(AttachError, match="exoskeleton:display"):
+        await spawn_sub_bee(ctx, assignment, _grant(clock, assignment.grant_id))
+
+    # The level, not the Cell's kind or its programs, bounded it: nothing was started.
+    assert seen == {}
     assert ctx.session.started == ()  # type: ignore[attr-defined]
 
 
