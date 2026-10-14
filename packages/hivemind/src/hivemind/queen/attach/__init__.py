@@ -29,9 +29,9 @@ See Also:
     - hivemind.queen.cell_gate and hivemind.queen.swarm_gate for the two callers.
 
 Public API:
-    - attach_warden, detach_warden, detach_if_current, current_link, warden_state: admit a Warden,
-      remove it, remove it only while a given link is still its own, read its link and the state
-      it last reported (admit).
+    - attach_warden, detach_warden, detach_if_current, current_link, knows_warden, warden_state:
+      admit a Warden, remove it, remove it only while a given link is still its own, read its
+      link, whether the Queen has had it before, and the state it last reported (admit).
     - serve_warden, ProvedLink, LinkHooks, LinkServices, SnapshotRequestHandler: serve a gate's
       proved connection after its handshake (serve).
     - FanoutTransport, FANOUT_QUEUE_SIZE: the one-reader wrapper around a connection (fanout).
@@ -44,6 +44,7 @@ from hivemind.queen.attach.admit import (
     current_link,
     detach_if_current,
     detach_warden,
+    knows_warden,
     warden_state,
 )
 from hivemind.queen.attach.fanout import FANOUT_QUEUE_SIZE, FanoutTransport
@@ -76,6 +77,7 @@ __all__ = [
     "current_link",
     "detach_if_current",
     "detach_warden",
+    "knows_warden",
     "serve_warden",
     "warden_state",
 ]

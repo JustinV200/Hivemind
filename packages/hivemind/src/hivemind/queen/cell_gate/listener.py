@@ -277,14 +277,19 @@ class CellListener:
             hop=hop,
         )
 
+        def returning() -> None:
+            """Note a returning Cell's replay as expected before its first frame is read."""
+            self._attached.note_attach(binding.node_id)
+
         async def resolve(link: WardenLink, reconnected: bool) -> None:
             """Resolve the gate once the Warden is attached (module docstring)."""
             if reconnected:
-                self._attached.note_attach(binding.node_id)  # Its outbox replay is expected.
+                self._attached.note_attach(binding.node_id)  # The grace runs from here too.
             self._deps.gate.resolve(binding.cell_id, binding.node_id, binding.info)
 
+        hooks = LinkHooks(on_returning=returning, on_attached=resolve)
         try:
-            await serve_warden(self._queen, proved, self._services, LinkHooks(on_attached=resolve))
+            await serve_warden(self._queen, proved, self._services, hooks)
         except WardenSpawnRefusedError:
             # The Queen's set refused this Warden (the refusal is already on the trail): it is
             # never attached, so there is nothing to detach, only the connection to close.

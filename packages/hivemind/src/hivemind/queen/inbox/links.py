@@ -38,6 +38,11 @@ Key invariants:
       tick: no Warden is starved by another.
     - A reader task exists exactly while its link is attached: `add` starts it, `remove` and
       `aclose` cancel and reap it (codingrules section 11). None is ever left pending.
+    - A Warden that attaches again (it reconnected) keeps what its old link had read and the tick
+      had not yet drained: it moves, in order, to the front of the new link's queue. The
+      transport's replay window has seen those frames, so it drops the copies the Warden sends
+      again after its return, and a frame thrown away here would be one the Queen never hears.
+      A Warden that is detached (`remove`) takes its queue with it.
     - `wait` returns within `idle_s` on the caller's clock, whatever the links do: never a busy
       loop (one sleep per wait, and a wait per tick), never a tick starved of its timer.
     - A frame the codec refuses with `InvalidPayloadError` is skipped and reading resumes on a
@@ -146,9 +151,14 @@ class LinkReaders:
             warden_id: The attached Warden this link belongs to; every item it yields names it.
             transport: The Queen's own end of that Warden's link; only this reader reads it.
         """
-        # A second attach of the same id must not leave the first reader running unowned.
-        await self.remove(warden_id)
+        # A second attach of the same id must not leave the first reader running unowned, and
+        # what it read for the Warden before the tick took it still belongs to the Warden.
+        unread = await self._retire(warden_id)
         link = _Link(queue=asyncio.Queue(maxsize=self._queue_size))
+        for envelope in unread:  # At most `queue_size` of them: the old queue was no bigger.
+            link.queue.put_nowait(envelope)
+        if unread:
+            self._ready.set()
         # Owned: `remove`/`aclose` cancel and reap it; never a dropped handle (codingrules 11).
         link.task = asyncio.ensure_future(self._read(link, transport))
         self._links[warden_id] = link
@@ -236,6 +246,20 @@ class LinkReaders:
         """
         link = self._links.get(warden_id)
         return link.queue.qsize() if link is not None else 0
+
+    async def _retire(self, warden_id: WardenId) -> list[Envelope]:
+        """Stop `warden_id`'s reader, if any, and return the envelopes it had not delivered."""
+        link = self._links.pop(warden_id, None)
+        if link is None:
+            return []
+        if link.task is not None:
+            await reap(link.task)
+        unread: list[Envelope] = []
+        while not link.queue.empty():
+            envelope = link.queue.get_nowait()
+            if envelope is not None:  # The end-of-link marker is no frame.
+                unread.append(envelope)
+        return unread
 
     async def _read(self, link: _Link, transport: Transport) -> None:
         """Feed `transport` into `link.queue` until the link ends, then queue one None marker."""

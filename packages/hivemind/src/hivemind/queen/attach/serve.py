@@ -38,6 +38,9 @@ Key invariants:
     - A snapshot relay request is answered on the connection it arrived on, correlated to its own
       envelope; a trail segment chunk is handed to the receiver and never answered. Both are no-ops
       when the services name no handler or receiver.
+    - A returning Warden's gate hears of it (`LinkHooks.on_returning`) before the fan-out's pump
+      reads anything after the handshake, so a duplicate in its first frames is never met before
+      the transport knows it is expected.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the Cell gate.
@@ -54,7 +57,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from hivemind.cell import Cell
 from hivemind.pheromone import TrailRecorder
-from hivemind.queen.attach.admit import current_link, detach_if_current
+from hivemind.queen.attach.admit import current_link, detach_if_current, knows_warden
 from hivemind.queen.attach.fanout import FanoutTransport
 from hivemind.queen.attach.refusals import LinkRefusals
 from hivemind.queen.deps import LiveCapacity, WardenLink, send_guarded
@@ -63,7 +66,7 @@ from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import SignatureError
-from waggle.ids import NodeId
+from waggle.ids import NodeId, WardenId
 from waggle.messages.base import WaggleMessage
 from waggle.messages.cell.snapshot import (
     CellRollbackReply,
@@ -153,6 +156,12 @@ class LinkHooks:
     """What a gate wants done at the two edges of a link; both optional.
 
     Attributes:
+        on_returning: Called, with no await, for a Warden the Queen has had before, ahead of
+            everything else: before the link's pump has read a frame beyond the handshake. A
+            returning Warden sends again what it may have lost (ADR-0053), so the duplicates the
+            transport's replay window meets in its first frames are expected; the gate says so
+            here, and not in `on_attached`, which only runs after the Queen has finished the
+            attach, by which time the pump has already met the first of them.
         on_attached: Awaited once the Queen has attached the Warden, before the link is served,
             with the link and whether the Warden was a reconnection. The Cell gate resolves its
             readiness here; the swarm gate tells the colonization that is waiting for the
@@ -162,6 +171,7 @@ class LinkHooks:
             container); a gate that keeps the entry for a returning Warden supplies its own.
     """
 
+    on_returning: Callable[[], None] | None = None
     on_attached: Callable[[WardenLink, bool], Awaitable[None]] | None = None
     on_ended: Callable[[WardenLink], Awaitable[None]] | None = None
 
@@ -187,6 +197,7 @@ async def serve_warden(
     assert isinstance(ready, CellReady)  # noqa: S101 - the gate verified the handshake frame.
     refusals = LinkRefusals(services.recorder, proved.cell.id, proved.node_id)
     answers = _Answers(services, proved, refusals)
+    _expect_replay(queen, ready.warden_id, hooks)  # Before the fan-out: its pump starts reading.
     fanout = FanoutTransport(proved.transport, answers, proved.frames)
     link = WardenLink(
         warden_id=ready.warden_id,
@@ -215,6 +226,17 @@ async def serve_warden(
     finally:
         await _reap(fanout)
         await _end(queen, link, hooks)
+
+
+def _expect_replay(queen: Queen, warden_id: WardenId, hooks: LinkHooks) -> None:
+    """Tell the gate a returning Warden is on the line, before anything is read from it.
+
+    The first frames behind a returning Warden's handshake are the ones it sends again (ADR-0053),
+    and the replay window drops those that arrived the first time. They are expected, and the
+    transport has to know it before it meets the first, which is when the fan-out's pump starts.
+    """
+    if hooks.on_returning is not None and knows_warden(queen, warden_id):
+        hooks.on_returning()
 
 
 async def _end(queen: Queen, link: WardenLink, hooks: LinkHooks) -> None:

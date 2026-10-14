@@ -90,6 +90,10 @@ class DoorEvents(Protocol):
         """Whether a Warden dialling in for `node` is wanted right now."""
         ...
 
+    def returning(self, node: SwarmNode) -> None:
+        """`node`'s Warden is one the Queen has had before: its replay will meet duplicates."""
+        ...
+
     async def attached(self, node: SwarmNode, link: WardenLink, reconnected: bool) -> None:
         """The Queen attached `node`'s Warden under `link`; `reconnected` if she knew it."""
         ...
@@ -130,10 +134,14 @@ class GateDoorEvents:
         """Admit a Warden for a colonized device, or a Level 0 one the Queen just started."""
         return node.level is not RuntimeLevel.GATEWAY or self._colonizer.expects(node.device_id)
 
+    def returning(self, node: SwarmNode) -> None:
+        """Note a returning Warden's replay as expected, before its first frame is read."""
+        self._hub.note_attach(node.node_id)
+
     async def attached(self, node: SwarmNode, link: WardenLink, reconnected: bool) -> None:
         """Note a returning Warden's replay, tell a waiting colonization, and wake the loop."""
         if reconnected:
-            self._hub.note_attach(node.node_id)  # Its outbox replay's duplicates are expected.
+            self._hub.note_attach(node.node_id)  # The grace runs from here too.
         self._colonizer.arrived(node.device_id, link)
         self._wake()  # The loop ends the device's hold, if it had one, on its next pass.
 
@@ -194,13 +202,11 @@ class DeviceWardenDoor:
         async def ended(link: WardenLink) -> None:
             await events.ended(node, link)
 
+        hooks = LinkHooks(
+            on_returning=lambda: events.returning(node), on_attached=attached, on_ended=ended
+        )
         try:
-            await serve_warden(
-                self._context.queen,
-                self._proved(connection),
-                self._services,
-                LinkHooks(on_attached=attached, on_ended=ended),
-            )
+            await serve_warden(self._context.queen, self._proved(connection), self._services, hooks)
         except WardenSpawnRefusedError:
             return  # The Queen's set refused it: `guard.denied` is on the trail; nothing attached.
 

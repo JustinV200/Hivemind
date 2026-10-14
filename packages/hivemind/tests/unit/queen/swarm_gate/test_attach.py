@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 from builders.forage import make_capacity
+from builders.offline import make_wire
 from builders.quarantine import settle
 from builders.queen import with_guard_policy
 from builders.segments import SegmentRig, make_segment_rig, segment_chunks, signed
@@ -63,19 +64,25 @@ class _Events:
         self.attached_with: list[bool] = []
         self.ended_links: list[WardenLink] = []
         self.frames: list[Envelope] = []  # Every frame the door showed the gate, in order.
+        self.log: list[str] = []  # What the gate was shown and told, in order.
         self.consumes: Callable[[Envelope], bool] = lambda envelope: False
 
     def admits(self, node: SwarmNode) -> bool:
         return self.admit
 
+    def returning(self, node: SwarmNode) -> None:
+        self.log.append("returning")
+
     async def attached(self, node: SwarmNode, link: WardenLink, reconnected: bool) -> None:
         self.attached_with.append(reconnected)
+        self.log.append("attached")
 
     async def ended(self, node: SwarmNode, link: WardenLink) -> None:
         self.ended_links.append(link)
 
     def heard(self, node: SwarmNode, envelope: Envelope) -> bool:
         self.frames.append(envelope)
+        self.log.append(f"heard {envelope.kind}")
         return self.consumes(envelope)
 
 
@@ -233,6 +240,33 @@ async def test_a_warden_that_comes_back_is_a_reconnection_not_a_new_warden(rig: 
     assert events.attached_with == [False, True]
     assert len(await rig.queen_deps.trail.query(TrailQuery(kind="warden.spawned"))) == 1
     assert len(await rig.queen_deps.trail.query(TrailQuery(kind="warden.reconnected"))) == 1
+    await second.close()
+
+
+async def test_a_warden_that_returns_is_known_to_be_one_before_its_next_frame_is_read(
+    rig: GateRig,
+) -> None:
+    node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+    events = _Events()
+    door = _door(rig, events)
+    first = await dial_warden(rig, node, door=door)
+    await settle(lambda: len(rig.queen.wardens) == 1)
+    assert "returning" not in events.log  # A Warden new to the Queen has no replay to expect.
+    await first.close()
+    await settle(lambda: len(events.ended_links) == 1)
+    events.log.clear()
+
+    second = await dial_warden(rig, node, door=door)
+    # What a returning Warden sends right behind its handshake: the stretch it sends again.
+    await second.end.send(make_wire().cell_heartbeat().payload)
+    await settle(lambda: "attached" in events.log and "heard cell.heartbeat" in events.log)
+
+    # The transport's window meets the first duplicate when the pump reads this frame; the gate has
+    # to have said the return is expected before that, and not once the attach is done (a real
+    # attach awaits the trail and the pump runs meanwhile; this one does not, so only order shows).
+    log = events.log
+    assert log[0] == "heard cell.ready" and log.count("returning") == 1
+    assert log.index("returning") < log.index("heard cell.heartbeat")
     await second.close()
 
 

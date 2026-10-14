@@ -27,34 +27,32 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 
-from builders.cells import make_capabilities
+from builders.cell_listener import (
+    WAIT_S,
+    FakeCell,
+    attach,
+    attached_ids,
+    build_scenario,
+    recorded,
+    until,
+    until_async,
+)
 from builders.guard_bee import guard_bee_for_queen
-from builders.queen import make_queen_deps
 
-from hivemind.pheromone import TrailQuery, TrailRecorder
+from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps
-from hivemind.queen.deps import QueenDeps
-from hivemind.queen.queen import Queen
 from hivemind.queen.trail import TrailSegmentReceiver
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from hivemind.workers.roles.guard_bee import Disposition
 from waggle.clock import FakeClock
-from waggle.codec import Codec, Signer
-from waggle.envelope import Hop, wrap
+from waggle.codec import Codec
+from waggle.envelope import wrap
 from waggle.ids import (
-    CellId,
     HiveId,
-    NodeId,
-    WardenId,
-    new_cell_id,
     new_event_id,
     new_node_id,
-    new_warden_id,
 )
 from waggle.messages.cell.snapshot import (
     CellRollbackReply,
@@ -62,143 +60,28 @@ from waggle.messages.cell.snapshot import (
     CellSnapshotReply,
     CellSnapshotRequest,
 )
-from waggle.messages.cell.status import CellHeartbeat, CellMode, CellReady
-from waggle.messages.labels import AccessLevel as WireAccessLevel
-from waggle.messages.labels import CombShieldLevel as WireCombShieldLevel
+from waggle.messages.cell.status import CellHeartbeat, CellMode
 from waggle.messages.swarm import TrailSegmentSync
-from waggle.signing import Ed25519Signer, Ed25519Verifier, public_key_hex
+from waggle.signing import Ed25519Signer, public_key_hex
 from waggle.transport.ceiling import DEFAULT_CEILING_LIMITS
 from waggle.transport.memory import MemoryTransport
-from waggle.transport.websocket_client import WebSocketClientTransport
 
-WAIT_S = 5.0  # Bounds every await that could hang; loopback answers in milliseconds.
 # The frames a connection may send at once before the ceiling closes it (waggle's own default).
 CEILING_BURST_FRAMES = DEFAULT_CEILING_LIMITS.burst
 
 
-def _cell_ready(cell_id: CellId, warden_id: WardenId) -> CellReady:
-    """Build a valid CellReady for `cell_id`, the shape a real Cell's own CellLink sends."""
-    platform, capabilities = make_capabilities().to_wire()
-    return CellReady(
-        cell_id=cell_id,
-        warden_id=warden_id,
-        platform=platform,
-        capabilities=capabilities,
-        access_level=WireAccessLevel.FULL,
-        comb_shield=WireCombShieldLevel.MEADOW,
-        attestation=(),
-        runtime_version="0.1.0-test",
-    )
-
-
-class _FakeQueenCell:
-    """Everything one test scenario needs to act as one Virtual Cell dialling the listener."""
-
-    def __init__(self, listener: CellListener) -> None:
-        self.cell_id = new_cell_id(FakeClock())
-        self.warden_id = new_warden_id(FakeClock())
-        self.node_id = new_node_id(FakeClock())
-        self.signer = Ed25519Signer.generate()
-        self._listener = listener
-
-    async def dial(
-        self, queen_node_id: NodeId, queen_signer: Ed25519Signer, signer: Signer | None = None
-    ) -> WebSocketClientTransport:
-        """Connect to the listener with a codec that only trusts the Queen's own key."""
-        codec = Codec(
-            signer=signer if signer is not None else self.signer,
-            verifier=Ed25519Verifier({queen_node_id: queen_signer.public_key_bytes}),
-        )
-        transport = WebSocketClientTransport(self._listener.uri, codec, FakeClock())
-        await transport.connect()
-        return transport
-
-    def _hop(self, hive_id: HiveId) -> Hop:
-        return Hop(sender=self.warden_id, recipient=hive_id, node_id=self.node_id)
-
-    async def send_ready(self, transport: WebSocketClientTransport, hive_id: HiveId) -> None:
-        ready = _cell_ready(self.cell_id, self.warden_id)
-        await transport.send(wrap(ready, self._hop(hive_id), clock=FakeClock()))
-
-    async def send_heartbeat(self, transport: WebSocketClientTransport, hive_id: HiveId) -> None:
-        heartbeat = CellHeartbeat(
-            cell_id=self.cell_id,
-            mode=CellMode.ACTIVE,
-            lease_ids=(),
-            worker_count=0,
-            is_shield_verified=True,
-            interval_s=15.0,
-        )
-        await transport.send(wrap(heartbeat, self._hop(hive_id), clock=FakeClock()))
-
-
-@dataclass(frozen=True, slots=True)
-class _Scenario:
-    """A started CellListener, its own Queen, gate, trail and the ids a test dials it as."""
-
-    listener: CellListener
-    queen: Queen
-    gate: QueenReadinessGate
-    queen_signer: Ed25519Signer
-    queen_node_id: NodeId
-    hive_id: HiveId
-    trail: MemoryPheromoneTrail
-    deps: QueenDeps
-
-
-async def _build_scenario() -> _Scenario:
-    """Build one started CellListener attached to one fresh Queen, sharing one hive_id."""
-    deps: QueenDeps
-    deps, _link, _end = make_queen_deps()
-    gate = QueenReadinessGate()
-    queen_signer = Ed25519Signer.generate()
-    queen_node_id = new_node_id(FakeClock())
-    assert isinstance(deps.trail, MemoryPheromoneTrail)
-    # The Queen's own identity records what a link refused, on her own trail (roadmap step 10.6).
-    identity = deps.identity
-    recorder = TrailRecorder(
-        trail=deps.trail, clock=deps.clock, hive_id=identity.hive_id, node_id=identity.node_id
-    )
-    listener = CellListener(
-        CellListenerDeps(
-            gate=gate,
-            queen_signer=queen_signer,
-            queen_node_id=queen_node_id,
-            hive_id=deps.identity.hive_id,
-            recorder=recorder,
-        ),
-        FakeClock(),
-    )
-    queen = Queen(deps)
-    await listener.start(queen)
-    return _Scenario(
-        listener, queen, gate, queen_signer, queen_node_id, identity.hive_id, deps.trail, deps
-    )
-
-
-async def _attach(scenario: _Scenario) -> tuple[_FakeQueenCell, WebSocketClientTransport]:
-    """Dial, verify and attach one fake Cell to `scenario`'s own listener; return it, connected."""
-    cell = _FakeQueenCell(scenario.listener)
-    await scenario.gate.expect(cell.cell_id, public_key_hex(cell.signer.public_key_bytes))
-    transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer)
-    await cell.send_ready(transport, scenario.hive_id)
-    await cell.send_heartbeat(transport, scenario.hive_id)
-    await asyncio.wait_for(_until(lambda: cell.warden_id in _attached_ids(scenario.queen)), WAIT_S)
-    return cell, transport
-
-
 async def test_listener_attaches_a_warden_link_once_ready_and_heartbeat_arrive() -> None:
-    scenario = await _build_scenario()
-    cell = _FakeQueenCell(scenario.listener)
+    scenario = await build_scenario()
+    cell = FakeCell(scenario.listener)
     await scenario.gate.expect(cell.cell_id, public_key_hex(cell.signer.public_key_bytes))
 
     transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer)
     await cell.send_ready(transport, scenario.hive_id)
     await asyncio.sleep(0.05)  # Let the listener's own handler task drain the CellReady frame.
-    assert cell.warden_id not in _attached_ids(scenario.queen)  # Not yet: no heartbeat.
+    assert cell.warden_id not in attached_ids(scenario.queen)  # Not yet: no heartbeat.
 
     await cell.send_heartbeat(transport, scenario.hive_id)
-    await asyncio.wait_for(_until(lambda: cell.warden_id in _attached_ids(scenario.queen)), WAIT_S)
+    await asyncio.wait_for(until(lambda: cell.warden_id in attached_ids(scenario.queen)), WAIT_S)
 
     assert scenario.gate.node_id_for(cell.cell_id) == cell.node_id
     # The Queen records the node the handshake proved, for the Guard Bee (roadmap step 10.6).
@@ -207,14 +90,14 @@ async def test_listener_attaches_a_warden_link_once_ready_and_heartbeat_arrive()
 
     await transport.close()
     await asyncio.wait_for(
-        _until(lambda: cell.warden_id not in _attached_ids(scenario.queen)), WAIT_S
+        until(lambda: cell.warden_id not in attached_ids(scenario.queen)), WAIT_S
     )
     await scenario.listener.stop()
 
 
 async def test_listener_never_attaches_an_unexpected_cell() -> None:
-    scenario = await _build_scenario()
-    cell = _FakeQueenCell(scenario.listener)
+    scenario = await build_scenario()
+    cell = FakeCell(scenario.listener)
     # Deliberately never gate.expect()-ed: the listener must refuse this Cell's key lookup.
 
     transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer)
@@ -241,12 +124,12 @@ class _FakeSnapshotHandler:
 
 
 async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelope() -> None:
-    scenario = await _build_scenario()
+    scenario = await build_scenario()
     scenario.listener.bind_snapshot_handler(_FakeSnapshotHandler())
-    cell, transport = await _attach(scenario)
+    cell, transport = await attach(scenario)
 
     request = CellSnapshotRequest(cell_id=cell.cell_id, purpose="test")
-    envelope = wrap(request, cell._hop(scenario.hive_id), clock=FakeClock())
+    envelope = wrap(request, cell.hop(scenario.hive_id), clock=FakeClock())
     await transport.send(envelope)
     reply_envelope = await asyncio.wait_for(anext(transport.receive()), WAIT_S)
 
@@ -259,27 +142,27 @@ async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelop
 
 
 async def test_listener_merges_a_trail_segment_sync_into_the_queens_trail() -> None:
-    scenario = await _build_scenario()
+    scenario = await build_scenario()
     scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
-    cell, transport = await _attach(scenario)
+    cell, transport = await attach(scenario)
 
     clock = FakeClock()
     source_trail = MemoryPheromoneTrail(clock)
     await source_trail.record(_provisioned(clock, cell, scenario.hive_id))
     chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
-    await transport.send(wrap(chunk, cell._hop(scenario.hive_id), clock=clock))
+    await transport.send(wrap(chunk, cell.hop(scenario.hive_id), clock=clock))
 
     async def _merged() -> bool:
         return bool(await scenario.trail.query(TrailQuery(kind="cell.provisioned")))
 
-    await asyncio.wait_for(_until_async(_merged), WAIT_S)
+    await asyncio.wait_for(until_async(_merged), WAIT_S)
 
     await transport.close()
     await scenario.listener.stop()
 
 
 async def _one_trail_segment_sync_chunk(
-    clock: FakeClock, cell: _FakeQueenCell, source_trail: MemoryPheromoneTrail, hive_id: HiveId
+    clock: FakeClock, cell: FakeCell, source_trail: MemoryPheromoneTrail, hive_id: HiveId
 ) -> TrailSegmentSync:
     """Sync `source_trail` over a real WaggleTrailSync and return its one chunk (small export)."""
     sender_transport, receiver_transport = MemoryTransport.pair(Codec(), Codec())
@@ -316,19 +199,19 @@ class _Forger:
 
 
 async def test_a_forged_frame_on_an_attached_link_closes_it_and_is_recorded() -> None:
-    scenario = await _build_scenario()
-    cell = _FakeQueenCell(scenario.listener)
+    scenario = await build_scenario()
+    cell = FakeCell(scenario.listener)
     await scenario.gate.expect(cell.cell_id, public_key_hex(cell.signer.public_key_bytes))
     forger = _Forger(cell.signer)
     transport = await cell.dial(scenario.queen_node_id, scenario.queen_signer, forger)
     await cell.send_ready(transport, scenario.hive_id)
     await cell.send_heartbeat(transport, scenario.hive_id)
-    await asyncio.wait_for(_until(lambda: cell.warden_id in _attached_ids(scenario.queen)), WAIT_S)
+    await asyncio.wait_for(until(lambda: cell.warden_id in attached_ids(scenario.queen)), WAIT_S)
 
     forger.key = Ed25519Signer.generate()  # Signed as the Cell's node, with another key.
     await cell.send_heartbeat(transport, scenario.hive_id)
     await asyncio.wait_for(
-        _until(lambda: cell.warden_id not in _attached_ids(scenario.queen)), WAIT_S
+        until(lambda: cell.warden_id not in attached_ids(scenario.queen)), WAIT_S
     )
 
     [refused] = await scenario.trail.query(TrailQuery(kind="guard.envelope_refused"))
@@ -339,33 +222,33 @@ async def test_a_forged_frame_on_an_attached_link_closes_it_and_is_recorded() ->
 
 
 async def test_a_segment_shipped_as_another_node_is_refused_and_the_link_stays_up() -> None:
-    scenario = await _build_scenario()
+    scenario = await build_scenario()
     scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
-    cell, transport = await _attach(scenario)
+    cell, transport = await attach(scenario)
     clock = FakeClock()
     source_trail = MemoryPheromoneTrail(clock)
     await source_trail.record(_provisioned(clock, cell, scenario.hive_id))
     chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
     forged = chunk.model_copy(update={"node_id": new_node_id(clock)})
 
-    await transport.send(wrap(forged, cell._hop(scenario.hive_id), clock=clock))
-    await transport.send(wrap(chunk, cell._hop(scenario.hive_id), clock=clock))  # Then its own.
+    await transport.send(wrap(forged, cell.hop(scenario.hive_id), clock=clock))
+    await transport.send(wrap(chunk, cell.hop(scenario.hive_id), clock=clock))  # Then its own.
 
     async def _merged() -> bool:
         return bool(await scenario.trail.query(TrailQuery(kind="cell.provisioned")))
 
-    await asyncio.wait_for(_until_async(_merged), WAIT_S)
+    await asyncio.wait_for(until_async(_merged), WAIT_S)
     [refused] = await scenario.trail.query(TrailQuery(kind="guard.segment_refused"))
     assert (refused.subject_id, refused.payload["reason"]) == (cell.cell_id, "another_node")
-    assert cell.warden_id in _attached_ids(scenario.queen)  # A refused segment cuts no link.
+    assert cell.warden_id in attached_ids(scenario.queen)  # A refused segment cuts no link.
     await transport.close()
     await scenario.listener.stop()
 
 
 async def test_a_forged_segment_gets_its_cell_isolated_by_rule_through_the_queens_door() -> None:
-    scenario = await _build_scenario()
+    scenario = await build_scenario()
     scenario.listener.bind_trail_receiver(TrailSegmentReceiver(scenario.trail))
-    cell, transport = await _attach(scenario)
+    cell, transport = await attach(scenario)
     run = asyncio.ensure_future(scenario.queen.run())
     guard_bee = guard_bee_for_queen(scenario.deps, scenario.queen)  # Her own door, not a stub.
     clock = FakeClock()
@@ -374,12 +257,10 @@ async def test_a_forged_segment_gets_its_cell_isolated_by_rule_through_the_queen
     chunk = await _one_trail_segment_sync_chunk(clock, cell, source_trail, scenario.hive_id)
     forged = chunk.model_copy(update={"node_id": new_node_id(clock)})
 
-    await transport.send(wrap(forged, cell._hop(scenario.hive_id), clock=clock))
-    await asyncio.wait_for(
-        _until_async(lambda: _recorded(scenario, "guard.segment_refused")), WAIT_S
-    )
+    await transport.send(wrap(forged, cell.hop(scenario.hive_id), clock=clock))
+    await asyncio.wait_for(until_async(lambda: recorded(scenario, "guard.segment_refused")), WAIT_S)
     [response] = await guard_bee.tick()
-    await asyncio.wait_for(_until_async(lambda: _recorded(scenario, "cell.isolated")), WAIT_S)
+    await asyncio.wait_for(until_async(lambda: recorded(scenario, "cell.isolated")), WAIT_S)
 
     report = response.report
     assert (report.rule, report.cell_id, response.disposition) == (
@@ -398,12 +279,7 @@ async def test_a_forged_segment_gets_its_cell_isolated_by_rule_through_the_queen
     await scenario.listener.stop()
 
 
-async def _recorded(scenario: _Scenario, kind: str) -> bool:
-    """Whether the Queen's trail holds a `kind` event yet."""
-    return bool(await scenario.trail.query(TrailQuery(kind=kind)))
-
-
-def _provisioned(clock: FakeClock, cell: _FakeQueenCell, hive_id: HiveId) -> CellEvent:
+def _provisioned(clock: FakeClock, cell: FakeCell, hive_id: HiveId) -> CellEvent:
     """One `cell.provisioned` recorded on `cell`'s own node, for its segment to carry."""
     return CellEvent(
         id=new_event_id(clock),
@@ -417,33 +293,9 @@ def _provisioned(clock: FakeClock, cell: _FakeQueenCell, hive_id: HiveId) -> Cel
     )
 
 
-def _attached_ids(queen: Queen) -> set[WardenId]:
-    """Return every currently attached WardenId, for a before/after membership check."""
-    return {link.warden_id for link in queen.wardens}
-
-
-async def _until(condition: object) -> None:
-    """Poll `condition` (a zero-arg callable) until it is true.
-
-    A short poll, not an `asyncio.Event`, on purpose: the state being waited on
-    (`queen.wardens`) changes inside `CellListener`'s own handler task, which this test does not
-    instrument with an event of its own; every call site bounds this with `asyncio.wait_for`.
-    """
-    assert callable(condition)
-    while not condition():  # noqa: ASYNC110 - polling shared state, see docstring.
-        await asyncio.sleep(0.01)
-
-
-async def _until_async(condition: object) -> None:
-    """Same as `_until`, for a zero-arg async condition (an `await`-ing query, not shared state)."""
-    assert callable(condition)
-    while not await condition():  # noqa: ASYNC110 - polling shared state, see _until's docstring.
-        await asyncio.sleep(0.01)
-
-
 async def test_a_replayed_envelope_id_is_dropped_and_recorded_with_the_nodes_id() -> None:
-    scenario = await _build_scenario()
-    cell, transport = await _attach(scenario)
+    scenario = await build_scenario()
+    cell, transport = await attach(scenario)
     beat = CellHeartbeat(
         cell_id=cell.cell_id,
         mode=CellMode.ACTIVE,
@@ -452,7 +304,7 @@ async def test_a_replayed_envelope_id_is_dropped_and_recorded_with_the_nodes_id(
         is_shield_verified=True,
         interval_s=15.0,
     )
-    envelope = wrap(beat, cell._hop(scenario.hive_id), clock=FakeClock())
+    envelope = wrap(beat, cell.hop(scenario.hive_id), clock=FakeClock())
 
     await transport.send(envelope)
     await transport.send(envelope)  # The same envelope id again: a replay, not a second beat.
@@ -460,18 +312,18 @@ async def test_a_replayed_envelope_id_is_dropped_and_recorded_with_the_nodes_id(
     async def _recorded() -> bool:
         return bool(await scenario.trail.query(TrailQuery(kind="guard.replay_refused")))
 
-    await asyncio.wait_for(_until_async(_recorded), WAIT_S)
+    await asyncio.wait_for(until_async(_recorded), WAIT_S)
     [refused] = await scenario.trail.query(TrailQuery(kind="guard.replay_refused"))
     assert refused.subject_id == cell.node_id
     assert refused.payload == {"node_id": cell.node_id, "envelope_id": envelope.id}
-    assert cell.warden_id in _attached_ids(scenario.queen)  # A replay costs the Cell nothing more.
+    assert cell.warden_id in attached_ids(scenario.queen)  # A replay costs the Cell nothing more.
     await transport.close()
     await scenario.listener.stop()
 
 
 async def test_a_frame_flood_closes_the_link_and_is_recorded_with_the_nodes_id() -> None:
-    scenario = await _build_scenario()
-    cell, transport = await _attach(scenario)
+    scenario = await build_scenario()
+    cell, transport = await attach(scenario)
     # A snapshot request is answered inline by the listener's pump, with no handler bound here
     # dropped there: unlike a Heartbeat it never waits in the Queen's queue, so nothing slows the
     # flood by backpressure and the ceiling is what ends it.
@@ -482,10 +334,10 @@ async def test_a_frame_flood_closes_the_link_and_is_recorded_with_the_nodes_id()
     # burst's worth more crosses the line by one frame and no further, so the close handshake the
     # listener starts then is answered at once instead of waiting behind a long unread flood.
     for _ in range(CEILING_BURST_FRAMES):
-        await transport.send(wrap(request, cell._hop(scenario.hive_id), clock=FakeClock()))
+        await transport.send(wrap(request, cell.hop(scenario.hive_id), clock=FakeClock()))
 
     await asyncio.wait_for(
-        _until(lambda: cell.warden_id not in _attached_ids(scenario.queen)), WAIT_S
+        until(lambda: cell.warden_id not in attached_ids(scenario.queen)), WAIT_S
     )
     [refused] = await scenario.trail.query(TrailQuery(kind="guard.frame_ceiling"))
     assert refused.subject_id == cell.node_id

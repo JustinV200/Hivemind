@@ -258,6 +258,42 @@ async def test_remove_and_aclose_leave_no_reader_task_pending() -> None:
     assert readers.queued(first.warden_id) == readers.queued(second.warden_id) == 0
 
 
+async def test_a_warden_that_attaches_again_keeps_what_its_old_link_had_not_delivered() -> None:
+    clock = FakeClock()
+    readers = LinkReaders()
+    old = _link(clock)
+    await readers.add(old.warden_id, old.queen_end)
+    await _send_heartbeats(old, clock, 3)
+    await _until(lambda: readers.queued(old.warden_id) == 3)  # Read, and not yet taken by a tick.
+    queen_end, warden_end = MemoryTransport.pair(Codec(), Codec())
+    new = _Link(old.warden_id, queen_end, warden_end, old.hop)  # The same Warden, dialled again.
+
+    await readers.add(new.warden_id, new.queen_end)
+    await _send_heartbeats(new, clock, 1)
+    await _until(lambda: readers.queued(new.warden_id) == 4)
+
+    # The three it had read come first, in order, and then what the new link carries.
+    items = readers.drain()
+    assert [item.received_at for item in items] == sorted(item.received_at for item in items)
+    assert len(items) == 4 and len({item.id for item in items}) == 4
+    await readers.aclose()
+
+
+async def test_a_detached_warden_takes_what_was_queued_with_it() -> None:
+    clock = FakeClock()
+    readers = LinkReaders()
+    link = _link(clock)
+    await readers.add(link.warden_id, link.queen_end)
+    await _send_heartbeats(link, clock, 2)
+    await _until(lambda: readers.queued(link.warden_id) == 2)
+
+    await readers.remove(link.warden_id)  # The Warden is gone, not back: nothing drains it again.
+    await readers.add(link.warden_id, MemoryTransport.pair(Codec(), Codec())[0])
+
+    assert readers.queued(link.warden_id) == 0
+    await readers.aclose()
+
+
 async def test_wait_returns_on_a_queued_envelope_on_wake_and_reports_stop() -> None:
     clock = FakeClock()
     readers = LinkReaders()

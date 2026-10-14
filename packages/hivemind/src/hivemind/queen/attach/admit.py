@@ -97,6 +97,7 @@ __all__ = [
     "current_link",
     "detach_if_current",
     "detach_warden",
+    "knows_warden",
     "warden_state",
 ]
 
@@ -185,6 +186,24 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
     await queen._links.remove(warden_id)
     # Phase 9: a shipment or a Comb order waiting on this Warden fails now, not after its timeout.
     forget_warden(queen._deps, warden_id)
+
+
+def knows_warden(queen: Queen, warden_id: WardenId) -> bool:
+    """Say whether `warden_id` has been attached to `queen` at any time in her life.
+
+    The very question `attach_warden` asks to tell a reconnection from a new Warden, readable
+    before the Warden is attached: a gate that wants to know, ahead of the attach, whether the
+    connection in its hands is a return (and so will meet duplicates of what the Queen already
+    holds) asks this.
+
+    Args:
+        queen: The Queen the Warden may have been attached to.
+        warden_id: The Warden.
+
+    Returns:
+        True when she has had it attached, still or since detached.
+    """
+    return warden_id in queen._seen
 
 
 def current_link(queen: Queen, warden_id: WardenId) -> WardenLink | None:
