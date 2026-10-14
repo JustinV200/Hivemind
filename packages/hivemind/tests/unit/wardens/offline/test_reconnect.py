@@ -19,6 +19,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 from typing import cast
 
@@ -269,12 +270,17 @@ async def test_trail_reconnect_records_the_reconnection_and_ships_the_trail() ->
         hive_id=new_hive_id(clock), node_id=new_node_id(clock), actor="system"
     )
     shipped: list[int] = []
+    steps: list[str] = []
 
     class _Sync:
         async def sync(self) -> bool:
+            steps.append("sync")
             # The reconnection must already be on the trail by the time it ships.
             shipped.append(len(await trail.query(TrailQuery())))
             return True
+
+        def rewind(self, window: timedelta) -> None:
+            steps.append(f"rewind {window.total_seconds():.0f}")
 
     step = TrailReconnect(WardenRecord(trail, identity, WardenId(wire.hop.sender), clock), _Sync())
 
@@ -285,6 +291,9 @@ async def test_trail_reconnect_records_the_reconnection_and_ships_the_trail() ->
     assert event.subject_id == WardenId(wire.hop.sender)
     assert event.payload == {"outage_s": 12.346}
     assert shipped == [1]
+    # What went out while the link was dead and nobody knew goes out again: twice what a websocket's
+    # keepalive takes to give up on a silent peer (20 s to ping, 20 s to wait for the pong).
+    assert steps == ["rewind 80", "sync"]
 
 
 async def test_trail_reconnect_without_a_sync_only_records() -> None:

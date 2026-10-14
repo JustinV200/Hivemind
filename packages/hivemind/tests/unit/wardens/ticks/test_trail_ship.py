@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from builders.wardens import make_warden_deps
 
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
@@ -18,6 +20,9 @@ class _RecordingTrailSync:
     async def sync(self) -> bool:
         self.syncs += 1
         return self._ok
+
+    def rewind(self, window: timedelta) -> None:
+        """Nothing was shipped for the test to take back."""
 
 
 async def test_ships_once_through_the_wardens_own_trail_sync() -> None:

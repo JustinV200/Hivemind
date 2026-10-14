@@ -37,6 +37,7 @@ See Also:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from hivemind.cell import RealCellSource
 from hivemind.cli.in_cell import link as cell_link
@@ -179,3 +180,8 @@ class LateTrailSync:
         if self._target is None:
             return True
         return await self._target.sync()
+
+    def rewind(self, window: timedelta) -> None:
+        """Have the bound sync ship the last `window` again; nothing to do while unbound."""
+        if self._target is not None:
+            self._target.rewind(window)

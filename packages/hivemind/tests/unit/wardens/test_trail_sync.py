@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
+from datetime import timedelta
 
 import pytest
 
@@ -169,6 +170,56 @@ async def test_sync_ships_a_second_export_once_more_events_are_recorded() -> Non
     second = await anext(scenario.receiver.receive())
     assert isinstance(second.payload, TrailSegmentSync)
     assert second.payload.event_count == 2  # export_segment(since=...) is inclusive of the first.
+
+
+async def test_a_rewound_sync_ships_again_the_stretch_a_dead_link_may_have_swallowed() -> None:
+    """A send that returns has only reached a connection; if it was dead the Queen never had it."""
+    clock = FakeClock()
+    scenario = _build(clock)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+    clock.advance(60.0)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+    clock.advance(30.0)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+    await scenario.sync.sync()
+    await anext(scenario.receiver.receive())  # The send returned: as far as the sender can tell.
+    await scenario.sync.sync()
+    await scenario.sync.sync()  # Nothing new, nothing sent: the sender trusts what it sent.
+
+    scenario.sync.rewind(timedelta(seconds=45))
+    sent = await scenario.sync.sync()
+
+    again = await _first_chunk(scenario)
+    assert sent is True
+    # The newest event is 30 s after the middle one and 90 s after the first: 45 s back from the
+    # newest takes in the last two, and not the first, which was sent long enough ago to be safe.
+    assert again.event_count == 2
+
+
+async def test_rewinding_before_anything_was_shipped_takes_back_nothing() -> None:
+    clock = FakeClock()
+    scenario = _build(clock)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+
+    scenario.sync.rewind(timedelta(seconds=45))
+    await scenario.sync.sync()
+
+    first = await _first_chunk(scenario)
+    assert first.event_count == 1  # The ordinary first export, whole.
+
+
+async def test_a_sync_after_a_rewind_is_not_taken_for_a_repeat_of_the_last_one() -> None:
+    clock = FakeClock()
+    scenario = _build(clock)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+    await scenario.sync.sync()
+    await anext(scenario.receiver.receive())
+
+    scenario.sync.rewind(timedelta(seconds=45))
+    await scenario.sync.sync()  # The only event is the newest, and the one sent last time.
+
+    again = await _first_chunk(scenario)
+    assert again.event_count == 1
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -30,6 +30,14 @@ instead of spinning on an exhausted iterator. The dial, the announcement and the
 step are injected (`QueenDialer`, `Announcer`, `AfterReconnect`), so one class serves any remote
 Warden and a test drives it with scripted ones.
 
+A link whose far end vanished (a cable pulled) is not known to be down until the websocket's
+keepalive gives up, 40 s after the last traffic and then the Warden's next beat, and every send in
+that time returns as if it had arrived. So the trail segment is not shipped from where the last
+sync left off: `TrailReconnect` rewinds the sync by `UNNOTICED` (twice the keepalive) first, and the
+Queen, who drops what she already holds by event id, is sent the stretch she may never have had.
+Frames that are not the trail (a result, an Alarm) sent in that stretch are not recovered by this,
+only the ones queued after the Warden noticed: a known gap, since nothing acknowledges them.
+
 ## What is sent while the link is down
 
 One pure table (`policy.decide_offline`), tested row by row:

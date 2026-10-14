@@ -22,6 +22,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import cast
 
 from builders.supervision import make_inbox_item
@@ -86,6 +87,9 @@ class _CountingSync:
 
     async def sync(self) -> None:
         self.syncs += 1
+
+    def rewind(self, window: timedelta) -> None:
+        """Nothing was shipped for the test to take back."""
 
 
 def test_a_revocation_is_bookkeeping_never_a_models_call() -> None:

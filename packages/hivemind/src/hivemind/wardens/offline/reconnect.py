@@ -47,6 +47,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Protocol
 
 from hivemind.common.logging import get_logger
@@ -58,6 +59,7 @@ from waggle.clock import Clock
 from waggle.errors import TransportError
 from waggle.ids import WardenId, new_event_id
 from waggle.transport.base import Transport
+from waggle.transport.websocket import PING_INTERVAL_S, PING_TIMEOUT_S
 from waggle.transport.websocket_client import (
     RECONNECT_FACTOR,
     RECONNECT_INITIAL_S,
@@ -67,6 +69,11 @@ from waggle.transport.websocket_client import (
 DIAL_TIMEOUT_S = 30.0  # One dial: TCP, TLS pin and handshake; the client's own bound is shorter.
 ANNOUNCE_TIMEOUT_S = 30.0  # Three small frames to a link that has just opened.
 RETRYABLE = (TransportError, OSError, TimeoutError)  # What a network can do to the sequence.
+# How far back from its newest shipped event a Warden sends its trail again once the link is back.
+# A link whose far end vanished is declared dead by the websocket's keepalive PING_INTERVAL_S +
+# PING_TIMEOUT_S after the last traffic, and the Warden notices on its next beat after that, so
+# what it shipped in twice that long before it noticed may have gone into a connection already dead.
+UNNOTICED = timedelta(seconds=2 * (PING_INTERVAL_S + PING_TIMEOUT_S))
 
 _LOG = get_logger(__name__)
 
@@ -186,8 +193,11 @@ class TrailReconnect:
         )
         await record.trail.record(event)
         # A segment that does not make it is shipped again on the heartbeat cadence (idempotent by
-        # event id), so the result is not this step's to act on.
+        # event id), so the result is not this step's to act on. What went out while the link was
+        # dead but not yet known to be is not that kind of failure: the send returned, and the
+        # Queen never had it. So the stretch before the loss was noticed goes out again.
         if self._trail_sync is not None:
+            self._trail_sync.rewind(UNNOTICED)
             await self._trail_sync.sync()
 
 

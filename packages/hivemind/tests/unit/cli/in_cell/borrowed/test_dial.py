@@ -15,6 +15,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -166,15 +167,19 @@ def test_a_pin_that_is_not_a_fingerprint_is_refused_when_the_dialer_is_built(
 
 
 class _CountingSync:
-    """A TrailSync that counts how often it was asked to ship."""
+    """A TrailSync that counts how often it was asked to ship, and to ship again."""
 
     def __init__(self, result: bool) -> None:
         self.calls = 0
+        self.rewound: list[timedelta] = []
         self._result = result
 
     async def sync(self) -> bool:
         self.calls += 1
         return self._result
+
+    def rewind(self, window: timedelta) -> None:
+        self.rewound.append(window)
 
 
 async def test_a_late_trail_sync_ships_nothing_until_it_is_bound() -> None:
@@ -190,3 +195,16 @@ async def test_a_late_trail_sync_ships_nothing_until_it_is_bound() -> None:
     late.bind(None)
     assert await late.sync() is True
     assert target.calls == 1
+
+
+def test_a_late_trail_sync_hands_a_rewind_to_the_sync_it_is_bound_to_and_to_nothing_before() -> (
+    None
+):
+    late = LateTrailSync()
+    late.rewind(timedelta(seconds=80))  # Unbound: there is nothing shipped to take back.
+
+    target = _CountingSync(result=True)
+    late.bind(target)
+    late.rewind(timedelta(seconds=80))
+
+    assert target.rewound == [timedelta(seconds=80)]

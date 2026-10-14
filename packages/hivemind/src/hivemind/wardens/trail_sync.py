@@ -41,6 +41,9 @@ Key invariants:
       node id, first and last event ids, event count and digest; a Warden with no signer sends
       none, and an export is signed again each time it is sent.
     - One export is on the wire at a time (a lock), however many callers ask for a sync.
+    - A Warden whose link has just come back `rewind`s before it syncs: a send that returned may
+      have gone into a connection that was already dead, so the stretch before the loss was
+      noticed is sent again rather than trusted. Nothing else moves the cursor back.
     - A re-sent export is harmless: `PheromoneTrail.merge_segment` is idempotent by event id, so a
       retry after a half-delivered export inserts each event at most once; `sync()`/`_send()` never
       let `TransportClosedError`/`ConnectionLostError` escape (phase-7 handoff open item 8) and
@@ -60,7 +63,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Protocol
 
 from hivemind.pheromone import PheromoneTrail, TrailSegment
@@ -130,6 +133,19 @@ class TrailSync(Protocol):
         """
         ...
 
+    def rewind(self, window: timedelta) -> None:
+        """Take back the claim that the last `window` of the segment was shipped.
+
+        A send that returns has only put the frame on a connection. If the connection was already
+        dead (the cable pulled and nobody noticed yet) the Queen never had it, though this side
+        has moved on; a Warden that has just got its link back rewinds, so that the next `sync`
+        sends that stretch again. What she already holds is dropped by event id.
+
+        Args:
+            window: How far back from the newest event shipped to start again.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class _ExportMeta:
@@ -176,6 +192,14 @@ class WaggleTrailSync:
         """Export this node's segment and send it, unless it is empty or has not grown."""
         async with self._lock:
             return await self._sync_locked()
+
+    def rewind(self, window: timedelta) -> None:
+        """Ship the last `window` of the segment again with the next sync (see `TrailSync`)."""
+        if self._since is not None:
+            self._since -= window
+            # Forgotten too, or the unchanged-segment check would find the newest event the same
+            # as the last one sent and send nothing.
+            self._last_event_id = None
 
     async def _sync_locked(self) -> bool:
         """Do `sync`'s work while holding the lock that keeps exports from interleaving."""
