@@ -450,3 +450,12 @@ load, so on a busy host the default half-core Drone found no room and its task w
 `forage.denied`) until the load fell. `bridge_manifest` gives the Drone a footprint of no cores,
 which leaves nothing for the load to decide; any scenario that puts a task on a device in a
 container wants the same, unless it is about scheduling.
+
+Every scenario that puts a whole Hive in front of a container builds it in one place, `swarm/
+bridge.py` (`bridge_hive` for the Hive, `bridge_manifest` for its manifest, `BridgeTerms` for what
+a scenario adds to it: `[swarm]` keys, a watch table, whole tables such as a Nuc's model server),
+and scripts its model with `swarm/drone.py`. When a device is lost the Queen asks the Hive Stand's
+own Warden to send a Drone to look into it (roadmap 11.9a), a task of the Hive's and not of the
+scenario's: `Script` answers that Drone with a script of its own, so none of the scenario's
+attempts or commands are spent on it. A device nobody saw go (enrolled a moment ago, its packet
+not dialled yet) is not looked into.

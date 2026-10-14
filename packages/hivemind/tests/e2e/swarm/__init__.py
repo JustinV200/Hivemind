@@ -30,9 +30,11 @@ Public API:
     - certificate_for: the Stand's certificate for a host name, with its pin (tls).
     - start_stand, enrol_container, ContainerDevice, DeviceStartError, HIVE_HOSTNAME, DATA_DIR: a
       Stand the containers dial and a packet enrolled in a container (enrolled).
-    - build_binary, binary_digest, CleanDevice, start_clean, DeviceDrone, bridge_hive: the
-      single-file packet built the way CI builds it, a bare Debian 12 device to run it on and a
-      whole Hive on the bridge for it to dial (binary, a package with its own face).
+    - build_binary, binary_digest, CleanDevice, start_clean: the single-file packet built the way
+      CI builds it and a bare Debian 12 device to run it on (binary, a package with its own face).
+    - bridge_hive, BridgeHive, BridgeTerms: a whole Hive on the docker bridge for a container to
+      dial, the one such rig (bridge); DeviceDrone: the work the packaging scenario gives a device
+      (drone).
     - In-process scenarios import their own helpers by module, not from this face: `device`
       (a real `pollen` packet run in the test's own process) and `hive` (a Hive built from a
       manifest with `[swarm] enabled = true`, and reads of what it recorded), used by
@@ -46,14 +48,8 @@ Public API:
       module fixture's skip.
 """
 
-from e2e.swarm.binary import (
-    CleanDevice,
-    DeviceDrone,
-    binary_digest,
-    bridge_hive,
-    build_binary,
-    start_clean,
-)
+from e2e.swarm.binary import CleanDevice, binary_digest, build_binary, start_clean
+from e2e.swarm.bridge import BridgeHive, BridgeTerms, bridge_hive
 from e2e.swarm.container import (
     BRIDGE,
     CommandError,
@@ -67,6 +63,7 @@ from e2e.swarm.container import (
     docker,
     run,
 )
+from e2e.swarm.drone import DeviceDrone
 from e2e.swarm.enrolled import (
     DATA_DIR,
     HIVE_HOSTNAME,
@@ -83,6 +80,8 @@ __all__ = [
     "DATA_DIR",
     "HIVE_HOSTNAME",
     "IMAGE_VARIABLE",
+    "BridgeHive",
+    "BridgeTerms",
     "CleanDevice",
     "CommandError",
     "CommandResult",

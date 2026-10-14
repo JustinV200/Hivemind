@@ -34,7 +34,8 @@ Key invariants:
       heartbeats are never held up by the test.
 
 See Also:
-    - e2e/swarm/binary/ for the build, the clean device and the Hive this uses.
+    - e2e/swarm/binary/ for the build and the clean device, and e2e/swarm/bridge.py for the Hive
+      this dials, the one every phase 11 scenario on a container uses.
     - tests/e2e/test_swarm_level0.py for the same task on a packet in the test's own process.
     - .claude/phase-11-handoff.md section 5 for the exit criterion this serves.
 """
@@ -65,14 +66,12 @@ from e2e.swarm.binary import (
     ROOT,
     UNIT_PATH,
     CleanDevice,
-    DeviceDrone,
-    bridge_hive,
     build_binary,
-    idle_warden,
-    run_goal_on,
     start_clean,
 )
-from e2e.swarm.hive import enrolled_node, trail_events
+from e2e.swarm.bridge import bridge_hive
+from e2e.swarm.drone import DeviceDrone, Script, finished, submit_pinned
+from e2e.swarm.hive import enrolled_node, trail_events, warden_is_idle
 
 from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import AccessLevel, CombShieldLevel
@@ -103,7 +102,7 @@ def test_the_single_file_packet_runs_a_task_on_a_clean_debian_12_and_leaves_noth
 ) -> None:
     drone, janitor = DeviceDrone(), Janitor()
     try:
-        hive = bridge_hive(tmp_path, BRIDGE, drone)
+        hive = bridge_hive(tmp_path, BRIDGE, Script(drone.turn).responder)
         asyncio.run(_scenario(hive, drone, binary, janitor))
     finally:
         janitor.close()  # The container first, whatever happened: nothing it started outlives us.
@@ -229,11 +228,9 @@ async def _assert_a_task_ran_there(
     hive: Hive, node: SwarmNode, drone: DeviceDrone, device: CleanDevice
 ) -> None:
     """A goal pinned to the device's Cell completes: a command and a file, through the session."""
-    assert hive.swarm is not None
-    gate = hive.swarm.gate
     # The gate gave the device a Level 0 Warden when it connected; the goal waits until she is idle.
-    await wait_until(lambda: idle_warden(gate, node) is not None, timeout_s=_WAIT_S)
-    task = await run_goal_on(hive, node, _TASK_S)
+    await wait_until(lambda: warden_is_idle(hive, node), timeout_s=_WAIT_S)
+    task = await finished(hive, await submit_pinned(hive, node), _TASK_S)
     assert task.status is TaskStatus.SUCCEEDED, task.outcome
 
     # What the command printed says where it ran: the device's system and name, not this host's,

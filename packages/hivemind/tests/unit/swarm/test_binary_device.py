@@ -1,14 +1,15 @@
-"""Unit: the clean device, the Hive a container dials and the scripted Drone, with no daemon.
+"""Unit: the clean device and the packaging scenario's scripted Drone, with no daemon.
 
 The rig in `tests/e2e/swarm/binary` is proved whole by `tests/e2e/test_phase11_exit_binary.py`.
 What can go wrong before a container exists is checked here in milliseconds on every run: how the
-scripted Drone answers on both tool protocols, what the Hive's manifest says (the bridge address,
-TLS, the name the device maps, a Drone that costs no cores), and how the clean device builds its
-commands (the operator's account, standard input only when there is text, the snapshot, the stop).
+scripted Drone answers on both tool protocols, and how the clean device builds its commands (the
+operator's account, standard input only when there is text, the snapshot, the stop). The Hive it
+dials is the bridge rig every container scenario shares, checked in `test_scenario_rig.py`.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped. Exercises
-    `e2e.swarm.binary.clean` and `.stand`; nothing here starts a container or touches a network.
+    `e2e.swarm.binary.clean` and `e2e.swarm.drone`; nothing here starts a container or touches a
+    network.
 
 Key invariants:
     - Docker is replaced by a recorder, so no test here depends on a daemon being present.
@@ -36,17 +37,11 @@ from e2e.swarm.binary.clean import (
     CleanDevice,
     start_clean,
 )
-from e2e.swarm.binary.stand import (
-    BEAT_S,
-    INSPECT_FILE,
-    REPORT_FILE,
-    DeviceDrone,
-    bridge_manifest,
-)
 from e2e.swarm.container import CommandError, CommandResult, Container, Janitor
+from e2e.swarm.drone import INSPECT_FILE, DeviceDrone
+from e2e.swarm.hive import REPORT_FILE
 
 from hivemind.llm import Message, Role, ToolCallPart, ToolResultPart
-from hivemind.manifest import load_manifest
 
 
 def _call_values(call: tuple[str, ...], flag: str) -> list[str]:
@@ -106,35 +101,6 @@ def test_the_drone_answers_on_the_prompted_protocol_too() -> None:
 
     text = "".join(getattr(part, "text", "") for part in first.parts)
     assert text.count("```tool") == 2 and '"run_command"' in text and '"write_file"' in text
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# The Hive a container dials
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_the_hives_manifest_listens_on_the_bridge_over_tls_and_advertises_the_name_the_device_maps(
-    tmp_path: Path,
-) -> None:
-    manifest = load_manifest(bridge_manifest(tmp_path, "127.0.0.1"), {})
-
-    swarm = manifest.swarm
-    assert (swarm.enabled, swarm.listen_host) == (True, "127.0.0.1")
-    assert swarm.advertise_url == f"wss://hive.test:{swarm.listen_port}"
-    # The invite pins this certificate, so it has to be the one the listener serves.
-    assert Path(swarm.tls_cert).is_file() and Path(swarm.tls_key).is_file()
-    assert swarm.heartbeat_interval_s == BEAT_S
-
-
-def test_the_drone_costs_no_cores_so_the_hosts_load_cannot_keep_its_task_waiting(
-    tmp_path: Path,
-) -> None:
-    manifest = load_manifest(bridge_manifest(tmp_path, "127.0.0.1"), {})
-
-    drone = manifest.forage.roles["drone"]
-
-    assert drone.cpu_cores == 0.0  # No cores to find free: the one-minute load decides nothing.
-    assert drone.memory_bytes > 0  # Its memory is still accounted for, as in every scenario.
 
 
 # ──────────────────────────────────────────────────────────────────────────────

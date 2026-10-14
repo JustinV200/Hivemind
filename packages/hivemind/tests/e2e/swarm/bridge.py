@@ -2,18 +2,19 @@
 
 `e2e.swarm.enrolled.start_stand` serves the bare listener, which is all a test of the wire needs. A
 test of what the Queen does with a device (places a task on it, holds its tasks when it goes, lets
-its Warden watch it) needs the rest: the real Queen, Wardens, trail and SQLite file, built exactly
-as `hive run` builds them from a manifest. `bridge_hive` writes that manifest, with `[swarm]`
-listening on the network's host address over `wss://` with a fresh self-signed certificate (the
-invite carries its pin) and advertising the host name the containers map to that address, and
-builds the Hive from it with a scripted model. `BridgeHive` is the Hive seen as a `Door`, the three
-things `enrol_device` asks of a Stand, so the same enrolment that serves the bare listener serves
-the whole Hive.
+its Warden watch it, moves its Warden onto it) needs the rest: the real Queen, Wardens, trail and
+SQLite file, built exactly as `hive run` builds them from a manifest. `bridge_manifest` writes that
+manifest, with `[swarm]` listening on the network's host address over `wss://` with a fresh
+self-signed certificate (the invite carries its pin) and advertising the host name the containers
+map to that address, and `bridge_hive` builds the Hive from it with a scripted model. `BridgeHive`
+is the Hive seen as a `Door`, the three things `enrol_device` asks of a Stand, so the same
+enrolment that serves the bare listener serves the whole Hive. This is the one such rig: every
+phase 11 scenario that puts a whole Hive in front of a container builds it here.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.3), not shipped. Used by the phase 11 end-to-end
     scenarios that need a device a real Hive places work on; builds on `builders.swarm.manifest`,
-    `e2e.swarm.enrolled`, `e2e.swarm.hive` and `hivemind.cli.compose`.
+    `e2e.swarm.enrolled`, `e2e.swarm.tls` and `hivemind.cli.compose`.
 
 Key invariants:
     - The Hive is the real one; only its model is scripted (the responder the caller passes), and
@@ -23,10 +24,13 @@ Key invariants:
       the invite names the host name the container's `--add-host` resolves.
     - `bridge_hive` builds with `build_hive`, which runs event loops of its own: call it from
       synchronous test code, as `e2e.swarm.hive.swarm_hive` is.
+    - Extra manifest tables (`BridgeTerms.tables`) are appended after everything else, so a table a
+      scenario adds can never be shadowed by one this file writes.
 
 See Also:
     - e2e/swarm/enrolled.py for the enrolment this Hive is a Door for.
     - e2e/swarm/hive.py for the same Hive on loopback, for a packet in the test's own process.
+    - e2e/swarm/drone.py for the scripted model and the goal a scenario puts to this Hive.
 """
 
 from __future__ import annotations
@@ -56,7 +60,7 @@ from waggle.ids import DeviceId
 # container for a second (the load average here is often above the core count) is not a lost device.
 BRIDGE_BEAT_S = 1.0
 
-__all__ = ["BRIDGE_BEAT_S", "BridgeHive", "BridgeTerms", "bridge_hive"]
+__all__ = ["BRIDGE_BEAT_S", "BridgeHive", "BridgeTerms", "bridge_hive", "bridge_manifest"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,27 +72,28 @@ class BridgeTerms:
             the like. They are written after the listener's own, so one named here wins.
         watch_table: The body of a `[supervision.watch]` table (see `e2e.watch_helpers.
             watch_table`), or empty to leave watch mode at its documented defaults.
+        tables: Whole TOML tables to append to the manifest, such as the `[llm.servers.*]` row and
+            the `[forage.map.*]` rows that list a Nuc's model server; empty adds none.
     """
 
     swarm: Mapping[str, bool | int | float | str] = field(default_factory=dict)
     watch_table: str = ""
+    tables: str = ""
 
 
-def bridge_hive(
-    tmp_path: Path, network: Network, responder: Responder, terms: BridgeTerms | None = None
-) -> Hive:
-    """Build a Hive that the containers on `network` can dial, its model scripted.
+def bridge_manifest(tmp_path: Path, network: Network, terms: BridgeTerms | None = None) -> Path:
+    """Write the manifest of a Hive whose swarm listener binds `network`'s host address.
 
     Args:
         tmp_path: The test's own directory; the manifest, certificate, database and scratch live
             under it.
-        network: The container network; its host address is where the swarm listener binds.
-        responder: Answers every model request of the Hive (the Queen's plan, the Drone's turns,
-            the Patrol), as `HaikuScript.responder` or `PatrolModel.responder` does.
-        terms: Further manifest keys; none when omitted.
+        network: The container network; its host address is where the swarm listener binds. The
+            invite tells a device to dial `e2e.swarm.HIVE_HOSTNAME`, which the device's container
+            maps there.
+        terms: Further manifest keys and tables; none when omitted.
 
     Returns:
-        A Hive, not yet started, with `Hive.swarm` set.
+        The manifest's path. Its listener is on a port that was free a moment ago.
     """
     chosen = terms or BridgeTerms()
     tls_dir = tmp_path / "tls"
@@ -109,12 +114,28 @@ def bridge_hive(
     # about the swarm, not about how busy the machine running them is, so the Drone costs no core.
     tuning = ManifestTuning(watch_table=chosen.watch_table, drone_cpu_cores=0.0)
     path = tuned_swarm_manifest(tmp_path, tuning, **{**listener, **chosen.swarm})
-    return build_hive(
-        load_manifest(path, {}),
-        environ={},
-        clock=SystemClock(),
-        responders={"fake": responder},
-    )
+    if chosen.tables:
+        path.write_text(f"{path.read_text('utf-8')}\n{chosen.tables}\n", encoding="utf-8")
+    return path
+
+
+def bridge_hive(
+    tmp_path: Path, network: Network, responder: Responder, terms: BridgeTerms | None = None
+) -> Hive:
+    """Build a Hive that the containers on `network` can dial, its model scripted.
+
+    Args:
+        tmp_path: The test's own directory (see `bridge_manifest`).
+        network: The container network; its host address is where the swarm listener binds.
+        responder: Answers every model request of the Hive (the Queen's plan, the Drone's turns,
+            the Patrol), as `Script.responder` or `PatrolModel.responder` does.
+        terms: Further manifest keys and tables; none when omitted.
+
+    Returns:
+        A Hive, not yet started, with `Hive.swarm` set.
+    """
+    manifest = load_manifest(bridge_manifest(tmp_path, network, terms), {})
+    return build_hive(manifest, environ={}, clock=SystemClock(), responders={"fake": responder})
 
 
 @dataclass(frozen=True, slots=True)

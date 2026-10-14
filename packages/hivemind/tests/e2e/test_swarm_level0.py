@@ -42,6 +42,7 @@ import pytest
 from e2e.kernel_helpers import assert_kinds_in_order, wait_until
 from e2e.scripted_openai import free_port
 from e2e.swarm.device import EnrolledDevice, enrol, running
+from e2e.swarm.drone import finished, submit_pinned
 from e2e.swarm.hive import (
     STRAY,
     attached_warden_ids,
@@ -49,14 +50,14 @@ from e2e.swarm.hive import (
     revoke,
     swarm_hive,
     trail_events,
+    warden_is_idle,
 )
 
-from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal
-from hivemind.cell import AccessLevel, CombShieldLevel, HoneyClearance
+from hivemind.brood_chamber import TaskStatus
+from hivemind.cell import AccessLevel, CombShieldLevel
 from hivemind.cli.compose import Hive, run_hive
-from hivemind.queen.swarm_gate import SwarmGate
 from hivemind.swarm import SwarmNode
-from hivemind.wardens import Warden, WardenState
+from hivemind.wardens import WardenState
 from waggle.ids import LeaseId
 
 pytestmark = pytest.mark.e2e
@@ -84,22 +85,15 @@ async def _scenario(hive: Hive, data_dir: Path) -> None:
             # attached to the Queen: it leased the device when it started and gave the lease back
             # when it found nothing to do.
             await _wait_for_kind(hive, "swarm.online")
-            gate = hive.swarm.gate
-            await wait_until(lambda: _idle_warden(gate, node) is not None, timeout_s=_WAIT_S)
-            task = await _run_goal_on(hive, node)
+            await wait_until(lambda: warden_is_idle(hive, node), timeout_s=_WAIT_S)
+            # A goal whose ceiling names the device's Cell and no other, so its one task can be
+            # placed nowhere else.
+            task = await finished(hive, await submit_pinned(hive, node), _WAIT_S)
 
             assert task.status is TaskStatus.SUCCEEDED, task.outcome
             lease_id = await _assert_the_story_in_order(hive)
             await _assert_the_device_was_left_as_found(hive, device, lease_id)
             await _assert_revocation_cuts_the_device_off(hive, node)
-
-
-def _idle_warden(gate: SwarmGate, node: SwarmNode) -> Warden | None:
-    """The device's Warden once it is started and holds no lease; None before."""
-    served = gate.wardens.get(node.device_id)
-    if served is None or served.warden.lease is not None:
-        return None
-    return served.warden if served.warden.state is WardenState.WATCH else None
 
 
 async def _wait_for_kind(hive: Hive, kind: str) -> None:
@@ -109,34 +103,6 @@ async def _wait_for_kind(hive: Hive, kind: str) -> None:
         return bool(await trail_events(hive, kind))
 
     await wait_until(seen, timeout_s=_WAIT_S)
-
-
-async def _run_goal_on(hive: Hive, node: SwarmNode) -> Task:
-    """Submit a goal that can only be placed on `node`'s Cell, and wait for its one task to end."""
-    # A ceiling that names the device's Cell and not the Hive Stand's `cell:hive_stand`, so the
-    # Queen's placement can choose nothing else. The rest is what the scripted Drone needs.
-    ceiling = (
-        f"cell:real:{node.cell_id}",
-        "cell:comb_shield:*",
-        "llm:*",
-        "tool:*",
-        "fs:read:**",
-        "fs:write:**",
-        "exec:*",
-        "question:human",
-    )
-    goal_id = await hive.queen.submit_goal(
-        "write a report on the borrowed device", clearance=HoneyClearance.C1, capabilities=ceiling
-    )
-    filter_ = TaskFilter(goal_id=goal_id)
-
-    async def finished() -> bool:
-        tasks = await hive.stores.chamber.list(filter_)
-        return bool(tasks) and all(is_terminal(t.status) for t in tasks)
-
-    await wait_until(finished, timeout_s=_WAIT_S)
-    [task] = await hive.stores.chamber.list(filter_)
-    return task
 
 
 async def _assert_the_story_in_order(hive: Hive) -> str:

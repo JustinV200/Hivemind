@@ -32,9 +32,16 @@ from builders.cli import ManifestTuning
 from builders.llm import make_request, make_tool
 from builders.swarm.manifest import swarm_manifest, tuned_swarm_manifest
 from e2e.kernel_helpers import text_response
-from e2e.swarm.bridge import BRIDGE_BEAT_S, BridgeTerms, bridge_hive
+from e2e.swarm.bridge import BRIDGE_BEAT_S, BridgeTerms, bridge_hive, bridge_manifest
 from e2e.swarm.container import CommandResult, Container, FileEntry, Network
-from e2e.swarm.drone import Script, command_turn, pinned_ceiling, plan_for
+from e2e.swarm.drone import (
+    CHECK_MARK,
+    Script,
+    command_turn,
+    is_check_of_a_lost_device,
+    pinned_ceiling,
+    plan_for,
+)
 from e2e.swarm.hive import HELLO, REPORT_FILE
 from e2e.swarm.snapshots import (
     INIT_BINARY,
@@ -58,6 +65,7 @@ from e2e.swarm.tunnel import (
 from hivemind.forage import ModelSlot
 from hivemind.llm import LLMResponse, Message, Role, ToolCallPart, ToolResultPart
 from hivemind.manifest import load_manifest
+from hivemind.queen.swarm_gate.unreachable import hive_stand
 
 DATA = "/var/lib/pollen"
 FIND_ROW = "%y %s %T@ %p\\n"  # The `-printf` format `written_files` reads back.
@@ -278,6 +286,30 @@ def test_a_script_plans_the_goal_with_the_plan_the_test_holds_when_the_queen_ask
     assert "NIGHT_VEIL" in "".join(getattr(part, "text", "") for part in planned.parts)
 
 
+def test_the_hive_stands_check_of_a_lost_device_has_its_own_script() -> None:
+    script = Script(command_turn(("sleep", "100"), ("true",)))
+    tools = (make_tool(),)
+    asked = Message.text(Role.USER, f"{CHECK_MARK} cell_01XYZ from the Hive Stand: DNS and route.")
+
+    checking = script.responder(make_request(tools=tools, messages=(asked,)))
+    scenario = _calls(script.responder(make_request(tools=tools)))
+
+    # The check writes the findings file its task is accepted on, and runs no command ...
+    assert list(_calls(checking)) == ["write_file"]
+    assert _calls(checking)["write_file"]["path"] == hive_stand.FINDINGS_FILE
+    # ... so the scenario's first attempt (the long command) is still the next Drone's to run.
+    assert scenario["run_command"]["argv"] == ["sleep", "100"]
+
+
+def test_only_a_worker_request_that_opens_with_the_checks_words_is_taken_for_the_check() -> None:
+    asked = Message.text(Role.USER, f"{CHECK_MARK} cell_01XYZ")
+
+    assert is_check_of_a_lost_device(make_request(messages=(asked,)))
+    assert not is_check_of_a_lost_device(make_request())  # An ordinary Drone turn.
+    # The Queen planning a goal that happens to quote the words is not a Drone.
+    assert not is_check_of_a_lost_device(make_request(slot=ModelSlot.QUEEN, messages=(asked,)))
+
+
 def test_the_goal_ceiling_names_the_one_cell_and_no_other() -> None:
     ceiling = pinned_ceiling("cell_01XYZ")
 
@@ -320,6 +352,19 @@ def test_the_bridge_hive_listens_on_the_bridge_over_tls_beats_slowly_and_costs_t
     assert swarm.heartbeat_interval_s == BRIDGE_BEAT_S and 4 * BRIDGE_BEAT_S > 1.0
     assert manifest.forage.roles["drone"].cpu_cores == 0.0
     assert manifest.supervision.watch.interval_s == 0.2
+
+
+def test_tables_a_scenario_adds_follow_everything_the_rig_writes(tmp_path: Path) -> None:
+    table = (
+        '[forage.map.extra]\nprovider = "fake"\nmodel = "test-model"\ngrade = 4\n'
+        "context_window = 8192\n"
+    )
+
+    path = bridge_manifest(tmp_path, LoopbackBridge(), BridgeTerms(tables=table))
+
+    text = path.read_text(encoding="utf-8")
+    assert text.rstrip().endswith(table.rstrip())  # Last, so nothing the rig writes shadows it.
+    assert load_manifest(path, {}).forage.map["extra"].grade == 4
 
 
 def test_a_swarm_manifest_keeps_the_half_core_drone_unless_a_test_says_otherwise(

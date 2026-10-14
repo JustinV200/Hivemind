@@ -4,11 +4,16 @@ A container is a Linux machine that is not this one, so the Drone's command has 
 `sleep` and `sh` from its image, not the interpreter of the test's own virtualenv that
 `e2e.swarm.hive.device_worker_turn` runs. `command_turn` is that Drone: one round that runs a
 command on the device and writes the report file there, both through the `PollenSession` its
-Warden leased, then one line to say so. `Script` is the Hive's whole model for such a scenario: it
-answers the Queen's planning call with the plan the test last chose (`plan_for`), so one Hive can
-be given a Propolis goal and then a Night Veil one, and every Drone turn with the script it was
-built with. `submit_pinned` puts a goal to the Queen whose ceiling names the device's Cell and no
-other, so the Queen's placement can choose nothing else, and `finished` waits for its task to end.
+Warden leased, then one line to say so. `DeviceDrone` is the packaging scenario's: it also has the
+device describe itself into a file and reads that back, because a command's own output never
+reaches the model (the Capping gate answers with its verdict), so the file is how the Drone, and
+through it the test, learns where the command ran. `Script` is the Hive's whole model for such a
+scenario: it answers the Queen's planning call with the plan the test last chose (`plan_for`), so
+one Hive can be given a Propolis goal and then a Night Veil one, every Drone turn with the script
+it was built with, and the Drone the Hive Stand's own Warden sends to look into a lost device (a
+task of the Hive's, not the scenario's) with a script of its own. `submit_pinned` puts a goal to
+the Queen whose ceiling names the device's Cell and no other, so the Queen's placement can choose
+nothing else, and `finished` waits for its task to end.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 11 end-to-end
@@ -20,6 +25,11 @@ Key invariants:
       so a test sets it before it submits the goal and not after.
     - The report file is written in scratch and named in the plan's acceptance criterion, so the
       task can succeed only if the Warden finds the file on the device.
+    - A Drone the Queen sent to the Hive Stand to check a lost device is never answered with the
+      scenario's script: that script runs commands on a device and counts its own attempts, and
+      the Hive Stand's check is neither.
+    - The command `DeviceDrone` runs is `sh` and what the base system ships and the packet's own
+      binary, because a clean device has no Python for a script to use.
 
 See Also:
     - tests/e2e/kernel_helpers.py for HaikuScript and the tool-call scripting this builds on.
@@ -45,21 +55,45 @@ from e2e.swarm.hive import HELLO, REPORT_FILE
 from hivemind.brood_chamber import Task, TaskFilter, is_terminal
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import Hive
-from hivemind.llm import LLMRequest, LLMResponse
+from hivemind.forage import ModelSlot
+from hivemind.llm import LLMRequest, LLMResponse, TextPart, ToolResultPart
+from hivemind.queen.swarm_gate.unreachable.hive_stand import FINDINGS_FILE
 from hivemind.swarm import SwarmNode
 from waggle.ids import TaskId
 
 GOAL_TEXT = "write a report on the borrowed device"
 FINISH_S = 90.0  # Longest a goal on a device takes to end, scratch and a held lease included.
+# What the Hive Stand's own check of a lost device opens its objective with
+# (`hivemind.queen.swarm_gate.unreachable.hive_stand.diagnosis_draft`): how a request for that
+# Drone is told from a scenario's own.
+CHECK_MARK = "Check reachability of device"
+INSPECT_FILE = "inspect.txt"  # What `DeviceDrone`'s command leaves in scratch, and it reads back.
+# What `DeviceDrone`'s one command reports: the device's own operating system and name, what the
+# packet's loader left in the environment of a program it started, and what the packet itself says
+# when a command in the lease runs it (a single-file program started by a single-file program: the
+# case a half-cleaned environment breaks).
+INSPECT = (
+    ". /etc/os-release; "
+    'echo "os=$PRETTY_NAME"; echo "host=$(hostname)"; echo "loader=[$LD_LIBRARY_PATH]"; '
+    'echo "nested=$(pollen version 2>&1)"'
+)
+_ACTED_AND_READ = 3  # Tool results seen once the first round's two calls and the read are done.
 
 __all__ = [
+    "CHECK_MARK",
     "FINISH_S",
     "GOAL_TEXT",
+    "INSPECT",
+    "INSPECT_FILE",
+    "DeviceDrone",
     "Script",
+    "check_turn",
     "command_turn",
     "finished",
+    "is_check_of_a_lost_device",
     "pinned_ceiling",
     "plan_for",
+    "request_text",
     "submit_pinned",
 ]
 
@@ -90,6 +124,69 @@ def command_turn(*attempts: Sequence[str]) -> WorkerTurn:
         return tool_response(request, (command, write_call(REPORT_FILE, HELLO)))
 
     return turn
+
+
+class DeviceDrone:
+    """The packaging scenario's Drone: a command and a file on a device, then a read of its report.
+
+    Attributes:
+        printed: Everything the tools returned in the attempt that read the report, once it has;
+            empty before.
+    """
+
+    def __init__(self) -> None:
+        """Start with nothing shown; `printed` is set when the model sees the report it read."""
+        self.printed = ""
+
+    def turn(self, request: LLMRequest) -> LLMResponse:
+        """Answer one WORKER-slot call: act, read the command's report back, then say so."""
+        rounds = tool_round_count(request)
+        if rounds == 0:
+            # The command's output goes to a file in scratch (its working directory) because the
+            # model is never shown a command's output, only the Capping gate's verdict on it.
+            report = f"( {INSPECT} ) > {INSPECT_FILE}"
+            command = ("inspect_device", "run_command", {"argv": ["sh", "-c", report]})
+            return tool_response(request, (command, write_call(REPORT_FILE, HELLO)))
+        if rounds < _ACTED_AND_READ:
+            read = ("read_inspection", "read_file", {"path": INSPECT_FILE})
+            return tool_response(request, (read,))
+        self.printed = _tool_results(request)
+        return text_response("Ran a command, wrote the report and read the inspection back.")
+
+
+def _tool_results(request: LLMRequest) -> str:
+    """Everything the tools returned in this attempt, native results and prompted text alike."""
+    texts = []
+    for message in request.messages:
+        for part in message.parts:
+            if isinstance(part, ToolResultPart):
+                texts.append(part.content)
+            elif isinstance(part, TextPart) and "Result for " in part.text:
+                texts.append(part.text)
+    return "\n".join(texts)
+
+
+def request_text(request: LLMRequest) -> str:
+    """Return every word of a request a person could read: the system prompt and each text part."""
+    texts = [request.system or ""]
+    for message in request.messages:
+        texts.extend(part.text for part in message.parts if isinstance(part, TextPart))
+    return "\n".join(texts)
+
+
+def is_check_of_a_lost_device(request: LLMRequest) -> bool:
+    """Whether a Drone's request is the Hive Stand's check of a lost device, not a scenario's."""
+    return request.slot is ModelSlot.WORKER and CHECK_MARK in request_text(request)
+
+
+def check_turn(request: LLMRequest) -> LLMResponse:
+    """The Hive Stand's check of a lost device, scripted: write the findings it is asked for."""
+    if tool_round_count(request) == 0:
+        findings = write_call(
+            FINDINGS_FILE, "The name resolves here; the fault looks like that device."
+        )
+        return tool_response(request, (findings,))
+    return text_response("The fault looks like that device, not this end of the link.")
 
 
 def plan_for(needs: Mapping[str, object] | None = None) -> dict[str, object]:
@@ -125,6 +222,11 @@ class Script:
 
     def responder(self, request: LLMRequest) -> LLMResponse:
         """Answer one model request: the plan, a Drone turn, or the kernel suite's other slots."""
+        # The Queen sends the Hive Stand's own Warden to look into a device that was lost. That
+        # Drone is the Hive's, not the scenario's: it must not spend one of the scenario's attempts
+        # or run its commands, which belong on the device.
+        if is_check_of_a_lost_device(request):
+            return check_turn(request)
         return HaikuScript(self._worker_turn, plan=self.plan).responder(request)
 
 
