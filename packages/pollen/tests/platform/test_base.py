@@ -6,7 +6,10 @@ operating system. The pieces every shim shares live in ``pollen.platform.base``:
 runs one service-manager command as an argument list, never through a shell, and reports a program
 that is missing as a status rather than an exception; ``launch_command`` is the argv a service
 unit runs; ``stop_group`` ends a whole process group, politely first when asked and by force
-after a short grace, so a program's children never outlive it. These tests run real programs.
+after a grace that the caller may lengthen (a lease's program gets a short one, the on-device
+Warden, which has a lease to give back, a long one), so a program's children never outlive it;
+``own_interpreter`` offers the running interpreter as one to build a runtime with. Most of these
+tests run real programs; the length of the grace is checked against a group that never leaves.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.platform.base.
@@ -14,6 +17,7 @@ Fits into the Hive:
 Key invariants:
     - A command that cannot run is a status of 127, never an exception.
     - A stopped group has no live member afterwards, even one that ignored the polite signal.
+    - A graceful stop waits the grace it is given and not longer than a group takes to leave.
 
 See Also:
     - docs/waggle/gateway-contract.md sections 3 and 11.
@@ -36,7 +40,14 @@ from pollen.platform import (
     SpawnSpec,
     launch_command,
 )
-from pollen.platform.base import COMMAND_UNAVAILABLE, run_command, stop_group
+from pollen.platform.base import (
+    COMMAND_UNAVAILABLE,
+    KILL_GRACE_S,
+    own_interpreter,
+    run_command,
+    stop_group,
+)
+from waggle.messages.session import ProcessSignal
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="process groups")
 TERM_PROOF = (
@@ -69,6 +80,14 @@ def test_the_launch_command_runs_this_interpreter_as_a_module(tmp_path: Path) ->
 def test_a_frozen_build_launches_itself(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert launch_command(tmp_path) == (sys.executable, "run", "--data-dir", str(tmp_path))
+
+
+def test_this_interpreter_is_offered_to_build_a_runtime_unless_the_build_is_frozen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert own_interpreter() == ((sys.executable,),)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert own_interpreter() == ()  # A frozen packet's executable is the packet, not Python.
 
 
 async def _reap(process: asyncio.subprocess.Process) -> None:
@@ -128,3 +147,70 @@ async def test_stopping_a_group_that_is_gone_does_nothing(tmp_path: Path) -> Non
     await _reap(process)
     ref = ProcessRef(process.pid, 0.0)
     assert await stop_group(shim, ref, graceful=True, clock=FastClock()) is False
+
+
+class _StubbornShim(LinuxShim):
+    """A shim over a group nobody can see, which stays until it is killed (or asked, if it may)."""
+
+    def __init__(self, home: Path, *, leaves_on_term: bool = False) -> None:
+        """Choose whether the polite signal is enough to end the group."""
+        super().__init__(home, {})
+        self.signals: list[ProcessSignal] = []
+        self._leaves_on_term = leaves_on_term
+        self._gone = False
+
+    def group_alive(self, ref: ProcessRef) -> bool:
+        """Say that the group is there until a signal that ends it was sent."""
+        return not self._gone
+
+    def signal_group(self, ref: ProcessRef, signal_: ProcessSignal) -> bool:
+        """Record the signal; KILL, and TERMINATE when the group is polite, ends the group."""
+        self.signals.append(signal_)
+        ends = signal_ is ProcessSignal.KILL or (
+            self._leaves_on_term and signal_ is ProcessSignal.TERMINATE
+        )
+        self._gone = self._gone or ends
+        return True
+
+
+class _CountingClock(FastClock):
+    """A clock that does not wait and adds up the time it was asked to wait."""
+
+    def __init__(self) -> None:
+        """Start with nothing waited."""
+        super().__init__(max_sleep_s=0.0)
+        self.waited_s = 0.0
+
+    async def sleep(self, seconds: float) -> None:
+        """Count ``seconds`` and only yield."""
+        self.waited_s += seconds
+        await super().sleep(seconds)
+
+
+async def test_a_graceful_stop_waits_the_grace_it_is_given_before_it_forces(
+    tmp_path: Path,
+) -> None:
+    ref = ProcessRef(4321, 1.0)
+    brief, long = _StubbornShim(tmp_path), _StubbornShim(tmp_path)
+    brief_clock, long_clock = _CountingClock(), _CountingClock()
+
+    assert await stop_group(brief, ref, graceful=True, clock=brief_clock) is True
+    assert await stop_group(long, ref, graceful=True, clock=long_clock, grace_s=3.0) is True
+
+    both = [ProcessSignal.TERMINATE, ProcessSignal.KILL]  # Asked, then forced.
+    assert brief.signals == long.signals == both
+    assert brief_clock.waited_s == pytest.approx(KILL_GRACE_S, abs=0.1)
+    assert long_clock.waited_s == pytest.approx(3.0, abs=0.1)
+
+
+async def test_a_graceful_stop_does_not_wait_out_the_grace_for_a_group_that_leaves(
+    tmp_path: Path,
+) -> None:
+    shim = _StubbornShim(tmp_path, leaves_on_term=True)
+    clock = _CountingClock()
+
+    assert await stop_group(shim, ProcessRef(4321, 1.0), graceful=True, clock=clock, grace_s=30.0)
+
+    assert clock.waited_s == 0.0
+    # Forced even so: a child the leader started may have outlived it.
+    assert shim.signals == [ProcessSignal.TERMINATE, ProcessSignal.KILL]

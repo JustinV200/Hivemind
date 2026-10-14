@@ -4,8 +4,10 @@ Linux and macOS share one way of running a program the way the Pollen Packet (th
 program on a device the Hive borrows) needs it: as the leader of a session and process group of
 its own, recorded as a pid together with its creation time so that a pid the kernel has recycled
 for something else is never signalled. The group is alive while the leader or a descendant lives
-(a zombie is not alive), and a signal goes to the whole group or to nothing. These tests start real
-programs through ``LinuxShim``, the concrete shim, and look at what the kernel says.
+(a zombie is not alive), and a signal goes to the whole group or to nothing. The same shim says
+which interpreters a POSIX host may have and where a virtual environment keeps its programs. These
+tests start real programs through ``LinuxShim``, the concrete shim, and look at what the kernel
+says.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.platform.posix through its concrete
@@ -14,6 +16,7 @@ Fits into the Hive:
 Key invariants:
     - A child spawned by the shim leads its own process group.
     - A reference with the wrong creation time names no process at all.
+    - A virtual environment's programs are under ``bin``.
 
 See Also:
     - docs/waggle/gateway-contract.md section 11 (process groups).
@@ -30,7 +33,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from pollen.platform import LinuxShim, ProcessRef, SpawnSpec
+from pollen.platform import LinuxShim, MacOsShim, ProcessRef, SpawnSpec
 from waggle.messages.session import ProcessSignal
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX process model")
@@ -148,6 +151,28 @@ async def test_a_descendant_keeps_the_group_alive_after_its_leader_goes(tmp_path
 
 def test_the_process_reference_of_a_missing_pid_has_no_creation_time(tmp_path: Path) -> None:
     assert LinuxShim(tmp_path, {}).process_ref(2**22 + 77) == ProcessRef(2**22 + 77, 0.0)
+
+
+@pytest.mark.parametrize("shim_class", [LinuxShim, MacOsShim])
+def test_a_posix_host_offers_its_usual_interpreters_and_then_this_one(
+    tmp_path: Path, shim_class: type[LinuxShim] | type[MacOsShim]
+) -> None:
+    candidates = shim_class(tmp_path, {}).python_candidates()
+
+    assert candidates[:3] == (("python3.13",), ("python3.12",), ("python3",))
+    assert candidates[-1] == (sys.executable,)
+
+
+@pytest.mark.parametrize("shim_class", [LinuxShim, MacOsShim])
+def test_a_virtual_environment_keeps_its_programs_in_bin(
+    tmp_path: Path, shim_class: type[LinuxShim] | type[MacOsShim]
+) -> None:
+    shim = shim_class(tmp_path, {})
+
+    assert shim.venv_executable(tmp_path / "venv", "python") == tmp_path / "venv/bin/python"
+    assert shim.venv_executable(tmp_path / "venv", "hivemind-in-cell") == (
+        tmp_path / "venv/bin/hivemind-in-cell"
+    )
 
 
 def test_the_facts_follow_the_environment(tmp_path: Path) -> None:

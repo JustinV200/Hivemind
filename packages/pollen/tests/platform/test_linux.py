@@ -14,6 +14,7 @@ Fits into the Hive:
 Key invariants:
     - Install writes one file and uninstall removes that one file.
     - The unit never restarts the packet after an exit status that a restart cannot fix.
+    - Stopping the packet's unit leaves the Warden it started running (``KillMode=process``).
     - ``ExecStart`` quotes by systemd's own rules, so a path with a space or a ``%`` survives.
 
 See Also:
@@ -87,6 +88,15 @@ def test_install_writes_the_unit_reloads_enables_and_starts_it(tmp_path: Path) -
     assert "Restart=on-failure\n" in text
     assert f"RestartPreventExitStatus={EXIT_NO_RESTART}\n" in text
     assert "WantedBy=default.target" in text
+
+
+def test_the_unit_stops_only_the_packet_so_a_warden_it_started_keeps_running(
+    tmp_path: Path,
+) -> None:
+    result = _shim(tmp_path, Systemctl()).install_service(_plan(tmp_path))
+
+    assert result.unit_path is not None
+    assert "KillMode=process\n" in result.unit_path.read_text()
 
 
 def test_install_without_a_user_manager_writes_the_unit_and_prints_the_command(

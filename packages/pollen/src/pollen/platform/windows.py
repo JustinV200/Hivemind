@@ -45,6 +45,7 @@ from pollen.platform.base import (
     ServicePlan,
     ServiceResult,
     SpawnSpec,
+    own_interpreter,
     run_command,
 )
 from waggle.messages.labels import OsFamily
@@ -171,6 +172,27 @@ class WindowsShim:
         # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
         result = self._runner(["taskkill", "/T", *flags, "/PID", str(ref.pid)])
         return result.returncode == 0
+
+    def python_candidates(self) -> tuple[tuple[str, ...], ...]:
+        """Return the launcher and interpreter names a Windows host usually has, then our own.
+
+        Returns:
+            ``py -3.13``, ``py -3.12``, ``python`` and, unless this is a frozen binary, the
+            interpreter running the packet.
+        """
+        return (("py", "-3.13"), ("py", "-3.12"), ("python",), *own_interpreter())
+
+    def venv_executable(self, venv: Path, name: str) -> Path:
+        """Return the ``Scripts`` entry of a Windows virtual environment for ``name``.
+
+        Args:
+            venv: The environment's directory.
+            name: ``python`` or a console script.
+
+        Returns:
+            The path of that program.
+        """
+        return venv / "Scripts" / f"{name}.exe"
 
     def facts(self) -> PlatformFacts:
         """Probe the device for the enrolment report.

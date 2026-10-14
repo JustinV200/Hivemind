@@ -5,11 +5,12 @@ macOS and Windows, and the Hive learns what a device is from the packet's own re
 is an existing device the Hive borrows for a task and leaves as found). Everything that differs
 by operating system sits behind this Protocol: where the data directory lives, how a child
 process is started in its own process group, how a whole group is probed and signalled, which
-facts the device reports about itself, and how the packet is installed as a service that starts
-at login. No other pollen module branches on the operating system, and the single place that
-picks an implementation is ``pollen.platform.select``. External commands (``systemctl``,
-``launchctl``, ``schtasks``) go through an injected ``CommandRunner`` so the install logic is
-tested on any host by recording the commands it would run.
+facts the device reports about itself, how the packet is installed as a service that starts
+at login, and, for colonization, which commands might start a Python interpreter here and where a
+virtual environment keeps its programs. No other pollen module branches on the operating system,
+and the single place that picks an implementation is ``pollen.platform.select``. External commands
+(``systemctl``, ``launchctl``, ``schtasks``) go through an injected ``CommandRunner`` so the
+install logic is tested on any host by recording the commands it would run.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Implemented by the Linux,
@@ -66,6 +67,7 @@ __all__ = [
     "ServiceResult",
     "SpawnSpec",
     "launch_command",
+    "own_interpreter",
     "run_command",
     "stop_group",
 ]
@@ -172,15 +174,35 @@ def launch_command(data_dir: Path) -> tuple[str, ...]:
     return (*base, "run", "--data-dir", str(data_dir))
 
 
-async def stop_group(shim: PlatformShim, ref: ProcessRef, *, graceful: bool, clock: Clock) -> bool:
+def own_interpreter() -> tuple[tuple[str, ...], ...]:
+    """Return the interpreter running this process as a candidate to build a runtime with.
+
+    Returns:
+        This process's interpreter as one command, unless it is a frozen single-file build, which
+        has no interpreter of its own to offer (an empty tuple).
+    """
+    # A PyInstaller binary's sys.executable is the packet itself, which cannot run ``-m venv``.
+    return () if getattr(sys, "frozen", False) else ((sys.executable,),)
+
+
+async def stop_group(
+    shim: PlatformShim,
+    ref: ProcessRef,
+    *,
+    graceful: bool,
+    clock: Clock,
+    grace_s: float = KILL_GRACE_S,
+) -> bool:
     """End a whole process group: ask politely when ``graceful``, then force it.
 
     Args:
         shim: The platform shim that signals the group.
         ref: A process the lease started.
-        graceful: Send TERMINATE first and wait up to KILL_GRACE_S for the group to leave; an
+        graceful: Send TERMINATE first and wait up to ``grace_s`` for the group to leave; an
             immediate stop forces it at once.
         clock: Sleeps between looks at the group.
+        grace_s: How long a graceful stop waits before forcing the group; a lease's program gets
+            the short default, the on-device Warden, which has a lease to give back, a long one.
 
     Returns:
         True if the group was alive when asked; False if there was nothing to stop.
@@ -189,7 +211,7 @@ async def stop_group(shim: PlatformShim, ref: ProcessRef, *, graceful: bool, clo
         return False
     if graceful:
         shim.signal_group(ref, ProcessSignal.TERMINATE)
-        await _wait_gone(shim, ref, KILL_GRACE_S, clock)
+        await _wait_gone(shim, ref, grace_s, clock)
     # Forced even after a polite exit: a child the leader started may have outlived it.
     shim.signal_group(ref, ProcessSignal.KILL)
     await _wait_gone(shim, ref, GROUP_REAP_WAIT_S, clock)
@@ -273,6 +295,27 @@ class PlatformShim(Protocol):
 
         Returns:
             The operating system, distribution, architecture, package manager, shell and flags.
+        """
+        ...
+
+    def python_candidates(self) -> tuple[tuple[str, ...], ...]:
+        """Return the commands that might start a Python interpreter here, best first.
+
+        Returns:
+            Each command as an argument list (``("py", "-3.12")`` is one); the colonization step
+            asks each for its version and takes the first that is new enough.
+        """
+        ...
+
+    def venv_executable(self, venv: Path, name: str) -> Path:
+        """Return where a virtual environment at ``venv`` puts the program ``name``.
+
+        Args:
+            venv: The environment's directory.
+            name: A program the environment installs: ``python``, or a console script.
+
+        Returns:
+            The path of that program, whose layout (``bin`` or ``Scripts``) differs by platform.
         """
         ...
 

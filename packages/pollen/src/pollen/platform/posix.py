@@ -45,6 +45,7 @@ from pollen.platform.base import (
     PlatformFacts,
     ProcessRef,
     SpawnSpec,
+    own_interpreter,
     run_command,
 )
 from waggle.messages.labels import OsFamily
@@ -157,6 +158,27 @@ class PosixShim:
         except (ProcessLookupError, PermissionError):
             return False  # It exited between the check and the signal: nothing left to do.
         return True
+
+    def python_candidates(self) -> tuple[tuple[str, ...], ...]:
+        """Return the interpreters a POSIX host usually has, newest first, then this process's own.
+
+        Returns:
+            ``python3.13``, ``python3.12``, ``python3`` and, unless this is a frozen binary, the
+            interpreter running the packet.
+        """
+        return (("python3.13",), ("python3.12",), ("python3",), *own_interpreter())
+
+    def venv_executable(self, venv: Path, name: str) -> Path:
+        """Return ``venv/bin/<name>``, where a POSIX virtual environment keeps its programs.
+
+        Args:
+            venv: The environment's directory.
+            name: ``python`` or a console script.
+
+        Returns:
+            The path of that program.
+        """
+        return venv / "bin" / name
 
     def facts(self) -> PlatformFacts:
         """Probe the device for the enrolment report.

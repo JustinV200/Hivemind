@@ -13,6 +13,7 @@ Fits into the Hive:
 Key invariants:
     - The Scheduled Task is created, started and removed by name; nothing else is touched.
     - A tree is ended with ``taskkill /T`` (forced with ``/F``), and only the pid the lease started.
+    - A virtual environment's programs are ``.exe`` files under ``Scripts``.
 
 See Also:
     - docs/waggle/gateway-contract.md section 3.
@@ -52,6 +53,26 @@ def test_the_data_directory_is_under_local_app_data(tmp_path: Path) -> None:
     assert configured.default_data_dir() == tmp_path / "local" / "pollen"
     fallback = WindowsShim(tmp_path, {}, Schtasks())
     assert fallback.default_data_dir() == tmp_path / "AppData" / "Local" / "pollen"
+
+
+def test_a_windows_host_offers_the_launcher_for_the_newest_python_and_then_this_one(
+    tmp_path: Path,
+) -> None:
+    candidates = WindowsShim(tmp_path, {}, Schtasks()).python_candidates()
+
+    assert candidates[:3] == (("py", "-3.13"), ("py", "-3.12"), ("python",))
+    assert candidates[-1] == (sys.executable,)
+
+
+def test_a_virtual_environment_keeps_its_programs_in_scripts(tmp_path: Path) -> None:
+    shim = WindowsShim(tmp_path, {}, Schtasks())
+
+    assert shim.venv_executable(tmp_path / "venv", "python") == (
+        tmp_path / "venv" / "Scripts" / "python.exe"
+    )
+    assert shim.venv_executable(tmp_path / "venv", "hivemind-in-cell").name == (
+        "hivemind-in-cell.exe"
+    )
 
 
 def test_install_creates_and_starts_the_scheduled_task(tmp_path: Path) -> None:

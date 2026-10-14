@@ -173,6 +173,10 @@ def _unit_text(plan: ServicePlan) -> str:
         "RestartSec=5\n"
         # Not enrolled, or a Queen that speaks another protocol major: a restart cannot help.
         f"RestartPreventExitStatus={EXIT_NO_RESTART}\n"
+        # The on-device Warden (ADR-0052) is a child of the packet, kept alive on purpose: a
+        # restarted packet finds it again. systemd would otherwise kill the whole control group when
+        # the packet stops or crashes, taking the Warden and its sub-bees' work with it.
+        "KillMode=process\n"
         "\n"
         "[Install]\n"
         "WantedBy=default.target\n"
