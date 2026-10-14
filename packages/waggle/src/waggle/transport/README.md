@@ -7,9 +7,11 @@ kind, signature) happens in the `Codec` it is built with. Delivery at this layer
 with ordering preserved within one connection; retries and durability belong to the caller
 through `waggle.outbox`. The one place a transport has a policy is the Hive Stand's listener,
 which defends itself (roadmap steps 11.3a and 11.3b): a frame ceiling per connection, a replay
-window shared by all of them, and `wss://` with a certificate a dialling node pins.
+window shared by all of them, and `wss://` with a certificate a dialling node pins. The sender's
+half of the duplicate story is `recent/`: a node whose connection died without anyone noticing sends
+again, under the same envelope ids, the frames it sent in the stretch the dead link swallowed.
 
-## Public API (roadmap steps 1.4 to 1.6, 10.3a, 11.3a and 11.3b)
+## Public API (roadmap steps 1.4 to 1.6, 10.3a, 11.3a, 11.3b and 11.9)
 
 - **`Transport`** (`base.py`): `connect()`, `send(envelope)`, `receive()` (an async generator:
   `async for envelope in transport.receive()`), `close()` and `is_connected`. The docstring is the
@@ -60,6 +62,21 @@ window shared by all of them, and `wss://` with a certificate a dialling node pi
   `envelope_id`, `at`) as `guard.frame_ceiling` or `guard.replay_refused`.
   `WebSocketTransport` consults the listener through `ReceiveHooks`, which `ConnectionLimiter`
   satisfies; a dialled connection has no hooks.
+- **Recent frames** (`recent/`, a package; roadmap step 11.9): a `send` that returns has put a
+  frame on a connection, not in the receiver's hands, and a cable pulled out from under a node
+  leaves the connection looking alive until the keepalive gives up (`PING_INTERVAL_S +
+  PING_TIMEOUT_S`, forty seconds), so every frame sent in that time returns as sent and is lost.
+  `RecentFrames` (`ring.py`) is the pure, bounded memory of what a node sent lately: at most
+  `MAX_RECENT_FRAMES` (256) and `MAX_RECENT_BYTES` (4 MiB), oldest first, none from more than
+  `UNNOTICED_S` (80 s, twice the keepalive) before the newest frame or before the link was lost,
+  and `due(lost_at, now)` offers only frames the receiver's replay window still remembers
+  (`RESEND_HORIZON_S`, a minute short of `REPLAY_WINDOW_S`), because one she had handled and
+  forgotten would be handled twice. `RememberingTransport` (`remembering.py`) wraps a `Transport`:
+  it remembers each frame its node says must arrive once the inner `send` returned, and `resend`
+  sends the frames due again on a new connection, oldest first, under their own ids (the
+  receiver's window drops what it held). `clear` forgets everything when the peer closed with a
+  close frame, which reads everything sent before it. Time is a reading of the injected `Clock`'s
+  `monotonic`, passed in, so tests need no timer.
 - **TLS** (`tls.py`): `server_ssl_context(cert, key)` builds the listener's context (TLS 1.2 or
   later); `DialOptions.tls_pin_sha256` makes a `wss://` dial trust one certificate by its
   SHA-256 fingerprint (`certificate_sha256`, 64 lowercase hex) instead of a certificate

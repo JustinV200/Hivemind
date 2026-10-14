@@ -11,7 +11,10 @@ transport for anything that crosses a process or machine boundary, split into th
 the Codec; transports are policy-free carriers of bytes. The one exception is the listener's own
 defence (phase 11): given ``ServerLimits`` it counts each connection's frames against a ceiling
 and drops a duplicate envelope id seen again inside a replay window shared by all connections, and
-it can serve ``wss://`` with a certificate a dialling node pins by fingerprint (``tls``).
+it can serve ``wss://`` with a certificate a dialling node pins by fingerprint (``tls``). The
+sender's half of that duplicate story is ``recent``: a bounded memory of what a node sent in the
+last ``UNNOTICED_S`` that must arrive, which a node whose connection died unnoticed sends again,
+under the same ids, when it has a new one.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen), inside the waggle package.
@@ -32,6 +35,8 @@ Key invariants:
       duplicate is dropped before any receiver sees it, each reported to the caller's callback.
     - A dial with a certificate pin never completes against another certificate, and a mismatch
       is never retried (``TlsPinMismatchError``).
+    - A frame a node sends again after a lost connection goes out under the id it first had, so a
+      receiver's replay window drops what it already holds; the memory behind it is bounded.
 
 See Also:
     - docs/waggle/spec.md section 9 for the contract every implementation is held to.
@@ -54,6 +59,9 @@ Public API:
       RefusalHandler: a listener's limits, the objects that apply them, and the refusal it
       reports (kind REPLAY or FRAME_CEILING, with the node id and the envelope id).
     - ReplayWindow and ReplayLimits: the pure per-node window of envelope ids seen.
+    - RecentFrames, RecentLimits and RememberingTransport (the ``recent`` package): the sender's
+      bounded memory of what it sent lately, and the Transport wrapper that fills it and sends it
+      again when a connection is made again.
     - FrameCeiling and CeilingLimits: the pure token bucket behind the frame ceiling.
     - CLOSE_FRAME_CEILING: the close code (4029) a listener sends a connection over its ceiling.
     - server_ssl_context, pinned_client_ssl_context, certificate_sha256, is_valid_pin,
@@ -62,7 +70,8 @@ Public API:
     - The commented constants behind them: PING_INTERVAL_S, PING_TIMEOUT_S, CLOSE_TIMEOUT_S,
       RECONNECT_INITIAL_S, RECONNECT_FACTOR, RECONNECT_MAX_S, OPEN_TIMEOUT_S,
       DEFAULT_MAX_ATTEMPTS, DEFAULT_HOST, OS_ASSIGNED_PORT, REPLAY_WINDOW_S, MAX_REMEMBERED_IDS,
-      MAX_FRAMES_PER_MINUTE, BURST_FRAMES, REFUSAL_REPORT_TIMEOUT_S, PIN_HEX_CHARS, ABORT_WAIT_S.
+      MAX_FRAMES_PER_MINUTE, BURST_FRAMES, REFUSAL_REPORT_TIMEOUT_S, PIN_HEX_CHARS, ABORT_WAIT_S,
+      UNNOTICED_S, RESEND_HORIZON_S, MAX_RECENT_FRAMES, MAX_RECENT_BYTES.
 """
 
 from waggle.transport.base import (
@@ -91,6 +100,15 @@ from waggle.transport.limits import (
     ServerLimits,
 )
 from waggle.transport.memory import MemoryTransport
+from waggle.transport.recent import (
+    MAX_RECENT_BYTES,
+    MAX_RECENT_FRAMES,
+    RESEND_HORIZON_S,
+    UNNOTICED_S,
+    RecentFrames,
+    RecentLimits,
+    RememberingTransport,
+)
 from waggle.transport.replay import (
     MAX_REMEMBERED_IDS,
     REPLAY_WINDOW_S,
@@ -143,6 +161,8 @@ __all__ = [
     "DEFAULT_HOST",
     "DEFAULT_MAX_ATTEMPTS",
     "MAX_FRAMES_PER_MINUTE",
+    "MAX_RECENT_BYTES",
+    "MAX_RECENT_FRAMES",
     "MAX_REMEMBERED_IDS",
     "OPEN_TIMEOUT_S",
     "OS_ASSIGNED_PORT",
@@ -154,6 +174,8 @@ __all__ = [
     "RECONNECT_MAX_S",
     "REFUSAL_REPORT_TIMEOUT_S",
     "REPLAY_WINDOW_S",
+    "RESEND_HORIZON_S",
+    "UNNOTICED_S",
     "CeilingLimits",
     "ConnectionLimiter",
     "ConnectionRefusal",
@@ -161,8 +183,11 @@ __all__ = [
     "FrameCeiling",
     "MemoryTransport",
     "ReceiveHooks",
+    "RecentFrames",
+    "RecentLimits",
     "RefusalHandler",
     "RefusalKind",
+    "RememberingTransport",
     "ReplayLimits",
     "ReplayWindow",
     "ServerLimiter",
