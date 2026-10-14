@@ -295,6 +295,23 @@ def test_read_in_cell_env_reads_every_recognised_variable() -> None:
     assert env.environ == raw
 
 
+def test_read_in_cell_env_reads_the_offline_limit_as_seconds() -> None:
+    """HIVEMIND_MAX_OFFLINE_S is the Hive's `[supervision] max_offline_s`, told to a Cell."""
+    assert read_in_cell_env({}).max_offline_s is None
+
+    assert read_in_cell_env({"HIVEMIND_MAX_OFFLINE_S": "90.5"}).max_offline_s == 90.5
+    assert read_in_cell_env({"HIVEMIND_MAX_OFFLINE_S": " 12 "}).max_offline_s == 12.0
+
+
+@pytest.mark.parametrize("text", ["soon", "", "0", "-5", "nan", "inf", "-inf"])
+def test_read_in_cell_env_rejects_an_offline_limit_that_is_not_a_positive_finite_number(
+    text: str,
+) -> None:
+    # A limit that never passes would cluster nothing, and one that passes at once everything.
+    with pytest.raises(ManifestError, match="HIVEMIND_MAX_OFFLINE_S"):
+        read_in_cell_env({"HIVEMIND_MAX_OFFLINE_S": text})
+
+
 def test_read_in_cell_env_reads_the_scratch_root_override_as_a_path() -> None:
     """HIVEMIND_SCRATCH_ROOT lets a host without /var/lib/hivemind (Linux CI) run a Cell."""
     assert read_in_cell_env({}).scratch_root is None

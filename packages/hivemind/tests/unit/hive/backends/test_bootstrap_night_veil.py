@@ -148,6 +148,21 @@ def test_the_minted_night_veil_environment_names_only_the_hidden_service() -> No
     assert "localhost" not in "".join(environment.values())
 
 
+def test_the_offline_limit_the_hive_sets_reaches_the_cell_and_none_leaves_its_default() -> None:
+    # A Night Veil Cell's Tor link can drop under it, and its Warden clusters fully once the link
+    # has been down this long; it holds no manifest, so the Hive tells it (roadmap step 10.3a).
+    told = dataclasses.replace(_endpoint(), max_offline_s=90.0)
+    chosen = cell_endpoint(told, _spec(CombShieldLevel.NIGHT_VEIL), "docker")
+    clock = FakeClock()
+
+    environment = mint_cell_bootstrap(new_hive_id(clock), chosen, clock).environment()
+    unset = mint_cell_bootstrap(new_hive_id(clock), _endpoint(), clock).environment()
+
+    assert chosen.max_offline_s == 90.0  # It survives the choice of the Cell's own endpoint.
+    assert float(environment["HIVEMIND_MAX_OFFLINE_S"]) == 90.0
+    assert "HIVEMIND_MAX_OFFLINE_S" not in unset
+
+
 def test_a_night_veil_cell_on_a_hive_with_no_link_is_refused() -> None:
     with pytest.raises(CellProvisionError, match="hidden service") as caught:
         cell_endpoint(_endpoint(None), _spec(CombShieldLevel.NIGHT_VEIL), "qemu")

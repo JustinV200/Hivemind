@@ -69,9 +69,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, ValidationError
 
 from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.schema import HiveManifest, ProviderSpec
@@ -81,6 +81,9 @@ from hivemind.manifest.schema import HiveManifest, ProviderSpec
 _TRUE_BOOL_LITERALS = frozenset({"1", "true", "yes"})
 # The two [hive] env values; kept as a tuple so the validator's error message can list them.
 _ENV_LITERALS = ("dev", "prod")
+# What HIVEMIND_MAX_OFFLINE_S must be: a limit that never passes (or passes at once) would cluster
+# nothing, or everything, so it is a positive, finite number of seconds.
+_SECONDS: TypeAdapter[float] = TypeAdapter(Annotated[float, Field(gt=0, allow_inf_nan=False)])
 # Every variable with this prefix goes to the Entrance's tunnel child, renamed without it
 # (ADR-0041): HIVEMIND_ENTRANCE_TUNNEL_TUNNEL_TOKEN reaches cloudflared as TUNNEL_TOKEN.
 TUNNEL_VARIABLE_PREFIX = "HIVEMIND_ENTRANCE_TUNNEL_"
@@ -226,6 +229,10 @@ class InCellEnv(BaseModel):
         description="HIVEMIND_SOCKS_PROXY_URL: the loopback SOCKS proxy (socks5h/socks4a) every "
         "Waggle dial goes through: a Night Veil Cell's Tor SOCKS port (roadmap step 10.3a).",
     )
+    max_offline_s: float | None = Field(
+        default=None,
+        description="HIVEMIND_MAX_OFFLINE_S: the Hive's `[supervision] max_offline_s`, in seconds.",
+    )
     comb_shield: str | None = Field(
         default=None,
         description="HIVEMIND_COMB_SHIELD: the tier the Queen provisioned this Cell at (roadmap "
@@ -310,8 +317,9 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
 
     Raises:
         ManifestError: `HIVEMIND_LLM_OFFLINE` is set to a value `_read_offline_flag` does not
-            recognise (the same rule `read_env` applies for the Hive Stand); never raised for a
-            variable that is simply absent.
+            recognise (the same rule `read_env` applies for the Hive Stand), or
+            `HIVEMIND_MAX_OFFLINE_S` is not a positive, finite number of seconds; never raised for
+            a variable that is simply absent.
     """
     signing_key = environ.get("HIVEMIND_CELL_SIGNING_KEY")
     signing_key_file = environ.get("HIVEMIND_CELL_SIGNING_KEY_FILE")
@@ -329,6 +337,7 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         queen_verify_key_hex=environ.get("HIVEMIND_QUEEN_VERIFY_KEY"),
         queen_verify_key_file=Path(verify_key_file) if verify_key_file is not None else None,
         socks_proxy_url=environ.get("HIVEMIND_SOCKS_PROXY_URL"),
+        max_offline_s=_read_offline_limit(environ),
         comb_shield=environ.get("HIVEMIND_COMB_SHIELD"),
         reservation_json=environ.get("HIVEMIND_RESERVATION"),
         scratch_root=Path(scratch_root) if scratch_root is not None else None,
@@ -469,6 +478,16 @@ def _read_offline_flag(environ: Mapping[str, str]) -> bool | None:
         f"HIVEMIND_LLM_OFFLINE={raw!r} is not a recognised boolean "
         f"(expected one of {sorted(_TRUE_BOOL_LITERALS)}, case-insensitive)."
     )
+
+
+def _read_offline_limit(environ: Mapping[str, str]) -> float | None:
+    """Parse HIVEMIND_MAX_OFFLINE_S, or return None when it is not set."""
+    if (raw := environ.get("HIVEMIND_MAX_OFFLINE_S")) is None:
+        return None
+    try:
+        return _SECONDS.validate_python(raw)
+    except ValidationError as exc:
+        raise ManifestError(f"HIVEMIND_MAX_OFFLINE_S={raw!r} is not a positive number.") from exc
 
 
 def _read_tunnel_environ(environ: Mapping[str, str]) -> dict[str, SecretStr]:

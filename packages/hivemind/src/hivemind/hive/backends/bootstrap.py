@@ -110,6 +110,9 @@ _ENV_CELL_SIGNING_KEY = "HIVEMIND_CELL_SIGNING_KEY"
 _ENV_QUEEN_VERIFY_KEY = "HIVEMIND_QUEEN_VERIFY_KEY"
 _ENV_SOCKS_PROXY_URL = "HIVEMIND_SOCKS_PROXY_URL"
 _ENV_COMB_SHIELD = "HIVEMIND_COMB_SHIELD"  # The Cell's own tier, so its floors see it (10.3a).
+# How long the Cell's Warden may stay cut off before it clusters fully: the Hive's own
+# `[supervision] max_offline_s`, which a Cell has no manifest to read it from.
+_ENV_MAX_OFFLINE_S = "HIVEMIND_MAX_OFFLINE_S"
 # What the backend reserves for the Cell (hivemind.hive.models.CellReservation, as JSON): the
 # capacity it reports, since a container's own probe would read the host's cores, memory and load.
 _ENV_RESERVATION = "HIVEMIND_RESERVATION"
@@ -229,6 +232,10 @@ class QueenEndpoint:
         cell_id: The id that Cell's lifecycle minted for it as provisioning began
             (`cell_endpoint` sets it from the Cell's spec), which `mint_cell_bootstrap` then
             gives the Cell; None mints a fresh one there.
+        max_offline_s: The Hive's `[supervision] max_offline_s`, rendered as
+            `HIVEMIND_MAX_OFFLINE_S`: how long a Night Veil Cell's Warden, whose Tor link can drop
+            under it, waits for the link before it clusters fully (roadmap step 10.3a). None leaves
+            the Cell on the manifest's shipped default.
     """
 
     waggle_url: str
@@ -243,6 +250,7 @@ class QueenEndpoint:
     comb_shield: CombShieldLevel = CombShieldLevel.MEADOW
     reservation: CellReservation | None = None
     cell_id: CellId | None = None
+    max_offline_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,7 +273,8 @@ class CellBootstrap:
         Returns:
             A mapping ready to hand a backend's container/VM creation call as the Cell's own
             environment. `HIVEMIND_SOCKS_PROXY_URL` is present only when `endpoint.socks_proxy_url`
-            is set; `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` (plus every provider's own
+            is set, and `HIVEMIND_MAX_OFFLINE_S` only when `endpoint.max_offline_s` is;
+            `HIVEMIND_PROVIDERS`/`HIVEMIND_SLOTS` (plus every provider's own
             `HIVEMIND_<NAME>_API_KEY`, and `HIVEMIND_LLM_OFFLINE`) only when `endpoint.providers` is
             non-empty (this method's own Key invariants); every other key is always present.
         """
@@ -290,6 +299,8 @@ class CellBootstrap:
         # omitting the key rather than sending an empty string keeps both sides agreeing on None.
         if self.endpoint.socks_proxy_url is not None:
             env[_ENV_SOCKS_PROXY_URL] = self.endpoint.socks_proxy_url
+        if self.endpoint.max_offline_s is not None:
+            env[_ENV_MAX_OFFLINE_S] = repr(self.endpoint.max_offline_s)
         if self.endpoint.providers:
             env[_ENV_PROVIDERS] = render_providers_json(self.endpoint.providers)
             env[_ENV_SLOTS] = render_slots_json(self.endpoint.slots)

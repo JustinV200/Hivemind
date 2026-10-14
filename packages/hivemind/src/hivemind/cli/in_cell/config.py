@@ -82,6 +82,7 @@ from hivemind.hive import CellReservation
 from hivemind.llm import RateLimit
 from hivemind.llm.registry import ProviderConfig, ProviderKind
 from hivemind.manifest.env import InCellEnv
+from hivemind.manifest.schema.supervision import DEFAULT_MAX_OFFLINE_S
 from hivemind.wardens.spawn import InCellSpawnConfig
 from waggle.clock import Clock
 from waggle.errors import InvalidIdError
@@ -163,6 +164,10 @@ class InCellRuntimeConfig:
         hive_stand_addresses: The addresses the Queen's host resolved to, once, at start
             (`hivemind.cli.in_cell.hive_stand`); empty until then, and always for a Night Veil
             Cell, whose onion host is never resolved here.
+        max_offline_s: How long this Cell's Warden may stay cut off from the Queen before it
+            clusters fully, from `HIVEMIND_MAX_OFFLINE_S` (the Hive's `[supervision]
+            max_offline_s`); the manifest's shipped default when unset. Used only by a Warden whose
+            link can drop under it, a Night Veil Cell's (`hivemind.cli.in_cell.redial`).
     """
 
     queen_waggle_url: str
@@ -182,6 +187,7 @@ class InCellRuntimeConfig:
     llm_offline: bool
     environ: Mapping[str, str]
     hive_stand_addresses: tuple[IPAddress, ...] = ()
+    max_offline_s: float = DEFAULT_MAX_OFFLINE_S
 
 
 def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
@@ -226,6 +232,7 @@ def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
         slots=_parse_slots(env.slots_json),
         llm_offline=env.llm_offline or False,
         environ=env.environ,
+        max_offline_s=env.max_offline_s or DEFAULT_MAX_OFFLINE_S,
     )
 
 

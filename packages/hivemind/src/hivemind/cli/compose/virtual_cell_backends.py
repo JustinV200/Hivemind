@@ -288,6 +288,9 @@ def _endpoint_for(
         # Roadmap step 10.3a: how a Night Veil Cell reaches the Queen instead, chosen per Cell
         # at provisioning (`hivemind.hive.backends.bootstrap.cell_endpoint`).
         night_veil=night_veil_link(ctx.manifest),
+        # Roadmap step 10.3a: a Night Veil Cell's Tor link can drop, and its Warden clusters fully
+        # once it has been down this long; the Cell holds no manifest to read the limit from.
+        max_offline_s=ctx.manifest.supervision.max_offline_s,
     )
 
 

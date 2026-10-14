@@ -22,13 +22,18 @@ import pytest
 from builders.cli import fake_manifest
 
 from hivemind.cli.compose import virtual_cell_backends
+from hivemind.cli.compose.virtual_cell_backends import RegistryContext
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.hive.backends.docker.backend import DockerCellBackend
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.manifest import load_manifest
 from hivemind.manifest.schema.placement import VirtualCellsSection
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen.cell_gate.gate import QueenReadinessGate
+from hivemind.queen.cell_gate.listener import CellListener, CellListenerDeps
 from waggle.clock import FakeClock
+from waggle.ids import new_hive_id, new_node_id
+from waggle.signing import Ed25519Signer
 
 _SUBNET = "10.213.7.0/24"
 _GATEWAY = "10.213.7.1"
@@ -77,6 +82,25 @@ async def test_without_a_control_subnet_there_is_nothing_to_prepare(
     assert isinstance(backend.client, FakeDockerClient)
     assert backend.client.ensure_network_calls == []
     assert not backend.capabilities.can_cut_egress
+
+
+def test_the_hives_offline_limit_is_told_to_every_cell_it_provisions(tmp_path: Path) -> None:
+    # A Night Veil Cell's Tor link can drop under it; its Warden clusters fully past this limit,
+    # and a Cell holds no manifest to read it from (roadmap step 10.3a).
+    clock = FakeClock()
+    manifest = load_manifest(fake_manifest(tmp_path))
+    supervision = manifest.supervision.model_copy(update={"max_offline_s": 75.0})
+    manifest = manifest.model_copy(update={"supervision": supervision})
+    gate, signer, node_id = QueenReadinessGate(), Ed25519Signer.generate(), new_node_id(clock)
+    listener = CellListener(CellListenerDeps(gate, signer, node_id, new_hive_id(clock)), clock)
+    section = VirtualCellsSection.model_validate(
+        {"backend": "fake", "advertise_url": "ws://localhost:8710"}
+    )
+    ctx = RegistryContext(manifest, section, gate, listener, signer, node_id, {})
+
+    endpoint = virtual_cell_backends._endpoint_for(ctx, docker=False)
+
+    assert endpoint.max_offline_s == 75.0
 
 
 async def test_a_fake_backend_hive_prepares_nothing(tmp_path: Path) -> None:
