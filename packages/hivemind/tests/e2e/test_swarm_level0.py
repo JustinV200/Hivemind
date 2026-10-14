@@ -216,10 +216,13 @@ async def _assert_revocation_cuts_the_device_off(hive: Hive, node: SwarmNode) ->
 
     await revoke(hive, node.device_id)
 
-    # Stopped, detached from the Queen and cut off, in the gate's own order and time.
+    # Stopped, detached from the Queen and cut off, in the gate's own order and time: the Warden
+    # goes first (it releases its lease over the link) and the link is closed after it, so each
+    # is waited for in turn rather than the second read the moment the first holds.
+    hub = hive.swarm.listener.hub
     await wait_until(lambda: node.warden_id not in attached_warden_ids(hive), timeout_s=_WAIT_S)
+    await wait_until(lambda: hub.link(node.device_id) is None, timeout_s=_WAIT_S)
     assert gate.wardens.get(node.device_id) is None
     assert warden.state is WardenState.STOPPED
-    assert hive.swarm.listener.hub.link(node.device_id) is None
     # The Hive Stand's own Warden carries on.
     assert hive.warden_link.warden_id in attached_warden_ids(hive)
