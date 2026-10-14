@@ -35,6 +35,12 @@ ref` indexes every checkpoint into. A task with no such entry (the paused bee's 
 not landed, or Bee Bread has already demoted it past this reader's own lookup-by-id-and-task
 window) resumes with `resume_from=None` instead of failing outright, matching docs/adr/0024's own
 "a bee whose Handoff cannot be read resumes from the task's last acceptance state instead".
+That entry is the Queen's own tier, and a Warden that is not hers (a Virtual Cell's, a colonized
+device's) keeps its bees' Handoffs in a store of its own, so `resume` asks the recall of
+`hivemind.queen.swarm_gate.recall` instead (`_newest_handoff`): it starts from that same entry,
+prefers a newer HANDOFF Nectar the bee deposited, and refuses what a recall refuses everywhere (a
+Night Veil Cell's, a tainted one, one written under a standing isolation, one above the task's
+clearance). `latest_handoff` itself stays the pause's own check that a checkpoint has landed.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's cluster
@@ -42,7 +48,8 @@ Fits into the Hive:
     `hivemind.queen.cluster.triggers`'s cost-cap check. Calls into `hivemind.brood_chamber`
     (TaskStatus), `hivemind.cell` (HoneyClearance), `hivemind.memory` (BeeBreadEntryKind),
     `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.dispatcher` (resume_paused),
-    `hivemind.queen.state` (ClusterState), `hivemind.queen.trail` (record_event),
+    `hivemind.queen.state` (ClusterState), `hivemind.queen.swarm_gate.recall` (recall_handoff,
+    imported where it is used), `hivemind.queen.trail` (record_event),
     `hivemind.supervision.intervention` (Handoff, to_wire) and waggle only.
 
 Key invariants:
@@ -56,6 +63,8 @@ Key invariants:
       clustered_providers` (or not in it, for `resume`) still runs its own side effects the first
       time only, reported through `ClusterOutcome.already_clustered`/`ResumeOutcome.
       already_running`.
+    - `resume` resumes each task from the newest Handoff the Queen can hold for it, a Handoff only
+      the Honey Store has (a remote Warden's) included, under the refusals the recall applies.
     - `pause_on_warden` is `cluster`'s pause for one Warden's tasks, whatever the cause; it records
       no `queen.clustered` and sets no mode, since nothing about a provider changed.
     - A pause waits for a bee's Handoff in scheduling turns and never in real time, unless its
@@ -83,7 +92,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivemind.brood_chamber import TaskFilter, TaskStatus
+from hivemind.brood_chamber import Task, TaskFilter, TaskStatus
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ForageGrant, ForageMap, UnknownSourceError
@@ -306,7 +315,7 @@ async def resume(
         task = await deps.chamber.get(task_id)
         if task.status is not TaskStatus.PAUSED:
             continue  # Cancelled, or already resumed by another path; nothing to redo here.
-        resume_from = await latest_handoff(deps, task_id)
+        resume_from = await _newest_handoff(deps, task)
         await resume_paused(deps, wardens, task_id, resume_from, "Clustering resumed.")
         task_ids.append(task_id)
 
@@ -345,6 +354,23 @@ def _grant_uses_provider(grant: ForageGrant, provider: str, forage_map: ForageMa
         if source.spec.provider == provider:
             return True
     return False
+
+
+async def _newest_handoff(deps: QueenDeps, task: Task) -> HandoffRef | None:
+    """Return the newest Handoff the Queen can hold for a paused `task`, or None.
+
+    A Warden that is not the Queen's own keeps its bees' Handoffs in a store of its own, so her Bee
+    Bread holds at best the one a move carried, and the newest is only the HANDOFF Nectar its bee
+    deposited. The recall finds it under the refusals every recall applies (Night Veil, tainted,
+    written under a standing isolation, above the task's clearance), and returns the one she holds
+    when nothing newer may be used. A task never placed holds only what she has.
+    """
+    # Local, not module-level: the swarm gate imports this package (see the TYPE_CHECKING block).
+    from hivemind.queen.swarm_gate.recall import recall_handoff
+
+    if task.cell_id is None:
+        return await latest_handoff(deps, task.id)
+    return await recall_handoff(deps, task.cell_id, task)
 
 
 async def _wait_for_checkpoint(deps: QueenDeps, task_id: TaskId, patience_s: float = 0.0) -> None:

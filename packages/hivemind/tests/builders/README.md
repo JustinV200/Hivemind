@@ -205,3 +205,15 @@ everything else as usual; `failures` counts the raises. Passed as a Worker's `tr
 `make_warden_deps(trail=...)`, it kills one bee's runtime on `worker.started` and lets the next one
 live, which is how `unit/wardens/test_warden_runtime_death.py` and `unit/workers/runtime/
 test_loop_paused.py` get a runtime that ends on an error it did not handle.
+
+## `recall.py` (roadmap 11.9, a remote Warden's Handoff in the Queen's Honey Store)
+
+`make_deposits(deps, clock, tmp_path)` opens a real Honey Store and returns a `Deposits`: the Queen's
+`deps` with that store in them, and the ways a bee on a colonized device or in a Virtual Cell fills
+the record, through the real `split_deposit` and `NectarIntake`. `deposit(site, handoff, age_s)` is
+the bee's HANDOFF Nectar (a `Site` is its Warden, Cell and task), `hold` files a checkpoint in the
+Queen's own memory, `taint` and `isolate` write what her trail would say, and `decided` reads her
+`queen.decided` records. `Refusal` names the four things a recall refuses (tainted, written under a
+standing isolation, above the task's clearance, a Night Veil Cell's) and `refused(site, case)`
+plants each, so the three paths that resume a task from a Handoff (a device taken back, a Warden
+renewed, Clustering's resume) are held to one list, each with nothing in her own memory first.

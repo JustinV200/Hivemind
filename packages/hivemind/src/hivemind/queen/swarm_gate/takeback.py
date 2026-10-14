@@ -140,7 +140,11 @@ async def take_back(
 async def _take_one(deps: QueenDeps, node: SwarmNode, task: Task, cause: str) -> bool:
     """Take one task back; False when it moved or ended by itself while this was deciding."""
     # Read before the task leaves its Warden: it is the newest Handoff of the bee that ran it.
-    ref = None if task.status is TaskStatus.ASSIGNED else await recall_handoff(deps, node, task)
+    ref = (
+        None
+        if task.status is TaskStatus.ASSIGNED
+        else await recall_handoff(deps, node.cell_id, task)
+    )
     reason = f"Its device is gone ({cause}); the Queen takes the task back to place it afresh."
     try:
         if task.pending_question_id is not None:

@@ -1,25 +1,30 @@
-"""Recall a lost device's newest Handoff from the Honey Store, so a task taken back can resume.
+"""Recall a remote Warden's newest Handoff from the Honey Store, so a task can resume from it.
 
-A colonized device's Warden keeps its memory in a store of its own (ADR-0052), so the Handoffs its
-bees write are on the device, and a device that is lost takes them out of the Queen's reach. What
-she can hold is what was sent up. Each checkpoint's bee also deposits the Handoff as HANDOFF Nectar,
-which its Warden relays and her intake keeps in the Honey Store (ADR-0035): best effort, because
-the Handoff is already durable where it was written. Nothing else carries the document. The
-`task.progress` at CHECKPOINTED names a Handoff and its Warden does not forward it; the trail
-segment a Warden syncs carries a `memory.checkpoint` event's ids and counts, never its text
-(codingrules 12). So `recall_handoff` reads that deposit: it picks the task's newest Handoff the
-Queen does not hold already, checks that it may be used, and files it in her own memory as a
-checkpoint of her own, which is where a taken-back task's next placement resumes from, and from
-where she carries it inline to a Warden on another node (`hivemind.queen.dispatcher`). A Level 0
-device's Handoffs are in her store already, so for it nothing is newer and nothing is recalled.
+A colonized device's Warden keeps its memory in a store of its own (ADR-0052), and so does a Virtual
+Cell's, so the Handoffs their bees write are not in the Queen's store, and a device that is lost
+takes them out of her reach altogether. What she can hold is what was sent up. Each checkpoint's
+bee also deposits the Handoff as HANDOFF Nectar, which its Warden relays and her intake keeps in the
+Honey Store (ADR-0035): best effort, because the Handoff is already durable where it was written.
+Nothing else carries the document. The `task.progress` at CHECKPOINTED names a Handoff and its
+Warden does not forward it; the trail segment a Warden syncs carries a `memory.checkpoint` event's
+ids and counts, never its text (codingrules 12). So `recall_handoff` reads that deposit: it picks
+the task's newest Handoff the Queen does not hold already, checks that it may be used, and files it
+in her own memory as a checkpoint of her own, which is where the task's next placement resumes from,
+and from where she carries it inline to a Warden on another node (`hivemind.queen.dispatcher`).
+Every path that resumes a task from a Handoff a remote Warden's bee wrote asks here, so that all of
+them refuse the same things: a device taken back, a Warden restarted under new terms, and a
+provider coming back from Clustering. A Level 0 device's Handoffs are in her store already, so for
+it nothing is newer and nothing is recalled.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's swarm
-    gate. Called by `hivemind.queen.swarm_gate.takeback` for every task it takes back. Calls into
-    `hivemind.honey_store` (the store, `held_by_floor_alone`, `raise_label`), `hivemind.memory`
-    (Handoff, `write_checkpoint`), `hivemind.pheromone`, `hivemind.queen.cluster` (the Handoff she
-    holds), `hivemind.queen.isolation` (`read_isolation`), `hivemind.queen.trail` and waggle only;
-    `QueenDeps` and `SwarmNode` for the types.
+    gate. Called by `hivemind.queen.swarm_gate.takeback` for every task it takes back, by
+    `hivemind.queen.swarm_gate.colonize.steps.pause_for_move` for every task a Warden's move or
+    renewal pauses, and by `hivemind.queen.cluster.protocol.resume` for every task Clustering
+    resumes. Calls into `hivemind.honey_store` (the store, `held_by_floor_alone`, `raise_label`),
+    `hivemind.memory` (Handoff, `write_checkpoint`), `hivemind.pheromone`, `hivemind.queen.cluster`
+    (the Handoff she holds), `hivemind.queen.isolation` (`read_isolation`), `hivemind.queen.trail`
+    and waggle only; `QueenDeps` for the type.
 
 Key invariants:
     - A Handoff is recalled only if it is newer than the one the Queen holds, and only into her
@@ -38,7 +43,8 @@ Key invariants:
       and the trail says why. Events carry ids and codes only, never the Handoff's text.
 
 See Also:
-    - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for when a task is taken back.
+    - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for when a task is taken back,
+      and its amendments on recalling a Handoff.
     - docs/adr/0035-honey-store-sqlite-fts5-sqlite-vec.md for the HANDOFF Nectar and its label.
     - hivemind.workers.runtime.honey for the deposit this reads.
     - hivemind.queen.dispatcher.ready.handoff for how the filed Handoff reaches its new Warden.
@@ -64,7 +70,6 @@ from hivemind.queen.cluster import latest_handoff
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.isolation import IsolationState, read_isolation
 from hivemind.queen.trail import record_event
-from hivemind.swarm import SwarmNode
 from waggle.ids import CellId, EventId
 from waggle.messages import HandoffRef
 
@@ -95,13 +100,15 @@ __all__ = [
 ]
 
 
-async def recall_handoff(deps: QueenDeps, node: SwarmNode, task: Task) -> HandoffRef | None:
-    """Return the newest Handoff the Queen can hold for `task`, taken back from `node`.
+async def recall_handoff(deps: QueenDeps, cell_id: CellId, task: Task) -> HandoffRef | None:
+    """Return the newest Handoff the Queen can hold for `task`, written on `cell_id`.
 
     Args:
         deps: The Queen's collaborators; `honey` is read, `memory` and `trail` are written.
-        node: The lost device. A Handoff counts only if it was gathered on its Cell.
-        task: The task being taken back; its clearance is the most a Handoff may be labelled.
+        cell_id: The Cell the task's bee worked on, whose Warden keeps the store the Queen cannot
+            read. A Handoff counts only if it was gathered there.
+        task: The task being resumed or taken back; its clearance is the most a Handoff may be
+            labelled.
 
     Returns:
         The reference the task's next placement resumes from: the one she holds already when no
@@ -113,10 +120,10 @@ async def recall_handoff(deps: QueenDeps, node: SwarmNode, task: Task) -> Handof
         return held  # No Honey Store is wired, so nothing else can hold a copy.
     store = deps.honey.store
     refused: str | None = None
-    for nectar in await store.handoff_nectars(task.id, node.cell_id, MAX_CANDIDATES):
+    for nectar in await store.handoff_nectars(task.id, cell_id, MAX_CANDIDATES):
         if held is not None and nectar.observed_at <= held.written_at:
             break  # She holds one at least this new, and every row after it is older.
-        outcome = await _recall_one(deps, store, node, task, nectar)
+        outcome = await _recall_one(deps, store, cell_id, task, nectar)
         if not isinstance(outcome, str):
             return outcome
         log.info("swarm.handoff_not_recalled", task_id=task.id, nectar_id=nectar.id, reason=outcome)
@@ -131,14 +138,14 @@ async def recall_handoff(deps: QueenDeps, node: SwarmNode, task: Task) -> Handof
 
 
 async def _recall_one(
-    deps: QueenDeps, store: HoneyStore, node: SwarmNode, task: Task, nectar: Nectar
+    deps: QueenDeps, store: HoneyStore, cell_id: CellId, task: Task, nectar: Nectar
 ) -> HandoffRef | str:
     """File `nectar`'s Handoff as a checkpoint of the Queen's own; its reference, or why not."""
     # The checkpoint's event is how the trail names it, so without one there is nothing to check
     # it against and nothing to say it was not tainted.
     if nectar.event_id is None:
         return NOT_RECALLED_UNREADABLE
-    refusal = await _refusal(deps, node.cell_id, nectar.event_id, nectar.observed_at)
+    refusal = await _refusal(deps, cell_id, nectar.event_id, nectar.observed_at)
     if refusal is not None:
         return refusal
     handoff = await _read(store, nectar)
@@ -158,7 +165,7 @@ async def _recall_one(
         "queen.decided",
         task.id,
         reason="handoff_recalled",
-        cell_id=node.cell_id,
+        cell_id=cell_id,
         nectar_id=nectar.id,
         source_event_id=nectar.event_id,
         event_id=ref.event_id,

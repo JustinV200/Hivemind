@@ -63,8 +63,9 @@ Public API:
     - RegistrySegmentKeys: the key a device's trail segment must be signed with (keys).
     - take_back, tasks_on, open_tasks: taking a gone Warden's tasks back to be placed afresh,
       and reading the tasks that have not ended (takeback).
-    - recall_handoff: the newest Handoff the Queen can hold for a task taken back, recalled from
-      the Honey Store when its device's own store is out of her reach (recall).
+    - recall_handoff: the newest Handoff the Queen can hold for a task whose bee wrote it in a
+      remote Warden's store (a task taken back, a Warden renewed, a provider resumed), recalled
+      from the Honey Store when that store is out of her reach (recall).
 """
 
 from hivemind.queen.swarm_gate.attach import (

@@ -14,7 +14,9 @@ this package.
   `deps.map` (a live grant's own allowed bindings name the sources its Warden may actually spend
   its sub-bees' model calls against); `cluster` sends each affected Warden an
   `Intervene(HANDOFF)` then a `TaskPause`, moves the task to `PAUSED` and records one
-  `queen.clustered`; `resume` looks up each task's newest Bee Bread `HANDOFF` entry, re-assigns
+  `queen.clustered`; `resume` looks up each task's newest Handoff (its Bee Bread `HANDOFF` entry, or
+  the newer HANDOFF Nectar a remote Warden's bee deposited, recalled by
+  `hivemind.queen.swarm_gate.recall` under the refusals it applies everywhere), re-assigns
   through `hivemind.queen.dispatcher.resume_paused` (so no work is redone) and records one
   `queen.resumed`. Neither call ever touches a grant, so the same ledger read finds the same bees
   again for `resume`.

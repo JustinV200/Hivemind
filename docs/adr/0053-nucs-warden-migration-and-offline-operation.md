@@ -277,3 +277,39 @@ resume from the Handoff she holds, which for a colonized device is an old one, a
 patience for a checkpoint they cannot see; calling `recall_handoff` there is the next step. The
 taint label is not carried by Nectar (`Nectar.tainted` is reserved and no Honey ledger exists), so
 a taint her trail never heard of, from a device lost before its segment shipped, is not seen.
+
+## Amendment (2026-10-14): a Warden's renewal and Clustering's resume recall the Handoff too
+
+The last amendment left two places reading only the Queen's own Bee Bread for the Handoff a paused
+task resumes from, and both now ask the recall (`recall_handoff`) as the take-back does.
+
+**A move or a renewal notes the recalled Handoff.** `pause_for_move` (the pause under a
+colonization and under the restart of a Warden for new terms) noted, for each task it paused, the
+newest Handoff in her Bee Bread. For a colonized device's Warden that is the one the colonization
+carried, because the bees have been writing theirs in the device's store since, so a renewal sent
+the new Warden back to a checkpoint older than the bee's last, and the work between the two was
+done again. It now notes what the recall returns: the HANDOFF Nectar the bee deposited as the pause
+asked it to checkpoint, filed in her memory as a checkpoint of her own, or the Handoff she holds
+when no deposit is newer or none may be used. The new Warden is sent that one inline, as for any
+Handoff she holds (`TaskAssign.handoff`).
+
+**Clustering's resume recalls per task.** `queen.cluster.protocol.resume` resumed each paused task
+from the Handoff in her Bee Bread, which for a task on any Warden that is not hers (a colonized
+device's, a Virtual Cell's) is an older one or none, and a task with none was resumed from nothing.
+It now asks the recall on the task's own Cell. A Virtual Cell's bees deposit their Handoffs as Nectar
+like any other, so the same rule serves both.
+
+**The same refusals, from one function.** The recall takes the Cell now and not a Swarm node, since a
+provider's outage clusters tasks of Cells that are not devices; its rules did not change: a Night
+Veil Cell's memory is never recalled, nothing tainted unless a judge cleared it since, nothing
+written since the first suspect instant of an isolation that stands, nothing above the task's
+clearance, and a refusal is never an error: the task resumes from the Handoff she holds or starts
+fresh, and `queen.decided` says why. Each of the three paths is tested with nothing in her own
+memory, and with the four refusals planted in turn.
+
+**What is left.** The pause still waits, up to a move's patience, for a Handoff to appear in her
+own Bee Bread. A colonized task whose colonization carried none waits out all of it (the bee's
+checkpoint is on the device), and one that did carry one stops waiting at once, possibly before the
+bee's newest deposit has reached her, in which case the recall sees the deposit before it. Having
+the wait recognise a recallable Handoff, or the Warden's own `CHECKPOINTED` progress, would close
+both, and is the next step if it shows. The Honey Store still has no taint ledger.

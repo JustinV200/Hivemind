@@ -6,8 +6,10 @@ turning every way an order can fail (the packet refused it, never answered it, o
 into a `ColonizeStepError` with one stable word. `Move` is the state of one migration, owned by
 the flow: the tasks it paused and the Handoff each one wrote, and how far it got, so an undo knows
 what to undo. `pause_for_move` is Clustering's lever pulled for another cause (each bee of the
-Warden checkpoints into a Handoff and stops, its task waits PAUSED), and `resume_all` is the way
-back: every paused task is resumed through the dispatcher, which carries the Handoff inline when
+Warden checkpoints into a Handoff and stops, its task waits PAUSED) and notes, for each task, the
+newest Handoff the Queen can hold for it, a Handoff only the Honey Store has included (`recall`),
+and `resume_all` is the way back: every paused task is resumed through the dispatcher, which
+carries the Handoff inline when
 the Warden that takes over cannot read the Queen's memory store (a Warden on the device cannot),
 and sends a Handoff that is tainted, or too large for one frame, as a fresh start with the reason
 recorded. A task the dispatcher could not resume is returned to the caller, which takes it back so
@@ -21,8 +23,8 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
     `hivemind.queen.swarm_gate.colonize`. Called by `.promote`, `.withdraw`, `.flow`, `.renew` and
     the Nuc flows. Calls into `hivemind.brood_chamber` (the task states), `hivemind.queen.attach`
-    (detach, the Warden's state), `hivemind.queen.cluster` (the pause and the newest Handoff),
-    `hivemind.queen.dispatcher` (resume), `hivemind.queen.swarm_gate` (the take-back), `hivemind.
+    (detach, the Warden's state), `hivemind.queen.cluster` (the pause), `hivemind.queen.dispatcher`
+    (resume), `hivemind.queen.swarm_gate` (the take-back and the recall of a Handoff), `hivemind.
     swarm` (the device link, its errors and the node update) and waggle only.
 
 Key invariants:
@@ -34,6 +36,9 @@ Key invariants:
       nothing is placed, retried or resumed onto a Warden that is between machines.
     - A task that is resumed goes through the dispatcher's ordinary resume path, so its grant,
       its Honey pre-check and its Handoff are exactly a Clustering resume's.
+    - The Handoff a paused task resumes from is the newest the Queen can hold, a Warden-side one
+      recalled from Honey included, under the refusals the recall applies (Night Veil, tainted,
+      written under a standing isolation, above the task's clearance).
     - Telling the device its new rung never raises for a link that is failing: the router sends
       the device its terms again whenever it connects. `send_terms` says whether they went.
     - Taking back the rest of a Cell's tasks leaves the ones the move paused and resumes alone.
@@ -50,9 +55,10 @@ from dataclasses import dataclass, field
 from hivemind.brood_chamber import TaskStatus
 from hivemind.common.logging import get_logger
 from hivemind.queen.attach import detach_warden, warden_state
-from hivemind.queen.cluster import latest_handoff, pause_on_warden
+from hivemind.queen.cluster import pause_on_warden
 from hivemind.queen.dispatcher import resume_paused
 from hivemind.queen.swarm_gate.colonize.errors import ColonizeStepError
+from hivemind.queen.swarm_gate.recall import recall_handoff
 from hivemind.queen.swarm_gate.takeback import take_back, tasks_on
 from hivemind.queen.swarm_gate.terms import GateContext
 from hivemind.queen.swarm_gate.wardens import DeviceWardens
@@ -143,7 +149,8 @@ class Move:
         node: The device as it was when the move began.
         link: The device's packet link, over which the orders go.
         paused: The tasks paused for the move, in the order they were paused.
-        refs: Each paused task's newest Handoff, or None when its bee wrote none.
+        refs: Each paused task's newest Handoff the Queen can hold (one her own store has, or one
+            recalled from the Honey Store), or None when she can hold none.
         moved: Whether the Level 0 Warden has been stopped, so the device has none on the Hive
             Stand until one is rebuilt.
         committed: Whether the registry already records the device on its new rung.
@@ -312,7 +319,14 @@ async def pause_for_move(context: GateContext, move: Move, reason: str) -> None:
         deps, context.queen.wardens, node.warden_id, reason, patience_s=HANDOFF_PATIENCE_S
     )
     for task_id in move.paused:
-        move.refs[task_id] = await latest_handoff(deps, task_id)
+        # Not the Handoff in her own Bee Bread alone: a colonized Warden's bees wrote their newest
+        # in the device's store, and what reaches her is the Nectar each deposited (ADR-0053), so
+        # a renewal resumes from that, under the refusals every recall applies, and not from the
+        # older Handoff the colonization carried. Nothing is lost by a refusal: the task resumes
+        # from the one she holds, or starts fresh.
+        move.refs[task_id] = await recall_handoff(
+            deps, node.cell_id, await deps.chamber.get(task_id)
+        )
 
 
 async def resume_all(context: GateContext, move: Move, reason: str) -> tuple[TaskId, ...]:

@@ -227,7 +227,8 @@ every assignment goes to a Warden, over Waggle.
   cheapest honest source, module docstring of `protocol.py`), send each Warden an
   `Intervene(HANDOFF)` then a `TaskPause`, move the task to `PAUSED` in the Brood Chamber and
   record one `queen.clustered`; `resume` finds a Handoff through Bee Bread
-  (`MemoryStore.list_bee_bread_by_task`) and re-assigns through `hivemind.queen.dispatcher.
+  (`MemoryStore.list_bee_bread_by_task`), or the newer one a remote Warden's bee deposited as Nectar
+  (`swarm_gate.recall`), and re-assigns through `hivemind.queen.dispatcher.
   resume_paused`, so no work is redone, recording one `queen.resumed`. Neither ever awaits a
   model. `health.HealthPoller` polls a clustered provider's own `LLMProvider.health()` on an
   exponential backoff (`ClusterBackoff`, `next_probe_at`); `orders` is the durable table
