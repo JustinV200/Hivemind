@@ -31,20 +31,24 @@ is torn down; shipping them to the Queen's store is a later step.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
-    `hivemind.cell` (CellIdentity), `hivemind.forage.slots` (ModelSlot), `hivemind.guard`
+    `hivemind.cell` (CellIdentity, RealCellSource), `hivemind.forage.slots` (ModelSlot),
+    `hivemind.guard`
     (Capability, CapabilityFamily, Enforcer, load_guard_policy), `hivemind.forage` (Tempo),
     `hivemind.memory` (InMemoryMemoryStore, MemoryIdentity), `hivemind.pheromone` (PheromoneTrail),
     `hivemind.llm` (Fanner, the slot errors), `hivemind.supervision` (load_warden_policy),
     `hivemind.supervision.capping` (deterministic_checks, judge_checks, load_tiers, the judge
     rubrics), `hivemind.wardens` (WardenDeps, ModelJudgeReviewer),
-    `hivemind.wardens.snapshot_relay` (RelaySnapshotter), `hivemind.wardens.spawn`
-    (InCellSpawnSource),
+    `hivemind.wardens.snapshot_relay` (RelaySnapshotter),
     `hivemind.wardens.trail_sync` (TrailSyncDeps, WaggleTrailSync), `hivemind.workers.roles`
     (worker_for), `hivemind.cli.in_cell.providers`, `hivemind.cli.in_cell.fanner`,
     `hivemind.cli.in_cell.hive_stand`, `hivemind.cli.in_cell.basket` (the resident Basket) and
     `hivemind.cli.compose.exoskeleton` (in_cell_exoskeleton) and waggle only.
 
 Key invariants:
+    - `build_core_deps` is everything a Warden that dials the Queen from a Cell shares, and
+      `build_in_cell_warden_deps` adds only what is a Virtual Cell's alone (the Queen-relayed
+      snapshotter, the resident Basket, the Exoskeleton wiring); `hivemind.cli.in_cell.borrowed`
+      builds a colonized device's Warden from the same core, so the two cannot drift apart.
     - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
       `hivemind.cli.compose.deps.build_warden_deps` wires for the Hive Stand.
     - The gate has a JUDGE rung, and the Warden a model-backed judge, exactly when the Cell's slot
@@ -66,9 +70,10 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from hivemind.cell import CellIdentity
+from hivemind.cell import CellIdentity, RealCellSource
 from hivemind.cli.compose.exoskeleton import in_cell_exoskeleton
 from hivemind.cli.in_cell.basket import build_basket_parts
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
@@ -92,7 +97,6 @@ from hivemind.wardens import ModelJudgeReviewer
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.local_pool.hosting import provider_door
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
-from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from hivemind.workers.roles import worker_for
 from waggle.clock import Clock
@@ -122,13 +126,14 @@ __all__ = [
     "DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED",
     "DEFAULT_WORKER_HEARTBEAT_INTERVAL_S",
     "VIRTUAL_CELL_LEASE",
+    "build_core_deps",
     "build_in_cell_warden_deps",
 ]
 
 
 def build_in_cell_warden_deps(
     config: InCellRuntimeConfig,
-    source: InCellSpawnSource,
+    source: RealCellSource,
     queen_link: Transport,
     trail: PheromoneTrail,
     clock: Clock,
@@ -137,7 +142,8 @@ def build_in_cell_warden_deps(
 
     Args:
         config: This process's own validated runtime config (`config.build_runtime_config`).
-        source: This Cell's own one-Cell `InCellSpawnSource`, built from `config.spawn_config`.
+        source: This Cell's own one-Cell source, an `InCellSpawnSource` built from
+            `config.spawn_config`.
         queen_link: The signed WebSocket transport this Cell already announced CellReady over.
         trail: This Cell's own local Pheromone Trail segment.
         clock: Injected time source shared by every collaborator this composes.
@@ -145,17 +151,76 @@ def build_in_cell_warden_deps(
     Returns:
         A WardenDeps ready for `hivemind.wardens.Warden(config.warden_id, deps)`.
     """
-    registry = build_in_cell_provider_registry(clock, config)
-    fanner = build_in_cell_fanner(config, trail, clock)  # One per Cell, whichever registry.
-    enforcer = _build_enforcer(config, trail, clock)  # Its policy is also every set's (`guard`).
-    deps = WardenDeps(
+    deps, registry = build_core_deps(config, source, queen_link, trail, clock)
+    # What only a Virtual Cell's Warden has (a device's, `hivemind.cli.in_cell.borrowed`, borrows
+    # a machine that is not this process's to equip): the Hive's snapshotter, its resident Basket,
+    # and the Exoskeleton wiring of roadmap steps 6.4-6.6 (module docs).
+    deps = _with_cell_extras(deps, config, queen_link, clock)
+    return in_cell_exoskeleton(registry, clock).apply(deps)
+
+
+def build_core_deps(
+    config: InCellRuntimeConfig,
+    source: RealCellSource,
+    queen_link: Transport,
+    trail: PheromoneTrail,
+    clock: Clock,
+) -> tuple[WardenDeps, ProviderRegistry]:
+    """Build the WardenDeps every Warden that dials the Queen from a Cell shares.
+
+    A Virtual Cell's Warden and a colonized device's (roadmap step 11.6a) differ in a few things
+    their composers set; this is the rest. It leaves the memory in process and the lease
+    capability `cell:virtual`, for a composer whose Cell is not a Virtual one to replace.
+
+    Args:
+        config: This process's own validated runtime config.
+        source: Where the Warden leases its one Cell from.
+        queen_link: The Warden's link to the Queen (the signed transport, or a reconnecting one).
+        trail: The Warden's own local Pheromone Trail segment.
+        clock: Injected time source shared by every collaborator this composes.
+
+    Returns:
+        The WardenDeps, and the provider registry its model door was built from.
+    """
+    parts = _Parts(
+        registry=build_in_cell_provider_registry(clock, config),
+        fanner=build_in_cell_fanner(config, trail, clock),  # One per Cell, whichever registry.
+        enforcer=_build_enforcer(config, trail, clock),  # Its policy is also every set's (`guard`).
         source=source,
         queen_link=queen_link,
-        hop=_hop(config),
-        memory=InMemoryMemoryStore(trail),
         trail=trail,
-        identity=_identity(config),
         clock=clock,
+    )
+    deps = _warden_deps(config, parts)
+    deps = _with_trail_sync(deps, config, queen_link, trail, clock)
+    routed = _routed(deps, config, parts.fanner, parts.registry)
+    return _with_judge(routed, parts.registry, parts.fanner), parts.registry
+
+
+@dataclass(frozen=True, slots=True)
+class _Parts:
+    """The collaborators a Cell's deps are built around, made once and shared (codingrules 5.1)."""
+
+    registry: ProviderRegistry  # The Cell's model door.
+    fanner: Fanner  # The seat meter every model call passes through.
+    enforcer: Enforcer  # The Guard's adapter, whose policy is also every capability set's.
+    source: RealCellSource  # Where the Warden leases its Cell from.
+    queen_link: Transport  # The Warden's link to the Queen.
+    trail: PheromoneTrail  # The Warden's own trail segment.
+    clock: Clock
+
+
+def _warden_deps(config: InCellRuntimeConfig, parts: _Parts) -> WardenDeps:
+    """Build the bare WardenDeps of a Cell's Warden: its wiring, policy, Guard and model binding."""
+    registry, fanner, enforcer = parts.registry, parts.fanner, parts.enforcer
+    return WardenDeps(
+        source=parts.source,
+        queen_link=parts.queen_link,
+        hop=_hop(config),
+        memory=InMemoryMemoryStore(parts.trail),
+        trail=parts.trail,
+        identity=_identity(config),
+        clock=parts.clock,
         policy=load_warden_policy(None),  # No [supervision] section inside a Cell: the shipped one.
         tiers=load_tiers(None),  # Same reasoning: the shipped capping-tiers.toml.
         guard=enforcer.policy,
@@ -163,7 +228,7 @@ def build_in_cell_warden_deps(
         lease_capability=VIRTUAL_CELL_LEASE,
         bindings=config.slots,  # What a named binding resolves against at slot_binding.
         local_providers=local_provider_names(config),  # Roadmap step 10.3a.
-        checks=deterministic_checks(),  # The JUDGE rung joins below, when a judge is bound.
+        checks=deterministic_checks(),  # The JUDGE rung joins later, when a judge is bound.
         bound=registry.bound(ModelSlot.WARDEN),
         call_gate=fanner.lane(Tempo()),  # The Warden's own lane, for its awake episodes.
         worker_factory=worker_for,
@@ -174,8 +239,6 @@ def build_in_cell_warden_deps(
         missed_heartbeats_before_stalled=DEFAULT_MISSED_HEARTBEATS_BEFORE_STALLED,
         lane_for_grant=lane_for_grant(fanner),  # One lane per sub-bee's grant and goal.
     )
-    deps = _with_queen_relays(deps, config, queen_link, trail, clock)
-    return _equipped(deps, config, registry, fanner, clock)
 
 
 def _routed(
@@ -201,26 +264,20 @@ def _routed(
     )
 
 
-def _with_queen_relays(
+def _with_trail_sync(
     deps: WardenDeps,
     config: InCellRuntimeConfig,
     queen_link: Transport,
     trail: PheromoneTrail,
     clock: Clock,
 ) -> WardenDeps:
-    """Give this Warden the two things it can only do through the Queen (ship its trail, snapshot).
+    """Give this Warden the way it ships its trail to the Queen, and the keys its Basket uses.
 
-    It also gets its own resident Basket (roadmap phase 9, ADR-0048), which needs no Queen at all
-    but shares this split-out step. Split out of `build_in_cell_warden_deps` for its line budget
-    (codingrules 5.1).
+    Split out of `build_core_deps` for its line budget (codingrules 5.1).
     """
-    parts = build_basket_parts(config, clock)
     return dataclasses.replace(
         deps,
         trail_sync=_build_trail_sync(config, queen_link, trail, clock),
-        snapshotter=_build_snapshotter(config, queen_link, _hop(config), clock),
-        resident_basket=parts[0] if parts is not None else None,
-        basket_store=parts[1] if parts is not None else None,
         # The frame keys double as the Basket's: the manifests this Warden signs and the ones it
         # verifies (the Queen's, who signs with the Hive key) use the keys the link already has.
         node_signer=config.signer,
@@ -229,17 +286,22 @@ def _with_queen_relays(
     )
 
 
-def _equipped(
-    deps: WardenDeps,
-    config: InCellRuntimeConfig,
-    registry: ProviderRegistry,
-    fanner: Fanner,
-    clock: Clock,
+def _with_cell_extras(
+    deps: WardenDeps, config: InCellRuntimeConfig, queen_link: Transport, clock: Clock
 ) -> WardenDeps:
-    """Give this Warden its routing and provider door, its Exoskeleton wiring and its judge."""
-    # Roadmap steps 6.4-6.6: the Exoskeleton's screen, launcher, recorder and ears (module docs).
-    judged = _with_judge(_routed(deps, config, fanner, registry), registry, fanner)
-    return in_cell_exoskeleton(registry, clock).apply(judged)
+    """Give a Virtual Cell's Warden what it can only do through the Queen, and its own Basket.
+
+    The snapshot is asked of the Queen (this Cell cannot reach its host's Docker daemon or QEMU
+    process, ADR-0027), and the resident Basket (roadmap phase 9, ADR-0048) is a small store below
+    the Cell's scratch root, which needs no Queen at all but belongs to the same step.
+    """
+    parts = build_basket_parts(config, clock)
+    return dataclasses.replace(
+        deps,
+        snapshotter=_build_snapshotter(config, queen_link, _hop(config), clock),
+        resident_basket=parts[0] if parts is not None else None,
+        basket_store=parts[1] if parts is not None else None,
+    )
 
 
 def _with_judge(deps: WardenDeps, registry: ProviderRegistry, fanner: Fanner) -> WardenDeps:

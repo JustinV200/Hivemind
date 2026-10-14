@@ -36,13 +36,14 @@ from hivemind.cli.in_cell.link import (
     announce,
     send_capacity_report,
     send_cell_heartbeat,
+    send_cell_ready,
 )
 from waggle.clock import FakeClock
 from waggle.codec import Codec, canonical_bytes
 from waggle.envelope import Envelope
 from waggle.ids import new_cell_id, new_hive_id, new_node_id, new_warden_id
 from waggle.messages.cell.status import CellHeartbeat, CellReady
-from waggle.messages.forage import CapacityReport, CapacityTrigger
+from waggle.messages.forage import CapacityReport, CapacityTrigger, ModelServerReport
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 from waggle.transport.websocket_client import WebSocketClientTransport
 from waggle.transport.websocket_server import WebSocketServer
@@ -185,6 +186,53 @@ async def test_the_full_sequence_arrives_ready_then_capacity_then_heartbeat(
         for _ in range(3)
     ]
     assert kinds == ["CellReady", "CapacityReport", "CellHeartbeat"]
+
+    await deps.transport.close()
+    await _server.close()
+
+
+async def test_send_cell_ready_signs_on_a_transport_the_caller_connected(
+    _server: WebSocketServer,
+) -> None:
+    # A Warden that redials (roadmap 11.9) opens each connection itself, then says who it is.
+    cell_signer = Ed25519Signer.generate()
+    deps = _deps(_server, cell_signer)
+    connections = _server.connections()
+    await deps.transport.connect()
+
+    await send_cell_ready(deps)
+
+    server_transport = await asyncio.wait_for(anext(connections), timeout=WAIT_S)
+    envelope = await asyncio.wait_for(anext(server_transport.receive()), timeout=WAIT_S)
+    assert isinstance(envelope.payload, CellReady)
+    assert envelope.payload.cell_id == deps.cell.id
+    _assert_signed_by(envelope, cell_signer)
+
+    await deps.transport.close()
+    await _server.close()
+
+
+async def test_send_capacity_report_names_its_trigger_and_the_servers_it_declares(
+    _server: WebSocketServer,
+) -> None:
+    # A colonized device reports its manifest's model servers, none of them started (11.6a).
+    cell_signer = Ed25519Signer.generate()
+    deps = _deps(_server, cell_signer)
+    connections = _server.connections()
+    await announce(deps)
+    server_transport = await asyncio.wait_for(anext(connections), timeout=WAIT_S)
+    server_receive = server_transport.receive()
+    await anext(server_receive)  # Drain CellReady.
+
+    declared = (ModelServerReport(server_id="local_server", sources=()),)
+    await send_capacity_report(
+        deps, make_capacity(), trigger=CapacityTrigger.RECONNECTED, model_servers=declared
+    )
+
+    envelope = await asyncio.wait_for(anext(server_receive), timeout=WAIT_S)
+    assert isinstance(envelope.payload, CapacityReport)
+    assert envelope.payload.trigger is CapacityTrigger.RECONNECTED
+    assert envelope.payload.model_servers == declared
 
     await deps.transport.close()
     await _server.close()

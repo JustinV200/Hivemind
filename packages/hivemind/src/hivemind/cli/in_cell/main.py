@@ -17,9 +17,14 @@ Cell's Tor SOCKS port; never directly once one is named), a Night Veil Cell's `C
 its control-link checks, and the Hive Stand's addresses are resolved once, before the Warden is
 built, so its floors know them (`hivemind.cli.in_cell.hive_stand`; an onion host never is).
 
+Roadmap step 11.6a: with `HIVEMIND_CELL_LEASE=borrowed` the same entry point runs the Warden of a
+colonized Swarm device instead (`hivemind.cli.in_cell.borrowed`); a Virtual Cell's path is the
+default and unchanged.
+
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell`. Calls into
     `hivemind.cell.source` (CellIdentity), `hivemind.cli.in_cell.config`/`.deps`/`.link`,
+    `hivemind.cli.in_cell.borrowed`,
     `hivemind.cli.version`, `hivemind.common.logging`, `hivemind.manifest.env` (read_in_cell_env),
     `hivemind.pheromone.trail.memory` (this Cell's own local trail segment),
     `hivemind.wardens.deps` (WardenDeps, `on_deps_built`'s own parameter type),
@@ -60,6 +65,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import os
 from collections.abc import Callable, Mapping
@@ -67,12 +73,13 @@ from collections.abc import Callable, Mapping
 from hivemind.cell.source import CellIdentity
 from hivemind.cell.tiers import CombShieldLevel
 from hivemind.cli.in_cell import link as cell_link
+from hivemind.cli.in_cell.borrowed import is_borrowed, run_borrowed_warden, stop_on_signals
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
 from hivemind.cli.in_cell.hive_stand import hive_stand_addresses
 from hivemind.cli.version import collect_version_info
 from hivemind.common.logging import configure_logging, get_logger
-from hivemind.manifest.env import read_in_cell_env
+from hivemind.manifest.env import InCellEnv, read_in_cell_env
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn import InCellSpawnSource
@@ -93,6 +100,7 @@ async def run_in_cell_warden(
     clock: Clock,
     *,
     on_deps_built: Callable[[WardenDeps], None] | None = None,
+    stop: asyncio.Event | None = None,
 ) -> None:
     """Read `environ`, connect this Cell to the Queen, and run a real Warden until it stops.
 
@@ -106,8 +114,17 @@ async def run_in_cell_warden(
             an e2e test uses it to script `deps.bound.provider` (a `FakeLLMProvider`) the same
             way `hivemind.cli.in_cell.deps`'s own test module reaches it, without this module
             needing to expose a second, lower-level entry point.
+        stop: Set to end a Warden that borrows its machine (roadmap step 11.6a), which the Pollen
+            Packet withdraws with a signal: it stops, leaves the device as found and returns. A
+            Virtual Cell's Warden ignores it, as its backend destroys the Cell instead.
     """
-    config = build_runtime_config(read_in_cell_env(environ), clock)
+    env = read_in_cell_env(environ)
+    # Roadmap step 11.6a: a Warden on a device the Hive borrows is composed in its own package;
+    # everything below is a Virtual Cell's, exactly as it was.
+    if is_borrowed(env):
+        await run_borrowed_warden(env, clock, on_deps_built=on_deps_built, stop=stop)
+        return
+    config = build_runtime_config(env, clock)
     # Once, at start: the Hive Stand's addresses for this Cell's floors (never an onion's).
     config = dataclasses.replace(config, hive_stand_addresses=await hive_stand_addresses(config))
     transport, source, trail = await _connect_and_announce(config, clock)
@@ -224,11 +241,25 @@ def main() -> None:
     on to `run_in_cell_warden` (which reads it again, the same sanctioned way, to build the rest
     of its config) rather than threading an already-parsed `InCellEnv` through two call shapes.
     """
-    log_level = read_in_cell_env(os.environ).log_level or _DEFAULT_LOG_LEVEL
+    env = read_in_cell_env(os.environ)
     # json_output=True: a container's stdout is normally scraped by the platform's own log
     # collector, never a human's terminal (unlike the operator-facing `hive` CLI commands).
-    configure_logging(json_output=True, level=log_level)
-    asyncio.run(run_in_cell_warden(os.environ, SystemClock()))
+    configure_logging(json_output=True, level=env.log_level or _DEFAULT_LOG_LEVEL)
+    asyncio.run(_run_process(os.environ, env))
+
+
+async def _run_process(environ: Mapping[str, str], env: InCellEnv) -> None:
+    """Run the Warden as this process: a borrowed one is ended by a signal, a Virtual Cell's not."""
+    stop = asyncio.Event()
+    # A Warden on a borrowed device must leave it as it was found, so the packet's SIGTERM is a
+    # request to stop; a Virtual Cell's process is simply destroyed with its Cell, as it always was.
+    handlers = (
+        stop_on_signals(asyncio.get_running_loop(), stop)
+        if is_borrowed(env)
+        else contextlib.nullcontext()
+    )
+    with handlers:
+        await run_in_cell_warden(environ, SystemClock(), stop=stop)
 
 
 if __name__ == "__main__":

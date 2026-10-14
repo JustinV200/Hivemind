@@ -162,3 +162,13 @@ deps (`DeviceDeps` with an `Outage`, and a `RemoteDeps` over a `SwitchLink` the 
 Warden that dials the Queen) with one task running `pausable`, a role that works until told to hand
 off, writes a Handoff and stops, and, started again from it, records what it resumed from.
 `OfflineScene.cut`, `restore` and `wait_paused` drive and observe the outage.
+
+## `borrowed.py` (roadmap 11.6a, a colonized device's Warden)
+
+`make_kit(tmp_path, url, *, access_level, with_server)` writes what the Pollen Packet gives the
+Warden it starts on a colonized device (the device's node key as a file of raw bytes, a complete
+device manifest, the environment that names them) and returns a `BorrowedKit`: the `environ`, the
+state directory, every id, the Queen's signer and the device's. `device_verifier` accepts frames
+signed as the device's node and nothing else, so a scripted `WebSocketServer(Codec(signer=
+kit.queen_signer, verifier=kit.device_verifier))` stands in for the swarm listener and rejects a
+frame signed with another key. `device_manifest_text(with_server=...)` is the manifest alone.

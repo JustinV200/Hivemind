@@ -31,8 +31,11 @@ Fits into the Hive:
     transport, uris) only. Built and run by `hivemind.cli.in_cell.main.run_in_cell_warden`.
 
 Key invariants:
-    - `announce` connects the transport and sends the one `CellReady` this Cell ever sends; it
-      must be called, and awaited, before anything else is sent on `deps.transport`.
+    - `announce` connects the transport and sends the one `CellReady` this Cell ever sends on that
+      connection; it must be called, and awaited, before anything else is sent on
+      `deps.transport`. A Warden that redials sends the same three frames again on each new
+      connection (`send_cell_ready`, `send_capacity_report`, `send_cell_heartbeat`), the connect
+      being its own.
     - `send_capacity_report` and `send_cell_heartbeat` may be called only after `announce`, and
       `send_cell_heartbeat` only after `send_capacity_report` -- `CellListener`'s own gate accepts
       `CellHeartbeat` at any point once `CellReady` has arrived, but sending the capacity report
@@ -61,7 +64,12 @@ from waggle.clock import Clock
 from waggle.envelope import Hop, wrap
 from waggle.ids import HiveId, NodeId, WardenId
 from waggle.messages.cell.status import AttestationCheck, CellHeartbeat, CellMode, CellReady
-from waggle.messages.forage import CapacityReport, CapacityTrigger, LocalPoolUsage
+from waggle.messages.forage import (
+    CapacityReport,
+    CapacityTrigger,
+    LocalPoolUsage,
+    ModelServerReport,
+)
 from waggle.transport.base import Transport
 from waggle.transport.socks import SocksProxy
 from waggle.uris import is_onion_service_host
@@ -79,6 +87,7 @@ __all__ = [
     "control_link_attestation",
     "send_capacity_report",
     "send_cell_heartbeat",
+    "send_cell_ready",
 ]
 
 # The Cell has just come up with no lease and no sub-bees yet, for both frames this module sends;
@@ -165,22 +174,46 @@ async def announce(deps: CellLinkDeps) -> None:
         deps: This module's own collaborators.
     """
     await deps.transport.connect()
+    await send_cell_ready(deps)
+
+
+async def send_cell_ready(deps: CellLinkDeps) -> None:
+    """Send this Cell's signed CellReady on a transport that is already connected.
+
+    A Warden that redials the Queen after losing her (roadmap 11.9) opens each new connection
+    itself and then says who it is again, so the sending is a step of its own; `announce` is that
+    step after the first connect.
+
+    Args:
+        deps: This module's own collaborators.
+    """
     await deps.transport.send(wrap(_build_cell_ready(deps), _hop(deps), clock=deps.clock))
 
 
-async def send_capacity_report(deps: CellLinkDeps, capacity: ForageCapacity) -> None:
+async def send_capacity_report(
+    deps: CellLinkDeps,
+    capacity: ForageCapacity,
+    *,
+    trigger: CapacityTrigger = CapacityTrigger.PROVISIONED,
+    model_servers: tuple[ModelServerReport, ...] = (),
+) -> None:
     """Send this Cell's ForageCapacity, since CellReady carries none.
 
     Args:
         deps: This module's own collaborators.
         capacity: This Cell's own capacity, from `InCellSpawnConfig.capacity`: the reservation
             its bootstrap names, the figures the Queen placed it by (`hivemind.cli.in_cell.config`).
+        trigger: Why the report is sent: PROVISIONED for a Virtual Cell that just came up (the
+            default), RECONNECTED for a device's Warden announcing itself to the Queen again.
+        model_servers: The model servers this Cell reports; none for a base-ubuntu Cell (roadmap
+            step 5.3: no model server runs there), and a colonized device's declared ones (roadmap
+            step 11.6a), not started, so the Queen can judge its eligibility to become a Nuc.
     """
     report = CapacityReport(
         cell_id=deps.cell.id,
-        trigger=CapacityTrigger.PROVISIONED,
+        trigger=trigger,
         host=capacity.host.to_wire(),
-        model_servers=(),  # v0: no model server runs on a base-ubuntu Cell (roadmap step 5.3).
+        model_servers=model_servers,
         max_sub_bees=capacity.max_sub_bees,
         usage=_NO_LOCAL_POOL_USAGE,
     )

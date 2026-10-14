@@ -18,6 +18,10 @@ own trail segment so it reaches the Queen with the rest; `main` wires all of it 
 `main()`, the console-script target `packages/hivemind/pyproject.toml` registers and the
 Dockerfile's ENTRYPOINT invokes: announce, then build and run a real `hivemind.wardens.warden.
 Warden` until a Queen-sent `Shutdown`/`CellTeardownRequest` stops it.
+Roadmap step 11.6a: with `HIVEMIND_CELL_LEASE=borrowed` the same entry point runs the Warden of a
+colonized Swarm device instead (`borrowed`, a sub-package): the Warden the Hive Stand ran for the
+device at Level 0, now on the device, leasing the machine itself and keeping its memory and trail
+in SQLite files so a Handoff survives a restart. A Virtual Cell's path is the default, unchanged.
 Roadmap step 10.3a: the Cell's tier comes from its bootstrap (`HIVEMIND_COMB_SHIELD`, validated
 against its link by `config`), a Night Veil Cell dials the Queen's onion service only through
 the Tor SOCKS proxy the bootstrap names and attests that link on `CellReady` (`link`), and
@@ -53,14 +57,17 @@ See Also:
 Public API:
     - InCellRuntimeConfig, build_runtime_config, rewrite_loopback_base_url, gateway_host: turn
       InCellEnv into typed config, and rewrite a loopback provider URL for a Virtual Cell (config).
-    - CellLinkDeps, announce, send_capacity_report, send_cell_heartbeat: the three frames sent
-      before a Warden exists (link); control_link_attestation, a Night Veil Cell's link checks.
+    - CellLinkDeps, announce, send_cell_ready, send_capacity_report, send_cell_heartbeat: the
+      three frames sent before a Warden exists (link), and again on each redial of a device's
+      Warden; control_link_attestation, a Night Veil Cell's link checks.
     - hive_stand_addresses, hive_stand_names: the Hive Stand as this Cell reaches it
       (hive_stand).
     - build_in_cell_warden_deps: compose a real WardenDeps for this Cell (deps).
     - build_in_cell_provider_registry: this Warden's own model door (providers).
     - build_in_cell_fanner: this Cell's own Fanner, every model call's seat meter (fanner).
     - main, run_in_cell_warden: the console-script entry point and its async body (main).
+    - The `borrowed` sub-package (roadmap step 11.6a): `run_borrowed_warden`,
+      `build_borrowed_config` and the rest of a colonized device's Warden; its face lists them.
 """
 
 from hivemind.cli.in_cell.config import (
@@ -76,6 +83,7 @@ from hivemind.cli.in_cell.link import (
     announce,
     send_capacity_report,
     send_cell_heartbeat,
+    send_cell_ready,
 )
 from hivemind.cli.in_cell.main import main, run_in_cell_warden
 from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
@@ -94,4 +102,5 @@ __all__ = [
     "run_in_cell_warden",
     "send_capacity_report",
     "send_cell_heartbeat",
+    "send_cell_ready",
 ]
