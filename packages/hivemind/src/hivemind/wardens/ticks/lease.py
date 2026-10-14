@@ -27,8 +27,10 @@ nothing can confirm only orphans the lease. And a session that cannot open right
 did (the device went away between the two) is a WATCH, not a crash (`open_lease`). A device
 Warden with an `Outage` (`hivemind.wardens.offline`) also wakes its tick on each loss and each
 return, so that its running sub-bees are paused at a Handoff for the loss and started again on the
-return, and the idle release waits for any task it has paused. `release_lease` is the one way a
-lease is given back, shared with the offline return, which leases the device again.
+return, and the idle release waits for any task it has paused. A sub-bee that fails because the
+Cell went (a command that dies under it) is held with the rest, not counted as a crash
+(`wait_out_the_cell`). `release_lease` is the one way a lease is given back, shared with the
+offline return, which leases the device again.
 
 Key invariants:
     - The source's `lease` is never called unless the `lease_creation` check allowed it: a Warden
@@ -64,13 +66,14 @@ from hivemind.guard import (
 from hivemind.pheromone import WardenEvent
 from hivemind.wardens.deps import device_outage
 from hivemind.wardens.state import WardenState, assert_transition
-from hivemind.wardens.ticks.alarms import send_alarm_to_queen
+from hivemind.wardens.ticks.alarms import record_handled, retire_sub_bee, send_alarm_to_queen
 from waggle.errors import TransportError
 from waggle.ids import new_event_id
 from waggle.messages.forage import SourceRemovalCause
-from waggle.messages.supervision import AlarmKind
+from waggle.messages.supervision import AlarmKind, AlarmRaised
 
 if TYPE_CHECKING:
+    from hivemind.wardens.spawn.sub_bee import SubBee
     from hivemind.wardens.warden import Warden
 
 log = get_logger(__name__)
@@ -78,14 +81,21 @@ log = get_logger(__name__)
 # What a release can fail with when the Cell it reaches is not answering: a device error, a link
 # that went, or the machine's own I/O. Anything else is a real bug and still propagates.
 RELEASE_FAILURES = (CellError, TransportError, OSError)
+# What `alarm.handled` says when a bee's failure was only its Cell going and the task was held.
+HELD_FOR_CELL = "HOLD_FOR_CELL"
+# The kinds a bee raises when a command dies under it: a crash (an exception out of its tool) or an
+# ordinary failure. Every other kind (a grant exceeded, a quota, an overflow) is the bee's own.
+_CELL_FAILURES = frozenset({AlarmKind.WORKER_CRASHED, AlarmKind.WORKER_FAILED})
 
 __all__ = [
+    "HELD_FOR_CELL",
     "RELEASE_FAILURES",
     "clear_cell_lost",
     "open_lease",
     "release_idle_lease",
     "release_lease",
     "report_cell_lost",
+    "wait_out_the_cell",
 ]
 
 
@@ -232,6 +242,41 @@ def clear_cell_lost(warden: Warden) -> None:
     """
     warden._cell_lost = False
     _wake(warden)  # Tasks paused for the loss resume on the tick this wakes.
+
+
+async def wait_out_the_cell(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised) -> bool:
+    """Hold `sub_bee`'s task for the outage when its failure is only its Cell's link going.
+
+    A Level 0 device's hands are on the device, so a bee blocked in a command when the link dies
+    is told to stop at a Handoff and cannot hear it until the command returns, which it does by
+    failing. That failure is the cut, not the bee: counting it as a crash retried the task on a
+    session that was gone, which failed again, and the Queen's retry left the task RUNNING with
+    no bee for good. So while the Cell is lost the task stays held in the outage with the
+    Handoff it had, the failed bee is only retired, and the task starts again from that Handoff
+    when the Cell is back (`hivemind.wardens.offline.resume`). Past the Queen's grace her hold
+    decides, as for any lost device.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+        sub_bee: The sub-bee `alarm` concerns.
+        alarm: The AlarmRaised being handled.
+
+    Returns:
+        True when the failure was absorbed and nothing more is to be done about the Alarm.
+    """
+    outage = device_outage(warden._deps)
+    # A bee the Warden asked for itself (roadmap 11.9a) is not a task the Queen could resume: its
+    # Alarm is the Warden's to read, whatever the Cell is doing.
+    if outage is None or sub_bee.local is not None or alarm.kind not in _CELL_FAILURES:
+        return False
+    if not (warden._cell_lost or outage.is_cell_cut):
+        return False  # The Cell is there: this is the bee's own failure, for the policy to judge.
+    if not outage.is_holding(sub_bee.task_id):
+        # The word that the Cell is lost came after this failure did: hold the task now.
+        outage.hold(sub_bee.assignment, sub_bee.last_handoff, warden._deps.clock.now())
+    await record_handled(warden, alarm, HELD_FOR_CELL)
+    await retire_sub_bee(warden, sub_bee)
+    return True
 
 
 def _wake(warden: Warden) -> None:

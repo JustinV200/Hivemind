@@ -107,6 +107,7 @@ __all__ = [
     "cell_context",
     "handle_alarm_action",
     "rebind_sub_bee",
+    "record_handled",
     "report_refused",
     "resume_from_handoff",
     "retire_sub_bee",
@@ -392,13 +393,25 @@ async def _escalate(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised) -> None
 
 async def _record_handled(warden: Warden, alarm: AlarmRaised, action: WardenAction) -> None:
     """Record `alarm.handled` for a RETRY/REBIND/CANCEL_TASK this Warden resolved, no escalation."""
+    await record_handled(warden, alarm, action.value)
+
+
+async def record_handled(warden: Warden, alarm: AlarmRaised, action: str) -> None:
+    """Record `alarm.handled` for an Alarm this Warden resolved itself, naming what it did.
+
+    Args:
+        warden: The owning Warden, whose trail and identity record it.
+        alarm: The Alarm that was handled.
+        action: What the Warden did about it: a `WardenAction`'s value, or a word of its own such
+            as `hivemind.wardens.ticks.lease.HELD_FOR_CELL`.
+    """
     await record_alarm_event(
         warden._deps.trail,
         _identity(warden),
         warden._deps.clock,
         Alarm.from_wire(alarm),
         "alarm.handled",
-        action=action.value,
+        action=action,
     )
 
 

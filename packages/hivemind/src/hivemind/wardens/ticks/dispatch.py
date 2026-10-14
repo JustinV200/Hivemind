@@ -48,6 +48,7 @@ from hivemind.wardens.ticks import (
     control,
     heartbeat,
     honey,
+    lease,
     nuc,
     questions,
     results,
@@ -130,7 +131,9 @@ async def act(
     elif action is WardenAction.ACCEPT and isinstance(payload, TaskResult) and sub_bee is not None:
         await results.handle_accept(warden, sub_bee, payload)
     elif action in _ALARM_ACTIONS and sub_bee is not None and isinstance(payload, AlarmRaised):
-        await alarms.handle_alarm_action(warden, sub_bee, payload, action, binding)
+        # A bee that failed because its Cell's link went is held for the outage, not handled.
+        if not await lease.wait_out_the_cell(warden, sub_bee, payload):
+            await alarms.handle_alarm_action(warden, sub_bee, payload, action, binding)
     elif action in _ORDER_ACTIONS:
         await _queen_order(warden, action, item)
 

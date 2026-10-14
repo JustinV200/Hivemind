@@ -64,9 +64,13 @@ its Cell:
   or ACTIVE if some do. After `RESUME_SETTLE_S`, so that the Queen speaks first, each paused task
   starts again through the ordinary `handle_assign` from the Handoff its bee wrote, on the same
   attempt. A cancel, a pause or a new attempt from the Queen drops the Warden's own hold.
-- A Level 0 device Warden: the swarm gate's `cell_lost` pauses its bees the same way (no OFFLINE);
-  `cell_found` gives the old lease back, leases the device again (a refusal is asked again after
-  `RESUME_RETRY_S`) and resumes.
+- A Level 0 device Warden: the swarm gate's `cell_lost` pauses its bees the same way (no OFFLINE).
+  A bee blocked in a command cannot hear the order to stop; the command dies with the link, and
+  that failure is the cut's doing, so `ticks.lease.wait_out_the_cell` retires the bee and keeps
+  the task held (`alarm.handled` with `HOLD_FOR_CELL`) instead of retrying it on a session that is
+  gone. `cell_found` waits `RESUME_SETTLE_S`, so that the report the device's dead-man switch
+  queued is heard first, then gives the old lease back, leases the device again (a refusal is
+  asked again after `RESUME_RETRY_S`) and resumes.
 
 ## Why the link went: the diagnostic Drone (roadmap 11.9a)
 
