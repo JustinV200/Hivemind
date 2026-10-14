@@ -13,7 +13,8 @@ bounded, undoing what it did if any step fails:
    `forage.source_added` frames of their own.
 3. Commit: move the rung (`swarm.promoted`, written with the change), update the hub's record and
    tell the device's packet.
-4. Write the device's hosting plan with its own models first and the shared pool as the fallback,
+4. Mark the device proven (its server answered) and write its hosting plan with its own models
+   first and the shared pool as the fallback (`write_nuc_plan`, which a restoration shares),
    counting the models the reply says are loaded as local to the device without waiting for the
    frames that announce them.
 
@@ -78,7 +79,29 @@ _DEAD_WORDS = frozenset({"link_lost", "warden_silent"})
 
 log = get_logger(__name__)
 
-__all__ = ["DEMOTE_DEADLINE_S", "PROMOTE_DEADLINE_S", "NucPromotion"]
+__all__ = ["DEMOTE_DEADLINE_S", "PROMOTE_DEADLINE_S", "NucPromotion", "write_nuc_plan"]
+
+
+async def write_nuc_plan(env: FlowEnv, warden: WardenLink, reply: NucPromoted) -> None:
+    """Write the device's hosting plan: its own models first, the shared pool behind them.
+
+    The models the reply says are loaded are counted as local to the device without waiting for
+    the frames that announce them. A failure is logged, not raised: the device is a Nuc already,
+    and the plan is written again at the next change.
+
+    Args:
+        env: The Queen, the gate's numbers (the servers the Hive allows) and the registry.
+        warden: The Queen's link to the device's own Warden, which the plan is sent to.
+        reply: The Warden's `swarm.nuc_promoted`: the server and the models it loaded.
+    """
+    server = next((s for s in env.terms.servers if s.server_id == reply.server_id), None)
+    loaded: tuple[ModelSource, ...] = ()
+    if server is not None:
+        loaded = tuple(s for s in server.sources if s.source_id in reply.loaded_models)
+    try:
+        await write_hosting_plan(warden.cell, env.context.deps, warden, local=loaded)
+    except (SwarmError, sqlite3.Error) as error:
+        log.error("swarm.nuc_plan_failed", device_id=reply.device_id, error=type(error).__name__)
 
 
 class NucPromotion:
@@ -119,7 +142,9 @@ class NucPromotion:
         except (SwarmError, CellError, sqlite3.Error) as error:
             await self._undo(word_for(error))
             return
-        await self._plan(reply)
+        # The server answered: until this Warden connects again there is nothing to start afresh.
+        self._env.desk.prove(self._node.device_id)
+        await write_nuc_plan(self._env, self._warden, reply)
 
     async def _set_ceilings(self) -> None:
         """Set the ceilings a model server needs, before the Warden is asked to start one."""
@@ -164,25 +189,6 @@ class NucPromotion:
         link = env.listener.hub.link(node.device_id)
         if link is not None:
             await tell_device(link, updated, "The device became a Nuc.")
-
-    async def _plan(self, reply: NucPromoted) -> None:
-        """Write the device's hosting plan: its own models first, the shared pool behind them."""
-        env = self._env
-        server = next((s for s in env.terms.servers if s.server_id == reply.server_id), None)
-        loaded: tuple[ModelSource, ...] = ()
-        if server is not None:
-            loaded = tuple(s for s in server.sources if s.source_id in reply.loaded_models)
-        try:
-            await write_hosting_plan(
-                self._warden.cell, env.context.deps, self._warden, local=loaded
-            )
-        except (SwarmError, sqlite3.Error) as error:
-            # The device is a Nuc already; the plan is written again at the next change.
-            log.error(
-                "swarm.nuc_plan_failed",
-                device_id=self._node.device_id,
-                error=type(error).__name__,
-            )
 
     async def _undo(self, word: str) -> None:
         """Roll back: end any server, lower the rung, restore the ceilings, answer the request."""

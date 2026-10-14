@@ -17,8 +17,11 @@ What the door tells the gate when a Warden attaches or its connection ends is `D
 gate wakes its loop, tells a colonization its Warden arrived, and notes why a lost Warden went.
 The door never decides what a lost Warden means; that is the hold (`unreachable`), and the Warden's
 entry stays with the Queen for it to come back to. Every frame of the connection passes the gate
-once before it reaches the Queen (`DoorEvents.heard`): the gate notes the model servers a capacity
-report declares, and keeps for itself the one kind that answers its own order (a Nuc promotion's
+once before it reaches the Queen (`DoorEvents.heard`), the handshake's `cell.ready` included: the
+gate notes the terms that frame says the Warden was started under, so it can tell a Warden that
+still runs under terms the operator has since changed, and that the Warden connected afresh, so a
+Nuc's model server is shown to be running again. It also notes the model servers a capacity report
+declares, and keeps for itself the one kind that answers its own order (a Nuc promotion's
 `swarm.nuc_promoted`), which the Queen's inbox has no rule for. Everything after the handshake
 (the fan-out, `warden.spawned` or `warden.reconnected`, the snapshot relay, the signed trail
 segment, the refusals) is the shared path's, the same code a Virtual Cell's Warden goes through.
@@ -37,7 +40,9 @@ Key invariants:
       the trail) and its connection is returned unserved.
     - A segment from a device's Warden must be signed with the node's registered key.
     - A frame the gate consumed (``DoorEvents.heard`` returned True) never reaches the Queen; every
-      other frame does, in order, whether or not the gate looked at it.
+      other frame does, in order, whether or not the gate looked at it. The gate looks at the
+      handshake's `cell.ready` before the Queen attaches the Warden, so what it knows of the
+      Warden's terms is never older than the connection.
     - The door holds no state of its own: every decision is read from the connection, the registry
       and the gate's events.
 
@@ -179,6 +184,9 @@ class DeviceWardenDoor:
         if not _is_this_warden(node, connection.first) or not self._events.admits(node):
             return  # The listener closes a connection returned unserved.
         events = self._events
+        # The handshake frame never reaches `through_the_gate` (its iterator starts after it), so
+        # the gate is shown it here: the terms the Warden was started under, and a new connection.
+        events.heard(node, connection.first)
 
         async def attached(link: WardenLink, reconnected: bool) -> None:
             await events.attached(node, link, reconnected)

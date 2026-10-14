@@ -49,7 +49,9 @@ __all__ = [
     "NucReason",
     "OfferedServer",
     "decide_nuc",
+    "fit_together",
     "free_vram_bytes",
+    "nuc_reason",
     "vram_of",
 ]
 
@@ -141,7 +143,7 @@ def decide_nuc(facts: NucFacts) -> NucDecision:
         The server, its models and the reason, or the first refusal: `not_asked`,
         `not_colonized`, `no_server`, `no_allowlist` or `vram_too_small`.
     """
-    reason = _why(facts)
+    reason = nuc_reason(facts)
     if reason is None:
         return NucDecision(None, "not_asked")
     if facts.level is not RuntimeLevel.COLONIZED:
@@ -168,8 +170,20 @@ def vram_of(source: ModelSource) -> int:
     return source.spec.vram_bytes_required or 0
 
 
-def _why(facts: NucFacts) -> NucReason | None:
-    """Return the first reason to promote that holds, or None when nothing asks for it."""
+def nuc_reason(facts: NucFacts) -> NucReason | None:
+    """Return the first reason to give the device a model server that holds, or None.
+
+    Public because the Queen asks it two ways: before she promotes (through `decide_nuc`) and, for
+    a device she promoted herself, whether the reason still holds before she stops its server, so
+    the two questions can never be answered by two different rules.
+
+    Args:
+        facts: The device, the Hive's allowances and the thresholds.
+
+    Returns:
+        `OPERATOR` when the wish is set, else `PRESSURE` when the seat pressure is at or past the
+        threshold, else `AUTONOMY` when a task needs it; None when nothing asks for it.
+    """
     if facts.desired_level is RuntimeLevel.NUC:
         return NucReason.OPERATOR
     if facts.hive_pressure >= facts.seat_pressure:
@@ -187,14 +201,22 @@ def _first_that_fits(facts: NucFacts) -> tuple[str, tuple[str, ...], tuple[str, 
         if server is None:
             continue  # Declared on the device, but the Hive allows it no models.
         loadable = tuple(s.source_id for s in server.sources if vram_of(s) <= free)
-        initial = _fit_together(server.sources, free)
+        initial = fit_together(server.sources, free)
         if initial:
             return server_id, loadable, initial
     return None
 
 
-def _fit_together(sources: tuple[ModelSource, ...], free: int) -> tuple[str, ...]:
-    """Return the ids of the sources that fit `free` VRAM together, taken in the given order."""
+def fit_together(sources: tuple[ModelSource, ...], free: int) -> tuple[str, ...]:
+    """Return the ids of the sources that fit `free` VRAM together, taken in the given order.
+
+    Args:
+        sources: The candidate models, in the order they should be taken.
+        free: The VRAM available, in bytes.
+
+    Returns:
+        The ids taken: each source that still fits what the earlier ones left.
+    """
     left, taken = free, []
     # One pass in the Hive's order, as the Warden's own `plan_loads` takes them: an earlier model
     # can crowd out a later one, never the reverse, so the two always agree on what loads.

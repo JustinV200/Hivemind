@@ -30,22 +30,38 @@ See Also:
     - hivemind.queen.swarm_gate.colonize.nuc for the flows that give a device a model server.
 
 Public API:
-    - Colonizer, Flow, GUARD_DENIED_WORD: carries out the operator's requested rung (flow).
-    - Promotion, Withdrawal: the two flows (promote, withdraw).
-    - Ask, Step, decide_request, next_rung: the pure request decision (request).
+    - Colonizer, Flow, GUARD_DENIED_WORD, NOT_READY_WORD, OWNED_WORD: carries out the rung the
+      operator asked for or the Queen decided, renews a Warden's terms and restores a Nuc (flow).
+    - Promotion, Withdrawal: the two flows of the first rung (promote, withdraw).
+    - Ask, Step, decide_request, colonize_facts, next_rung: the pure request decision, and
+      the facts it and the Queen's own evaluation both weigh (request).
     - authorise_rung: the Guard check every rung change passes (guard).
     - ColonizeStepError, word_for: how a step fails (errors).
 """
 
 from hivemind.queen.swarm_gate.colonize.errors import ColonizeStepError, word_for
-from hivemind.queen.swarm_gate.colonize.flow import GUARD_DENIED_WORD, Colonizer, Flow
+from hivemind.queen.swarm_gate.colonize.flow import (
+    GUARD_DENIED_WORD,
+    NOT_READY_WORD,
+    OWNED_WORD,
+    Colonizer,
+    Flow,
+)
 from hivemind.queen.swarm_gate.colonize.guard import authorise_rung
 from hivemind.queen.swarm_gate.colonize.promote import Promotion
-from hivemind.queen.swarm_gate.colonize.request import Ask, Step, decide_request, next_rung
+from hivemind.queen.swarm_gate.colonize.request import (
+    Ask,
+    Step,
+    colonize_facts,
+    decide_request,
+    next_rung,
+)
 from hivemind.queen.swarm_gate.colonize.withdraw import Withdrawal
 
 __all__ = [
     "GUARD_DENIED_WORD",
+    "NOT_READY_WORD",
+    "OWNED_WORD",
     "Ask",
     "ColonizeStepError",
     "Colonizer",
@@ -54,6 +70,7 @@ __all__ = [
     "Step",
     "Withdrawal",
     "authorise_rung",
+    "colonize_facts",
     "decide_request",
     "next_rung",
     "word_for",

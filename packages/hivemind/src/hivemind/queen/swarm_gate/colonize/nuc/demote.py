@@ -48,7 +48,67 @@ from waggle.messages.swarm import NucAction, NucOutcome, NucPromote
 
 log = get_logger(__name__)
 
-__all__ = ["NucDemotion"]
+__all__ = ["NucDemotion", "lower_to_colonized", "take_sources_off_the_map", "tidy_nuc"]
+
+
+async def lower_to_colonized(env: FlowEnv, node: SwarmNode, reason: str) -> SwarmNode:
+    """Move a Nuc's rung down to the colonized one, update the hub's record and tell its packet.
+
+    Args:
+        env: The registry, the listener (its recorder and hub) and the Queen.
+        node: The device on the Nuc rung, as the registry holds it.
+        reason: Why, in one short sentence (a stable word when it is a failure).
+
+    Returns:
+        The device as the registry now holds it, on the colonized rung.
+    """
+    event = level_event(env.listener.recorder, node, RuntimeLevel.COLONIZED, reason)
+    lowered = await env.registry.set_level(node.device_id, RuntimeLevel.COLONIZED, event)
+    env.listener.hub.update_node(lowered)
+    link = env.listener.hub.link(node.device_id)
+    if link is not None:
+        await tell_device(link, lowered, "The device is no longer a Nuc.")
+    return lowered
+
+
+async def take_sources_off_the_map(env: FlowEnv, node: SwarmNode) -> None:
+    """Remove every source the device hosted from the Queen's map and zero its seats.
+
+    Idempotent with the Warden's own `forage.source_removed` frames, which are a moment behind
+    its reply: a plan written before they land would still put a gone model first.
+
+    Args:
+        env: The Queen, whose map and ledger are written.
+        node: The device whose sources go.
+    """
+    deps = env.context.deps
+    for source in deps.map.sources():
+        if source.spec.host_cell_id == node.cell_id:
+            await deps.map.remove_source(source.source_id)
+            await deps.ledger.seats.set_capacity(source.source_id, 0)
+
+
+async def tidy_nuc(env: FlowEnv, node: SwarmNode, warden: WardenLink) -> None:
+    """Empty the allowlist, take the device's sources off the map, and plan from the shared pool.
+
+    A failure is logged, not raised: the server is stopped and the rung moved, and the next change
+    writes these again.
+
+    Args:
+        env: The Queen and her collaborators.
+        node: The device that was a Nuc.
+        warden: The Queen's link to the device's own Warden, which is sent the new bounds.
+    """
+    deps = env.context.deps
+    try:
+        await take_sources_off_the_map(env, node)
+        current = deps.ledger.decisions.ceilings_for(node.warden_id)
+        if current is not None:
+            emptied = current.model_copy(update={"loadable_sources": ()})
+            await change_ceilings(warden, emptied, deps)
+        await write_hosting_plan(warden.cell, deps, warden)
+    except (SwarmError, sqlite3.Error) as error:
+        log.error("swarm.nuc_tidy_failed", device_id=node.device_id, error=type(error).__name__)
 
 
 class NucDemotion:
@@ -88,41 +148,5 @@ class NucDemotion:
         reply = await self._env.desk.ask(self._warden, order, self._env.context.deps.clock)
         if reply.outcome is not NucOutcome.DEMOTED:
             raise ColonizeStepError("demote_failed")
-        await self._lower()
-        await self._tidy()
-
-    async def _lower(self) -> None:
-        """Move the rung down, update the hub's record and tell the device's packet."""
-        env, node = self._env, self._node
-        event = level_event(env.listener.recorder, node, RuntimeLevel.COLONIZED, self._reason)
-        lowered = await env.registry.set_level(node.device_id, RuntimeLevel.COLONIZED, event)
-        env.listener.hub.update_node(lowered)
-        link = env.listener.hub.link(node.device_id)
-        if link is not None:
-            await tell_device(link, lowered, "The device is no longer a Nuc.")
-
-    async def _tidy(self) -> None:
-        """Empty the allowlist, take the device's sources off the map, and plan from the pool."""
-        deps = self._env.context.deps
-        try:
-            await self._take_sources_off_the_map()
-            current = deps.ledger.decisions.ceilings_for(self._node.warden_id)
-            if current is not None:
-                emptied = current.model_copy(update={"loadable_sources": ()})
-                await change_ceilings(self._warden, emptied, deps)
-            await write_hosting_plan(self._warden.cell, deps, self._warden)
-        except (SwarmError, sqlite3.Error) as error:
-            # The server is stopped and the rung moved; the next change writes these again.
-            log.error(
-                "swarm.nuc_tidy_failed",
-                device_id=self._node.device_id,
-                error=type(error).__name__,
-            )
-
-    async def _take_sources_off_the_map(self) -> None:
-        """Remove every source the device hosted from the Queen's map and zero its seats."""
-        deps, cell_id = self._env.context.deps, self._node.cell_id
-        for source in deps.map.sources():
-            if source.spec.host_cell_id == cell_id:
-                await deps.map.remove_source(source.source_id)
-                await deps.ledger.seats.set_capacity(source.source_id, 0)
+        await lower_to_colonized(self._env, node, self._reason)
+        await tidy_nuc(self._env, node, self._warden)

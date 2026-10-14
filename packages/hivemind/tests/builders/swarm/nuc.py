@@ -50,7 +50,9 @@ from waggle.messages.forage import (
     ModelServerReport,
     PlanWritten,
 )
+from waggle.messages.supervision import Intervene
 from waggle.messages.swarm import NucAction, NucOutcome, NucPromote, NucPromoted, RuntimeLevel
+from waggle.messages.task import TaskAssign, TaskPause
 from waggle.signing import Ed25519Signer
 
 __all__ = [
@@ -62,6 +64,7 @@ __all__ = [
     "gpu_capacity",
     "make_nuc_device",
     "nuc_terms",
+    "restart_nuc_warden",
 ]
 
 GIB = 1024**3
@@ -115,6 +118,9 @@ class ScriptedNucWarden:
         self.orders: list[NucPromote] = []
         self.ceilings: list[CeilingsSet] = []
         self.plans: list[PlanWritten] = []
+        self.assignments: list[TaskAssign] = []  # The tasks the Queen gave it, resumed or new.
+        self.pauses: list[TaskPause] = []  # The bees she had it stop.
+        self.intervenes: list[Intervene] = []  # The levers she pulled (a Handoff before a pause).
         self.received: list[str] = []  # One label per frame, oldest first.
         self.outcomes: dict[NucAction, NucOutcome] = {
             NucAction.PROMOTE: NucOutcome.PROMOTED,
@@ -132,6 +138,11 @@ class ScriptedNucWarden:
     def actions(self) -> list[NucAction]:
         """The actions ordered so far, oldest first."""
         return [order.action for order in self.orders]
+
+    @property
+    def is_connected(self) -> bool:
+        """Whether the Warden's connection to the Queen's door is still open."""
+        return self._dialled.transport.is_connected
 
     async def declare(self, *server_ids: str) -> None:
         """Send a capacity report naming the model servers this Warden's manifest declares."""
@@ -160,6 +171,15 @@ class ScriptedNucWarden:
             elif isinstance(payload, PlanWritten):
                 self.received.append("plan")
                 self.plans.append(payload)
+            elif isinstance(payload, TaskAssign):
+                self.received.append("assign")
+                self.assignments.append(payload)
+            elif isinstance(payload, TaskPause):
+                self.received.append("pause")
+                self.pauses.append(payload)
+            elif isinstance(payload, Intervene):
+                self.received.append("intervene")
+                self.intervenes.append(payload)
 
     async def _answer(self, envelope: Envelope, order: NucPromote) -> None:
         """Record `order` and reply as scripted."""
@@ -251,3 +271,29 @@ async def make_nuc_device(
     await warden.declare(*servers)
     await settle(lambda: rig.colonizer.declared(row.device_id) == servers)
     return NucDevice(row, packet, warden)
+
+
+async def restart_nuc_warden(rig: GateRig, device: NucDevice, *servers: str) -> ScriptedNucWarden:
+    """Make the device's Warden restart: its connection ends and the same Warden dials in again.
+
+    The new Warden is a fresh process, so it runs no model server and holds no ceilings until the
+    Queen sends them again; what it did is not carried over. `device.warden` is replaced with it.
+
+    Args:
+        rig: The gate rig, whose door admits the Warden.
+        device: The colonized device, with its first Warden dialled in.
+        *servers: The model server ids the new Warden declares in its capacity report.
+
+    Returns:
+        The new Warden, dialled in under the same Warden id and declared.
+    """
+    old = rig.queen.wardens[0]
+    await device.warden.close()
+    row = await rig.hive.registry.node(device.node.device_id)
+    assert row is not None
+    dialled = await dial_warden(rig, row)
+    await settle(lambda: rig.queen.wardens[0] is not old)  # The Queen swapped the link.
+    warden = ScriptedNucWarden(dialled, row, rig.clock, rig.hive.voice.hive_id)
+    await warden.declare(*servers)
+    device.warden = warden
+    return warden

@@ -48,6 +48,7 @@ from hivemind.swarm import NodeStatus, RuntimeLevel, SwarmNode
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.errors import ConnectionLostError
 from waggle.ids import new_cell_id, new_message_id, new_warden_id
+from waggle.messages.cell.status import CellReady
 from waggle.messages.swarm import NucAction, NucOutcome, NucPromoted
 from waggle.signing import Ed25519Signer
 
@@ -146,15 +147,36 @@ async def test_a_level0_devices_warden_the_gate_started_is_admitted(rig: GateRig
     await dialled.close()
 
 
-async def test_a_warden_naming_another_cell_is_not_admitted(rig: GateRig) -> None:
+async def test_the_gate_is_shown_the_handshake_frame_once_and_then_the_rest(rig: GateRig) -> None:
     node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+    events = _Events()
+    dialled = await dial_warden(rig, node, door=_door(rig, events))
+    await settle(lambda: len(rig.queen.wardens) == 1)
+    hop = Hop(sender=node.warden_id, recipient=rig.hive.voice.hive_id, node_id=node.node_id)
+    report = wrap(capacity_report_of(node, "box"), hop, clock=rig.clock)
 
-    dialled = await dial_warden(
-        rig, node, door=_door(rig, _Events()), cell_id=new_cell_id(rig.clock)
-    )
+    await dialled.transport.send(report)
+    await settle(lambda: len(events.frames) == 2)
+
+    # The handshake's `cell.ready` is not in the frames the Queen's reader is given, so the door
+    # shows it itself; without it the gate could not know the terms the Warden was started under.
+    first, second = events.frames
+    assert isinstance(first.payload, CellReady) and first.sender == node.warden_id
+    assert second == report
+    await dialled.close()
+
+
+async def test_a_warden_naming_another_cell_is_not_admitted_nor_shown_to_the_gate(
+    rig: GateRig,
+) -> None:
+    node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+    events = _Events()
+
+    dialled = await dial_warden(rig, node, door=_door(rig, events), cell_id=new_cell_id(rig.clock))
     await asyncio.wait_for(dialled.handler, timeout=5.0)
 
     assert rig.queen.wardens == ()
+    assert events.frames == []  # A frame that fails the handshake says nothing the gate may note.
 
 
 async def test_a_warden_that_is_not_the_nodes_own_is_not_admitted(rig: GateRig) -> None:

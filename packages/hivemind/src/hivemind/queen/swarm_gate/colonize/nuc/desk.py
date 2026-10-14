@@ -1,33 +1,42 @@
-"""Define NucDesk: what the gate hears from device Wardens about their model servers.
+"""Define NucDesk: what the gate hears from device Wardens about themselves and their servers.
 
-A colonized device's Warden announces itself with a capacity report that names the model servers
-its own manifest declares (it starts none until the Queen promotes the device). The Queen needs
-that list to decide a promotion, since she can only start what the operator put on the device, and
-she keeps it here, per device, from the report's frames as they pass the gate's door. The desk also
-carries the one question she asks a Warden that expects an answer: `ask` sends a
-`swarm.nuc_promote` over the Warden's link and waits, bounded, for the `swarm.nuc_promoted` that
-answers it. The answer is claimed by the envelope id of the order it is correlated to, and is the
-gate's, not the Queen's: it is consumed at the door so it never reaches her inbox, where a kind
-her autopilot has no rule for would wake a model. A Warden speaks only for its own device, so a
-reply that names another, or answers nothing anyone waits on, is dropped and logged.
+A colonized device's Warden announces itself twice over the connection it dials. Its `cell.ready`,
+the connection's first frame, says the access level and Comb Shield tier it was started under, and
+the Queen keeps them (`reported`) to tell whether the operator has changed the device's terms since:
+a Warden holds the terms in its environment, so one that was started under the old ones is still
+running under them. A new connection is also a Warden that has not yet shown it runs the model
+server a Nuc is meant to have, since a Warden that restarted starts none, so every `cell.ready`
+makes the device unproven (`is_proven`) until a flow of the Queen's has seen the server answer
+(`prove`). Its capacity report names the model servers its own manifest declares (it starts none
+until the Queen promotes the device), and she needs that list to decide a promotion, since she can
+only start what the operator put on the device. The desk also carries the one question she asks a
+Warden that expects an answer: `ask` sends a `swarm.nuc_promote` over the Warden's link and waits,
+bounded, for the `swarm.nuc_promoted` that answers it. The answer is claimed by the envelope id of
+the order it is correlated to, and is the gate's, not the Queen's: it is consumed at the door so it
+never reaches her inbox, where a kind her autopilot has no rule for would wake a model. A Warden
+speaks only for its own device, so a frame that names another, or a reply that answers nothing
+anyone waits on, is dropped and logged or not noted.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
     `hivemind.queen.swarm_gate.colonize.nuc`. Built by `hivemind.queen.swarm_gate.colonize.flow.
-    Colonizer`; fed by the gate's door (`heard`, `lost`) and used by the Nuc flows (`ask`). Calls
-    into `hivemind.queen.deps` (the Warden's link), `hivemind.queen.swarm_gate.colonize.errors`,
-    `hivemind.swarm` and waggle only.
+    Colonizer`; fed by the gate's door (`heard`, `lost`) and used by the Nuc flows (`ask`, `prove`)
+    and the terms renewal (`reported`). Calls into `hivemind.cell`, `hivemind.queen.deps` (the
+    Warden's link), `hivemind.queen.swarm_gate.colonize.errors`, `hivemind.swarm` and waggle only.
 
 Key invariants:
     - Nothing here awaits except `ask`, and `ask` waits at most the order's deadline plus a margin.
-    - A frame is consumed only when it is a `swarm.nuc_promoted`; a capacity report is observed
-      and still goes on to the Queen.
+    - A frame is consumed only when it is a `swarm.nuc_promoted`; a `cell.ready` and a capacity
+      report are observed and still go on to the Queen.
+    - A device is unproven from the moment its Warden's connection began until a flow proves it,
+      so a Nuc whose Warden restarted is never taken for one whose server runs.
     - Whatever waits on a device's Warden stops waiting the moment its connection ends.
     - A waiting order is forgotten however `ask` ends, so a late reply finds nobody and is dropped.
 
 See Also:
     - hivemind.wardens.ticks.nuc for the Warden's side, which sends the reply.
     - hivemind.queen.swarm_gate.attach for the door that feeds `heard`.
+    - hivemind.queen.swarm_gate.colonize.renew for what the reported terms are compared with.
 """
 
 from __future__ import annotations
@@ -35,6 +44,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from hivemind.cell import AccessLevel, CombShieldLevel
 from hivemind.common.logging import get_logger
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.swarm_gate.colonize.errors import ColonizeStepError
@@ -42,6 +52,7 @@ from hivemind.swarm import SwarmNode
 from waggle.clock import Clock
 from waggle.envelope import Envelope, wrap
 from waggle.ids import DeviceId, MessageId
+from waggle.messages.cell.status import CellReady
 from waggle.messages.forage import CapacityReport
 from waggle.messages.swarm import NucPromote, NucPromoted
 
@@ -51,7 +62,7 @@ REPLY_MARGIN_S = 15.0
 
 log = get_logger(__name__)
 
-__all__ = ["REPLY_MARGIN_S", "NucDesk"]
+__all__ = ["REPLY_MARGIN_S", "NucDesk", "Reported"]
 
 
 @dataclass(slots=True)
@@ -62,17 +73,44 @@ class _Waiting:
     answer: asyncio.Future[NucPromoted]
 
 
+@dataclass(frozen=True, slots=True)
+class Reported:
+    """The terms a device's Warden said it runs under, in the `cell.ready` it last connected with.
+
+    Attributes:
+        access_level: The access level the Warden was started with.
+        comb_shield: The Comb Shield tier the Warden was started with.
+    """
+
+    access_level: AccessLevel
+    comb_shield: CombShieldLevel
+
+
 class NucDesk:
-    """Keep what device Wardens have declared, and carry the orders sent to them."""
+    """Keep what device Wardens have said of themselves, and carry the orders sent to them."""
 
     def __init__(self) -> None:
-        """Build an empty desk: no device has declared anything and no order is in flight."""
+        """Build an empty desk: no device has said anything and no order is in flight."""
         self._declared: dict[DeviceId, tuple[str, ...]] = {}
+        self._reported: dict[DeviceId, Reported] = {}
+        self._proven: set[DeviceId] = set()
         self._waiting: dict[MessageId, _Waiting] = {}
 
     def declared(self, device_id: DeviceId) -> tuple[str, ...]:
         """Return the server ids `device_id`'s Warden last declared, or none it has not told of."""
         return self._declared.get(device_id, ())
+
+    def reported(self, device_id: DeviceId) -> Reported | None:
+        """Return the terms `device_id`'s Warden connected with, or None before it has."""
+        return self._reported.get(device_id)
+
+    def is_proven(self, device_id: DeviceId) -> bool:
+        """Whether a flow has seen `device_id`'s server answer since its Warden last connected."""
+        return device_id in self._proven
+
+    def prove(self, device_id: DeviceId) -> None:
+        """Note that `device_id`'s model server answered, until its Warden connects again."""
+        self._proven.add(device_id)
 
     def heard(self, node: SwarmNode, envelope: Envelope) -> bool:
         """Take in one frame of `node`'s Warden; True when it was the gate's and is now consumed.
@@ -83,15 +121,16 @@ class NucDesk:
 
         Returns:
             True for a `swarm.nuc_promoted` (the gate's, never the Queen's); False for everything
-            else, including a capacity report, whose servers are noted on the way past.
+            else, including a capacity report, whose servers are noted on the way past, and a
+            `cell.ready`, whose terms are.
         """
         payload = envelope.payload
-        if isinstance(payload, CapacityReport):
-            # A Warden speaks only for its own Cell; a report that names another is not noted.
-            if payload.cell_id == node.cell_id:
-                self._declared[node.device_id] = tuple(s.server_id for s in payload.model_servers)
-            return False
-        if isinstance(payload, NucPromoted):
+        # A Warden speaks only for its own Cell; a frame that names another is not noted.
+        if isinstance(payload, CapacityReport) and payload.cell_id == node.cell_id:
+            self._declared[node.device_id] = tuple(s.server_id for s in payload.model_servers)
+        elif isinstance(payload, CellReady) and payload.cell_id == node.cell_id:
+            self._connected(node, payload)
+        elif isinstance(payload, NucPromoted):
             self._answer(node, envelope.correlation_id, payload)
             return True
         return False
@@ -103,8 +142,10 @@ class NucDesk:
                 waiting.answer.set_exception(ColonizeStepError("link_lost"))
 
     def forget(self, device_id: DeviceId) -> None:
-        """Forget what `device_id` declared (it was revoked or withdrawn)."""
+        """Forget what `device_id` declared and reported (it was revoked or withdrawn)."""
         self._declared.pop(device_id, None)
+        self._reported.pop(device_id, None)
+        self._proven.discard(device_id)
 
     async def ask(self, warden: WardenLink, order: NucPromote, clock: Clock) -> NucPromoted:
         """Send `order` to the Warden and wait for its answer.
@@ -136,6 +177,13 @@ class NucDesk:
             raise ColonizeStepError("warden_silent") from error
         finally:
             self._waiting.pop(envelope.id, None)
+
+    def _connected(self, node: SwarmNode, ready: CellReady) -> None:
+        """Note the terms a Warden connected with; a new connection has proved nothing yet."""
+        self._reported[node.device_id] = Reported(
+            AccessLevel.from_wire(ready.access_level), CombShieldLevel.from_wire(ready.comb_shield)
+        )
+        self._proven.discard(node.device_id)
 
     def _answer(self, node: SwarmNode, to: MessageId | None, reply: NucPromoted) -> None:
         """Hand `reply` to the order it answers, when it is this device's and still waits."""

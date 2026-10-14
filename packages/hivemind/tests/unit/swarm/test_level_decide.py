@@ -32,6 +32,7 @@ from hivemind.swarm.level import (
     ColonizeDecision,
     ColonizeFacts,
     ColonizeReason,
+    colonize_reason,
     decide_colonize,
 )
 from waggle.messages.swarm import RuntimeLevel
@@ -204,3 +205,32 @@ def test_the_same_facts_give_the_same_decision() -> None:
     facts = _facts()
 
     assert decide_colonize(facts) == decide_colonize(facts)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({}, ColonizeReason.OPERATOR),
+        ({"desired_level": None, "hive_pressure": 0.8}, ColonizeReason.RELIEF),
+        ({"desired_level": None, "needs_outage_survival": True}, ColonizeReason.OUTAGE),
+        ({"desired_level": None, "hive_pressure": 0.79}, None),
+        # The reason is read alone: a device the Hive may not work on still has one.
+        (
+            {
+                "desired_level": None,
+                "needs_outage_survival": True,
+                "access_level": AccessLevel.READ_ONLY,
+            },
+            ColonizeReason.OUTAGE,
+        ),
+        # And of a device that already is colonized, which is how the Queen asks it before lowering.
+        (
+            {"desired_level": None, "level": RuntimeLevel.COLONIZED, "hive_pressure": 0.9},
+            ColonizeReason.RELIEF,
+        ),
+    ],
+)
+def test_the_reason_alone_is_read_without_asking_whether_the_device_can_carry_a_warden(
+    overrides: dict[str, object], reason: ColonizeReason | None
+) -> None:
+    assert colonize_reason(_facts(**overrides)) is reason

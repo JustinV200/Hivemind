@@ -32,7 +32,9 @@ from hivemind.swarm.nuc import (
     NucReason,
     OfferedServer,
     decide_nuc,
+    fit_together,
     free_vram_bytes,
+    nuc_reason,
     vram_of,
 )
 from waggle.messages.swarm import RuntimeLevel
@@ -256,3 +258,36 @@ def test_free_vram_is_the_sum_over_gpus_and_zero_without_one() -> None:
 def test_a_source_that_declares_no_vram_needs_zero() -> None:
     assert vram_of(_model("cpu", None)) == 0
     assert vram_of(_model("gpu", 2.0)) == 2 * _GIB
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({}, NucReason.OPERATOR),
+        ({"desired_level": None, "hive_pressure": 0.75}, NucReason.PRESSURE),
+        ({"desired_level": None, "needs_outage_survival": True}, NucReason.AUTONOMY),
+        ({"desired_level": None, "hive_pressure": 0.74}, None),
+        # The reason is read alone: a device that could not carry a server still has one.
+        (
+            {"desired_level": None, "needs_outage_survival": True, "declared": ()},
+            NucReason.AUTONOMY,
+        ),
+        # And of a device that already is a Nuc, which is how the Queen asks it before lowering one.
+        (
+            {"desired_level": None, "level": RuntimeLevel.NUC, "hive_pressure": 0.9},
+            NucReason.PRESSURE,
+        ),
+    ],
+)
+def test_the_reason_alone_is_read_without_asking_whether_the_device_can_carry_a_server(
+    overrides: dict[str, object], reason: NucReason | None
+) -> None:
+    assert nuc_reason(_facts(**overrides)) is reason
+
+
+def test_models_are_taken_in_order_while_they_fit_what_the_earlier_ones_left() -> None:
+    sources = (_model("a", 10.0), _model("b", 8.0), _model("c", 4.0))
+
+    assert fit_together(sources, 16 * _GIB) == ("a", "c")  # b no longer fits after a.
+    assert fit_together(sources, 12 * _GIB) == ("a",)
+    assert fit_together(sources, 0) == ()

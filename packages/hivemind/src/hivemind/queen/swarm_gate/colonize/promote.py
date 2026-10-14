@@ -51,7 +51,6 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 
-from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.queen.swarm_gate.colonize.env import FlowEnv
@@ -63,6 +62,7 @@ from hivemind.queen.swarm_gate.colonize.events import (
 )
 from hivemind.queen.swarm_gate.colonize.steps import (
     ATTACH_TIMEOUT_S,
+    DEAD_LINK_WORDS,
     PREPARE_DEADLINE_S,
     START_DEADLINE_S,
     WITHDRAW_DEADLINE_S,
@@ -72,16 +72,13 @@ from hivemind.queen.swarm_gate.colonize.steps import (
     pause_for_move,
     resume_all,
     send_order,
+    take_back_the_rest,
     tell_device,
 )
-from hivemind.queen.swarm_gate.takeback import take_back, tasks_on
+from hivemind.queen.swarm_gate.takeback import take_back
 from hivemind.queen.trail import record_event
 from hivemind.swarm import DeviceLink, NodeStatus, RuntimeLevel, SwarmError, SwarmNode
 from waggle.messages.swarm import ColonizeAction, ColonizeOutcome
-
-# The words that mean the packet cannot be asked anything: sending it WITHDRAW would only wait
-# out another deadline.
-_DEAD_LINK_WORDS = frozenset({"link_lost", "packet_silent"})
 
 log = get_logger(__name__)
 
@@ -143,22 +140,12 @@ class Promotion:
         )
         await env.wardens.stop(node.device_id)  # Releases its lease: the device is left as found.
         move.moved = True
-        await self._take_back_the_rest()
+        await take_back_the_rest(env.context, move, "colonizing")
         env.arrivals.expect(node.device_id)  # Before START: a quick Warden must not be turned away.
         reply = await send_order(move.link, node, step)
         if reply.outcome is not ColonizeOutcome.STARTED:
             raise ColonizeStepError("start_failed")
         await env.arrivals.wait(node.device_id, ATTACH_TIMEOUT_S)
-
-    async def _take_back_the_rest(self) -> None:
-        """Take back what the pause left on the Cell: assigned or blocked work has no bee."""
-        env, move = self._env, self._move
-        tasks = await tasks_on(env.context.deps, move.node)
-        rest = {
-            t.id for t in tasks if t.id not in move.paused and t.status is not TaskStatus.PAUSED
-        }
-        if rest:
-            await take_back(env.context.deps, move.node, "colonizing", only=rest)
 
     async def _commit(self) -> None:
         """Move the rung, record the migration, tell the device, and resume the paused tasks."""
@@ -183,7 +170,7 @@ class Promotion:
         """Roll the move back: WITHDRAW, let go of the device's Warden, restore what was changed."""
         env, move = self._env, self._move
         log.warning("swarm.colonize_undone", device_id=move.node.device_id, word=word)
-        if word not in _DEAD_LINK_WORDS:
+        if word not in DEAD_LINK_WORDS:
             await self._withdraw()
         if move.moved:
             await dismiss_remote(env.context, env.wardens, move.node)

@@ -42,10 +42,11 @@ Public API:
     - SwarmNode, SwarmInvite, InviteState, SWARM_SOURCE: the registry's rows (models).
     - NodeStatus, can_transition, assert_transition: the node status machine (node_state).
     - RuntimeLevel, can_move, is_promotion, assert_move: the runtime ladder (level).
-    - decide_colonize, ColonizeFacts, ColonizeDecision, ColonizeReason: whether a device's Warden
-      should move onto it (level).
-    - decide_nuc, NucFacts, NucDecision, NucReason, OfferedServer: whether a colonized device
-      should start a model server of its own, and which (nuc).
+    - decide_colonize, colonize_reason, ColonizeFacts, ColonizeDecision, ColonizeReason: whether
+      a device's Warden should move onto it, and whether a reason to still holds (level).
+    - decide_nuc, nuc_reason, fit_together, NucFacts, NucDecision, NucReason, OfferedServer:
+      whether a colonized device should start a model server of its own, and which, and whether a
+      reason to still holds (nuc).
     - SwarmRecorder: the trail, clock and identity the Swarm records with (events).
     - SwarmSource, SwarmLeaseReleaser: an enrolled device as a Real Cell source (source).
     - PollenWatchProbe: read-only observation of an idle device (watch).
@@ -106,12 +107,21 @@ from hivemind.swarm.level import (
     RuntimeLevel,
     assert_move,
     can_move,
+    colonize_reason,
     decide_colonize,
     is_promotion,
 )
 from hivemind.swarm.models import SWARM_SOURCE, InviteState, SwarmInvite, SwarmNode
 from hivemind.swarm.node_state import NodeStatus, assert_transition, can_transition
-from hivemind.swarm.nuc import NucDecision, NucFacts, NucReason, OfferedServer, decide_nuc
+from hivemind.swarm.nuc import (
+    NucDecision,
+    NucFacts,
+    NucReason,
+    OfferedServer,
+    decide_nuc,
+    fit_together,
+    nuc_reason,
+)
 from hivemind.swarm.registry import MemorySwarmRegistry, SqliteSwarmRegistry, SwarmRegistry
 from hivemind.swarm.session import (
     CommandGuard,
@@ -186,8 +196,11 @@ __all__ = [
     "assert_transition",
     "can_move",
     "can_transition",
+    "colonize_reason",
     "decide_colonize",
     "decide_nuc",
+    "fit_together",
     "is_promotion",
+    "nuc_reason",
     "parse_invite_string",
 ]

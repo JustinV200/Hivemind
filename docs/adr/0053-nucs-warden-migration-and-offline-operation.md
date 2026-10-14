@@ -116,3 +116,45 @@ or spawn past them: an offline Warden cannot grow. Answering a human-bound quest
 failing it: the Queen alone decides when a human is asked, and a failed question loses the sub-bee's
 place. Clustering a Nuc at once like a Level 1 Warden: it wastes the capability that makes a Nuc,
 and Clustering past `max_offline_s` is the backstop anyway.
+
+## Amendment (2026-10-14): a colonized device's terms, and a Nuc across a Warden restart
+
+Two gaps in the colonized rungs closed together, because the same restart answers both.
+
+**A change of terms reaches a colonized Warden by restarting it.** A Level 0 device's Warden is on
+the Hive Stand, so the gate rebuilds it when the operator runs `hive swarm access` or `shield`. A
+colonized device's Warden holds the access level and tier it was started with in its environment, has
+no message that changes them, and runs its commands through a lease of its own that the packet's
+checks do not constrain; so the registry changed and nothing on the device did. The Queen now tells
+the device in two parts and never waits for it to go idle. Her first pass that finds the terms
+different sends the packet `swarm.node_update`, whatever its Warden is doing, and the packet's own
+checks apply them from its next request. The Warden is then restarted by the packet she already has:
+its tasks are checkpointed into Handoffs and the Cell is held, the packet stops the Warden (WITHDRAW)
+and starts it again (START), which builds its environment from the terms the packet now holds, the
+Queen waits for it under the same Warden id, checks that its `cell.ready` names the new terms, starts
+a Nuc's model server again and resumes every task from its Handoff. The rung and the Warden's id do
+not change, so a Nuc stays a Nuc. The terms a Warden runs under are what its `cell.ready` said, kept
+by the gate; a Warden that has said nothing is left alone. If any step fails after the tasks were
+paused, the device falls back to Level 0 (a Nuc through the colonized rung), where the Hive Stand's
+Warden is built from the registry's row and so carries the new terms by construction, and the tasks
+resume there; the operator can colonize it again once the cause is put right.
+
+Withdrawing and colonizing again was rejected: it moves the Warden to the Hive Stand and back, a Nuc
+would lose its server twice, and a withdrawal waits for an idle Warden, which would make a narrowing
+wait. A Warden that takes the terms itself was rejected as the heaviest: a new message, and a lease
+and a set of ceilings that today are built from the terms at start would have to change mid-life,
+in `wardens` and in the packet. The restart needs neither.
+
+**A Nuc whose Warden restarted is shown to run its server, or lowered.** A Nuc's model server is a
+child of its Warden, so a Warden that restarted (it crashed, the device rebooted, the Queen restarted
+it for new terms, or the Queen herself restarted) runs none while the registry still says Nuc. Every
+`cell.ready` of a device recorded as a Nuc now makes it unproven until a flow of the Queen's has seen
+the server answer. The restoration repeats the order that made it a Nuc (idempotent on the Warden's
+side), naming the server and the models from the ceilings the Queen set for that Warden and not from
+the device's free VRAM now, and writes the hosting plan again with the device's own models first. If
+the Warden cannot start it, or the Queen holds nothing to restore from, she stops anything it
+started, lowers the rung (`swarm.demoted` with the word that says why), takes the device's sources
+off her map and plans from the shared pool, exactly as an operator's demotion would. A Warden that
+cannot be reached decides nothing and is tried again when it can. A re-attach whose stored hosting
+plan names a source that has since left the map (a Warden's server stops with it) no longer fails:
+that plan is not sent, and the restoration writes the next.

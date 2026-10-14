@@ -59,6 +59,7 @@ __all__ = [
     "RuntimeLevel",
     "assert_move",
     "can_move",
+    "colonize_reason",
     "decide_colonize",
     "is_promotion",
 ]
@@ -219,15 +220,27 @@ def decide_colonize(facts: ColonizeFacts) -> ColonizeDecision:
         The reason to climb, or the first refusal: `not_asked`, `not_gateway`, `python_unknown`,
         `python_too_old`, `access_too_low` or `forage_too_small`.
     """
-    reason = _why(facts)
+    reason = colonize_reason(facts)
     if reason is None:
         return ColonizeDecision(None, "not_asked")
     refusal = _cannot_carry_a_warden(facts)
     return ColonizeDecision(reason) if refusal is None else ColonizeDecision(None, refusal)
 
 
-def _why(facts: ColonizeFacts) -> ColonizeReason | None:
-    """Return the first reason to climb that holds, or None when nothing asks for it."""
+def colonize_reason(facts: ColonizeFacts) -> ColonizeReason | None:
+    """Return the first reason to put a Warden on the device that holds, or None.
+
+    Public because the Queen asks it two ways: before she climbs (through `decide_colonize`) and,
+    for a device she climbed herself, whether the reason still holds before she takes it back, so
+    the two questions can never be answered by two different rules.
+
+    Args:
+        facts: The device, the Hive Stand's pressure and the operator's thresholds.
+
+    Returns:
+        `OPERATOR` when the wish is set, else `RELIEF` when the pressure is at or past the
+        threshold, else `OUTAGE` when a task needs it; None when nothing asks for it.
+    """
     # NUC at GATEWAY is the same first step: the Warden always moves first (ADR-0052).
     if facts.desired_level in (RuntimeLevel.COLONIZED, RuntimeLevel.NUC):
         return ColonizeReason.OPERATOR

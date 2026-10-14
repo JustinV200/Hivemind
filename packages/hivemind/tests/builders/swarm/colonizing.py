@@ -80,6 +80,7 @@ _DEFAULT_OUTCOMES = {
 }
 _PACKET_RUNTIME = "1.0.0"  # The runtime version a packet reports installed or running.
 _WARDEN_PID = 4242  # The process id a packet reports for the Warden it started.
+_CLOSE_GRACE_S = 0.2  # Real seconds the door gets to let a closed Warden go before the link drops.
 
 
 @dataclass
@@ -93,6 +94,12 @@ class DialledWarden:
     async def close(self) -> None:
         """Close the Warden's end of the connection and wait for the door to let it go."""
         await self.transport.close()
+        done, _ = await asyncio.wait({self.handler}, timeout=_CLOSE_GRACE_S)
+        if not done:
+            # The Queen closed her end first and this end consumed that close, so its own close was
+            # a no-op and the Queen's reader, already waiting, was never woken: a real socket ends
+            # both sides at once. Dropping the link wakes it, as the socket would have.
+            self.transport.drop()
         await asyncio.gather(self.handler, return_exceptions=True)
 
 
@@ -118,6 +125,7 @@ class ScriptedPacket:
         self.wrong: set[ColonizeAction] = set()  # Orders it answers with the wrong message.
         self.orders: list[Colonize] = []
         self.updates: list[NodeUpdate] = []
+        self.log: list[str] = []  # What arrived, oldest first: "update" and "colonize:<ACTION>".
         self.on_start: Callable[[Colonize], Awaitable[None]] | None = None  # After its reply.
         self.before: dict[ColonizeAction, Callable[[Colonize], Awaitable[None]]] = {}  # Before it.
         self._task = asyncio.create_task(self._run())
@@ -137,8 +145,10 @@ class ScriptedPacket:
         async for envelope in self._device.device_end.receive():
             payload = envelope.payload
             if isinstance(payload, Colonize):
+                self.log.append(f"colonize:{payload.action.value}")
                 await self._answer(envelope, payload)
             elif isinstance(payload, NodeUpdate):
+                self.log.append("update")
                 self.updates.append(payload)
 
     async def _answer(self, envelope: Envelope, order: Colonize) -> None:
@@ -209,7 +219,8 @@ async def dial_warden(
         node: The device as the registry holds it.
         door: A door to dial instead of the rig's own (one over a Queen whose Guard refuses).
         sender: The address the Warden's first frame is sent from, when it is not the node's own.
-        **ready: Fields of the `cell.ready` it sends, replacing the node's own (a wrong Cell).
+        **ready: Fields of the `cell.ready` it sends, replacing the node's own (a wrong Cell, or
+            terms other than the node's, as a Warden started before the operator changed them).
 
     Returns:
         The Warden's end of the connection, and the door's handler task, running.
@@ -226,7 +237,12 @@ async def dial_warden(
         warden_id=node.warden_id,
         signer=Ed25519Signer.generate(),
     )
-    first = wrap(make_cell_ready(party, **ready), hop, clock=rig.clock)
+    # A Warden is started under the terms its node holds, unless a test says it was started earlier.
+    terms: dict[str, object] = {
+        "access_level": node.access_level.to_wire(),
+        "comb_shield": node.comb_shield.to_wire(),
+    }
+    first = wrap(make_cell_ready(party, **{**terms, **ready}), hop, clock=rig.clock)
     connection = WardenConnection(node, queen_end, first, _frames(queen_end))
     handler = asyncio.create_task(active.handle(connection))
     return DialledWarden(WardenEnd(warden_end, hop, rig.clock), handler, warden_end)

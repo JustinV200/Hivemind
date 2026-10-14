@@ -48,7 +48,7 @@ from waggle.ids import (
     new_node_id,
     new_warden_id,
 )
-from waggle.messages.cell.status import CellReady
+from waggle.messages.cell.status import AttestationCheck, CellReady
 from waggle.messages.forage.capacity import CapacityTrigger, LocalPoolUsage
 from waggle.messages.forage.hosting import CapacityReport
 from waggle.messages.labels import AccessLevel as WireAccessLevel
@@ -209,7 +209,8 @@ def make_cell_ready(party: DeviceParty, **overrides: object) -> CellReady:
 
     Args:
         party: The device whose Cell and Warden announce themselves.
-        **overrides: Field values that replace the defaults below.
+        **overrides: Field values that replace the defaults below. A tier above the Meadow that
+            brings no `attestation` gets one passing check, since the frame is invalid without.
 
     Returns:
         A validated CellReady.
@@ -226,6 +227,9 @@ def make_cell_ready(party: DeviceParty, **overrides: object) -> CellReady:
         "runtime_version": "1.0.0",
     }
     fields.update(overrides)
+    if fields["comb_shield"] is not WireCombShieldLevel.MEADOW and not fields["attestation"]:
+        # A tier above the Meadow is attested, and the frame is invalid without its checks.
+        fields["attestation"] = (AttestationCheck(name="tunnel", has_passed=True, detail="Held."),)
     return CellReady(**fields)
 
 

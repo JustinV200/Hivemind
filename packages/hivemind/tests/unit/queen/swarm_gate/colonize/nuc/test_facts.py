@@ -18,13 +18,19 @@ See Also:
 from __future__ import annotations
 
 import pytest
-from builders.forage import make_capacity, make_host_capacity
-from builders.swarm import make_swarm_node, nuc_terms
+from builders.forage import make_capacity, make_host_capacity, make_source
+from builders.swarm import gate_terms, make_swarm_node, nuc_terms
 from builders.swarm.nuc import GIB
 
 from hivemind.forage import Ceilings, GpuInfo
-from hivemind.queen.swarm_gate.colonize.nuc.facts import nuc_ceilings, nuc_decision
-from hivemind.swarm import NucDecision, NucReason, RuntimeLevel, SwarmNode
+from hivemind.queen.swarm_gate.colonize.nuc.facts import (
+    RestoreOrder,
+    nuc_ceilings,
+    nuc_decision,
+    nuc_facts,
+    restore_order,
+)
+from hivemind.swarm import NucDecision, NucReason, OfferedServer, RuntimeLevel, SwarmNode
 
 C, N, G = RuntimeLevel.COLONIZED, RuntimeLevel.NUC, RuntimeLevel.GATEWAY
 
@@ -123,3 +129,70 @@ def test_the_ceilings_of_a_nuc_change_nothing_a_nuc_does_not_need() -> None:
     assert (ceilings.max_sub_bees, ceilings.exportable_seats) == (3, 1)
     assert (ceilings.scratch_disk_bytes_per_lease, ceilings.resident_basket_disk_bytes) == (7, 9)
     assert current.loadable_sources == ()  # The ceilings it was given are not edited.
+
+
+def _held(loadable: tuple[str, ...], vram_gib: float) -> Ceilings:
+    """What the Queen set for a Warden when she made its device a Nuc."""
+    return Ceilings(
+        max_sub_bees=3,
+        model_vram_bytes=int(vram_gib * GIB),
+        model_disk_bytes=0,
+        loadable_sources=loadable,
+        exportable_seats=0,
+        scratch_disk_bytes_per_lease=0,
+        resident_basket_disk_bytes=0,
+    )
+
+
+def test_the_facts_carry_the_pressure_and_the_need_the_queen_gives_them() -> None:
+    node = _device(16.0, desired_level=None)
+
+    facts = nuc_facts(node, ("box",), nuc_terms(), pressure=0.9, survives=True)
+
+    assert (facts.hive_pressure, facts.needs_outage_survival) == (0.9, True)
+    assert facts.seat_pressure == nuc_terms().nuc_seat_pressure
+    assert (facts.declared, facts.level, facts.desired_level) == (("box",), C, None)
+
+
+def test_the_facts_of_an_operators_request_carry_neither() -> None:
+    facts = nuc_facts(_device(16.0), ("box",), nuc_terms())
+
+    assert (facts.hive_pressure, facts.needs_outage_survival) == (0.0, False)
+
+
+@pytest.mark.parametrize(
+    ("loadable", "vram_gib", "declared", "expected"),
+    [
+        (("small", "large"), 16, ("box",), RestoreOrder("box", ("small", "large"))),
+        (("small",), 8, ("box",), RestoreOrder("box", ("small",))),
+        (("small", "large"), 12, ("box",), RestoreOrder("box", ("small",))),  # Not both together.
+        (("small",), 16, (), RestoreOrder("box", ("small",))),  # Before its capacity report.
+        (("large",), 16, ("box",), RestoreOrder("box", ("large",))),
+        ((), 16, ("box",), None),  # She allowed it nothing.
+        (("small",), 16, ("elsewhere",), None),  # It declares no server the Hive allows.
+        (("gone",), 16, ("box",), None),  # What she allowed is not on offer any more.
+        (("large",), 8, ("box",), None),  # Nothing she allowed fits the room she allowed.
+    ],
+)
+def test_a_restarted_warden_is_told_to_start_what_the_queen_let_it_load(
+    loadable: tuple[str, ...],
+    vram_gib: float,
+    declared: tuple[str, ...],
+    expected: RestoreOrder | None,
+) -> None:
+    assert restore_order(_held(loadable, vram_gib), nuc_terms(), declared) == expected
+
+
+def test_a_warden_the_queen_never_set_ceilings_for_has_nothing_to_restore() -> None:
+    assert restore_order(None, nuc_terms(), ("box",)) is None
+
+
+def test_the_first_declared_server_with_a_model_the_queen_allowed_is_chosen() -> None:
+    other = OfferedServer("other", (make_source(source_id="o1", model="o1-model"),))
+    box = nuc_terms().servers[0]
+    terms = gate_terms(servers=(box, other))
+    held = _held(("small", "o1"), 16)
+
+    assert restore_order(held, terms, ("other", "box")) == RestoreOrder("other", ("o1",))
+    assert restore_order(held, terms, ("box", "other")) == RestoreOrder("box", ("small",))
+    assert restore_order(held, terms, ("unlisted", "other")) == RestoreOrder("other", ("o1",))

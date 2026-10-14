@@ -9,11 +9,14 @@ carry a Warden; from the second it is a Nuc promotion if `decide_nuc` agrees it 
 server (that decision needs the Warden's declaration, so the caller makes it and hands it in), or
 a withdrawal, which only an idle Warden may make, since its Handoffs live on the device; from the
 third it is a Nuc demotion, which stops the server and needs no idle Warden. A refusal always
-names one stable word, and the operator reads it on the trail.
+names one stable word, and the operator reads it on the trail. `colonize_facts` gathers what the
+first rung's decision weighs, and is shared with the Queen's own evaluation of a device that asks
+for nothing, which adds the pressure on the Hive Stand and the need of a task to outlive its link.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
-    `hivemind.queen.swarm_gate.colonize`. Called by `.flow.Colonizer.request`. Calls into
+    `hivemind.queen.swarm_gate.colonize`. Called by `.flow.Colonizer.request` and by
+    `hivemind.queen.swarm_gate.rungs` (the facts). Calls into
     `hivemind.forage` (the footprint type), `hivemind.queen.swarm_gate.terms` and
     `hivemind.swarm` (the node, the ladder and the pure colonization and Nuc decisions) only.
 
@@ -50,6 +53,7 @@ __all__ = [
     "NOT_ASKED_WORD",
     "Ask",
     "Step",
+    "colonize_facts",
     "decide_request",
     "next_rung",
 ]
@@ -141,9 +145,28 @@ def _nuc_promotion(nuc: NucDecision | None) -> Ask:
     return Ask(Step.NUC_PROMOTE, nuc.reason.value, nuc)
 
 
-def _promotion(node: SwarmNode, terms: GateTerms, footprint: RoleFootprint) -> Ask:
-    """Whether `decide_colonize` lets the device carry a Warden, and its reason either way."""
-    facts = ColonizeFacts(
+def colonize_facts(
+    node: SwarmNode,
+    terms: GateTerms,
+    footprint: RoleFootprint,
+    *,
+    pressure: float = 0.0,
+    survives: bool = False,
+) -> ColonizeFacts:
+    """Gather what `decide_colonize` weighs about `node` and the Hive Stand.
+
+    Args:
+        node: The device, with the capacity it last reported and any wish of the operator's.
+        terms: The gate's numbers: the relief pressure and the free memory a device must keep.
+        footprint: What one bee costs a Cell, for the device's Forage test.
+        pressure: The Hive Stand's relief pressure now (`rungs.pressure.relief_pressure`); 0 when
+            the operator asked for the rung, since its own word is the first reason.
+        survives: Whether a task placed on or pinned to the device must survive a lost link.
+
+    Returns:
+        The facts.
+    """
+    return ColonizeFacts(
         level=node.level,
         python_version=node.capabilities.python_version,
         access_level=node.access_level,
@@ -151,10 +174,15 @@ def _promotion(node: SwarmNode, terms: GateTerms, footprint: RoleFootprint) -> A
         footprint=footprint,
         min_free_memory_bytes=terms.min_free_memory_bytes,
         desired_level=node.desired_level,
-        hive_pressure=0.0,  # Pressure-driven relief is the Queen's own trigger, not wired yet.
+        hive_pressure=pressure,
         relief_pressure=terms.relief_pressure,
+        needs_outage_survival=survives,
     )
-    decision = decide_colonize(facts)
+
+
+def _promotion(node: SwarmNode, terms: GateTerms, footprint: RoleFootprint) -> Ask:
+    """Whether `decide_colonize` lets the device carry a Warden, and its reason either way."""
+    decision = decide_colonize(colonize_facts(node, terms, footprint))
     if decision.reason is None:
         return Ask(None, decision.refusal or NOT_ASKED_WORD)
     return Ask(Step.PROMOTE, decision.reason.value)

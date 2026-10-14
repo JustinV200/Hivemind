@@ -18,7 +18,12 @@ repeated or reordered costs nothing. For one node:
   the new values; for a changed tier the device is first sent `swarm.node_update` on its live link.
   A pending `desired_level` is handed to the colonizer, which carries it out or refuses it.
 - A node on Level 1 or above has its Warden on the device, dialled in through the gate's door: it
-  is reachable while that Warden's link is open, and its tasks are held when it is not.
+  is reachable while that Warden's link is open, and its tasks are held when it is not. If the
+  operator changed its terms its packet is sent them at once, even while the Warden is away, and the
+  Warden itself is restarted under them (`Colonizer.renew`), since a Warden keeps the terms it was
+  started with. A Nuc whose Warden connected afresh has its model server started again, or its rung
+  lowered if that cannot be done (`Colonizer.restore`), so the registry never says a device has a
+  server it has not.
 - A node that is not reachable is handed to the hold (`hivemind.queen.swarm_gate.unreachable`),
   which marks it, holds its tasks for the grace and then decides.
 
@@ -32,6 +37,8 @@ Key invariants:
     - One node's failure never stops the pass: it is logged by type and the rest are reconciled.
     - A Warden is rebuilt only after the device has been sent its new terms on the link that is
       up; a send that fails leaves everything as it was for the next pass.
+    - A colonized device's packet is told the terms the operator set on the first pass that finds
+      them different, whatever state its Warden is in; narrowing never waits for the device.
     - The hub's record of a node is refreshed with the registry's before its Warden is rebuilt,
       since `SwarmSource` reads the hub's record first and would otherwise lease on the old terms.
     - The listener is told to re-read the keys once per revocation it sees, not once per pass.
@@ -52,7 +59,8 @@ from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.queen.cluster import pause_on_warden
 from hivemind.queen.swarm_gate.colonize import Colonizer
-from hivemind.queen.swarm_gate.colonize.steps import dismiss_remote
+from hivemind.queen.swarm_gate.colonize.renew import TERMS_CHANGED_REASON
+from hivemind.queen.swarm_gate.colonize.steps import dismiss_remote, tell_terms
 from hivemind.queen.swarm_gate.takeback import take_back
 from hivemind.queen.swarm_gate.terms import GateContext
 from hivemind.queen.swarm_gate.unreachable import UnreachableDevices
@@ -70,8 +78,6 @@ from hivemind.swarm import (
 from hivemind.swarm.enrolment import node_update_for
 from waggle.ids import DeviceId
 
-# What the device is told when the operator changed its terms while it was connected.
-TERMS_CHANGED_REASON = "The operator changed this device's access level or Comb Shield tier."
 # Why a Warden's bees are paused before the Warden is rebuilt for new terms.
 REBUILD_PAUSE_REASON = "The device's terms changed; its Warden is rebuilt."
 
@@ -153,13 +159,30 @@ class DeviceReconciler:
     async def _sync_colonized(self, node: SwarmNode) -> None:
         """Keep a device whose Warden is on it: reachable while that Warden's link is open."""
         deps = self._deps
+        await self._tell_packet(node)
         link = deps.wardens.link_of(node.warden_id)
         if link is None or not link.transport.is_connected:
             await deps.unreachable.lost(node)
             return
         await deps.unreachable.found(node)
+        if await deps.colonizer.renew(node):
+            return  # The Warden is being restarted under the terms the operator set.
         if node.desired_level is not None:
             await deps.colonizer.request(node)
+        else:
+            await deps.colonizer.restore(node)
+
+    async def _tell_packet(self, node: SwarmNode) -> None:
+        """Send a colonized device's packet the terms the operator set, if it was not told yet.
+
+        The packet's own checks apply them from its next request, so a narrowing takes hold at
+        once, whatever the device's Warden is doing (or whether it is up at all).
+        """
+        hub = self._deps.listener.hub
+        link = hub.link(node.device_id)
+        if link is not None:
+            # The hub's record changes only once the frame went: a failing link is tried again.
+            await tell_terms(hub, link, node, TERMS_CHANGED_REASON)
 
     async def _keep(self, node: SwarmNode) -> None:
         """Give a reachable Level 0 device a Warden, keep it, or rebuild it for changed terms."""

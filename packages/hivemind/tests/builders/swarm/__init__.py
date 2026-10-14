@@ -46,8 +46,11 @@ Public API:
       Warden, and a device with a task running on it (colonizing).
     - PromotionScenario, make_promotion: a Level 0 device with work running, asking for the
       next rung, its packet scripted (promotion).
-    - NucDevice, ScriptedNucWarden, make_nuc_device, nuc_terms: a device asking for the Nuc rung
-      (or leaving it), its own Warden scripted, and the gate's numbers that allow it a server (nuc).
+    - RenewalScenario, make_renewal: a colonized or Nuc device with work running whose terms the
+      operator changes, its packet restarting the Warden when ordered (renewal).
+    - NucDevice, ScriptedNucWarden, make_nuc_device, nuc_terms, restart_nuc_warden: a device
+      asking for the Nuc rung (or leaving it), its own Warden scripted, the gate's numbers that
+      allow it a server, and a Warden that restarts and dials in again (nuc).
 """
 
 from builders.swarm.client import DeviceClient
@@ -110,6 +113,7 @@ from builders.swarm.nuc import (
     gpu_capacity,
     make_nuc_device,
     nuc_terms,
+    restart_nuc_warden,
 )
 from builders.swarm.parties import (
     DeviceParty,
@@ -123,6 +127,7 @@ from builders.swarm.parties import (
 )
 from builders.swarm.promotion import PromotionScenario, make_promotion
 from builders.swarm.raw import RawLink, make_raw_link
+from builders.swarm.renewal import RenewalScenario, make_renewal
 from builders.swarm.rig import LinkRig, make_link_rig, make_source, open_rig_session
 from builders.swarm.routes import (
     RouteRow,
@@ -167,6 +172,7 @@ __all__ = [
     "RecordingFactory",
     "RecordingGuard",
     "ReleaseScript",
+    "RenewalScenario",
     "RouteRow",
     "RouterRig",
     "ScriptedDevice",
@@ -204,6 +210,7 @@ __all__ = [
     "make_nuc_device",
     "make_promotion",
     "make_raw_link",
+    "make_renewal",
     "make_router_rig",
     "make_rules",
     "make_source",
@@ -216,6 +223,7 @@ __all__ = [
     "real_guard",
     "report_state",
     "resolv_conf",
+    "restart_nuc_warden",
     "scutil_dns",
     "start_live_hive",
     "swarm_manifest",
