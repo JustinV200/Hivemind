@@ -64,26 +64,38 @@ everything its leases hold (section 13).
 
 ## 2. The conformance suite
 
-The suite lives at `packages/hivemind/tests/contracts/test_gateway_contract.py`. It is a black-box
-suite that plays the Hive Stand. It starts a real swarm listener over a WebSocket, mints invites,
-starts the gateway under test, lets it enrol, and then drives it with signed requests as the Queen
-and the Warden would, asserting what the gateway sends back and what it leaves on the device.
+The suite lives in `packages/hivemind/tests/contracts/`. It is a black-box suite that plays the Hive
+Stand. It starts a real swarm listener over a WebSocket, mints invites, starts the gateway under
+test as a subprocess, lets it enrol, and then drives it with signed requests as the Queen and the
+Warden would, asserting what the gateway sends back and what it leaves on the device. It never
+imports the gateway. Test files are held to 400 lines, so the suite is four modules that share a
+rig (the package `contracts/gateway/`): `test_gateway_contract.py` (enrolment, the link, leases and
+capabilities), `test_gateway_contract_programs.py` (sessions, exec, background processes),
+`test_gateway_contract_files.py` (files, observation) and `test_gateway_contract_resilience.py`
+(forged and replayed frames, reconnection, the outbox, the dead-man switch, `QueenMoved`). The
+sections of this document the suite checks are 4 to 16.
 
 By default it starts the Python packet. To run the identical tests against another implementation,
 set the environment variable `HIVEMIND_GATEWAY_COMMAND` to a command template: the command line that
-starts your gateway, with the placeholders the suite fills in for the values a gateway needs (at
-least the invite string and a fresh state directory). The placeholders are defined in one place, the
-docstring of the test module, and not repeated here, so that they cannot drift. Then run it like any
-other contract suite:
+starts your gateway, with the placeholders the suite fills in for the values a gateway needs (the
+`{invite}` string, a fresh `{data_dir}` and the suite's `{python}`). What each placeholder means,
+and how `&&` splits a gateway that enrols with one command and runs with another, is defined in one
+place, the docstring of `test_gateway_contract.py`, and not repeated here, so that it cannot drift.
+Then run it like any other contract suite:
 
 ```text
 HIVEMIND_GATEWAY_COMMAND='<your command template>' \
-    uv run pytest packages/hivemind/tests/contracts/test_gateway_contract.py
+    uv run pytest packages/hivemind/tests/contracts/test_gateway_contract*.py
 ```
 
-A gateway conforms when the suite passes against it with nothing skipped except the tests marked
-optional (colonization, section 17). If the suite and this document disagree, one of them has a bug,
-and it is fixed in the same change.
+Against the Python packet the four modules take about a minute. The gateway runs on the machine that
+runs the suite, because where a clause is about the device's disk or process table the suite looks
+at that machine's.
+
+A gateway conforms when the suite passes against it. Colonization (section 17) is optional, so its
+one test accepts either a `pollen.unsupported` refusal or a `swarm.colonized` answer rather than
+being skipped. If the suite and this document disagree, one of them has a bug, and it is fixed in
+the same change.
 
 ## 3. What a gateway needs from its platform
 
@@ -590,7 +602,7 @@ refusal of an enrolment), `waggle.transport.tls_pin` and the `waggle.*` close re
 
 Colonization moves the device's Warden onto the device (Levels 1 and 2 of the ladder, ADR-0052). It
 needs a Python environment and the `hivemind` runtime, so a phone gateway or an IoT board will not
-implement it. It is outside the minimal contract, and its tests are the optional ones in the suite.
+implement it. It is outside the minimal contract, and the suite accepts either answer to it.
 
 A gateway that does not implement it reports `level: GATEWAY` in every heartbeat, reports a platform
 and capacity that make the Queen's colonization decision refuse the device, and answers a
