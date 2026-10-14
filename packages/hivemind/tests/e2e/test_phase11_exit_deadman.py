@@ -15,6 +15,12 @@ after `docker network connect` the packet dials again and its queued `cell.lease
 `DEAD_MAN`) arrives, the Hive's lease is released with the device's own report, and `cell.released`
 is on the trail; and the container's process table is the one taken before the lease.
 
+The second scenario is the same cable pulled and put back inside the Queen's grace, to see what
+becomes of the task whose command was running: the command dies with the link, which is the
+cut's doing and not the bee's, so the Warden holds the task (`alarm.handled` with `HOLD_FOR_CELL`)
+instead of retrying a bee on a session that is gone, and when the device is back it starts the
+task again and the task succeeds, with no crash escalated and no second binding refused.
+
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped. Needs a docker daemon and skips
     cleanly without one. It takes about two minutes, nearly all of it the WebSocket keepalive
@@ -25,7 +31,9 @@ Key invariants:
     - The device's link is older than a ping interval when the lease opens, because a packet counts
       a link as proof the Queen is alive only after it has been open that long.
     - The Hive releases nothing while the device is cut off: the release the trail shows comes from
-      the device's own report.
+      the device's own report, which the Warden waits to hear before it gives the lease back.
+    - A device back inside the grace has its task carried on by its own Warden, never failed or
+      re-placed by the Queen.
     - Every container and network is removed, whatever the test did.
 
 See Also:
@@ -47,14 +55,17 @@ from builders.swarm.hive import HubLog
 from e2e.kernel_helpers import wait_until
 from e2e.swarm.bridge import BridgeHive, BridgeTerms, bridge_hive
 from e2e.swarm.container import Container, Janitor, Network
-from e2e.swarm.drone import Script, command_turn, submit_pinned
+from e2e.swarm.drone import Script, command_turn, finished, submit_pinned
 from e2e.swarm.enrolled import DATA_DIR, ContainerDevice, DeviceOptions, enrol_device
 from e2e.swarm.hive import trail_events, warden_is_idle
 from e2e.swarm.image import device_image_or_skip
 from e2e.swarm.snapshots import files_under, process_args, settled_to
 
+from hivemind.brood_chamber import Task, TaskFilter, TaskStatus
 from hivemind.cli.compose import Hive, run_hive
 from hivemind.pheromone import PheromoneEvent
+from hivemind.wardens.ticks.lease import HELD_FOR_CELL
+from waggle.ids import TaskId
 from waggle.messages.cell import LeaseReleased
 from waggle.messages.cell.status import ReleaseCause
 from waggle.transport.websocket import PING_INTERVAL_S
@@ -164,7 +175,7 @@ async def _the_wardens_alarm(hive: Hive, cut: datetime) -> None:
 
 
 async def _since(
-    hive: Hive, cut: datetime, kind: str, alarm: str | None = None
+    hive: Hive, cut: datetime, kind: str, alarm: str | None = None, timeout_s: float = _ALARM_S
 ) -> list[PheromoneEvent]:
     """Wait for an event of `kind` recorded after `cut` (an Alarm of kind `alarm`), and list them.
 
@@ -179,7 +190,7 @@ async def _since(
         found[:] = [e for e in events if alarm is None or e.payload["kind"] == alarm]
         return bool(found)
 
-    await wait_until(recorded, timeout_s=_ALARM_S)
+    await wait_until(recorded, timeout_s=timeout_s)
     return found
 
 
@@ -217,3 +228,65 @@ async def _the_release_arrives(hive: Hive, heard: HubLog, lease_id: str) -> None
     [report] = [e for e in events if e.payload["lease_id"] == lease_id]
     killed = report.payload["killed_processes"]
     assert report.payload["is_restored"] is True and isinstance(killed, int) and killed >= 1
+
+
+def test_a_level0_device_back_inside_the_grace_has_its_cut_off_task_carry_on(
+    image: str, tmp_path: Path
+) -> None:
+    janitor = Janitor()
+    try:
+        network = janitor.network()
+        terms = BridgeTerms({"dead_man_s": _DEAD_MAN_S, "unreachable_grace_s": _GRACE_S})
+        script = Script(command_turn(_LONG, _QUICK))
+        hive = bridge_hive(tmp_path, network, script.responder, terms)
+
+        asyncio.run(_cut_and_back(hive, janitor, image, network))
+    finally:
+        janitor.close()
+
+
+async def _cut_and_back(hive: Hive, janitor: Janitor, image: str, network: Network) -> None:
+    """Pull the cable under a running command, put it back inside the grace, wait for the end."""
+    async with run_hive(hive):
+        options = DeviceOptions(network=network)
+        device = await enrol_device(BridgeHive(hive), janitor, image, options)
+        container, node = device.container, device.node
+        await wait_until(lambda: warden_is_idle(hive, node), timeout_s=_WAIT_S)
+        await _wait_for_a_proven_link(hive, device)
+        before = await asyncio.to_thread(container.processes)
+
+        goal = await submit_pinned(hive, node)
+        await wait_until(lambda: _runs(container), timeout_s=_WAIT_S)
+        cut = hive.clock.now()
+        await asyncio.to_thread(network.disconnect, container)
+
+        await _the_task_is_held(hive, cut, goal)
+        await asyncio.to_thread(network.connect, container)
+        task = await finished(hive, goal)
+
+        assert task.status is TaskStatus.SUCCEEDED
+        await _the_cut_was_not_a_crash(hive, cut, task)
+        assert await settled_to(container, before) == before
+
+
+async def _the_task_is_held(hive: Hive, cut: datetime, goal: TaskId) -> None:
+    """The command dies with the link, and the Warden holds the task rather than count a crash."""
+    # The bee's command is blocked in the device when the link is declared dead, a keepalive's
+    # worth of seconds after the cable is pulled; its failure is the cut's doing, not the bee's.
+    [handled] = await _since(hive, cut, "alarm.handled", "WORKER_CRASHED", _DEAD_MAN_WAIT_S)
+    assert handled.payload["action"] == HELD_FOR_CELL
+    [task] = await hive.stores.chamber.list(TaskFilter(goal_id=goal))
+    assert task.status is TaskStatus.RUNNING  # Held for the device: not failed, not given away.
+
+
+async def _the_cut_was_not_a_crash(hive: Hive, cut: datetime, task: Task) -> None:
+    """Nothing was escalated or refused, and the task ran as two bees and ended once."""
+    escalated = [e for e in await trail_events(hive, "alarm.escalated") if e.at >= cut]
+    assert [e for e in escalated if e.payload["kind"] == "WORKER_CRASHED"] == []
+    refused = [e for e in await trail_events(hive, "guard.denied") if e.at >= cut]
+    assert [e for e in refused if e.payload["point"] == "slot_binding"] == []
+    spawned = await trail_events(hive, "worker.spawned")
+    # The bee the cut took its command from, and the one started when the device was back.
+    assert len([e for e in spawned if e.payload["task_id"] == task.id]) == 2
+    ended = [e for e in await trail_events(hive, "task.succeeded") if e.subject_id == task.id]
+    assert len(ended) == 1

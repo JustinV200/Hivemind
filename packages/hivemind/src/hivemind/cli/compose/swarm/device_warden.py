@@ -14,11 +14,13 @@ display or models.
 Three things differ from the Hive Stand's Warden. Its lease needs `cell:real:<its Cell>` (the
 `warden` role's `cell:real:*`, narrowed to the one device), which the Guard's `lease_creation` point
 reads. It is a device's Warden (`DeviceDeps`): it gives its lease back whenever it settles with no
-task, so the borrowed machine keeps no scratch between tasks. And the Queen's end of its link reads
-the device's capacity from the hub, where the packet's reports land, so grants are sized from the
-device as it is now. While idle it watches the device by asking its packet (`PollenWatchProbe`,
-roadmap step 11.10), with no lease and no command: there is nothing of the Hive's on the device to
-look through.
+task, so the borrowed machine keeps no scratch between tasks, and it keeps an `Outage`, so that a
+device that goes away pauses its tasks at a Handoff, holds a bee that dies with the link instead of
+counting a crash, and starts them again when the device is back (roadmap 11.9). And the Queen's end
+of its link reads the device's capacity from the hub, where the packet's reports land, so grants
+are sized from the device as it is now. While idle it watches the device by asking its packet
+(`PollenWatchProbe`, roadmap step 11.10), with no lease and no command: there is nothing of the
+Hive's on the device to look through.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.swarm`. Built once by
@@ -66,6 +68,7 @@ from hivemind.swarm import (
     SwarmSource,
 )
 from hivemind.wardens import DeviceDeps, Warden
+from hivemind.wardens.offline import Outage
 
 __all__ = ["SwarmWardenFactory"]
 
@@ -112,7 +115,8 @@ class SwarmWardenFactory:
             parts, self._shielded(node, LeaseScopedSource(swarm_source, guard)), links, lease
         )
         watch = device_watch(parts, node, self._hub)  # Roadmap step 11.10: it asks the packet.
-        device = DeviceDeps(lease_retry_s=manifest.swarm.heartbeat_interval_s)
+        # A fresh outage per Warden: it holds the tasks paused for this one device's loss.
+        device = DeviceDeps(lease_retry_s=manifest.swarm.heartbeat_interval_s, outage=Outage())
         deps = replace(deps, scanner=self._scanner, device=device, watch=watch)
         link = replace(links.queen_link, live_capacity=self._live_capacity(node))
         return DeviceWarden(Warden(node.warden_id, deps), link, hub_listeners=(swarm_source,))

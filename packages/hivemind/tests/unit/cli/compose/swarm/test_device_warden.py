@@ -32,6 +32,7 @@ from hivemind.manifest import load_manifest
 from hivemind.queen.swarm_gate import DeviceWarden
 from hivemind.swarm import PollenWatchProbe, ShieldedSource, SwarmNode, SwarmSource
 from hivemind.wardens import DeviceDeps
+from hivemind.wardens.deps import device_outage
 from waggle.clock import FakeClock, SystemClock
 
 
@@ -88,7 +89,23 @@ def test_its_lease_needs_the_one_cell_it_borrows_not_the_hive_stand(tmp_path: Pa
 def test_it_is_a_device_warden_that_gives_its_lease_back_when_idle(tmp_path: Path) -> None:
     _, _, built = _built(tmp_path)
 
-    assert built.warden._deps.device == DeviceDeps(release_lease_when_idle=True)
+    device = built.warden._deps.device
+    assert isinstance(device, DeviceDeps) and device.release_lease_when_idle
+    assert device.remote is None  # It runs beside the Queen: its link to her never goes down.
+
+
+def test_it_keeps_an_outage_so_a_device_that_goes_away_does_not_fail_its_task(
+    tmp_path: Path,
+) -> None:
+    hive, node, built = _built(tmp_path)
+
+    # Without one a Level 0 Warden let a lost device's commands fail, crashed and retried its bee
+    # on a session that was gone, and left the task RUNNING with nothing to run it (roadmap 11.9).
+    outage = device_outage(built.warden._deps)
+    assert outage is not None and not outage.has_held
+    assert device_outage(hive.warden._deps) is None  # The Hive Stand's own Cell is never away.
+    # Each Warden holds the tasks of its own device, not of every device the Hive serves.
+    assert device_outage(_factory(hive).build(node).warden._deps) is not outage
 
 
 def test_it_asks_a_device_that_refused_a_lease_again_at_the_swarms_own_beat(
