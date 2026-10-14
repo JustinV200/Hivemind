@@ -770,6 +770,29 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
 - **Main merged in (5ad2814).** `origin/main` gained ten Windows-portability fixes to phase 8, 9 and
   12 code after this branch was cut; they are merged, the one conflict (the face of
   `hivemind.cell.local`) resolved by keeping both sides' names, so main is an ancestor again.
+- **The independent tester, and wave 5.** One tester re-read every exit clause and every as-built
+  note against the code and ran the whole suite (unit 19,037 passed, e2e 206 passed, integration 17
+  passed and one failed). What it found, all fixed and each with a test that fails without it: (5A)
+  a Phase 11 regression from be8664e, the Queen resuming a Virtual Cell's task fresh because she
+  looked for its Handoff in her own store (she now sends the reference alone when she holds no
+  copy); a role ending while its bee was PAUSED killed the runtime and then its Warden; and a task
+  taken back from a lost colonized device now resumes from the HANDOFF Nectar its bee deposited
+  (`queen/swarm_gate/recall.py`, ADR-0053). (5B) a device lease's scratch quota now comes from
+  the Queen's `Ceilings` (else `[swarm] scratch_quota_mb`), and an operator names a device's watch
+  directories (`hive swarm watch`, `swarm.watch_changed`, ADR-0054). (5C) a colonized device's
+  Warden gets the Exoskeleton wiring (recorder, browser launcher, ears; `device_exoskeleton`), so
+  its GUI work is recorded (ADR-0052). (5D) the Night Veil attestation judges what it claims
+  (hidden service answers 426, DNS placed on Tor's loopback port or a tunnel, a randomized hostname
+  check, the fourteenth, with the Docker backend randomizing it, WebRTC off in the Tor Browser
+  profile), a Night Veil Cell's Warden runs over the mending link so a dead Tor cuts it off and it
+  clusters past `max_offline_s` with no fallback, the Propolis scenario's Night Veil case is a
+  human's request, and the Guard Bee counts `frame_ceiling_repeats` and `replay_refusal_burst` per
+  node. Also fixed on the way: the Hive Stand's free memory is MemAvailable (MemFree made a warm
+  host look out of memory: the busy-host flake), the pid probe in `cell/local` uses ctypes on
+  Windows instead of psutil (`cell/local` needs only the standard library), a Level 0 device's
+  Warden records into the Hive's own recording store, and the Night Veil image's output chain
+  accepted `iif lo`, which no outgoing packet matches, so nothing on the Cell could reach Tor
+  (now `oif lo`).
 - **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
   that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
   tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested
