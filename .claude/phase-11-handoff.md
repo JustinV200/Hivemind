@@ -793,6 +793,17 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   Warden records into the Hive's own recording store, and the Night Veil image's output chain
   accepted `iif lo`, which no outgoing packet matches, so nothing on the Cell could reach Tor
   (now `oif lo`).
+- **Wave 5E (landed).** A colonized or Nuc device's Warden watches its Cell: a `SessionWatchProbe`
+  over a lease-free, read-only `ObserverSession` (the Warden gives its lease back when idle), Patrol
+  numbers from the device manifest's `[supervision.watch]`, and the operator's directories carried
+  as the other terms are (`NodeUpdate.watch_roots`, the packet's state, `HIVEMIND_WATCH_ROOTS` at
+  START, `CellReady.watch_roots` back, a terms restart when they drift; two additive Waggle 1.13
+  fields; ADR-0054's second amendment). Proved on a container
+  (`tests/e2e/test_phase11_exit_watch_colonized.py`). A colonized Warden's renewal and Clustering's
+  resume recall the Handoff its bee deposited, as the take-back does. Integrating it took
+  `manifest/env.py` past 300 lines, so it became the package `hivemind.manifest.env` (`hive`,
+  `in_cell`, `common`, the same public names); the first of its two commits (0c48039) is the bare
+  rename and does not import on its own, b337d31 completes it.
 - **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
   that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
   tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested
@@ -851,3 +862,39 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
 - **Docker here.** Start `dockerd` (the default socket works in this container); the device image
   is `ubuntu:24.04` (this sandbox blocks the Debian mirror, not Ubuntu's); cold build about 40 s,
   cached under `~/.cache/hivemind-tests`; `HIVEMIND_TEST_DEVICE_IMAGE` overrides.
+- **Exit criteria: how each is proven.** Real means a real container (or a real Hive in process)
+  asserts it; stand-in means a fake or a stand-in does, as section 5 planned.
+
+  | Bullet | How it is proven |
+  |---|---|
+  | Enrol, list, Drone, left as found | Real: `test_phase11_exit_level0.py` |
+  | Level 1 without failing, Nuc, cut mid-task, outbox, segment and results once, no duplicates, the allowlist | Real: `test_phase11_exit_nuc.py` (the allowlisted load is driven by an order the scenario sends) and `test_phase11_exit_unnoticed.py` (a result sent before the loss is noticed) |
+  | Night Veil only on Virtual; denied on Real | Real container for the Real refusal (`test_phase11_exit_propolis.py`, a human's request, refused at placement); the Virtual side's thirteen-plus-one checks are stand-ins: real judges over canned command output (`test_virtual_cells_night_veil.py`, the session probe's unit tests), the Docker backend's random hostname against the daemon |
+  | Night Veil C0/C1 read, C2 denied | Unit (the floors, the Honey query) |
+  | Tor-only link; host capture; Tor killed clusters | The link and "Tor killed: cut off and clustered, no fallback" with a fake Tor stopped mid-run (`test_night_veil_link.py`, `test_night_veil_tor_loss.py`); the host capture is not provable here (no Tor or OpenVPN image) and is the operator's run |
+  | Location-blind attestation | Stand-in: the judges over canned output, WebRTC from the Tor Browser profile, the hostname check |
+  | Propolis on a Real Cell | Real container with a bare `tun0` and no VPN server: the checks read the real routing table and resolver (`test_phase11_exit_propolis.py`); left as found is real |
+  | Propolis on a Virtual Cell | Real containers of the base image through `docker exec` (`tests/integration/test_docker_propolis.py`), and provider level with a fake probe (`test_virtual_cells_propolis.py`); a real `hive run` readies no PROPOLIS Virtual Cell (fail closed, ADR-0057) |
+  | Dead-man and the Alarm | Real: `test_phase11_exit_deadman.py` |
+  | Overnight watch | Real, intervals of seconds, a scripted Patrol model: `test_phase11_exit_watch.py`, `test_phase11_exit_watch_roots.py`, `test_phase11_exit_watch_colonized.py` |
+  | Replay and tamper; Raspberry Pi OS | Real container (`test_phase11_exit_replay.py`); the install is an x86-64 Debian 12 stand-in (`test_phase11_exit_binary.py`), ARM64 only in CI, and a container has no systemd user session |
+  | Diagnostic Drones | Real containers: `test_phase11_exit_diagnose.py` (reversible, unfixable, W0) |
+
+  Steps proved beyond the bullets: `test_phase11_exit_quota.py` (11.4), `test_phase11_exit_exoskeleton.py`
+  (11.11), `tests/integration/test_exoskeleton_on_device.py` (11.11 at Level 0).
+- **Open, for later phases.** After a Queen restart her replay window is empty, so an Alarm or a
+  question sent again from an unnoticed stretch can repeat (results and Nectar are idempotent), and
+  an outage longer than about nine minutes re-sends nothing from that stretch; the Honey Store has
+  no taint ledger. A real `hive run` readies no PROPOLIS or NIGHT_VEIL Virtual Cell: there is no
+  Queen-side session to a Virtual Cell, the templates are MEADOW only, the Docker backend grants
+  `NET_ADMIN` only to VPN_TOR, no PROPOLIS image ships, the Night Veil image's changes from wave 5D
+  are unbuilt here (no Tor Browser download) and its torrc has no DNSPort. A Virtual Cell that
+  clustered fully gets no resume from the Queen when it returns. `TaskNeeds.survives_link_loss` is
+  not carried by the Entrance goal API or the remote CLI. `control.queen_moved` carries no TLS pin
+  (13.2a). The packet installs `hivemind` without the browser extra, so a device has no browser
+  launcher; a Cell Warden's ears go through an unmetered gate (codingrules 8.10). A colonized
+  Warden is not woken by a link change (it notices on its next beat). The dispatcher's
+  placement-failure record names `night_veil_initiation` for a task that does cite a request.
+  `pause_on_warden` still waits on the Queen's own Bee Bread for a checkpoint a device Warden never
+  writes there. Tool eligibility and the Nuc decision do not read the platform report yet.
+
