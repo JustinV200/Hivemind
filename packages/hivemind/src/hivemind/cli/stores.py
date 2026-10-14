@@ -898,7 +898,8 @@ def _first_model_by_provider(manifest: HiveManifest) -> dict[str, str]:
     answers as is exactly that (the Hive Stand binds no slot to a model that only a Nuc serves),
     so without a model to name it a lookup of it ended the Queen's tick.
     """
-    defaults: dict[str, str] = {}
-    for row in (*manifest.llm.slots.values(), *manifest.forage.map.values()):
-        defaults.setdefault(row.provider, row.model)
-    return defaults
+    # Walked backwards so that the first row of a provider is the one left standing, and the slots'
+    # table laid over the map's so that a slot's model wins for a provider both name.
+    slots = {binding.provider: binding.model for binding in reversed(manifest.llm.slots.values())}
+    rows = {source.provider: source.model for source in reversed(manifest.forage.map.values())}
+    return {**rows, **slots}

@@ -73,6 +73,11 @@ from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStag
 
 __all__ = ["decide"]
 
+# What a Warden says again whenever its link is made, beside its heartbeat (a device's, after its
+# Warden moved onto it or its link came back): the gate has read what it needs from the last two,
+# and there is nothing in any of them to decide, so no model is woken for them.
+_ROUTINE = (Heartbeat, CellHeartbeat, CapacityReport)
+
 # Every PolicyAction the Queen's own EscalationPolicy can name, mapped onto what the Queen actually
 # does about it. RESPAWN collapses onto RETRY_TASK for the same reason it does for a Warden: a
 # retry at the Queen's level is always a fresh dispatch, never an in-place resume. TAKEOVER has no
@@ -134,10 +139,7 @@ def decide(
         return QueenAction.BLOCK_ON_QUESTION
     if isinstance(payload, Answer):
         return QueenAction.ROUTE_ANSWER
-    if isinstance(payload, Heartbeat | CellHeartbeat | CapacityReport):
-        # The last two are what a Warden says again whenever its link is made (a device's, after
-        # its Warden moved onto it or its link came back): the gate has read what it needs from
-        # them, and there is nothing in them to decide, so no model is woken for them.
+    if isinstance(payload, _ROUTINE):
         return QueenAction.RECORD
     if isinstance(payload, HumanMessage):
         # ADR-0040: autopilot has no rule for free text; the human's words always wake a model.
