@@ -14,7 +14,10 @@ resolver on the local network is not covered by the tunnel, a program named `tor
 the SOCKS port each turn an otherwise tunnelled Cell red, the one `cell.attested` event of a real
 Cell names the red checks and never what the Cell printed, and the Cell's own self-attestation
 (`hivemind.cli.in_cell.propolis`, which the image ships) reaches the same verdicts as the one made
-from outside.
+from outside. Last, the image's own Warden is booted in the container as a PROPOLIS Cell, with the
+tunnel made first or not, and dials a Queen listening on the test's host: it announces PROPOLIS and
+the four tunnel checks it makes of its own routes and resolvers, passed with the tunnel and failed
+without it, and its heartbeat says whether the shield is verified.
 
 `@pytest.mark.integration` (codingrules 14.2): skips cleanly when no daemon answers, when the Cell
 image is not built (`HIVEMIND_TEST_CELL_IMAGE`, default `integration.docker_helpers.IMAGE`; build
@@ -37,22 +40,26 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import Callable, Iterator, Mapping
 
 import pytest
 from e2e.swarm.container import BRIDGE, CommandError, Container, daemon_answers, docker
-from integration.docker_helpers import IMAGE
+from integration.docker_helpers import ALL_INTERFACES, IMAGE, WAIT_S
 from integration.docker_tunnel import (
+    HOST_ALIAS,
     TUNNEL_RESOLVER,
     CellJanitor,
+    boot_warden,
     give_tunnel,
     poll,
     run_in_background,
     session_on,
     tools_image,
     tun_device_usable,
+    warden_log,
 )
 
 from hivemind.cell import OsFamily
@@ -66,8 +73,16 @@ from hivemind.hive.propolis import (
 )
 from hivemind.pheromone import TrailQuery, TrailRecorder
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from waggle.clock import FakeClock
+from waggle.clock import FakeClock, SystemClock
+from waggle.codec import Codec
+from waggle.envelope import Hop, wrap
 from waggle.ids import new_cell_id, new_hive_id, new_node_id
+from waggle.messages.cell.status import CellHeartbeat, CellReady
+from waggle.messages.control.protocol import Shutdown
+from waggle.messages.labels import CombShieldLevel as WireCombShieldLevel
+from waggle.messages.labels import Urgency
+from waggle.signing import Ed25519Signer
+from waggle.transport.websocket_server import WebSocketServer
 
 pytestmark = pytest.mark.integration
 needs_a_tunnel = pytest.mark.usefixtures("tunnel_ready")  # Skips unless a tun can be made here.
@@ -152,6 +167,45 @@ def _start_a_socks_listener(cell: Container) -> None:
         lambda: cell.exec(["python3", "-c", _CAN_CONNECT], check=False).exit_code == 0,
         f"a listener on port {_SOCKS_PORT}",
     )
+
+
+async def _boot_as_a_propolis_cell(cell: Container) -> tuple[CellReady, CellHeartbeat]:
+    """Boot the image's Warden in `cell` as a PROPOLIS Cell; return what it announced to a Queen.
+
+    The Queen is a bare listener on this machine that the container dials through the host alias:
+    the Cell's CellReady, its CapacityReport and its first CellHeartbeat are read off it, and then
+    it is told to shut down, so the Warden stops as it would in a Hive.
+    """
+    clock, queen = SystemClock(), Ed25519Signer.generate()
+    hive_id, queen_node_id = new_hive_id(clock), new_node_id(clock)
+    server = WebSocketServer(Codec(signer=queen), host=ALL_INTERFACES)
+    await server.start()
+    bootstrap = {
+        "HIVEMIND_QUEEN_WAGGLE_URL": f"ws://{HOST_ALIAS}:{server.port}",
+        "HIVEMIND_COMB_SHIELD": "PROPOLIS",
+        "HIVEMIND_CELL_ID": new_cell_id(clock),
+        "HIVEMIND_HIVE_ID": hive_id,
+        "HIVEMIND_QUEEN_NODE_ID": queen_node_id,
+        "HIVEMIND_CELL_SIGNING_KEY": Ed25519Signer.generate().private_key_bytes.hex(),
+        "HIVEMIND_QUEEN_VERIFY_KEY": queen.public_key_bytes.hex(),
+    }
+    try:
+        boot_warden(cell, bootstrap)
+        accepted = await asyncio.wait_for(anext(server.connections()), timeout=WAIT_S)
+        frames = accepted.receive()
+        ready = (await asyncio.wait_for(anext(frames), timeout=WAIT_S)).payload
+        await asyncio.wait_for(anext(frames), timeout=WAIT_S)  # The CapacityReport.
+        beat = (await asyncio.wait_for(anext(frames), timeout=WAIT_S)).payload
+        assert isinstance(ready, CellReady)
+        assert isinstance(beat, CellHeartbeat)
+        hop = Hop(sender=hive_id, recipient=ready.warden_id, node_id=queen_node_id)
+        stop = Shutdown(urgency=Urgency.IMMEDIATE, deadline_s=0.0, reason="test teardown")
+        await accepted.send(wrap(stop, hop, clock=clock))
+    except TimeoutError:
+        pytest.fail(f"the Warden never announced; its log:\n{warden_log(cell)}")
+    finally:
+        await server.close()
+    return ready, beat
 
 
 def _own_checks(cell: Container) -> dict[str, bool]:
@@ -254,3 +308,25 @@ async def test_the_cells_own_attestation_agrees_with_the_one_made_from_outside(
     assert set(own_before) == {CHECK_DEFAULT_ROUTE, CHECK_DNS, CHECK_IPV6, CHECK_EGRESS}
     assert not own_before[CHECK_DEFAULT_ROUTE]
     assert all(own_after.values())
+
+
+@needs_a_tunnel
+@pytest.mark.parametrize("tunnelled", [False, True], ids=["no tunnel", "a tunnel"])
+async def test_the_images_warden_boots_as_a_propolis_cell_and_announces_what_it_sees(
+    janitor: CellJanitor, tunnelled: bool
+) -> None:
+    cell = janitor.start_cell(TUNNEL_RESOLVER, reach_host=True)
+    if tunnelled:
+        give_tunnel(cell)
+
+    ready, beat = await _boot_as_a_propolis_cell(cell)
+
+    # A report and not a gate: a Cell with no tunnel still announces, its checks failed.
+    assert ready.comb_shield is WireCombShieldLevel.PROPOLIS
+    assert {check.name: check.has_passed for check in ready.attestation} == {
+        CHECK_DEFAULT_ROUTE: tunnelled,
+        CHECK_DNS: tunnelled,
+        CHECK_IPV6: True,
+        CHECK_EGRESS: tunnelled,
+    }
+    assert beat.is_shield_verified is tunnelled

@@ -35,7 +35,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from e2e.swarm.container import (
@@ -52,6 +52,8 @@ from e2e.swarm.container import (
 from hivemind.cell import CompletedCommand, ExecSpec, FakeSession
 from waggle.clock import FakeClock
 
+HOST_ALIAS = "host.docker.internal"  # How a container names its host: where a Queen listens.
+WARDEN_LOG = "warden.log"  # In the image's working directory, which the Cell's user can write.
 TUNNEL_ADDRESS = "10.8.0.2/24"  # tun0's own address, in the private network a VPN gives a client.
 TUNNEL_RESOLVER = "10.8.0.1"  # The VPN's own resolver: an address inside that network.
 BUILD_TIMEOUT_S = 900.0  # An apt layer on a cold mirror; seconds when warm.
@@ -80,12 +82,14 @@ __all__ = [
     "SETTLE_S",
     "TUNNEL_RESOLVER",
     "CellJanitor",
+    "boot_warden",
     "give_tunnel",
     "poll",
     "run_in_background",
     "session_on",
     "tools_image",
     "tun_device_usable",
+    "warden_log",
 ]
 
 
@@ -97,11 +101,13 @@ class CellJanitor(Janitor):
         super().__init__()
         self._image = image
 
-    def start_cell(self, resolver: str) -> Container:
+    def start_cell(self, resolver: str, *, reach_host: bool = False) -> Container:
         """Start a container from the Cell image that does nothing but stay up.
 
         Args:
             resolver: The nameserver written to the container's `/etc/resolv.conf`.
+            reach_host: Whether the container can name its host as `host.docker.internal`, which
+                is how a Cell dials a Queen that listens on the machine the test runs on.
 
         Returns:
             The running container.
@@ -112,6 +118,7 @@ class CellJanitor(Janitor):
         self._started += 1
         name = f"hivemind-test-{self.run_id}-{self._started}"
         args = ["run", "--detach", "--init", "--name", name, *self._labels()]
+        args += ["--add-host", f"{HOST_ALIAS}:host-gateway"] if reach_host else []
         args += ["--dns", resolver, "--entrypoint", "sleep", self._image, "infinity"]
         docker(*args, timeout_s=START_TIMEOUT_S)
         return Container(name)
@@ -154,6 +161,31 @@ def give_tunnel(cell: Container) -> None:
     helper = ["run", "--rm", "--network", f"container:{cell.name}", "--cap-add", "NET_ADMIN"]
     helper += ["--device", "/dev/net/tun", "--entrypoint", "sh", tools_image()]
     docker(*helper, "-eu", "-c", TUNNEL_SCRIPT, timeout_s=START_TIMEOUT_S)
+
+
+def boot_warden(cell: Container, environment: Mapping[str, str]) -> None:
+    """Start the image's own Warden in `cell`, as its entrypoint would, and leave it running.
+
+    The container's main process is `sleep` so that the tunnel can be made before the Warden
+    boots; this runs what the image's entrypoint runs, with `environment` as its bootstrap, and
+    keeps its output in `WARDEN_LOG` for `warden_log` to read if it never connects.
+
+    Args:
+        cell: A running container of the Cell image.
+        environment: The `HIVEMIND_*` bootstrap the Warden reads.
+
+    Raises:
+        CommandError: The command could not be started.
+    """
+    args = ["exec", "--detach"]
+    for name, value in environment.items():
+        args += ["--env", f"{name}={value}"]
+    docker(*args, cell.name, "sh", "-c", f"exec hivemind-in-cell > {WARDEN_LOG} 2>&1")
+
+
+def warden_log(cell: Container) -> str:
+    """Return what the Warden `boot_warden` started has written, for a failure to show."""
+    return cell.exec(["cat", WARDEN_LOG], check=False).stdout
 
 
 def run_in_background(cell: Container, argv: Sequence[str]) -> None:
