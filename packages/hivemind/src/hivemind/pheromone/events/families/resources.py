@@ -235,6 +235,7 @@ class SwarmEvent(PheromoneEvent):
             "swarm.unreachable",  # A device's link was lost; its tasks are held, not failed.
             "swarm.access_changed",  # The operator changed a device's access level.
             "swarm.shield_changed",  # The operator changed a device's Comb Shield tier.
+            "swarm.watch_changed",  # The operator changed the directories its Warden watches.
             "swarm.shield_verified",  # A PROPOLIS device's tunnel checks passed before a lease.
             "swarm.shield_refused",  # They failed: the lease was released and the task not placed.
             "swarm.node_held",  # The Queen held a lost device's tasks for the grace period.

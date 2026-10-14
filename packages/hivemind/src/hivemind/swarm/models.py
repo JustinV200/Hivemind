@@ -23,6 +23,8 @@ Key invariants:
     - `revoked_at` is set exactly when `status` is REVOKED, and `desired_level` is None or a rung
       the node is not already on. `ceiling` is any rung or None: a device may sit on its ceiling.
     - A node's `platform` is derived from its `capabilities`, so the two cannot disagree.
+    - `watch_roots` are the operator's, bounded as the wire's `swarm.observe` bounds its roots, and
+      distinct; a node enrolled before they existed has none.
     - An invite stores only its token's hash, and `device_id` is set exactly when it is REDEEMED.
 
 See Also:
@@ -62,6 +64,7 @@ from waggle.messages.swarm.enrolment import (
     MAX_RUNTIME_VERSION_CHARS,
     PUBLIC_KEY_HEX_PATTERN,
 )
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS, MAX_OBSERVED_PATH_CHARS
 
 SWARM_SOURCE = "swarm"  # The `source` every Cell a Swarm node makes carries (codingrules 6.1).
 MAX_LABEL_CHARS = 64  # The operator's name for a device ("kitchen-pi"); a label, never a sentence.
@@ -269,6 +272,15 @@ class SwarmNode(BaseModel):
         ge=0,
         description="The operator's cap on concurrent sub-bees on the device; None for no cap.",
     )
+    watch_roots: tuple[
+        Annotated[str, Field(min_length=1, max_length=MAX_OBSERVED_PATH_CHARS)], ...
+    ] = Field(
+        default=(),
+        max_length=MAX_OBSERVE_ROOTS,
+        description="Directories on the device, spelled as the device spells them, whose log "
+        "files and file changes its Warden reads while it watches the idle device; named by "
+        "the operator with `hive swarm watch`. Empty watches only processes and resource use.",
+    )
     enrolled_at: UtcDatetime = Field(description="When its invite was redeemed.")
     last_seen_at: UtcDatetime | None = Field(
         default=None, description="When a verified frame last arrived; None before the first."
@@ -288,6 +300,18 @@ class SwarmNode(BaseModel):
         # bad row never reaches as_cell().
         if value is CombShieldLevel.NIGHT_VEIL:
             raise ValueError("A Swarm node is never NIGHT_VEIL: that tier is for Virtual Cells.")
+        return value
+
+    @field_validator("watch_roots")
+    @classmethod
+    def _roots_are_distinct_paths(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject a root that holds a NUL byte, and a root named twice."""
+        # A NUL cannot be part of a path on any platform, and the packet would refuse the whole
+        # look at the device for it; a root twice would be read twice and every file reported
+        # twice. Whether a root is absolute is the operator's desk to judge, in the device's own
+        # spelling, before it is stored (hivemind.swarm.operator.desk).
+        if any("\0" in root for root in value) or len(set(value)) != len(value):
+            raise ValueError("A node's watch_roots are distinct paths without a NUL byte.")
         return value
 
     @model_validator(mode="after")

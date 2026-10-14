@@ -25,7 +25,7 @@ See Also:
     - hivemind.cell.leavings for the package-face pattern this one follows.
 
 Public API:
-    - SwarmRegistry, InviteRegistry, NodeRegistry: the protocol and its two halves
+    - SwarmRegistry, InviteRegistry, NodeRegistry, NodeTerms: the protocol and its three parts
       (protocol).
     - SqliteSwarmRegistry, apply_swarm_migrations, SUBSYSTEM, MIGRATIONS_PACKAGE: the durable
       registry and its migration series (sqlite).
@@ -33,7 +33,12 @@ Public API:
 """
 
 from hivemind.swarm.registry.memory import MemorySwarmRegistry
-from hivemind.swarm.registry.protocol import InviteRegistry, NodeRegistry, SwarmRegistry
+from hivemind.swarm.registry.protocol import (
+    InviteRegistry,
+    NodeRegistry,
+    NodeTerms,
+    SwarmRegistry,
+)
 from hivemind.swarm.registry.sqlite import (
     MIGRATIONS_PACKAGE,
     SUBSYSTEM,
@@ -47,6 +52,7 @@ __all__ = [
     "InviteRegistry",
     "MemorySwarmRegistry",
     "NodeRegistry",
+    "NodeTerms",
     "SqliteSwarmRegistry",
     "SwarmRegistry",
     "apply_swarm_migrations",

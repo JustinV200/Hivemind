@@ -86,6 +86,7 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     # the revocation above; the Queen only carries the change out (swarm.node_update).
     ("swarm.access_changed", P.ENTRANCE_ROUTE),
     ("swarm.shield_changed", P.ENTRANCE_ROUTE),
+    ("swarm.watch_changed", P.ENTRANCE_ROUTE),  # Which directories a device's Warden may read.
     ("capping.applied", P.TOOL_INVOCATION),  # A tool's proposed effect, capped then applied.
     ("llm.rebound", P.SLOT_BINDING),
     ("worker.spawned", P.SLOT_BINDING),  # A sub-bee starts on its first, checked binding.

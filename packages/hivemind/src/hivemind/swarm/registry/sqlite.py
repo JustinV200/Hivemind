@@ -236,6 +236,14 @@ class SqliteSwarmRegistry:
         """Change a node's Comb Shield tier; see `SwarmRegistry.set_shield`."""
         return await self._change(device_id, lambda node: rules.with_shield(node, shield), event)
 
+    async def set_watch_roots(
+        self, device_id: DeviceId, roots: tuple[str, ...], event: SwarmEvent | None = None
+    ) -> SwarmNode:
+        """Replace the directories a Warden watches; see `SwarmRegistry.set_watch_roots`."""
+        return await self._change(
+            device_id, lambda node: rules.with_watch_roots(node, roots), event
+        )
+
     async def touch(
         self, device_id: DeviceId, at: datetime, runtime_version: str | None = None
     ) -> None:

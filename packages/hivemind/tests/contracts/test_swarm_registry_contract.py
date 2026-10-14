@@ -408,6 +408,7 @@ _CHANGES: dict[str, _Change] = {
     "set_ceiling": lambda r, n, c: r.set_ceiling(n.device_id, RuntimeLevel.GATEWAY),
     "set_access": lambda r, n, c: r.set_access(n.device_id, AccessLevel.READ_ONLY, ("fs:read:**",)),
     "set_shield": lambda r, n, c: r.set_shield(n.device_id, CombShieldLevel.PROPOLIS),
+    "set_watch_roots": lambda r, n, c: r.set_watch_roots(n.device_id, ("/srv/a",)),
     "touch": lambda r, n, c: r.touch(n.device_id, c.now()),
     "update_facts": lambda r, n, c: r.update_facts(n.device_id, n.capabilities, n.capacity),
 }
@@ -475,6 +476,29 @@ async def test_set_shield_changes_the_tier_and_never_accepts_night_veil(rig: Rig
     assert changed.comb_shield is CombShieldLevel.PROPOLIS
     stored = await rig.registry.node(node.device_id)
     assert stored is not None and stored.comb_shield is CombShieldLevel.PROPOLIS
+
+
+async def test_set_watch_roots_replaces_the_directories_and_records_the_event(rig: Rig) -> None:
+    node = await rig.enrol()
+    event = rig.event("swarm.watch_changed", node.device_id)
+
+    changed = await rig.registry.set_watch_roots(node.device_id, ("/srv/a", "/srv/b"), event)
+    cleared = await rig.registry.set_watch_roots(node.device_id, ())
+
+    assert node.watch_roots == () and changed.watch_roots == ("/srv/a", "/srv/b")
+    assert cleared.watch_roots == ()
+    assert await rig.registry.node(node.device_id) == cleared
+    assert await rig.trail.query(TrailQuery()) == (event,)
+
+
+async def test_set_watch_roots_refuses_roots_that_break_the_nodes_bounds(rig: Rig) -> None:
+    node = await rig.enrol()
+
+    with pytest.raises(ValidationError):
+        await rig.registry.set_watch_roots(node.device_id, ("/srv/a", "/srv/a"))
+
+    stored = await rig.registry.node(node.device_id)
+    assert stored is not None and stored.watch_roots == ()  # Nothing was half written.
 
 
 async def test_touch_moves_last_seen_forward_only_and_may_update_the_version(rig: Rig) -> None:

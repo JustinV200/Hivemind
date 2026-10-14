@@ -47,7 +47,7 @@ from hivemind.swarm.node_state import NodeStatus
 from waggle.ids import CellId, DeviceId, NodeId
 from waggle.messages.swarm import RuntimeLevel
 
-__all__ = ["InviteRegistry", "NodeRegistry", "SwarmRegistry"]
+__all__ = ["InviteRegistry", "NodeRegistry", "NodeTerms", "SwarmRegistry"]
 
 
 class InviteRegistry(Protocol):
@@ -141,7 +141,7 @@ class InviteRegistry(Protocol):
 
 
 class NodeRegistry(Protocol):
-    """The node half of the registry: enrolled devices, and their status, rung and terms.
+    """The node half of the registry: enrolled devices, their status, their rung and their facts.
 
     Implementations must be safe to call concurrently: the heartbeat monitor, the gateway and an
     operator command may all write at once.
@@ -194,6 +194,41 @@ class NodeRegistry(Protocol):
             NodeNotFoundError: No such device.
             NodeStatusConflictError: The node is not in `expected`.
             InvalidNodeTransitionError: `expected` to `new` is not an edge.
+        """
+        ...
+
+    async def touch(
+        self, device_id: DeviceId, at: datetime, runtime_version: str | None = None
+    ) -> None:
+        """Note that a verified frame arrived from the device at `at`.
+
+        Args:
+            device_id: The device.
+            at: When the frame arrived.
+            runtime_version: The `pollen` version it reported, if it did.
+
+        Raises:
+            NodeNotFoundError: No such device.
+            NodeRevokedError: The node is revoked.
+        """
+        ...
+
+    async def update_facts(
+        self, device_id: DeviceId, capabilities: CellCapabilities, capacity: ForageCapacity
+    ) -> SwarmNode:
+        """Store the capabilities and capacity a device's latest report carried.
+
+        Args:
+            device_id: The device.
+            capabilities: What it reports it can do.
+            capacity: Its Forage capacity.
+
+        Returns:
+            The node with both replaced.
+
+        Raises:
+            NodeNotFoundError: No such device.
+            NodeRevokedError: The node is revoked.
         """
         ...
 
@@ -252,6 +287,15 @@ class NodeRegistry(Protocol):
         """
         ...
 
+
+class NodeTerms(Protocol):
+    """The terms part of the registry: the limits and choices the operator sets for a device.
+
+    Its access level, its Comb Shield tier and the directories its Warden watches. The Queen's
+    reconcile pass compares these with the ones a device's Warden was built with, and builds the
+    Warden again when they differ. The same concurrency rule as `NodeRegistry` applies.
+    """
+
     async def set_access(
         self,
         device_id: DeviceId,
@@ -296,45 +340,33 @@ class NodeRegistry(Protocol):
         """
         ...
 
-    async def touch(
-        self, device_id: DeviceId, at: datetime, runtime_version: str | None = None
-    ) -> None:
-        """Note that a verified frame arrived from the device at `at`.
-
-        Args:
-            device_id: The device.
-            at: When the frame arrived.
-            runtime_version: The `pollen` version it reported, if it did.
-
-        Raises:
-            NodeNotFoundError: No such device.
-            NodeRevokedError: The node is revoked.
-        """
-        ...
-
-    async def update_facts(
-        self, device_id: DeviceId, capabilities: CellCapabilities, capacity: ForageCapacity
+    async def set_watch_roots(
+        self, device_id: DeviceId, roots: tuple[str, ...], event: SwarmEvent | None = None
     ) -> SwarmNode:
-        """Store the capabilities and capacity a device's latest report carried.
+        """Replace the directories a device's Warden reads logs and file changes from.
 
         Args:
             device_id: The device.
-            capabilities: What it reports it can do.
-            capacity: Its Forage capacity.
+            roots: The device's directories, in its own spelling, already checked by the caller;
+                empty to watch only processes and resource use.
+            event: The `swarm.watch_changed` event to record.
 
         Returns:
-            The node with both replaced.
+            The node carrying the roots.
 
         Raises:
             NodeNotFoundError: No such device.
             NodeRevokedError: The node is revoked.
+            pydantic.ValidationError: `roots` break the node's bounds (too many, too long, a
+                repeat or a NUL byte).
         """
         ...
 
 
-class SwarmRegistry(InviteRegistry, NodeRegistry, Protocol):
+class SwarmRegistry(InviteRegistry, NodeRegistry, NodeTerms, Protocol):
     """Store invites and enrolled devices, and move them along their machines atomically.
 
-    The two halves are separate protocols so a collaborator that only mints invites, or only
-    reads nodes, can be given just the half it uses; the Hive's registry implements both.
+    The parts are separate protocols so a collaborator that only mints invites, only reads nodes
+    or only sets their terms can be given just the part it uses; the Hive's registry implements
+    all three.
     """

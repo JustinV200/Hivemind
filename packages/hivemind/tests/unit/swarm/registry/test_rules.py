@@ -81,6 +81,22 @@ def test_a_final_invite_answers_with_its_own_state_whatever_the_time(
     assert rules.judge_redemption(invite, _CLOCK.now()) is reason
 
 
+def test_a_device_whose_identities_are_all_new_is_not_taken() -> None:
+    assert not rules.identity_taken([_node()], _node())
+    assert not rules.identity_taken([], _node())
+
+
+@pytest.mark.parametrize(
+    "identity", ["device_id", "node_id", "cell_id", "warden_id", "public_key_hex"]
+)
+def test_any_one_identity_already_enrolled_makes_the_device_taken(identity: str) -> None:
+    enrolled = _node()
+    # Everything else is fresh, so only the shared identity can be the reason.
+    newcomer = _node(**{identity: getattr(enrolled, identity)})
+
+    assert rules.identity_taken([enrolled], newcomer)
+
+
 def test_the_invite_moves_make_the_state_they_name_and_redemption_remembers_the_device() -> None:
     invite = make_swarm_invite(clock=_CLOCK)
     device = make_device_party(_CLOCK).device_id
@@ -188,6 +204,18 @@ def test_the_tier_changes_but_never_to_night_veil() -> None:
         rules.with_shield(_node(), CombShieldLevel.NIGHT_VEIL)
 
 
+def test_watch_roots_are_replaced_and_may_be_emptied() -> None:
+    watching = rules.with_watch_roots(_node(), ("/srv/a", "/srv/b"))
+
+    assert watching.watch_roots == ("/srv/a", "/srv/b")
+    assert rules.with_watch_roots(watching, ()).watch_roots == ()
+
+
+def test_watch_roots_that_break_the_nodes_bounds_are_refused() -> None:
+    with pytest.raises(ValidationError):
+        rules.with_watch_roots(_node(), ("/srv/a", "/srv/a"))
+
+
 def test_touching_moves_the_last_heard_time_forward_and_never_back() -> None:
     node = _node(last_seen_at=_CLOCK.now())
     later = _CLOCK.now() + timedelta(seconds=10)
@@ -223,10 +251,11 @@ def test_a_report_replaces_the_stored_capabilities_and_capacity() -> None:
         lambda n: rules.with_desired_level(n, RuntimeLevel.COLONIZED),
         lambda n: rules.with_access(n, AccessLevel.READ_ONLY, ()),
         lambda n: rules.with_shield(n, CombShieldLevel.PROPOLIS),
+        lambda n: rules.with_watch_roots(n, ("/srv/a",)),
         lambda n: rules.touched(n, _CLOCK.now(), None),
         lambda n: rules.with_facts(n, make_capabilities(), make_capacity()),
     ],
-    ids=["level", "desired", "access", "shield", "touched", "facts"],
+    ids=["level", "desired", "access", "shield", "watch-roots", "touched", "facts"],
 )
 def test_nothing_changes_on_a_revoked_node(change: Callable[[SwarmNode], object]) -> None:
     revoked = _node(status=NodeStatus.REVOKED, revoked_at=_CLOCK.now())

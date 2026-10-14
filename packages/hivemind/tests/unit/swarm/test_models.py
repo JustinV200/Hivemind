@@ -43,6 +43,7 @@ from waggle.messages.swarm.enrolment import (
     MAX_GRANTED_CAPABILITIES,
     MAX_HOSTNAME_CHARS,
 )
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS, MAX_OBSERVED_PATH_CHARS
 
 _CLOCK = FakeClock()
 _DEVICE = make_device_party(_CLOCK).device_id
@@ -175,8 +176,9 @@ def test_an_invite_missing_a_required_field_is_rejected() -> None:
         _node(status=NodeStatus.UNREACHABLE, level=RuntimeLevel.COLONIZED),
         _node(desired_level=RuntimeLevel.COLONIZED, access_level=AccessLevel.FULL),
         _node(status=NodeStatus.REVOKED, revoked_at=_CLOCK.now()),
+        _node(watch_roots=("/var/log/app", "C:\\logs")),
     ],
-    ids=["online", "labelled", "unreachable-colonized", "pending-rung", "revoked"],
+    ids=["online", "labelled", "unreachable-colonized", "pending-rung", "revoked", "watching"],
 )
 def test_a_node_survives_its_own_json_and_its_python_dump(node: SwarmNode) -> None:
     assert SwarmNode.model_validate_json(node.model_dump_json()) == node
@@ -199,6 +201,11 @@ def test_a_node_survives_its_own_json_and_its_python_dump(node: SwarmNode) -> No
         {"max_sub_bees": -1},
         {"granted_capabilities": ("exec:*",) * (MAX_GRANTED_CAPABILITIES + 1)},
         {"granted_capabilities": ("x" * (MAX_CAPABILITY_CHARS + 1),)},
+        {"watch_roots": ("/srv/a",) * 2},
+        {"watch_roots": tuple(f"/srv/{index}" for index in range(MAX_OBSERVE_ROOTS + 1))},
+        {"watch_roots": ("/" + "d" * MAX_OBSERVED_PATH_CHARS,)},
+        {"watch_roots": ("",)},
+        {"watch_roots": ("/srv/\0a",)},
         {"enrolled_at": datetime(2020, 1, 1)},  # No time zone, on purpose.
         {"device_id": "not-an-id"},
         {"unknown_field": 1},
@@ -217,6 +224,11 @@ def test_a_node_survives_its_own_json_and_its_python_dump(node: SwarmNode) -> No
         "negative-sub-bees",
         "too-many-capabilities",
         "long-capability",
+        "repeated-root",
+        "too-many-roots",
+        "long-root",
+        "empty-root",
+        "nul-in-root",
         "naive-time",
         "bad-device-id",
         "extra-field",
@@ -225,6 +237,23 @@ def test_a_node_survives_its_own_json_and_its_python_dump(node: SwarmNode) -> No
 def test_a_node_that_breaks_a_rule_is_rejected(changes: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         _node(**changes)
+
+
+def test_a_node_watches_no_directory_until_the_operator_names_some() -> None:
+    assert _node().watch_roots == ()
+
+
+def test_a_row_stored_before_watch_roots_existed_still_loads() -> None:
+    row = _node().model_dump(mode="json")
+    del row["watch_roots"]  # The JSON body an older Hive wrote.
+
+    assert SwarmNode.model_validate(row).watch_roots == ()
+
+
+def test_the_most_roots_the_wire_carries_are_accepted() -> None:
+    roots = tuple(f"/srv/{index}" for index in range(MAX_OBSERVE_ROOTS))
+
+    assert _node(watch_roots=roots).watch_roots == roots
 
 
 def test_a_node_is_frozen() -> None:

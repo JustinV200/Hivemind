@@ -118,7 +118,7 @@ class MemorySwarmRegistry:
                 and invite.state is InviteState.ISSUED
             ):
                 self._invites[code_hash] = rules.expired_invite(invite)
-            if refusal is None and self._identity_in_use(node):
+            if refusal is None and rules.identity_taken(self._nodes.values(), node):
                 refusal = EnrolRefusal.IDENTITY_IN_USE
             # `invite is None` always comes with a refusal; the test only narrows the type.
             if invite is None or refusal is not None:
@@ -207,6 +207,12 @@ class MemorySwarmRegistry:
         """Change a node's Comb Shield tier; see `SwarmRegistry.set_shield`."""
         return await self._change(device_id, lambda node: rules.with_shield(node, shield), event)
 
+    async def set_watch_roots(
+        self, device_id: DeviceId, roots: tuple[str, ...], event: SwarmEvent | None = None
+    ) -> SwarmNode:
+        """Replace the directories a Warden watches; see `SwarmRegistry.set_watch_roots`."""
+        return await self._change(device_id, lambda n: rules.with_watch_roots(n, roots), event)
+
     async def touch(
         self, device_id: DeviceId, at: datetime, runtime_version: str | None = None
     ) -> None:
@@ -241,14 +247,3 @@ class MemorySwarmRegistry:
         """Record `event` on the trail, if there is both; a failure leaves the row unchanged."""
         if event is not None and self._trail is not None:
             await self._trail.record(event)
-
-    def _identity_in_use(self, node: SwarmNode) -> bool:
-        """Return whether any enrolled node already owns one of `node`'s unique identities."""
-        return any(
-            other.device_id == node.device_id
-            or other.node_id == node.node_id
-            or other.cell_id == node.cell_id
-            or other.warden_id == node.warden_id
-            or other.public_key_hex == node.public_key_hex
-            for other in self._nodes.values()
-        )

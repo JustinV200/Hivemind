@@ -6,9 +6,9 @@ contract suite is a lie. This module is where the rules live once, as pure funct
 `SwarmInvite` and `SwarmNode` values (codingrules 8.3: pure core, effectful edges): whether an
 invite can be redeemed right now and why not, what a redeemed or expired invite looks like, and
 the new node record each mutation produces (a status compare-and-set, a rung change, a new
-access level, a heartbeat's touch, a refreshed capacity report). The storage classes only fetch a
-row, call one of these, and write the result back inside their own transaction, so the single-use
-and one-rung-at-a-time rules cannot drift between them.
+access level, new watch roots, a heartbeat's touch, a refreshed capacity report). The storage
+classes only fetch a row, call one of these, and write the result back inside their own
+transaction, so the single-use and one-rung-at-a-time rules cannot drift between them.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.registry`.
@@ -29,6 +29,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 
 from hivemind.cell import AccessLevel, CellCapabilities, CombShieldLevel
@@ -51,6 +52,7 @@ from waggle.messages.swarm import RuntimeLevel
 
 __all__ = [
     "expired_invite",
+    "identity_taken",
     "judge_redemption",
     "redeemed_invite",
     "replaced",
@@ -63,6 +65,7 @@ __all__ = [
     "with_level",
     "with_shield",
     "with_status",
+    "with_watch_roots",
 ]
 
 # What each non-ISSUED invite state means to a device presenting its token.
@@ -94,6 +97,29 @@ def judge_redemption(invite: SwarmInvite | None, at: datetime) -> EnrolRefusal |
     if invite.expires_at <= at:
         return EnrolRefusal.EXPIRED
     return None
+
+
+def identity_taken(nodes: Iterable[SwarmNode], node: SwarmNode) -> bool:
+    """Return whether any of `nodes` already owns one of `node`'s unique identities.
+
+    The SQLite registry enforces this with unique indexes; the in-memory one asks here, so both
+    refuse the same redemptions.
+
+    Args:
+        nodes: The devices already enrolled.
+        node: The device about to be created.
+
+    Returns:
+        True when a device id, node id, Cell id, Warden id or public key is already in use.
+    """
+    return any(
+        other.device_id == node.device_id
+        or other.node_id == node.node_id
+        or other.cell_id == node.cell_id
+        or other.warden_id == node.warden_id
+        or other.public_key_hex == node.public_key_hex
+        for other in nodes
+    )
 
 
 def expired_invite(invite: SwarmInvite) -> SwarmInvite:
@@ -283,6 +309,24 @@ def with_shield(node: SwarmNode, shield: CombShieldLevel) -> SwarmNode:
     """
     _require_not_revoked(node)
     return replaced(node, comb_shield=shield)
+
+
+def with_watch_roots(node: SwarmNode, roots: tuple[str, ...]) -> SwarmNode:
+    """Return `node` with the directories its Warden watches replaced, set by the operator.
+
+    Args:
+        node: The node as the registry holds it; not revoked.
+        roots: The directories, already checked and normalised by the operator's desk.
+
+    Returns:
+        The node carrying the roots.
+
+    Raises:
+        NodeRevokedError: The node is revoked.
+        pydantic.ValidationError: `roots` break the node's bounds.
+    """
+    _require_not_revoked(node)
+    return replaced(node, watch_roots=roots)
 
 
 def touched(node: SwarmNode, at: datetime, runtime_version: str | None) -> SwarmNode:
