@@ -59,23 +59,33 @@ def _device(tier: CombShieldLevel) -> RealCandidate:
     )
 
 
-def _backend() -> VirtualBackendCandidate:
-    """A Docker-like backend: it provisions a MEADOW Virtual Cell and can hold a Night Veil one."""
-    spec = VirtualCellSpec(
-        image="base-ubuntu",
+def _spec(tier: CombShieldLevel) -> VirtualCellSpec:
+    """A spec that provisions its Cell at `tier`, from an image named after the tier."""
+    return VirtualCellSpec(
+        image=f"base-ubuntu-{tier.name.lower()}",
         cpu_cores=1.0,
         memory_bytes=1024**3,
         disk_bytes=8 * 1024**3,
-        network_policy=NetworkPolicy.NONE,
+        network_policy=NetworkPolicy.VPN_TOR
+        if tier is CombShieldLevel.NIGHT_VEIL
+        else NetworkPolicy.NONE,
         exoskeleton=False,
         capacity=make_capacity(),
-        comb_shield=CombShieldLevel.MEADOW,
+        comb_shield=tier,
         hive_id=new_hive_id(_CLOCK),
     )
+
+
+def _backend(*tiers: CombShieldLevel) -> VirtualBackendCandidate:
+    """A Docker-like backend with one spec per tier in `tiers` (MEADOW alone when none is given).
+
+    It can also hold a Night Veil Cell, which Night Veil's own path stamps on a spec it chooses.
+    """
+    specs = tuple(_spec(tier) for tier in tiers or (CombShieldLevel.MEADOW,))
     capabilities = BackendCapabilities(
         can_snapshot=False, can_pause=True, headroom=None, can_night_veil=True
     )
-    return VirtualBackendCandidate(name="docker", capabilities=capabilities, specs=(spec,))
+    return VirtualBackendCandidate(name="docker", capabilities=capabilities, specs=specs)
 
 
 def _view(*ceiling: str) -> ForageView:
@@ -117,14 +127,52 @@ def test_a_plain_task_still_lands_on_a_propolis_device() -> None:
     assert placement.cell_id == propolis.cell_id
 
 
-def test_a_propolis_task_prefer_real_falls_back_to_virtual_naming_the_tier_mismatch() -> None:
+def test_a_propolis_task_falls_back_to_a_propolis_virtual_spec_naming_the_tier_mismatch() -> None:
     meadow = _device(CombShieldLevel.MEADOW)
-    inventory = Inventory(real=(meadow,), virtual_backends=(_backend(),))
+    backend = _backend(CombShieldLevel.MEADOW, CombShieldLevel.PROPOLIS)
+    inventory = Inventory(real=(meadow,), virtual_backends=(backend,))
 
     placement = decide(_PROPOLIS, inventory, _view(), _PREFER_REAL)
 
+    # The PROPOLIS spec, whose Cell is attested before it is ready (ADR-0057), never the MEADOW one.
     assert isinstance(placement, ProvisionVirtual)
+    assert placement.spec.comb_shield is CombShieldLevel.PROPOLIS
     assert "Comb Shield mismatch (needs PROPOLIS, has MEADOW)" in placement.reason
+
+
+def test_a_propolis_task_is_never_given_a_meadow_virtual_cell() -> None:
+    meadow = _device(CombShieldLevel.MEADOW)
+    inventory = Inventory(real=(meadow,), virtual_backends=(_backend(CombShieldLevel.MEADOW),))
+
+    with pytest.raises(PlacementError) as caught:
+        decide(_PROPOLIS, inventory, _view(), _PREFER_REAL)
+
+    # Both sides say why: the device's tier and the spec's, each a mismatch, and no capability.
+    message = str(caught.value)
+    assert "Comb Shield mismatch (needs PROPOLIS, has MEADOW)" in message
+    assert "image base-ubuntu-meadow: Comb Shield mismatch (needs PROPOLIS, provisions MEADOW)" in (
+        message
+    )
+    assert caught.value.denied == ()
+
+
+@pytest.mark.parametrize("needs", [TaskNeeds(), _PROPOLIS])
+def test_a_night_veil_spec_is_never_taken_outside_night_veil_s_own_path(needs: TaskNeeds) -> None:
+    inventory = Inventory(virtual_backends=(_backend(CombShieldLevel.NIGHT_VEIL),))
+
+    with pytest.raises(PlacementError) as caught:
+        decide(needs, inventory, _view(), _PREFER_REAL)
+
+    assert "provisions NIGHT_VEIL" in str(caught.value)
+
+
+def test_a_plain_task_may_take_a_propolis_virtual_spec() -> None:
+    inventory = Inventory(virtual_backends=(_backend(CombShieldLevel.PROPOLIS),))
+
+    placement = decide(TaskNeeds(), inventory, _view(), _PREFER_REAL)
+
+    assert isinstance(placement, ProvisionVirtual)
+    assert placement.spec.comb_shield is CombShieldLevel.PROPOLIS
 
 
 def test_a_night_veil_task_whose_ceiling_allows_only_real_cells_is_denied_not_placed() -> None:

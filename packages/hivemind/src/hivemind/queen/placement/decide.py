@@ -27,7 +27,9 @@ name a stronger tier than a candidate carries (PROPOLIS against a MEADOW device)
 candidate, with the mismatch in the reason like every other exclusion; a NIGHT_VEIL task never
 reaches the Real side at all (its path above returns before it), and a goal whose ceiling lacks
 `cell:virtual` is denied there (`guard.denied` at the placement point) rather than placed on a
-Real Cell.
+Real Cell. The Virtual side keeps the same rule: a spec provisions its Cell at its own tier, so a
+PROPOLIS task takes only a spec that provisions PROPOLIS (attested before it is ready, ADR-0057),
+never a MEADOW one, and no spec at NIGHT_VEIL is taken outside Night Veil's own path.
 
 Roadmap step 6.12 (ADR-0031, "Needs travel with the task"): an Exoskeleton need (a display, input,
 audio or browser attachment) takes a Real Cell only where attach could honour it there -- a
@@ -252,7 +254,8 @@ def _pick_virtual(
         if unusable is not None:
             eliminated.append(f"Backend {backend.name}: {unusable}")
             continue
-        spec = _best_spec(needs, forage, backend.specs, eliminated, backend.name)
+        fitting = _tier_fitting_specs(needs, backend, eliminated)
+        spec = _best_spec(needs, forage, fitting, eliminated, backend.name)
         if spec is None:
             continue
         dormant = _matching_dormant(
@@ -274,6 +277,30 @@ def _backend_unusable(backend: VirtualBackendCandidate) -> str | None:
     if not rules.virtual_has_headroom(backend.capabilities.headroom):
         return "no headroom"
     return None
+
+
+def _tier_fitting_specs(
+    needs: TaskNeeds, backend: VirtualBackendCandidate, eliminated: list[str]
+) -> tuple[VirtualCellSpec, ...]:
+    """Keep `backend`'s specs whose tier serves `needs`, recording why each other one is not.
+
+    A spec provisions its Cell at its own tier and placement never raises it, so a task that needs
+    PROPOLIS is given only a spec that provisions PROPOLIS, whose Cell is then attested before it
+    is ready (ADR-0057), never a MEADOW Cell that promised nothing about its network. A NIGHT_VEIL
+    spec is never taken here: that tier is reached only through `_place_night_veil` and its rules.
+    """
+    kept: list[VirtualCellSpec] = []
+    for spec in backend.specs:
+        tier = spec.comb_shield
+        if tier is not CombShieldLevel.NIGHT_VEIL and rules.fits_comb_shield(needs, tier):
+            kept.append(spec)
+            continue
+        wanted, has = needs.comb_shield.name, tier.name
+        eliminated.append(
+            f"Backend {backend.name} image {spec.image}: "
+            f"Comb Shield mismatch (needs {wanted}, provisions {has})"
+        )
+    return tuple(kept)
 
 
 def _best_spec(

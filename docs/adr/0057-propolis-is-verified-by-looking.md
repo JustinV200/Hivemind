@@ -1,6 +1,6 @@
 # ADR-0057: Propolis is verified by looking: one set of tunnel checks for a Real and a Virtual Cell, and Tor's absence on a Virtual one
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-14
 
 ## Context
@@ -85,13 +85,14 @@ image (`tests/integration/test_docker_propolis.py`): the same container is red w
 green with a `tun0` carrying the whole internet, and a Tor process or listener turns it red.
 
 Negative: no PROPOLIS Virtual Cell can become ready in a real `hive run` yet. The Queen has no
-session path to a Virtual Cell, so the composition root's probe refuses; Virtual placement does not
-match a task's tier to a spec's (a task that needs PROPOLIS is still offered a MEADOW spec, as it
-was before this ADR) and the shipped templates are MEADOW only; the Docker backend grants
+session path to a Virtual Cell, so the composition root's probe refuses; the shipped templates
+are MEADOW only, so a task that needs PROPOLIS finds no Virtual spec (placement takes only a spec
+that provisions the tier a task needs, never a MEADOW one, and none at NIGHT_VEIL outside Night
+Veil's own path) and waits for a PROPOLIS device; the Docker backend grants
 `NET_ADMIN` only to the Night Veil network profile; and no PROPOLIS image ships. Each is a step on
 its own, and the fail-closed default is the honest state until they land. The attestation is a
-look at one moment: a Cell resumed from Overwinter is not attested again, and a tunnel that drops
-later is the Cell's own heartbeat's business.
+look at one moment, so a Cell resumed from Overwinter is attested again before its link is handed
+back; a tunnel that drops while the Cell works is the Cell's own heartbeat's business.
 
 ## Alternatives considered
 
