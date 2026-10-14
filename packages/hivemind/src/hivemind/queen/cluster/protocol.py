@@ -80,6 +80,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from hivemind.brood_chamber import TaskFilter, TaskStatus
+from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ForageGrant, ForageMap, UnknownSourceError
 from hivemind.memory import BeeBreadEntryKind
@@ -214,12 +215,12 @@ async def pause_on_warden(
     Returns:
         The tasks actually paused, oldest first.
     """
-    tasks = await deps.chamber.list(TaskFilter())
-    affected = tuple(
-        (task.id, warden_id)
-        for task in tasks
-        if task.warden_id == warden_id and task.status is TaskStatus.RUNNING
+    # By status, at the store's widest page: the default page is the oldest thousand tasks of any
+    # status, and on a Hive that has finished more than that the running ones are not among them.
+    tasks = await deps.chamber.list(
+        TaskFilter(status=TaskStatus.RUNNING, limit=MAX_TASK_FILTER_LIMIT)
     )
+    affected = tuple((task.id, warden_id) for task in tasks if task.warden_id == warden_id)
     return await _pause_affected(deps, wardens, affected, reason)
 
 

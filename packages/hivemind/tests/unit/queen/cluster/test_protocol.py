@@ -20,7 +20,8 @@ from builders.forage import make_source
 from builders.memory import make_handoff
 from builders.queen import make_queen_deps, plan_responder
 
-from hivemind.brood_chamber import TaskStatus
+from hivemind.brood_chamber import TaskFilter, TaskStatus
+from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.cell import HoneyClearance
 from hivemind.forage import AllowedBinding, GrantState, ModelSlot
 from hivemind.forage.slots import Effort
@@ -345,3 +346,22 @@ async def test_pause_on_warden_skips_a_task_whose_warden_is_no_longer_attached()
 
     assert paused == ()
     assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+
+
+async def test_pause_on_warden_reads_the_running_tasks_by_status_at_the_widest_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default read is the oldest thousand tasks of any status: not where a busy Hive's are."""
+    deps, link, _warden_end = make_queen_deps()
+    seen: list[TaskFilter] = []
+    original = deps.chamber.list
+
+    async def spy(query: TaskFilter) -> tuple[object, ...]:
+        seen.append(query)
+        return await original(query)
+
+    monkeypatch.setattr(deps.chamber, "list", spy)
+
+    await protocol.pause_on_warden(deps, (), link.warden_id, "x")
+
+    assert seen == [TaskFilter(status=TaskStatus.RUNNING, limit=MAX_TASK_FILTER_LIMIT)]

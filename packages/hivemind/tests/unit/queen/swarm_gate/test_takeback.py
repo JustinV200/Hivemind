@@ -22,11 +22,11 @@ from builders.memory import make_handoff
 from builders.swarm import GateRig, place_on_device
 from builders.tasks import make_graph_draft
 
-from hivemind.brood_chamber import InvalidTransitionError, TaskStatus
+from hivemind.brood_chamber import InvalidTransitionError, Task, TaskStatus
 from hivemind.forage.grant_state import GrantState
 from hivemind.memory import MemoryContext, write_checkpoint
 from hivemind.pheromone import TrailQuery
-from hivemind.queen.swarm_gate import take_back, tasks_on
+from hivemind.queen.swarm_gate import open_tasks, take_back, tasks_on
 from waggle.ids import TaskId, WardenId
 from waggle.messages import HandoffRef
 
@@ -219,3 +219,37 @@ async def test_tasks_on_lists_the_unfinished_tasks_placed_on_the_devices_cell(
 
         assert [task.id for task in found] == [placed.task.id]
         assert other.task.id not in [task.id for task in found]
+
+
+async def test_open_tasks_lists_every_unfinished_task_whatever_its_status_oldest_first(
+    rig: GateRig,
+) -> None:
+    async with rig.serving():
+        placed = await place_on_device(rig)  # RUNNING on a device.
+        rig.clock.advance(1)  # Ids of one instant sort by chance; a clock that moves orders them.
+        [waiting] = await rig.queen_deps.chamber.submit(make_graph_draft({"root": ()}))  # PENDING.
+        rig.clock.advance(1)
+        ended = await place_running(rig.queen_deps, placed.link)
+        await rig.queen_deps.chamber.cancel(ended.id, "The operator cancelled the goal.")
+        rig.clock.advance(1)
+        paused = await place_running(rig.queen_deps, placed.link)
+        await rig.queen_deps.chamber.pause(paused.id, "Held.")
+
+        found = await open_tasks(rig.queen_deps)
+
+        assert [task.id for task in found] == [placed.task.id, waiting.id, paused.id]
+
+
+async def test_open_tasks_reads_past_a_page_of_tasks(
+    rig: GateRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("hivemind.queen.swarm_gate.takeback.MAX_TASK_FILTER_LIMIT", 2)
+    async with rig.serving():
+        submitted: list[Task] = []
+        for _ in range(5):
+            rig.clock.advance(1)
+            submitted += await rig.queen_deps.chamber.submit(make_graph_draft({"root": ()}))
+
+        found = await open_tasks(rig.queen_deps)
+
+        assert [task.id for task in found] == [task.id for task in submitted]  # Three pages: 2+2+1.

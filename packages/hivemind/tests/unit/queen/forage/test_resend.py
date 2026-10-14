@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from builders.forage import make_grant
+from builders.forage import make_grant, make_source
 from builders.queen import WardenEnd, make_queen_deps
 
 from hivemind.forage import ModelSlot
@@ -180,3 +180,20 @@ async def test_a_link_that_has_gone_counts_only_what_reached_it() -> None:
     sent = await resend_state(deps, link)
 
     assert sent == _NOTHING  # Held, but nothing reached a closed link.
+
+
+async def test_a_plan_naming_a_source_that_left_the_map_is_not_sent_and_the_rest_still_are() -> (
+    None
+):
+    deps, link, _end = make_queen_deps()
+    await set_ceilings(link, _ceilings(), deps)
+    await _granted(deps, link)
+    # A Nuc's plan puts its own models first; they leave the map when its Warden stops.
+    gone = make_source(source_id="gone", model="gone-model")
+    await write_hosting_plan(link.cell, deps, link, local=(gone,))
+    assert deps.ledger.decisions.plan_for(link.cell.id) is not None
+    assert "gone" not in {source.source_id for source in deps.map.sources()}
+
+    sent = await resend_state(deps, link)
+
+    assert sent == Resent(ceilings=True, plan=False, grants=1)  # No exception, nothing fatal.

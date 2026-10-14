@@ -54,7 +54,8 @@ Public API:
     - Colonizer, Promotion, Withdrawal, decide_request: moving a Warden onto a device and back
       (colonize).
     - RegistrySegmentKeys: the key a device's trail segment must be signed with (keys).
-    - take_back, tasks_on: taking a gone Warden's tasks back to be placed afresh (takeback).
+    - take_back, tasks_on, open_tasks: taking a gone Warden's tasks back to be placed afresh,
+      and reading the tasks that have not ended (takeback).
 """
 
 from hivemind.queen.swarm_gate.attach import (
@@ -67,7 +68,7 @@ from hivemind.queen.swarm_gate.colonize import Colonizer, Promotion, Withdrawal,
 from hivemind.queen.swarm_gate.gate import SwarmGate
 from hivemind.queen.swarm_gate.keys import RegistrySegmentKeys
 from hivemind.queen.swarm_gate.reconcile import DeviceReconciler, ReconcileDeps
-from hivemind.queen.swarm_gate.takeback import take_back, tasks_on
+from hivemind.queen.swarm_gate.takeback import open_tasks, take_back, tasks_on
 from hivemind.queen.swarm_gate.terms import GateContext, GateTerms
 from hivemind.queen.swarm_gate.unreachable import (
     Diagnosis,
@@ -107,6 +108,7 @@ __all__ = [
     "Withdrawal",
     "decide_request",
     "link_services",
+    "open_tasks",
     "take_back",
     "tasks_on",
 ]

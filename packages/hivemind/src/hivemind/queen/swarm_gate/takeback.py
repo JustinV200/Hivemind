@@ -36,7 +36,8 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from hivemind.brood_chamber import InvalidTransitionError, Task, TaskFilter, TaskStatus, is_terminal
+from hivemind.brood_chamber import InvalidTransitionError, Task, TaskFilter, TaskStatus
+from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.common.logging import get_logger
 from hivemind.forage.grant_state import GrantState
 from hivemind.queen.cluster import latest_handoff
@@ -47,9 +48,43 @@ from hivemind.swarm import SwarmNode
 from waggle.ids import TaskId, WardenId
 from waggle.messages.forage.values import RevocationCause
 
+# The statuses of a task that has not ended. The chamber filters by one status at a time, so the
+# unfinished tasks are read status by status rather than out of the oldest page of all of them.
+_UNFINISHED = (
+    TaskStatus.PENDING,
+    TaskStatus.ASSIGNED,
+    TaskStatus.RUNNING,
+    TaskStatus.BLOCKED,
+    TaskStatus.PAUSED,
+)
+
 log = get_logger(__name__)
 
-__all__ = ["take_back", "tasks_on"]
+__all__ = ["open_tasks", "take_back", "tasks_on"]
+
+
+async def open_tasks(deps: QueenDeps) -> tuple[Task, ...]:
+    """Return every task of the Brood Chamber that has not ended, oldest first.
+
+    Read status by status and page by page, so a Hive that has finished thousands of tasks still
+    finds the few that are unfinished: the default read is the oldest thousand of any status.
+
+    Args:
+        deps: The Queen's collaborators.
+
+    Returns:
+        The pending, assigned, running, blocked and paused tasks, in creation order. A pending one
+        is placed nowhere yet (`cell_id` is None).
+    """
+    found: list[Task] = []
+    for status in _UNFINISHED:
+        query = TaskFilter(status=status, limit=MAX_TASK_FILTER_LIMIT)
+        while page := await deps.chamber.list(query):
+            found.extend(page)
+            if len(page) < MAX_TASK_FILTER_LIMIT:
+                break
+            query = query.model_copy(update={"after": page[-1].id})
+    return tuple(sorted(found, key=lambda task: (task.created_at, task.id)))
 
 
 async def tasks_on(deps: QueenDeps, node: SwarmNode) -> list[Task]:
@@ -62,8 +97,7 @@ async def tasks_on(deps: QueenDeps, node: SwarmNode) -> list[Task]:
     Returns:
         Every task of the Brood Chamber that is placed there and has not ended.
     """
-    tasks = await deps.chamber.list(TaskFilter())
-    return [t for t in tasks if t.cell_id == node.cell_id and not is_terminal(t.status)]
+    return [task for task in await open_tasks(deps) if task.cell_id == node.cell_id]
 
 
 async def take_back(

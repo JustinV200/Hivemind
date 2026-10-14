@@ -185,12 +185,21 @@ async def resend_plan(warden: WardenLink, deps: QueenDeps) -> bool:
 
     Returns:
         True when the ledger held a plan for the Warden's Cell and it was sent; False when it
-        held none.
+        held none, or when the plan names a source that has left the Forage map (a Nuc's server
+        stops with its Warden, and the Warden's removal of the model reaches her): that plan can
+        no longer be delivered as it stands, and the next plan she writes replaces it.
     """
     plan = deps.ledger.decisions.plan_for(warden.cell.id)
-    if plan is None:
+    sources = deps.map.sources()
+    if plan is None or not _named_sources(plan) <= {source.source_id for source in sources}:
         return False
-    return await _send_plan(warden, plan, deps.map.sources(), deps)
+    return await _send_plan(warden, plan, sources, deps)
+
+
+def _named_sources(plan: HostingPlan) -> set[str]:
+    """Return the id of every source `plan` puts in a chain, primary or fallback."""
+    chains = [plan.default, *(slot_plan.chain for slot_plan in plan.slots)]
+    return {source_id for chain in chains for source_id in (chain.primary, *chain.fallbacks)}
 
 
 async def _send_plan(
