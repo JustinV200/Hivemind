@@ -22,7 +22,7 @@ from __future__ import annotations
 import sqlite3
 from unittest.mock import patch
 
-from builders.swarm import GRACE_S, GateRig
+from builders.swarm import GRACE_S, GateRig, place_on_device
 
 from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import CombShieldLevel, HoneyClearance, RequestOrigin
@@ -171,15 +171,16 @@ async def test_the_holds_own_clock_still_decides_whatever_the_diagnosis_does(
     rig: GateRig,
 ) -> None:
     async with rig.serving():
-        node = await rig.enrol()
-        assert await rig.wardens.serve(node)
+        # A task on the device, so the hold has someone waiting on the diagnosis's answer.
+        node = (await place_on_device(rig)).node
         rig.unreachable.use_diagnosis(_diagnosis(rig))
 
         await rig.unreachable.lost(node)
         rig.clock.advance(GRACE_S + 1.0)
         await rig.unreachable.lost(node)
 
-        [task] = await rig.queen_deps.chamber.list(TaskFilter())
+        tasks = await rig.queen_deps.chamber.list(TaskFilter())
+        [task] = [task for task in tasks if task.spec.origin is RequestOrigin.QUEEN]
         assert task.spec.origin is RequestOrigin.QUEEN  # The task exists ...
         decided = await rig.queen_deps.trail.query(TrailQuery(kind="queen.decided"))
         assert "unreachable_decision" in {str(e.payload.get("reason")) for e in decided}

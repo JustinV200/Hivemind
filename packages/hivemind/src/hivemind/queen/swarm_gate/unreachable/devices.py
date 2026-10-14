@@ -7,8 +7,11 @@ dispatcher (`DispatchBook.held`: no fresh placement, no retry, no resume goes to
 that runs here is told its Cell was lost (it raises one `CELL_UNREACHABLE` Alarm and treats its
 lease as lost until the device returns), a device whose Warden is on it and whose packet is still
 heard is marked UNREACHABLE (`swarm.unreachable`; its heartbeats would otherwise keep calling it
-online), the hold is on the trail (`swarm.node_held`), and the Hive Stand-side diagnosis is asked
-for (`Diagnosis`; the Hive installs `.hive_stand`). It then waits `[swarm] unreachable_grace_s`. A
+online), the hold is on the trail (`swarm.node_held`), and, when the hold holds tasks, the Hive
+Stand-side diagnosis is asked for (`Diagnosis`; the Hive installs `.hive_stand`): with nothing held
+nobody waits on its answer, and a Hive that has just started finds every enrolled device that has
+not dialled in yet unreachable, which must not send the Hive Stand a Drone per idle device. It
+then waits `[swarm] unreachable_grace_s`. A
 device that returns inside it cancels the hold and nothing was lost. When the grace ends the Queen
 decides by the device's rung (`decide.verdict_for`): a Level 0 or Level 1 device's tasks are taken
 back and placed afresh from their last Handoff, its Warden let go; a Nuc's tasks keep waiting, up
@@ -225,12 +228,13 @@ class UnreachableDevices:
     async def _begin(self, context: GateContext, node: SwarmNode) -> _Hold:
         """Start a hold: hold the Cell, mark the node, say so on the trail, ask for a diagnosis."""
         reason = self._reasons.get(node.device_id, NO_LINK_REASON)
-        hold = _Hold(since=context.deps.clock.now(), reason=reason, is_diagnosing=True)
+        held = len(await tasks_on(context.deps, node))
+        # A diagnosis only where someone waits on its answer (the module docstring says why).
+        hold = _Hold(since=context.deps.clock.now(), reason=reason, is_diagnosing=held > 0)
         self._holds[node.device_id] = hold
         context.deps.dispatch.held.hold(node.cell_id, reason)
         if node.level is not RuntimeLevel.GATEWAY:
             await mark_unreachable(context, self._registry, self._recorder, node, reason)
-        held = len(await tasks_on(context.deps, node))
         payload = event_ids(node, reason) | {
             "level": node.level.value,
             "grace_s": self._terms.unreachable_grace_s,
@@ -239,7 +243,8 @@ class UnreachableDevices:
         await self._recorder.record(
             self._recorder.swarm_event("swarm.node_held", node.device_id, payload)
         )
-        await self._diagnosis.begin(node, reason)
+        if hold.is_diagnosing:
+            await self._diagnosis.begin(node, reason)
         return hold
 
     async def _decide(self, context: GateContext, node: SwarmNode, hold: _Hold) -> None:

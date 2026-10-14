@@ -24,8 +24,9 @@ Fits into the Hive:
     only.
 
 Key invariants:
-    - One task per hold, created when the hold begins and never again for the same device until
-      its hold ends; the Queen's autopilot and planner are not involved.
+    - One task per hold that holds tasks, created when the hold begins and never again for the
+      same device until its hold ends (a hold with nothing in it asks for none); the Queen's
+      autopilot and planner are not involved.
     - The task is pinned to the Hive Stand (`cell:hive_stand`) and can reach no other Cell; its
       ceiling lets it run commands and read and write files, and it holds no question, no network
       of its own and no write outside scratch.

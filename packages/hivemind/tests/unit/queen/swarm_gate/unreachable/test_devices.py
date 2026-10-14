@@ -245,6 +245,23 @@ async def test_the_diagnosis_is_begun_with_the_reason_and_ended_when_the_device_
         assert diagnosis.ended == [placed.node.device_id]
 
 
+async def test_a_hold_with_no_task_asks_for_no_diagnosis(rig: GateRig) -> None:
+    # A Hive that has just started finds every enrolled device that has not dialled in yet
+    # unreachable; with nothing held nobody waits on a diagnosis, so the Hive Stand gets no Drone.
+    diagnosis = _RecordingDiagnosis()
+    rig.unreachable.use_diagnosis(diagnosis)
+    async with rig.serving():
+        node = await _served(rig)
+
+        await rig.unreachable.lost(node)
+        await rig.unreachable.found(node)
+
+        [held] = await rig.hive.events("swarm.node_held")
+        assert held.payload["tasks"] == 0
+        assert diagnosis.begun == []
+        assert diagnosis.ended == []
+
+
 async def test_forget_ends_a_hold_with_no_decision(rig: GateRig) -> None:
     diagnosis = _RecordingDiagnosis()
     rig.unreachable.use_diagnosis(diagnosis)
