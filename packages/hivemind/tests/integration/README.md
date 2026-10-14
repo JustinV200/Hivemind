@@ -14,8 +14,10 @@ available (`pytest -m "not integration"` is the default local and pre-commit run
   a session whose commands run with `docker exec`. The same container is red without a tunnel and
   green once a `tun0` with the whole internet routed into it has been put in its network
   namespace; a resolver on the local network, a program named `tor` and a listener on the SOCKS port
-  each turn it red; the recorded attestation names checks and never what the Cell printed; and the
-  Cell's own self-attestation, which the image ships, agrees with the one made from outside.
+  each turn it red; the recorded attestation names checks and never what the Cell printed; the
+  Cell's own self-attestation, which the image ships, agrees with the one made from outside; and
+  the image's own Warden, booted in the container as a PROPOLIS Cell with the tunnel made first or
+  not, dials a Queen on the test's host and announces its tier and what it sees.
   `docker_tunnel.py` is its rig: the tunnel is made from a short-lived helper container that shares
   the Cell's network namespace (the image has no `ip`), built on first use from `ubuntu:24.04` and
   `iproute2`. It needs a Docker daemon, the Cell image built from this tree and `/dev/net/tun`
