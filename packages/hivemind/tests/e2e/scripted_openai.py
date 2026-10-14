@@ -21,7 +21,9 @@ shares words with a finding lands near it), the ripener's model name (`...ripene
 scripted structured summary, `Scenario.steps` scripts any tool round by round (skipping a write
 the prompt's Handoff says is already done, and a tool the request did not offer), and `Switches`
 is the in-process control panel: an outage that answers 503, a hold that parks one Drone call, and
-a recorder that keeps only the shape of each chat request (never a body).
+a recorder that keeps only the shape of each chat request (never a body). `Scenario.closing` is
+what a Drone says when its rounds are done, so a diagnostic Drone (roadmap 11.9a) can end with the
+`CAUSE:` line its Warden reads; a scenario file scripts `steps` as JSON objects.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 10 exit-criteria
@@ -101,9 +103,8 @@ _WORD = re.compile(r"[a-z0-9]+")  # What counts as a word when hashing a text in
 _REDO = re.compile(r"Do not redo writing to (\S+?);")  # A Handoff's line for a landed write.
 _TOOL_BLOCK = re.compile(r"```tool\n(.*?)\n```", re.S)  # A prompted tool call in an answer.
 _RESULT_MARK = "Result for "  # How a prompted tool protocol echoes a tool result (user text).
-_IMAGE_PART_TYPES = frozenset(
-    {"image_url", "image", "input_image"}
-)  # A content part holding pixels.
+# The content-part types that hold pixels.
+_IMAGE_PART_TYPES = frozenset({"image_url", "image", "input_image"})
 HOLD_MAX_S = 60.0  # A parked call is released by its test; this bound is a hang, not a timing.
 _SUMMARY = {
     "title": "Widget staging service restart",
@@ -194,6 +195,9 @@ class Scenario:
         steps: When set, the Drone makes these calls one per round instead (see `Step`); a
             `write_file` the prompt's Handoff says already landed is skipped, so a resumed
             attempt carries on where the checkpointed one stopped.
+        closing: The Drone's closing message once its rounds are done. A diagnostic Drone (roadmap
+            11.9a) ends with a first line `CAUSE: <the cause>` or `CAUSE: none found`, which is
+            how its Warden reads what it learned.
         plan_json: When set, the planner answers this plan whole, whatever the goal.
         ripener: The structured summary the ripener's model (a name ending `ripener`) answers.
         switches: The in-process controls and recorder (`Switches`); not part of equality.
@@ -208,6 +212,7 @@ class Scenario:
     heard: tuple[tuple[bytes, str], ...] = ()
     command: tuple[str, ...] | None = None
     steps: tuple[Step, ...] | None = None
+    closing: str = "Done."
     plan_json: Mapping[str, object] | None = None
     ripener: Mapping[str, object] = field(default_factory=lambda: dict(_SUMMARY))
     switches: Switches = field(default_factory=Switches, compare=False)
@@ -459,7 +464,7 @@ def _worker(
         written = scenario.files if scenario.writes is None else scenario.writes
         calls = [("write_file", {"path": name, "content": "bees hum"}) for name in written]
     if not calls:
-        return {"role": "assistant", "content": "Done."}
+        return {"role": "assistant", "content": scenario.closing}
     if body.get("tools"):
         return {
             "role": "assistant",
@@ -615,10 +620,10 @@ def _main() -> None:
     if args.scenario:
         with open(args.scenario, encoding="utf-8") as handle:
             fields = json.load(handle)
-    for key in ("files", "extra_tasks", "writes", "command"):
+    for key in ("files", "extra_tasks", "writes", "command", "steps"):
         value = fields.get(key)
-        if isinstance(value, list):
-            fields[key] = tuple(value)
+        if isinstance(value, list):  # JSON arrays become tuples; the Drone's rounds become Steps.
+            fields[key] = tuple(Step(**item) if key == "steps" else item for item in value)
     scenario = Scenario(**fields)  # type: ignore[arg-type]
     uvicorn.run(build_app(scenario), host="127.0.0.1", port=args.port, log_level="warning")
 
