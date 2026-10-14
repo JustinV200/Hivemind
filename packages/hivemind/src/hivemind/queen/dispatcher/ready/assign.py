@@ -87,6 +87,7 @@ from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.grants import authorize_grant
 from hivemind.queen.dispatcher.honey import consult_for_assignment
+from hivemind.queen.dispatcher.ready.handoff import fit_in_frame
 from hivemind.queen.dispatcher.sizing import SizedGrant
 from hivemind.queen.dispatcher.zero_grant import deny_zero_grant
 from hivemind.queen.forage import grants as forage_grants
@@ -98,7 +99,7 @@ from waggle.messages import HandoffRef
 from waggle.messages.forage import GrantIssued
 from waggle.messages.forage.values import RevocationCause
 from waggle.messages.honey import HoneyHit
-from waggle.messages.task import ScoutReport, TaskAssign, WorkerRole
+from waggle.messages.task import HandoffDocument, ScoutReport, TaskAssign, WorkerRole
 from waggle.messages.task.recon import MAX_RECON_REPORTS
 
 __all__ = ["AssignmentTerms", "record_forage_granted", "send_grant_and_assign"]
@@ -112,6 +113,9 @@ class AssignmentTerms:
         attempt: The attempt number to stamp on the fresh TaskAssign.
         resume_from: The Handoff to resume from (roadmap step 4.9's own `resume_paused`); None
             for a fresh dispatch or an ordinary retry (`dispatch_ready`/`redispatch`'s own calls).
+        handoff: The Handoff itself, for a Warden that cannot read the Queen's store (a migrated
+            or remote one: `hivemind.queen.dispatcher.ready.handoff.resume_plan`); set only with
+            `resume_from`.
         recon: The Scout reports to carry (roadmap step 6.10, `_recon_for`); empty here, since
             none of this dataclass's three callers has the async chamber access `_recon_for`
             needs -- `send_grant_and_assign` fills it in with `dataclasses.replace` right before
@@ -120,6 +124,7 @@ class AssignmentTerms:
 
     attempt: int
     resume_from: HandoffRef | None = None
+    handoff: HandoffDocument | None = None
     recon: tuple[ScoutReport, ...] = ()
 
 
@@ -165,6 +170,8 @@ async def send_grant_and_assign(
     # bounded by its own timeout, so the assignment always goes out.
     honey = await consult_for_assignment(deps, task, link)
     assign = _task_assign(task, cell_id, fresh_grant.id, replace(terms, recon=recon), honey=honey)
+    # A Handoff that travels inline must still leave the assignment inside one frame (ADR-0052).
+    assign = await fit_in_frame(deps, link, task, assign)
     message = await forage_grants.grant_message(deps, fresh_grant)
     pending = _PendingSend(fresh_grant=fresh_grant, grant_issued=message, assign=assign)
     if not await _send_or_fail(deps, link, task, pending):
@@ -314,6 +321,8 @@ def _task_assign(
         if terms.resume_from is not None
         else "Placed by the Queen's dispatcher."
     )
+    if terms.handoff is not None:
+        reason = "Resumed by the Queen's dispatcher, the Handoff carried with it."
     return TaskAssign(
         task_id=task.id,
         goal_id=task.goal_id,
@@ -338,6 +347,7 @@ def _task_assign(
         grant_id=grant_id,
         attempt=terms.attempt,
         resume_from=terms.resume_from,
+        handoff=terms.handoff,
         honey=honey,
         reason=reason,
     )

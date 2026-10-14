@@ -39,6 +39,13 @@ they size their grants from the link's own Cell as probed, never the live readin
 Cell can bear at all never reaches this point: `hivemind.queen.placement`'s own fit rule refuses
 the Cell first (roadmap step 5.7).
 
+A Cell the Queen is holding (`DispatchBook.held`: its Swarm device is unreachable and she waits
+for it, ADR-0053) is neither a candidate for a fresh placement nor the target of a retry or a
+resume: the dispatcher neither fails nor moves what is held, and acts on it again when the hold
+ends. A task taken back from a device she gave up on goes through the ordinary placement above
+again, with the Handoff she held for it (`DispatchBook.resumes`) carried in its assignment
+(`.handoff`), inline when its new Warden cannot read her memory store.
+
 One dispatch pass tries every ready task at most once, in `(created_at, id)` order, and a task
 left PENDING (a placement failure, or a wait) no longer ends the pass for the tasks behind it: a
 goal waiting on its own allowance must never hold up another goal's work.
@@ -95,6 +102,8 @@ Key invariants:
     - No pass awaits a Virtual Cell's provision; a Cell acquired for a task is placed for it on a
       later pass, or released once the task is gone or its grant denied.
     - A pass releases the grants of every ended task before it places anything.
+    - A held Cell is never chosen for a fresh placement, and `redispatch` and `resume_paused` send
+      nothing to it while it is held.
     - `guard.denied` for placement is recorded only when the goal's capability set alone left no
       candidate; a capacity or fit failure records `queen.decided` and nothing more, once per
       cause for as long as its task waits PENDING.
@@ -139,6 +148,7 @@ from hivemind.queen.dispatcher.ready.assign import (
     record_forage_granted,
     send_grant_and_assign,
 )
+from hivemind.queen.dispatcher.ready.handoff import resume_plan
 from hivemind.queen.dispatcher.sizing import size_grant
 from hivemind.queen.dispatcher.snapshot import build_forage_view, build_inventory
 from hivemind.queen.dispatcher.zero_grant import (
@@ -187,6 +197,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
         # Cell acquired for it is released rather than left behind.
         forget_waits(deps, {task.id for task in ready})
         await settle_provisions(deps, {task.id for task in ready})
+        # A Cell whose device the Queen is holding is not placed on until it is back (ADR-0053).
+        wardens = [link for link in wardens if not deps.dispatch.held.is_held(link.cell.id)]
         # Each ready task once, earliest first; one left PENDING (unplaceable, waiting for a
         # grant, or its Cell still being made) is skipped rather than ending the pass, so it never
         # holds up the tasks behind it.
@@ -225,18 +237,16 @@ async def redispatch(
         the link's own Cell as probed, never the live reading (module docstring).
     """
     task = await deps.chamber.get(task_id)
-    if task.warden_id is None or task.cell_id is None:
-        return  # Not placed; a RUNNING task should always be, but there is nothing to resend to.
-    link = _link_for(wardens, task.warden_id)
+    link = _placed_link(deps, wardens, task)
     if link is None:
-        return  # Its Warden is no longer attached; nothing to resend to.
+        return  # Not placed, held, or its Warden is gone: there is nothing to resend to.
     sized = await size_grant(deps, link, task, read_live=False)
     fresh_grant = await send_grant_and_assign(
         deps, link, task, AssignmentTerms(attempt=attempt), sized
     )
     if fresh_grant is None:
         return  # Denied: send_grant_and_assign already failed the task (module docstring).
-    await record_forage_granted(deps, task, fresh_grant, task.warden_id)
+    await record_forage_granted(deps, task, fresh_grant, link.warden_id)
 
 
 async def resume_paused(
@@ -271,20 +281,22 @@ async def resume_paused(
         has no PENDING queue to wait in either).
     """
     task = await deps.chamber.get(task_id)
-    if task.warden_id is None or task.cell_id is None:
-        return  # Not placed; Clustering never unassigns, so this should not happen in practice.
-    link = _link_for(wardens, task.warden_id)
+    link = _placed_link(deps, wardens, task)
     if link is None:
-        return  # Its Warden is no longer attached; nothing to resume it through.
+        return  # Not placed, held (it stays paused until the hold ends), or its Warden is gone.
     await deps.chamber.resume(task_id, reason)
     # A fresh bee (TaskAssign.resume_from's own field docstring: "a fresh one for a fresh bee");
-    # the Queen owns the attempt number on every Queen-to-Warden hop.
-    terms = AssignmentTerms(attempt=task.attempt + 1, resume_from=resume_from)
+    # the Queen owns the attempt number on every Queen-to-Warden hop. A Warden that cannot read
+    # her memory store is sent the Handoff itself (`.handoff`).
+    plan = await resume_plan(deps, link, task, resume_from)
+    terms = AssignmentTerms(
+        attempt=task.attempt + 1, resume_from=plan.resume_from, handoff=plan.handoff
+    )
     sized = await size_grant(deps, link, task, read_live=False)
     fresh_grant = await send_grant_and_assign(deps, link, task, terms, sized)
     if fresh_grant is None:
         return  # Denied: send_grant_and_assign already failed the task (module docstring).
-    await record_forage_granted(deps, task, fresh_grant, task.warden_id)
+    await record_forage_granted(deps, task, fresh_grant, link.warden_id)
 
 
 async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Task) -> None:
@@ -320,7 +332,7 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     # this pass (cancelled meanwhile) still leaves the Cell in the lane, released by the next one.
     forget_provision(deps, task.id)
     fresh_grant = await send_grant_and_assign(
-        deps, link, task, AssignmentTerms(attempt=task.attempt), sized
+        deps, link, task, await _placed_terms(deps, link, task), sized
     )
     if fresh_grant is None:
         # Denied, the task already failed: a Cell acquired for it alone would never be used.
@@ -329,6 +341,14 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
         return
     # "placed" and "assigned" (both just above) precede "granted" on the trail.
     await record_forage_granted(deps, task, fresh_grant, link.warden_id)
+
+
+async def _placed_terms(deps: QueenDeps, link: WardenLink, task: Task) -> AssignmentTerms:
+    """Return the terms of a fresh placement: a task taken back from a lost device resumes."""
+    # Taken once: the hint was noted when the Queen gave up on the device, and this is the
+    # placement that follows (`DispatchBook.resumes`); any other task has none and starts fresh.
+    plan = await resume_plan(deps, link, task, deps.dispatch.resumes.take(task.id))
+    return AssignmentTerms(attempt=task.attempt, resume_from=plan.resume_from, handoff=plan.handoff)
 
 
 async def _start_on(deps: QueenDeps, task: Task, link: WardenLink) -> None:
@@ -441,6 +461,20 @@ async def _record_placed(deps: QueenDeps, task: Task, placement: Placement) -> N
         # ADR-0039: the durable request a placement stands on (a Night Veil one's human ask).
         payload["goal_request_id"] = task.spec.goal_request_id
     await record_event(deps, "queen.placed", task.id, **payload)
+
+
+def _placed_link(deps: QueenDeps, wardens: Sequence[WardenLink], task: Task) -> WardenLink | None:
+    """Return the attached link `task` is placed on, or None when it has none to be sent through.
+
+    None when the task is not placed (a RUNNING or PAUSED one always is, Clustering never
+    unassigns), when its Cell is held (its device is unreachable and the Queen waits for it,
+    ADR-0053), or when its Warden is no longer attached.
+    """
+    if task.warden_id is None or task.cell_id is None:
+        return None
+    if deps.dispatch.held.is_held(task.cell_id):
+        return None
+    return _link_for(wardens, task.warden_id)
 
 
 def _link_for(wardens: Sequence[WardenLink], warden_id: WardenId) -> WardenLink | None:

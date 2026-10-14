@@ -98,7 +98,11 @@ class _LifecycleMixin(_ChamberBase):
         )
 
     async def unassign(self, task_id: TaskId, reason: str) -> Task:
-        """Move a task ASSIGNED -> PENDING: its Warden was lost before the Worker started.
+        """Move a task ASSIGNED or PAUSED -> PENDING: its placement is gone and it is placed afresh.
+
+        ASSIGNED: its Warden was lost before the Worker started. PAUSED: its Cell's device was
+        lost for good and the Queen took the task back (ADR-0053); a running task is paused first,
+        since RUNNING has no edge back to PENDING.
 
         Bumps `attempt` by one, so the next `assign` on this task already reflects a new attempt.
 

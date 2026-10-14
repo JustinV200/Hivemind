@@ -108,6 +108,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
     TaskStatus.PAUSED: frozenset(
         {
             TaskStatus.RUNNING,  # resumed: Clustering ended, or a judge cleared the quarantine
+            TaskStatus.PENDING,  # re-placed: its Cell's device was lost for good (ADR-0053)
             TaskStatus.CANCELLED,  # a human or the Queen cancels the goal
         }
     ),

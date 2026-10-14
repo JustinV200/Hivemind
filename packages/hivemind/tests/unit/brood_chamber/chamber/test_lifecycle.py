@@ -117,6 +117,33 @@ async def test_unassign_then_assign_again_bumps_attempt() -> None:
     assert reassigned.attempt == 2
 
 
+async def test_a_paused_task_can_be_taken_back_and_placed_afresh() -> None:
+    # ADR-0053: a device the Queen lost for good takes its running tasks with it. RUNNING has no
+    # edge back to PENDING, so the task is paused first, then unassigned like a lost ASSIGNED one.
+    clock = FakeClock()
+    chamber, store, trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+    await chamber.pause(task.id, reason="device lost")
+
+    unassigned = await chamber.unassign(task.id, reason="device lost for good")
+
+    assert unassigned.status is TaskStatus.PENDING
+    assert (unassigned.warden_id, unassigned.cell_id, unassigned.bound_tier) == (None, None, None)
+    assert unassigned.attempt == task.attempt + 1
+    # Both edges are on the trail; the order of same-instant events is not the test's to pin.
+    kinds = {event.kind for event in await _events_for(trail, task.id)}
+    assert {"task.paused", "task.unassigned"} <= kinds
+
+
+async def test_a_running_task_cannot_be_unassigned_without_pausing_first() -> None:
+    clock = FakeClock()
+    chamber, store, _trail = _make_chamber(clock)
+    task = await _seed(store, clock, status=TaskStatus.RUNNING)
+
+    with pytest.raises(InvalidTransitionError):
+        await chamber.unassign(task.id, reason="device lost")
+
+
 async def test_assign_binds_the_task_to_its_cells_tier_and_records_it() -> None:
     # Roadmap step 10.3b: a task inherits the Comb Shield tier of the Cell where it executes. A
     # Night Veil binding is stored the same way but never recorded: its event carries nothing
