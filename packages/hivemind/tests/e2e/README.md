@@ -320,6 +320,18 @@ Drone's grant without a free core.
   snapshots that show a device was left as found, `swarm/tunnel.py` plays the operator's VPN. A
   container reports the load of the machine under it, so `bridge_hive` gives the Drone a footprint
   of no cores and the Hive a slow beat; neither is the subject of these scenarios.
+- `test_phase11_exit_nuc.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- phase 11's
+  second exit criterion, the one that needs a device whose Warden moves onto it: one run of about
+  six minutes on one container, asserted twelve ways. A long task runs at Level 0; the operator's
+  `hive swarm promote` moves the Warden onto the device and the task goes on from its Handoff; a
+  second `promote` makes it a Nuc (capacity report with the declared server, ceilings, the order,
+  a new source per model, the rung, the plan); a goal of two tasks is put to it, one whose Drone
+  thinks on the device's own model and one whose bar only a shared source clears; `docker network
+  disconnect` pulls the cable mid-task. The ordinary task ends on the device with its result in the
+  outbox, the high-bar one waits with a `forage.request` queued, and after `connect` the segment is
+  merged, the results arrive once each and nothing is recorded twice. Last, the Warden is ordered
+  to load the Hive's second model (a new source and no request) and the device's own third one (a
+  `guard.denied` at `slot_binding`). See "A device that is moved up the ladder".
 
 ## Budget
 
@@ -459,3 +471,36 @@ own Warden to send a Drone to look into it (roadmap 11.9a), a task of the Hive's
 scenario's: `Script` answers that Drone with a script of its own, so none of the scenario's
 attempts or commands are spent on it. A device nobody saw go (enrolled a moment ago, its packet
 not dialled yet) is not looked into.
+
+### A device that is moved up the ladder
+
+`swarm/colony/` is the rig for a device whose Warden moves onto it (Level 1) and then serves a model
+of its own (Level 2, a Nuc), on top of the whole-Hive rig above:
+
+- `models.py` is the text the two sides agree on. `hive_tables()` is what the Hive's manifest gains:
+  the model server (`load_on_start = false`, so the Hive Stand never starts a copy), the two models
+  it allows (`SMALL`, loaded at promotion, `EXTRA`) and a strong shared model that clears an exacting
+  task's bar. `device_manifest()` is the device's own `warden.toml`: the shared provider (a scripted
+  server on the Hive Stand's side of the cable), its own, every slot bound, the `worker` and `judge`
+  slots falling back to the local model (a Capping review of a Drone's command asks the judge, and
+  without a local one a sampled review failed a bee that was getting on with its own model), the
+  server and a Forage map row for each model it could load, one more than the Hive allows (`ROGUE`).
+  `shared_scenario` and `local_scenario` are the rounds a Drone makes on either side.
+- `device.py` makes the container colonizable: `colonizable()` writes the manifest and the server's
+  rounds, and returns the `DeviceOptions` that copy them and the scripted server's source into the
+  container before it starts and run `pollen install --runtime-wheelhouse` between enrolling and
+  running (the device image carries the wheelhouse). `shared_model()` serves the scripted model on
+  the network's host address. `device_outbox()` and `device_events()` read what the Warden on the
+  device has queued and recorded, with the runtime's own interpreter, which is the only Python there.
+- `orders.py` taps the Queen's door (`tap`: every frame the device's Warden says and when it was
+  heard, and every `swarm.nuc_promote` she sends with its answer) and sends the Warden an order of
+  the scenario's own (`order`). `trail.py` answers the questions the criteria ask of the Hive's trail
+  (what ran first, how many at once, what was recorded twice), and `waits.py` the bounded, named
+  waits. `run.py` tells the story in order and returns the `NucRun` the test asserts over.
+
+The real command, `hive swarm promote`, is how the operator asks for each rung; the Hive moves the
+Warden on its next beat, and nothing in the rig does it by hand. The cable is `docker network
+disconnect`: the container is not told, and its Warden finds out when the websocket keepalive gives up
+(about forty-five seconds). The device's trail reaches the Hive's as it is recorded while the link is
+up and as a signed segment after a cut, so the scenario reads the device's own file for what it must
+know before the cable is back, and the Hive's trail for everything after.
