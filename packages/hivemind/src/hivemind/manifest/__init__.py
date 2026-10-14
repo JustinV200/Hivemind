@@ -44,12 +44,14 @@ Public API:
       ExoskeletonSection (phase 6), EntranceSection, EntranceExposure, GuardSection,
       GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), RoyalJellySection,
       QuarantineLimitsSection, SandboxKind, BasketSection (phase 9), SwarmSection,
-      SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection (phase 11).
+      SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection, WatchTuning
+      (phase 11).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - The device manifest (`hivemind.manifest.device`, roadmap steps 11.6a and 11.8):
-      DeviceManifest, DeviceForageSection, DeviceSupervisionSection and load_device_manifest, the
-      file a colonized Swarm device's Warden reads: its `[llm]` section, the `[forage.map]` rows its
-      servers' models are and its `[supervision]` (the offline limit and the diagnosis budget).
+      DeviceManifest, DeviceForageSection, DeviceSupervisionSection, DeviceWatchSection and
+      load_device_manifest, the file a colonized Swarm device's Warden reads: its `[llm]` section,
+      the `[forage.map]` rows its servers' models are and its `[supervision]` (the offline limit,
+      the diagnosis budget and the numbers it watches by).
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
@@ -59,6 +61,7 @@ from hivemind.manifest.device import (
     DeviceForageSection,
     DeviceManifest,
     DeviceSupervisionSection,
+    DeviceWatchSection,
     load_device_manifest,
 )
 from hivemind.manifest.env import (
@@ -117,6 +120,7 @@ from hivemind.manifest.schema import (
     VirtualCellsOverwinterSection,
     VirtualCellsSection,
     WatchSection,
+    WatchTuning,
 )
 
 __all__ = [
@@ -129,6 +133,7 @@ __all__ = [
     "DeviceForageSection",
     "DeviceManifest",
     "DeviceSupervisionSection",
+    "DeviceWatchSection",
     "EntranceExposure",
     "EntranceSection",
     "EnvOverrides",
@@ -171,6 +176,7 @@ __all__ = [
     "VirtualCellsOverwinterSection",
     "VirtualCellsSection",
     "WatchSection",
+    "WatchTuning",
     "apply_env",
     "load_device_manifest",
     "load_manifest",

@@ -261,6 +261,7 @@ def test_read_in_cell_env_returns_all_none_when_nothing_is_set() -> None:
     # Roadmap step 11.6a: none of the borrowed-mode variables is set either.
     assert (env.cell_lease, env.warden_id, env.node_id, env.access_level) == (None,) * 4
     assert (env.state_dir, env.tls_pin, env.device_manifest) == (None,) * 3
+    assert env.watch_roots_json is None  # Roadmap step 11.10: and no directories to watch.
 
 
 def test_read_in_cell_env_reads_every_recognised_variable() -> None:
@@ -364,3 +365,10 @@ def test_read_in_cell_env_reads_the_variables_a_packet_gives_a_colonized_wardens
     assert env.tls_pin == "ab" * 32
     assert env.device_manifest == Path("/var/lib/pollen/warden.toml")
     assert env.signing_key_file == Path("/var/lib/pollen/node.ed25519")
+
+
+def test_read_in_cell_env_keeps_the_directories_to_watch_as_the_text_the_packet_wrote() -> None:
+    # Roadmap step 11.10: a JSON array, parsed (and held to the access level) where it is used.
+    env = read_in_cell_env({"HIVEMIND_WATCH_ROOTS": '["/var/log/app", "/srv/data"]'})
+
+    assert env.watch_roots_json == '["/var/log/app", "/srv/data"]'

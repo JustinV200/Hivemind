@@ -40,7 +40,7 @@ Public API:
     - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
       EntrancePushSection, EntranceVoiceSection, EntranceAndroidSection.
     - Supervision and memory (supervision): SupervisionSection, ReconnectBudgetSection,
-      WatchSection, MemorySection.
+      WatchSection, WatchTuning, MemorySection.
     - The Swarm (swarm): SwarmSection, SwarmLadderSection, SwarmNucSection.
     - Security and clearance (security.tiers): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
@@ -117,6 +117,7 @@ from hivemind.manifest.schema.supervision import (
     ReconnectBudgetSection,
     SupervisionSection,
     WatchSection,
+    WatchTuning,
 )
 from hivemind.manifest.schema.swarm import SwarmLadderSection, SwarmNucSection, SwarmSection
 
@@ -170,4 +171,5 @@ __all__ = [
     "VirtualCellsOverwinterSection",
     "VirtualCellsSection",
     "WatchSection",
+    "WatchTuning",
 ]

@@ -19,7 +19,9 @@ value it needs -- the Queen's Waggle URL, this Cell's own id and signing key, th
 key -- is read here too, into ``InCellEnv``, rather than opening a second `HIVEMIND_*` reading
 site. Roadmap step 11.6a adds the seven variables the Pollen Packet gives the Warden it starts on a
 colonized device (``HIVEMIND_CELL_LEASE=borrowed`` and the ids, level, state directory, pin and
-manifest it needs), read into the same ``InCellEnv``.
+manifest it needs), read into the same ``InCellEnv``, and step 11.10 an eighth, the directories the
+operator named for that Warden to watch (``HIVEMIND_WATCH_ROOTS``, a JSON array like the provider
+and slot tables).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). ``read_env``/``apply_env`` are called by
@@ -303,6 +305,11 @@ class InCellEnv(BaseModel):
     device_manifest: Path | None = Field(
         default=None, description="HIVEMIND_DEVICE_MANIFEST: the device's local `[llm]` manifest."
     )
+    watch_roots_json: str | None = Field(
+        default=None,
+        description="HIVEMIND_WATCH_ROOTS: the directories the operator named for this Warden to "
+        "watch, as a JSON array of paths; unset means it watches none.",
+    )
 
 
 def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
@@ -353,6 +360,7 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         state_dir=Path(state_dir) if state_dir is not None else None,
         tls_pin=environ.get("HIVEMIND_TLS_PIN"),
         device_manifest=Path(device_manifest) if device_manifest is not None else None,
+        watch_roots_json=environ.get("HIVEMIND_WATCH_ROOTS"),
     )
 
 

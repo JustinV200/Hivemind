@@ -15,9 +15,10 @@ enums rather than the hivemind-side mirrors those two packages own.
   `ProviderSpec`, `CapabilityOverrides`, `SlotBinding`, `ServerSpec` (`schema.llm`, a sub-package:
   `providers`, `section`, `floors`, `servers`); `ForageSection`
   (`schema.forage`, embedding `hivemind.forage`'s `RoleFootprint`, `ModelSourceSpec` and
-  `RoyalReserve` directly); `SupervisionSection` + `ReconnectBudgetSection` + `WatchSection`,
-  `MemorySection` (`schema.supervision`; the first two are phase 11's `[supervision.
-  reconnect_budget]` and `[supervision.watch]`); `SwarmSection` + `SwarmLadderSection` +
+  `RoyalReserve` directly); `SupervisionSection` + `ReconnectBudgetSection` + `WatchSection` (on
+  `WatchTuning`, its five numbers, which a device manifest shares), `MemorySection`
+  (`schema.supervision`; the first two are phase 11's `[supervision.reconnect_budget]` and
+  `[supervision.watch]`); `SwarmSection` + `SwarmLadderSection` +
   `SwarmNucSection` (`schema.swarm`, phase 11: the swarm listener, invites, liveness and the
   ladder's thresholds, disabled by default);
   `SecuritySection` + `TierProfile`, `HoneySection` + `HoneyClearanceSection` + `ClearanceMatrix`
@@ -37,7 +38,10 @@ enums rather than the hivemind-side mirrors those two packages own.
   `[supervision.reconnect_budget]`, the two figures the device's Warden acts on when its link is
   cut, checked by the rule the Hive's own `[supervision]` uses (`require_budget_inside_offline_limit`:
   the budget is carved out of the offline limit) and defaulting to the Hive's shipped values when the
-  table is absent. Any other section, or any other `[supervision]` key, is refused.
+  table is absent; and `[supervision.watch]` (roadmap 11.10, `DeviceWatchSection`): the five
+  numbers its Warden watches its machine by, with no `roots` (refused with the reason: the operator
+  names a device's directories with `hive swarm watch`). Any other section, or any other
+  `[supervision]` key, is refused.
   `docs/manifests/device.toml` is the annotated example.
 - **Environment** (`hivemind.manifest.env`), the one place `HIVEMIND_*` is read: `EnvOverrides`,
   `read_env(environ) -> EnvOverrides`, `apply_env(manifest, overrides) -> HiveManifest`,
@@ -45,7 +49,8 @@ enums rather than the hivemind-side mirrors those two packages own.
   for the in-Cell Warden, which since step 11.6a also carries the seven variables the Pollen
   Packet gives a colonized device's Warden (`HIVEMIND_CELL_LEASE=borrowed`, `HIVEMIND_WARDEN_ID`,
   `HIVEMIND_NODE_ID`, `HIVEMIND_ACCESS_LEVEL`, `HIVEMIND_STATE_DIR`, `HIVEMIND_TLS_PIN`,
-  `HIVEMIND_DEVICE_MANIFEST`).
+  `HIVEMIND_DEVICE_MANIFEST`) and, since step 11.10, an eighth that is set only when the operator
+  named directories for it to watch (`HIVEMIND_WATCH_ROOTS`, a JSON array).
 - **Errors** (`hivemind.manifest.errors`): `ManifestError(ConfigurationError)`.
 
 ### The slot-table validators (`LlmSection`)

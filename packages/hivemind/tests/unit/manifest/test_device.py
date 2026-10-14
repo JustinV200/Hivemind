@@ -23,6 +23,7 @@ from hivemind.manifest import (
     DeviceManifest,
     DeviceSupervisionSection,
     ManifestError,
+    WatchTuning,
     load_device_manifest,
 )
 
@@ -236,3 +237,56 @@ def test_a_reconnect_budget_figure_that_is_not_positive_is_refused(
 
     with pytest.raises(ManifestError, match="reconnect_budget"):
         load_device_manifest(_write(tmp_path, _llm_text() + table))
+
+
+def test_a_manifest_with_no_watch_table_watches_by_the_numbers_the_hive_ships(
+    tmp_path: Path,
+) -> None:
+    manifest = load_device_manifest(_write(tmp_path, _llm_text()))
+
+    # The same five numbers the Hive's own [supervision.watch] starts from, so a device that says
+    # nothing is watched as a Level 0 device would be.
+    assert manifest.supervision.watch.model_dump() == WatchTuning().model_dump()
+    assert manifest.supervision.watch.patrol_interval_s == 3600.0
+
+
+def test_watch_sets_the_cadence_the_retention_and_the_thresholds_of_the_device_warden(
+    tmp_path: Path,
+) -> None:
+    table = "[supervision.watch]\ninterval_s = 60\nretention_s = 7200\npatrol_interval_s = 900\n"
+    table += "cpu_share_alarm = 0.8\ndisk_fill_alarm = 0.9\n"
+
+    watch = load_device_manifest(_write(tmp_path, _llm_text() + table)).supervision.watch
+
+    assert (watch.interval_s, watch.retention_s, watch.patrol_interval_s) == (60.0, 7200.0, 900.0)
+    assert (watch.cpu_share_alarm, watch.disk_fill_alarm) == (0.8, 0.9)
+
+
+def test_watch_roots_are_refused_and_the_refusal_says_where_a_device_names_them(
+    tmp_path: Path,
+) -> None:
+    # An operator who copies the Hive's [supervision.watch] across brings `roots` with it; the
+    # directories are the Hive Stand's, so it is refused with the way to name a device's instead.
+    table = '[supervision.watch]\nroots = ["/var/log"]\n'
+
+    with pytest.raises(ManifestError, match=r"hive swarm watch .*Leave roots out"):
+        load_device_manifest(_write(tmp_path, _llm_text() + table))
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "interval_s = 0",
+        "retention_s = -1",
+        "patrol_interval_s = 0",
+        "cpu_share_alarm = 0",
+        "cpu_share_alarm = 1.5",
+        "disk_fill_alarm = 2",
+        "patrol_every = 60",  # A key nobody reads is a typo, not a setting.
+    ],
+)
+def test_a_watch_figure_that_is_not_usable_or_a_key_nobody_reads_is_refused(
+    tmp_path: Path, line: str
+) -> None:
+    with pytest.raises(ManifestError, match=r"supervision\.watch"):
+        load_device_manifest(_write(tmp_path, _llm_text(f"[supervision.watch]\n{line}\n")))

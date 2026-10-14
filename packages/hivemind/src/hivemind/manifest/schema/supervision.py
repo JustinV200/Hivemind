@@ -14,8 +14,9 @@ either responsibility would need more than that). Phase 11 (the Swarm) gives ``[
 two small sub-tables: ``[supervision.reconnect_budget]``, how long a Warden that lost its link
 may spend investigating it with a diagnostic Drone (a short-lived Worker) before it falls back to
 the Clustering the offline limit already guarantees, and ``[supervision.watch]``, the cadence,
-retention, alarm thresholds and watched directories of a Real Cell's watch mode and its Patrol (a
-scheduled read-only review of what the watching Warden observed).
+retention and alarm thresholds (``WatchTuning``, which a device manifest holds too) and, for the
+Hive Stand alone, the watched directories (``WatchSection``) of a Real Cell's watch mode and its
+Patrol (a scheduled read-only review of what the watching Warden observed).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -133,6 +134,7 @@ __all__ = [
     "ReconnectBudgetSection",
     "SupervisionSection",
     "WatchSection",
+    "WatchTuning",
     "require_budget_inside_offline_limit",
 ]
 
@@ -188,8 +190,14 @@ def require_budget_inside_offline_limit(
         )
 
 
-class WatchSection(BaseModel):
-    """``[supervision.watch]``: a watching Warden's sampling, retention, Patrol and alarms."""
+class WatchTuning(BaseModel):
+    """The numbers of watch mode: sampling, retention, Patrol cadence and alarm thresholds.
+
+    The part of ``[supervision.watch]`` a Warden on a device is configured by as well: the Hive's
+    manifest holds it for the Hive Stand and its Level 0 devices, and a colonized device's own
+    manifest holds the same five numbers for the Warden that lives there. Which directories to
+    read is not among them (``WatchSection.roots``), since a device's are not the Hive Stand's.
+    """
 
     model_config = _MODEL_CONFIG
 
@@ -227,6 +235,11 @@ class WatchSection(BaseModel):
         description="The fraction of the device's disk, between 0 and 1, above which the Patrol "
         "is told the disk is nearly full.",
     )
+
+
+class WatchSection(WatchTuning):
+    """``[supervision.watch]``: a watching Warden's sampling, retention, Patrol and alarms."""
+
     roots: tuple[str, ...] = Field(
         default=(),
         max_length=MAX_OBSERVE_ROOTS,

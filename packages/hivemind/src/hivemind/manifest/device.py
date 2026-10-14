@@ -16,11 +16,15 @@ a server names the Forage map entries (models) it may load by id, and the Warden
 must know what each one is (which provider and model it serves, its context window, the VRAM it
 needs), which the Hive's manifest knows and the device has no copy of, so the operator copies
 those rows across, exactly as they copy the `[llm]` section. And there is `[supervision]`, only
-the two things a Warden that dials the Queen from a device acts on (`max_offline_s`, how long its
-link may stay down before it clusters fully, and `[supervision.reconnect_budget]`, how much of that
-it may spend sending a Drone to find out why): the Hive's manifest keeps them on the Hive Stand,
-where the device's Warden cannot read them, so the device keeps its own, and the rule that holds
-them in step is the Hive's (the budget is carved out of the offline limit, ADR-0056).
+the things a Warden that dials the Queen from a device acts on: `max_offline_s`, how long its
+link may stay down before it clusters fully, `[supervision.reconnect_budget]`, how much of that
+it may spend sending a Drone to find out why, and `[supervision.watch]`, how often it samples the
+Cell it watches while no bee works, how long it keeps what it saw, how often it reviews that in a
+Patrol and when a process or the disk is worth a note (ADR-0054). The Hive's manifest keeps them on
+the Hive Stand, where the device's Warden cannot read them, so the device keeps its own, and the
+rule that holds the first two in step is the Hive's (the budget is carved out of the offline limit,
+ADR-0056). The directories it reads logs from are not in the file: the operator names a device's
+with `hive swarm watch`, and the packet hands them to the Warden it starts.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Called by `hivemind.cli.in_cell.borrowed`,
@@ -32,7 +36,9 @@ Key invariants:
       validation (`extra="forbid"`), and so does a `[supervision]` key the Warden does not read.
     - `[supervision]` may be left out: a device then waits as long and spends as much on a
       diagnosis as the Hive's shipped defaults say, and a budget that is not below its offline
-      limit is refused at load, exactly as the Hive's own manifest refuses it.
+      limit is refused at load, exactly as the Hive's own manifest refuses it. Its `watch` table
+      too: the Hive's shipped cadence and thresholds apply, and `roots` is refused there with the
+      reason, since the Hive Stand's directories are not the device's.
     - Every source an `[llm.servers]` row lists has its `[forage.map]` row, served by that server's
       provider, and every row is listed by some server: a model the Warden could not describe, or
       a row nothing reads, is refused at load and not at the first promotion.
@@ -46,6 +52,8 @@ Key invariants:
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for "the device carries its own
       configuration".
+    - docs/adr/0054-access-levels-watch-mode-and-the-patrol.md for the watch `[supervision.watch]`
+      sets.
     - docs/adr/0056-active-reconnection-diagnostic-drones.md for the budget `[supervision]` sets.
     - docs/manifests/device.toml for an annotated example.
     - hivemind.manifest.loader for `load_manifest`, the Hive Manifest's own loader.
@@ -60,7 +68,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from hivemind.forage import ModelSourceSpec
 from hivemind.manifest.errors import ManifestError
-from hivemind.manifest.schema import LlmSection, ReconnectBudgetSection
+from hivemind.manifest.schema import LlmSection, ReconnectBudgetSection, WatchTuning
 from hivemind.manifest.schema.llm.providers import ManifestKey
 from hivemind.manifest.schema.llm.servers import check_server_sources
 from hivemind.manifest.schema.supervision import (
@@ -72,6 +80,7 @@ __all__ = [
     "DeviceForageSection",
     "DeviceManifest",
     "DeviceSupervisionSection",
+    "DeviceWatchSection",
     "load_device_manifest",
 ]
 
@@ -89,8 +98,26 @@ class DeviceForageSection(BaseModel):
     )
 
 
+class DeviceWatchSection(WatchTuning):
+    """`[supervision.watch]` in a device manifest: the Hive's watch numbers, without directories."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _roots_are_not_named_here(cls, data: object) -> object:
+        """Refuse `roots` with its reason: an operator copying the Hive's table brings it along."""
+        # A plain "extra inputs are not permitted" would send the operator looking for a typo;
+        # the real answer is that the directories live with the node on the Hive Stand.
+        if isinstance(data, dict) and "roots" in data:
+            raise ValueError(
+                "[supervision.watch] roots is the Hive Stand's own list; a device's directories "
+                "are named with `hive swarm watch <node> <directory>...` and reach this Warden "
+                "when the packet starts it. Leave roots out of the device manifest."
+            )
+        return data
+
+
 class DeviceSupervisionSection(BaseModel):
-    """`[supervision]` in a device manifest: how long its Warden waits when cut off, and spends."""
+    """`[supervision]` in a device manifest: its Warden's offline limit, budget and watch."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -106,6 +133,13 @@ class DeviceSupervisionSection(BaseModel):
         default_factory=ReconnectBudgetSection,
         description="What this device's Warden may spend sending a diagnostic Drone to find out "
         "why its link to the Queen went; carved out of max_offline_s, so it must be below it.",
+    )
+    watch: DeviceWatchSection = Field(
+        default_factory=DeviceWatchSection,
+        description="How often this device's Warden samples the Cell it watches while no bee "
+        "works, how long it keeps what it saw, how often it reviews that in a Patrol and the "
+        "thresholds that make a process or the disk worth a note; the Hive's shipped numbers "
+        "when absent.",
     )
 
     @model_validator(mode="after")
@@ -137,7 +171,8 @@ class DeviceManifest(BaseModel):
     supervision: DeviceSupervisionSection = Field(
         default_factory=DeviceSupervisionSection,
         description="How long this device's Warden waits for the Queen before it clusters fully, "
-        "and the budget it may spend diagnosing the cut; the Hive's shipped defaults when absent.",
+        "the budget it may spend diagnosing the cut, and the numbers it watches by; the Hive's "
+        "shipped defaults when absent.",
     )
 
     @model_validator(mode="after")

@@ -254,4 +254,8 @@ budget]` (diagnostic Drones a Warden may send, and for how long, to find out why
 lost; its `wall_clock_s` must be below `max_offline_s`, so a manifest that lowers
 `max_offline_s` to 300 seconds or less must lower the budget with it) and `[supervision.watch]`
 (the sampling interval, retention, Patrol interval and alarm thresholds of a Real Cell's watch
-mode, ADR-0054). Neither section holds a secret; `full.toml` shows every key.
+mode, ADR-0054). Neither section holds a secret; `full.toml` shows every key. A colonized
+device's own manifest (`device.toml`) holds the same five numbers in its own
+`[supervision.watch]`, for the Warden that lives on the device; it has no `roots`, because the
+operator names a device's directories with `hive swarm watch` and the Pollen Packet hands them to
+the Warden it starts.

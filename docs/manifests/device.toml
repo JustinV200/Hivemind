@@ -8,8 +8,8 @@
 # Hive's manifest and change the base URLs to what the device can reach, and, for a device that
 # could become a Nuc, the [forage.map] rows of the models its servers may load (below). It may also
 # hold [supervision] (last in this file): how long the Warden waits for the Queen when its link is
-# cut, and how much of that wait it may spend finding out why. Any other section is refused rather
-# than ignored. The rules that keep a Hive Manifest's slot table honest
+# cut, how much of that wait it may spend finding out why, and how it watches this device while no
+# bee works. Any other section is refused rather than ignored. The rules that keep a Hive Manifest's slot table honest
 # apply here too: every model slot is bound, every binding names a declared provider, and
 # `offline = true` accepts only loopback providers.
 #
@@ -150,3 +150,28 @@ max_offline_s = 600.0
 [supervision.reconnect_budget]
 attempts = 2
 wall_clock_s = 300.0
+
+# Watch mode and the Patrol (roadmap 11.10, ADR-0054) as this device's own Warden runs them: with
+# no bee working, it looks at the machine it lives on without writing a thing to it, keeps what it
+# saw in its Bee Bread (labelled C2: it describes your machine), and on a schedule reviews that in
+# one awake episode that raises an Alarm, deposits Nectar, proposes Cell Wax or finds nothing
+# notable. Leave the table out and the Hive's shipped numbers hold, as here. The Hive's own
+# [supervision.watch] is for the Hive Stand's Warden and the devices it watches from there (Level
+# 0); this one is read only by the Warden on this device. `roots`, the directories whose log files
+# and changes it also reads, is not a key here: you name them per device with `hive swarm watch
+# <node> <directory>...` on the Hive Stand, and the Pollen Packet hands them to the Warden when it
+# starts it, held to what the access level you granted lets it read.
+[supervision.watch]
+# Seconds between two observation samples: processes, resources, logs, file changes.
+interval_s = 300.0
+# Seconds an observation is kept before the sweep may purge it (a day here). Keep it at least
+# patrol_interval_s, or a Patrol reviews only the newest part of what it covers.
+retention_s = 86400.0
+# Seconds between two Patrols.
+patrol_interval_s = 3600.0
+# The share of this device's CPU, between 0 and 1, above which a newly seen process is handed to
+# the Patrol as a fact (half the machine here).
+cpu_share_alarm = 0.5
+# The fraction of this device's disk, between 0 and 1, above which the Patrol is told it is nearly
+# full.
+disk_fill_alarm = 0.95
