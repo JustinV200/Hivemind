@@ -145,7 +145,7 @@ def build_borrowed_config(env: InCellEnv, clock: Clock) -> BorrowedConfig:
     """
     state_dir = _required_path(env.state_dir, "HIVEMIND_STATE_DIR")
     manifest = load_device_manifest(_required_path(env.device_manifest, "HIVEMIND_DEVICE_MANIFEST"))
-    llm = device_llm(manifest.llm)
+    llm = device_llm(manifest.llm, manifest.forage.map)
     seed = _node_key_seed(_required_path(env.signing_key_file, "HIVEMIND_CELL_SIGNING_KEY_FILE"))
     # The shared validation reads the key as hex text and the scratch root from the environment, so
     # it is handed the device's own in those forms; it never sees the file the packet wrote.

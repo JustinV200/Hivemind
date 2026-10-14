@@ -49,13 +49,16 @@ take the schema's repo-root-relative default.
 - **`full.toml`** -- every section and every field the schema supports, one comment per field.
   Kept honest by a test that round-trips it through `model_dump`/`model_validate`, `[entrance]`
   (roadmap phase 10, ADR-0041) and `[guard]` (ADR-0039) included.
-- **`device.toml`** -- not a Hive Manifest: the `[llm]`-only file the Warden on a colonized Swarm
-  device reads (roadmap step 11.6a, ADR-0052), recorded with `pollen install --warden-manifest`.
-  It is loaded by `hivemind.manifest.load_device_manifest`, not `load_manifest`, and refuses any
-  other section. The model providers it names are the ones the Hive's grants name, resolved to
-  addresses this device can reach; a declared `[llm.servers.*]` row is reported to the Queen (not
-  started) so she can later promote the device to a Nuc. API keys come from the device's own
-  environment, as everywhere else.
+- **`device.toml`** -- not a Hive Manifest: the file the Warden on a colonized Swarm device reads
+  (roadmap steps 11.6a and 11.8, ADR-0052), recorded with `pollen install --warden-manifest`. It is
+  loaded by `hivemind.manifest.load_device_manifest`, not `load_manifest`, and refuses any section
+  but `[llm]` and `[forage.map]`. The model providers it names are the ones the Hive's grants name,
+  resolved to addresses this device can reach; a declared `[llm.servers.*]` row is reported to the
+  Queen (not started) so she can later promote the device to a Nuc, and the `[forage.map]` rows
+  beside it, copied from the Hive's manifest, describe the models that server may load. The Hive's
+  own manifest must list the same server id in `[llm.servers]` (with `load_on_start = false`) for
+  the Queen to promote the device. API keys come from the device's own environment, as everywhere
+  else.
 
 ## The transcriber and `kind = "whisper_local"` (roadmap step 6.5a)
 

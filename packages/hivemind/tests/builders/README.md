@@ -171,7 +171,9 @@ device manifest, the environment that names them) and returns a `BorrowedKit`: t
 state directory, every id, the Queen's signer and the device's. `device_verifier` accepts frames
 signed as the device's node and nothing else, so a scripted `WebSocketServer(Codec(signer=
 kit.queen_signer, verifier=kit.device_verifier))` stands in for the swarm listener and rejects a
-frame signed with another key. `device_manifest_text(with_server=...)` is the manifest alone.
+frame signed with another key. `device_manifest_text(with_server=...)` is the manifest alone;
+with a server it also holds the `[forage.map]` row of the model that server loads and a
+`local_worker` slot the worker slot falls back to, as a Nuc needs.
 
 ## `pollen_packet.py` (roadmap 11.6a, the packet's side of a colonized device)
 

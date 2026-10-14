@@ -21,17 +21,19 @@ and a reconnection announces the Cell again.
 - **Config** (`config`): `build_borrowed_config(env, clock) -> BorrowedConfig`, `is_borrowed(env)`,
   `BORROWED`, `OWNED`. Validates the packet's environment (below) and the device manifest; refuses a
   tier other than MEADOW, a `wss://` listener without a pin, and a `ws://` one with.
-- **Models** (`llm`): `device_llm(section) -> DeviceLlm`, the device manifest's `[llm]` as the
-  provider, seat, rate-limit, slot and server tables, the same answer `hivemind.cli.stores` gives
-  for a Hive Manifest's.
+- **Models** (`llm`): `device_llm(section, forage_map) -> DeviceLlm`, the device manifest's
+  `[llm]` (and the `[forage.map]` rows its servers load) as the provider, seat, rate-limit, slot
+  and server tables, the same answer `hivemind.cli.stores` gives for a Hive Manifest's. A server
+  is both reported (id only, nothing loaded) and kept as a `ServerConfig` the Warden can start
+  when the Queen promotes the device; `load_on_start` is always false here.
 - **Stores** (`stores`): `open_device_stores(state_dir, clock) -> DeviceStores`, three SQLite stores
   in `warden.sqlite`.
 - **Link** (`dial`): `DeviceDialer`, `DeviceAnnouncer`, `DeviceIdentity`, `LateTrailSync`.
 - **Composition** (`deps`): `build_device_link`, `build_borrowed_warden_deps`, `BorrowedParts`. The
   deps are `hivemind.cli.in_cell.deps.build_core_deps` plus: the SQLite memory store, a lease
   capability `cell:real:<cell id>`, and the `DeviceDeps` group (idle release, an `Outage`, a
-  `RemoteDeps`). None of a Virtual Cell's extras (snapshotter, resident Basket, Exoskeleton wiring,
-  model servers).
+  `RemoteDeps`). None of a Virtual Cell's extras (snapshotter, resident Basket, Exoskeleton wiring);
+  the declared model servers are known to the Warden but never started until a promotion.
 - **Run** (`run`): `run_borrowed_warden(env, clock, *, on_deps_built, stop)` and `stop_on_signals`.
 
 ## The environment the packet gives the Warden

@@ -17,14 +17,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from builders.borrowed import SERVER_ID, device_manifest_text
+from builders.borrowed import LOCAL_MODEL, SERVER_ID, SOURCE_ID, device_manifest_text
 
-from hivemind.cli.in_cell.borrowed.llm import device_llm
-from hivemind.cli.stores import provider_configs, slot_bindings
+from hivemind.cli.in_cell.borrowed.llm import DeviceLlm, device_llm
+from hivemind.cli.stores import provider_configs, server_configs, slot_bindings
 from hivemind.common.errors import ConfigurationError
 from hivemind.llm import RateLimit
 from hivemind.manifest import load_device_manifest, load_manifest
-from hivemind.manifest.schema import LlmSection
 from waggle.messages.forage import ModelServerReport
 
 _HIVE_SECTION = (
@@ -38,11 +37,12 @@ _DRONE_FOOTPRINT = (
 )
 
 
-def _section(tmp_path: Path, text: str) -> LlmSection:
-    """Load `text` as a device manifest and return its `[llm]` section."""
+def _device(tmp_path: Path, text: str) -> DeviceLlm:
+    """Load `text` as a device manifest and convert its `[llm]` with the map beside it."""
     path = tmp_path / "warden.toml"
     path.write_text(text, encoding="utf-8")
-    return load_device_manifest(path).llm
+    manifest = load_device_manifest(path)
+    return device_llm(manifest.llm, manifest.forage.map)
 
 
 def test_providers_and_slots_are_what_the_hive_stand_builds_from_the_same_rows(
@@ -60,7 +60,7 @@ def test_providers_and_slots_are_what_the_hive_stand_builds_from_the_same_rows(
     hive = tmp_path / "hive.toml"
     hive.write_text(_HIVE_SECTION + text + _DRONE_FOOTPRINT, encoding="utf-8")
 
-    device = device_llm(_section(tmp_path, text))
+    device = _device(tmp_path, text)
 
     manifest = load_manifest(hive)
     assert device.providers == provider_configs(manifest)
@@ -75,20 +75,55 @@ def test_a_providers_seats_and_rate_limits_are_kept_for_the_fanner(tmp_path: Pat
         "seats = 2\n", "seats = 3\nrequests_per_minute = 30\ntokens_per_minute = 9000\n", 1
     )
 
-    device = device_llm(_section(tmp_path, text))
+    device = _device(tmp_path, text)
 
     assert device.seats == {"shared": 3}
     assert device.limits == {"shared": RateLimit(requests_per_minute=30, tokens_per_minute=9000)}
 
 
 def test_a_declared_server_is_reported_by_id_with_nothing_loaded(tmp_path: Path) -> None:
-    device = device_llm(_section(tmp_path, device_manifest_text(with_server=True)))
+    device = _device(tmp_path, device_manifest_text(with_server=True))
 
     assert device.servers == (ModelServerReport(server_id=SERVER_ID, sources=()),)
 
 
+def test_a_declared_server_is_started_from_the_row_the_hive_stand_would_build(
+    tmp_path: Path,
+) -> None:
+    # Same argv, port, provider and Forage map rows as `cli.stores.server_configs` gives for the
+    # same tables in a Hive Manifest, so a server means the same on a Nuc as on the Hive Stand.
+    text = device_manifest_text(with_server=True)
+    hive = tmp_path / "hive.toml"
+    hive.write_text(_HIVE_SECTION + text + _DRONE_FOOTPRINT, encoding="utf-8")
+
+    device = _device(tmp_path, text)
+
+    hive_row = server_configs(load_manifest(hive))[SERVER_ID]
+    assert device.hostable == {SERVER_ID: hive_row}
+    assert [source.source_id for source in device.hostable[SERVER_ID].sources] == [SOURCE_ID]
+    assert device.hostable[SERVER_ID].sources[0].spec.host_cell_id is None  # No Cell hosts it yet.
+
+
+def test_a_server_never_starts_with_the_warden_whatever_the_row_says(tmp_path: Path) -> None:
+    # A device is a Nuc only once the Queen has promoted it; `load_on_start = true` must not make
+    # a Level 1 Warden start a model server on a machine the Hive only borrows.
+    text = device_manifest_text(with_server=True).replace(
+        "load_on_start = false", "load_on_start = true"
+    )
+
+    device = _device(tmp_path, text)
+
+    assert device.hostable[SERVER_ID].load_on_start is False
+
+
+def test_the_servers_a_manifest_does_not_declare_are_not_hostable(tmp_path: Path) -> None:
+    device = _device(tmp_path, device_manifest_text())
+
+    assert device.hostable == {}
+
+
 def test_a_manifest_that_declares_no_server_reports_none(tmp_path: Path) -> None:
-    assert device_llm(_section(tmp_path, device_manifest_text())).servers == ()
+    assert _device(tmp_path, device_manifest_text()).servers == ()
 
 
 def test_more_servers_than_one_capacity_report_carries_is_refused_at_start(
@@ -99,10 +134,10 @@ def test_more_servers_than_one_capacity_report_carries_is_refused_at_start(
         for n in range(9)
     )
     text = device_manifest_text(with_server=True).split(f"[llm.servers.{SERVER_ID}]")[0]
-    section = _section(tmp_path, text + servers)
+    row = f'[forage.map.x]\nprovider = "local"\nmodel = "{LOCAL_MODEL}"\ngrade = 2\n'
 
     with pytest.raises(ConfigurationError, match="declares 9 model servers"):
-        device_llm(section)
+        _device(tmp_path, text + servers + row + "context_window = 4096\n")
 
 
 def test_offline_forces_in_process_embedders_to_stay_off_the_network(tmp_path: Path) -> None:
@@ -110,7 +145,7 @@ def test_offline_forces_in_process_embedders_to_stay_off_the_network(tmp_path: P
     text = device_manifest_text().replace("[llm]\n", "[llm]\noffline = true\n", 1)
     text = text.replace("http://hive.example.lan:1234/v1", "http://127.0.0.1:1234/v1")
 
-    device = device_llm(_section(tmp_path, text))
+    device = _device(tmp_path, text)
 
     assert device.offline is True
     assert device.providers["shared"].embedding_local_files_only is True

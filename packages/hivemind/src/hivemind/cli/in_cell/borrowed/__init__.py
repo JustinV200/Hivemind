@@ -6,13 +6,14 @@ device's node, leasing the machine through the lease machinery the Hive Stand us
 memory and trail in SQLite files under a state directory so that a Handoff outlives a restart. The
 Pollen Packet starts it as `hivemind-in-cell` with `HIVEMIND_CELL_LEASE=borrowed` and the
 environment `config` reads; this package is what `hivemind.cli.in_cell.main` runs then. `config`
-validates that environment and the device manifest (the `[llm]` section alone, `llm` converts it
-into the provider, slot and server tables); `stores` opens the durable stores; `dial` is the
-dialer and announcer the reconnecting link uses on each connection (it announces the level and tier
-the Queen granted, and the model servers the manifest declares, not started); `deps` builds the link
-and the Warden's deps from the core a Virtual Cell's Warden shares; `run` connects and runs the
-Warden until a signal or a Queen-sent Shutdown stops it, leaving the device as it was found. A
-Virtual Cell's Warden (the default, `owned` mode) is untouched by any of this.
+validates that environment and the device manifest (`[llm]` and the `[forage.map]` rows its servers
+load; `llm` converts them into the provider, slot and server tables); `stores` opens the durable
+stores; `dial` is the dialer and announcer the reconnecting link uses on each connection (it
+announces the level and tier the Queen granted, and the model servers the manifest declares, not
+started); `deps` builds the link and the Warden's deps from the core a Virtual Cell's Warden
+shares; `run` connects and runs the Warden until a signal or a Queen-sent Shutdown stops it,
+leaving the device as it was found. A Virtual Cell's Warden (the default, `owned` mode) is
+untouched by any of this.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), a sub-package of `hivemind.cli.in_cell`, which
@@ -24,8 +25,9 @@ Key invariants:
     - Nothing here reads `os.environ`; it is given the already-read `InCellEnv` (codingrules 13).
     - The Warden keeps its id, and signs as the device's node with the key the packet holds.
     - The device holds the MEADOW tier only; any other is refused at start.
-    - No Virtual Cell extra is built for a device: no snapshotter, resident Basket, Exoskeleton
-      wiring or model server.
+    - No Virtual Cell extra is built for a device: no snapshotter, resident Basket or Exoskeleton
+      wiring. A model server the manifest declares is known to the Warden but never started at
+      its start: only the Queen's promotion of the device to a Nuc starts one.
 
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md and 0053 (offline operation).

@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from builders.borrowed import BorrowedKit, make_kit
+from builders.borrowed import SERVER_ID, BorrowedKit, make_kit
 
 from hivemind.cell import NoopSnapshotter
 from hivemind.cell.local import HiveStandSource
@@ -125,7 +125,10 @@ async def test_none_of_a_virtual_cells_extras_are_built_for_a_borrowed_machine(
     assert deps.resident_basket is None and deps.basket_store is None
     assert deps.browser_launcher is None and deps.recording_store is None  # No Exoskeleton wiring.
     assert deps.ears is None
-    assert deps.servers == {}  # A model server is a promotion, never a Level 1 default.
+    # A model server is a promotion, never a Level 1 default: it is known so a promotion can start
+    # it, and it is never started at the Warden's own start whatever the manifest says.
+    assert set(deps.servers) == {SERVER_ID}
+    assert deps.servers[SERVER_ID].load_on_start is False
 
 
 async def test_the_models_are_the_device_manifests_and_the_judge_is_bound(

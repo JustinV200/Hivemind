@@ -3,12 +3,13 @@
 # `pollen install --warden-manifest <this file>`; the Pollen Packet hands it to the Warden it
 # starts (HIVEMIND_DEVICE_MANIFEST), and nothing else in the Hive reads it.
 #
-# It holds one section, [llm], in exactly the shape the Hive Manifest's own [llm] section has
+# It holds [llm], in exactly the shape the Hive Manifest's own [llm] section has
 # (docs/manifests/full.toml documents every field), so an operator can copy the section from the
-# Hive's manifest and change the base URLs to what the device can reach. Any other section is
-# refused rather than ignored. The rules that keep a Hive Manifest's slot table honest apply here
-# too: every model slot is bound, every binding names a declared provider, and `offline = true`
-# accepts only loopback providers.
+# Hive's manifest and change the base URLs to what the device can reach, and, for a device that
+# could become a Nuc, the [forage.map] rows of the models its servers may load (below). Any other
+# section is refused rather than ignored. The rules that keep a Hive Manifest's slot table honest
+# apply here too: every model slot is bound, every binding names a declared provider, and
+# `offline = true` accepts only loopback providers.
 #
 # A provider's API key is never in this file. The Warden reads it from the device's own
 # environment, in the variable the provider names (api_key_env), which the packet inherits from
@@ -66,6 +67,17 @@ effort = "MEDIUM"
 [llm.slots.worker]
 provider = "shared"
 model = "claude-sonnet-5"
+# Where the worker slot goes when the shared source is unreachable, and, once this device is a
+# Nuc, where its sub-bees go first: the model server below, through the "local" provider. Without
+# a binding like this a Nuc's model is on the Forage map but no slot ever reaches it.
+fallback = "local_worker"
+effort = "MEDIUM"
+
+[llm.slots.local_worker]
+# A named binding: legal as a [llm.slots] key without being a ModelSlot, because the worker slot's
+# fallback names it.
+provider = "local"
+model = "llama3.1:8b"
 effort = "MEDIUM"
 
 [llm.slots.scaffolder]
@@ -85,8 +97,11 @@ effort = "LOW"
 
 # A model server the Warden may start on this device once it is a Nuc. The table key is the
 # server id the Warden reports in its capacity report; the Queen can only start a server named
-# there. `sources` names the Hive's [forage.map] entries the server may load, which the Hive,
-# not this device, defines.
+# there, and only if the Hive's own manifest lists the same server id in its [llm.servers] (with
+# load_on_start = false, so the Hive Stand never starts a copy) and names the models it may load.
+# `sources` names the [forage.map] entries the server may load; their rows follow, copied from
+# the Hive's manifest, because the Warden must know what each model is to offer it.
+# `load_on_start = false`: nothing starts until the Queen promotes the device.
 [llm.servers.local_llama]
 provider = "local"
 argv = ["llama-server", "--port", "{port}", "--model", "{scratch}/weights/llama-8b.gguf"]
@@ -95,3 +110,16 @@ health_path = "/models"
 startup_timeout_s = 120.0
 sources = ["local_llama"]
 load_on_start = false
+
+[forage.map.local_llama]
+# The model this server serves, as the Hive's [forage.map.local_llama] describes it. The provider
+# must be the server's own; a host is never named here (the Warden fills in its own Cell).
+provider = "local"
+model = "llama3.1:8b"
+grade = 2
+context_window = 8192
+capabilities = ["json_mode"]
+seats = 2
+# About 8 GiB of VRAM; leave it out for a model that runs on the CPU and needs none. The Queen
+# promotes a device only if this fits the VRAM it has free.
+vram_bytes_required = 8589934592

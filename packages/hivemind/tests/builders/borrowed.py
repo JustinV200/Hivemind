@@ -6,7 +6,8 @@ writes all three under a temporary directory and returns them with the ids and k
 so a test can start `run_borrowed_warden` against a scripted listener, check the Warden's frames
 against the keys it should have signed them with, and change one variable at a time to see the
 configuration refuse it. `DEVICE_MANIFEST` is a complete `[llm]` section with one shared provider,
-every slot bound to it, and, on request, a declared model server.
+every slot bound to it, and, on request, a declared model server with the `[forage.map]` row of
+the model it loads and a local binding the worker slot falls back to.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the tests under
@@ -43,6 +44,8 @@ from waggle.ids import (
 from waggle.signing import Ed25519Signer, Ed25519Verifier
 
 SERVER_ID = "local_server"  # The model server the manifest declares when asked to.
+SOURCE_ID = "x"  # The one Forage map entry that server may load.
+LOCAL_MODEL = "x-model"  # What that entry serves, and what the worker slot's local binding names.
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +75,18 @@ def device_manifest_text(*, with_server: bool = False) -> str:
     lines = ["[llm]", "", "[llm.providers.shared]", 'kind = "openai_compat"']
     lines += ['base_url = "http://hive.example.lan:1234/v1"', "seats = 2", ""]
     for slot in ModelSlot:
-        lines += [f"[llm.slots.{slot.manifest_key}]", 'provider = "shared"', 'model = "m"', ""]
+        lines += [f"[llm.slots.{slot.manifest_key}]", 'provider = "shared"', 'model = "m"']
+        if with_server and slot is ModelSlot.WORKER:
+            lines += ['fallback = "local_worker"']  # Where a Nuc's sub-bees go first.
+        lines += [""]
     if with_server:
+        lines += ["[llm.slots.local_worker]", 'provider = "local"', f'model = "{LOCAL_MODEL}"', ""]
         lines += ["[llm.providers.local]", 'kind = "openai_compat"']
         lines += ['base_url = "http://127.0.0.1:8081/v1"', ""]
         lines += [f"[llm.servers.{SERVER_ID}]", 'provider = "local"', 'argv = ["server"]']
-        lines += ["port = 8081", 'sources = ["x"]', "load_on_start = false", ""]
+        lines += ["port = 8081", f'sources = ["{SOURCE_ID}"]', "load_on_start = false", ""]
+        lines += [f"[forage.map.{SOURCE_ID}]", 'provider = "local"', f'model = "{LOCAL_MODEL}"']
+        lines += ["grade = 2", "context_window = 4096", "seats = 2", ""]
     return "\n".join(lines)
 
 

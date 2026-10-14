@@ -11,8 +11,11 @@ this one machine), which is what the Guard's `lease_creation` point reads. It is
 machine keeps no scratch between tasks (ADR-0054), and it holds an `Outage` and a `RemoteDeps`
 because its link to the Queen can be lost, unlike the in-process one of a Level 0 Warden. And it is
 given none of the Virtual Cell's extras: no Queen-relayed snapshotter (a device cannot be
-snapshotted), no resident Basket, no Exoskeleton wiring and no model server of its own: none of
-those are the machine's to give to a Cell it only borrows. `build_device_link` builds the
+snapshotted), no resident Basket and no Exoskeleton wiring: none of those are the machine's to
+give to a Cell it only borrows. It does carry the model servers its manifest declares
+(`WardenDeps.servers`), none of which starts at Level 1: the Queen asks for one with a
+`swarm.nuc_promote` when she promotes the device to a Nuc (roadmap step 11.8), and the Warden starts
+it then through the same `ModelServerHost` every Warden has. `build_device_link` builds the
 `ReconnectingQueenLink` the Warden is handed.
 
 Fits into the Hive:
@@ -141,6 +144,7 @@ def build_borrowed_warden_deps(
     return dataclasses.replace(
         deps,
         memory=parts.stores.memory,
+        servers=config.llm.hostable,  # Declared, not started: a Nuc promotion starts one.
         # The cell's own id names the capability, never its kind: this module built the source.
         lease_capability=Capability(
             family=CapabilityFamily.CELL_REAL, scope=runtime.spawn_config.cell_id
