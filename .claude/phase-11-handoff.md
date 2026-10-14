@@ -669,6 +669,23 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   now finds the Drone's command by its command line, 58adc82). Earlier: the packet's backoff
   ignored stop (79c330a), a frame-ceiling close in the fan-out pump, and openbox swallowing the
   first click (585dca3).
+- **Wave 3D (landed).** 11.8: `swarm/nuc.py` (`decide_nuc`), the Queen's Nuc flows in
+  `queen/swarm_gate/colonize/nuc/` (promote: ceilings, `swarm.nuc_promote`, `swarm.nuc_promoted`,
+  `swarm.promoted`, then a hosting plan with the device's `local=` sources first; demote the
+  reverse), the device Warden's `ticks/nuc/` (starts and stops its model server through phase 8's
+  hosting, reports `forage.source_added`), a device manifest that carries the `[forage.map]` rows
+  its servers load; a model outside the allowlist is `guard.denied` at SLOT_BINDING. 11.9a:
+  `wardens/offline/diagnose/` (a cut-off Nuc spawns one local Drone, no grant slot, bounded by
+  `max_sub_bees` and the reconnect budget; the Warden judges FIXED, DIAGNOSED or NO_CAUSE from the
+  Drone's closing `CAUSE:` line, records `warden.diagnosed` and queues C2 Nectar), Nectar queued
+  while the link is down, a sub-bee for a Warden-minted task whose Honey traffic stops at the
+  Warden, and `queen/swarm_gate/unreachable/hive_stand.py` (a lost device gets an ordinary Queen
+  task on the Hive Stand: "check reachability of device <cell> ..."). Running the real Drone role
+  found two things: a ceiling naming `tool:run_command` left the Drone no tool (fixed on both
+  ends), and `run_command` reports only state, so the objectives say to write output to a file.
+  Config a Nuc needs: the Hive manifest lists the server id with `load_on_start=false`, the device
+  manifest has `[forage.map]` rows; a device's reconnect budget uses shipped defaults (a device
+  manifest has no `[supervision]`).
 - **Wave 4 exit scenarios (landed).** 4A, the Level 0 bullets in real containers
   (`tests/e2e/test_phase11_exit_{level0,deadman,watch,propolis,replay}.py`, about two minutes
   together): enrol, list, a Drone's work left as found; the dead-man release and the
