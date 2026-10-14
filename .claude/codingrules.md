@@ -153,9 +153,9 @@ HiveMind/
 │   │   │   ├── memory/           # Hot + warm tiers: hot-state assembly, relevance, handoff model, compaction, pins, Bee Bread, cell_wax.py (Queen-written per-Cell cautions)
 │   │   │   ├── supervision/      # Supervisor protocol, attendant.py (inbox triage for any supervisor), Alarm, ContextTelemetry, policy tables, capping/, mask.py (Pheromone Mask state), defaults/ (the shipped policy and tier TOMLs, read through importlib.resources)
 │   │   │   ├── guard/            # Policy engine, capabilities.py (CapabilitySet, built in phase 3), access.py (what each AccessLevel allows), permission checks. The security enums live in cell/tiers.py.
-│   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, needs.py (TaskNeeds), tiers.py (AccessLevel, CombShieldLevel, HoneyClearance), snapshot.py (Snapshotter protocol), local/ (the Hive Stand)
-│   │   │   ├── hive/             # VIRTUAL Cells: lifecycle.py + night_veil.py (attestation) + backends/ (docker.py, qemu.py, cloud/...) + overwinter/ + snapshot.py (Snapshotter backends)
-│   │   │   ├── swarm/            # REAL Cells from enrolled devices: errors.py, models.py (SwarmNode, SwarmInvite), node_state.py (NodeStatus), level.py (the runtime ladder, decide_colonize), nuc.py (decide_nuc), source.py (SwarmSource), watch.py (PollenWatchProbe), registry/ (protocol, sqlite, memory, migrations), enrolment/ (invite, accept, capabilities, door), gateway/ (listener, verifier, link, hub, heartbeat), session/ (PollenSession), shield/ (Propolis checks)
+│   │   │   ├── cell/             # The Cell abstraction: Cell, CellKind (REAL | VIRTUAL), CellSession (terminal), leases, needs.py (TaskNeeds), tiers.py (AccessLevel, CombShieldLevel, HoneyClearance), snapshot.py (Snapshotter protocol), local/ (the Hive Stand), tunnel/ (the Propolis checks: fixed read-only commands and pure judges, shared by swarm/ and hive/)
+│   │   │   ├── hive/             # VIRTUAL Cells: lifecycle.py + attestation.py (CellAttestation: a tier -> attestation table) + night_veil/ and propolis/ (the two attested tiers' checks) + backends/ (docker.py, qemu.py, cloud/...) + overwinter/ + snapshot.py (Snapshotter backends)
+│   │   │   ├── swarm/            # REAL Cells from enrolled devices: errors.py, models.py (SwarmNode, SwarmInvite), node_state.py (NodeStatus), level.py (the runtime ladder, decide_colonize), nuc.py (decide_nuc), source.py (SwarmSource), watch.py (PollenWatchProbe), registry/ (protocol, sqlite, memory, migrations), enrolment/ (invite, accept, capabilities, door), gateway/ (listener, verifier, link, hub, heartbeat), session/ (PollenSession), shield/ (PropolisChecks over the checks in cell/tunnel/)
 │   │   │   ├── exoskeleton/      # compound_eye/, antennae/, buzz/, browser/, attach.py, recorder.py (flight recorder), tactics/ (mouse_like_human)
 │   │   │   ├── royal_jelly/      # Royal Jelly Lab + Comb Registry: spec/, scaffold/, quarantine_comb/, registry/ (hive + cell scopes), promotion/
 │   │   │   ├── workers/          # Worker runtime + roles/ (forager.py, scout.py, ...) + tools/ + tactics/ (write_like_human)
@@ -754,7 +754,10 @@ this distinction central; the code makes it invisible to Workers.
   provision one at `PROPOLIS` by policy. A Real Cell's tier is set by the operator at enrolment,
   like its access level, and describes a VPN the device already runs: HiveMind verifies the
   tunnel before placing Propolis work on it and never installs, starts or reroutes one on a
-  borrowed machine, because that would touch the whole device and not the lease. `NIGHT_VEIL`
+  borrowed machine, because that would touch the whole device and not the lease. A Virtual Cell
+  at `PROPOLIS` is attested from its image before it is `READY`, by the same tunnel checks
+  (`cell/tunnel/`) plus Tor's absence (`hive/propolis/`); a red check, or a tier with no probe
+  configured, refuses the Cell and tears it down (ADR-0057). `NIGHT_VEIL`
   requires explicit human request, is Virtual-only, and may not be autonomously escalated by the
   Queen or a Warden.
 - **Night Veil is deterministic and strict.** A `NIGHT_VEIL` Cell is Virtual-only and may be marked

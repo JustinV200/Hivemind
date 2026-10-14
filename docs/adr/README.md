@@ -276,3 +276,10 @@ ADRs that exist today, in numeric order:
   the Hive Stand's Warden on a task the Queen assigns; its budget is carved out of the offline limit
   and never added to it, it never touches the Royal Jelly Lab or gains access, and it reports
   `FIXED`, `DIAGNOSED` or `NO_CAUSE`.
+- `0057-propolis-is-verified-by-looking.md`: a Real and a Virtual Cell at Propolis are checked by
+  one set of fixed read-only commands and pure judges (default route, DNS and direct egress through
+  the tunnel, no direct IPv6 route), now in `hivemind.cell.tunnel`; a Virtual Cell is also checked
+  for Tor's absence and attested from its image before it is ready, looked at and never
+  configured, with no probe meaning no Cell; `cell.attested` names its tier, which the Night Veil
+  boundary reads; and the in-Cell Warden accepts PROPOLIS on the ordinary link and reports its own
+  tunnel checks.

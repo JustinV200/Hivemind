@@ -97,7 +97,7 @@ provision time -- code in this image still never names a model or vendor itself.
 | Variable | Required | Meaning |
 |---|---|---|
 | `HIVEMIND_QUEEN_WAGGLE_URL` | yes | Where this Cell dials out to (`wss://` anywhere; `ws://` on loopback, a documented host-gateway alias or private address, or a Tor v3 onion service -- `waggle.uris.check_waggle_uri`). |
-| `HIVEMIND_COMB_SHIELD` | yes (written by every backend since roadmap step 10.3a) | The tier the Queen provisioned this Cell at (`MEADOW` or `NIGHT_VEIL`), announced on `CellReady` and seen by the Cell's own floors. Unset reads as `MEADOW`; `PROPOLIS` is refused (no in-Cell attestation for it yet). A `NIGHT_VEIL` Cell must dial a v3 onion Queen URL through `HIVEMIND_SOCKS_PROXY_URL`, and only a `NIGHT_VEIL` Cell may name an onion Queen URL. |
+| `HIVEMIND_COMB_SHIELD` | yes (written by every backend since roadmap step 10.3a) | The tier the Queen provisioned this Cell at (`MEADOW`, `PROPOLIS` or `NIGHT_VEIL`), announced on `CellReady` and seen by the Cell's own floors. Unset reads as `MEADOW`. A `PROPOLIS` Cell dials the ordinary Queen URL (Tor is disabled at that tier, so no onion URL and no SOCKS proxy is needed) and announces the four tunnel checks it makes of its own routes and resolvers (`hivemind.cli.in_cell.propolis`), a report and not a gate: the Hive attests the Cell from outside before it is ready (docs/adr/0057). A `NIGHT_VEIL` Cell must dial a v3 onion Queen URL through `HIVEMIND_SOCKS_PROXY_URL`, and only a `NIGHT_VEIL` Cell may name an onion Queen URL. |
 | `HIVEMIND_RESERVATION` | yes (written by every backend) | What the backend reserved for this Cell, as JSON (`hivemind.hive.models.CellReservation`: `cpu_cores`, `memory_bytes`, `disk_bytes`, `max_sub_bees`, from its `VirtualCellSpec`). The Cell reports it as its Forage capacity, with no load, the same figures the Queen placed it by; its platform facts alone come from its own probe. Unset (a Cell minted before it existed) reports what the Cell probes; a malformed value is refused. |
 | `HIVEMIND_CELL_ID` | yes | The `cell_<ULID>` id the Queen minted for this Cell when it provisioned it. |
 | `HIVEMIND_HIVE_ID` | yes | The Queen's own bee address (`hive_<ULID>`), the `recipient` of every envelope this Cell sends. |
@@ -132,11 +132,21 @@ runner adds (a later roadmap step) must, at minimum:
 - Confirm `scripts/check_no_model_ids.py` and the other `scripts/check_*.py` hygiene gates pass
   against this directory (they already do as authored; this is a regression check for future
   edits).
+- Run the Propolis checks (docs/adr/0057) against containers of it:
+  `packages/hivemind/tests/integration/test_docker_propolis.py` reads this image's own
+  `/proc/net/route`, `/etc/resolv.conf` and process table through the shipped probe, finds a Cell
+  with no tunnel red and the same Cell green once a `tun0` is put in its network namespace from
+  outside (this image ships no `ip`), and runs the Cell's own `hivemind.cli.in_cell.propolis`
+  self-attestation inside it.
 
 ## Not yet in this image
 
 - **Night Veil attestation** (VPN, Tor, kill-switch rules) is `night-veil-ubuntu`, built on
   `desktop-ubuntu` (roadmap step 5.3a), not this image.
+- **A Propolis tunnel.** This image ships no VPN client, so it is not the image of a PROPOLIS Cell:
+  one provisioned from it at PROPOLIS announces its tunnel checks failed and the Hive's attestation
+  refuses it (docs/adr/0057). The image of a PROPOLIS Cell is a derived one that adds the VPN client
+  and brings its tunnel up before the Warden starts.
 - **The Exoskeleton bundle** (Xvfb, xdotool, PulseAudio, a browser) is `desktop-ubuntu` (roadmap
   step 6.1). This image is terminal-only by design.
 - **A real model provider** now reaches this image (roadmap step 8.x closed the gap this bullet
