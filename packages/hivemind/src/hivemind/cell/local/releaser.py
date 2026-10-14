@@ -21,9 +21,9 @@ Fits into the Hive:
     `hivemind.cell.lease.LeaseReleaser`; constructed by
     `hivemind.cell.local.source.HiveStandSource.lease` and injected into the `RealCellLease` it
     builds. Calls into the standard library (`os`, `signal`, `asyncio`, `shutil`, `hashlib`, on
-    Windows `asyncio.create_subprocess_exec("taskkill", ...)`), `hivemind.cell.lease`/`.errors`/
-    `.leavings`/`.source` (`CellIdentity`), `hivemind.common.errors` and `hivemind.pheromone`
-    (`CellEvent`) only.
+    Windows `asyncio.create_subprocess_exec("taskkill", ...)` and `ctypes` for a process's exit
+    code), `hivemind.cell.lease`/`.errors`/`.leavings`/`.source` (`CellIdentity`),
+    `hivemind.common.errors` and `hivemind.pheromone` (`CellEvent`) only.
 
 Key invariants:
     - `release()` always attempts every step (kill, replay-or-ledger, remove) even when an
@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import hashlib
 import os
 import shutil
@@ -69,8 +70,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-
-import psutil
 
 from hivemind.cell.lease import LeaseReleaseReport, RealCellLease, RestoreRecord
 from hivemind.cell.leavings import ApprovedBy, Leaving, LeavingsStore
@@ -87,6 +86,10 @@ KILL_GRACE_S = 0.2  # A brief, bounded window for SIGTERM to let a child exit be
 # permissions problem, say) forever: five attempts, 50ms apart, bounds the wait at 0.2s.
 _SCRATCH_REMOVE_ATTEMPTS = 5
 _SCRATCH_REMOVE_RETRY_S = 0.05
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000  # The least access that may read an exit code.
+_STILL_ACTIVE = 259  # The exit code Windows reports for a process that has not exited.
+_ERROR_ACCESS_DENIED = 5  # OpenProcess failed because the process is not ours to query.
 
 __all__ = ["KILL_GRACE_S", "HiveStandLeaseReleaser", "kill_process_tree", "process_group_alive"]
 
@@ -269,8 +272,31 @@ async def _kill_tree_posix(pid: int, clock: Clock) -> bool:
 
 
 def _windows_pid_alive(pid: int) -> bool:
-    """Return whether `pid` is alive on Windows, through psutil (no group probe exists there)."""
-    return bool(psutil.pid_exists(pid))
+    """Return whether `pid` is alive on Windows, from its exit code (no group probe exists there).
+
+    A ctypes query, not a third-party one, because `cell.local` needs only the standard library
+    (codingrules section 4). An exited process keeps its object while anyone holds a handle to it,
+    so a handle that opens is not proof of life; the exit code still being pending is.
+    """
+    if sys.platform == "win32":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong))
+        kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+        # SAFETY: documented, side-effect-free Win32 queries on a handle closed below.
+        handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            # Denied means it exists and is not ours to judge: keep it, as POSIX does on EPERM.
+            return ctypes.get_last_error() == _ERROR_ACCESS_DENIED
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True  # Unreadable: keep tracking it, the safe answer for a later release.
+            return code.value == _STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    else:
+        return False  # pragma: no cover -- only process_group_alive's Windows branch calls this.
 
 
 async def _kill_tree_windows(pid: int) -> bool:
