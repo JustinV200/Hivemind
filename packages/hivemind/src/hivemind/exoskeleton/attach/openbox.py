@@ -8,8 +8,17 @@ keybindings run programs too (checked on this repository's openbox, 2026-09-24: 
 the desktop rendered the menu). Desktop input on a lease display is tiered `scratch_write`, so a
 bee could start a program outside the Capping gate (the quality gate every side effect passes) with
 two clicks. This module writes a configuration into the lease's scratch that keeps only what input
-needs: new windows take focus, a press on a window focuses and raises it; no key or desktop binding
-does anything else, and the menu file it names is empty.
+needs: new windows take focus, a press on a window's contents focuses and raises it; no key or
+desktop binding does anything else, and the menu file it names is empty.
+
+The press binding is on the window's contents (the `Client` context) and on nothing else, not on
+its frame. A press that Openbox binds in the `Frame` context is taken by Openbox and never reaches
+the application: with both contexts bound, an application under the pointer received no
+ButtonPress and no ButtonRelease at all, from `xdotool click`, on this repository's openbox 3.6.1
+(checked 2026-10-14 with `xev`, found by driving the backends on a device, roadmap step 11.11). A
+click that never reaches the page, dialog or button it was aimed at is no click, and every desktop
+task depends on it; with only `Client` bound the press still focuses and raises the window and all
+three buttons reach it.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.exoskeleton.attach`.
@@ -18,6 +27,7 @@ Fits into the Hive:
 
 Key invariants:
     - The configuration binds no Execute action, no ShowMenu action and no key at all.
+    - Only the `Client` context is bound: a press bound in the frame never reaches the application.
     - Both files live in the lease's scratch, so release removes them with everything else.
 
 See Also:
@@ -34,8 +44,9 @@ from hivemind.exoskeleton.scratch import ScratchLayout
 
 RC_FILE = "openbox-rc.xml"  # Inside the layout's x11 directory, beside the cookie and the logs.
 MENU_FILE = "openbox-menu.xml"  # The one menu file the configuration names: empty.
-# A press on a window's contents or frame focuses and raises it, the one binding input needs; the
-# desktop ("Root") and the keyboard are left unbound, which is what keeps every menu closed.
+# A press on a window's contents focuses and raises it, the one binding input needs; the frame
+# (whose binding would swallow the press, module docstring), the desktop ("Root") and the keyboard
+# are left unbound, which is what keeps every menu closed.
 _FOCUS_ON_PRESS = "".join(
     f'<mousebind button="{button}" action="Press"><action name="Focus"/>'
     f'<action name="Raise"/></mousebind>'
@@ -47,7 +58,6 @@ _RC_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
   <desktops><number>1</number></desktops>
   <keyboard></keyboard>
   <mouse>
-    <context name="Frame">{focus}</context>
     <context name="Client">{focus}</context>
   </mouse>
   <menu><file>{menu}</file></menu>

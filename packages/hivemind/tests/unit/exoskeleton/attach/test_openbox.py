@@ -41,9 +41,20 @@ def test_the_configuration_binds_no_key_no_desktop_and_no_program() -> None:
     keyboard = root.find(f"{_NS}keyboard")
 
     assert actions == {"Focus", "Raise"}  # Nothing that executes, and no ShowMenu.
-    assert contexts == {"Frame", "Client"}  # The desktop ("Root") answers no click.
+    assert contexts == {"Client"}  # The desktop ("Root") answers no click.
     assert keyboard is not None
     assert len(keyboard) == 0
+
+
+def test_the_frame_stays_unbound_so_a_click_reaches_the_application() -> None:
+    root = _parsed()
+
+    contexts = {context.get("name") for context in root.iter(f"{_NS}context")}
+
+    # A press that Openbox binds in the `Frame` context is taken by Openbox and never reaches the
+    # application under the pointer (module docstring of attach.openbox; proved on a device by
+    # tests/integration/test_exoskeleton_on_device.py), so the frame must stay unbound.
+    assert "Frame" not in contexts
 
 
 def test_the_configuration_names_only_the_empty_menu_it_is_given() -> None:
