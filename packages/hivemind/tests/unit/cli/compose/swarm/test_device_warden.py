@@ -156,10 +156,20 @@ def test_it_holds_nothing_of_the_hive_stands_own_disk_display_or_models(tmp_path
     assert deps.keep_root is None
     assert deps.servers == {}
     assert deps.register_provider is None and deps.unregister_provider is None
-    assert stand.recording_store is not None  # The Exoskeleton's flight recorder is the Stand's.
-    assert deps.recording_store is None
     assert deps.browser_launcher is None
     assert deps.ears is None
+
+
+def test_it_records_a_devices_gui_actions_where_the_hive_stand_records_its_own(
+    tmp_path: Path,
+) -> None:
+    # A Level 0 Warden runs on the Hive Stand: a GUI action on its device was left unrecorded
+    # while the same action on the Hive Stand, or on a colonized device, was recorded (ADR-0032).
+    hive, _, built = _built(tmp_path)
+    deps, stand = built.warden._deps, hive.warden._deps
+
+    assert stand.recording_store is not None
+    assert deps.recording_store is stand.recording_store
 
 
 def test_it_shares_the_hives_trail_enforcer_scanner_and_stores(tmp_path: Path) -> None:

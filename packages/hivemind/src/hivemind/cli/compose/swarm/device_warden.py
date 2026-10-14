@@ -35,8 +35,10 @@ Fits into the Hive:
 Key invariants:
     - The Warden's id is the node's `warden_id`, so a rebuilt Warden for the same device is the
       same bee to the Queen, the trail and the packet.
-    - The Warden is built with no keep root, Royal Jelly access, resident Basket, model server or
-      Exoskeleton: none of those are this machine's to give to a device's Cell.
+    - The Warden is built with no keep root, Royal Jelly access, resident Basket, model server,
+      browser launcher or ears: none of those are this machine's to give to a device's Cell. Its
+      Exoskeleton's flight recorder is the Hive's own recording store, since the Warden runs here
+      and a GUI action on a device is recorded like one on the Hive Stand (ADR-0032).
     - The device's `SwarmSource` is returned as a hub listener, because it must hear the unprompted
       `cell.lease_released` a dead-man switch sends; the gate subscribes it for the Warden's life.
     - Every lease the source asks the device for names a scratch quota: the Queen's ceilings' when
@@ -130,7 +132,12 @@ class SwarmWardenFactory:
         watch = device_watch(parts, node, self._hub)  # Roadmap step 11.10: it asks the packet.
         # A fresh outage per Warden: it holds the tasks paused for this one device's loss.
         device = DeviceDeps(lease_retry_s=manifest.swarm.heartbeat_interval_s, outage=Outage())
-        deps = replace(deps, scanner=self._scanner, device=device, watch=watch)
+        # It runs here, so the flight recorder keeps a device's Exoskeleton actions where it keeps
+        # the Hive Stand's (ADR-0032); a browser launcher or ears would act on this machine.
+        recordings = parts.stores.recordings
+        deps = replace(
+            deps, scanner=self._scanner, device=device, watch=watch, recording_store=recordings
+        )
         link = replace(links.queen_link, live_capacity=self._live_capacity(node))
         return DeviceWarden(Warden(node.warden_id, deps), link, hub_listeners=(swarm_source,))
 
