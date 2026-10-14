@@ -37,7 +37,13 @@ Key invariants:
     - `release()` never leaves a lease stuck in RELEASING: a delegate that raises moves the lease
       to ORPHANED and re-raises, so a later call is legal (`hivemind.cell.lease_state`'s
       `RELEASING -> ORPHANED` and `ORPHANED -> RELEASING` edges) and `cell.released` is written at
-      most once, only by the call that actually succeeds.
+      most once, only by the call that actually succeeds. That holds when the call is cancelled
+      mid-release too (the lease is ORPHANED and the cancellation re-raised), because a stop that
+      follows a cancelled idle release must find a lease it may release, not one stuck RELEASING.
+    - Two `release()` calls at once (a Warden's `stop()` racing its own idle release, or the
+      return from an outage) are serialised: the second waits for the first and returns its
+      report, instead of tripping over `RELEASING -> RELEASING`. Whoever releases first does the
+      work and every other caller gets the same answer.
     - `is_path_allowed`, `note_allowed_path`, `note_touched_path` and `note_restore_path` all
       resolve a path through the lease's own `PathRule` before comparing, so none can be used to
       sneak outside scratch undetected. A lease on this machine resolves against the real
@@ -65,6 +71,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -322,6 +329,9 @@ class RealCellLease:
         self._touched_paths: list[Path] = []
         self._restore_records: list[RestoreRecord] = []
         self._release_report: LeaseReleaseReport | None = None
+        # Held for the whole of a release, so a second caller cannot start one while the first is
+        # in flight (module docstring): the tenancy is released by one hand at a time.
+        self._release_lock = asyncio.Lock()
 
     @property
     def started_pids(self) -> tuple[int, ...]:
@@ -416,12 +426,14 @@ class RealCellLease:
         return any(self._paths.is_within(resolved, self._paths.resolve(root)) for root in roots)
 
     async def release(self) -> LeaseReleaseReport:
-        """Release this lease, idempotently.
+        """Release this lease, idempotently and safely against a second caller.
 
         Transitions RELEASING -> RELEASED, delegating to the injected LeaseReleaser, then records
-        cell.released. A delegate that raises moves the lease to ORPHANED and re-raises instead
-        (`_orphan_after_failed_release`), so a later call is legal (`ORPHANED -> RELEASING`)
-        rather than stuck forever; a later call after success just returns the same report.
+        cell.released. A delegate that raises, or a caller that is cancelled, moves the lease to
+        ORPHANED and re-raises instead (`_orphan_after_failed_release`), so a later call is legal
+        (`ORPHANED -> RELEASING`) rather than stuck forever; a later call after success just
+        returns the same report. A call made while another is releasing waits for it: if that one
+        succeeded this one returns its report, if it failed this one tries again.
 
         Returns:
             The outcome of releasing this lease.
@@ -429,37 +441,31 @@ class RealCellLease:
         Raises:
             InvalidLeaseTransitionError: This lease is not OPEN or ORPHANED when called.
         """
-        if self._release_report is not None:
-            return self._release_report  # Idempotent: nothing to redo.
-        assert_transition(self.state, LeaseState.RELEASING, lease_id=self.id)
-        self.state = LeaseState.RELEASING
-        try:
-            report = await self._releaser.release(self)
-        except Exception:
-            self._orphan_after_failed_release()
-            raise
-        assert_transition(self.state, LeaseState.RELEASED, lease_id=self.id)
-        self.state = LeaseState.RELEASED
-        self._release_report = report
-        await self._record(
-            "cell.released",
-            {
-                "lease_id": self.id,
-                "holder": self.holder,
-                "task_id": self.task_id,
-                "access_level": self.access_level.value,
-                "comb_shield": self.comb_shield.value,
-                "killed_processes": report.killed_processes,
-                "residual_paths": len(report.residual_paths),
-                "is_restored": report.is_restored,
-            },
-        )
-        return report
+        # One release at a time (the lock's own comment): a second caller reaches the check below
+        # only after the first has finished, so it finds RELEASED or ORPHANED, never RELEASING.
+        async with self._release_lock:
+            if self._release_report is not None:
+                return self._release_report  # Idempotent: nothing to redo.
+            assert_transition(self.state, LeaseState.RELEASING, lease_id=self.id)
+            self.state = LeaseState.RELEASING
+            try:
+                report = await self._releaser.release(self)
+            except BaseException:
+                # Not only Exception: a release that is cancelled (a shutdown cancelling the tick
+                # that was giving the lease back) leaves the lease ORPHANED too, or the stop that
+                # follows would find it RELEASING and have no legal edge to take.
+                self._orphan_after_failed_release()
+                raise
+            assert_transition(self.state, LeaseState.RELEASED, lease_id=self.id)
+            self.state = LeaseState.RELEASED
+            self._release_report = report
+            await self._record("cell.released", _released_payload(self, report))
+            return report
 
     def _orphan_after_failed_release(self) -> None:
         """Move a RELEASING lease to ORPHANED after its delegate raised, so a retry is legal.
 
-        SAFETY: `release()`'s broad `except Exception` exists only to run this compensating
+        SAFETY: `release()`'s broad `except BaseException` exists only to run this compensating
         transition before re-raising the same exception unchanged; it is never swallowed here.
         """
         assert_transition(self.state, LeaseState.ORPHANED, lease_id=self.id)
@@ -488,6 +494,24 @@ def _resolve_touched(rule: PathRule, path: Path, scratch_root: Path) -> tuple[Pa
     """
     resolved = rule.resolve(path)
     return resolved, rule.is_within(resolved, rule.resolve(scratch_root))
+
+
+def _released_payload(lease: RealCellLease, report: LeaseReleaseReport) -> dict[str, JsonValue]:
+    """Build the `cell.released` event's payload: whose lease it was and how it was left.
+
+    Module-level (not a `RealCellLease` method) purely to keep that class within codingrules
+    5.1's class-length limit; `release` is its only caller.
+    """
+    return {
+        "lease_id": lease.id,
+        "holder": lease.holder,
+        "task_id": lease.task_id,
+        "access_level": lease.access_level.value,
+        "comb_shield": lease.comb_shield.value,
+        "killed_processes": report.killed_processes,
+        "residual_paths": len(report.residual_paths),
+        "is_restored": report.is_restored,
+    }
 
 
 def _build_restore_record(

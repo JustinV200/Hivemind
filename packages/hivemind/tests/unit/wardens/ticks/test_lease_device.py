@@ -92,6 +92,37 @@ class _FlakySource(FakeCellSource):
         return await super().open_session(lease)
 
 
+class _GatedReleaser:
+    """Hold a release at the Cell until the test opens the gate: a release that takes a while."""
+
+    def __init__(self, inner: LeaseReleaser) -> None:
+        self._inner = inner
+        self.entered = asyncio.Event()  # A release has reached the Cell.
+        self.gate = asyncio.Event()  # Opened by the test: the Cell answers.
+
+    async def release(self, lease: RealCellLease) -> LeaseReleaseReport:
+        self.entered.set()
+        await self.gate.wait()
+        return await self._inner.release(lease)
+
+
+class _GatedSource(FakeCellSource):
+    """A fake source whose leases release only when the test lets them."""
+
+    def __init__(self, base: FakeCellSource, deps: WardenDeps) -> None:
+        identity = CellIdentity(
+            hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor="system"
+        )
+        super().__init__(base._cells.values(), identity, deps.trail, deps.clock)
+        self.releaser: _GatedReleaser | None = None
+
+    async def lease(self, request: LeaseRequest) -> RealCellLease:
+        lease = await super().lease(request)
+        self.releaser = _GatedReleaser(lease._releaser)
+        lease._releaser = self.releaser
+        return lease
+
+
 def _writes_output(path: str = "output.txt") -> Callable[[WorkerRole], ScriptedWorker]:
     """A worker that writes the file the assignment's acceptance wants, then claims success."""
 
@@ -323,3 +354,62 @@ async def test_a_stop_whose_lease_the_cell_cannot_release_still_finishes_and_say
     assert lease.state is LeaseState.ORPHANED  # Left for the device's dead-man switch or a sweep.
     stopped = [e for e in await deps.trail.query(TrailQuery()) if e.kind == "warden.stopped"]
     assert [e.payload for e in stopped] == [{"lease_released": False, "release_error": "CellError"}]
+
+
+async def _idle_release_in_flight(
+    gated: _GatedSource, deps: WardenDeps, queen_end: QueenEnd, warden_id: WardenId
+) -> tuple[Warden, asyncio.Task[None], _GatedReleaser]:
+    """Start a device Warden and hold its idle release at the Cell, mid-flight."""
+    warden, run_task = await _started(dataclasses.replace(deps, source=gated), warden_id)
+    await _wake(deps, queen_end)  # The tick settles to WATCH and starts giving the lease back.
+    releaser = gated.releaser
+    assert releaser is not None
+    await asyncio.wait_for(releaser.entered.wait(), timeout=_STOP_TIMEOUT_S)
+    return warden, run_task, releaser
+
+
+async def test_a_stop_racing_the_idle_release_waits_for_it_instead_of_raising() -> None:
+    # The tick is mid-way through giving the lease back (RELEASING) when stop() reaches its own
+    # release of the same lease: that used to raise InvalidLeaseTransitionError out of stop().
+    deps, queen_end, warden_id = make_warden_deps(device=DeviceDeps())
+    gated = _GatedSource(cast(FakeCellSource, deps.source), deps)
+    warden, run_task, releaser = await _idle_release_in_flight(gated, deps, queen_end, warden_id)
+    lease = warden.lease
+    assert lease is not None
+
+    stopping = asyncio.ensure_future(warden.stop())
+    for _ in range(20):  # Let stop() get as far as it can: to the release already in flight.
+        await asyncio.sleep(0)
+    assert (
+        not stopping.done()
+    )  # It waits for the one release; it neither raises nor starts another.
+    releaser.gate.set()
+    await asyncio.wait_for(stopping, timeout=_STOP_TIMEOUT_S)
+    await asyncio.wait_for(run_task, timeout=_STOP_TIMEOUT_S)
+
+    assert warden.state is WardenState.STOPPED
+    assert lease.state is LeaseState.RELEASED
+    kinds = await _kinds(deps)
+    assert kinds.count("cell.released") == 1  # Once, whichever of the two did the releasing.
+    assert "warden.stopped" in kinds
+
+
+async def test_a_stop_after_a_cancelled_idle_release_still_gives_the_lease_back() -> None:
+    # A shutdown that cancels the run loop while it is giving the lease back leaves the lease
+    # ORPHANED (never stuck RELEASING), so the stop that follows can release it.
+    deps, queen_end, warden_id = make_warden_deps(device=DeviceDeps())
+    gated = _GatedSource(cast(FakeCellSource, deps.source), deps)
+    warden, run_task, releaser = await _idle_release_in_flight(gated, deps, queen_end, warden_id)
+    lease = warden.lease
+    assert lease is not None
+
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+    assert _state_of(lease) is LeaseState.ORPHANED
+    releaser.gate.set()  # The device answers the next release.
+    await asyncio.wait_for(warden.stop(), timeout=_STOP_TIMEOUT_S)  # Must not raise.
+
+    assert warden.state is WardenState.STOPPED
+    assert _state_of(lease) is LeaseState.RELEASED
+    assert (await _kinds(deps)).count("cell.released") == 1
