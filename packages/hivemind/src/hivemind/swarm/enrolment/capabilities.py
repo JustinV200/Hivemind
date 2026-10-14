@@ -12,8 +12,9 @@ packet, so a string in any of them would only be dead weight a packet must ignor
 lease; this module asks the Guard for the level's ceiling with that very literal as the scratch
 root, so the two never drift apart: a change to what a level permits changes what a device is
 told. `grants_read` asks the same strings the other way round: whether they let a Warden read
-under a directory, which is how the directories the operator names for watching are held to what
-the device itself would allow.
+under a directory, and `readable_under` applies it to a list, which is how the directories the
+operator names for watching are held to what the device itself would allow, by the Queen before
+she sends them and again by the Warden that lives on the device.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.enrolment`.
@@ -63,7 +64,7 @@ PACKET_FAMILIES = frozenset(
     }
 )
 
-__all__ = ["PACKET_FAMILIES", "granted_capabilities", "grants_read"]
+__all__ = ["PACKET_FAMILIES", "granted_capabilities", "grants_read", "readable_under"]
 
 
 def granted_capabilities(level: AccessLevel, cell_id: CellId) -> tuple[str, ...]:
@@ -108,3 +109,18 @@ def grants_read(granted: Sequence[str], root: str) -> bool:
     except ValidationError:
         return False
     return CapabilitySet.parse(*granted).allows(needed)
+
+
+def readable_under(granted: Sequence[str], roots: Sequence[str]) -> tuple[str, ...]:
+    """Keep the directories of `roots` that `granted` lets a Warden read, in their order.
+
+    Args:
+        granted: A device's granted capability strings.
+        roots: Directories on the device, in its own spelling, as the operator named them.
+
+    Returns:
+        The directories `grants_read` accepts; every one at any access level today, since each
+        grants `fs:read:**`, but the rule is the packet's own and a narrower grant would shorten
+        the list instead of failing every look.
+    """
+    return tuple(root for root in roots if grants_read(granted, root))

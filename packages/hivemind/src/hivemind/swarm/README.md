@@ -88,7 +88,8 @@ hears that release and records it, so the lease is never left looking open.
 - **Enrolment** (`enrolment`): `EnrolmentDoor` (`mint_invite`, `enrol`), `EnrolmentRules`,
   `InviteEndpoint`, `parse_invite_string` / `build_invite_string`, `granted_capabilities` (the
   access level's capability strings, cut to the five families a packet can enforce),
-  `decide_enrolment` and `node_update_for` (pure).
+  `decide_enrolment` and `node_update_for` (pure; the update carries the directories the node's
+  capabilities let its Warden read, `readable_under`).
 - **Gateway** (`gateway`): `SwarmListener(ListenerConfig, ListenerDeps)`, `GatewayHub` and the
   `HubListener` Protocol (`on_online`, `on_offline`, `on_frame`), `DeviceLink` (`request`,
   `stream`, `send`), `HeartbeatMonitor`, `LivenessLoop`, `ConnectionRouter`, and the

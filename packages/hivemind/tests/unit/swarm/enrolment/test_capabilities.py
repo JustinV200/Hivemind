@@ -21,7 +21,12 @@ import pytest
 
 from hivemind.cell import AccessLevel
 from hivemind.guard import SCRATCH_PLACEHOLDER, Capability, CapabilityFamily, ceiling_for
-from hivemind.swarm.enrolment import PACKET_FAMILIES, granted_capabilities, grants_read
+from hivemind.swarm.enrolment import (
+    PACKET_FAMILIES,
+    granted_capabilities,
+    grants_read,
+    readable_under,
+)
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id
 
@@ -120,3 +125,25 @@ def test_a_write_string_does_not_let_the_hive_read() -> None:
 
 def test_a_root_the_guards_grammar_refuses_is_not_readable() -> None:
     assert not grants_read(("fs:read:**",), "")
+
+
+@pytest.mark.parametrize("level", list(AccessLevel))
+def test_every_level_lets_a_list_of_directories_through_whole_and_in_order(
+    level: AccessLevel,
+) -> None:
+    roots = ("/var/log/app", "/srv/data", "C:\\Logs")
+
+    assert readable_under(granted_capabilities(level, _CELL), roots) == roots
+
+
+def test_a_list_is_cut_to_the_directories_the_strings_cover_without_reordering_them() -> None:
+    narrow = ("fs:read:/srv/**", _WATCH)
+
+    kept = readable_under(narrow, ("/srv/b", "/var/log", "/srv/a/logs", "/etc"))
+
+    assert kept == ("/srv/b", "/srv/a/logs")
+
+
+def test_no_directory_is_readable_under_no_read_string() -> None:
+    assert readable_under(("exec:*", _WATCH), ("/var/log",)) == ()
+    assert readable_under(("fs:read:**",), ()) == ()

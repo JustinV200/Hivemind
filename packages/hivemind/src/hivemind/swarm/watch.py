@@ -46,7 +46,7 @@ import os
 from collections.abc import Sequence
 from datetime import datetime
 
-from hivemind.swarm.enrolment import grants_read
+from hivemind.swarm.enrolment import readable_under
 from hivemind.swarm.errors import DeviceRequestError, GatewayUnavailableError
 from hivemind.swarm.gateway.hub import GatewayHub
 from hivemind.swarm.models import SwarmNode
@@ -79,7 +79,7 @@ def readable_roots(node: SwarmNode) -> tuple[str, ...]:
         every one at any access level today, since each grants `fs:read:**`, but the rule is the
         packet's own and a narrower grant would shorten the list instead of failing every look.
     """
-    return tuple(root for root in node.watch_roots if grants_read(node.granted_capabilities, root))
+    return readable_under(node.granted_capabilities, node.watch_roots)
 
 
 class PollenWatchProbe:

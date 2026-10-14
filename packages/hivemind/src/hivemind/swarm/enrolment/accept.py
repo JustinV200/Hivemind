@@ -40,7 +40,7 @@ from hivemind.cell import AccessLevel, CellCapabilities, CombShieldLevel
 from hivemind.cell.local import DEFAULT_MAX_SUB_BEES
 from hivemind.forage import ForageCapacity, HostCapacity
 from hivemind.manifest import SwarmSection
-from hivemind.swarm.enrolment.capabilities import granted_capabilities
+from hivemind.swarm.enrolment.capabilities import granted_capabilities, readable_under
 from hivemind.swarm.enrolment.invite import InviteEndpoint
 from hivemind.swarm.errors import EnrolRefusal
 from hivemind.swarm.models import SwarmInvite, SwarmNode
@@ -193,7 +193,8 @@ def node_update_for(node: SwarmNode, reason: str) -> NodeUpdate:
         reason: Why the terms are being sent (it comes online, the operator changed its level).
 
     Returns:
-        The update: its rung, access level, tier, capability strings and timings.
+        The update: its rung, access level, tier, capability strings, timings and the directories
+        the operator named for its Warden to watch that those capabilities let it read.
     """
     return NodeUpdate(
         device_id=node.device_id,
@@ -205,6 +206,9 @@ def node_update_for(node: SwarmNode, reason: str) -> NodeUpdate:
         granted_capabilities=node.granted_capabilities,
         offline_limit_s=node.offline_limit_s,
         heartbeat_interval_s=node.heartbeat_interval_s,
+        # A Warden on the device cannot ask the Hive what it may read, so it is told, and told
+        # only what the packet would let it: a Level 0 Warden names the same list in every look.
+        watch_roots=readable_under(node.granted_capabilities, node.watch_roots),
         reason=reason,
     )
 

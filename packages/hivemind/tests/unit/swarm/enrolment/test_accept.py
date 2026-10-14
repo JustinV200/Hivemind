@@ -222,3 +222,24 @@ def test_the_node_update_restates_the_nodes_standing_terms() -> None:
     assert update.comb_shield == node.comb_shield.to_wire()
     assert update.granted_capabilities == node.granted_capabilities
     assert (update.offline_limit_s, update.heartbeat_interval_s) == (120.0, 15.0)
+    assert update.watch_roots == ()  # None were named for it.
+
+
+def test_the_node_update_carries_the_directories_the_operator_named_for_its_warden() -> None:
+    roots = ("/var/log/app", "/srv/data")
+    node = make_swarm_node(make_device_party(_CLOCK), _CLOCK, watch_roots=roots)
+
+    assert node_update_for(node, "connected").watch_roots == roots
+
+
+def test_the_node_update_carries_only_the_directories_the_nodes_capabilities_cover() -> None:
+    # A Warden on the device cannot ask the Hive what it may read, so it is told only what the
+    # packet would let it; a directory the strings do not cover is never sent.
+    node = make_swarm_node(
+        make_device_party(_CLOCK),
+        _CLOCK,
+        granted_capabilities=("fs:read:/srv/**", f"watch:{new_cell_id(_CLOCK)}"),
+        watch_roots=("/srv/data", "/var/log"),
+    )
+
+    assert node_update_for(node, "connected").watch_roots == ("/srv/data",)
