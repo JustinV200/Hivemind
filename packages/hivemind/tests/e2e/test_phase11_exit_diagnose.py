@@ -41,9 +41,11 @@ import pytest
 from e2e.swarm.colony.trail import about, bees_of, named
 from e2e.swarm.diagnose import WRONG_ADDRESS, findings_of, for_device, outcome_of, run_case
 from e2e.swarm.diagnose import reversible as rev
+from e2e.swarm.diagnose import unfixable as gone_case
 from e2e.swarm.diagnose import unplugged as stand
 from e2e.swarm.diagnose.reversible import Mended
 from e2e.swarm.diagnose.scripts import CHECKED
+from e2e.swarm.diagnose.unfixable import Gone
 from e2e.swarm.diagnose.unplugged import Unplugged
 from e2e.swarm.image import device_image_or_skip
 
@@ -58,6 +60,10 @@ _UNMADE = frozenset({"task.failed", "task.cancelled", "task.unassigned"})  # A t
 # its work: that a look from the Hive Stand's end was asked for, and that the hold on it ended.
 _BOOKKEEPING = frozenset({("device_diagnosis", "task_created"), ("hold_released", "reconnected")})
 _LOOK = "Check reachability of device"  # What the Hive Stand's own look opens its objective with.
+# How late, in seconds, a deadline the Warden keeps may be met: the scheduling of its tick on a busy
+# host, and the few writes it makes before it stamps the time. A deadline it only checked on its
+# heartbeat (15 s) or on a frame would miss this.
+_SLACK_S = 2.0
 
 
 @pytest.fixture(scope="module")
@@ -153,6 +159,67 @@ def test_the_findings_reach_the_hive_as_nectar_after_the_link_is_back(run: Mende
     assert back and finding.event.at >= back[0].at
     assert "FIXED" in run.findings and "CAUSE:" in run.findings
     assert run.gateway in run.findings or "hive.test" in run.findings
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Unfixable: the network is gone
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def lost(tmp_path_factory: pytest.TempPathFactory) -> Gone:
+    """Tell the unfixable case once; every test below asserts over what it left behind."""
+    directory = tmp_path_factory.mktemp("unfixable")
+    return run_case(device_image_or_skip(), directory, gone_case.unfixable_setup(), gone_case.gone)
+
+
+def _device_window(lost: Gone) -> list[PheromoneEvent]:
+    """What the device's Warden recorded between the cable being pulled and being put back."""
+    own = for_device(lost.trail, lost.node)
+    return [e for e in own if lost.cut_at <= e.at < lost.back_at]
+
+
+def test_the_drone_gives_up_inside_the_budget_when_the_network_is_gone(lost: Gone) -> None:
+    window = _device_window(lost)
+    [offline] = named(window, "warden.offline")
+    [verdict] = named(window, "warden.diagnosed")
+    [drone] = named(window, "worker.spawned")
+    [ended] = [e for e in named(window, "worker.done") if e.subject_id == drone.subject_id]
+
+    # One Drone looked, named what it saw and could do nothing about it: DIAGNOSED, not FIXED.
+    assert verdict.payload["outcome"] == "DIAGNOSED" and verdict.payload["reason"] == "cause_known"
+    assert verdict.payload["attempts"] == 1
+    # The Drone gave up well inside the budget, and the Warden's whole search ended with it: its
+    # own count of what it spent, and the trail's, are the budget and not a heartbeat more.
+    assert (ended.at - offline.at).total_seconds() < gone_case.BUDGET_S
+    assert float(str(verdict.payload["spent_s"])) < gone_case.BUDGET_S + _SLACK_S
+    assert (verdict.at - offline.at).total_seconds() < gone_case.BUDGET_S + _SLACK_S
+
+
+def test_the_warden_then_follows_the_existing_path_and_clusters_at_its_limit(lost: Gone) -> None:
+    window = _device_window(lost)
+    states = [e.kind for e in window if e.kind.startswith("warden.")]
+    [offline] = named(window, "warden.offline")
+    [clustered] = named(window, "warden.clustered")
+    over = (clustered.at - offline.at).total_seconds()
+
+    # The same two states in the same order as with no Drone at all, the verdict between them.
+    assert states == ["warden.offline", "warden.diagnosed", "warden.clustered"]
+    # Full Clustering came when `max_offline_s` ran out: the search did not shorten the wait and
+    # did not stretch it. (`offline.at` is a moment after the clock of the outage began.)
+    assert abs(over - gone_case.OFFLINE_S) < _SLACK_S
+    # It paused the one bee of the task and none other: the Drone was not a task of the Queen's.
+    assert clustered.payload["paused"] == 1
+
+
+def test_the_findings_wait_in_the_outbox_and_arrive_once_the_cable_is_back(lost: Gone) -> None:
+    [finding] = findings_of(lost.arrivals, lost.node)
+
+    # Queued while the link was down, not sent in a gap ...
+    assert ("honey.nectar_deposit", None) in lost.queued
+    # ... and stored only after the Warden had reconnected, with the verdict and what the Drone saw.
+    assert finding.event.at >= lost.back_at
+    assert "DIAGNOSED" in lost.findings and "CAUSE:" in lost.findings
 
 
 # ──────────────────────────────────────────────────────────────────────────────

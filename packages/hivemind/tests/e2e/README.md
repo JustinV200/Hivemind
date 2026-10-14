@@ -112,7 +112,9 @@ exist to catch problems that only show up when every layer runs at once.
   and `plan_json`, and `Switches`: an outage, one parked call, and a recorder of request shapes
   only); its manifest template is `scripted_manifest.toml.tmpl`. Roadmap 11.9a added
   `Scenario.closing`, the message a Drone ends with (a diagnostic Drone's first line is
-  `CAUSE: <cause>`), and `steps` as JSON objects in a `--scenario` file.
+  `CAUSE: <cause>`), and `steps` as JSON objects in a `--scenario` file; a `Step.when` names the
+  words a Drone's conversation must hold for the step to be its own, which is how one model server
+  answers a Nuc's task Drone and the diagnostic Drone its Warden sends beside it.
 - `test_hive_stand_diagnosis.py` (`@pytest.mark.e2e`) -- roadmap step 11.9a (ADR-0056), the Hive
   Stand's end of an active reconnection: `HiveStandDiagnosis.begin` creates its one task, a real
   Queen dispatches it to a real Warden on a Cell the Queen knows as the Hive Stand, that Warden
@@ -332,6 +334,24 @@ Drone's grant without a free core.
   merged, the results arrive once each and nothing is recorded twice. Last, the Warden is ordered
   to load the Hive's second model (a new source and no request) and the device's own third one (a
   `guard.denied` at `slot_binding`). See "A device that is moved up the ladder".
+- `test_phase11_exit_diagnose.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- phase 11's
+  last exit criterion, a Drone that looks into every lost link, in three cases that each have a
+  container and a docker network of their own (`e2e.swarm.diagnose`, about two to four minutes each,
+  the climb to a Nuc and the task that must outlive the cut being most of it). *Reversible:* a Nuc's
+  `/etc/hosts` is given a wrong address for the only name it dials the Hive Stand by (`hive.test`),
+  its packet's link and its Warden's are reset from the Hive Stand's end, and the story only reads:
+  the Warden's own Drone looks the name up, finds the line and writes the right one back inside the
+  device's `[supervision.reconnect_budget]`, `warden.diagnosed` says FIXED, the Warden reconnects
+  and the task ends on its own bee with no operator command, no Guard act and no Queen task but the
+  Hive Stand's own look. *Unfixable:* the cable is pulled (`docker network disconnect`); the Drone
+  finds a machine with no network and says so inside the budget (DIAGNOSED, judged when the budget
+  runs out), the Warden goes on to cluster fully when `max_offline_s` does (both to within a second:
+  the Warden wakes at its own deadlines and does not wait for a beat), with its outbox holding the
+  findings, and the Nectar arrives once the cable is back. *Hive Stand:* a colonized device running
+  a task is unplugged; the Queen's hold makes the Hive Stand's look (a Drone pinned to W0's Cell),
+  its outcome is deposited as Nectar, and that precedes her decision about the device when the grace
+  ends. A device manifest carries its own `[supervision]` (`max_offline_s` and the budget), which is
+  what lets the cases run in seconds instead of the shipped ten minutes.
 
 ## Budget
 
@@ -497,6 +517,17 @@ of its own (Level 2, a Nuc), on top of the whole-Hive rig above:
   the scenario's own (`order`). `trail.py` answers the questions the criteria ask of the Hive's trail
   (what ran first, how many at once, what was recorded twice), and `waits.py` the bounded, named
   waits. `run.py` tells the story in order and returns the `NucRun` the test asserts over.
+
+`swarm/diagnose/` is the rig for the last exit criterion, on top of the two above: `scene` builds the
+whole Hive and the enrolled device from a `Setup` (the two scripted models' rounds, the device
+manifest's `[supervision]`, the Queen's grace) and hands a `Scene` to a story (`run_case`); `scripts`
+has the Drones' rounds (a Nuc's server answers the task's Drone and the diagnostic one by the words
+of their objectives, `Step.when`; the Hive Stand's look is a Drone of its own); `plant` puts a wrong
+line in the container's `/etc/hosts`, resets the packet's link and the Warden's from the Hive Stand's
+end and reads the name as the Drone does; `reads` joins the Nectar the Hive stored with the trail
+event that recorded it; `reversible`, `unfixable` and `unplugged` tell the three cases and return
+the record each test asserts over. `tests/unit/swarm/test_diagnose_rig.py` checks the parts that need
+no daemon, the shell scripts included (run for real on a copy of the hosts file).
 
 The real command, `hive swarm promote`, is how the operator asks for each rung; the Hive moves the
 Warden on its next beat, and nothing in the rig does it by hand. The cable is `docker network
