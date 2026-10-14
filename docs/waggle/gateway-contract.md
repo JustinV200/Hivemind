@@ -179,7 +179,8 @@ link.
 
 **The first frame.** The first frame of every connection after enrolment is a signed
 `swarm.device_heartbeat`. After it the gateway sends a `forage.capacity_report` with trigger
-`RECONNECTED` and then replays its outbox in order (section 14). It sends heartbeats at
+`RECONNECTED`, then sends again the frames it sent just before the last connection ended, and then
+replays its outbox in order (section 14). It sends heartbeats at
 `heartbeat_interval_s` for as long as the connection is open, **including while a command runs**:
 executing a request never blocks the heartbeat, the pongs or the reading of the next frame.
 
@@ -249,6 +250,11 @@ holds, such as a repeated `cell.request`, it may send that reply again. This is 
 replay after a lost acknowledgement harmless: a command is never run twice because its frame arrived
 twice.
 
+**The Queen's window.** The Queen's listener keeps the same window over what gateways send, per
+node and id (spec section 9), and drops a duplicate before anything handles it. That is what makes
+it safe for a gateway to send a frame twice under one id (section 14): the second copy is dropped
+when the first arrived, and handled when it did not.
+
 **Freshness.** A gateway drops a frame whose `sent_at` is more than `MAX_MESSAGE_AGE_S` = 604,800 s
 (seven days) in the past, or more than `MAX_CLOCK_SKEW_S` = 300 s ahead of its own clock. This needs
 a wall clock within a few minutes of the Hive Stand's, and a gateway whose clock is wrong drops
@@ -275,8 +281,8 @@ not the length received so far (spec section 5).
 | `swarm.device_heartbeat` | First frame of each connection, then every `heartbeat_interval_s`. | `level` is `GATEWAY`; `lease_ids` the open leases (at most 64); `hive_started_processes` the processes its leases started and still track; `outbox_pending` the frames waiting; `uptime_s` since the gateway started. Carries no capacity figures. |
 | `forage.capacity_report` | After each reconnection (`RECONNECTED`), when a figure changes materially (`CHANGED`), and on a timer (`PERIODIC`). It MAY send one right after the accept (`ENROLLED`). | A full snapshot, so a replayed report is self-contained. `model_servers` is empty and `usage` all zeros: a gateway hosts no models and runs no bees. Capabilities are reported at enrolment; the Hive treats a capability report that changes without re-enrolment as a dire pattern (roadmap 13.4a), so a gateway reports changed capabilities no other way. |
 | `cell.lease_opened` | Answering `cell.request`. | Section 9.1. |
-| `cell.lease_released` | Answering `cell.teardown_request`, and unprompted when the dead-man switch fires. | Section 9.1; queued in the outbox. |
-| `session.output`, `session.exit`, `session.process_state` | Answering the session messages. | Section 9.2 and 9.3; a terminal `session.exit` is queued in the outbox, `session.output` never. |
+| `cell.lease_released` | Answering `cell.teardown_request`, and unprompted when the dead-man switch fires. | Section 9.1; queued in the outbox, and sent again after a connection that was lost unnoticed (section 14). |
+| `session.output`, `session.exit`, `session.process_state` | Answering the session messages. | Section 9.2 and 9.3; a terminal `session.exit` is queued in the outbox and sent again like a release, `session.output` never. |
 | `swarm.observation` | Answering `swarm.observe`. | Section 9.4. |
 | `control.pong` | Answering `control.ping`. | |
 | `control.error` | Whenever a request is refused. | Section 15. |
@@ -540,7 +546,8 @@ The behaviours are those of spec section 10; the file format is private to the g
   keeping the original `id` and `sent_at` so that a receiver can tell a late message from a fresh
   one.
 - It replays in first-in, first-out order after the first heartbeat and the capacity report of a
-  reconnection, acknowledging each frame once it has been sent, and stops at the first failure
+  reconnection and after the frames sent again (below), acknowledging each frame once it has been
+  sent, and stops at the first failure
   leaving the rest pending, so that replaying twice sends nothing the second time and a crash
   mid-replay leaves exactly the unsent tail.
 - Appending an id already pending is a no-op, and an entry older than `MAX_MESSAGE_AGE_S` is
@@ -548,6 +555,36 @@ The behaviours are those of spec section 10; the file format is private to the g
 - It survives a crash: an append is flushed to disk before it returns.
 - It refuses to hold a frame that could not be sent whole (over `MAX_FRAME_BYTES`), so one poison
   entry cannot wedge the queue.
+
+**What was sent just before the link was lost.** The outbox acknowledges a frame once it has been
+sent, and a send that returned has put the frame on a connection and no more. When the far end
+vanishes without a close frame (a cable pulled, a router that rebooted) the gateway does not know
+the connection is dead until its keepalive gives up, which takes `ping_interval` plus `ping_timeout`
+(40 s by default) after the last traffic, and every frame it sends in that time returns as sent and
+is lost. The outbox has already forgotten a durable frame sent then, so a gateway also keeps those
+frames in memory and sends them again on its next connection:
+
+- It keeps each durable frame (a `cell.lease_released`, a terminal `session.exit`) it sent live, with
+  the `id`, `sent_at` and order it had, at most 256 frames and 4 MiB of them, the oldest going
+  first. It sends again only those it sent less than `UNNOTICED` = 80 s (twice the keepalive's
+  detection time) before the connection ended: an older frame was sent while the link was certainly
+  alive.
+- On the next connection it sends them after the `forage.capacity_report` and before it replays the
+  outbox, in the order they were first sent and under the ids they had. It signs them again with the
+  key it has then. The Queen's replay window (section 7) drops a frame she already holds, silently
+  inside the reconnection grace, and handles one she did not, once.
+- A frame it sent again is remembered again, so a second connection lost the same way sends it
+  once more, until it is too old for the first rule.
+- It sends nothing again when the Queen ended the connection with a close frame: she read
+  everything before it, and a Queen who restarted has no window to drop a copy with. It sends
+  nothing again that it first sent 540 s or more before the reconnection (the Queen's window less a
+  minute), because a frame she handled and then forgot would be handled twice; a result sent in the
+  unnoticed stretch of an outage that long is lost, as it was before.
+- Nothing new rides the wire: a frame sent again is the envelope that was sent.
+
+The Python gateway keeps this memory in `waggle.transport.recent` and the Courier uses it; the
+conformance suite checks the behaviour from outside (a connection dropped with no close frame, then
+the same envelope id again after the reconnection's capacity report).
 
 ## 15. Errors a gateway emits
 

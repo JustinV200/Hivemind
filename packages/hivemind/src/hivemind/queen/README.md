@@ -370,7 +370,10 @@ according to its rung of the runtime ladder (ADR-0052).
   connection goes through the same attach path a Virtual Cell's Warden does
   (`hivemind.queen.attach.serve_warden`): the same fan-out, `warden.spawned` or
   `warden.reconnected`, trail segment (signed with the node's key, required), refusals. A device
-  Warden's entry stays with the Queen when its connection ends: a device comes back.
+  Warden's entry stays with the Queen when its connection ends: a device comes back. A returning
+  Warden sends again the frames of its last stretch right behind its handshake (ADR-0053), so
+  `serve_warden` notes the attach (`LinkHooks.on_returning`) before it reads anything, and the
+  reconnection grace is open for the copies the replay window drops.
 - `DeviceReconciler` (`reconcile.py`) is the rule, applied per node and level-triggered (each pass
   reads the registry and the hub afresh, so a missed or repeated notice costs nothing): a revoked
   node has its Warden stopped (releasing its lease while the link is up), its link closed, its key

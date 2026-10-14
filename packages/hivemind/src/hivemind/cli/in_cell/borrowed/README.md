@@ -66,11 +66,15 @@ On every connection, a fixed order, every frame sent by the Warden and signed as
 1. `cell.ready` (with the level and tier the Queen granted), `forage.capacity_report` (trigger
    `RECONNECTED`: the Cell's live figures and the model servers the manifest declares, none
    started), `cell.heartbeat`;
-2. whatever the durable outbox holds from before, oldest first: a result, a checkpoint, an Alarm
+2. after a link that was lost, the frames of its last stretch that must arrive (a result, a
+   checkpoint, an Alarm, a forage request, a release, a chunk of Nectar, a question), again, oldest
+   first and under the ids they had: the link was dead before the Warden knew it, and the Queen's
+   replay window drops whatever she already held;
+3. whatever the durable outbox holds from before, oldest first: a result, a checkpoint, an Alarm
    or a forage request queued while the link was down, or by a run that died (a request is
    replayed in a fresh envelope, since the Queen's replay window would drop the old id);
-3. `swarm.trail_segment_sync`, the Warden's trail, whose final chunk carries the node's signature;
-4. the questions held back while offline;
+4. `swarm.trail_segment_sync`, the Warden's trail, whose final chunk carries the node's signature;
+5. the questions held back while offline;
 
 and from then on the Warden's own traffic (`task.progress`, `task.result`, `supervision.heartbeat`,
 ...). The first connection of a process is the same sequence: its outbox may hold what an earlier

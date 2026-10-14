@@ -17,7 +17,10 @@ Unlike `hivemind.wardens.inbox`, this package MAY import `hivemind.llm`: only an
   orders it. `heard()` is the newest Heartbeat each link delivered, handled or not, as a `Pulse`
   (when it was sent, and the interval its Warden declared): the liveness sweep judges by it, at
   that Warden's own cadence, so a stall of the Queen's own tick (a Virtual Cell provision awaited
-  inline, a long awake episode) is never mistaken for a silent Warden.
+  inline, a long awake episode) is never mistaken for a silent Warden. A Warden that attaches again
+  keeps what its old link had read and the tick had not drained: it moves, in order, to the front of
+  the new link's queue, because the transport's replay window has seen those frames and would drop
+  the copies the Warden sends again after its return (ADR-0053).
 - `queen_attendant`, `to_inbox_item` (`weights.py`): build the Queen's own
   `hivemind.supervision.attendant.Attendant` over `WeightTable.queen_default()`, and classify one
   received envelope into the `InboxItem` shape it scores. A `CellWaxProposed` (roadmap step 4.2a)

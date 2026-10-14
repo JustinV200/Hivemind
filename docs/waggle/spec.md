@@ -2884,6 +2884,22 @@ disconnected Warden keep working within what it owns and report everything after
   `control.error` with `is_retryable` false; the application drops them.
 - The outbox acks on successful send, never on reply. Whether to keep waiting for a reply, or to
   drop a request whose `control.error` said `is_retryable` false, is the application's decision.
+- A send that returned has put the frame on a connection and no more. A connection whose far end
+  vanished without a close frame (a cable pulled) is not known to be dead until the keepalive gives
+  up, `PING_INTERVAL_S + PING_TIMEOUT_S` (40 s) after the last traffic, and a frame sent in that
+  time returns as sent, is acknowledged by the outbox (or was never queued, being sent live) and
+  is lost. `waggle.transport.recent` is the sender's answer: `RecentFrames`, a pure ring of the
+  envelopes a node sent, bounded by `MAX_RECENT_FRAMES` = 256, by `MAX_RECENT_BYTES` = 4 MiB and,
+  when it is asked, by the time (a frame is due only if it was sent less than `UNNOTICED_S` = 80 s
+  before the connection ended and less than `RESEND_HORIZON_S` = 540 s, the receiver's replay window
+  less a minute, before the new connection), and `RememberingTransport`, which wraps a Transport,
+  remembers each frame it sent whole and sends the due ones again, oldest first, under the ids they
+  had. A node that must not lose a frame sends them after its announcement and before it replays its
+  outbox, and forgets them when the peer ended the connection with a close frame, which proves it
+  read everything before it. Nothing is added to the wire: a frame sent again is the envelope that
+  was sent, and the receiver's replay window (section 9) drops it when the first copy arrived. The
+  Warden chooses the frames by its offline policy (what would be queued or held), the Pollen Packet
+  by what its outbox holds the kinds of (gateway-contract section 14).
 - What may wait in an outbox is bounded by policy above Waggle: a disconnected Warden queues
   results, Alarms, Nectar and Forage requests, but never grows (no new Cells, no new shared
   Forage, no human-bound questions) until it reconnects.
@@ -2899,6 +2915,11 @@ disconnected Warden keep working within what it owns and report everything after
   signed frame fails verification.
 - **Outbox property tests**: FIFO order; idempotent replay; crash mid-replay leaves exactly the
   tail pending.
+- **Recent-frames tests** (`packages/waggle/tests/transport/test_recent_ring.py` and
+  `test_recent_remembering.py`): the ring's bounds by count, bytes and time, its order, what `due`
+  offers and when it stops, `clear`; a `RememberingTransport` that sends the due frames again under
+  their ids, oldest first, remembers only what was sent whole and leaves the ring as it found it
+  when a send fails.
 - **Spec drift test** (`tests/test_spec_drift.py`) parses the catalogue table of section 8 (every
   row `| \`kind\` | \`Class\` | shape | replies_to | ... |`) and asserts, in both directions, that
   the set of kinds equals `registry.all_kinds()`, that each row's class name equals

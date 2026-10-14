@@ -105,3 +105,17 @@ at-most-once, so a silent drop looks like loss. Limiting bytes instead of frames
 bounded by the frame size and the chunk rules, and the cost to the event loop is the number of
 frames. A per-node limit set by the Guard Bee: the Guard Bee only requests, and the transport must
 be able to protect itself on its own.
+
+## Amendment (2026-10-14): the window also drops what a node sends again on purpose
+
+A node whose connection died unnoticed sends the frames of its last 80 s again after it
+reconnects, under the ids they had (ADR-0053), and relies on this window to drop the ones the
+Queen already holds. Three consequences. The window's 600 s is what bounds the re-send: a node
+sends nothing again that is 540 s or more old, so a copy never arrives after the window forgot the
+original. A duplicate inside the reconnection grace is silent, and the grace now begins when a
+returning node's link is attached, before its first frame is read, not when `warden.reconnected` is
+recorded after its trail has been merged; a sent-again frame arrives in that gap, and a refusal
+recorded for it would be a `guard.replay_refused` for a harmless copy. And the window is per
+Queen process: after her restart it is empty, which is why a node forgets its sent frames when the
+Queen closed the connection with a close frame, and why a copy sent after an abnormal loss of a
+restarted Queen is handled again (ADR-0053 says which kinds that touches).

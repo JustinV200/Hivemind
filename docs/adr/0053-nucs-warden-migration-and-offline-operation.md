@@ -182,3 +182,64 @@ only what the Warden queued after it noticed is replayed, and nothing acknowledg
 that finishes in the forty seconds after a cable is pulled therefore has its result lost, which is
 the next thing to close (an acknowledgement of results, or a short memory of what was sent live that
 a reconnection replays under the same ids, which the Queen's replay window already drops).
+
+## Amendment (2026-10-14): what was sent while the loss went unnoticed is sent again
+
+The gap the last amendment left is closed, with nothing new on the wire. A cable pulled out from under
+a device leaves its connection looking alive until the keepalive gives up, and a `task.result`, an
+Alarm, a `forage.request` or a deposit of Nectar (the Hive's shared knowledge) sent in that time
+returned as sent and was lost, while the outbox, which acknowledges a frame once it has been sent,
+had nothing to replay. The Waggle spec already asks every receiver to drop a duplicate envelope id
+(ADR-0055), so the answer is to send the stretch again and let that window say what the Queen
+already held.
+
+**A link remembers what it sent, and sends it again first.** `waggle.transport.recent` holds
+`RecentFrames`, a pure ring bounded by 256 frames, 4 MiB and the time (a frame is due only if it
+was sent less than twice the keepalive, 80 s, before the connection ended), and a
+`RememberingTransport` that remembers each frame it sent whole. A `ReconnectingQueenLink` wraps
+every connection it dials in one, and on the next connection sends the due frames again, oldest
+first and under the ids they had, after the announcement and before the outbox. Which frames is
+the offline policy's table, read once more (`policy.must_arrive`: the rows that queue or hold), so
+there is no second list to keep in step; the frames that the table drops (heartbeats, a progress
+stage a later one replaces) or refuses are not sent again, which is narrower than "everything but
+heartbeats" and was chosen so that the ring cannot grow a second policy. The Pollen Packet's
+`Courier` does the same for the frames its outbox holds the kinds of, a `cell.lease_released` and a
+terminal `session.exit` (gateway-contract section 14). A request keeps its own id when it is sent
+again, unlike a request replayed from the outbox, which goes out in a fresh envelope: most of what
+the ring holds was heard and answered, and a fresh id would have the Queen answer it twice.
+
+**Two bounds keep a copy from being handled twice.** A peer that closed with a close frame read
+everything before it, so the ring is emptied then; a Queen who shut down cleanly and came back has
+no replay window to drop a copy, and none is sent. A frame is not sent again after 540 s (the
+window of 600 s, less a minute): beyond that a frame she handled and forgot would be handled again,
+so after a long outage the ring lets go, and a result sent in the unnoticed stretch of an outage
+that long is lost as it was before. A frame sent again is remembered again, since the new
+connection may be dead too.
+
+**What the Queen needed.** Every listener a remote Warden or packet can reach is built with the
+replay window, and a duplicate of each re-sent kind is dropped before a handler: a `task.result`
+completes its task once (and a terminal task's result is recorded, not applied, if it ever got
+past), an Alarm is raised once (the window alone guarantees it: the Alarms handler does not
+deduplicate by `alarm_id`), a deposit is stored once (by the window, and again by the digest of its
+content). Two things in the Queen were not safe. The reconnection grace that makes the dropped
+duplicates silent began at `warden.reconnected`, which is recorded after the trail has been
+shipped, and a sent-again frame is read right behind the handshake: a slow trail merge then turned
+the whole stretch into `guard.replay_refused` records, the dire pattern. The link now notes the
+attach before it reads (`LinkHooks.on_returning`, on both listeners). And the Queen's per-link
+queue threw away what the old link had read and the tick had not yet taken when a Warden attached
+again; the window had seen those frames, so their sent-again copies were dropped and the frames
+were lost. The queue now moves them to the new link's.
+
+**What is left.** A Queen who is restarted after a connection was lost without a close frame has
+an empty window, and the Warden sends the stretch again: a result is recorded again (the task is
+terminal) and a deposit is stored once by its digest, but an Alarm raised in that stretch for a
+task that is not terminal, and a question, are handled twice. A restarting Queen is rarer than a
+cable pull and the stretch is 80 s; an Alarm handler that deduplicates by `alarm_id` would close
+this and is the next step if it shows. Frames the Queen's reader had taken from the socket when she
+was shut down are lost with her, as they always were.
+
+Alternatives: an acknowledgement of results (a new message and a protocol version, for a loss that
+the receiver's existing window already makes harmless); a shorter keepalive (it narrows the stretch
+and never closes it, and costs a ping every few seconds on a radio); keeping every frame in the
+outbox until the Queen answers (the outbox acknowledges on send by design, ADR-0005, and most kinds
+have no answer).

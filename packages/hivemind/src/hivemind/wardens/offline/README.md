@@ -16,10 +16,11 @@ capped backoff (0.5 s doubling to 30 s), and catches the Queen up in a fixed ord
 reports ONLINE again:
 
 ```
- link lost ──► OFFLINE ──► dial ──► announce ──► replay queue ──► record + ship trail ──► ONLINE
-                 ▲  (backoff)   cell.ready          (in order,        warden.reconnected     │
-                 │              capacity_report      one at a time)   + signed segment       │
-                 └───────────── a link that dies part-way is mended again from the dial ◄─────┘
+ link lost ──► OFFLINE ──► dial ──► announce ──► send again ──► replay queue ──► ship trail ──► ONLINE
+                 ▲  (backoff)   cell.ready        what the last    (in order,       warden.         │
+                 │              capacity_report   link may have    one at a time)   reconnected     │
+                 │                                swallowed                         + signed segment│
+                 └───────────── a link that dies part-way is mended again from the dial ◄───────────┘
                                 what was sent in the meantime is queued; the queue is drained a
                                 second time under the lock that flips the link, then the held
                                 questions go out, then ONLINE: nothing is left behind
@@ -31,12 +32,28 @@ step are injected (`QueenDialer`, `Announcer`, `AfterReconnect`), so one class s
 Warden and a test drives it with scripted ones.
 
 A link whose far end vanished (a cable pulled) is not known to be down until the websocket's
-keepalive gives up, 40 s after the last traffic and then the Warden's next beat, and every send in
-that time returns as if it had arrived. So the trail segment is not shipped from where the last
-sync left off: `TrailReconnect` rewinds the sync by `UNNOTICED` (twice the keepalive) first, and the
-Queen, who drops what she already holds by event id, is sent the stretch she may never have had.
-Frames that are not the trail (a result, an Alarm) sent in that stretch are not recovered by this,
-only the ones queued after the Warden noticed: a known gap, since nothing acknowledges them.
+keepalive gives up, 40 s after the last traffic, and every send in that time returns as if it had
+arrived. Two things make that good, and both send the stretch before the loss again and let the
+Queen's replay window drop what she already held (ADR-0055):
+
+- **The trail** is not shipped from where the last sync left off: `TrailReconnect` rewinds the sync
+  by `UNNOTICED` (twice the keepalive) first, and she drops the events she holds by event id.
+- **Every other frame that must arrive** is remembered by the link in a bounded ring
+  (`waggle.transport.recent`: 256 frames, 4 MiB, nothing from more than `UNNOTICED` before the
+  loss) once its send returned, and after a redial, between the announcement and the queue, is sent
+  again in the order it was first sent and under the id it had. Which frames is not a second list:
+  it is the table below, read once more (`policy.must_arrive`: a frame the table would queue or
+  hold). A request keeps its own id here, unlike in the queue: most of what the ring holds was
+  heard and answered, and a fresh id would have the Queen answer it twice. What the queue replays
+  and the questions held back are remembered the same way, since the new link may be dead too.
+
+Nothing is sent again to a Queen who closed the link with a close frame (she read everything before
+it, and a restarting Queen has no replay window left to drop a copy), and nothing that was last
+sent more than a minute short of her window ago (`RESEND_HORIZON_S`, 540 s): past it a frame she
+had handled and forgotten would be handled twice, so after a long outage the ring lets go. A result
+sent in the unnoticed stretch of an outage that long is lost, as it was before; a Nuc whose task
+finishes in the forty seconds after the cable is pulled, and which gets its link back within the
+window, delivers it.
 
 ## What is sent while the link is down
 
@@ -52,7 +69,8 @@ One pure table (`policy.decide_offline`), tested row by row:
 | anything the table does not name | REFUSE, as on a dead link |
 
 A queued *event* is replayed under the id it was queued with, so the Queen's replay window drops it
-if it had in fact arrived and only its acknowledgement was lost. A queued *request* (the Warden is
+if it had in fact arrived and only its acknowledgement was lost. (`must_arrive` is true of exactly
+the QUEUE and HOLD rows of this table: those are the frames sent again after a loss nobody noticed.) A queued *request* (the Warden is
 owed an answer, and one to a request the window dropped would never come) goes out in a fresh
 envelope, a new id and time, and the Queen deduplicates it by the payload's own durable id.
 
@@ -132,8 +150,8 @@ pool with the objective "diagnose and, if possible, restore the link to the Quee
 
 - `ReconnectingQueenLink`, `LinkPhase`; `Reconnection`, `QueenDialer`, `Announcer`, `AfterReconnect`,
   `TrailReconnect`, `WardenRecord`.
-- `OfflineAction`, `OfflineRefusedError`, `decide_offline`, `owes_reply`; `OfflineOutbox`,
-  `open_outbox`.
+- `OfflineAction`, `OfflineRefusedError`, `decide_offline`, `must_arrive`, `owes_reply`;
+  `OfflineOutbox`, `open_outbox`.
 - `Outage`, `HeldTask`, `RemoteDeps`, `ReconnectBudget`, `QueenLinkView`; `is_link_down`,
   `outage_of`, `remote_of`, `wake_future`.
 - `diagnose` (a sub-package): `investigate` (the tick's call), `Verdict`, `Investigation`, the Drone's
@@ -153,7 +171,9 @@ uv run --frozen pytest packages/hivemind/tests/unit/wardens/offline -q
 ```
 
 `test_link_socket.py` runs the link against a real `WebSocketServer` that goes away and comes
-back; the other link tests script the Queen in memory (`builders/offline.py`); the Warden-level
+back; the other link tests script the Queen in memory (`builders/offline.py`), and
+`test_link_resend.py` has that Queen pull the cable without a sound (`ScriptedQueen.silence`) and
+states what the link then sends again, in what order and under which ids; the Warden-level
 tests run a real Warden on a device's deps (`builders/offline_warden.py`). The search for why the
 link went is tested in `diagnose/`: the pure judgement as tables, and whole searches against a Nuc
 whose Drone is a script (`builders/diagnose.py`).
