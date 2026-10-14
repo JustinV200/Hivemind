@@ -618,11 +618,13 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   isolated worktrees; their commits are cherry-picked onto the branch (`git log --oneline
   a11deb3..HEAD`), each gated before the push. **No PR was opened**; the operator asked for a
   branch.
-- **Worktree trap.** The Agent tool creates a worktree from `main`, not from this branch: every
-  brief starts with `git merge --ff-only ccr-75a88a63-nwtvjo` in the worktree. `.claude/worktrees/`
-  is git-ignored. `scripts/check_sizes.py` also scans those worktrees, so read a failure there with
-  that in mind.
-- **Waggle** is **1.13** (89 kinds). ADRs **0051 to 0056**.
+- **Worktree trap.** The Agent tool creates a worktree from `main` (latterly from `origin/main`),
+  not from this branch: every brief starts with `git merge --ff-only ccr-75a88a63-nwtvjo` in the
+  worktree, and when that refuses (a base that is not an ancestor) the agent runs `git switch -c
+  <name> ccr-75a88a63-nwtvjo` in its clean tree instead. `.claude/worktrees/` is git-ignored, and the
+  hygiene scripts skip `.claude`.
+- **Waggle** is **1.13** (89 kinds). ADRs **0051 to 0057** (0057, Propolis verified by looking on
+  a Real and a Virtual Cell, came out of the exit wave).
 - **Wave 1 (landed).** The 1.13 wire and spec, trail kinds, `[swarm]` and `[supervision.watch]`
   manifest sections, the warden's `watch:*`; the replay window, the frame ceiling (close 4029) and
   pinned TLS in `waggle.transport`; the six ADRs, `docs/waggle/enrolment.md` (the invite carries
@@ -684,8 +686,8 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   found two things: a ceiling naming `tool:run_command` left the Drone no tool (fixed on both
   ends), and `run_command` reports only state, so the objectives say to write output to a file.
   Config a Nuc needs: the Hive manifest lists the server id with `load_on_start=false`, the device
-  manifest has `[forage.map]` rows; a device's reconnect budget uses shipped defaults (a device
-  manifest has no `[supervision]`).
+  manifest has `[forage.map]` rows; a device manifest's own `[supervision]` (wave 4C) sets its
+  Warden's offline limit and reconnect budget.
 - **Wave 4F (landed).** The Queen's own rung decisions (`queen/swarm_gate/rungs/`): two pressures
   defined in `pressure.py` (relief: the Hive Stand's own load from the Level 0 Wardens' sub-bees;
   seats: the shared pool's seats in use against its seats), and `TaskNeeds.survives_link_loss`
