@@ -1,20 +1,23 @@
 """Start, stop and keep track of the Warden that lives on the device (START and WITHDRAW).
 
 Once PREPARE has installed the runtime, START launches ``<venv>/bin/hivemind-in-cell`` as a
-long-lived background process, the device's own Warden (Level 1 of the runtime ladder, ADR-0052).
-It is started in a process group of its own and is not part of any lease: it outlives requests,
-and a lease's release must never kill it. Everything it needs it is given through its environment
+long-lived background process, the device's own Warden (Level 1 of the runtime ladder, ADR-0052). It
+is started in a process group of its own and is not part of any lease: it outlives requests, and a
+lease's release must never kill it. Everything it needs it is given through its environment
 (``warden_environment``): the swarm listener's URL and certificate pin, its Warden id and Cell id,
 the device's node id and the file holding its key (the packet's own, so the Warden signs as the
-device), the Queen's address and key, the access level and tier, the directory it keeps its stores
-in and the device manifest the operator recorded. The packet records the process (pid and creation
-time) in its state together with the new level, COLONIZED, in one write, so the dead-man switch,
-which stands down while a Warden lives on the device, and the record that says one does can never
-disagree; a packet that is restarted finds the record and adopts the Warden if it is still alive,
-instead of starting a second. WITHDRAW asks the Warden to stop (TERM, which it turns into releasing
-its lease and leaving the device as found), waits a named grace, then kills the group, and puts the
-level back to GATEWAY. ``WardenKeeper.watch`` notices a Warden that has died on its own and does the
-same, so the packet never claims a Warden it does not have.
+device), the Queen's address and key, the access level and tier, the directories the operator named
+for it to watch, the directory it keeps its stores in and the device manifest the operator recorded.
+Terms are fixed at start: a Warden that is to run under others is stopped and started again (the
+Queen's terms renewal), which builds this environment afresh from the packet's state. The packet
+records the process (pid and creation time) in its state together with the new level, COLONIZED, in
+one write, so the dead-man switch, which stands down while a Warden lives on the device, and the
+record that says one does can never disagree; a packet that is restarted finds the record and adopts
+the Warden if it is still alive, instead of starting a second. WITHDRAW asks the Warden to stop
+(TERM, which it turns into releasing its lease and leaving the device as found), waits a named
+grace, then kills the group, and puts the level back to GATEWAY. ``WardenKeeper.watch`` notices a
+Warden that has died on its own and does the same, so the packet never claims a Warden it does not
+have.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Called by
@@ -43,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -125,6 +129,11 @@ def warden_environment(
     # a missing and a surplus pin, as the packet's own state does).
     if url.startswith("wss://") and state.tls_pin_sha256 is not None:
         env["HIVEMIND_TLS_PIN"] = state.tls_pin_sha256
+    # The directories the operator named for the Warden to watch, as the Queen last told the packet
+    # (``swarm.node_update``): a JSON array, which any path survives, set only when there are some
+    # so that a device with none named starts its Warden exactly as before.
+    if state.watch_roots:
+        env["HIVEMIND_WATCH_ROOTS"] = json.dumps(list(state.watch_roots))
     return env
 
 

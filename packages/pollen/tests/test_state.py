@@ -54,6 +54,7 @@ from waggle.clock import FakeClock
 from waggle.ids import new_lease_id, new_node_id
 from waggle.messages.labels import CombShieldLevel
 from waggle.messages.swarm import RuntimeLevel
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS
 
 CLOCK = FakeClock()
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
@@ -151,6 +152,22 @@ def test_a_state_written_before_colonization_existed_still_loads() -> None:
     loaded = PacketState.model_validate(old)
     assert loaded.warden is None and loaded.install.runtime_python is None
     assert loaded.level is RuntimeLevel.GATEWAY
+
+
+def test_the_watched_directories_round_trip_and_a_state_written_before_them_has_none() -> None:
+    watching = sample_state(CLOCK, watch_roots=("/var/log/app", "C:/Logs"))
+    assert PacketState.model_validate_json(watching.model_dump_json()) == watching
+
+    old = sample_state(CLOCK).model_dump(mode="json")
+    del old["watch_roots"]  # A document written before the Warden watched what the operator named.
+    assert PacketState.model_validate(old).watch_roots == ()
+
+
+def test_the_watched_directories_keep_the_bounds_a_request_to_observe_has() -> None:
+    with pytest.raises(ValidationError, match="watch_roots"):
+        sample_state(CLOCK, watch_roots=("/srv/a",) * (MAX_OBSERVE_ROOTS + 1))
+    with pytest.raises(ValidationError, match="watch_roots"):
+        sample_state(CLOCK, watch_roots=("",))
 
 
 def test_install_settings_round_trip_and_refuse_two_runtime_sources() -> None:

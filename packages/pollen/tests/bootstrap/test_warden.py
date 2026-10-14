@@ -382,3 +382,17 @@ def test_the_environment_names_are_the_ones_the_runtime_reads(tmp_path: Path, cl
         "HIVEMIND_STATE_DIR",
         "HIVEMIND_DEVICE_MANIFEST",
     }
+
+
+def test_the_directories_the_warden_is_to_watch_are_one_json_array_set_only_when_there_are_some(
+    tmp_path: Path, clock: Clock
+) -> None:
+    roots = ("/var/log/app", "C:\\Logs\\app", '/srv/with space/and "quotes"')
+    named = make_kit(tmp_path / "named", clock, watch_roots=roots).deps.state.current
+    none = make_kit(tmp_path / "none", clock).deps.state.current
+
+    with_roots = warden_environment(named, Path("/k"), Path("/s"), URL, Path("/m"))
+    without = warden_environment(none, Path("/k"), Path("/s"), URL, Path("/m"))
+
+    assert json.loads(with_roots["HIVEMIND_WATCH_ROOTS"]) == list(roots)  # Any path survives.
+    assert "HIVEMIND_WATCH_ROOTS" not in without  # A device with none named starts as it did.

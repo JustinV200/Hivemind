@@ -1,20 +1,20 @@
 """Persist what the Pollen Packet must remember: its key, its PacketState and the data layout.
 
 The Pollen Packet (the thin gateway program on a device the Hive borrows) survives restarts, so
-everything it was told at enrolment and since lives in its data directory: the node's Ed25519 key
-in a file of its own (mode 0600, never sent anywhere), and ``PacketState``, one JSON document
-holding the device's identity, the Queen's (the Hive's central orchestrator) address and pins, the
-Cell's (a unit of compute) grants and the highest QueenMoved relocation notice honoured. Every
-write is write-new, flush, replace-old, so a crash leaves the old document or the new one and
-never a torn one (gateway-contract section 4); ``write_atomic`` is the one routine that does it
-and the lease table and the status file reuse it. ``StateStore`` is the one owner of the mutable
-copy: an update is validated, written to disk first and only then becomes the value tasks read.
-``DataLayout`` names every file and directory under the data directory in one place, the folder the
-Hive runtime and its Warden live in included. The state also says which rung of the runtime ladder
-the device is on and, above the first, records the Warden that lives on it (``WardenRecord``: its
-pid and creation time, so a restarted packet adopts it and a recycled pid is never mistaken for
-it); the level and the record are validated as a pair because the dead-man switch stands down
-exactly while a Warden lives on the device.
+everything it was told at enrolment and since lives in its data directory: the node's Ed25519 key in
+a file of its own (mode 0600, never sent anywhere), and ``PacketState``, one JSON document holding
+the device's identity, the Queen's (the Hive's central orchestrator) address and pins, the Cell's (a
+unit of compute) grants, the directories its Warden is to watch and the highest QueenMoved
+relocation notice honoured. Every write is write-new, flush, replace-old, so a crash leaves the old
+document or the new one and never a torn one (gateway-contract section 4); ``write_atomic`` is the
+one routine that does it and the lease table and the status file reuse it. ``StateStore`` is the one
+owner of the mutable copy: an update is validated, written to disk first and only then becomes the
+value tasks read. ``DataLayout`` names every file and directory under the data directory in one
+place, the folder the Hive runtime and its Warden live in included. The state also says which rung
+of the runtime ladder the device is on and, above the first, records the Warden that lives on it
+(``WardenRecord``: its pid and creation time, so a restarted packet adopts it and a recycled pid is
+never mistaken for it); the level and the record are validated as a pair because the dead-man switch
+stands down exactly while a Warden lives on the device.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Written by the enrolment
@@ -59,7 +59,7 @@ from waggle.messages.base import (
     WardenIdField,
 )
 from waggle.messages.labels import AccessLevel, CombShieldLevel
-from waggle.messages.swarm import NodeKey, RuntimeLevel
+from waggle.messages.swarm import NodeKey, RuntimeLevel, WatchRoots
 from waggle.messages.swarm.enrolment import (
     MAX_CAPABILITY_CHARS,
     MAX_GRANTED_CAPABILITIES,
@@ -265,6 +265,9 @@ class PacketState(BaseModel):
     )
     offline_limit_s: float = Field(gt=0, description="The dead-man limit for a Level 0 device.")
     heartbeat_interval_s: float = Field(gt=0, description="Seconds between device heartbeats.")
+    watch_roots: WatchRoots = Field(
+        default=(), description="The directories the on-device Warden is started to watch."
+    )
     moved_sequence: int = Field(
         default=0, ge=0, description="The highest QueenMoved sequence accepted; 0 means none."
     )

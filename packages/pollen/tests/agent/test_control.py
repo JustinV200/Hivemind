@@ -88,6 +88,22 @@ async def test_a_node_update_applies_from_the_next_request_even_inside_an_open_l
         assert ended.payload.exit_code == 0
 
 
+async def test_a_node_update_keeps_the_directories_the_warden_is_to_watch(
+    queen: QueenDouble, device: Device, clock: Clock
+) -> None:
+    async with running(device, clock):
+        session = await queen.next_session()
+        assert load_state(device.layout.state).watch_roots == ()
+
+        await session.send(_update(device, queen, watch_roots=("/var/log/app", "/srv/data")))
+
+        await eventually(lambda: load_state(device.layout.state).watch_roots != ())
+        assert load_state(device.layout.state).watch_roots == ("/var/log/app", "/srv/data")
+        # It replaces the list whole: an update naming none clears what was kept.
+        await session.send(_update(device, queen))
+        await eventually(lambda: load_state(device.layout.state).watch_roots == ())
+
+
 async def test_a_node_update_cannot_move_the_runtime_level(
     queen: QueenDouble, device: Device, clock: Clock
 ) -> None:

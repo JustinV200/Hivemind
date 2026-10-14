@@ -5,13 +5,13 @@ Three small messages need no lease and no executor of their own. A ``control.pin
 ``control.pong`` carrying the device's arrival time; the pong's envelope ``version`` is how the
 peer learns the minor the Pollen Packet (the thin gateway program on a device the Hive borrows)
 speaks. A ``swarm.node_update`` replaces the node's standing terms (access level, tier, granted
-capabilities, dead-man limit, heartbeat interval, Warden) and is persisted before it applies, from
-the *next* request: a request already running is not interrupted. A ``control.queen_moved`` is the
-Queen announcing that the Hive Stand, the machine she runs on, is moving; the packet honours it
-only by the rules of ``pollen.agent.moved`` and, when it does, swaps the keys its verifier trusts.
-The runtime level in a node update is ignored: only a colonization step (``pollen.bootstrap``,
-gateway-contract section 17) changes the level this packet is on, because the level must agree with
-whether a Warden is actually running on the device.
+capabilities, dead-man limit, heartbeat interval, Warden, the directories the Warden watches) and
+is persisted before it applies, from the *next* request: a request already running is not
+interrupted. A ``control.queen_moved`` is the Queen announcing that the Hive Stand, the machine she
+runs on, is moving; the packet honours it only by the rules of ``pollen.agent.moved`` and, when it
+does, swaps the keys its verifier trusts. The runtime level in a node update is ignored: only a
+colonization step (``pollen.bootstrap``, gateway-contract section 17) changes the level this packet
+is on, because the level must agree with whether a Warden is actually running on the device.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. A DeviceExecutor consulted by
@@ -119,6 +119,8 @@ class ControlService:
             granted_capabilities=update.granted_capabilities,
             offline_limit_s=update.offline_limit_s,
             heartbeat_interval_s=update.heartbeat_interval_s,
+            # Kept for the Warden the packet starts; the packet reads none of these directories.
+            watch_roots=update.watch_roots,
         )
         log.info("pollen.node_updated access=%s", update.access_level.value)
 
