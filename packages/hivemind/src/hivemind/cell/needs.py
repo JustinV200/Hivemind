@@ -8,10 +8,13 @@ manifest's ``[placement]`` section to choose a Cell: whether isolation is requir
 unnecessary; whether the task needs an Exoskeleton (a display, input or audio attachment on top of
 a Cell's plain terminal session); which operating-system family it needs; which network scopes its
 capability set must allow reaching; whether its Cell may be destroyed the moment the task ends
-(disposability); the minimum CombShieldLevel (hivemind.cell.tiers) its Cell must carry; and its
-Tempo (hivemind.forage.tempo), the speed-against-accuracy setting routing, Forage allocation and
-Capping all read. This module also defines the two small enums TaskNeeds is built from:
-``Isolation`` (the exclusivity a task demands from its Cell) and ``OsFamily``, which mirrors
+(disposability); the minimum CombShieldLevel (hivemind.cell.tiers) its Cell must carry; whether it
+must keep working when the link between its Cell's Warden and the Queen is lost
+(``survives_link_loss``, read by the Queen's rung decisions in
+``hivemind.queen.swarm_gate.rungs``, which give such a device a Warden and a model server of its
+own); and its Tempo (hivemind.forage.tempo), the speed-against-accuracy setting routing, Forage
+allocation and Capping all read. This module also defines the two small enums TaskNeeds is built
+from: ``Isolation`` (the exclusivity a task demands from its Cell) and ``OsFamily``, which mirrors
 ``waggle.messages.OsFamily`` member for member because the same value travels on the wire in a
 device's capability report. ``RequestOrigin`` (roadmap step 5.7a) is a third, related enum kept
 here rather than nested inside TaskNeeds: who asked for the task to exist (HUMAN, QUEEN or
@@ -27,8 +30,8 @@ Fits into the Hive:
 
 Key invariants:
     - Every field is defaulted, so TaskNeeds() is the plain case: preferred isolation, no
-      Exoskeleton, any OS, no network scopes, a disposable Cell, the MEADOW shield, and
-      NORMAL-accuracy Tempo with no latency budget.
+      Exoskeleton, any OS, no network scopes, a disposable Cell, the MEADOW shield, no need to
+      survive a lost link, and NORMAL-accuracy Tempo with no latency budget.
     - `browser_only` and `audio` (roadmap step 6.12) refine an Exoskeleton need and so require
       `exoskeleton`; they are never both set, because audio needs the desktop's sound server,
       which a browser-only attachment never starts.
@@ -114,7 +117,8 @@ class TaskNeeds(BaseModel):
     Attached to a TaskSpec (brood_chamber.task.model) and read by queen.placement.decide. Every
     field is defaulted so TaskNeeds() is the plain case: no isolation demand beyond a mild
     preference, a terminal-only Cell, any OS, no extra network reach, a disposable Cell, the
-    MEADOW security tier, and NORMAL-accuracy Tempo with no latency budget.
+    MEADOW security tier, no need to survive a lost link, and NORMAL-accuracy Tempo with no
+    latency budget.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -162,6 +166,13 @@ class TaskNeeds(BaseModel):
     comb_shield: CombShieldLevel = Field(
         default=CombShieldLevel.MEADOW,
         description="The minimum CombShieldLevel the Cell running this task must carry.",
+    )
+    survives_link_loss: bool = Field(
+        default=False,
+        description="Whether the task must keep working when the link between its Cell's Warden "
+        "and the Queen is lost. A device with such a task placed on it, or pinned to it, is worth "
+        "a Warden of its own and a model server of its own, since only those keep thinking and "
+        "working with the Hive Stand out of reach. Most tasks leave it off.",
     )
     tempo: Tempo = Field(
         default_factory=Tempo,

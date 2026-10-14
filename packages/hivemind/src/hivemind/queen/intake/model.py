@@ -97,6 +97,12 @@ class GoalRequest(BaseModel):
     clearance: HoneyClearance = Field(
         description="The goal's data-sensitivity ceiling; every planned task is at or below it."
     )
+    survives_link_loss: bool = Field(
+        default=False,
+        description="True when the human said the goal's work must keep going if its device "
+        "loses the link to the Queen; every planned task then needs it. False leaves each "
+        "task's own choice to the planner.",
+    )
     origin: RequestOrigin = Field(
         default=RequestOrigin.HUMAN,
         description="Who asked for the goal; HUMAN for everything the Hive Entrance accepts.",

@@ -36,6 +36,7 @@ def test_task_needs_defaults_to_the_plain_case() -> None:
     assert needs.network_scopes == ()
     assert needs.disposable is True
     assert needs.comb_shield is CombShieldLevel.MEADOW
+    assert needs.survives_link_loss is False
     assert needs.tempo == Tempo()
 
 
@@ -162,3 +163,19 @@ def test_task_needs_from_wire_rebuilds_every_field_that_travels(needs: TaskNeeds
     rebuilt = TaskNeeds.from_wire(needs.tempo, needs.exoskeleton_need(), needs.network_scopes)
 
     assert rebuilt == needs
+
+
+def test_task_needs_survives_link_loss_is_off_unless_asked_and_round_trips() -> None:
+    off = TaskNeeds()
+    on = TaskNeeds(survives_link_loss=True)
+
+    assert off.survives_link_loss is False and on.survives_link_loss is True
+    assert TaskNeeds.model_validate_json(on.model_dump_json()) == on
+
+
+def test_task_needs_from_wire_leaves_the_survival_promise_at_its_default() -> None:
+    # The Warden never needs the promise (it is the Queen's input for choosing a rung), so it
+    # does not travel on task.assign and a rebuilt need reads off.
+    rebuilt = TaskNeeds.from_wire(Tempo(), None, ())
+
+    assert rebuilt.survives_link_loss is False

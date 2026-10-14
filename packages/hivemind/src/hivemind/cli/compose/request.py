@@ -74,11 +74,14 @@ class GoalAsk:
         text: The goal, in the operator's own words.
         clearance: The goal's data-sensitivity ceiling.
         comb_shield: The tier the operator named; every planned task needs it.
+        survives_link_loss: Whether the operator said the work must keep going if its device
+            loses the link to the Queen; every planned task then needs it.
     """
 
     text: str
     clearance: HoneyClearance
     comb_shield: CombShieldLevel
+    survives_link_loss: bool = False
 
 
 async def request_goal_and_wait(
@@ -105,6 +108,7 @@ async def request_goal_and_wait(
         text=ask.text,
         clearance=ask.clearance,
         comb_shield=ask.comb_shield,
+        survives_link_loss=ask.survives_link_loss,
         origin=RequestOrigin.HUMAN,  # The operator at the terminal is the human asking.
         received_at=now,
         updated_at=now,

@@ -81,12 +81,13 @@ from typing import ClassVar
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.memory.thresholds import capped_compact_view
-from hivemind.queen import attach, goal_submission, leave_memory, quarantine, questions, ticks
+from hivemind.queen import attach, leave_memory, quarantine, questions, ticks
 from hivemind.queen.autopilot import QueenAction, decide
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, stop_provisions
 from hivemind.queen.errors import UnknownWardenError
+from hivemind.queen.goal_submission import GoalDoor
 from hivemind.queen.guard_requests import GuardDoor, guard_items
 from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.human_inbox import HumanInbox
@@ -121,7 +122,7 @@ from waggle.messages.task import TaskProgress, TaskResult
 __all__ = ["Queen"]
 
 
-class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
+class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, TickLoop):
     """The Hive's single orchestrator: her own inbox, autopilot, awake mode, and Supervisor face.
 
     Owns her own mutable state in place (codingrules section 8.5), documented here: `_wardens`,
@@ -209,23 +210,6 @@ class Queen(ChatDoor, GuardDoor, IsolationDoor, TickLoop):
             WardenSpawnRefusedError: The Guard refused `warden:spawn`; nothing was attached.
         """
         return await attach.attach_warden(self, link)
-
-    async def submit_goal(
-        self, goal: str, *, clearance: HoneyClearance, capabilities: tuple[str, ...] | None = None
-    ) -> TaskId:
-        """Plan `goal` into a task graph, persist it, and place whatever is ready at once.
-
-        Args:
-            goal: The goal text, as the human (or a bee on the human's behalf) stated it.
-            clearance: The goal's own data-sensitivity ceiling.
-            capabilities: The submitter's capability set, carried by every planned task (roadmap
-                step 10.3); None for the operator's own local path, which has no ceiling.
-
-        Returns:
-            The goal's own id (the first task minted from the plan).
-        """
-        terms = goal_submission.GoalTerms(clearance=clearance, capabilities=capabilities)
-        return await goal_submission.submit_goal(self._deps, self.wardens, goal, terms)
 
     async def answer_question(
         self,

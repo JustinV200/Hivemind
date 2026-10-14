@@ -36,6 +36,9 @@ Key invariants:
       `PlannerError`.
     - A tier the goal's request named (`PlanBrief.comb_shield`) becomes every draft's own, and a
       Night Veil one forces REQUIRED isolation; with none, the model's own needs stand.
+    - A request's need to survive a lost link (`PlanBrief.survives_link_loss`) is switched on in
+      every draft's needs and never off: the operator can add the need to a plan, and a plan can
+      add it to a subtask the operator left alone, but nothing here removes it.
     - Every `PlannedTask.key` becomes its `TaskDraft.key` unchanged, so `depends_on` references
       the model wrote resolve without this module renaming anything; every `PlannedTask.leaves`
       entry becomes its `TaskDraft.leaves` entry unchanged, for the same reason. `PlannedTask.
@@ -158,6 +161,10 @@ class PlanBrief:
     comb_shield: CombShieldLevel | None = None
     goal_request_id: GoalRequestId | None = None
     spend_cap_usd: float | None = None
+    # Wave 4F (ADR-0052): the operator said this goal's work must keep going if its device loses the
+    # link to the Queen. Every planned subtask needs it, whatever the model chose, since the
+    # model has no say over a promise the operator made; False leaves each subtask's own choice.
+    survives_link_loss: bool = False
 
 
 async def plan_goal(
@@ -297,7 +304,8 @@ def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
     a planned task has no way to assert who originally asked for the goal. The goal's capability
     set (roadmap step 10.3) and its request's id and budget (roadmap step 10.5) are inherited the
     same way, for the same reason; its clearance is the lower of the task's own and the goal's
-    ceiling, and a tier the request named replaces the task's own (`_needs_at_tier`).
+    ceiling, and a tier the request named replaces the task's own (`_needs_at_tier`); so does a
+    promise to survive a lost link (`_needs_for`).
     """
     return TaskDraft(
         key=task.key,
@@ -305,7 +313,7 @@ def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
         objective=task.objective,
         acceptance=tuple(_to_postcondition(item) for item in task.acceptance),
         role=task.role,
-        needs=_needs_at_tier(task.needs, brief.comb_shield),
+        needs=_needs_for(task.needs, brief),
         clearance=min(task.clearance, brief.clearance, key=lambda label: label.rank),
         origin=brief.origin,
         depends_on=task.depends_on,
@@ -314,6 +322,19 @@ def _to_task_draft(task: PlannedTask, brief: PlanBrief) -> TaskDraft:
         goal_request_id=brief.goal_request_id,
         spend_cap_usd=brief.spend_cap_usd,
     )
+
+
+def _needs_for(needs: TaskNeeds, brief: PlanBrief) -> TaskNeeds:
+    """Return `needs` with what the goal's request fixed: its tier and its survival promise.
+
+    A tier replaces the model's choice; the promise to survive a lost link is only ever switched
+    on, so a subtask the model already marked keeps its mark whether or not the operator asked.
+    """
+    tiered = _needs_at_tier(needs, brief.comb_shield)
+    if not brief.survives_link_loss or tiered.survives_link_loss:
+        return tiered
+    # A plain bool with no cross-field rule, so a copy is enough (codingrules 8.5).
+    return tiered.model_copy(update={"survives_link_loss": True})
 
 
 def _needs_at_tier(needs: TaskNeeds, tier: CombShieldLevel | None) -> TaskNeeds:

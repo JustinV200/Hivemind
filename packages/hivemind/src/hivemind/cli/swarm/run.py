@@ -1,7 +1,11 @@
 """Provide `hive swarm run`: run a goal that can be placed on one enrolled device and nowhere else.
 
-`hive swarm --manifest hive.toml run NODE "GOAL" [--clearance C1] [--timeout 120]` is `hive run`
-with the goal pinned to a device's Cell (NODE is a device id, a Cell id or a unique label). It
+`hive swarm --manifest hive.toml run NODE "GOAL" [--clearance C1] [--timeout 120]
+[--survives-link-loss]` is `hive run`
+with the goal pinned to a device's Cell (NODE is a device id, a Cell id or a unique label). With
+`--survives-link-loss` every task of the goal needs to keep working if the device loses the link to
+the Hive Stand, which is what makes the Queen give the device a Warden and a model server of its
+own (`hivemind.queen.swarm_gate.rungs`) before the goal's work depends on them. It
 builds a Hive from the manifest, exactly as `hive run` does, and that Hive starts the swarm
 listener, so the device's Pollen Packet (the thin gateway on it) redials it and the Hive's swarm
 gate gives the device a Warden. Once the Warden is attached the goal is submitted with a capability
@@ -42,9 +46,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import typer
+from typer.core import TyperCommand
 
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import GoalReport, Hive, build_hive, run_hive
@@ -54,9 +59,11 @@ from hivemind.cli.run import (
     DEFAULT_TIMEOUT_S,
     ClearanceOption,
     TimeoutOption,
+    carried_survives,
     describe_failure,
     print_event,
     print_summary,
+    survives_link_loss_option,
 )
 from hivemind.cli.swarm.context import NodeArgument, cli_context, open_desk, require_swarm
 from hivemind.cli.swarm.pinned import run_goal_on_device
@@ -67,7 +74,21 @@ from waggle.clock import SystemClock
 GoalArgument = Annotated[str, typer.Argument(help="The goal text, exactly as the human stated it.")]
 EXIT_TIMED_OUT = 2  # The same code `hive run` exits with when the goal ran out of time.
 
-__all__ = ["run_command"]
+__all__ = ["SwarmRunCommand", "run_command"]
+
+
+class SwarmRunCommand(TyperCommand):
+    """`hive swarm run`'s command: the options `run_command` declares, plus the shared flag.
+
+    The command is at codingrules 5.1's five parameters already, so `--survives-link-loss` is
+    declared here, on the command, and its callback leaves the value on the context.
+    """
+
+    def __init__(self, name: str | None, **settings: object) -> None:
+        """Build the command as typer does, then add the context-carried option."""
+        # typer passes every other setting by keyword, exactly as TyperCommand itself takes them.
+        super().__init__(name, **cast("dict[str, Any]", settings))
+        self.params.append(survives_link_loss_option())
 
 
 def run_command(
@@ -91,7 +112,12 @@ def run_command(
     # build_hive must run outside any event loop: it opens its stores, each of which runs its own
     # asyncio.run, exactly as `hive run` has to (hivemind.cli.run's own note).
     hive = build_hive(cli_ctx.manifest, environ=os.environ, clock=SystemClock())
-    run = GoalRun(HoneyClearance[clearance], timeout, print_event)
+    run = GoalRun(
+        HoneyClearance[clearance],
+        timeout,
+        print_event,
+        survives_link_loss=carried_survives(ctx),
+    )
     try:
         report = asyncio.run(_run(hive, device, goal, run))
     except Exception as exc:

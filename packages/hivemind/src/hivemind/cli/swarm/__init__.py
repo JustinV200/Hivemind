@@ -44,7 +44,7 @@ from hivemind.cli.swarm.changes import (
 from hivemind.cli.swarm.context import swarm_callback
 from hivemind.cli.swarm.invite import invite_command
 from hivemind.cli.swarm.listing import list_command
-from hivemind.cli.swarm.run import run_command
+from hivemind.cli.swarm.run import SwarmRunCommand, run_command
 
 __all__ = ["app"]
 
@@ -60,4 +60,4 @@ app.command("access")(access_command)
 app.command("shield")(shield_command)
 app.command("promote")(promote_command)
 app.command("demote")(demote_command)
-app.command("run")(run_command)
+app.command("run", cls=SwarmRunCommand)(run_command)

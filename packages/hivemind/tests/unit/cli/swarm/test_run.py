@@ -95,6 +95,20 @@ def test_run_hands_the_named_device_the_goal_and_the_options_and_reports_success
     assert run.on_event is print_event  # The same lines `hive run` streams, as the goal moves.
 
 
+def test_run_hands_the_device_the_promise_to_survive_a_lost_link_only_when_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _hive(tmp_path)
+    enrol(manifest, label="kitchen-pi")
+    runner = _runner(monkeypatch, _report(succeeded=True))
+
+    invoke(manifest, "run", "kitchen-pi", "write a report", "--survives-link-loss")
+    invoke(manifest, "run", "kitchen-pi", "write a report")
+
+    # Off unless the operator asked: the pin alone promises nothing about a lost link.
+    assert [run.survives_link_loss for _, _, run in runner.calls] == [True, False]
+
+
 def test_run_names_the_device_by_its_cell_id_as_well(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

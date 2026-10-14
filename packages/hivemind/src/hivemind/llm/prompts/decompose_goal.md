@@ -59,7 +59,11 @@ exactly and do not reason about the shape. Here is what each subtask needs conce
   an operating system if one is required, the network destinations it must reach, and its tempo
   (how fast it must run and how right it must be). Fit the needs to the fleet shown in hot
   state: name an operating system only when the goal itself requires one (the Hive Stand may
-  run Windows), and a subtask nothing there can run is a subtask that never starts.
+  run Windows), and a subtask nothing there can run is a subtask that never starts. Set
+  `survives_link_loss` only when the goal itself says the work must carry on if the machine it
+  runs on loses contact with the Hive Stand (a long job on a laptop that will be carried away,
+  say); it makes the Queen give that machine a supervisor and a model of its own, so leave it
+  off for everything else.
 - **Leaves**: paths, outside scratch, that must still be there once the subtask's lease is
   released. Leave this empty unless the goal itself asks for something to remain — "install X",
   "set up a project in Y" — never for working files, logs, downloads or anything else scratch

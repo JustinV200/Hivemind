@@ -63,12 +63,15 @@ class GoalRun:
         capabilities: The goal's capability ceiling, which every planned task carries (roadmap
             step 10.3); None for the operator's own local path, which has no ceiling. `hive swarm
             run` names the one device's Cell here, so the goal can be placed nowhere else.
+        survives_link_loss: Whether every planned task must keep working when its device loses the
+            link to the Queen; she then gives that device a Warden and a model server of its own.
     """
 
     clearance: HoneyClearance
     timeout_s: float
     on_event: Callable[[PheromoneEvent], None] | None = None
     capabilities: tuple[str, ...] | None = None
+    survives_link_loss: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +149,10 @@ async def run_goal_with(hive: Hive, goal: str, run: GoalRun) -> GoalReport:
     # include it.
     submission = _Submission(start=clock.monotonic(), at=clock.now())
     goal_id = await hive.queen.submit_goal(
-        goal, clearance=run.clearance, capabilities=run.capabilities
+        goal,
+        clearance=run.clearance,
+        capabilities=run.capabilities,
+        survives_link_loss=run.survives_link_loss,
     )
     return await _follow(hive, goal_id, run.timeout_s, run.on_event, submission)
 

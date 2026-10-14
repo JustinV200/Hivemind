@@ -21,6 +21,7 @@ from builders.honey import make_nectar_submission
 from builders.house_bee import HoneyHarness, open_honey_access
 from builders.queen import make_queen_deps, plan_responder
 
+from hivemind.brood_chamber import TaskFilter
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
@@ -107,3 +108,19 @@ async def test_submit_goal_plans_as_before_with_no_honey_store(tmp_path: Path) -
 
     assert _RETRIEVED_OPEN not in (provider.calls[0].system or "")
     assert await deps.trail.query(TrailQuery(kind="queen.honey_consulted")) == ()
+
+
+async def test_submit_goal_carries_the_operators_promise_to_survive_a_lost_link_to_every_task(
+    tmp_path: Path,
+) -> None:
+    deps, link, _provider, _harness = await _setup(tmp_path, with_honey=False)
+
+    promised = await submit_goal(
+        deps, [link], _GOAL, GoalTerms(HoneyClearance.C2, survives_link_loss=True)
+    )
+    plain = await submit_goal(deps, [link], _GOAL, GoalTerms(HoneyClearance.C2))
+
+    [with_promise] = await deps.chamber.list(TaskFilter(goal_id=promised))
+    [without] = await deps.chamber.list(TaskFilter(goal_id=plain))
+    assert with_promise.spec.needs.survives_link_loss is True
+    assert without.spec.needs.survives_link_loss is False

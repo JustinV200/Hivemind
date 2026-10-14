@@ -18,15 +18,15 @@ there, so this module reads two proxies instead of a live task. Tempo: `hivemind
 Tempo()` (NORMAL accuracy, no latency budget) -- the plan's own grade floor and distance check use
 this default, and a task whose own Tempo demands more than a plan's primary can give still spills
 through the Fanner at call time (codingrules section 8.10's own "spill-over is a Fanner rule").
-Disconnection survival: `hivemind.cell.needs.TaskNeeds` (this dispatch's own file-list audit,
-recorded in its report) carries no field naming whether a task must survive its Cell going
-offline, and codingrules section 6.1 forbids branching on `cell.kind` directly ("branch on
-capabilities instead" -- `scripts/check_no_kind_branches.py` enforces it), so this module reads
+Disconnection survival: a plan is Cell-wide, so it cannot read the one task that carries
+`hivemind.cell.needs.TaskNeeds.survives_link_loss` (that flag is read by the Queen's rung
+decisions in `hivemind.queen.swarm_gate.rungs`, which make the device a Nuc). And codingrules
+section 6.1 forbids branching on `cell.kind` directly ("branch on capabilities instead" --
+`scripts/check_no_kind_branches.py` enforces it), so this module reads
 `cell.capabilities.can_host_model` instead: only a Cell that can run a local model server is ever
 a Nuc candidate at all (codingrules section 8.10's own definition), so biasing local-first
 specifically where that capability is true is the closest a Cell-wide plan can come to "survive
-disconnection" without a live task's own preference; a future `TaskNeeds` field would let a
-specific task override this Cell-wide default.
+disconnection".
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's forage

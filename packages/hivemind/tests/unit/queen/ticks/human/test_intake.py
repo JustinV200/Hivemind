@@ -136,6 +136,23 @@ async def test_the_request_terms_reach_every_task_of_its_goal() -> None:
     assert task.spec.capabilities == ("cell:virtual", "llm:*")
 
 
+async def test_a_requests_promise_to_survive_a_lost_link_reaches_every_task_of_its_goal() -> None:
+    rig = _rig()
+    kept = await receive(rig.deps, make_goal_request(rig.deps.clock, survives_link_loss=True))
+    await _drain(rig)  # The Queen plans one request at a time: the first, then the second.
+    plain = await receive(rig.deps, make_goal_request(rig.deps.clock))
+    await _drain(rig)
+
+    kept_goal = (await _state(rig, kept)).goal_id
+    plain_goal = (await _state(rig, plain)).goal_id
+    assert kept_goal is not None and plain_goal is not None
+    [promised] = await rig.deps.chamber.list(TaskFilter(goal_id=kept_goal))
+    [unpromised] = await rig.deps.chamber.list(TaskFilter(goal_id=plain_goal))
+    # The operator's promise is on the task; a request that made none leaves the need off.
+    assert promised.spec.needs.survives_link_loss is True
+    assert unpromised.spec.needs.survives_link_loss is False
+
+
 async def test_a_crash_while_received_loses_nothing() -> None:
     rig = _rig()
     request = await receive(rig.deps, make_goal_request(rig.deps.clock))

@@ -38,12 +38,19 @@ class _Queen:
         """Answer every submission with `goal_id`."""
         self.goal_id = goal_id
         self.submitted: list[tuple[str, HoneyClearance, tuple[str, ...] | None]] = []
+        self.survived: list[bool] = []  # Whether each submission promised to survive a lost link.
 
     async def submit_goal(
-        self, goal: str, *, clearance: HoneyClearance, capabilities: tuple[str, ...] | None = None
+        self,
+        goal: str,
+        *,
+        clearance: HoneyClearance,
+        capabilities: tuple[str, ...] | None = None,
+        survives_link_loss: bool = False,
     ) -> TaskId:
         """Keep the submission's terms and return the goal's id."""
         self.submitted.append((goal, clearance, capabilities))
+        self.survived.append(survives_link_loss)
         return self.goal_id
 
 
@@ -97,3 +104,17 @@ def test_a_goal_run_has_no_ceiling_and_no_hook_until_it_is_given_them() -> None:
     run = GoalRun(HoneyClearance.C1, 5.0)
 
     assert (run.capabilities, run.on_event) == (None, None)
+
+
+async def test_a_goal_run_carries_the_promise_to_survive_a_lost_link_to_the_queen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hive, queen, _ = _hive_and_queen(monkeypatch)
+
+    await run_goal_with(
+        hive, "write a report", GoalRun(HoneyClearance.C1, 30.0, survives_link_loss=True)
+    )
+    await run_goal_with(hive, "write another", GoalRun(HoneyClearance.C1, 30.0))
+
+    # Off unless the operator asked: the default never promises what nobody said.
+    assert queen.survived == [True, False]

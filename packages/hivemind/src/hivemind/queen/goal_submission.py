@@ -27,7 +27,7 @@ stage `plan`.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
-    by `hivemind.queen.queen.Queen.submit_goal` (`submit_goal`) and
+    by `GoalDoor.submit_goal` (mixed into `hivemind.queen.queen.Queen`; it calls `submit_goal`) and
     `hivemind.queen.ticks.human.intake` (`plan_goal_graph`). Calls into
     `hivemind.brood_chamber.task` (GoalRequestId), `hivemind.cell`, `hivemind.forage.slots`
     (ModelSlot), `hivemind.guard` (the location asks' refusals), `hivemind.queen.authority`,
@@ -82,9 +82,9 @@ from hivemind.queen.planner.location import (
     needs_location_asks,
 )
 from hivemind.queen.trail import record_event
-from waggle.ids import DeviceId, TaskId
+from waggle.ids import DeviceId, TaskId, WardenId
 
-__all__ = ["GoalTerms", "plan_goal_graph", "submit_goal"]
+__all__ = ["GoalDoor", "GoalTerms", "plan_goal_graph", "submit_goal"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +102,10 @@ class GoalTerms:
         device_id: The enrolled device that asked; recorded with the plan, never on a task.
         goal_request_id: The durable request this goal is planned from; every task carries it,
             which is how a crash between persisting and marking the request PLANNED is found.
+        survives_link_loss: Whether the operator said the goal's work must keep going if its
+            device loses the link to the Queen; every planned task then needs it
+            (`hivemind.cell.TaskNeeds.survives_link_loss`), and the Queen's rung decisions give
+            such a device a Warden and a model server of its own.
     """
 
     clearance: HoneyClearance
@@ -111,6 +115,45 @@ class GoalTerms:
     spend_cap_usd: float | None = None
     device_id: DeviceId | None = None
     goal_request_id: GoalRequestId | None = None
+    survives_link_loss: bool = False
+
+
+class GoalDoor:
+    """The Queen's goal-taking method, mixed into `Queen` as `ChatDoor` mixes in the chat's.
+
+    Reads `self._deps` and `self._wardens`, both set by `Queen.__init__`; this class is never
+    instantiated on its own. The annotations declare that shared state for mypy --strict, and the
+    method lives here so `queen.py` stays inside codingrules 5.1's class limit.
+    """
+
+    _deps: QueenDeps
+    _wardens: dict[WardenId, WardenLink]
+
+    async def submit_goal(
+        self,
+        goal: str,
+        *,
+        clearance: HoneyClearance,
+        capabilities: tuple[str, ...] | None = None,
+        survives_link_loss: bool = False,
+    ) -> TaskId:
+        """Plan `goal` into a task graph, persist it, and place whatever is ready at once.
+
+        Args:
+            goal: The goal text, as the human (or a bee on the human's behalf) stated it.
+            clearance: The goal's own data-sensitivity ceiling.
+            capabilities: The submitter's capability set, carried by every planned task (roadmap
+                step 10.3); None for the operator's own local path, which has no ceiling.
+            survives_link_loss: Whether every planned task must keep working when its device
+                loses the link to the Queen (`TaskNeeds.survives_link_loss`).
+
+        Returns:
+            The goal's own id (the first task minted from the plan).
+        """
+        terms = GoalTerms(
+            clearance=clearance, capabilities=capabilities, survives_link_loss=survives_link_loss
+        )
+        return await submit_goal(self._deps, tuple(self._wardens.values()), goal, terms)
 
 
 async def submit_goal(
@@ -208,6 +251,7 @@ async def _brief(
         comb_shield=terms.comb_shield,
         goal_request_id=terms.goal_request_id,
         spend_cap_usd=terms.spend_cap_usd,
+        survives_link_loss=terms.survives_link_loss,
     )
 
 

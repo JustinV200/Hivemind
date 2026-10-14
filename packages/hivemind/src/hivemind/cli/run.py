@@ -1,10 +1,10 @@
 """Provide `hive run`: build a Hive from a manifest and run one goal through it.
 
 `hive run "goal" --manifest hive.toml [--clearance C1] [--comb-shield night_veil] [--timeout 120]
-[--json]` is the thinnest
+[--survives-link-loss] [--json]` is the thinnest
 possible typer layer over `hivemind.cli.compose`: it loads the manifest, calls `build_hive` with a
 `waggle.clock.SystemClock` (codingrules section 11: `SystemClock` only at the command edge),
-enters `run_hive`, and awaits `run_goal`, streaming one line per trail event of interest as it
+enters `run_hive`, and awaits `run_goal_with`, streaming one line per trail event of interest as it
 lands (`_STREAMED_KINDS`, roadmap step 3.21's own list: queen decisions, Warden/Worker lifecycle,
 Capping's QA-gate cycle, terminal task and Alarm events, and every Forage denial with its cause, a
 task left waiting for room said so on its own line) unless `--json` was given, in which case
@@ -73,8 +73,8 @@ from typer.core import TyperCommand, TyperOption
 
 from hivemind.brood_chamber import Task
 from hivemind.cell import CombShieldLevel, HoneyClearance
-from hivemind.cli.compose import GoalReport, Hive, build_hive, run_goal, run_hive
-from hivemind.cli.compose.hive import run_requested_goal
+from hivemind.cli.compose import GoalReport, Hive, build_hive, run_hive
+from hivemind.cli.compose.hive import GoalRun, run_goal_with, run_requested_goal
 from hivemind.cli.compose.request import GoalAsk, GoalNotPlannedError
 from hivemind.cli.landing import PASSWORD_STDIN, carried_flag, carried_text
 from hivemind.cli.remote import (
@@ -95,10 +95,12 @@ __all__ = [
     "ClearanceOption",
     "RunCommand",
     "TimeoutOption",
+    "carried_survives",
     "describe_failure",
     "print_event",
     "print_summary",
     "run_command",
+    "survives_link_loss_option",
 ]
 
 DEFAULT_TIMEOUT_S = 120.0  # Two minutes: generous for a multi-step goal against a hosted model.
@@ -157,14 +159,45 @@ TimeoutOption = Annotated[
     float, typer.Option("--timeout", help="Seconds to wait for the goal before giving up.")
 ]
 
-# Where `RunCommand` leaves its two options' values on the command's context (`ctx.meta`).
+# Where `RunCommand` leaves its options' values on the command's context (`ctx.meta`).
 _JSON_META = "hivemind.cli.run.json"
 _COMB_SHIELD_META = "hivemind.cli.run.comb_shield"
+_SURVIVES_META = "hivemind.cli.run.survives_link_loss"
 
 
 def _keep_json(ctx: typer.Context, _param: object, value: bool) -> None:
     """Option callback: leave `--json` on the context for `run_command`."""
     ctx.meta[_JSON_META] = bool(value)
+
+
+def _keep_survives_link_loss(ctx: typer.Context, _param: object, value: bool) -> None:
+    """Option callback: leave `--survives-link-loss` on the context for the command body."""
+    ctx.meta[_SURVIVES_META] = bool(value)
+
+
+def survives_link_loss_option() -> TyperOption:
+    """Build `--survives-link-loss`, the option `hive run` and `hive swarm run` share.
+
+    Both commands are already at codingrules 5.1's five parameters, so the flag is declared on
+    the command itself and its callback leaves the value on the context (`carried_survives`).
+
+    Returns:
+        The option, ready to add to a command's `params`.
+    """
+    return TyperOption(
+        param_decls=["--survives-link-loss"],
+        is_flag=True,
+        default=False,
+        expose_value=False,
+        callback=_keep_survives_link_loss,
+        help="Say the goal's work must keep going if its device loses the link to the Hive "
+        "Stand: the Queen then gives that device a Warden and a model server of its own.",
+    )
+
+
+def carried_survives(ctx: typer.Context) -> bool:
+    """Return whether `--survives-link-loss` was given on this command's line."""
+    return bool(ctx.meta.get(_SURVIVES_META, False))
 
 
 def _keep_comb_shield(ctx: typer.Context, _param: object, value: str | None) -> None:
@@ -180,15 +213,16 @@ def _keep_comb_shield(ctx: typer.Context, _param: object, value: str | None) -> 
 
 
 class RunCommand(TyperCommand):
-    """`hive run`'s command: the options `run_command` declares, plus `--json` and `--comb-shield`.
+    """`hive run`'s command: the options `run_command` declares, plus three carried on the context.
 
     Codingrules 5.1 caps a function at five parameters, and typer turns each parameter into one
-    option, so the two options past that cap are declared here, on the command itself; each one's
-    callback leaves its value on the context, where `run_command` reads it.
+    option, so the options past that cap (`--json`, `--comb-shield` and `--survives-link-loss`) are
+    declared here, on the command itself; each one's callback leaves its value on the context,
+    where `run_command` reads it.
     """
 
     def __init__(self, name: str | None, **settings: object) -> None:
-        """Build the command as typer does, then add the two context-carried options."""
+        """Build the command as typer does, then add the context-carried options."""
         # typer passes every other setting by keyword, exactly as TyperCommand itself takes them.
         super().__init__(name, **cast("dict[str, Any]", settings))
         self.params.append(
@@ -211,6 +245,7 @@ class RunCommand(TyperCommand):
                 "goal request (roadmap step 10.3c).",
             )
         )
+        self.params.append(survives_link_loss_option())
         # Roadmap step 10.8: the same goal given to a remote Hive through its Entrance instead.
         self.params.extend(option.as_click() for option in (REMOTE, PROFILE, PASSWORD_STDIN))
 
@@ -223,27 +258,23 @@ def run_command(
     timeout: TimeoutOption = DEFAULT_TIMEOUT_S,
 ) -> None:
     """Build a Hive from MANIFEST and run GOAL through it, streaming progress as it lands."""
-    # `--json` and `--comb-shield` arrive on the context (`RunCommand`'s own docstring).
-    as_json = bool(ctx.meta.get(_JSON_META, False))
-    tier: CombShieldLevel | None = ctx.meta.get(_COMB_SHIELD_META)
+    # `--json`, `--comb-shield` and `--survives-link-loss` arrive on the context (`RunCommand`).
+    options = _RunOptions(
+        HoneyClearance[clearance],
+        timeout,
+        bool(ctx.meta.get(_JSON_META, False)),
+        ctx.meta.get(_COMB_SHIELD_META),
+        carried_survives(ctx),
+    )
     # `--remote`: not this process's Hive, but a remote one, as this device (roadmap 10.8).
     if carried_flag(ctx, REMOTE):
-        remote_run(
-            RemoteRun(
-                goal=RemoteGoal(goal, HoneyClearance[clearance], tier),
-                timeout_s=timeout,
-                as_json=as_json,
-                profile=carried_text(ctx, PROFILE) or DEFAULT_PROFILE,
-                from_stdin=carried_flag(ctx, PASSWORD_STDIN),
-            )
-        )
+        _run_remote(ctx, goal, options)
     loaded = load_manifest_or_exit(manifest)
     # build_hive must run outside any event loop: hivemind.cli.stores.open_trail/open_chamber/
     # open_memory (which a stores=None build_hive calls through open_default_stores) each run
     # their own asyncio.run internally, so calling build_hive from inside the asyncio.run below
     # would raise "asyncio.run() cannot be called from a running event loop".
     hive = build_hive(loaded, environ=os.environ, clock=SystemClock())
-    options = _RunOptions(HoneyClearance[clearance], timeout, as_json, tier)
     try:
         result = asyncio.run(_run(hive, goal, options))
     except Exception as exc:
@@ -255,12 +286,31 @@ def run_command(
     if isinstance(result, GoalNotPlannedError):
         _exit_unplanned(result)
     report = result
-    print_summary(report, as_json)
-    if loaded.hive_stand.keep_scratch and not as_json:
+    print_summary(report, options.as_json)
+    if loaded.hive_stand.keep_scratch and not options.as_json:
         _print_kept_scratch(loaded.resolve_path(loaded.hive_stand.scratch_root))
     if report.timed_out:
         raise typer.Exit(code=2)
     raise typer.Exit(code=0 if report.succeeded else 1)
+
+
+def _run_remote(ctx: typer.Context, goal: str, options: _RunOptions) -> NoReturn:
+    """Give the goal to a remote Hive through its Entrance, as this device (roadmap 10.8); exits."""
+    if options.survives_link_loss:
+        # The Landing Board's goal request has no such field: refuse rather than drop it.
+        raise typer.BadParameter(
+            "--survives-link-loss cannot be given with --remote: a remote goal's request "
+            "does not carry it."
+        )
+    remote_run(
+        RemoteRun(
+            goal=RemoteGoal(goal, options.clearance, options.comb_shield),
+            timeout_s=options.timeout_s,
+            as_json=options.as_json,
+            profile=carried_text(ctx, PROFILE) or DEFAULT_PROFILE,
+            from_stdin=carried_flag(ctx, PASSWORD_STDIN),
+        )
+    )
 
 
 def describe_failure(exc: BaseException) -> str:
@@ -291,12 +341,15 @@ class _RunOptions:
         timeout_s: Seconds to wait for the goal, planning included.
         as_json: Print only the final report, as JSON.
         comb_shield: The tier the operator named, or None to submit the goal directly.
+        survives_link_loss: Whether the operator said the goal's work must keep going if its
+            device loses the link to the Queen.
     """
 
     clearance: HoneyClearance
     timeout_s: float
     as_json: bool
     comb_shield: CombShieldLevel | None
+    survives_link_loss: bool = False
 
 
 async def _run(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | GoalNotPlannedError:
@@ -308,14 +361,14 @@ async def _run(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | Goal
     on_event = None if options.as_json else print_event
     async with run_hive(hive):
         if options.comb_shield is None:
-            return await run_goal(
-                hive,
-                goal,
-                clearance=options.clearance,
-                timeout_s=options.timeout_s,
-                on_event=on_event,
+            terms = GoalRun(
+                options.clearance,
+                options.timeout_s,
+                on_event,
+                survives_link_loss=options.survives_link_loss,
             )
-        ask = GoalAsk(goal, options.clearance, options.comb_shield)
+            return await run_goal_with(hive, goal, terms)
+        ask = GoalAsk(goal, options.clearance, options.comb_shield, options.survives_link_loss)
         try:
             return await run_requested_goal(
                 hive, ask, timeout_s=options.timeout_s, on_event=on_event

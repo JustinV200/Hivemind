@@ -248,6 +248,7 @@ def _terms(request: GoalRequest) -> GoalTerms:
         spend_cap_usd=request.budget_usd,
         device_id=request.device_id,
         goal_request_id=request.id,
+        survives_link_loss=request.survives_link_loss,
     )
 
 
