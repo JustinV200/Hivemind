@@ -37,6 +37,8 @@ See Also:
 
 Public API:
     - ClusterOutcome, ResumeOutcome, cluster, resume: pause and resume one provider (protocol).
+    - pause_on_warden, latest_handoff: pause one Warden's running tasks for a move, and find a
+      task's newest Handoff (protocol).
     - ClusterBackoff, HealthPoller, next_probe_at: backoff-scheduled health polling (health).
     - ClusterOrder, InMemoryOrderStore, OrderKind, OrderStore, SqliteOrderStore,
       apply_order_migrations, new_order_id: the durable operator-order table (orders), which now
@@ -56,7 +58,14 @@ from hivemind.queen.cluster.orders import (
     apply_order_migrations,
     new_order_id,
 )
-from hivemind.queen.cluster.protocol import ClusterOutcome, ResumeOutcome, cluster, resume
+from hivemind.queen.cluster.protocol import (
+    ClusterOutcome,
+    ResumeOutcome,
+    cluster,
+    latest_handoff,
+    pause_on_warden,
+    resume,
+)
 from hivemind.queen.cluster.tick import awake_available, run_cluster_tick, run_release_tick
 from hivemind.queen.cluster.triggers import check_cost_caps
 
@@ -74,8 +83,10 @@ __all__ = [
     "awake_available",
     "check_cost_caps",
     "cluster",
+    "latest_handoff",
     "new_order_id",
     "next_probe_at",
+    "pause_on_warden",
     "resume",
     "run_cluster_tick",
     "run_release_tick",

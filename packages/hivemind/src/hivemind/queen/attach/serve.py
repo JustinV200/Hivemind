@@ -57,7 +57,7 @@ from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach.admit import current_link, detach_if_current
 from hivemind.queen.attach.fanout import FanoutTransport
 from hivemind.queen.attach.refusals import LinkRefusals
-from hivemind.queen.deps import WardenLink, send_guarded
+from hivemind.queen.deps import LiveCapacity, WardenLink, send_guarded
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
@@ -134,6 +134,9 @@ class ProvedLink:
         frames: The one iterator of the connection's frames, positioned after the handshake.
         hop: The Queen's address, the Warden's and the node the Queen signs as, stamped on every
             envelope the Queen sends this Warden.
+        live_capacity: Reads the Cell's capacity as it stands now, for a Cell whose capacity is
+            refreshed live (a device's, from its capacity reports); None for one fixed for its
+            life (a Virtual Cell's).
     """
 
     cell: Cell
@@ -142,6 +145,7 @@ class ProvedLink:
     transport: Transport
     frames: AsyncIterator[Envelope]
     hop: Hop
+    live_capacity: LiveCapacity | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +193,7 @@ async def serve_warden(
         cell=proved.cell,
         transport=fanout,
         hop=proved.hop,
+        live_capacity=proved.live_capacity,
         node_id=proved.node_id,  # Proved by the handshake: the node that speaks for the Cell.
     )
     try:

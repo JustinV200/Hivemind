@@ -25,6 +25,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
@@ -34,6 +35,7 @@ from builders.queen import make_queen_deps, with_guard_policy
 from builders.segments import SegmentRig, segment_chunks
 
 from hivemind.cell import Cell
+from hivemind.forage import ForageCapacity
 from hivemind.guard import GuardPolicy, load_guard_policy
 from hivemind.manifest import GuardRoleSection, GuardSection
 from hivemind.pheromone import TrailQuery, TrailRecorder
@@ -436,6 +438,36 @@ async def test_a_trail_segment_of_the_proved_node_is_merged_and_another_nodes_is
     [refusal] = await merging.deps.trail.query(TrailQuery(kind="guard.segment_refused"))
     assert refusal.payload["reason"] == "another_node"
     assert refusal.subject_id == merging.cell.id
+
+
+async def test_a_link_with_no_capacity_reader_sizes_its_grants_from_its_cell(rig: _Rig) -> None:
+    conn, spy = await _attached(rig)
+
+    [(link, _reconnected)] = spy.attached
+
+    assert link.live_capacity is None  # A Virtual Cell's capacity is fixed for its life.
+    await conn.finish()
+
+
+async def test_the_capacity_reader_a_device_gate_proved_reaches_the_attached_link(
+    rig: _Rig,
+) -> None:
+    async def reader() -> ForageCapacity:
+        return rig.cell.capacity
+
+    proved, _wire, _far = _proved(rig)
+    spy = _Spy()
+    task = asyncio.create_task(
+        serve_warden(
+            rig.queen, dataclasses.replace(proved, live_capacity=reader), rig.services, spy.hooks()
+        )
+    )
+    rig.served.append(task)
+    await spy.attach_seen()
+
+    [(link, _reconnected)] = spy.attached
+
+    assert link.live_capacity is reader  # A device's capacity is read as its reports left it.
 
 
 async def test_a_request_with_no_bound_handler_is_ignored_and_the_link_stays_up(rig: _Rig) -> None:

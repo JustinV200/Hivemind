@@ -29,6 +29,7 @@ import dataclasses
 import pytest
 from builders.forage import make_grant
 from builders.queen import WardenEnd, make_queen_deps, make_warden_link, with_guard_policy
+from builders.supervision import make_telemetry
 
 from hivemind.forage.grant_state import GrantState
 from hivemind.forage.models.pools import Ceilings
@@ -36,12 +37,13 @@ from hivemind.guard import load_guard_policy
 from hivemind.manifest import GuardRoleSection, GuardSection
 from hivemind.pheromone import TrailQuery
 from hivemind.queen import WardenSpawnRefusedError
-from hivemind.queen.attach import detach_warden
+from hivemind.queen.attach import detach_warden, warden_state
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage.ceilings import set_ceilings
 from hivemind.queen.queen import Queen
 from waggle.clock import FakeClock
 from waggle.ids import WardenId, new_node_id
+from waggle.messages.supervision import Heartbeat, WardenState
 
 
 async def test_attach_warden_records_warden_spawned_for_the_admitted_warden() -> None:
@@ -265,3 +267,49 @@ async def test_a_warden_the_ledger_remembers_is_sent_its_ceilings_on_its_first_a
 
     assert returning is False
     assert (await end.wait_for_ceilings_set()).holder == link.warden_id
+
+
+def _heartbeat(state: WardenState) -> Heartbeat:
+    """A Heartbeat in which a Warden says it is in `state`."""
+    return Heartbeat(
+        telemetry=make_telemetry(),
+        task_id=None,
+        worker_state=None,
+        warden_state=state,
+        children=(),
+        grant_id=None,
+        grant_spend=None,
+        interval_s=5.0,
+    )
+
+
+async def test_warden_state_is_none_before_the_warden_has_sent_a_heartbeat() -> None:
+    deps, link, _end = make_queen_deps()
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+
+    assert warden_state(queen, link.warden_id) is None  # Nothing is inferred for a silent Warden.
+
+
+async def test_warden_state_is_none_for_a_warden_that_is_not_attached() -> None:
+    deps, link, _end = make_queen_deps()
+
+    assert warden_state(Queen(deps), link.warden_id) is None
+
+
+async def test_warden_state_is_what_the_wardens_newest_heartbeat_said() -> None:
+    deps, link, end = make_queen_deps()
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    run_task = asyncio.ensure_future(queen.run())
+
+    await end.send(_heartbeat(WardenState.WATCH))
+    for _ in range(5_000):
+        if warden_state(queen, link.warden_id) is not None:
+            break
+        await asyncio.sleep(0)
+
+    assert warden_state(queen, link.warden_id) is WardenState.WATCH
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+    await end.close()

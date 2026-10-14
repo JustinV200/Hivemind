@@ -56,6 +56,8 @@ Key invariants:
       clustered_providers` (or not in it, for `resume`) still runs its own side effects the first
       time only, reported through `ClusterOutcome.already_clustered`/`ResumeOutcome.
       already_running`.
+    - `pause_on_warden` is `cluster`'s pause for one Warden's tasks, whatever the cause; it records
+      no `queen.clustered` and sets no mode, since nothing about a provider changed.
     - Every affected task id lands in exactly one of `ClusterOutcome.affected_task_ids`/
       `ResumeOutcome.resumed_task_ids`, and `queen.clustered`/`queen.resumed` is recorded exactly
       once per call, after every affected task's own wire messages and chamber transition, never
@@ -77,7 +79,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivemind.brood_chamber import TaskStatus
+from hivemind.brood_chamber import TaskFilter, TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ForageGrant, ForageMap, UnknownSourceError
 from hivemind.memory import BeeBreadEntryKind
@@ -103,7 +105,14 @@ if TYPE_CHECKING:
 
 _CHECKPOINT_POLL_ATTEMPTS = 2_000  # Scheduling yields, not a timed wait; see _wait_for_checkpoint.
 
-__all__ = ["ClusterOutcome", "ResumeOutcome", "cluster", "resume"]
+__all__ = [
+    "ClusterOutcome",
+    "ResumeOutcome",
+    "cluster",
+    "latest_handoff",
+    "pause_on_warden",
+    "resume",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +194,35 @@ async def cluster(
     return ClusterOutcome(provider=provider, affected_task_ids=task_ids, already_clustered=False)
 
 
+async def pause_on_warden(
+    deps: QueenDeps, wardens: Sequence[WardenLink], warden_id: WardenId, reason: str
+) -> tuple[TaskId, ...]:
+    """Checkpoint-then-pause every RUNNING task placed on `warden_id`, as Clustering does.
+
+    The same lever, reused for another cause (codingrules 8.9, "one mechanism, many names"): a
+    Warden that is about to move onto its device (ADR-0052) has each of its bees write a Handoff
+    and stop, and its tasks wait PAUSED to be resumed from those Handoffs on the Warden that takes
+    over. Nothing of the Warden's grants is touched, so the same Warden id finds them again.
+
+    Args:
+        deps: The Queen's collaborators.
+        wardens: Every Warden currently attached; the task's Warden must be among them to be sent
+            the orders (a task whose Warden is not is skipped).
+        warden_id: The Warden whose running tasks to pause.
+        reason: Why, folded into every order and the chamber's own event.
+
+    Returns:
+        The tasks actually paused, oldest first.
+    """
+    tasks = await deps.chamber.list(TaskFilter())
+    affected = tuple(
+        (task.id, warden_id)
+        for task in tasks
+        if task.warden_id == warden_id and task.status is TaskStatus.RUNNING
+    )
+    return await _pause_affected(deps, wardens, affected, reason)
+
+
 async def _pause_affected(
     deps: QueenDeps,
     wardens: Sequence[WardenLink],
@@ -250,7 +288,7 @@ async def resume(
         task = await deps.chamber.get(task_id)
         if task.status is not TaskStatus.PAUSED:
             continue  # Cancelled, or already resumed by another path; nothing to redo here.
-        resume_from = await _latest_handoff(deps, task_id)
+        resume_from = await latest_handoff(deps, task_id)
         await resume_paused(deps, wardens, task_id, resume_from, "Clustering resumed.")
         task_ids.append(task_id)
 
@@ -300,12 +338,12 @@ async def _wait_for_checkpoint(deps: QueenDeps, task_id: TaskId) -> None:
     the turns it needs to actually reach that check and write its checkpoint.
     """
     for _ in range(_CHECKPOINT_POLL_ATTEMPTS):
-        if await _latest_handoff(deps, task_id) is not None:
+        if await latest_handoff(deps, task_id) is not None:
             return
         await asyncio.sleep(0)
 
 
-async def _latest_handoff(deps: QueenDeps, task_id: TaskId) -> HandoffRef | None:
+async def latest_handoff(deps: QueenDeps, task_id: TaskId) -> HandoffRef | None:
     """Return `task_id`'s newest Bee Bread HANDOFF entry as a HandoffRef, or None.
 
     See the module docstring's "How a Handoff is found for resume" for why this read, over this

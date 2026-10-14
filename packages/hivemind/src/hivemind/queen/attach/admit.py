@@ -50,6 +50,7 @@ Key invariants:
     - `attach_warden` attaches nothing when the Queen's set refuses `warden:spawn`: the refusal is
       on the trail before `WardenSpawnRefusedError` leaves, and `warden.spawned` or
       `warden.reconnected` is recorded only for a Warden actually attached.
+    - `warden_state` reads only what a Warden said itself: nothing is inferred for a silent one.
     - A Warden is attached under one link at a time: a reconnection replaces the old link, and the
       old link's reader is reaped (`LinkReaders.add` removes it first).
     - Never raises for a `warden_id` that is not currently attached: a caller may detach
@@ -82,6 +83,7 @@ from hivemind.queen.isolation import resend_taint_order
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.ticks.tools import announce_current_tools, forget_warden
 from waggle.ids import WardenId, new_event_id
+from waggle.messages.supervision import WardenState
 
 if TYPE_CHECKING:
     from hivemind.queen.deps import WardenLink
@@ -90,7 +92,13 @@ if TYPE_CHECKING:
 # The one capability admitting a Warden to the Queen's tree needs (ADR-0039's warden:spawn flag).
 _WARDEN_SPAWN = Capability(family=CapabilityFamily.WARDEN_SPAWN)
 
-__all__ = ["attach_warden", "current_link", "detach_if_current", "detach_warden"]
+__all__ = [
+    "attach_warden",
+    "current_link",
+    "detach_if_current",
+    "detach_warden",
+    "warden_state",
+]
 
 
 async def attach_warden(queen: Queen, link: WardenLink) -> bool:
@@ -187,6 +195,21 @@ def current_link(queen: Queen, warden_id: WardenId) -> WardenLink | None:
         warden_id: The Warden.
     """
     return queen._wardens.get(warden_id)
+
+
+def warden_state(queen: Queen, warden_id: WardenId) -> WardenState | None:
+    """Return the state `warden_id` last reported in a Heartbeat, or None before any.
+
+    Args:
+        queen: The Queen the Warden is attached to.
+        warden_id: The Warden.
+
+    Returns:
+        Its own word for where it is (`WATCH` while it holds no work and observes), as of its newest
+        Heartbeat the Queen has handled; None when it is not attached or has sent none yet.
+    """
+    heartbeat = queen._last_heartbeat.get(warden_id)
+    return heartbeat.warden_state if heartbeat is not None else None
 
 
 async def detach_if_current(queen: Queen, link: WardenLink) -> bool:

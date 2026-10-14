@@ -33,7 +33,7 @@ from hivemind.queen.cluster.protocol import cluster, resume
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.queen import Queen
 from hivemind.queen.state import ClusterState
-from waggle.ids import TaskId
+from waggle.ids import TaskId, new_warden_id
 from waggle.messages.supervision import InterventionAction
 
 _OTHER_PROVIDER = "other"  # Bound to a second task's grant; proves an unrelated bee is untouched.
@@ -105,7 +105,7 @@ async def test_cluster_sends_the_task_pause_only_once_the_checkpoint_has_landed(
     send_task_pause = protocol._send_task_pause
 
     async def spy(deps_: QueenDeps, link_: WardenLink, task_id: TaskId, reason: str) -> None:
-        handoff_present_at_pause.append(await protocol._latest_handoff(deps_, task_id) is not None)
+        handoff_present_at_pause.append(await protocol.latest_handoff(deps_, task_id) is not None)
         await send_task_pause(deps_, link_, task_id, reason)
 
     monkeypatch.setattr(protocol, "_send_task_pause", spy)
@@ -293,3 +293,55 @@ async def test_cluster_never_touches_a_bee_bound_to_a_different_provider() -> No
     await warden_end.wait_for_task_pause()
     assert len(warden_end.intervenes) == 1
     assert len(warden_end.task_pauses) == 1
+
+
+async def test_pause_on_warden_stops_the_running_tasks_of_that_warden_without_clustering() -> None:
+    """A Warden about to move onto its device has its bees checkpoint and stop (ADR-0052)."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    grants_before = deps.ledger.live_grants()
+
+    paused = await protocol.pause_on_warden(
+        deps, queen.wardens, link.warden_id, "The Warden moves."
+    )
+
+    assert paused == (goal_id,)
+    assert (await warden_end.wait_for_intervene()).action is InterventionAction.HANDOFF
+    assert (await warden_end.wait_for_task_pause()).task_id == goal_id
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.PAUSED
+    assert (
+        deps.ledger.live_grants() == grants_before
+    )  # Nothing about a provider or a grant changed.
+    assert await deps.trail.query(TrailQuery(kind="queen.clustered")) == ()
+
+
+async def test_pause_on_warden_leaves_the_tasks_of_another_warden_alone() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+
+    paused = await protocol.pause_on_warden(deps, queen.wardens, new_warden_id(deps.clock), "x")
+
+    assert paused == ()
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
+
+
+async def test_pause_on_warden_skips_a_task_whose_warden_is_no_longer_attached() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+
+    paused = await protocol.pause_on_warden(deps, (), link.warden_id, "x")  # Nobody attached.
+
+    assert paused == ()
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.RUNNING
