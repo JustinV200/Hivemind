@@ -105,7 +105,7 @@ def test_a_manifest_reserve_that_zeroes_the_grant_fails_the_goal_in_seconds(tmp_
     task = report.tasks[0]
     assert task.status is TaskStatus.FAILED
     assert task.outcome is not None
-    # The exact text hivemind.cli.run._print_summary would put on an operator's own screen, under
+    # The exact text hivemind.cli.run.print_summary would put on an operator's own screen, under
     # the task's title (Task.outcome.summary is what that command prints there).
     assert "zero sub-bees" in task.outcome.summary
 

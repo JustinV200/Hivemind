@@ -53,6 +53,8 @@ See Also:
     - .claude/roadmap.md step 3.21 for this command's own roadmap bullet.
     - .claude/codingrules.md section 10 for the three allowed broad `except Exception` sites.
     - hivemind.cli.compose for build_hive/run_hive/run_goal/GoalReport, this module's own seam.
+    - hivemind.cli.swarm.run, which reuses `print_event`, `print_summary`, `describe_failure` and
+      the option types, so `hive swarm run` prints and exits as this command does (roadmap 11.12).
     - docs/adr/0038-honey-label-lowering-is-a-judge-reviewed-proposal.md for how Hive Stand
       Honey reaches a C1 goal.
 """
@@ -87,7 +89,17 @@ from hivemind.cli.stores import DEFAULT_MANIFEST, ManifestOption, load_manifest_
 from hivemind.pheromone import PheromoneEvent
 from waggle.clock import SystemClock
 
-__all__ = ["RunCommand", "run_command"]
+__all__ = [
+    "DEFAULT_CLEARANCE",
+    "DEFAULT_TIMEOUT_S",
+    "ClearanceOption",
+    "RunCommand",
+    "TimeoutOption",
+    "describe_failure",
+    "print_event",
+    "print_summary",
+    "run_command",
+]
 
 DEFAULT_TIMEOUT_S = 120.0  # Two minutes: generous for a multi-step goal against a hosted model.
 DEFAULT_CLEARANCE = "C1"  # codingrules 8.9's own default label for ordinary, non-personal work.
@@ -238,12 +250,12 @@ def run_command(
         # SAFETY: the command body's own broad catch (codingrules section 10's third allowed
         # site): a run that fails for any reason still ends in one clean stderr line and exit 1,
         # never a traceback dumped on an operator's terminal.
-        typer.echo(f"hive run failed: {_describe(exc)}", err=True)
+        typer.echo(f"hive run failed: {describe_failure(exc)}", err=True)
         raise typer.Exit(code=1) from exc
     if isinstance(result, GoalNotPlannedError):
         _exit_unplanned(result)
     report = result
-    _print_summary(report, as_json)
+    print_summary(report, as_json)
     if loaded.hive_stand.keep_scratch and not as_json:
         _print_kept_scratch(loaded.resolve_path(loaded.hive_stand.scratch_root))
     if report.timed_out:
@@ -251,7 +263,7 @@ def run_command(
     raise typer.Exit(code=0 if report.succeeded else 1)
 
 
-def _describe(exc: BaseException) -> str:
+def describe_failure(exc: BaseException) -> str:
     """Flatten `exc` into the one line an operator can act on, unwrapping any ExceptionGroup.
 
     `run_hive` runs the Queen and the Warden inside an `asyncio.TaskGroup`, so a failure anywhere
@@ -266,7 +278,7 @@ def _describe(exc: BaseException) -> str:
         Every leaf cause as "TypeName: message", joined by "; " when a group carries more than one.
     """
     if isinstance(exc, BaseExceptionGroup):
-        return "; ".join(_describe(inner) for inner in exc.exceptions)
+        return "; ".join(describe_failure(inner) for inner in exc.exceptions)
     return f"{type(exc).__name__}: {exc}"
 
 
@@ -293,7 +305,7 @@ async def _run(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | Goal
     A requested goal that is never planned is returned, not raised, so it leaves `run_hive`
     as a plain outcome rather than a failure of the Hive's own tasks.
     """
-    on_event = None if options.as_json else _print_event
+    on_event = None if options.as_json else print_event
     async with run_hive(hive):
         if options.comb_shield is None:
             return await run_goal(
@@ -321,7 +333,7 @@ def _exit_unplanned(unplanned: GoalNotPlannedError) -> NoReturn:
     raise typer.Exit(code=1)
 
 
-def _print_event(event: PheromoneEvent) -> None:
+def print_event(event: PheromoneEvent) -> None:
     """Print one line for a trail event of interest; every other kind is silently skipped."""
     if event.kind in _STREAMED_KINDS:
         typer.echo(f"{event.at.isoformat()}  {event.kind}  {event.subject_id}{_cause(event)}")
@@ -350,7 +362,7 @@ def _cause(event: PheromoneEvent) -> str:
     return f"  deferred: waiting for {limit} ({until})"
 
 
-def _print_summary(report: GoalReport, as_json: bool) -> None:
+def print_summary(report: GoalReport, as_json: bool) -> None:
     """Print the final GoalReport: one JSON object, or a short human-readable summary."""
     if as_json:
         typer.echo(_report_json(report))

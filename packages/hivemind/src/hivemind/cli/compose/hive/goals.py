@@ -3,9 +3,12 @@
 `run_goal` submits one goal and polls until every one of its tasks reaches a terminal
 `hivemind.brood_chamber.TaskStatus`, or `timeout_s` elapses, forwarding trail events of interest
 to an optional `on_event` callback and syncing any answer `hive inbox answer` left in another
-process (`hivemind.queen.sync_answers_from_chamber`) on every poll. `run_requested_goal` (roadmap
-step 10.3c) asks the Queen for the goal as a durable goal request instead
-(`hivemind.cli.compose.request`) and follows the goal she plans from it the same way.
+process (`hivemind.queen.sync_answers_from_chamber`) on every poll. `run_goal_with` is the same
+run with the goal's terms grouped in a `GoalRun`, which adds the one thing `run_goal` leaves out:
+a capability ceiling (roadmap step 11.12: `hive swarm run` names one device's Cell in it, so the
+goal can be placed nowhere else). `run_requested_goal` (roadmap step 10.3c) asks the Queen for the
+goal as a durable goal request instead (`hivemind.cli.compose.request`) and follows the goal she
+plans from it the same way.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Called by
@@ -44,7 +47,28 @@ from waggle.ids import TaskId
 # against a live SQLite file in production (matches fake_manifest's own short heartbeat interval).
 _POLL_INTERVAL_S = 0.05
 
-__all__ = ["GoalReport", "run_goal", "run_requested_goal"]
+__all__ = ["GoalReport", "GoalRun", "run_goal", "run_goal_with", "run_requested_goal"]
+
+
+@dataclass(frozen=True, slots=True)
+class GoalRun:
+    """How one goal is run (codingrules 5.1's argument group for `run_goal_with`).
+
+    Attributes:
+        clearance: The goal's own data-sensitivity ceiling.
+        timeout_s: The most wall time (on `hive.clock.monotonic()`) to poll before giving up,
+            planning included.
+        on_event: Called with every new trail event of interest, oldest first, as it lands; None
+            forwards nothing.
+        capabilities: The goal's capability ceiling, which every planned task carries (roadmap
+            step 10.3); None for the operator's own local path, which has no ceiling. `hive swarm
+            run` names the one device's Cell here, so the goal can be placed nowhere else.
+    """
+
+    clearance: HoneyClearance
+    timeout_s: float
+    on_event: Callable[[PheromoneEvent], None] | None = None
+    capabilities: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,13 +122,33 @@ async def run_goal(
         A GoalReport: `succeeded` is True only when every task reached SUCCEEDED before the
         timeout.
     """
+    return await run_goal_with(hive, goal, GoalRun(clearance, timeout_s, on_event))
+
+
+async def run_goal_with(hive: Hive, goal: str, run: GoalRun) -> GoalReport:
+    """Submit `goal` under `run`'s terms and poll until its tasks are terminal or time runs out.
+
+    `run_goal` with the goal's capability ceiling as well: the same submission, the same poll,
+    the same report. Must be called inside a `run_hive` block.
+
+    Args:
+        hive: A Hive whose Queen and Warden are running (inside an `async with run_hive(hive):`).
+        goal: The goal text, as the human stated it.
+        run: The clearance, the budget, the event hook and the ceiling.
+
+    Returns:
+        A GoalReport: `succeeded` is True only when every task reached SUCCEEDED before the
+        timeout.
+    """
     clock = hive.clock
     # The deadline runs from here, before planning: submit_goal's own model call can take
     # minutes on a local model, and "never blocks past timeout_s" (module docstring) has to
     # include it.
     submission = _Submission(start=clock.monotonic(), at=clock.now())
-    goal_id = await hive.queen.submit_goal(goal, clearance=clearance)
-    return await _follow(hive, goal_id, timeout_s, on_event, submission)
+    goal_id = await hive.queen.submit_goal(
+        goal, clearance=run.clearance, capabilities=run.capabilities
+    )
+    return await _follow(hive, goal_id, run.timeout_s, run.on_event, submission)
 
 
 async def run_requested_goal(

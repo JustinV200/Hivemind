@@ -26,11 +26,27 @@ See Also:
 Public API:
     - Hive, build_hive: every collaborator a running Hive has, and the one way to build them.
     - run_hive: run a built Hive for the length of an `async with` block.
-    - GoalReport, run_goal, run_requested_goal: run one goal to its end and report how it went.
+    - GoalReport, GoalRun, run_goal, run_goal_with, run_requested_goal: run one goal to its end and
+      report how it went (`GoalRun` adds a capability ceiling to `run_goal`'s terms).
 """
 
 from hivemind.cli.compose.hive.build import Hive, build_hive
-from hivemind.cli.compose.hive.goals import GoalReport, run_goal, run_requested_goal
+from hivemind.cli.compose.hive.goals import (
+    GoalReport,
+    GoalRun,
+    run_goal,
+    run_goal_with,
+    run_requested_goal,
+)
 from hivemind.cli.compose.hive.run import run_hive
 
-__all__ = ["GoalReport", "Hive", "build_hive", "run_goal", "run_hive", "run_requested_goal"]
+__all__ = [
+    "GoalReport",
+    "GoalRun",
+    "Hive",
+    "build_hive",
+    "run_goal",
+    "run_goal_with",
+    "run_hive",
+    "run_requested_goal",
+]

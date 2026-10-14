@@ -260,7 +260,7 @@ def test_describe_unwraps_a_task_group_to_the_cause_an_operator_can_act_on() -> 
     """
     group = ExceptionGroup("unhandled errors in a TaskGroup", [ValueError("model not found")])
 
-    described = run_module._describe(group)
+    described = run_module.describe_failure(group)
 
     assert described == "ValueError: model not found"
 
@@ -269,7 +269,7 @@ def test_describe_joins_every_cause_in_a_nested_group() -> None:
     inner = ExceptionGroup("inner", [KeyError("missing"), RuntimeError("stopped")])
     outer = ExceptionGroup("outer", [inner])
 
-    described = run_module._describe(outer)
+    described = run_module.describe_failure(outer)
 
     assert "KeyError" in described
     assert "RuntimeError: stopped" in described
@@ -298,7 +298,7 @@ def test_a_task_waiting_for_the_host_streams_a_deferral_line(
     task_id = new_task_id(FakeClock())
     event = _denial(task_id, deferred=True, limited_by="free_cores", patience_s=300.0)
 
-    run_module._print_event(event)
+    run_module.print_event(event)
 
     line = capsys.readouterr().out
     assert f"forage.denied  {task_id}  deferred: waiting for free_cores" in line
@@ -312,7 +312,7 @@ def test_a_task_waiting_for_its_own_goal_streams_when_its_wait_ends(
         new_task_id(FakeClock()), deferred=True, limited_by="goal_bees", patience_s=None
     )
 
-    run_module._print_event(event)
+    run_module.print_event(event)
 
     assert "until one of its goal's running tasks finishes" in capsys.readouterr().out
 
@@ -320,8 +320,8 @@ def test_a_task_waiting_for_its_own_goal_streams_when_its_wait_ends(
 def test_a_denial_streams_the_limit_to_blame(capsys: pytest.CaptureFixture[str]) -> None:
     grant_id = new_grant_id(FakeClock())
 
-    run_module._print_event(_denial(grant_id, deferred=False, limited_by="seats"))
-    run_module._print_event(_denial(grant_id, deferred=False, limited_by=None))
+    run_module.print_event(_denial(grant_id, deferred=False, limited_by="seats"))
+    run_module.print_event(_denial(grant_id, deferred=False, limited_by=None))
 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].endswith(f"forage.denied  {grant_id}  denied: seats")

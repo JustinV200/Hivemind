@@ -3,9 +3,11 @@
 `hive cells list --manifest hive.toml [--json]` builds only as much of a Hive as `hivemind.cell.
 local.HiveStandSource.cells` needs -- the Hive Stand's own config, never a full `hivemind.cli.
 compose.build_hive` -- and prints one row per Cell it reports: id, name, source, kind, access
-level, Comb Shield tier, capabilities and capacity. v0 has exactly one Cell (the Hive Stand's own);
-this command's own row shape already covers a Swarm-sourced Cell too (`hivemind.swarm`, a later
-phase), since `hivemind.cell.Cell` makes no distinction a reader of this table would need to see.
+level, Comb Shield tier, capabilities and capacity. The Hive Stand's own Cell is always there; with
+`[swarm] enabled` every enrolled device that is not revoked follows it as a Real Cell of source
+`swarm` (roadmap step 11.12), read from the swarm registry and the trail by `hivemind.cli.swarm.
+cells`, with the three columns only a Swarm Cell fills: where its Warden runs (`hive_stand` at
+GATEWAY, `on_cell` once colonized), the rung of the runtime ladder, and the Warden's mode.
 `hive cells leavings list|remove` (roadmap step 5.0a) is nested here as `hivemind.cli.readback.
 leavings.app`, the same way a Typer sub-app nests under any other group; `hive cells isolate|lift`
 (roadmap step 10.6, `hivemind.cli.readback.isolation`) are merged in at this level.
@@ -14,12 +16,14 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
     console script (`hivemind.cli.app`). Calls into `hivemind.cell`, `hivemind.cell.leavings`
     (`InMemoryLeavingsStore`, roadmap step 5.0a), `hivemind.cli.compose.deps`
-    (`build_hive_stand_source`), `hivemind.cli.readback.leavings` and `hivemind.cli.stores` only.
+    (`build_hive_stand_source`), `hivemind.cli.readback.leavings`, `hivemind.cli.stores` and
+    `hivemind.cli.swarm.cells` (the Swarm's Cells) only.
 
 Key invariants:
     - `list` never leases a Cell: `cells()` only reads capabilities and live capacity, the same
       read `hivemind.wardens.warden.Warden.start` makes before actually leasing, and its
-      throwaway `InMemoryLeavingsStore` never touches the real Leavings ledger file either.
+      throwaway `InMemoryLeavingsStore` never touches the real Leavings ledger file either. A
+      Swarm Cell is read from the registry and the trail and is never contacted.
     - `--json` prints one array element per Cell with the same fields the table shows, never a
       raw `Cell.model_dump()` (codingrules section 12 style: identifiers and sizes, not internals
       like `RealCellLease`-shaped detail this command never touches in the first place).
@@ -47,6 +51,7 @@ from hivemind.cli.readback.isolation import app as isolation_app
 from hivemind.cli.readback.leavings import app as leavings_app
 from hivemind.cli.readback.virtual import app as virtual_app
 from hivemind.cli.stores import DEFAULT_MANIFEST, JsonOption, ManifestOption, load_manifest_or_exit
+from hivemind.cli.swarm.cells import SwarmCellFacts, read_swarm_cells
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock, SystemClock
@@ -85,17 +90,33 @@ class _CellRow(BaseModel):
     memory_free_bytes: int = Field(description="Free memory, in bytes, right now.")
     disk_free_bytes: int = Field(description="Free disk, in bytes, right now.")
     enabled: bool = Field(
-        description="Whether this Cell may currently be leased (the Hive Stand's own "
-        "`[hive_stand] enabled`; always True for a Swarm Cell, a later phase's own concern)."
+        description="Whether this Cell may currently be leased: the Hive Stand's own "
+        "`[hive_stand] enabled`, or for a Swarm Cell whether its device is ONLINE."
+    )
+    warden_runs: str | None = Field(
+        description="Where its Warden runs: `hive_stand`, or `on_cell` (a Swarm device whose "
+        "Warden has moved onto it); null when not tracked."
+    )
+    level: str | None = Field(
+        description="A Swarm Cell's rung of the runtime ladder (GATEWAY, COLONIZED or NUC); null "
+        "for the Hive Stand."
+    )
+    mode: str | None = Field(
+        description="A Swarm Cell's Warden mode from the newest `warden.*` mode edge on the "
+        "trail: ACTIVE, WATCH, OFFLINE or UNKNOWN; null for the Hive Stand."
     )
 
 
 @app.command("list")
 def list_command(manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False) -> None:
-    """List every Cell the Hive Stand (and, later, the Swarm) can currently offer."""
+    """List every Cell the Hive Stand and the Swarm (enrolled devices) can currently offer."""
     loaded = load_manifest_or_exit(manifest)
     cells = asyncio.run(_read_cells(loaded))
-    rows = tuple(_cell_row(cell, enabled=loaded.hive_stand.enabled) for cell in cells)
+    # The Hive Stand's own Cell first, then each enrolled device (nothing when the Swarm is off).
+    rows = (
+        *(_cell_row(cell, enabled=loaded.hive_stand.enabled) for cell in cells),
+        *(_swarm_row(facts) for facts in read_swarm_cells(loaded)),
+    )
     if as_json:
         typer.echo(json.dumps([row.model_dump(mode="json") for row in rows], indent=2))
         return
@@ -113,7 +134,25 @@ async def _read_cells(manifest: HiveManifest) -> tuple[Cell, ...]:
 
 
 def _cell_row(cell: Cell, *, enabled: bool) -> _CellRow:
-    """Build one `hive cells list` row from a Cell."""
+    """Build the row of a Cell the Hive Stand reports: its Warden runs on the Hive Stand."""
+    return _row(cell, enabled=enabled, warden_runs="hive_stand", level=None, mode=None)
+
+
+def _swarm_row(facts: SwarmCellFacts) -> _CellRow:
+    """Build the row of an enrolled device: its Cell, plus where its Warden runs and its mode."""
+    return _row(
+        facts.cell,
+        enabled=facts.is_online,
+        warden_runs=facts.warden_runs,
+        level=facts.level.value,
+        mode=facts.mode,
+    )
+
+
+def _row(
+    cell: Cell, *, enabled: bool, warden_runs: str | None, level: str | None, mode: str | None
+) -> _CellRow:
+    """Build one `hive cells list` row from a Cell and the columns only some Cells fill."""
     capacity = cell.capacity.host
     return _CellRow(
         id=cell.id,
@@ -128,18 +167,23 @@ def _cell_row(cell: Cell, *, enabled: bool) -> _CellRow:
         memory_free_bytes=capacity.memory_free_bytes,
         disk_free_bytes=capacity.disk_free_bytes,
         enabled=enabled,
+        warden_runs=warden_runs,
+        level=level,
+        mode=mode,
     )
 
 
 def _print_table(rows: tuple[_CellRow, ...]) -> None:
     """Print one fixed-width table row per Cell."""
     typer.echo(
-        f"{'ID':<30}  {'NAME':<14}  {'SOURCE':<10}  {'KIND':<8}  {'ACCESS':<10}  "
-        f"{'SHIELD':<10}  {'DISPLAY':<7}  {'BROWSER':<7}  {'CORES':>5}  ENABLED"
+        f"{'ID':<31}  {'NAME':<14}  {'SOURCE':<10}  {'KIND':<8}  {'ACCESS':<10}  "
+        f"{'SHIELD':<10}  {'WARDEN':<10}  {'LEVEL':<10}  {'MODE':<8}  {'DISPLAY':<7}  "
+        f"{'BROWSER':<7}  {'CORES':>5}  ENABLED"
     )
     for row in rows:
         typer.echo(
-            f"{row.id:<30}  {row.name:<14}  {row.source:<10}  {row.kind:<8}  "
-            f"{row.access_level:<10}  {row.comb_shield:<10}  {row.has_display!s:<7}  "
+            f"{row.id:<31}  {row.name:<14}  {row.source:<10}  {row.kind:<8}  "
+            f"{row.access_level:<10}  {row.comb_shield:<10}  {(row.warden_runs or '-'):<10}  "
+            f"{(row.level or '-'):<10}  {(row.mode or '-'):<8}  {row.has_display!s:<7}  "
             f"{row.has_browser!s:<7}  {row.cores:>5}  {row.enabled}"
         )

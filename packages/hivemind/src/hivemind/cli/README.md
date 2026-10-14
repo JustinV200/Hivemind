@@ -719,3 +719,47 @@ machine's private address in `lan`, with a goal run over mutual TLS) and
 criterion: a laptop enrols, is approved, runs a goal a real Queen plans and a Drone finishes while
 `hive inbox --remote` answers its question, and requests without credentials, with a stolen token,
 replayed, and from the laptop pending, locked and revoked are refused.
+
+## Command groups (phase 11 step 11.12)
+
+- `swarm/` -- `hive swarm [--manifest hive.toml] COMMAND`, the operator's side of the Swarm (the
+  enrolled devices, each a Real Cell the Hive borrows). `invite [--access read_only|scratch|full]
+  [--shield meadow|propolis] [--label NAME]` mints through an `EnrolmentDoor` that
+  `compose/swarm/door.py` builds from the manifest, the same builder the running Hive's door uses
+  (the address from `[swarm]`, the Hive key from the secret store, the listener certificate's pin),
+  so an invite from the command and one from `hive serve` cannot disagree. It prints the `pollen1.`
+  string alone on stdout, once, and the summary around it on stderr, so `hive swarm invite >
+  invite.txt` captures only the secret. `list [--json]` prints device id, label, Cell, level (and
+  the level it was asked to move to), status, access, tier and last seen. `revoke NODE`, `access
+  NODE LEVEL` and `shield NODE meadow|propolis` write the registry and leave their trail event
+  (`night_veil` is refused with the reason: it exists only for Virtual Cells). `promote NODE` and
+  `demote NODE` set `desired_level` one rung up or down (`GATEWAY` to `NUC` is refused with the
+  reason) and record nothing: the Queen's swarm gate acts on the wish and records the move itself.
+  NODE is a device id, a Cell id or a unique label. Every write is a call to
+  `hivemind.swarm.operator.OperatorDesk`; the modules here parse, call and render. A running Hive
+  reconciles from the registry on its next beat, so none of these needs `hive serve` stopped
+  except `run`.
+- `swarm run NODE "GOAL" [--clearance C0|C1|C2] [--timeout S]` is `hive run` with a ceiling. It
+  builds the Hive as `hive run` does and submits the goal (`run_goal_with`, with a `GoalRun`) under
+  a capability ceiling that names `cell:real:<cell_id>` and the families a Worker needs on a
+  device (`swarm/pinned.py`), so placement can choose that device's Cell and no other: the Hive
+  Stand's Cell is refused. It waits for the device's link first and says which device did not
+  connect. There is no `--remote`: a remote goal cannot name a Cell, because the Landing Board
+  derives a goal's ceiling from the submitting device's approved capabilities, and the help says
+  so. The Hive it builds listens on `[swarm]`'s port, so any `hive run` or `hive serve` on the
+  manifest must be stopped first. `run.py` exports `print_event`, `print_summary` and
+  `describe_failure` for it, so its output and exit codes are `hive run`'s.
+- `hive cells list` (`readback/cells.py`) also lists the Swarm's Cells, read from the registry and
+  the trail by `swarm/cells.py` and never contacted: kind REAL, source `swarm`, the Warden's
+  location (`hive_stand` at GATEWAY, `on_cell` once COLONIZED or NUC, the rule the Fleet view's
+  `warden_runs` uses), the rung, the access level, the tier, and a mode from the newest `warden.*`
+  edge on the trail (ACTIVE, WATCH, OFFLINE, or UNKNOWN when there is none).
+
+How to test it: `tests/unit/cli/swarm/` (each command through `CliRunner` over a temporary manifest
+and database; the invite string is parsed with `hivemind.swarm.parse_invite_string`;
+`test_pinned.py` shows the ceiling stays inside the operator's role and above every Worker role's
+defaults, and that the Hive Stand's Cell is refused), `tests/unit/swarm/operator/` (the desk and
+the event each write leaves), `tests/unit/cli/compose/swarm/test_door.py` (both doors put the same
+address in an invite) and `tests/e2e/test_swarm_cli.py` (a real packet, the commands as an operator
+types them, and a goal that runs only on the device).
+

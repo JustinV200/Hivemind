@@ -12,8 +12,9 @@ Fits into the Hive:
     console script. Calls into hivemind.cli.version, hivemind.cli.tasks, hivemind.cli.trail,
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
     hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
-    hivemind.cli.recordings, hivemind.cli.honey and hivemind.cli.serve (`hive serve`, roadmap
-    step 10.5) now; later phases add entrance and friends through their own public APIs.
+    hivemind.cli.recordings, hivemind.cli.honey, hivemind.cli.serve (`hive serve`, roadmap
+    step 10.5) and hivemind.cli.swarm (`hive swarm`, step 11.12) now; later phases add friends
+    through their own public APIs.
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -37,6 +38,7 @@ See Also:
       half adds, and hivemind.cli.compose for the composition root they are built on.
     - hivemind.cli.recordings for `hive recordings`, the flight recorder's reader (step 6.6).
     - hivemind.cli.tools and hivemind.cli.basket for `hive tools` and `hive basket` (step 9.10).
+    - hivemind.cli.swarm for `hive swarm` (step 11.12).
 """
 
 from __future__ import annotations
@@ -65,6 +67,7 @@ from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_comman
 from hivemind.cli.remote import app as remote_app
 from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
+from hivemind.cli.swarm import app as swarm_app
 from hivemind.cli.version import collect_version_info, format_version
 from hivemind.common.logging import configure_logging
 from hivemind.manifest.env import read_env
@@ -143,6 +146,10 @@ app.add_typer(keys_app, name="keys")
 # retire|rollback|quarantine`), and the Basket (`hive basket list|show|deposit|ship|evict|retire`).
 app.add_typer(tools.app, name="tools")
 app.add_typer(basket.app, name="basket")
+# Roadmap step 11.12: the Swarm's terminal -- `hive swarm invite|list|revoke|access|shield|
+# promote|demote|run`. Every one but `run` only writes the Hive's database, which a running Hive
+# reads on its next beat; `hive cells list` shows the enrolled devices beside the Hive Stand.
+app.add_typer(swarm_app, name="swarm")
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
