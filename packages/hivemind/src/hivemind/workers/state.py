@@ -5,7 +5,8 @@ of states from being spawned to a terminal outcome. This module is the state mac
 section 9 requires for every machine in the Hive: one `Enum` (`WorkerState`) plus one transition
 table (`TRANSITIONS`), each allowed edge commented with who causes it, tested edge by edge
 (codingrules Appendix C, the "Worker" row: "`SPAWNED -> RUNNING -> DONE / FAILED / KILLED`;
-`RUNNING <-> HANDING_OFF` (reset, rebind, migrate); `RUNNING <-> PAUSED`"). `WorkerState` also
+`RUNNING <-> HANDING_OFF` (reset, rebind, migrate); `RUNNING <-> PAUSED`; `PAUSED -> DONE /
+FAILED` (a role that ends while held)"). `WorkerState` also
 mirrors `waggle.messages.supervision.WorkerState` member for member (codingrules section 6.1: "a
 hivemind mirror of waggle's label enums" carries `from_wire`/`to_wire`), because the same states
 travel on `Heartbeat` and `ChildTelemetry`. Nothing else in the Hive decides whether a Worker
@@ -110,9 +111,16 @@ TRANSITIONS: Mapping[WorkerState, frozenset[WorkerState]] = {
             WorkerState.KILLED,  # TaskCancel arrived while the checkpoint was being written.
         }
     ),
+    # PAUSED holds the role at its next wait_if_paused(), not at the instant TaskPause arrived: a
+    # role already inside a model call or a tool keeps running until it gets there, and that call
+    # can end it. Its end is the role's own event, not the supervisor's, so it is reported as it
+    # would be from RUNNING; refusing the edge killed the runtime instead and stored the error in
+    # its task (Isolation cutting a Cell's egress under a call in flight did exactly that).
     WorkerState.PAUSED: frozenset(
         {
             WorkerState.RUNNING,  # TaskResume.
+            WorkerState.DONE,  # The role returned WorkerOutcome(claimed=True) while held.
+            WorkerState.FAILED,  # The role's coroutine raised while held (a call that failed).
             WorkerState.KILLED,  # TaskCancel arrived while paused.
         }
     ),

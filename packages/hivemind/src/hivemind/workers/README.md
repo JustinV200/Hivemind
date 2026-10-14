@@ -14,7 +14,8 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   onto the CLAIMED `TaskResult`; `None` for every other role.
 - `state.py` -- `WorkerState` and its one transition table (codingrules Appendix C's "Worker"
   row): `SPAWNED -> RUNNING -> DONE/FAILED/KILLED`, `RUNNING <-> HANDING_OFF`,
-  `RUNNING <-> PAUSED`. Mirrors `waggle.messages.supervision.WorkerState` member for member.
+  `RUNNING <-> PAUSED`, and `PAUSED -> DONE/FAILED` for a role that ends before it reaches the
+  wait a pause holds it at. Mirrors `waggle.messages.supervision.WorkerState` member for member.
 - `context.py` -- `WorkerContext` (everything a role may use; never a provider, a subprocess
   handle, or the Cell's kind), `GrantSlice` (one Worker's share of a Warden's `ForageGrant`) and
   `QuestionChannel` (ask a blocking Question, get its Answer). Since roadmap step 3.16,

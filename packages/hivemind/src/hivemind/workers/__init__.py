@@ -51,8 +51,8 @@ Public API (roadmap 3.15):
       (hivemind.workers.nectar, roadmap 7.8).
     - TelemetryTracker: the mutable per-Worker telemetry a role writes (hivemind.workers.telemetry).
     - worker_capabilities: a Worker's strict CapabilitySet slice (hivemind.workers.capabilities).
-    - WorkerError, InvalidWorkerTransitionError, WorkerCancelledError, GuardBeeError,
-      GuardRulesError: this subsystem's error tree (hivemind.workers.errors).
+    - WorkerError, InvalidWorkerTransitionError, WorkerCancelledError, WorkerRuntimeError,
+      GuardBeeError, GuardRulesError: this subsystem's error tree (hivemind.workers.errors).
     - RuntimeDeps, WorkerRuntime: the Worker runtime itself (hivemind.workers.runtime).
 """
 
@@ -65,6 +65,7 @@ from hivemind.workers.errors import (
     InvalidWorkerTransitionError,
     WorkerCancelledError,
     WorkerError,
+    WorkerRuntimeError,
 )
 from hivemind.workers.nectar import DepositMeta, split_deposit
 from hivemind.workers.runtime import RuntimeDeps, WorkerRuntime
@@ -94,6 +95,7 @@ __all__ = [
     "WorkerError",
     "WorkerOutcome",
     "WorkerRuntime",
+    "WorkerRuntimeError",
     "WorkerState",
     "assert_transition",
     "can_transition",

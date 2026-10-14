@@ -51,6 +51,11 @@ Key invariants:
       whose lever the Hive does not model is refused the same way, never read as a cancel.
     - `stop()` (TickLoop's own) always ends with `Mailbox.aclose()` having run exactly once,
       whether `stop()` was called by this runtime's owner or the transport ended on its own.
+    - `run()` ends only by `stop()`, a cancellation, or a `WorkerRuntimeError` chained to whatever
+      escaped the loop: the task a Warden reaps never stores any other error, so a bee's death
+      cannot end the Warden that supervises it.
+    - A role that ends while this Worker is PAUSED (a call that was in flight when the pause
+      arrived) is reported as it would be from RUNNING, because the state table has those edges.
     - Every pending Alarm noted before a terminal WorkerState transition, or before `run()` is
       about to return, has been flushed by the time that transition or return happens (this
       dispatch's own fix 2): `_send_pending_alarms` is the one function every flush call site
@@ -86,7 +91,7 @@ from hivemind.supervision.intervention import Handoff as HandoffLever
 from hivemind.supervision.intervention import from_wire as intervention_from_wire
 from hivemind.workers.base import Worker
 from hivemind.workers.context import WorkerContext
-from hivemind.workers.errors import InvalidWorkerTransitionError
+from hivemind.workers.errors import InvalidWorkerTransitionError, WorkerRuntimeError
 from hivemind.workers.runtime.attempt import AttemptManager, begin_attempt
 from hivemind.workers.runtime.deps import RuntimeDeps
 from hivemind.workers.runtime.honey import MailboxHoneyChannel
@@ -155,6 +160,28 @@ class WorkerRuntime(TickLoop):
     def state(self) -> WorkerState:
         """This Worker's current WorkerState."""
         return self._reporter.state
+
+    async def run(self) -> None:
+        """Run this Worker's loop until `stop()`; anything else that ends it is a typed error.
+
+        Raises:
+            WorkerRuntimeError: An error escaped the loop (a bug in the runtime, or a trail or
+                store that failed under it). It is chained to the original and carries the state
+                the Worker was in, so the Warden that finds it stored in this task catches it
+                by name and carries on, instead of being ended by what one bee did.
+        """
+        try:
+            await super().run()
+        except Exception as error:  # SAFETY: one of the three places codingrules section 10 allows
+            # a broad catch (the top of a Worker's run loop). It re-raises as a typed error with
+            # the cause chained, never swallows, and is logged here with ids and the class only.
+            log.error(
+                "workers.runtime.crashed",
+                worker_id=self._ctx.worker_id,
+                state=self.state.value,
+                error=type(error).__name__,
+            )
+            raise WorkerRuntimeError(self._ctx.worker_id, self.state) from error
 
     # ──────────────────────────────────────────────────────────────────────────
     # The tick: race the next envelope, the heartbeat deadline, the attempt's own

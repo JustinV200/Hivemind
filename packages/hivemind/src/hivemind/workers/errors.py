@@ -8,18 +8,21 @@ stopped a role's own coroutine because the task was cancelled (`WorkerCancelledE
 polls it between turns notices a pending cancellation as a typed error rather than hanging until
 `hivemind.workers.runtime` force-cancels its asyncio task after the grace period. Every subsystem
 roots its own error tree at `hivemind.common.errors.HiveMindError` (codingrules section 10); this
-module is `hivemind.workers`'s own root plus its two specific subclasses. Roadmap step 10.6 adds the
-Guard Bee's (the Hive's security watcher, run on the Queen's tick rather than by a Warden) two:
-`GuardBeeError`, what one of its rounds failing becomes so the Queen's tick can log it and carry on,
-and `GuardRulesError`, its rule data or a manifest override of it not making a valid rule.
+module is `hivemind.workers`'s own root plus its specific subclasses. `WorkerRuntimeError` is
+what a runtime that ends by anything but a stop becomes, so the Warden that reaps it can catch it
+by name instead of being ended by it. Roadmap step 10.6 adds the Guard Bee's (the Hive's security
+watcher, run on the Queen's tick rather than by a Warden) two: `GuardBeeError`, what one of its
+rounds failing becomes so the Queen's tick can log it and carry on, and `GuardRulesError`, its
+rule data or a manifest override of it not making a valid rule.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Raised by `hivemind.workers.state.assert_transition` and
     `hivemind.workers.telemetry.TelemetryTracker`; caught by `hivemind.workers.runtime` (the
     WorkerRuntime, roadmap step 3.15) so one bad wire message or one deliberate cancellation never
-    crashes the whole runtime. `GuardBeeError` and `GuardRulesError` are raised by
-    `hivemind.workers.roles.guard_bee` and caught by `hivemind.queen.ticks.guard_bee` (a round) or
-    left to stop the Hive at start (the rules). Calls into `hivemind.common.errors` only.
+    crashes the whole runtime. `WorkerRuntimeError` is raised by that runtime's own run loop and
+    caught by `hivemind.wardens.spawn.stop_sub_bee`. `GuardBeeError` and `GuardRulesError` are
+    raised by `hivemind.workers.roles.guard_bee` and caught by `hivemind.queen.ticks.guard_bee` (a
+    round) or left to stop the Hive at start (the rules). Calls into `hivemind.common.errors` only.
 
 Key invariants:
     - Every WorkerError subclass sets its own `code`; none shares a code with another.
@@ -51,6 +54,7 @@ __all__ = [
     "InvalidWorkerTransitionError",
     "WorkerCancelledError",
     "WorkerError",
+    "WorkerRuntimeError",
 ]
 
 
@@ -121,6 +125,35 @@ class WorkerCancelledError(WorkerError):
         """
         super().__init__(f"Worker run was cancelled: {reason}")
         self.reason = reason
+
+
+class WorkerRuntimeError(WorkerError):
+    """Raise when a Worker's runtime ends by anything but a stop: what its Warden finds stored.
+
+    A `hivemind.workers.runtime.WorkerRuntime` runs as a task its Warden owns and reaps when it
+    retires the bee. An error that escapes the runtime's loop (a bug in it, a trail or store that
+    failed under it) is stored in that task until the Warden awaits it, and the Warden's own loop
+    must never end on what a bee did. So the top of the Worker's run loop converts whatever
+    escapes it into this one typed error, chained to the original, which
+    `hivemind.wardens.spawn.stop_sub_bee` catches by name and logs.
+    """
+
+    code: ClassVar[str] = "hivemind.workers.runtime_failed"
+
+    def __init__(self, worker_id: str, state: WorkerState) -> None:
+        """Build the error for a runtime that ended without being stopped.
+
+        Args:
+            worker_id: The Worker whose runtime ended.
+            state: The state its machine was in when it did, so the failure is debuggable without
+                a stack trace.
+        """
+        super().__init__(
+            f"The runtime of {worker_id} ended in {state.name} on an error it did not handle: "
+            "its role and its link to the Warden are gone."
+        )
+        self.worker_id = worker_id
+        self.state = state
 
 
 class GuardBeeError(WorkerError):

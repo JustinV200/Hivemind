@@ -196,3 +196,12 @@ recorded as an install setting, and the Queen's and the device's signers; it ret
 `install_runtime` makes the runtime environment a finished PREPARE leaves, out of this workspace's
 own interpreter and its `hivemind-in-cell` console script (`warden_script()` finds it), so a Warden
 the packet starts from it is the real one. Used by the two `contracts/test_pollen_warden_*` tests.
+
+## `trail_faults.py` (a bee's runtime dying under its Warden)
+
+`FailingTrail(clock, failing_kind, times=1)` is an in-memory Pheromone Trail that raises `OSError`
+the first `times` it is asked to record one named kind of event (a full disk, say), and records
+everything else as usual; `failures` counts the raises. Passed as a Worker's `trail` or as
+`make_warden_deps(trail=...)`, it kills one bee's runtime on `worker.started` and lets the next one
+live, which is how `unit/wardens/test_warden_runtime_death.py` and `unit/workers/runtime/
+test_loop_paused.py` get a runtime that ends on an error it did not handle.
