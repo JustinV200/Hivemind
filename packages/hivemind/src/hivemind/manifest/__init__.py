@@ -46,11 +46,14 @@ Public API:
       QuarantineLimitsSection, SandboxKind, BasketSection (phase 9), SwarmSection,
       SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection (phase 11).
     - Loading (`hivemind.manifest.loader`): load_manifest.
+    - The device manifest (`hivemind.manifest.device`, roadmap step 11.6a): DeviceManifest and
+      load_device_manifest, the `[llm]`-only file a colonized Swarm device's Warden reads.
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
 """
 
+from hivemind.manifest.device import DeviceManifest, load_device_manifest
 from hivemind.manifest.env import (
     EnvOverrides,
     InCellEnv,
@@ -116,6 +119,7 @@ __all__ = [
     "BroodChamberSection",
     "CapabilityOverrides",
     "ClearanceMatrix",
+    "DeviceManifest",
     "EntranceExposure",
     "EntranceSection",
     "EnvOverrides",
@@ -159,6 +163,7 @@ __all__ = [
     "VirtualCellsSection",
     "WatchSection",
     "apply_env",
+    "load_device_manifest",
     "load_manifest",
     "provider_api_key",
     "read_env",

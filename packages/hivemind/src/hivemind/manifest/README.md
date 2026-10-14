@@ -28,9 +28,18 @@ enums rather than the hivemind-side mirrors those two packages own.
 - **Loading** (`hivemind.manifest.loader`): `load_manifest(path, environ=None) -> HiveManifest`.
   Raises `ManifestError` naming the file and, for a validation failure, every field's dotted
   location.
+- **The device manifest** (`hivemind.manifest.device`, roadmap step 11.6a): `DeviceManifest` and
+  `load_device_manifest(path)`. The small file a colonized Swarm device's Warden reads: one
+  section, `[llm]`, in the Hive Manifest's own shape (so every slot-table rule below holds), and
+  nothing else (any other section is refused). `docs/manifests/device.toml` is the annotated
+  example.
 - **Environment** (`hivemind.manifest.env`), the one place `HIVEMIND_*` is read: `EnvOverrides`,
   `read_env(environ) -> EnvOverrides`, `apply_env(manifest, overrides) -> HiveManifest`,
-  `provider_api_key(name, spec, environ) -> SecretStr | None`.
+  `provider_api_key(name, spec, environ) -> SecretStr | None`, and `InCellEnv`/`read_in_cell_env`
+  for the in-Cell Warden, which since step 11.6a also carries the seven variables the Pollen
+  Packet gives a colonized device's Warden (`HIVEMIND_CELL_LEASE=borrowed`, `HIVEMIND_WARDEN_ID`,
+  `HIVEMIND_NODE_ID`, `HIVEMIND_ACCESS_LEVEL`, `HIVEMIND_STATE_DIR`, `HIVEMIND_TLS_PIN`,
+  `HIVEMIND_DEVICE_MANIFEST`).
 - **Errors** (`hivemind.manifest.errors`): `ManifestError(ConfigurationError)`.
 
 ### The slot-table validators (`LlmSection`)

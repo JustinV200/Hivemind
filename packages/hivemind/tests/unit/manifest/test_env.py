@@ -258,6 +258,9 @@ def test_read_in_cell_env_returns_all_none_when_nothing_is_set() -> None:
     assert env.slots_json is None
     assert env.llm_offline is None
     assert env.environ == {}
+    # Roadmap step 11.6a: none of the borrowed-mode variables is set either.
+    assert (env.cell_lease, env.warden_id, env.node_id, env.access_level) == (None,) * 4
+    assert (env.state_dir, env.tls_pin, env.device_manifest) == (None,) * 3
 
 
 def test_read_in_cell_env_reads_every_recognised_variable() -> None:
@@ -318,3 +321,29 @@ def test_read_in_cell_env_reads_key_file_paths_separately_from_inline_values() -
     assert env.signing_key_file == Path("/run/secrets/cell-signing-key")
     assert env.queen_verify_key_hex is None
     assert env.queen_verify_key_file == Path("/run/secrets/queen-verify-key")
+
+
+def test_read_in_cell_env_reads_the_variables_a_packet_gives_a_colonized_wardens() -> None:
+    # Roadmap step 11.6a: the environment pollen.bootstrap hands the Warden it starts; paths come
+    # back as Paths, everything else as the text the packet wrote.
+    env = read_in_cell_env(
+        {
+            "HIVEMIND_CELL_LEASE": "borrowed",
+            "HIVEMIND_WARDEN_ID": "warden_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "HIVEMIND_NODE_ID": "node_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "HIVEMIND_ACCESS_LEVEL": "scratch",
+            "HIVEMIND_STATE_DIR": "/var/lib/pollen/runtime/state",
+            "HIVEMIND_TLS_PIN": "ab" * 32,
+            "HIVEMIND_DEVICE_MANIFEST": "/var/lib/pollen/warden.toml",
+            "HIVEMIND_CELL_SIGNING_KEY_FILE": "/var/lib/pollen/node.ed25519",
+        }
+    )
+
+    assert env.cell_lease == "borrowed"
+    assert env.warden_id == "warden_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    assert env.node_id == "node_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    assert env.access_level == "scratch"
+    assert env.state_dir == Path("/var/lib/pollen/runtime/state")
+    assert env.tls_pin == "ab" * 32
+    assert env.device_manifest == Path("/var/lib/pollen/warden.toml")
+    assert env.signing_key_file == Path("/var/lib/pollen/node.ed25519")

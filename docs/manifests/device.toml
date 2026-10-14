@@ -1,0 +1,97 @@
+# Device manifest: what the Warden on a colonized Swarm device (Level 1 of the runtime ladder,
+# ADR-0052) is configured from. The operator writes it on the device and records its path with
+# `pollen install --warden-manifest <this file>`; the Pollen Packet hands it to the Warden it
+# starts (HIVEMIND_DEVICE_MANIFEST), and nothing else in the Hive reads it.
+#
+# It holds one section, [llm], in exactly the shape the Hive Manifest's own [llm] section has
+# (docs/manifests/full.toml documents every field), so an operator can copy the section from the
+# Hive's manifest and change the base URLs to what the device can reach. Any other section is
+# refused rather than ignored. The rules that keep a Hive Manifest's slot table honest apply here
+# too: every model slot is bound, every binding names a declared provider, and `offline = true`
+# accepts only loopback providers.
+#
+# A provider's API key is never in this file. The Warden reads it from the device's own
+# environment, in the variable the provider names (api_key_env), which the packet inherits from
+# the service that starts it; keys never travel over the wire.
+
+[llm]
+offline = false
+
+# A model source the Hive shares, reachable from this device. The name must match the provider
+# the Hive's grants name (a grant crosses the wire as a provider name, never a URL), so it is
+# resolved here to an address this device can reach.
+[llm.providers.shared]
+kind = "openai_compat"
+base_url = "http://hive-stand.example.lan:1234/v1"
+api_key_env = "HIVEMIND_SHARED_API_KEY"
+timeout_s = 120.0
+seats = 2
+
+# This device's own model server, loopback only. Declared so the Warden can report it to the
+# Queen, who may later promote the device to a Nuc (Level 2) and ask for exactly this server to
+# be started; nothing starts at Level 1.
+[llm.providers.local]
+kind = "openai_compat"
+base_url = "http://127.0.0.1:8081/v1"
+timeout_s = 60.0
+seats = 1
+
+# Every ModelSlot must be bound. A device's bees mostly use the worker and warden slots; the rest
+# are bound too so the table is complete, and only ever called if a grant routes a call here.
+[llm.slots.queen]
+provider = "shared"
+model = "claude-opus-5"
+effort = "HIGH"
+
+[llm.slots.judge]
+provider = "shared"
+model = "claude-opus-5"
+effort = "HIGH"
+
+[llm.slots.attendant]
+provider = "shared"
+model = "claude-haiku-4-5"
+effort = "LOW"
+
+[llm.slots.ripener]
+provider = "shared"
+model = "claude-haiku-4-5"
+effort = "LOW"
+
+[llm.slots.warden]
+provider = "shared"
+model = "claude-sonnet-5"
+effort = "MEDIUM"
+
+[llm.slots.worker]
+provider = "shared"
+model = "claude-sonnet-5"
+effort = "MEDIUM"
+
+[llm.slots.scaffolder]
+provider = "shared"
+model = "claude-sonnet-5"
+effort = "MEDIUM"
+
+[llm.slots.embedder]
+provider = "shared"
+model = "nomic-embed-text"
+effort = "LOW"
+
+[llm.slots.transcriber]
+provider = "shared"
+model = "whisper-large-v3"
+effort = "LOW"
+
+# A model server the Warden may start on this device once it is a Nuc. The table key is the
+# server id the Warden reports in its capacity report; the Queen can only start a server named
+# there. `sources` names the Hive's [forage.map] entries the server may load, which the Hive,
+# not this device, defines.
+[llm.servers.local_llama]
+provider = "local"
+argv = ["llama-server", "--port", "{port}", "--model", "{scratch}/weights/llama-8b.gguf"]
+port = 8081
+health_path = "/models"
+startup_timeout_s = 120.0
+sources = ["local_llama"]
+load_on_start = false

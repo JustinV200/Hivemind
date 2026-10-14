@@ -17,7 +17,9 @@ for a different composition root (roadmap step 5.5): the in-Cell Warden entry po
 (``hivemind.cli.in_cell``) has no Hive Manifest to load inside its Virtual Cell image, so every
 value it needs -- the Queen's Waggle URL, this Cell's own id and signing key, the Queen's verify
 key -- is read here too, into ``InCellEnv``, rather than opening a second `HIVEMIND_*` reading
-site.
+site. Roadmap step 11.6a adds the seven variables the Pollen Packet gives the Warden it starts on a
+colonized device (``HIVEMIND_CELL_LEASE=borrowed`` and the ids, level, state directory, pin and
+manifest it needs), read into the same ``InCellEnv``.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). ``read_env``/``apply_env`` are called by
@@ -269,6 +271,31 @@ class InCellEnv(BaseModel):
         description="HIVEMIND_LOG_LEVEL: read by hivemind.common.logging's setup, the same "
         "variable name (and meaning) EnvOverrides.log_level reads for the Hive Stand.",
     )
+    cell_lease: str | None = Field(
+        default=None,
+        description="HIVEMIND_CELL_LEASE: `borrowed` for the Warden of a colonized Swarm device "
+        "(roadmap step 11.6a), which borrows the machine it runs on; unset means `owned`.",
+    )
+    warden_id: str | None = Field(
+        default=None, description="HIVEMIND_WARDEN_ID: borrowed mode keeps the Warden's id."
+    )
+    node_id: str | None = Field(
+        default=None, description="HIVEMIND_NODE_ID: the device's node id, whose key signs."
+    )
+    access_level: str | None = Field(
+        default=None, description="HIVEMIND_ACCESS_LEVEL: the level the Queen granted the device."
+    )
+    state_dir: Path | None = Field(
+        default=None,
+        description="HIVEMIND_STATE_DIR: where a borrowed Warden keeps its SQLite stores and "
+        "outbox, so a Handoff survives its restart.",
+    )
+    tls_pin: str | None = Field(
+        default=None, description="HIVEMIND_TLS_PIN: the swarm listener's certificate pin."
+    )
+    device_manifest: Path | None = Field(
+        default=None, description="HIVEMIND_DEVICE_MANIFEST: the device's local `[llm]` manifest."
+    )
 
 
 def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
@@ -290,6 +317,8 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
     signing_key_file = environ.get("HIVEMIND_CELL_SIGNING_KEY_FILE")
     verify_key_file = environ.get("HIVEMIND_QUEEN_VERIFY_KEY_FILE")
     scratch_root = environ.get("HIVEMIND_SCRATCH_ROOT")
+    state_dir = environ.get("HIVEMIND_STATE_DIR")
+    device_manifest = environ.get("HIVEMIND_DEVICE_MANIFEST")
     return InCellEnv(
         queen_waggle_url=environ.get("HIVEMIND_QUEEN_WAGGLE_URL"),
         cell_id=environ.get("HIVEMIND_CELL_ID"),
@@ -308,6 +337,13 @@ def read_in_cell_env(environ: Mapping[str, str]) -> InCellEnv:
         llm_offline=_read_offline_flag(environ),
         environ=environ,
         log_level=environ.get("HIVEMIND_LOG_LEVEL"),
+        cell_lease=environ.get("HIVEMIND_CELL_LEASE"),
+        warden_id=environ.get("HIVEMIND_WARDEN_ID"),
+        node_id=environ.get("HIVEMIND_NODE_ID"),
+        access_level=environ.get("HIVEMIND_ACCESS_LEVEL"),
+        state_dir=Path(state_dir) if state_dir is not None else None,
+        tls_pin=environ.get("HIVEMIND_TLS_PIN"),
+        device_manifest=Path(device_manifest) if device_manifest is not None else None,
     )
 
 
