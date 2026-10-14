@@ -22,15 +22,17 @@ the task from it", so its Warden starts that bee in the same slot rather than le
 RUNNING with no bee at all. `LocalRun` marks the one kind of row whose task the Warden asked for
 itself, with no Queen in it (a cut-off Warden's diagnostic Drone, ADR-0056): the bee's ending is
 kept on the row for the Warden to read, and is never accepted, retried or sent up as a task of
-hers.
+hers. `reap_runtime` is how the Warden awaits a row's runtime task on its way out: the one thing
+a runtime that died by itself leaves there, a `WorkerRuntimeError`, is read, logged and let go.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
     by `hivemind.wardens.spawn.spawn.spawn_sub_bee`; read and mutated by
     `hivemind.wardens.warden.Warden` and its `hivemind.wardens.ticks` handlers on every report a
-    sub-bee sends. Calls into `hivemind.cell` (RequestOrigin), `hivemind.exoskeleton`
+    sub-bee sends; `reap_runtime` is called by `stop_sub_bee`. Calls into `hivemind.cell`
+    (RequestOrigin), `hivemind.common` (logging, reap), `hivemind.exoskeleton`
     (ExoskeletonHandle), `hivemind.guard` (CapabilitySet), `hivemind.workers` (WorkerState,
-    WorkerRuntime) and waggle only.
+    WorkerRuntime, WorkerRuntimeError) and waggle only.
 
 Key invariants:
     - `state` only ever moves along `hivemind.workers.state.TRANSITIONS`; a SubBee's own state is
@@ -45,6 +47,9 @@ Key invariants:
       cancel followed: a stop the Queen ordered (Clustering, isolation) is hers to resume.
     - A row with a `local` is never reported to the Queen: its claim and its Alarm stay on the row,
       and the task id it carries is one the Queen has never heard of.
+    - `reap_runtime` raises nothing a runtime stored in its task: a `WorkerRuntimeError` is logged
+      with ids and the class of its cause. The runtime converts everything that escapes its loop
+      into that one error, so nothing else is expected there and anything else would propagate.
 
 See Also:
     - .claude/codingrules.md section 8.5 for the mutable-state-documented-here rule this class
@@ -62,8 +67,11 @@ import asyncio
 from dataclasses import dataclass, field
 
 from hivemind.cell import RequestOrigin
+from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reap
 from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.guard import CapabilitySet
+from hivemind.workers.errors import WorkerRuntimeError
 from hivemind.workers.runtime import WorkerRuntime
 from hivemind.workers.state import WorkerState, is_terminal
 from hivemind.workers.tools.comb import CombToolBundle
@@ -73,7 +81,9 @@ from waggle.messages.supervision import AlarmRaised, ContextTelemetry
 from waggle.messages.task import TaskAssign, TaskResult
 from waggle.transport.memory import MemoryTransport
 
-__all__ = ["LocalRun", "SubBee"]
+__all__ = ["LocalRun", "SubBee", "reap_runtime"]
+
+log = get_logger(__name__)
 
 # Ends a bee with nothing left to send: KILLED (a TaskCancel, a Cancel lever, a lost link) carries
 # no TaskResult or Alarm, and neither does DONE after a stop-handoff (a claimed DONE's TaskResult
@@ -180,3 +190,28 @@ class SubBee:
         """Whether this bee stopped after a handoff its own Warden ordered (module docstring)."""
         # DONE only: a KILLED bee was stopped for good, and a FAILED one is its Alarm's to handle.
         return self.handoff_ordered and self.state is WorkerState.DONE and not self.cancelled
+
+
+async def reap_runtime(sub_bee: SubBee) -> None:
+    """Await `sub_bee`'s runtime task (cancelling it first if it still runs), and let go of its end.
+
+    A runtime that died by itself leaves its error stored in the task its Warden owns, and
+    awaiting the task would raise it into whatever was retiring the bee: the Queen's fresh
+    assignment superseding it, or the Warden stopping. The runtime converts anything that escapes
+    its loop into one `WorkerRuntimeError`, so that is the one thing read here; it is logged with
+    ids and the class of the cause, never its text, and the bee is retired as it would have been.
+
+    Args:
+        sub_bee: The sub-bee whose runtime task to discard; `stop_sub_bee` has already asked the
+            runtime to stop and waited its grace period.
+    """
+    try:
+        await reap(sub_bee.runtime_task)
+    except WorkerRuntimeError as ended:
+        log.warning(
+            "wardens.sub_bee.runtime_failed",
+            worker_id=sub_bee.worker_id,
+            task_id=sub_bee.task_id,
+            code=ended.code,
+            error=type(ended.__cause__).__name__,
+        )

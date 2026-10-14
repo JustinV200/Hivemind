@@ -69,6 +69,10 @@ Key invariants:
     - `stop_sub_bee` never returns with `runtime_task` still pending: a cooperative stop that lands
       within `grace_s` is reaped as a clean finish, one that does not is cancelled and reaped
       instead (codingrules section 11's "never left cancelled-but-unawaited").
+    - `stop_sub_bee` never raises what a bee's runtime left stored in its task: the reap is
+      `hivemind.wardens.spawn.sub_bee.reap_runtime`, which reads a runtime that died by itself
+      (a `WorkerRuntimeError`), logs it and lets it go, so retiring a bee, superseding it or
+      stopping the Warden cannot end the Warden.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "nothing lands uncapped", the rule this function's
@@ -114,7 +118,7 @@ from hivemind.wardens.spawn.route import (
     pick_binding,
     record_routing,
 )
-from hivemind.wardens.spawn.sub_bee import SubBee
+from hivemind.wardens.spawn.sub_bee import SubBee, reap_runtime
 from hivemind.workers import (
     GrantSlice,
     RuntimeDeps,
@@ -395,7 +399,7 @@ async def stop_sub_bee(
     deadline = asyncio.ensure_future(clock.sleep(grace_s))
     await asyncio.wait({sub_bee.runtime_task, deadline}, return_when=asyncio.FIRST_COMPLETED)
     await reap(deadline)
-    await reap(sub_bee.runtime_task)
+    await reap_runtime(sub_bee)
     # Roadmap step 6.4: every retirement passes here, so this is where the task's display, sound
     # server and browser stop; the runtime is already gone, so no tool is still driving them.
     await unequip(sub_bee.exoskeleton)
