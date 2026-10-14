@@ -68,6 +68,8 @@ from waggle.transport.socks import FakeSocksProxy
 
 __all__ = [
     "EVERYTHING",
+    "ONION",
+    "ONION_PORT",
     "NightVeilRun",
     "ProbeFactory",
     "Snapshots",
@@ -81,8 +83,8 @@ __all__ = [
     "watch_teardown",
 ]
 
-_ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion"  # A valid v3 address.
-_ONION_PORT = 8710  # The hidden service's virtual port; the fake Tor maps it to the listener.
+ONION = "7jjm54ntxrtbp4fjhhw2gdk7zz2fshgnubimtmc5dcczncvdfo3lnbid.onion"  # A valid v3 address.
+ONION_PORT = 8710  # The hidden service's virtual port; the fake Tor maps it to the listener.
 _DECISION = '{"action": "RECORD", "reason": "Nothing to decide."}'  # Any awake episode's answer.
 _PLAN = single_haiku_plan("haiku_1.txt")
 _RED = CheckResult(status=CheckStatus.FAIL, detail="no circuit built")
@@ -151,7 +153,7 @@ class NightVeilRun:
         assert self.hive.virtual_cells is not None
         port = urlsplit(self.hive.virtual_cells.listener.uri).port
         assert port is not None
-        self.tor.routes[_ONION] = ("127.0.0.1", port)
+        self.tor.routes[ONION] = ("127.0.0.1", port)
 
     async def rebuilt(self) -> NightVeilRun:
         """A new Hive over the same manifest and stores: a Queen restart, a fresh backend."""
@@ -256,7 +258,7 @@ def _manifest(tmp_path: Path, tor: FakeSocksProxy, tuning: VirtualCellsTuning | 
     profile = (
         "\n[security.tiers.NIGHT_VEIL]\n"
         'egress_profile = "vpn_tor"\ncontrol_channel = "tor_hidden_service"\n'
-        f'hidden_service_address = "{_ONION}:{_ONION_PORT}"\ntor_socks = "{tor.url()}"\n'
+        f'hidden_service_address = "{ONION}:{ONION_PORT}"\ntor_socks = "{tor.url()}"\n'
         'locale_profile = "C.UTF-8"\n'
     )
     with manifest_path.open("a", encoding="utf-8") as handle:

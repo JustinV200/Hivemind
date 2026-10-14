@@ -162,6 +162,10 @@ class ManifestTuning:
             borrowed device is granted the device's free cores, and a container reports its host's
             load average, which a shared build machine does not control; `0` is a bee that costs
             its Cell no core, so the Forage never holds the task back for want of one.
+        max_offline_s: When given, `[supervision] max_offline_s`, the seconds a Warden may stay cut
+            off from the Queen before it clusters fully (the manifest's own default is ten
+            minutes), with a `[supervision.reconnect_budget]` carved out of it at half; omitted
+            writes neither. A Night Veil Cell is told it (roadmap step 10.3a).
     """
 
     worker_fallback: bool = False
@@ -169,6 +173,7 @@ class ManifestTuning:
     heartbeat_interval_s: float | None = None
     watch_table: str = ""
     drone_cpu_cores: float = _DEFAULT_DRONE_CPU_CORES
+    max_offline_s: float | None = None
 
 
 def fake_manifest(
@@ -209,6 +214,7 @@ def fake_manifest(
         heartbeat_interval_s=active_tuning.heartbeat_interval_s,
         watch_table=active_tuning.watch_table,
         drone_cpu_cores=active_tuning.drone_cpu_cores,
+        max_offline_s=active_tuning.max_offline_s,
     )
     manifest_path = tmp_path / "hive.toml"
     manifest_path.write_text(_render(spec), encoding="utf-8")
@@ -229,6 +235,7 @@ class _ManifestSpec:
     heartbeat_interval_s: float | None
     watch_table: str = ""
     drone_cpu_cores: float = _DEFAULT_DRONE_CPU_CORES
+    max_offline_s: float | None = None
 
 
 def _render(spec: _ManifestSpec) -> str:
@@ -244,7 +251,7 @@ def _render(spec: _ManifestSpec) -> str:
         _provider_section(spec.capabilities),
         _slots_section(worker_fallback=spec.worker_fallback),
         _forage_section(spec.drone_cpu_cores),
-        _supervision_section(heartbeat_s, spec.watch_table),
+        _supervision_section(heartbeat_s, spec.watch_table, spec.max_offline_s),
         _memory_section(spec.handoff_threshold),
     ]
     return "\n".join(sections)
@@ -312,17 +319,25 @@ def _forage_section(drone_cpu_cores: float) -> str:
     )
 
 
-def _supervision_section(heartbeat_interval_s: float, watch_table: str = "") -> str:
+def _supervision_section(
+    heartbeat_interval_s: float, watch_table: str = "", max_offline_s: float | None = None
+) -> str:
     """Build `[supervision]`: short heartbeat cadences, and no policy/tiers overrides.
 
     `policy_file` and `capping_tiers_file` are left unset on purpose, which is what a real
     Hive normally does: both loaders then read the tables shipped in
     `hivemind.supervision.defaults`, so these tests run against the same policy and tier
-    table production does.
+    table production does. `max_offline_s`, when given, is written with the reconnect budget
+    carved out of it, which the manifest requires to be shorter than the limit.
     """
     base = (
         f"[supervision]\nheartbeat_interval_s = {heartbeat_interval_s}\nheartbeat_miss_limit = 3\n"
     )
+    if max_offline_s is not None:
+        base += (
+            f"max_offline_s = {max_offline_s}\n\n[supervision.reconnect_budget]\n"
+            f"attempts = 1\nwall_clock_s = {max_offline_s / 2}\n"
+        )
     return f"{base}\n[supervision.watch]\n{watch_table}" if watch_table else base
 
 

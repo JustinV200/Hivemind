@@ -60,6 +60,14 @@ Veil boundary -- Tor's own log is one of the "side channels" `docs/adr/0030` nam
 never writes one in the first place rather than relying on teardown to purge it. `ClientOnly 1`:
 this Cell is a Tor client, never a relay or bridge.
 
+**If Tor dies** (killed, crashed, starved of circuits) while the VPN and the default route stay up,
+the Warden's Waggle link goes with it, and the Cell does not fall back to the VPN tunnel or to any
+address of the Hive Stand: its Warden (`hivemind.cli.in_cell.redial`) goes cut off, redials the
+SOCKS port and only the SOCKS port with capped backoff, and clusters fully once it has been cut off
+for `HIVEMIND_MAX_OFFLINE_S` (the Hive's `[supervision] max_offline_s`, which the backend passes
+through `night-veil-env.sh` like every other `HIVEMIND_*` variable). When Tor answers again it
+announces itself over the onion service once more, and the Queen takes the same Warden back.
+
 ## Boot ordering
 
 systemd units, not a shell script, express the fixed order codingrules section 8.7 requires:

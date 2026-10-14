@@ -21,7 +21,8 @@ See Also:
 
 Public API:
     - NightVeilRun, night_veil_hive, running, watch_teardown, request, abscond, green_probe,
-      red_then_green, EVERYTHING, ProbeFactory, Snapshots, TeardownHook: the Hive (rig).
+      red_then_green, EVERYTHING, ONION, ONION_PORT, ProbeFactory, Snapshots, TeardownHook: the
+      Hive (rig).
     - tasks, succeeded, durable, counted, working, night_veil_cells, world, leaks, kinds_about,
       PURGED: the trail and the chamber, read by id (reads).
     - SnapshotHost, seed, left_about, TASK_WORDS: the other stores, seeded and read (stores).
@@ -41,6 +42,8 @@ from e2e.night_veil_hive.reads import (
 )
 from e2e.night_veil_hive.rig import (
     EVERYTHING,
+    ONION,
+    ONION_PORT,
     NightVeilRun,
     ProbeFactory,
     Snapshots,
@@ -57,6 +60,8 @@ from e2e.night_veil_hive.stores import TASK_WORDS, SnapshotHost, left_about, see
 
 __all__ = [
     "EVERYTHING",
+    "ONION",
+    "ONION_PORT",
     "PURGED",
     "TASK_WORDS",
     "NightVeilRun",

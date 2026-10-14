@@ -777,7 +777,10 @@ this distinction central; the code makes it invisible to Workers.
   Tor process are both active on the same machine — no tunnel topology fixes that, and it is the
   same limit Tor's own threat model excludes (a global passive adversary). The trade is latency and
   connection reliability for Waggle traffic, which Clustering (8.13) and the disconnected-Warden
-  backoff and outbox replay (8.8) already absorb.
+  backoff and outbox replay (8.8) already absorb. When Tor dies under a Night Veil Cell, its Warden
+  does exactly that and nothing else: it goes cut off, redials the SOCKS proxy and only the proxy,
+  and clusters fully past `[supervision] max_offline_s` (`cli/in_cell/redial/`); it never falls
+  back to the VPN tunnel, the default route or any address of the Hive Stand.
 - **Night Veil is location-blind by policy.** A `NIGHT_VEIL` Cell exposes no geolocation path:
   no GPS or host location-service access, no Wi-Fi scan capability, metadata endpoints blocked,
   UTC timezone, fixed locale profile, and randomized hostname per boot.
@@ -862,7 +865,9 @@ human → Queen → Wardens → sub-bees, and one `Supervisor` protocol is used 
   retried with backoff. Shared grants are frozen; new shared Forage, new Cells and human-bound
   questions wait for reconnection. A Level 1 Warden with no local models clusters its sub-bees at
   once and keeps them warm; a Nuc carries on; either clusters fully past the manifest's maximum
-  offline duration (8.13). A device with no local Warden, only a Pollen Packet gateway, runs a
+  offline duration (8.13). A Night Veil Cell's Warden is one too, whose link is its Tor circuit:
+  Tor dying cuts it off, and the Hive tells the Cell its limit (`HIVEMIND_MAX_OFFLINE_S`) because a
+  Cell has no manifest. A device with no local Warden, only a Pollen Packet gateway, runs a
   dead-man switch instead: when its link is lost for longer than the manifest allows, it kills what
   the lease started and releases.
 - **Where a model is reachable, reconnection is investigated, not just retried** (roadmap 11.9a).

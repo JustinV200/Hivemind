@@ -192,6 +192,9 @@ class VirtualCellsTuning:
         heartbeat_interval_s: `[queen]`/`[supervision] heartbeat_interval_s`, forwarded to
             `builders.cli.ManifestTuning`; None keeps `fake_manifest`'s own short default. A
             liveness scenario widens it so its window is well clear of scheduling jitter.
+        max_offline_s: `[supervision] max_offline_s`, forwarded to `builders.cli.ManifestTuning`;
+            None keeps the manifest's own default. A scenario that cuts a Cell off from the Queen
+            shortens it so the Cell clusters fully within the test.
     """
 
     prefer: str = "virtual"
@@ -202,6 +205,7 @@ class VirtualCellsTuning:
     overwinter_max_per_image: int = 8
     overwinter_disk_budget_mb: int = 81920
     heartbeat_interval_s: float | None = None
+    max_offline_s: float | None = None
 
 
 def virtual_cells_manifest(
@@ -219,7 +223,9 @@ def virtual_cells_manifest(
         The written manifest's own path, ready for `hivemind.manifest.load_manifest`.
     """
     active = tuning if tuning is not None else VirtualCellsTuning()
-    heartbeat = ManifestTuning(heartbeat_interval_s=active.heartbeat_interval_s)
+    heartbeat = ManifestTuning(
+        heartbeat_interval_s=active.heartbeat_interval_s, max_offline_s=active.max_offline_s
+    )
     manifest_path = fake_manifest(tmp_path, capabilities=capabilities, tuning=heartbeat)
     section = (
         f'\n[placement]\nprefer = "{active.prefer}"\n'
@@ -467,7 +473,7 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         is populated: the Queen can only ever send this Cell's first `TaskAssign` after its own
         `hivemind.queen.cell_gate.gate.QueenReadinessGate.wait_ready` resolves, which itself only
         happens after this same container has sent `CellReady` and a `CellHeartbeat` -- both sent
-        by `run_in_cell_warden`'s own `_connect_and_announce`, strictly *before* `on_deps_built`
+        by `run_in_cell_warden`'s own `_connect_and_build`, strictly *before* `on_deps_built`
         runs -- so the scripted queue is always populated in time (module docstring).
         """
 
