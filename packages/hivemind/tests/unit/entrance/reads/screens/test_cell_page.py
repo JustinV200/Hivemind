@@ -18,12 +18,13 @@ from builders.entrance.screens import heartbeat, scene
 from builders.forage import make_grant
 from builders.memory import make_cell_wax
 from builders.observation import after, make_event
+from pydantic import JsonValue
 
 from hivemind.entrance.errors import CellNotFoundError
 from hivemind.entrance.reads.screens import read_cell_page
 from hivemind.memory import WaxSeverity
 from waggle.clock import FakeClock
-from waggle.ids import new_alarm_id, new_cell_id
+from waggle.ids import new_alarm_id, new_cell_id, new_warden_id
 from waggle.messages.supervision import WorkerState
 
 
@@ -52,6 +53,21 @@ async def test_the_page_joins_bees_tasks_wax_alarms_grants_and_the_exoskeleton_e
     assert page.forage is not None and [g.id for g in page.forage.grants] == [grant.id]
     assert page.exoskeleton_attached is False
     assert page.last_patrol_at is None
+
+
+async def test_the_last_patrol_is_the_newest_patrol_of_the_cells_own_warden() -> None:
+    clock = FakeClock()
+    hive = scene(clock)
+    cell_id, warden_id = hive.link.cell.id, hive.link.warden_id
+    other = new_warden_id(clock)
+    skipped: dict[str, JsonValue] = {"outcome": "SKIPPED", "observations": 3, "signals": 0}
+    await hive.record(make_event("warden.patrol", warden_id, after(10), payload=skipped))
+    await hive.record(make_event("warden.patrol", warden_id, after(70), payload=skipped))
+    await hive.record(make_event("warden.patrol", other, after(500), payload=skipped))
+
+    page = await read_cell_page(hive.reads, cell_id, clock.now())
+
+    assert page.last_patrol_at == after(70)  # Any outcome counts; another Warden's does not.
 
 
 async def test_an_unknown_cell_is_refused() -> None:

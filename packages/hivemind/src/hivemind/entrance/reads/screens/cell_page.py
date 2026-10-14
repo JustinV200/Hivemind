@@ -3,8 +3,9 @@
 A Cell page (roadmap 12.4) joins the census (the Cell and its Warden), the telemetry board (the
 bees and their context gauges), the Brood Chamber (the tasks placed on it), the Forage ledger (the
 Warden's grants) and the trail (the requests still waiting, whether an Exoskeleton is attached, the
-open Alarms and the Capping events), plus memory's Cell Wax and the hosting plan. This module reads
-each for the one Cell and hands them to the pure ``cell_page``.
+open Alarms and the Capping events, and when its Warden last ran a Patrol), plus memory's Cell Wax
+and the hosting plan. This module reads each for the one Cell and hands them to the pure
+``cell_page``.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.reads.screens``. Called
@@ -40,6 +41,7 @@ from waggle.ids import CellId
 
 FORAGE_EVENTS_PER_GRANT = 5  # Newest forage.* events read per grant: its last request and answer.
 _EXOSKELETON_KINDS = ("cell.exoskeleton_attached", "cell.exoskeleton_detached")
+_PATROL_KIND = "warden.patrol"  # Recorded by a watching Warden after each Patrol (ADR-0054).
 
 __all__ = ["FORAGE_EVENTS_PER_GRANT", "read_cell_page"]
 
@@ -78,6 +80,7 @@ async def read_cell_page(reads: HiveReads, cell_id: CellId, now: datetime) -> Ce
         exoskeleton_edge=await _exoskeleton_edge(reads, cell_id),
         lease_since=starts.get(cell_id),
         as_of=now,
+        last_patrol_at=await _last_patrol_at(reads, cell.warden_id),
     )
     return cell_page(inputs)
 
@@ -92,6 +95,16 @@ async def _forage_events(reads: HiveReads, grant_ids: list[str]) -> list[Pheromo
         # Latency: one local indexed trail read per grant.
         events.extend(await reads.trail.query(query))
     return events
+
+
+async def _last_patrol_at(reads: HiveReads, warden_id: str | None) -> datetime | None:
+    """Return when the Cell's Warden last ran a Patrol: its newest warden.patrol event, if any."""
+    if warden_id is None:
+        return None
+    query = TrailQuery(kind=_PATROL_KIND, subject_id=warden_id, newest_first=True, limit=1)
+    # Latency: one local indexed trail read.
+    events = await reads.trail.query(query)
+    return events[0].at if events else None
 
 
 async def _exoskeleton_edge(reads: HiveReads, cell_id: CellId) -> str | None:

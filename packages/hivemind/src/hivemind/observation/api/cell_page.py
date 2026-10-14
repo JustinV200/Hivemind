@@ -18,8 +18,9 @@ Fits into the Hive:
 Key invariants:
     - Pure: every input is handed in.
     - No field carries a bee's goal line, a task's words or a Cell Wax note's text.
-    - A figure no store can fill yet (``last_patrol_at``, ``exoskeleton_attached`` before any
-      attach was recorded) is null and documented as such, never filled in.
+    - A figure no store can fill yet (``last_patrol_at`` before the first Patrol,
+      ``exoskeleton_attached`` before any attach was recorded) is null and documented as such,
+      never filled in.
 
 See Also:
     - hivemind.observation.api.fleet for the row this page expands.
@@ -146,7 +147,8 @@ class CellPageView(BaseModel):
     )
     forage: WardenForageView | None = Field(description="The Warden's Forage; null with no Warden.")
     last_patrol_at: datetime | None = Field(
-        description="When its last Patrol ran; always null until roadmap phase 11 builds Patrols."
+        description="When its Warden's newest Patrol ran, whatever its outcome (the newest "
+        "warden.patrol event); null before the first, or for a Cell whose Warden does not watch."
     )
     wax: list[WaxEntryView] = Field(description="Its Cell Wax, highest severity first.")
     alarms: list[OpenAlarmView] = Field(description="Its open Alarms.")
@@ -173,6 +175,7 @@ class CellPageInputs:
         exoskeleton_edge: The kind of the Cell's newest ``cell.exoskeleton_*`` event, if any.
         lease_since: When its open lease began, if it has one.
         as_of: The instant the page is built for.
+        last_patrol_at: When its Warden's newest Patrol ran, if one has (roadmap step 11.10).
     """
 
     cell: CellView
@@ -188,6 +191,7 @@ class CellPageInputs:
     exoskeleton_edge: str | None
     lease_since: datetime | None
     as_of: datetime
+    last_patrol_at: datetime | None = None
 
 
 def cell_page(inputs: CellPageInputs) -> CellPageView:
@@ -213,7 +217,7 @@ def cell_page(inputs: CellPageInputs) -> CellPageView:
         bees=bees,
         tasks=[task_view(task) for task in inputs.tasks],
         forage=_forage(inputs) if warden is not None else None,
-        last_patrol_at=None,
+        last_patrol_at=inputs.last_patrol_at,
         wax=_wax(inputs.wax, inputs.as_of),
         alarms=list(alarms_on_cell(inputs.alarms, cell.id)),
         capping=cappings_on_cell(inputs.capping, cell.id),

@@ -4,7 +4,7 @@ The Warden heads the bee list with its gauge, each sub-bee shows its task's role
 Exoskeleton flag follows the newest attach or detach edge (null before any); the Warden's grants
 total issued against used and a request with no answer is pending; Cell Wax shows severity,
 proposer and expiry but never text; Alarms and Capping are this Cell's only; and the Patrol report
-is null until phase 11.
+is the instant its Warden's newest Patrol ran (null before the first).
 
 Fits into the Hive:
     Mirrors src/hivemind/observation/api/cell_page.py (codingrules section 3).
@@ -70,6 +70,17 @@ def test_a_cell_with_nothing_known_is_a_page_of_nulls_and_empty_lists() -> None:
     assert page.hosting.models_from == "unknown"
     assert page.honey_folder == f"/cells/{page.cell.id}"
     assert page.capping.in_flight == []
+
+
+def test_the_last_patrol_is_whatever_the_inputs_say_and_null_before_the_first() -> None:
+    patrolled = after(300)
+
+    page = cell_page(_inputs(last_patrol_at=patrolled))
+    unpatrolled = cell_page(_inputs())
+
+    assert page.last_patrol_at == patrolled
+    assert unpatrolled.last_patrol_at is None
+    assert "last_patrol_at" in page.model_dump(mode="json")
 
 
 def test_the_warden_heads_the_bees_and_each_sub_bee_shows_role_state_and_gauge() -> None:
