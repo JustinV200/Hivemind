@@ -83,6 +83,8 @@ def test_the_hive_stands_bag_is_the_shared_bag_plus_what_only_its_cell_has(tmp_p
     assert stand.recording_store is not None and shared.recording_store is None
     assert shared.keep_root is None and shared.servers == {}
     assert shared.register_provider is None and shared.unregister_provider is None
+    # Looking through a session is the Hive Stand's way; a device's own root adds its own probe.
+    assert stand.watch is not None and shared.watch is None
 
 
 def test_the_hive_stands_own_warden_is_built_exactly_as_before(tmp_path: Path) -> None:

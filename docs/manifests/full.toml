@@ -427,6 +427,11 @@ cpu_share_alarm = 0.5
 # The fraction of the device's disk, between 0 and 1, above which the Patrol is told the disk is
 # nearly full.
 disk_fill_alarm = 0.95
+# Absolute directories on the Hive Stand whose log files and file changes its own Warden watches
+# (up to 16). Empty here, so only processes and resource use are watched. A Swarm device has no
+# roots here: its packet answers only for the paths its own capabilities grant.
+roots = []
+# roots = ["/var/log", "/home/me/projects"]
 
 [memory]
 # Fraction of a request's context window reserved for assembled (retrieved/hot-state) content.

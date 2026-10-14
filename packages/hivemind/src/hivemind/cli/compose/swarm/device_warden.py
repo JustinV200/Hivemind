@@ -16,7 +16,9 @@ Three things differ from the Hive Stand's Warden. Its lease needs `cell:real:<it
 reads. It is a device's Warden (`DeviceDeps`): it gives its lease back whenever it settles with no
 task, so the borrowed machine keeps no scratch between tasks. And the Queen's end of its link reads
 the device's capacity from the hub, where the packet's reports land, so grants are sized from the
-device as it is now.
+device as it is now. While idle it watches the device by asking its packet (`PollenWatchProbe`,
+roadmap step 11.10), with no lease and no command: there is nothing of the Hive's on the device to
+look through.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.swarm`. Built once by
@@ -47,6 +49,7 @@ from dataclasses import replace
 
 from hivemind.cell import CombShieldLevel, RealCellSource
 from hivemind.cli.compose.deps import HiveParts, build_cell_warden_deps
+from hivemind.cli.compose.deps.watch import device_watch
 from hivemind.cli.compose.links import build_hive_links
 from hivemind.cli.compose.swarm.lease_scope import LeaseScopedGuard, LeaseScopedSource
 from hivemind.forage import ForageCapacity
@@ -108,7 +111,8 @@ class SwarmWardenFactory:
         deps = build_cell_warden_deps(
             parts, self._shielded(node, LeaseScopedSource(swarm_source, guard)), links, lease
         )
-        deps = replace(deps, scanner=self._scanner, device=DeviceDeps())
+        watch = device_watch(parts, node, self._hub)  # Roadmap step 11.10: it asks the packet.
+        deps = replace(deps, scanner=self._scanner, device=DeviceDeps(), watch=watch)
         link = replace(links.queen_link, live_capacity=self._live_capacity(node))
         return DeviceWarden(Warden(node.warden_id, deps), link, hub_listeners=(swarm_source,))
 

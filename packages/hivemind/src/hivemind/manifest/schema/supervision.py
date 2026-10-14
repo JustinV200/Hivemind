@@ -14,8 +14,8 @@ either responsibility would need more than that). Phase 11 (the Swarm) gives ``[
 two small sub-tables: ``[supervision.reconnect_budget]``, how long a Warden that lost its link
 may spend investigating it with a diagnostic Drone (a short-lived Worker) before it falls back to
 the Clustering the offline limit already guarantees, and ``[supervision.watch]``, the cadence,
-retention and alarm thresholds of a Real Cell's watch mode and its Patrol (a scheduled read-only
-review of what the watching Warden observed).
+retention, alarm thresholds and watched directories of a Real Cell's watch mode and its Patrol (a
+scheduled read-only review of what the watching Warden observed).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -56,9 +56,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from waggle.messages.cell.wax import MAX_WAX_TEXT_CHARS
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS
 
 DEFAULT_HEARTBEAT_INTERVAL_S = 5.0  # Matches [queen] heartbeat_interval_s; a Warden's own cadence.
 DEFAULT_HEARTBEAT_MISS_LIMIT = 3  # Three missed beats before a child is treated as stalled.
@@ -198,6 +199,25 @@ class WatchSection(BaseModel):
         description="The fraction of the device's disk, between 0 and 1, above which the Patrol "
         "is told the disk is nearly full.",
     )
+    roots: tuple[str, ...] = Field(
+        default=(),
+        max_length=MAX_OBSERVE_ROOTS,
+        description="Absolute directories on the Hive Stand whose log files and file changes its "
+        "own Warden watches while it has no bees working; none watches only processes and "
+        "resource use. A Swarm device has no roots here: its packet answers only for the paths "
+        "its own capabilities grant.",
+    )
+
+    @field_validator("roots")
+    @classmethod
+    def _roots_are_absolute(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject a root that is relative or holds a NUL byte."""
+        # The watcher hands each root to a command as an argument: a relative one would mean
+        # whatever the command's working directory is, and a NUL cannot be an argument at all.
+        for root in value:
+            if not Path(root).is_absolute() or "\0" in root:
+                raise ValueError(f"[supervision.watch] roots must be absolute paths, got {root!r}.")
+        return value
 
 
 class SupervisionSection(BaseModel):

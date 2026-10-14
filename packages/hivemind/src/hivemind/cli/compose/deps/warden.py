@@ -17,7 +17,7 @@ first alone.
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.deps`. Called by
     `hivemind.cli.compose.hive.build_hive` and `hivemind.cli.compose.swarm`. Calls into
-    `hivemind.cli.compose.deps.parts`, `hivemind.cli.compose.exoskeleton`,
+    `hivemind.cli.compose.deps.parts`, `.watch`, `hivemind.cli.compose.exoskeleton`,
     `hivemind.cli.compose.links`, `hivemind.cli.compose.night_veil`, `hivemind.cli.stores`,
     `hivemind.basket`, `hivemind.cell.local`, `hivemind.forage`, `hivemind.guard`, `hivemind.llm`,
     `hivemind.manifest`, `hivemind.supervision`, `hivemind.wardens` and `hivemind.workers` only.
@@ -47,6 +47,7 @@ from hivemind.basket import ResidentBasket
 from hivemind.cell import RealCellSource
 from hivemind.cell.local import HiveStandSource
 from hivemind.cli.compose.deps.parts import HiveParts, supervision_file, system_identity
+from hivemind.cli.compose.deps.watch import hive_stand_watch
 from hivemind.cli.compose.exoskeleton import hive_stand_exoskeleton
 from hivemind.cli.compose.links import HiveLinks
 from hivemind.cli.compose.night_veil import local_providers
@@ -86,6 +87,7 @@ def build_warden_deps(parts: HiveParts, source: HiveStandSource, links: HiveLink
         disk_reserve_mb=parts.manifest.hive_stand.disk_reserve_mb,  # `[hive_stand]`'s own reserve.
         royal_jelly=parts.royal_jelly,  # Roadmap phase 9: the Lab's and the Basket's handles.
         resident_basket=_resident_basket(parts),  # The Hive Stand's own resident view.
+        watch=hive_stand_watch(parts),  # Roadmap step 11.10: it watches through its own session.
     )
     # Roadmap steps 6.4-6.6: screen, browser launcher, flight recorder and ears (.exoskeleton).
     return hive_stand_exoskeleton(parts).apply(_hosting(deps, parts))

@@ -154,11 +154,15 @@ class ManifestTuning:
             compose.run_goal`'s own poll loop calls `sync_answers_from_chamber` every 50ms
             regardless of this manifest's heartbeat cadence, so slowing only the heartbeat-driven
             wake reliably lets that poll loop win the race instead of leaving it to chance.
+        watch_table: When given, the body of a `[supervision.watch]` table (`interval_s = 0.2`,
+            `roots = [...]`), written after `[supervision]`; omitted writes none, so watch mode
+            keeps its documented defaults (roadmap step 11.10's tests compress the intervals).
     """
 
     worker_fallback: bool = False
     handoff_threshold: float | None = None
     heartbeat_interval_s: float | None = None
+    watch_table: str = ""
 
 
 def fake_manifest(
@@ -197,6 +201,7 @@ def fake_manifest(
         worker_fallback=active_tuning.worker_fallback,
         handoff_threshold=active_tuning.handoff_threshold,
         heartbeat_interval_s=active_tuning.heartbeat_interval_s,
+        watch_table=active_tuning.watch_table,
     )
     manifest_path = tmp_path / "hive.toml"
     manifest_path.write_text(_render(spec), encoding="utf-8")
@@ -215,6 +220,7 @@ class _ManifestSpec:
     worker_fallback: bool
     handoff_threshold: float | None
     heartbeat_interval_s: float | None
+    watch_table: str = ""
 
 
 def _render(spec: _ManifestSpec) -> str:
@@ -230,7 +236,7 @@ def _render(spec: _ManifestSpec) -> str:
         _provider_section(spec.capabilities),
         _slots_section(worker_fallback=spec.worker_fallback),
         _forage_section(),
-        _supervision_section(heartbeat_s),
+        _supervision_section(heartbeat_s, spec.watch_table),
         _memory_section(spec.handoff_threshold),
     ]
     return "\n".join(sections)
@@ -298,7 +304,7 @@ def _forage_section() -> str:
     )
 
 
-def _supervision_section(heartbeat_interval_s: float) -> str:
+def _supervision_section(heartbeat_interval_s: float, watch_table: str = "") -> str:
     """Build `[supervision]`: short heartbeat cadences, and no policy/tiers overrides.
 
     `policy_file` and `capping_tiers_file` are left unset on purpose, which is what a real
@@ -306,9 +312,10 @@ def _supervision_section(heartbeat_interval_s: float) -> str:
     `hivemind.supervision.defaults`, so these tests run against the same policy and tier
     table production does.
     """
-    return (
+    base = (
         f"[supervision]\nheartbeat_interval_s = {heartbeat_interval_s}\nheartbeat_miss_limit = 3\n"
     )
+    return f"{base}\n[supervision.watch]\n{watch_table}" if watch_table else base
 
 
 async def pump_until_done[ResultT](

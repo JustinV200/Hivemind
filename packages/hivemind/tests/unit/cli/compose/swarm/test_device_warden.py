@@ -30,7 +30,7 @@ from hivemind.forage import ForageCapacity
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.manifest import load_manifest
 from hivemind.queen.swarm_gate import DeviceWarden
-from hivemind.swarm import ShieldedSource, SwarmNode, SwarmSource
+from hivemind.swarm import PollenWatchProbe, ShieldedSource, SwarmNode, SwarmSource
 from hivemind.wardens import DeviceDeps
 from waggle.clock import FakeClock, SystemClock
 
@@ -89,6 +89,21 @@ def test_it_is_a_device_warden_that_gives_its_lease_back_when_idle(tmp_path: Pat
     _, _, built = _built(tmp_path)
 
     assert built.warden._deps.device == DeviceDeps(release_lease_when_idle=True)
+
+
+def test_it_watches_its_idle_device_by_asking_the_packet_and_names_no_directory(
+    tmp_path: Path,
+) -> None:
+    hive, _, built = _built(tmp_path)
+
+    watch, stand = built.warden._deps.watch, hive.warden._deps.watch
+
+    assert watch is not None and stand is not None
+    assert isinstance(watch.probe, PollenWatchProbe)  # No lease and no command on the device.
+    assert watch.bind_session is None  # There is no session of the Hive's to lend it.
+    assert watch.settings.roots == ()  # The Hive Stand's directories are not the device's.
+    assert watch.settings.interval_s == stand.settings.interval_s  # The numbers are shared.
+    assert watch.schedule is not stand.schedule
 
 
 def test_it_holds_nothing_of_the_hive_stands_own_disk_display_or_models(tmp_path: Path) -> None:

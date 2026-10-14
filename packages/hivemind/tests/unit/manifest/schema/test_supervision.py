@@ -32,6 +32,7 @@ from hivemind.manifest.schema.supervision import (
     WatchSection,
 )
 from waggle.messages.cell.wax import MAX_WAX_TEXT_CHARS
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS
 
 # The repository root, seven parents up from this test file
 # (packages/hivemind/tests/unit/manifest/schema/test_supervision.py).
@@ -205,6 +206,31 @@ def test_the_watch_thresholds_accept_exactly_one_and_a_small_fraction() -> None:
     watch = WatchSection(cpu_share_alarm=1.0, disk_fill_alarm=0.01)
 
     assert (watch.cpu_share_alarm, watch.disk_fill_alarm) == (1.0, 0.01)
+
+
+def test_the_watched_directories_default_to_none() -> None:
+    assert WatchSection().roots == ()
+
+
+def test_the_watched_directories_accept_absolute_paths_up_to_the_wire_limit() -> None:
+    few = WatchSection(roots=("/var/log", "/home/me/projects"))
+    most = tuple(f"/watched/{n}" for n in range(MAX_OBSERVE_ROOTS))
+
+    assert few.roots == ("/var/log", "/home/me/projects")
+    assert WatchSection(roots=most).roots == most
+
+
+@pytest.mark.parametrize("root", ["relative/dir", "", "./here", "~/notes", "/has\0nul"])
+def test_a_watched_directory_must_be_absolute_and_free_of_nul(root: str) -> None:
+    with pytest.raises(ValidationError, match="absolute"):
+        WatchSection(roots=(root,))
+
+
+def test_no_more_directories_are_watched_than_one_observation_can_name() -> None:
+    too_many = tuple(f"/watched/{n}" for n in range(MAX_OBSERVE_ROOTS + 1))
+
+    with pytest.raises(ValidationError, match="at most"):
+        WatchSection(roots=too_many)
 
 
 def test_the_new_supervision_tables_are_frozen_and_forbid_extras() -> None:
