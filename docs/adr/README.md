@@ -262,7 +262,9 @@ ADRs that exist today, in numeric order:
   link with capped backoff; the offline rules are a pure table (queue results, hold questions,
   refuse growth, freeze grants); a Nuc keeps working while a Level 1 Warden with no model clusters
   at once; the Queen reconciles a returning Warden, accepts an offline trail segment only with the
-  node's signature, and holds a lost device through a grace period before deciding.
+  node's signature, and holds a lost device through a grace period before deciding; a task taken
+  back from a colonized device resumes from the newest Handoff its bee deposited as Nectar, unless
+  that is tainted, isolated, above the task's clearance or a Night Veil Cell's.
 - `0054-access-levels-watch-mode-and-the-patrol.md`: an idle Real Cell is watched read-only at every
   access level (the `READ_ONLY` set, never the screen or the input); observations are `C2` Bee
   Bread, sampled every five minutes and kept 24 hours; an hourly Patrol, one awake episode over a

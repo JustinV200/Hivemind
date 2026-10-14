@@ -8,9 +8,11 @@ Warden migration uses (codingrules 8.9, "one mechanism, many names"): a task tha
 paused (RUNNING has no edge back to PENDING), its newest Handoff is noted so its next placement
 resumes from it (`DispatchBook.resumes`; the dispatcher carries the document inline when the new
 Warden is on another node), and it is unassigned, which puts it back to PENDING with a new attempt
-for the ordinary dispatcher to place on whatever Cell fits. A task blocked on a Question has the
-Question withdrawn first, since a Warden that is gone will never be given the Answer. The Warden's
-grants go back to the pool: it draws on them no more.
+for the ordinary dispatcher to place on whatever Cell fits. The newest Handoff is the newest the
+Queen can hold (`recall`): a colonized device's own store is lost with it, so what she has of it is
+the HANDOFF Nectar its bees deposited, recalled into her memory if it may be used. A task blocked on
+a Question has the Question withdrawn first, since a Warden that is gone will never be given the
+Answer. The Warden's grants go back to the pool: it draws on them no more.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.swarm_gate`.
@@ -18,18 +20,20 @@ Fits into the Hive:
     `hivemind.queen.swarm_gate.reconcile` (a revoke, a rebuild, a failed Warden); `open_tasks`,
     which lists what has not ended, is also read by the colonize flows and by
     `hivemind.queen.swarm_gate.rungs` (whose pass reads the Hive once). Calls into
-    `hivemind.brood_chamber`, `hivemind.forage`, `hivemind.queen.cluster` (the newest Handoff),
-    `hivemind.queen.forage.grants`, `hivemind.queen.trail` and `hivemind.swarm` only.
+    `hivemind.brood_chamber`, `hivemind.forage`, `hivemind.queen.forage.grants`,
+    `hivemind.queen.trail`, `hivemind.swarm` and this package's `recall` (the newest Handoff) only.
 
 Key invariants:
     - A task that ended, or moved on its own while this ran, is left exactly as it is; one task
       that cannot be taken back never stops the others.
     - A task is never failed or cancelled here: it goes back to PENDING and keeps its goal.
-    - The newest Handoff is noted only if the Queen holds one; with none the task starts fresh.
+    - The newest Handoff is noted only if the Queen holds one or `recall` can give her one; with
+      none the task starts fresh.
     - The decision is on the trail: one `queen.decided` naming the device, the cause and the count.
 
 See Also:
     - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for when a task is taken back.
+    - hivemind.queen.swarm_gate.recall for how a Handoff only the Honey Store holds is found.
     - hivemind.queen.dispatcher.ready.handoff for how the noted Handoff travels to its new Warden.
     - hivemind.brood_chamber.chamber.lifecycle for `unassign`, including from PAUSED.
 """
@@ -42,9 +46,9 @@ from hivemind.brood_chamber import InvalidTransitionError, Task, TaskFilter, Tas
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.common.logging import get_logger
 from hivemind.forage.grant_state import GrantState
-from hivemind.queen.cluster import latest_handoff
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.forage import grants as forage_grants
+from hivemind.queen.swarm_gate.recall import recall_handoff
 from hivemind.queen.trail import record_event
 from hivemind.swarm import SwarmNode
 from waggle.ids import TaskId, WardenId
@@ -118,7 +122,7 @@ async def take_back(
         The ids of the tasks now PENDING again, oldest first.
     """
     tasks = [task for task in await tasks_on(deps, node) if only is None or task.id in only]
-    taken = [task.id for task in tasks if await _take_one(deps, task, cause)]
+    taken = [task.id for task in tasks if await _take_one(deps, node, task, cause)]
     if only is None:
         await _release_grants(deps, node.warden_id)  # The Warden is gone: nothing draws on them.
     if taken:
@@ -133,10 +137,10 @@ async def take_back(
     return tuple(taken)
 
 
-async def _take_one(deps: QueenDeps, task: Task, cause: str) -> bool:
+async def _take_one(deps: QueenDeps, node: SwarmNode, task: Task, cause: str) -> bool:
     """Take one task back; False when it moved or ended by itself while this was deciding."""
     # Read before the task leaves its Warden: it is the newest Handoff of the bee that ran it.
-    ref = None if task.status is TaskStatus.ASSIGNED else await latest_handoff(deps, task.id)
+    ref = None if task.status is TaskStatus.ASSIGNED else await recall_handoff(deps, node, task)
     reason = f"Its device is gone ({cause}); the Queen takes the task back to place it afresh."
     try:
         if task.pending_question_id is not None:

@@ -23,8 +23,9 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built by the composition root when
     `[swarm] enabled` is true (`hivemind.cli.compose.swarm`), started with the running `Queen`, run
     beside her, and stopped before her. Calls into `hivemind.cell`, `hivemind.common`,
-    `hivemind.queen.attach`, `.cluster`, `.dispatcher`, `.errors`, `.queen`, `.trail`,
-    `hivemind.swarm`, `hivemind.wardens` and waggle only.
+    `hivemind.honey_store`, `hivemind.memory`, `hivemind.pheromone`, `hivemind.queen.attach`,
+    `.cluster`, `.dispatcher`, `.errors`, `.isolation`, `.queen`, `.trail`, `hivemind.swarm`,
+    `hivemind.wardens` and waggle only.
 
 Key invariants:
     - A Level 0 device has at most one Warden here, and keeps it across a dropped link; a colonized
@@ -62,6 +63,8 @@ Public API:
     - RegistrySegmentKeys: the key a device's trail segment must be signed with (keys).
     - take_back, tasks_on, open_tasks: taking a gone Warden's tasks back to be placed afresh,
       and reading the tasks that have not ended (takeback).
+    - recall_handoff: the newest Handoff the Queen can hold for a task taken back, recalled from
+      the Honey Store when its device's own store is out of her reach (recall).
 """
 
 from hivemind.queen.swarm_gate.attach import (
@@ -73,6 +76,7 @@ from hivemind.queen.swarm_gate.attach import (
 from hivemind.queen.swarm_gate.colonize import Colonizer, Promotion, Withdrawal, decide_request
 from hivemind.queen.swarm_gate.gate import SwarmGate
 from hivemind.queen.swarm_gate.keys import RegistrySegmentKeys
+from hivemind.queen.swarm_gate.recall import recall_handoff
 from hivemind.queen.swarm_gate.reconcile import DeviceReconciler, ReconcileDeps
 from hivemind.queen.swarm_gate.rungs import RungEvaluator, RungKeeper, decide_rung
 from hivemind.queen.swarm_gate.takeback import open_tasks, take_back, tasks_on
@@ -119,6 +123,7 @@ __all__ = [
     "decide_rung",
     "link_services",
     "open_tasks",
+    "recall_handoff",
     "take_back",
     "tasks_on",
 ]

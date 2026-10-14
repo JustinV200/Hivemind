@@ -785,6 +785,23 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   `e2e/swarm/bridge.py` and `e2e/swarm/binary/stand.py` overlap (two whole-Hive rigs).
   A container device reads the host's load: scenarios give their Drone no cores
   (`ManifestTuning.drone_cpu_cores`) or a busy host defers it.
+- **Wave 5A (landed).** Three findings of the independent phase 11 tester. (1) The Queen resumed
+  every task of a Virtual Cell or a colonized device from nothing (be8664e): `resume_plan` read the
+  Handoff from her own store for any remote Warden and dropped the resume when it was not there,
+  though the bees wrote it in the Warden's. She now carries it inline when she holds it and the
+  Warden cannot read her store, sends the reference alone otherwise, and resumes fresh only when
+  she refuses it; a Worker whose store lacks the reference starts fresh and says so. (2) A role
+  that ended while its bee was PAUSED raised PAUSED -> FAILED, an edge the table lacked, which
+  killed the runtime and, when the Warden reaped it, the Warden. PAUSED -> FAILED and -> DONE are
+  edges (the role's end is the role's own event); `WorkerRuntime.run` ends only as a typed
+  `WorkerRuntimeError`, and `stop_sub_bee` reads and logs it (`reap_runtime`), so no bee's stored
+  error ends a Warden. (3) A task taken back from a lost colonized device resumed from nothing:
+  `queen/swarm_gate/recall.py` recalls the newest HANDOFF Nectar its bee deposited (the one carrier
+  of the document, ADR-0053's last amendment) unless it is tainted, written under a standing
+  isolation, above the task's clearance or a Night Veil Cell's. Left open: the same blindness in a
+  colonized Warden's renewal and in Clustering's resume (`pause_on_warden` waits for a checkpoint
+  in the Queen's Bee Bread that a device's Warden never writes there; `pause_for_move` and
+  `cluster.resume` should call `recall_handoff`), and the Honey Store has no taint ledger.
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
   Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
   the one failure (fixed above).

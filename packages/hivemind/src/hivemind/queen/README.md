@@ -395,7 +395,11 @@ according to its rung of the runtime ladder (ADR-0052).
   completes, and a task nobody started is cancelled when the hold ends. When `[swarm]
   unreachable_grace_s` ends it decides by the rung (`decide.py`): a Level 0 or Level 1 device's tasks are taken back
   (`takeback.py`: paused, their newest Handoff noted, unassigned, placed afresh) and its Warden let
-  go; a Nuc's keep waiting, up to `[supervision] max_offline_s`. A device back inside the window
+  go; the newest Handoff is the newest she can hold (`recall.py`): a colonized device's own store is
+  lost with it, so a Handoff only the Honey Store has, as the HANDOFF Nectar its bee deposited, is
+  filed in her memory first, unless it is tainted, written under a standing isolation, above the
+  task's clearance or a Night Veil Cell's. A Nuc's tasks keep waiting, up to `[supervision]
+  max_offline_s`. A device back inside the window
   cancels the hold. Every decision is a `queen.decided`.
 - `Colonizer` (`colonize/`) carries out the rung an operator asked for, one at a time
   (`request.py` decides, `guard.py` asks the Guard's `NUC_PROMOTION` point for every change). A

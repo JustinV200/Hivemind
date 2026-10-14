@@ -2224,8 +2224,11 @@ promotion, `hive swarm` CLI.
   in its outage with the Handoff it had, instead of counting a crash. The Queen's side
   (`queen/swarm_gate/unreachable/`): the lost device's Cell is held for `[swarm]
   unreachable_grace_s`, the Hive Stand's diagnosis (11.9a) is asked for when the hold holds tasks
-  and the loss was seen, then she decides by rung (Level 0 and 1 tasks taken back from their
-  Handoffs, a Nuc's kept waiting up to `max_offline_s`). Proved on real containers
+  and the loss was seen, then she decides by rung (Level 0 and 1 tasks taken back and placed
+  afresh from the newest Handoff she can hold: a Level 0 device's is in her store, a colonized
+  device's is the HANDOFF Nectar its bee deposited, recalled by `swarm_gate/recall.py` unless it is
+  tainted, written under a standing isolation, above the task's clearance or a Night Veil Cell's;
+  a Nuc's tasks kept waiting up to `max_offline_s`). Proved on real containers
   (`test_phase11_exit_nuc.py`, `test_phase11_exit_unnoticed.py`, `test_phase11_exit_deadman.py`,
   `test_phase11_exit_diagnose.py`). Left open: after a Queen restart her replay window is empty, so
   an Alarm or a question sent again from an unnoticed stretch can repeat (results and Nectar stay

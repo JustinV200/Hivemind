@@ -243,3 +243,37 @@ the receiver's existing window already makes harmless); a shorter keepalive (it 
 and never closes it, and costs a ping every few seconds on a radio); keeping every frame in the
 outbox until the Queen answers (the outbox acknowledges on send by design, ADR-0005, and most kinds
 have no answer).
+
+## Amendment (2026-10-14): a task taken back from a colonized device resumes from the Handoff she can hold
+
+Taking back a lost Level 0 or Level 1 device's tasks "from their last Handoff" held for Level 0
+only. A Level 0 device's Warden is on the Hive Stand, so its bees wrote their Handoffs in the
+Queen's own store and she read the newest. A colonized device's bees wrote theirs in the device's
+store, which a lost device takes out of reach, so she resumed those tasks from nothing.
+
+**What reaches her.** Only the HANDOFF Nectar. A bee deposits every checkpoint's Handoff as Nectar
+(ADR-0035), its Warden relays it and her intake keeps it; the deposit is best effort, and a device
+lost before it was relayed leaves her the checkpoint before. The `task.progress` at CHECKPOINTED
+names a Handoff and its Warden does not forward it; the trail segment a Warden syncs carries a
+`memory.checkpoint` event's ids and counts and never its text (codingrules 12). No new message was
+needed, but the Honey Store had no read by task, so `HoneyStore.handoff_nectars` is that read.
+
+**What she does with it.** `queen/swarm_gate/recall.py`, for every task taken back: if a deposit is
+newer than the Handoff she holds, she files it in her own memory as a checkpoint of her own and the
+task's next placement resumes from that (inline when its Warden is on another node, as for any
+Handoff she holds). She files nothing that a Night Veil Cell wrote (ADR-0030; the store does not
+offer its rows, and a colonized device is never of that tier), nothing her trail says is tainted
+and not since cleared by a judge, nothing written since the first suspect instant of an isolation
+that stands (its Warden may never have been given the order to label it), and nothing above the
+task's clearance. The Nectar's label counts when something raised it, and does not when only the
+Real Cell floor holds it up: a device is a borrowed Cell, so everything it deposits is C2 in Honey,
+which guards retrieval and not the task's own state, and the Handoff of a Level 0 device has always
+been trusted at the label its bee gave it. A refusal is never an error: she resumes from the
+Handoff she holds, or starts fresh, and `queen.decided` says why.
+
+**What is left.** The same blindness is in the places that pause a colonized Warden's bees and
+read the Queen's Bee Bread for the checkpoint: a renewal of its terms and Clustering's resume. They
+resume from the Handoff she holds, which for a colonized device is an old one, and wait out their
+patience for a checkpoint they cannot see; calling `recall_handoff` there is the next step. The
+taint label is not carried by Nectar (`Nectar.tainted` is reserved and no Honey ledger exists), so
+a taint her trail never heard of, from a device lost before its segment shipped, is not seen.
