@@ -18,8 +18,10 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 
+import pytest
 from builders.offline_warden import OfflineScene, pausable, start_offline_scene
 from builders.quarantine import drain, settle
 
@@ -27,8 +29,10 @@ from hivemind.cell import Cell, CellSession, LeaseRefusedError, LeaseRequest, Re
 from hivemind.cell.source import RealCellSource
 from hivemind.memory import Handoff
 from hivemind.pheromone import TrailQuery
-from hivemind.wardens.offline import RESUME_RETRY_S
+from hivemind.wardens.offline import RESUME_RETRY_S, RESUME_SETTLE_S
 from hivemind.wardens.state import WardenState
+from hivemind.wardens.ticks.lease import release_lease
+from hivemind.wardens.warden import Warden
 
 
 class _RefusingSource:
@@ -66,6 +70,13 @@ async def _kinds(scene: OfflineScene) -> list[str]:
     return [event.kind for event in await scene.deps.trail.query(TrailQuery())]
 
 
+async def _after_the_settle(scene: OfflineScene) -> None:
+    """Let the device's own word on its return be heard first, then let the Warden act on it."""
+    await drain()
+    scene.clock.advance(RESUME_SETTLE_S + 0.1)
+    scene.outage.nudge()
+
+
 async def _lost_and_idle(scene: OfflineScene) -> None:
     """Lose the Cell, let the bee stop at its Handoff, and wait for the Warden to settle."""
     await scene.warden.cell_lost("the link closed")
@@ -85,6 +96,7 @@ async def test_a_found_cell_is_leased_again_and_the_paused_task_resumes_from_its
     before = await _kinds(scene)
 
     scene.warden.cell_found()
+    await _after_the_settle(scene)
     await settle(lambda: bool(resumed))
 
     [successor] = scene.rows()
@@ -108,6 +120,7 @@ async def test_a_device_that_will_not_be_leased_yet_is_asked_again_after_a_pause
     source.refuse = True
 
     scene.warden.cell_found()
+    await _after_the_settle(scene)
     await settle(lambda: source.lease_calls == 1)
     await settle(lambda: scene.warden.lease is None and scene.outage.retry_after is not None)
 
@@ -122,3 +135,46 @@ async def test_a_device_that_will_not_be_leased_yet_is_asked_again_after_a_pause
     await settle(lambda: bool(resumed))
     assert source.lease_calls == 2 and not _holds(scene)
     await scene.stop()
+
+
+async def test_a_device_that_just_came_back_is_heard_before_the_warden_touches_its_lease() -> None:
+    resumed: list[Handoff] = []
+    scene = await start_offline_scene(pausable(resumed), remote=False)
+    await _lost_and_idle(scene)
+    before = await _kinds(scene)
+
+    scene.warden.cell_found()
+    await drain()
+
+    # The report its dead-man switch queued is sent as the link comes back. Releasing the old lease
+    # now would reach the device first, and the lease would be recorded released with no word of
+    # what the switch killed and restored.
+    assert await _kinds(scene) == before and resumed == []
+    await _after_the_settle(scene)
+    await settle(lambda: bool(resumed))
+    after = await _kinds(scene)
+    assert after.count("cell.released") == before.count("cell.released") + 1
+    await scene.stop()
+
+
+async def test_a_warden_stopped_while_it_gives_the_old_lease_back_does_not_lease_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resumed: list[Handoff] = []
+    scene = await start_offline_scene(pausable(resumed), remote=False)
+    await _lost_and_idle(scene)
+    before = await _kinds(scene)
+
+    async def stopped_meanwhile(warden: Warden, lease: RealCellLease) -> None:
+        await release_lease(warden, lease)
+        await warden.stop()  # The Hive went down while the device was answering.
+
+    monkeypatch.setattr("hivemind.wardens.offline.resume.release_lease", stopped_meanwhile)
+    scene.warden.cell_found()
+    await _after_the_settle(scene)
+
+    # Starting a stopped Warden is not a legal move: the tick used to end with that error.
+    await asyncio.wait_for(scene.run_task, timeout=5.0)
+    assert scene.run_task.exception() is None
+    assert (await _kinds(scene)).count("cell.leased") == before.count("cell.leased")
+    assert resumed == []

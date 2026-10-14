@@ -345,6 +345,8 @@ async def _run_tick(warden: Warden) -> None:
     # acted on before this Warden starts its own paused tasks again; before the settle, so the
     # state it settles from already reflects the link (roadmap 11.9).
     await reconcile(warden)
+    if warden._stop.is_set():
+        return  # Stopped while it waited on the device (a release): STOPPED is terminal too.
     await ticks.assign.settle_after_tick(warden)
     await watch_tick(warden)  # Roadmap step 11.10: only while idle in WATCH, once state settled.
 

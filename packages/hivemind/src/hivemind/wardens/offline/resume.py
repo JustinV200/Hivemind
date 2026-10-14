@@ -21,7 +21,9 @@ did not fail). Not at once: for `RESUME_SETTLE_S` after the link returns the Que
 first word, since what she sends first (grants re-sent, a cancel of a task she re-placed meanwhile)
 decides whether the task is still this Warden's. For a device whose Cell was lost the Warden first
 gives its old lease back and leases again, since the device's dead-man switch may have released
-it; a refused lease is asked for again after `RESUME_RETRY_S`.
+it, and it does so after the same pause, so that the report the device sends of what its switch
+did is heard before the Warden's own release can pre-empt it; a refused lease is asked for again
+after `RESUME_RETRY_S`.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -144,6 +146,10 @@ async def _follow_cell(warden: Warden, outage: Outage) -> None:
         outage.is_cell_cut = False
         # The device's dead-man switch may have released the lease while it was away.
         outage.is_lease_stale = True
+        # Its report of that was queued while it was away and is sent as the link comes back: the
+        # Queen's end hears it first, or the Warden's own release would reach the device before the
+        # report did, and the lease would be recorded as released without a word of what was killed.
+        _pause_resume(warden, outage, RESUME_SETTLE_S)
 
 
 def _outage_s(warden: Warden, outage: Outage) -> float:
@@ -173,18 +179,27 @@ def _is_reachable(warden: Warden, outage: Outage) -> bool:
 
 async def _lease_again(warden: Warden, outage: Outage) -> bool:
     """Give the device's old lease back and lease it again; False, with a pause, if it will not."""
-    if warden._state is not WardenState.WATCH:
+    if not _is_idle(warden):
         return False  # A bee is still stopping: leasing again waits until the Warden is idle.
     lease = warden._lease
     if lease is not None:
         await release_lease(warden, lease)
         if warden._lease is not None:
             return _try_later(warden, outage)  # The device would not confirm the release.
+    # The release took time, and the Warden may have been stopped meanwhile (the Hive is going
+    # down): a stopped Warden leases nothing, and starting it again is not a legal transition.
+    if not _is_idle(warden):
+        return False
     await warden.start()
     if warden._lease is None:
         return _try_later(warden, outage)  # Refused, or the device is not answering yet.
     outage.is_lease_stale = False
     return True
+
+
+def _is_idle(warden: Warden) -> bool:
+    """Whether the Warden is in WATCH, read through a call so a later read is not narrowed away."""
+    return warden._state is WardenState.WATCH
 
 
 def _try_later(warden: Warden, outage: Outage) -> bool:
