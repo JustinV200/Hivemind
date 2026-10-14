@@ -143,7 +143,20 @@ Warden never provisions Cells itself.
   from a Handoff the store labels tainted is refused at the `isolation` point
   (`guard.scope.tainted_handoff`), its grant dropped, the refusal shipped and the task reported
   held. `WardenAction.TAINT_MEMORY` is the order's autopilot action.
-- `wardens.offline`, `wardens.watch`: placeholders; populated in phase 11.
+- `wardens.offline`: placeholder; populated in phase 11 (steps 11.9 and 11.9a).
+- `wardens.watch` (roadmap step 11.10, ADR-0054): Watch mode. A Warden with no bees working, no
+  assignment parked for its grant and a Cell link that is up takes a read-only observation of its
+  Cell every `[supervision.watch] interval_s` (`observer`, through a `WatchProbe`: the Hive Stand's
+  Warden looks through its own session, `probe.SessionWatchProbe`; a Level 0 device's asks its
+  packet, `hivemind.swarm.PollenWatchProbe`), keeps it as `C2` Bee Bread for `retention_s`
+  (`store`), and every `patrol_interval_s` runs a Patrol (`patrol`, over a `PatrolPort`; `bridge`
+  is the real Warden's): one stateless awake episode (`wardens.awake.decide_patrol`, helped by the
+  pure pre-filter in `signals` and the framing and quoted facts in `digest`) that decides exactly
+  one of an Alarm (`PATROL_ANOMALY`), a Nectar summary, a Cell Wax proposal or nothing worth
+  keeping. `tick.watch_tick` is the one call `Warden._run_tick` makes, after the state has settled,
+  and `deps.WatchDeps` is the one optional field `WardenDeps` carries for all of it. The package
+  face imports no Warden and no model machinery, because `wardens.deps` imports it; `observer`,
+  `patrol`, `bridge` and `tick` are imported by their module paths.
 
 ## Enforcement points (roadmap step 10.3)
 

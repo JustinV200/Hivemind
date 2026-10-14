@@ -22,7 +22,7 @@ Fits into the Hive:
     wardens.make_warden_deps` plus a `QueenEnd` in tests. Calls into `hivemind.cell`,
     `hivemind.guard`, `hivemind.memory` (TriggerEvent), `hivemind.pheromone` (WardenEvent),
     `hivemind.supervision`, `hivemind.wardens.autopilot`, `.awake`, `.inbox`, `.isolation`,
-    `.quarantine`, `.spawn`, `.state`, `.ticks` and waggle only.
+    `.quarantine`, `.spawn`, `.state`, `.ticks`, `.watch.tick` and waggle only.
 
 Key invariants:
     - Every `WardenState` change goes through `hivemind.wardens.state.assert_transition` and is
@@ -90,6 +90,7 @@ from hivemind.wardens.local_pool.hosting import HostedCell, ModelServerHost, Run
 from hivemind.wardens.quarantine import QuarantineRecord, admit_respawn, carry_out, quarantine_child
 from hivemind.wardens.spawn import SubBee
 from hivemind.wardens.state import WardenState
+from hivemind.wardens.watch.tick import watch_tick
 from hivemind.workers.tools.comb import CombToolEntry
 from waggle.envelope import Envelope
 from waggle.errors import CodecError, ConnectionLostError, InvalidPayloadError, SignatureError
@@ -347,6 +348,7 @@ async def _run_tick(warden: Warden) -> None:
         # would (correctly) refuse to move out of.
         return
     await ticks.assign.settle_after_tick(warden)
+    await watch_tick(warden)  # Roadmap step 11.10: only while idle in WATCH, once state settled.
 
 
 def _drain_items(

@@ -20,14 +20,16 @@ untrusted-content scanner its sub-bees' tool results pass through (`scanner`), a
 10.6c) the stores beyond the memory tables a quarantine taints (`taint_ledgers`), and (roadmap
 step 8.3) the model servers it may host on its own Cell (`servers`, `register_provider`,
 `unregister_provider`), and (roadmap step 11.6) what only a Swarm device's Warden is built with
-(`device`).
+(`device`), and (roadmap step 11.10) what a Warden that watches its idle Cell is built with
+(`watch`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built once per Warden by whichever
     composition root constructs one -- the CLI (roadmap step 3.21) in production, `tests.builders.
     wardens.make_warden_deps` in tests. Calls into `hivemind.cell`, `hivemind.guard.policy`,
     `hivemind.forage` (SlotBinding), `hivemind.guard` (Capability, Enforcer),
-    `hivemind.wardens.local_pool.hosting.config` (ServerConfig),
+    `hivemind.wardens.local_pool.hosting.config` (ServerConfig), `hivemind.wardens.watch`
+    (WatchDeps),
     `hivemind.llm.ladders.gate`, `hivemind.llm.slots`, `hivemind.memory`, `hivemind.pheromone`,
     `hivemind.supervision`, `hivemind.supervision.capping`, `hivemind.workers` and waggle only.
 
@@ -100,6 +102,7 @@ from hivemind.wardens.local_pool.hosting.config import (
     UnregisterProvider,
 )
 from hivemind.wardens.trail_sync import TrailSync
+from hivemind.wardens.watch import WatchDeps
 from hivemind.workers import Worker
 from waggle.clock import Clock
 from waggle.codec import Signer, Verifier
@@ -138,8 +141,7 @@ class WardenDeps:
 
     Attributes:
         source: Where this Warden's Cell comes from (`HiveStandSource`, a device's `SwarmSource`,
-            `hivemind.cell.fake.FakeCellSource` in tests); it leases and releases through it and
-            never provisions.
+            `FakeCellSource` in tests); it leases and releases through it, never provisions.
         queen_link: This Warden's own end of its Waggle link to the Queen.
         hop: This Warden's own address (`sender`), the Queen's (`recipient`) and the sending
             node's id, stamped on every envelope this Warden wraps and sends to the Queen.
@@ -152,9 +154,8 @@ class WardenDeps:
         checks: The Capping check registry every sub-bee's `CappingGate` is built with; v0's
             `hivemind.supervision.capping.checks.deterministic_checks()`.
         bound: This Warden's own model binding (`ModelSlot.WARDEN`), for awake episodes only.
-        call_gate: The seat meter every model call passes through; a `FannerLane` in production,
-            `hivemind.llm.ladders.gate.DirectCallGate()` in tests. Handed to every sub-bee's
-            `WorkerContext` too.
+        call_gate: The seat meter every model call passes through (a `FannerLane` in production,
+            `DirectCallGate()` in tests); handed to every sub-bee's `WorkerContext` too.
         worker_factory: Builds a fresh role implementation for a `TaskAssign.role`.
         rebind: Resolves a named `[llm.slots]` binding key to a fresh `BoundModel`, for a REBIND
             within the sub-bee's grant (`hivemind.llm.slots.resolve_key`, closed over this
@@ -197,6 +198,8 @@ class WardenDeps:
             once more from `stop()` (codingrules section 12). `None` (the Hive Stand's default)
             means this Warden already records into the Queen's own store; `hivemind.cli.in_cell.
             deps` wires a `WaggleTrailSync` in, because a Virtual Cell's store dies with the Cell.
+        watch: What a Warden that watches its idle Cell is built with (`WatchDeps`: probe,
+            `[supervision.watch]` numbers, schedule); None watches nothing (roadmap step 11.10).
         snapshotter: Handed to every sub-bee's `CappingGate` as `GateDeps.snapshotter`. Defaults to
             `NoopSnapshotter()`; `hivemind.cli.in_cell.deps` wires a `RelaySnapshotter` in
             instead: a Virtual Cell's Warden cannot reach the host backend (ADR-0027), so it asks
@@ -298,6 +301,7 @@ class WardenDeps:
     # Roadmap step 5.3 / ADR-0027: None by default, because only a Warden whose trail store does not
     # live on the Queen's own machine has anything to ship (`hivemind.wardens.trail_sync`).
     trail_sync: TrailSync | None = None
+    watch: WatchDeps | None = None  # Roadmap step 11.10: set by a root that watches its idle Cell.
     # Roadmap step 5.10's snapshot relay: a no-op by default, so every earlier WardenDeps behaves.
     snapshotter: Snapshotter = field(default_factory=NoopSnapshotter)
     # Roadmap step 6.4 (ADR-0031): how a sub-bee that needs an Exoskeleton is equipped. Defaulted:

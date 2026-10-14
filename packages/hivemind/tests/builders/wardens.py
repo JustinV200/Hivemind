@@ -16,7 +16,7 @@ depends on the real Drone, roadmap step 3.16), `hivemind.llm.DirectCallGate` (no
 is the Queen-side mirror of `builders.workers.WardenEnd`: it wraps the Queen's own end of the
 pair, `send`s an order (`TaskAssign`/`GrantIssued`/`TaskCancel`/`Intervene`) or an `answer` to a
 pending `Question`, and sorts every report the Warden sends back into `heartbeats`/`results`/
-`alarms`/`questions`/`forage_requests`/`lease_released`/`progress`.
+`alarms`/`questions`/`forage_requests`/`lease_released`/`progress`/`nectar`/`wax_proposed`.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by every test under
@@ -44,7 +44,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from builders.capping import RepeatingJudgeReviewer
 from builders.cells import make_cell
@@ -70,8 +70,10 @@ from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.ids import HiveId, MessageId, NodeId, WardenId, new_hive_id, new_node_id, new_warden_id
 from waggle.messages.base import WaggleMessage
+from waggle.messages.cell import CellWaxProposed
 from waggle.messages.cell.leases import LeaseReleased
 from waggle.messages.forage import ForageRequest, SourceAdded, SourceRemoved
+from waggle.messages.honey import NectarDeposit
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmRaised, Answer, AnswerSource, Heartbeat, Question
 from waggle.messages.task import TaskProgress, TaskResult, WorkerRole
@@ -292,8 +294,8 @@ class QueenEnd:
     """Wrap the Queen side of a Warden's own MemoryTransport pair: send orders, collect reports.
 
     Owns its own mutable state in place (codingrules section 8.5): `heartbeats`, `results`,
-    `alarms`, `questions`, `forage_requests`, `lease_released` and `progress` grow as envelopes
-    are pumped off the transport.
+    `alarms`, `questions`, `forage_requests`, `lease_released`, `progress`, `nectar` and
+    `wax_proposed` grow as envelopes are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -317,6 +319,22 @@ class QueenEnd:
         self.progress: list[TaskProgress] = []  # Roadmap step 10.6c: a quarantined task held.
         self.source_added: list[SourceAdded] = []  # Roadmap step 8.3: a model source loaded.
         self.source_removed: list[SourceRemoved] = []  # Roadmap step 8.3: one gone, with cause.
+        self.nectar: list[NectarDeposit] = []  # Roadmap step 11.10: a Patrol's summary chunks.
+        self.wax_proposed: list[CellWaxProposed] = []  # Roadmap step 11.10: a Patrol's note.
+        # Which bucket each payload type lands in, so `_sort` is one lookup and not a branch each.
+        self._buckets: tuple[tuple[type[WaggleMessage], list[Any]], ...] = (
+            (Heartbeat, self.heartbeats),
+            (TaskResult, self.results),
+            (AlarmRaised, self.alarms),
+            (Question, self.questions),
+            (ForageRequest, self.forage_requests),
+            (LeaseReleased, self.lease_released),
+            (TaskProgress, self.progress),
+            (SourceAdded, self.source_added),
+            (SourceRemoved, self.source_removed),
+            (NectarDeposit, self.nectar),
+            (CellWaxProposed, self.wax_proposed),
+        )
         # supervision.answer is a reply: its envelope must carry the correlation_id of the
         # Question envelope it answers, tracked here so `answer` can supply it.
         self._question_envelope_ids: dict[MessageId, MessageId] = {}
@@ -437,22 +455,9 @@ class QueenEnd:
     def _sort(self, envelope: Envelope) -> None:
         """Append `envelope`'s payload to the matching bucket; unrecognised kinds are ignored."""
         payload = envelope.payload
-        if isinstance(payload, Heartbeat):
-            self.heartbeats.append(payload)
-        elif isinstance(payload, TaskResult):
-            self.results.append(payload)
-        elif isinstance(payload, AlarmRaised):
-            self.alarms.append(payload)
-        elif isinstance(payload, Question):
-            self.questions.append(payload)
+        if isinstance(payload, Question):
             self._question_envelope_ids[payload.question_id] = envelope.id
-        elif isinstance(payload, ForageRequest):
-            self.forage_requests.append(payload)
-        elif isinstance(payload, LeaseReleased):
-            self.lease_released.append(payload)
-        elif isinstance(payload, TaskProgress):
-            self.progress.append(payload)
-        elif isinstance(payload, SourceAdded):
-            self.source_added.append(payload)
-        elif isinstance(payload, SourceRemoved):
-            self.source_removed.append(payload)
+        for kind, bucket in self._buckets:
+            if isinstance(payload, kind):
+                bucket.append(payload)
+                return
