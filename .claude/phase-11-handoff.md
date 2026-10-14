@@ -638,7 +638,40 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   another gateway with `HIVEMIND_GATEWAY_COMMAND`); the container harness (`tests/e2e/swarm/`:
   `device_image()`, `Janitor`, `start_stand`, `enrol_container`); `tests/e2e/test_swarm_level0.py`
   (a real packet, a real Level 0 task).
+- **Wave 3 (landed).** 3A, colonization (11.6a) and offline Wardens (11.9): the packet serves
+  `swarm.colonize` (PREPARE a venv runtime from its wheelhouse, START the in-Cell Warden, WITHDRAW
+  it) and records the rung and the on-device Warden in its state; `hive in-cell` gains a borrowed
+  mode (`cli/in_cell/borrowed/`) driven by a device manifest (`manifest/device.py`,
+  `docs/manifests/device.toml`) and the variables the packet hands it; `wardens/offline/` (the
+  reconnecting Queen link, outbox, freeze, resume, OFFLINE back to WATCH); the final trail-segment
+  chunk is signed with the node key; an inline Handoff is filed in the Warden's own store before
+  spawning; `RealCellLease.release` survives two callers and a cancel mid-release. 3B, the Queen
+  side: one attach path for every remote Warden (`queen/attach/`, re-sends grants, ceilings and
+  plan when a Warden comes back), the swarm gate admits a colonized device's Warden, holds a lost
+  device's Cell (hold, grace, then decide), colonizes on request with rollback, verifies a trail
+  segment's signature before merging, and carries a Handoff inline (`TaskAssign.handoff`) to a
+  Warden that cannot read her store; `swarm.online` on every link. 3C, watch mode and the Patrol
+  (11.10): `wardens/watch/` (a `SessionWatchProbe` on the Hive Stand that runs two fixed read-only
+  scripts through the Warden's own lease, the `PollenWatchProbe` on a device, the observer, the
+  Patrol prompt and its awake episode, the tick), observations kept in Bee Bread for a retention
+  window, the Cell page's last Patrol. 3E: `hive swarm invite|list|revoke|access|shield|promote|
+  demote|run` over an operator desk (`swarm/operator/`), a Swarm Cell's Warden location in the
+  Observation Hive and `hive cells list`, the Exoskeleton's X11 backends over `PollenSession`
+  (device image variants, `tests/integration/test_exoskeleton_on_device.py`), the single-file
+  packet built by `scripts/build_pollen.py` on five platforms (`.github/workflows/pollen.yml`),
+  and `docs/runbooks/enrolling-a-device.md`.
+- **Fixed while integrating.** A lease killed every pid it ever recorded at release, so once a
+  finished command's group was gone and the kernel reused the id, a release could signal an
+  unrelated process; sessions now report a pid back once it is reaped with its group empty and the
+  lease forgets it (34c2446; pollen's own lease already checks a process's creation time). Since
+  the Hive Stand's Warden watches its Cell between tasks, its probe's commands share the lease,
+  which broke `test_quarantine_on_hive_stand.py` about half its runs (bisected to 39e779d; the test
+  now finds the Drone's command by its command line, 58adc82). Earlier: the packet's backoff
+  ignored stop (79c330a), a frame-ceiling close in the fan-out pump, and openbox swallowing the
+  first click (585dca3).
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
+  Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
+  the one failure (fixed above).
 - **Docker here.** Start `dockerd` (the default socket works in this container); the device image
   is `ubuntu:24.04` (this sandbox blocks the Debian mirror, not Ubuntu's); cold build about 40 s,
   cached under `~/.cache/hivemind-tests`; `HIVEMIND_TEST_DEVICE_IMAGE` overrides.
