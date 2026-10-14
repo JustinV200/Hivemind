@@ -6,7 +6,8 @@ Hive (`forage.source_removed`), stops the process and answers `swarm.nuc_promote
 the registry's rung move down (`swarm.demoted`, written with the change), so a device is never
 recorded as colonized with a server still running. A demotion that cannot be confirmed (the Warden
 is silent, the link is lost, or it answers FAILED) changes nothing and is recorded as a failure:
-the device stays a Nuc until the operator asks again.
+the device stays a Nuc until it is asked again, by the operator or by the Queen herself once her
+back-off has run out.
 
 What the Nuc left in the Hive is tidied once the rung has moved. The Warden's allowlist of models
 is emptied, so nothing it could load survives the server; the device's model sources are taken off
@@ -17,7 +18,9 @@ model first; and the hosting plan is written again, from the shared pool alone.
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
     `hivemind.queen.swarm_gate.colonize.nuc`. Started by `hivemind.queen.swarm_gate.colonize.flow.
-    Colonizer` as a task of the gate's group. Calls into `hivemind.queen.forage`, `hivemind.queen.
+    Colonizer` as a task of the gate's group, for the operator's request or the Queen's own
+    decision; its lowering and tidying are shared with `.restore`, which lowers a Nuc whose server
+    could not be started again. Calls into `hivemind.queen.forage`, `hivemind.queen.
     swarm_gate.colonize` (its own steps), `hivemind.swarm` and waggle only.
 
 Key invariants:

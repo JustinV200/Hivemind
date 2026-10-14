@@ -75,7 +75,7 @@ hears that release and records it, so the lease is never left looking open.
   Warden declared a model server in its capacity report, the Hive allows that server models (the
   Forage map rows its manifest lists for the server id) and at least one fits the VRAM the device
   has free (a model with no VRAM figure runs on the CPU and needs none), and something asks for
-  it: the operator's `desired_level`, the Hive Stand's seat pressure past `[swarm.nuc]
+  it: the operator's `desired_level`, the shared pool's seat pressure past `[swarm.nuc]
   seat_pressure`, or a task that must survive a lost link. It returns the server, every model that
   fits alone (the allowlist the Queen sets in the Warden's `Ceilings`), the ones that fit together
   (loaded first) and a `NucReason`, or one refusal word (`not_asked`, `not_colonized`,
@@ -109,9 +109,11 @@ hears that release and records it, so the lease is never left looking open.
 - **Operator desk** (`operator`): what `hive swarm` does to a device that is already enrolled, with
   the trail event each write leaves. `OperatorDesk(registry, recorder)` revokes (`swarm.revoked`),
   sets access (`swarm.access_changed`, with the capability strings recomputed) and sets the tier
-  (`swarm.shield_changed`, `NIGHT_VEIL` refused), and `move` writes only the `desired_level` wish,
-  one rung, with no event: the Queen's swarm gate acts on it. `find_node` resolves a device id, a
-  Cell id or a unique label. Refusals carry their reason: `UnknownNodeError`,
+  (`swarm.shield_changed`, `NIGHT_VEIL` refused), and `move` writes the `desired_level` wish, one
+  rung, with no event (the Queen's swarm gate acts on it), and the `ceiling`, the highest rung the
+  Queen may take the device to by her own decisions: a `promote` lifts it and a `demote` sets it
+  to the rung the device is lowered to, which pins a device down. `find_node` resolves a device
+  id, a Cell id or a unique label. Refusals carry their reason: `UnknownNodeError`,
   `AmbiguousNodeError`, `TierRefusedError`, `RungUnavailableError`. It is not re-exported above
   this sub-package: import it from `hivemind.swarm.operator`.
 

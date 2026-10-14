@@ -961,17 +961,16 @@ default_access = "FULL"
 
 [swarm.ladder]
 # When is moving a device's Warden onto the device (colonizing it) worth it? Only when the device
-# can hold a Warden plus one sub-bee, and the Hive Stand needs relief, a task must survive short
-# outages, or the operator asked for it.
-# Hive Stand seat or memory pressure, as a fraction of capacity, past which it needs relief.
+# can hold a Warden plus one sub-bee, and the Hive Stand needs relief, a task must survive a lost
+# link, or the operator asked for it.
+# The relief pressure is the larger of two shares: the cores, and the memory, that the running
+# sub-bees of Level 0 Wardens (devices whose Warden still runs on the Hive Stand) take, over the
+# Hive Stand's own cores and memory, from 0 to 1. Past this, a device with sub-bees running is
+# colonized to take them off the Hive Stand, the busiest first and one at a time.
 relief_pressure = 0.75
 # Free memory, in bytes, a device must report before a Warden is moved onto it (1 GiB here); 0
 # turns the floor off and leaves the Forage footprint as the only test.
 min_free_memory_bytes = 1073741824
-# Hive Stand pressure here is the larger of the cores and the memory that the sub-bees of Level 0
-# devices (those RUNNING on a device whose Warden is still on the Hive Stand) take, as a fraction of
-# the Hive Stand's own cores and memory. Only a device with such work running is colonized for relief,
-# the busiest first, one move at a time.
 # Seconds every reason the Queen colonized a device for must have been gone before she takes its
 # Warden back to the Hive Stand, and then only while the device is idle. She never undoes a
 # `hive swarm promote`; pin a device at the gateway with `hive swarm demote` to keep her off it.
@@ -982,12 +981,12 @@ retry_after_s = 300.0
 
 [swarm.nuc]
 # When is giving a colonized device a model server of its own (promoting it to a Nuc) worth it?
-# Only when the device declared a server whose models fit its free VRAM, and the Hive Stand's model
-# seats are under pressure, a task must keep working offline, or the operator asked for it.
-# Hive Stand model-seat pressure, as a fraction of its seats, past which a Nuc is worth building.
+# Only when the device declared a server whose models fit its free VRAM, and the shared model seats
+# are under pressure, a task must keep working offline, or the operator asked for it.
+# The seat pressure is the share of the shared pool's usable seats (the seats its sources declare,
+# less the Royal Reserve's) that live grants hold, from 0 to 1. Past this, a colonized device with
+# sub-bees running is promoted so they stop competing for those seats, one at a time.
 seat_pressure = 0.75
-# Seat pressure here is the share of the shared pool's seats (after the Royal Reserve) that live
-# grants hold. Only a device with work running is promoted for it, the busiest first.
 # Seconds every reason the Queen gave a device a model server for must have been gone before she
 # stops that server, and then only while the device is idle. She never demotes a Nuc the operator
 # promoted.

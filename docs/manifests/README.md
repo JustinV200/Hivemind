@@ -240,7 +240,10 @@ lifetime (`invite_ttl_minutes`), how a device's liveness is judged (`heartbeat_i
 and the access level an invite gets when `hive swarm invite` names none (`default_access`:
 `READ_ONLY`, `SCRATCH` or `FULL`, spelled like `[hive_stand] access_level`). `[swarm.ladder]` and
 `[swarm.nuc]` hold the thresholds that decide when moving a device's Warden onto it, or giving it
-a model server, is worth doing. `[supervision]` gains two sub-tables: `[supervision.reconnect_
+a model server, is worth doing, and the two times that keep the Queen from flapping a device she
+moved on her own (`lower_after_s`, how long every reason must have been gone before she takes the
+rung back, and `retry_after_s`, how long she leaves a device alone after a failed attempt).
+`[supervision]` gains two sub-tables: `[supervision.reconnect_
 budget]` (diagnostic Drones a Warden may send, and for how long, to find out why its link was
 lost; its `wall_clock_s` must be below `max_offline_s`, so a manifest that lowers
 `max_offline_s` to 300 seconds or less must lower the budget with it) and `[supervision.watch]`

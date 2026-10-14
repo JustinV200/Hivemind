@@ -377,8 +377,11 @@ according to its rung of the runtime ladder (ADR-0052).
   distrusted and its tasks taken back; a node a colonization owns is left to the flow; a reachable
   Level 0 node gets a Warden, keeps it, or (its terms changed, or its loop died) has its tasks
   paused and taken back and a Warden rebuilt; a node above Level 0 is reachable while its Warden's
-  link is open; a pending `desired_level` is handed to the colonizer; anything not reachable goes
-  to the hold.
+  link is open, is sent a changed access level or tier at once and has its Warden restarted under
+  it (`Colonizer.renew`, `colonize/renew/`), and, when it is a Nuc whose Warden connected afresh,
+  has its model server proved or its rung lowered (`Colonizer.restore`, `colonize/nuc/restore.py`);
+  a pending `desired_level` is handed to the colonizer, and a device with none to the Queen's own
+  rung decisions (`rungs/`); anything not reachable goes to the hold.
 - `UnreachableDevices` (`unreachable/`) holds a lost device's tasks (`swarm.node_held`; the
   dispatcher neither fails nor moves them, `DispatchBook.held`), tells a Level 0 Warden its Cell
   was lost (one `CELL_UNREACHABLE` Alarm), marks a device whose own Warden is gone UNREACHABLE,
@@ -404,7 +407,20 @@ according to its rung of the runtime ladder (ADR-0052).
   device's hosting plan with its own models first (undoing all of it on a failure), `demote.py`
   stops the server and tidies the Hive's map, and `desk.py` keeps what device Wardens declared and
   the orders waiting for their answers, which the gate's door consumes before the Queen's reader
-  sees them.
+  sees them. `Colonizer.launch` starts the same flows for a step the Queen chose herself.
+- `RungEvaluator` (`rungs/`) is the Queen's own decision to move a device nobody asked to move.
+  Each pass `begin_pass` settles the moves she launched before (`keeper.py`: a failed one backs
+  off, doubling to 32 times `retry_after_s`; a raised rung is marked as hers) and reads the Hive
+  once (`readings.py`: the unfinished tasks, the Hive Stand's reported capacity, the pool's
+  seats), and `evaluate` asks the pure `decide_rung` (`decide.py`) and launches the step through
+  the colonizer, behind the same Guard check, one move at a time for each pressure. The figures
+  are defined once, in `pressure.py`: the relief pressure is the larger share of the Hive Stand's
+  cores or memory that Level 0 Wardens' running sub-bees take, and the seat pressure is the share
+  of the pool's usable seats live grants hold; each bears only on a device with a sub-bee running.
+  A task that sets `TaskNeeds.survives_link_loss` asks survival of the device it is placed on or
+  pinned to (`needs.py`). She takes back only a rung she raised, once its reasons have been gone
+  for `lower_after_s` and the device is idle; the operator's `ceiling` is never climbed past, and a
+  device with a `desired_level` is never evaluated (ADR-0052).
 
 A Level 0 Warden runs here, in the Queen's own process, over an in-memory link, with its hands on
 the device through `PollenSession`; it gives its lease back whenever it settles with nothing to do

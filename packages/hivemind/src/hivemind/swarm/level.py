@@ -14,7 +14,7 @@ whether a rung change is legal, and `decide_colonize`, the pure decision to clim
 Hive Stand needs relief, or a task must survive short outages), and can this device carry one (it
 reports Python 3.12 or newer, its access level lets the Hive work on it, and its Forage covers a
 Warden and one sub-bee). It only decides; the Queen's swarm gate acts on the answer, and the
-decision to climb the second rung (`decide_nuc`) lands with the step that uses it (roadmap 11.8).
+decision to climb the second rung is `decide_nuc`, in `hivemind.swarm.nuc`.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down). Read by the swarm registry, which
@@ -170,7 +170,9 @@ class ColonizeFacts:
         min_free_memory_bytes: `[swarm.ladder] min_free_memory_bytes`: free memory the device must
             keep beyond the bees' footprints; 0 leaves the footprints as the only test.
         desired_level: The rung the operator asked for, or None.
-        hive_pressure: The Hive Stand's seat or memory pressure, 0 to 1.
+        hive_pressure: The Hive Stand's relief pressure, 0 to 1: the larger share of its cores or
+            memory that the running sub-bees of Level 0 Wardens take (defined once, in
+            `hivemind.queen.swarm_gate.rungs.pressure`).
         relief_pressure: `[swarm.ladder] relief_pressure`: the pressure past which relief is wanted.
         needs_outage_survival: Whether a task placed on this device must survive short outages.
     """

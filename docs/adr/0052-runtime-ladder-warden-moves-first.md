@@ -94,11 +94,12 @@ start what the operator put there.
 
 **The decisions are pure and Guard-gated.** `swarm/level.py` holds `decide_colonize`: the device's
 Forage (its spare capacity: compute, model seats and spend) covers a Warden plus one sub-bee, and
-one of three reasons holds: the Hive Stand needs relief (seat or memory pressure past
-`[swarm.ladder] relief_pressure`), a task needs to survive short outages, or the operator asked
-through `desired_level`. `swarm/nuc.py` holds `decide_nuc`: the device is at Level 1, it declares a
-server whose allowlisted models fit its free VRAM, and one of three reasons holds: Hive Stand seat
-pressure, a task's need for autonomy, or `desired_level`. Both only decide; the Queen acts on the
+one of three reasons holds: the Hive Stand needs relief (its relief pressure, defined in the
+amendment below, past `[swarm.ladder] relief_pressure`), a task needs to survive short outages, or
+the operator asked through `desired_level`. `swarm/nuc.py` holds `decide_nuc`: the device is at
+Level 1, it declares a server whose allowlisted models fit its free VRAM, and one of three reasons
+holds: the shared pool's seat pressure past `[swarm.nuc] seat_pressure`, a task's need for
+autonomy, or `desired_level`. Both only decide; the Queen acts on the
 answer. Every rung change, up or down, passes the guard's `NUC_PROMOTION` enforcement point (the
 named place where the Hive's policy engine decides, ADR-0039) and is recorded as `swarm.promoted` or
 `swarm.demoted` with the `from_level` and `to_level`.
@@ -143,3 +144,44 @@ The Queen sending the runtime over Waggle: it makes the packet an executor of co
 a borrowed machine, where the operator's configured wheelhouse is a trust anchor the operator
 already controls. Embedding the Warden in the packet process: the packet would import `hivemind`,
 which breaks the single-dependency rule of codingrules 4 and the path to a compiled gateway.
+
+## Amendment (2026-10-14): the Queen's own rung decisions
+
+Until now only the operator moved a device. The Queen now moves devices herself, with the same
+pure rules (`decide_colonize`, `decide_nuc`), the same Guard check and the same flows, and records
+her reason in the `swarm.promoted` or `swarm.demoted` the move writes. She does it from the gate's
+reconcile pass, in `queen/swarm_gate/rungs`, for a reachable device that has no `desired_level`.
+
+**Two figures, each defined once** (`rungs/pressure.py`). The relief pressure is the larger of the
+cores and the memory that the running sub-bees of Level 0 Wardens take, as a share of the Hive
+Stand's own cores and memory (what its Warden last reported), from 0 to 1; a sub-bee costs what its
+role's `[forage.roles]` footprint says. It counts only what colonizing would take off the Hive
+Stand, so the Queen herself and the Hive Stand's own Cell are not in it, and the Queen sizes
+nothing she has not been told the size of. The seat pressure is 1 minus the shared pool's free
+seats over its usable ones (the seats its sources declare, less the Royal Reserve's), from 0 to 1.
+Each bears only on a device that has a sub-bee running: moving a device that has none takes nothing
+off the Hive Stand and no call off the pool, and she does not install a runtime, or load a model,
+on a machine for a strain it has no part in. A pressure is acted on one device at a time, the
+busiest first, and the next device is judged on the figure the move changed.
+
+**A task can say it must survive** (`TaskNeeds.survives_link_loss`, default false, settable in a
+plan and in an operator's goal). It is read for every unfinished task that is placed on a device and
+every one pinned to a device, which a goal's ceiling does when it allows exactly one named Real
+Cell and no other kind of Cell. It is the outage reason for the first rung and the autonomy reason
+for the second.
+
+**She does not flap.** A rung she raised is hers to take back; one the operator raised is not. She
+takes it back only when every reason for it has been absent for `lower_after_s` (a reason that
+holds again restarts the time) and only while the device is idle (its Warden reports `WATCH` and no
+task is on its Cell). A move that fails, or that the Guard refuses, is not tried again for
+`retry_after_s`, doubling with each failure in a row up to 32 times. What she remembers of her own
+moves is kept in the gate's process and not persisted: a restarted Queen has no marks, so she takes
+nothing back until she has raised it again, which errs toward leaving a device where it is. A
+reason that holds on a device that cannot carry the rung (too old a Python, too little VRAM, no
+server declared) is a `queen.decided` with `rung_declined` and the stable word, recorded once.
+
+**The operator always wins.** A device with a `desired_level` is never evaluated; the colonizer
+carries the wish out. `hive swarm demote` also writes a `ceiling` on the device, the highest rung
+the Queen may take it to by her own decisions: a `promote` lifts it, a `demote` sets it to the rung
+the device is lowered to, so a device pinned at the gateway is never climbed again. A device above
+its ceiling is taken down, one rung, when it is idle; she never climbs past it.

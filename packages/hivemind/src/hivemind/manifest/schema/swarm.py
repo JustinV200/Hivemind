@@ -67,9 +67,11 @@ DEFAULT_UNREACHABLE_GRACE_S = 300.0  # Five minutes a lost device's tasks wait, 
 # nor re-placed, before the Queen decides what to do with them (ADR-0053).
 DEFAULT_SWARM_ACCESS = AccessLevel.FULL  # What an invite grants when the operator names no level
 # (the operator may always grant less; the cap rides on the invite, never on the wire).
-DEFAULT_RELIEF_PRESSURE = 0.75  # Seat or memory pressure past which the Hive Stand wants relief.
+DEFAULT_RELIEF_PRESSURE = 0.75  # Share of the Hive Stand's cores or memory that Level 0
+# Wardens' running sub-bees take, past which colonizing a device to relieve it is worth doing.
 DEFAULT_MIN_FREE_MEMORY_BYTES = 1_073_741_824  # 1 GiB: room for a Warden, a sub-bee and headroom.
-DEFAULT_NUC_SEAT_PRESSURE = 0.75  # Hive Stand seat pressure past which a Nuc is worth building.
+DEFAULT_NUC_SEAT_PRESSURE = 0.75  # Share of the shared pool's usable seats that live grants
+# hold, past which a Nuc is worth building.
 DEFAULT_LOWER_AFTER_S = 900.0  # Fifteen minutes with no reason left before the Queen takes back a
 # rung she raised: long enough that a lull between two tasks does not undo the move that the
 # next task would only repeat, short enough that an idle device is not kept raised for hours.
@@ -120,9 +122,10 @@ class SwarmLadderSection(BaseModel):
         default=DEFAULT_RELIEF_PRESSURE,
         gt=0,
         le=1,
-        description="Hive Stand seat or memory pressure, as a fraction of its capacity, past "
-        "which the Queen may colonize a device to take a Warden off it; a task that must survive "
-        "short outages, or the operator's own `promote`, can colonize below it.",
+        description="The share of the Hive Stand's cores or memory (whichever is larger) that "
+        "the running sub-bees of Level 0 Wardens take, from 0 to 1, past which the Queen may "
+        "colonize a device that has sub-bees running to take them off the Hive Stand; a task "
+        "that must survive a lost link, or the operator's own `promote`, can colonize below it.",
     )
     min_free_memory_bytes: int = Field(
         default=DEFAULT_MIN_FREE_MEMORY_BYTES,
@@ -157,10 +160,11 @@ class SwarmNucSection(BaseModel):
         default=DEFAULT_NUC_SEAT_PRESSURE,
         gt=0,
         le=1,
-        description="Hive Stand model-seat pressure, as a fraction of its seats, past which the "
-        "Queen may promote a colonized device to a Nuc so its sub-bees stop competing for them; "
-        "a task's need to keep working offline, or the operator's own `promote`, can promote "
-        "below it.",
+        description="The share of the shared model pool's usable seats (the seats its sources "
+        "declare, less the Royal Reserve's) that live grants hold, from 0 to 1, past which the "
+        "Queen may promote a colonized device that has sub-bees running to a Nuc so they stop "
+        "competing for those seats; a task's need to keep working offline, or the operator's "
+        "own `promote`, can promote below it.",
     )
     lower_after_s: float = Field(
         default=DEFAULT_LOWER_AFTER_S,

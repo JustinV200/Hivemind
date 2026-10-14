@@ -10,7 +10,7 @@ its capacity report, because the Queen can only start what the operator put on t
 Hive must allow that server some models (its Forage map entries, the sources the Hive's manifest
 lists for that server id), and at least one must fit the VRAM the device has free (a model that
 declares no VRAM runs on the CPU and needs none); and something must ask for it: the operator
-(`desired_level`), the Hive Stand's seat pressure past `[swarm.nuc] seat_pressure`, or a task that
+(`desired_level`), the shared pool's seat pressure past `[swarm.nuc] seat_pressure`, or a task that
 must survive a lost link. The answer names the server, every allowlisted model that fits (what the
 Queen will let the Warden load on its own, the `Ceilings.loadable_sources`) and the ones that fit
 together (what is loaded first). It only decides; the Queen's swarm gate acts on the answer.
@@ -60,7 +60,7 @@ class NucReason(Enum):
     """Why a colonized device should get a model server: the first reason that holds, in order."""
 
     OPERATOR = "operator"  # The operator asked for it (`desired_level`, `hive swarm promote`).
-    PRESSURE = "pressure"  # The Hive Stand's seats are past `[swarm.nuc] seat_pressure`.
+    PRESSURE = "pressure"  # The shared pool's seats are past `[swarm.nuc] seat_pressure`.
     AUTONOMY = "autonomy"  # A task on the device must survive the link to the Queen being lost.
 
 
@@ -89,7 +89,9 @@ class NucFacts:
             order it listed them.
         offered: The servers the Hive allows and the models it lists for each.
         desired_level: The rung the operator asked for, or None.
-        hive_pressure: The Hive Stand's seat pressure, 0 to 1.
+        hive_pressure: The shared pool's seat pressure, 0 to 1: the share of its usable seats
+            that live grants hold (defined once, in
+            `hivemind.queen.swarm_gate.rungs.pressure`).
         seat_pressure: `[swarm.nuc] seat_pressure`: the pressure past which a Nuc is wanted.
         needs_outage_survival: Whether a task on this device must survive a lost link.
     """

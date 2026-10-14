@@ -15,7 +15,9 @@ grants go back to the pool: it draws on them no more.
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.swarm_gate`.
     Called by `hivemind.queen.swarm_gate.unreachable` (a decision to re-place) and by
-    `hivemind.queen.swarm_gate.reconcile` (a revoke, a rebuild, a failed Warden). Calls into
+    `hivemind.queen.swarm_gate.reconcile` (a revoke, a rebuild, a failed Warden); `open_tasks`,
+    which lists what has not ended, is also read by the colonize flows and by
+    `hivemind.queen.swarm_gate.rungs` (whose pass reads the Hive once). Calls into
     `hivemind.brood_chamber`, `hivemind.forage`, `hivemind.queen.cluster` (the newest Handoff),
     `hivemind.queen.forage.grants`, `hivemind.queen.trail` and `hivemind.swarm` only.
 
