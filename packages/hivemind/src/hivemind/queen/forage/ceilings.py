@@ -51,9 +51,34 @@ from waggle.messages.forage import CeilingsSet
 if TYPE_CHECKING:
     # Only for the type hints below: see hivemind.queen.forage.grants's own module docstring note
     # on why QueenDeps/WardenLink cannot be real imports inside hivemind.queen.forage.
+    from hivemind.cell import Cell
     from hivemind.queen.deps import QueenDeps, WardenLink
 
-__all__ = ["change_ceilings", "resend_ceilings", "set_ceilings"]
+__all__ = ["change_ceilings", "initial_ceilings", "resend_ceilings", "set_ceilings"]
+
+
+def initial_ceilings(cell: Cell) -> Ceilings:
+    """Build a newly attached Warden's first Ceilings from its Cell's own capacity report.
+
+    `max_sub_bees` is the Cell's own cap; VRAM and disk start at the Cell's own free figures, so a
+    Warden can load a model at all before the Queen ever tightens either. Nothing is exported or
+    allowlisted yet: the Queen raises `exportable_seats`/`loadable_sources` later, once a model is
+    actually worth sharing or loading (codingrules section 8.10: "ceilings, not approvals").
+
+    Args:
+        cell: The Cell the Warden supervises, with the capacity it last reported.
+
+    Returns:
+        The ceilings a first dispatch sets, and the ones a failed Nuc promotion puts back.
+    """
+    free_vram = sum(gpu.vram_free_bytes for gpu in cell.capacity.host.gpus)
+    return Ceilings(
+        max_sub_bees=cell.capacity.max_sub_bees,
+        model_vram_bytes=free_vram,
+        model_disk_bytes=cell.capacity.host.disk_free_bytes,
+        loadable_sources=(),
+        exportable_seats=0,
+    )
 
 
 async def set_ceilings(warden: WardenLink, ceilings: Ceilings, deps: QueenDeps) -> None:

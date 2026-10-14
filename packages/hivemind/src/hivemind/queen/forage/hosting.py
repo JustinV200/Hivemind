@@ -56,7 +56,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -114,7 +114,10 @@ class PlanReason:
 
 
 async def write_hosting_plan(
-    cell: Cell, deps: QueenDeps, warden: WardenLink | None = None
+    cell: Cell,
+    deps: QueenDeps,
+    warden: WardenLink | None = None,
+    local: Iterable[ModelSource] = (),
 ) -> HostingPlan:
     """Write, store and record a Cell's HostingPlan (the effectful edge; see module docstring).
 
@@ -125,13 +128,17 @@ async def write_hosting_plan(
             this link before the plan is recorded (mirroring `hivemind.queen.forage.ceilings.
             set_ceilings`'s own write-then-send-then-record order). `None` (every pre-4.10-wiring
             caller, and any test that only cares about the decision itself) skips the send.
+        local: Sources the Cell's own server has just loaded and told the Queen it serves, which
+            her map may not list as hosted there yet (she learns of each from the Warden's own
+            `forage.source_added`, a frame behind its promotion reply). They count as local to
+            `cell`, so the plan puts them first.
 
     Returns:
         The written plan, already recorded in the ledger and on the trail.
     """
     existing = deps.ledger.decisions.plan_for(cell.id)
     revision = 0 if existing is None else existing.revision + 1
-    sources = deps.map.sources()
+    sources = _with_local(deps.map.sources(), local, cell)
     inputs = _PlanInputs(
         sources=sources,
         bindings=deps.bindings,
@@ -148,6 +155,21 @@ async def write_hosting_plan(
         deps, "forage.plan_written", cell.id, revision=plan.revision, slots=len(plan.slots)
     )
     return plan
+
+
+def _with_local(
+    sources: tuple[ModelSource, ...], local: Iterable[ModelSource], cell: Cell
+) -> tuple[ModelSource, ...]:
+    """Return `sources` with each of `local` listed as hosted on `cell`, replacing the same id."""
+    placed = {
+        source.source_id: source.model_copy(
+            update={"spec": source.spec.model_copy(update={"host_cell_id": cell.id})}
+        )
+        for source in local
+    }
+    if not placed:
+        return sources
+    return (*(s for s in sources if s.source_id not in placed), *placed.values())
 
 
 async def resend_plan(warden: WardenLink, deps: QueenDeps) -> bool:

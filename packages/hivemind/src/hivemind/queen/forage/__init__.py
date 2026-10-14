@@ -42,13 +42,14 @@ Public API (roadmap steps 4.7-4.8):
     - PlanReason, write_hosting_plan: a Cell's HostingPlan (hosting).
     - NightVeilPlanError, night_veil_local_only, restrict_to_local: Night Veil's local-only hosting
       plan checks (roadmap step 5.7a; night_veil).
-    - set_ceilings, change_ceilings: a Warden's local-pool bounds (ceilings).
+    - set_ceilings, change_ceilings, initial_ceilings: a Warden's local-pool bounds, and the
+      first ones a newly attached Warden gets (ceilings).
     - evict_source: take back seats she exported from a Warden's model server (evict; roadmap 8.3).
     - Resent, resend_state: the ceilings, plan and live grants a re-attached Warden is sent again
       (resend; roadmap 11.9).
 """
 
-from hivemind.queen.forage.ceilings import change_ceilings, set_ceilings
+from hivemind.queen.forage.ceilings import change_ceilings, initial_ceilings, set_ceilings
 from hivemind.queen.forage.evict import evict_source
 from hivemind.queen.forage.grants import (
     activate,
@@ -105,6 +106,7 @@ __all__ = [
     "evict_source",
     "grant_wanted",
     "handle_forage_request_for_kind",
+    "initial_ceilings",
     "night_veil_local_only",
     "release_finished",
     "renew_grants_for_warden",

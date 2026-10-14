@@ -89,12 +89,19 @@ handling, hosting plans and Ceilings per Warden.
   candidate is excluded outright rather than merely ranked behind, so the plan's own chain never
   names a source the Cell cannot reach while genuinely disconnected. `hivemind.queen.dispatcher.
   _ensure_warden_provisioned` is the one production caller that passes `warden`, on a newly
-  attached Warden's first dispatch.
-- **`ceilings`**: `set_ceilings`, `change_ceilings` (roadmap step 4.8) -- write a Warden's
-  `hivemind.forage.Ceilings` to the ledger (`ledger.decisions.record_ceilings`, which numbers the
-  revision), send `waggle.messages.forage.CeilingsSet` over its `WardenLink`, and record
-  `forage.ceilings_set` with the old and new `max_sub_bees`, mirroring
+  attached Warden's first dispatch. The `local` parameter (roadmap 11.8) is for a Nuc's promotion:
+  the sources the device's server has just loaded are passed in and count as hosted on the Cell
+  whether or not her map lists them yet (she learns of each from the Warden's own
+  `forage.source_added`, a frame behind its promotion reply), so the plan names the device's own
+  models first.
+- **`ceilings`**: `set_ceilings`, `change_ceilings`, `initial_ceilings` (roadmap step 4.8) --
+  write a Warden's `hivemind.forage.Ceilings` to the ledger (`ledger.decisions.record_ceilings`,
+  which numbers the revision), send `waggle.messages.forage.CeilingsSet` over its `WardenLink`, and
+  record `forage.ceilings_set` with the old and new `max_sub_bees`, mirroring
   `hivemind.queen.dispatcher`'s own "write, then send, then record" ordering for a grant.
+  `initial_ceilings(cell)` is the first ceilings a newly attached Warden gets, from its Cell's own
+  free figures with nothing exported or allowlisted; the first dispatch sets them and a failed Nuc
+  promotion (roadmap 11.8, `hivemind.queen.swarm_gate.colonize.nuc`) puts them back.
 - **`night_veil`**: `night_veil_local_only(plan, forage_map) -> tuple[str, ...]` and
   `restrict_to_local(plan, forage_map, cell_id) -> HostingPlan` (roadmap step 5.7a) -- ADR-0030's
   "every model slot resolves to a local provider" rule for a NIGHT_VEIL Cell's own `HostingPlan`: a

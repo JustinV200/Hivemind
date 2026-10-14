@@ -286,3 +286,46 @@ async def test_a_floor_above_every_candidate_degrades_to_the_best_on_offer() -> 
     )
 
     assert _worker_chain(plan) == ("src_mid", ())
+
+
+async def test_sources_just_loaded_on_the_cell_count_as_local_before_the_map_says_so() -> None:
+    clock = FakeClock()
+    cell = _cell(clock, can_host_model=False)  # No forcing factor: pure ranking decides.
+    shared = make_source(
+        source_id="src_shared", provider="fake", model=_WORKER_MODEL, host_cell_id=None
+    )
+    # The manifest's row for the model the Cell's server has just loaded: no host on the map yet.
+    loaded = make_source(
+        source_id="src_loaded", provider="fake", model=_WORKER_MODEL, host_cell_id=None
+    )
+    deps = _with_map(await _deps_with_shared_headroom(clock, cell), (loaded, shared), clock)
+
+    plan = await write_hosting_plan(cell, deps, local=(loaded,))
+
+    primary, fallbacks = _worker_chain(plan)
+    assert primary == "src_loaded"  # Local first ...
+    assert "src_shared" in fallbacks  # ... and the shared pool behind it.
+
+
+async def test_local_sources_are_listed_once_and_the_maps_own_row_is_not_changed() -> None:
+    clock = FakeClock()
+    cell = _cell(clock, can_host_model=False)
+    row = make_source(source_id="src_loaded", provider="fake", model=_WORKER_MODEL)
+    deps = _with_map(await _deps_with_shared_headroom(clock, cell), (row,), clock)
+
+    plan = await write_hosting_plan(cell, deps, local=(row,))
+
+    primary, fallbacks = _worker_chain(plan)
+    assert (primary, fallbacks) == ("src_loaded", ())  # Not twice: the same id replaces the row.
+    assert deps.map.get("src_loaded").spec.host_cell_id is None  # The map is not edited.
+
+
+async def test_a_source_not_on_the_map_at_all_can_still_be_planned_as_local() -> None:
+    clock = FakeClock()
+    cell = _cell(clock, can_host_model=False)
+    unknown = make_source(source_id="src_new", provider="fake", model=_WORKER_MODEL)
+    deps = _with_map(await _deps_with_shared_headroom(clock, cell), (), clock)
+
+    plan = await write_hosting_plan(cell, deps, local=(unknown,))
+
+    assert _worker_chain(plan)[0] == "src_new"

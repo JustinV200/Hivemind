@@ -12,11 +12,14 @@ See Also:
 
 from __future__ import annotations
 
+from builders.cells import make_cell
+from builders.forage import make_capacity, make_host_capacity
 from builders.queen import make_queen_deps
 
+from hivemind.forage.models.capacity import GpuInfo
 from hivemind.forage.models.pools import Ceilings
 from hivemind.pheromone import ForageEvent, TrailQuery
-from hivemind.queen.forage.ceilings import change_ceilings, set_ceilings
+from hivemind.queen.forage.ceilings import change_ceilings, initial_ceilings, set_ceilings
 
 
 def _ceilings(**overrides: object) -> Ceilings:
@@ -92,3 +95,18 @@ async def test_change_ceilings_carries_the_old_and_new_values_on_the_trail() -> 
     (change_event,) = [e for e in events if e.kind == "forage.ceilings_set"][1:]
     assert change_event.payload["old_max_sub_bees"] == 4
     assert change_event.payload["new_max_sub_bees"] == 8
+
+
+def test_a_newly_attached_wardens_first_ceilings_are_its_cells_own_free_figures() -> None:
+    gpus = (
+        GpuInfo(name="a", vram_bytes=24_000, vram_free_bytes=10_000),
+        GpuInfo(name="b", vram_bytes=24_000, vram_free_bytes=5_000),
+    )
+    capacity = make_capacity(host=make_host_capacity(gpus=gpus, disk_free_bytes=77_000))
+
+    ceilings = initial_ceilings(make_cell(capacity=capacity))
+
+    assert ceilings.model_vram_bytes == 15_000  # Every GPU's free VRAM, summed.
+    assert ceilings.model_disk_bytes == 77_000
+    assert ceilings.max_sub_bees == capacity.max_sub_bees
+    assert ceilings.loadable_sources == () and ceilings.exportable_seats == 0

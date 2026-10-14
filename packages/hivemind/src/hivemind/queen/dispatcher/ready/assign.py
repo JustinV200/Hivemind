@@ -44,8 +44,8 @@ dispatch, a retry and a resume all get one; it never raises, and yields no hits 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher.ready`
     sub-package. Called by `.dispatch` only. Calls into `hivemind.brood_chamber` (Task,
-    TaskOutcome, TaskStatus), `hivemind.cell` (Cell), `hivemind.forage` (Ceilings, ForageGrant,
-    ModelSlot), `hivemind.pheromone` (ForageEvent), `hivemind.queen.deps` (QueenDeps, WardenLink),
+    TaskOutcome, TaskStatus), `hivemind.forage` (ForageGrant, ModelSlot), `hivemind.pheromone`
+    (ForageEvent), `hivemind.queen.deps` (QueenDeps, WardenLink),
     `hivemind.queen.dispatcher.grants`/`.honey`/`.sizing`/`.zero_grant`,
     `hivemind.queen.forage.grants`/`.ceilings`/`.hosting` and waggle (including
     `waggle.messages.task.recon.MAX_RECON_REPORTS`) only.
@@ -81,8 +81,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from hivemind.brood_chamber import Task, TaskOutcome, TaskStatus
-from hivemind.cell import Cell
-from hivemind.forage import Ceilings, ForageGrant, ModelSlot
+from hivemind.forage import ForageGrant, ModelSlot
 from hivemind.pheromone import ForageEvent
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.grants import authorize_grant
@@ -91,7 +90,7 @@ from hivemind.queen.dispatcher.ready.handoff import fit_in_frame
 from hivemind.queen.dispatcher.sizing import SizedGrant
 from hivemind.queen.dispatcher.zero_grant import deny_zero_grant
 from hivemind.queen.forage import grants as forage_grants
-from hivemind.queen.forage.ceilings import set_ceilings
+from hivemind.queen.forage.ceilings import initial_ceilings, set_ceilings
 from hivemind.queen.forage.hosting import write_hosting_plan
 from waggle.envelope import wrap
 from waggle.ids import CellId, GrantId, WardenId, new_event_id
@@ -362,23 +361,5 @@ async def _ensure_warden_provisioned(deps: QueenDeps, link: WardenLink) -> None:
     """
     if deps.ledger.decisions.ceilings_for(link.warden_id) is not None:
         return  # Already provisioned on an earlier dispatch to this same Warden.
-    await set_ceilings(link, _initial_ceilings(link.cell), deps)
+    await set_ceilings(link, initial_ceilings(link.cell), deps)
     await write_hosting_plan(link.cell, deps, link)
-
-
-def _initial_ceilings(cell: Cell) -> Ceilings:
-    """Build a newly attached Warden's first Ceilings from its Cell's own capacity report.
-
-    `max_sub_bees` is the Cell's own cap; VRAM and disk start at the Cell's own free figures, so a
-    Warden can load a model at all before the Queen ever tightens either. Nothing is exported or
-    allowlisted yet: the Queen raises `exportable_seats`/`loadable_sources` later, once a model is
-    actually worth sharing or loading (codingrules section 8.10: "ceilings, not approvals").
-    """
-    free_vram = sum(gpu.vram_free_bytes for gpu in cell.capacity.host.gpus)
-    return Ceilings(
-        max_sub_bees=cell.capacity.max_sub_bees,
-        model_vram_bytes=free_vram,
-        model_disk_bytes=cell.capacity.host.disk_free_bytes,
-        loadable_sources=(),
-        exportable_seats=0,
-    )
