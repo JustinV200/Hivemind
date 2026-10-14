@@ -120,7 +120,14 @@ class Patrol:
         if not kept:
             return None
         observations = tuple(item.observation for item in kept)
-        signals = find_signals(observations, settings.cpu_share_alarm, settings.disk_fill_alarm)
+        # `patrolled_until` is where the last review ended: a process that started after it counts
+        # as new even if it was already running at this window's first sample.
+        signals = find_signals(
+            observations,
+            settings.cpu_share_alarm,
+            settings.disk_fill_alarm,
+            schedule.patrolled_until,
+        )
         window = PatrolWindow(kept[0].kept_at, kept[-1].kept_at, observations, signals)
         outcome = await self._review(window)
         if outcome is not PatrolOutcome.SKIPPED:

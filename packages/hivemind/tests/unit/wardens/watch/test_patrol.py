@@ -164,6 +164,23 @@ async def test_the_window_carries_the_prefilters_signals() -> None:
     assert [(s.kind, s.subject) for s in window.signals] == [(SignalKind.NEW_PROCESS_CPU, "miner")]
 
 
+async def test_a_process_that_started_between_two_patrols_is_flagged_in_the_second() -> None:
+    rig = _Rig(ScriptedPatrolPort(_decision(PatrolChoice.NOTHING)))
+    await rig.keep("a", wait=False)
+    await rig.patrol.run()  # Reviews "a", and discards it: nothing is left to compare against.
+    started = rig.clock.now() + timedelta(seconds=100)
+    rig.clock.advance(300.0)  # The next sample comes five minutes on; the job began in between.
+    late = make_process(9, "late-job", 0.95, started_at=started)
+    await store.save(make_observation(rig.clock.now(), processes=[late]), rig.ctx, _OWNER, 86_400.0)
+
+    await rig.patrol.run()
+
+    (window,) = rig.port.windows[1:]
+    assert [(s.kind, s.subject) for s in window.signals] == [
+        (SignalKind.NEW_PROCESS_CPU, "late-job")
+    ]
+
+
 async def test_the_window_spans_the_oldest_to_the_newest_observation_it_covers() -> None:
     rig = _Rig(ScriptedPatrolPort(_decision(PatrolChoice.NOTHING)))
     await rig.keep("a", wait=False)

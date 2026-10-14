@@ -5,7 +5,7 @@ the last one, and a model reading raw process lists would drown. This module is 
 pre-filter that runs first: three rules over the window's Observations that turn the facts a Patrol
 should not miss into typed `WatchSignal`s, handed to the model beside the raw data as labelled
 facts, never as conclusions. A new process using more of the CPU than `cpu_share_alarm` (it started
-inside the window, so it is not the machine's ordinary load); the disk filled past
+since the last review, so it is not the machine's ordinary load); the disk filled past
 `disk_fill_alarm` (read from the newest sample, since only the present matters); and a restart loop
 (one name seen as three or more different processes in turn, never two at once, which is a daemon
 that keeps dying and being started again; a browser's many tabs or a server's workers run together,
@@ -82,7 +82,10 @@ class WatchSignal:
 
 
 def find_signals(
-    observations: Sequence[Observation], cpu_share_alarm: float, disk_fill_alarm: float
+    observations: Sequence[Observation],
+    cpu_share_alarm: float,
+    disk_fill_alarm: float,
+    since: datetime | None = None,
 ) -> tuple[WatchSignal, ...]:
     """Apply the three rules to a window of Observations.
 
@@ -90,6 +93,10 @@ def find_signals(
         observations: The window, oldest first. An empty window has no signals.
         cpu_share_alarm: A new process at or above this share of the CPU (0 to 1) is a signal.
         disk_fill_alarm: A disk filled to at least this fraction (0 to 1) is a signal.
+        since: When the last review ended, if there was one. A process that started after it is
+            new even when it started before this window's first sample, because the samples
+            between two windows were reviewed by neither. Without it the first sample is the
+            baseline, so whatever was already running then is not new.
 
     Returns:
         The signals, new processes first, then the disk, then restart loops; within a kind the
@@ -98,7 +105,7 @@ def find_signals(
     if not observations:
         return ()
     return (
-        *_top(_new_processes(observations, cpu_share_alarm)),
+        *_top(_new_processes(observations, cpu_share_alarm, since)),
         *_disk(observations, disk_fill_alarm),
         *_top(_restart_loops(observations)),
     )
@@ -109,9 +116,11 @@ def _top(signals: list[WatchSignal]) -> list[WatchSignal]:
     return sorted(signals, key=lambda signal: (-signal.value, signal.subject))[:MAX_PER_KIND]
 
 
-def _new_processes(observations: Sequence[Observation], limit: float) -> list[WatchSignal]:
-    """Return one signal per process that started in the window and ever used `limit` of the CPU."""
-    window_start = observations[0].observed_at - NEW_PROCESS_SLACK
+def _new_processes(
+    observations: Sequence[Observation], limit: float, since: datetime | None
+) -> list[WatchSignal]:
+    """Return one signal per process that started since the last review and used `limit` of CPU."""
+    window_start = (since or observations[0].observed_at) - NEW_PROCESS_SLACK
     seen: set[Identity] = set()
     peaks: dict[Identity, WatchSignal] = {}
     for index, observation in enumerate(observations):

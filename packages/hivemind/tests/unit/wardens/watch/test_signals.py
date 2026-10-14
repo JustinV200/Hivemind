@@ -70,6 +70,25 @@ def test_a_process_that_was_already_running_when_the_window_opened_is_not_new() 
     assert find_signals([_obs(0, old_hog), _obs(5, old_hog)], _CPU, _DISK) == ()
 
 
+def test_a_process_that_started_between_two_reviews_is_new_to_the_second() -> None:
+    # It began 30 minutes after the last review ended and 30 before this window's first sample:
+    # no review saw that gap, so the window alone would call it old.
+    between = make_process(77, "cron-job", 0.9, started_at=_at(30))
+    window = [_obs(60, between), _obs(65, between)]
+
+    assert find_signals(window, _CPU, _DISK) == ()
+    (signal,) = find_signals(window, _CPU, _DISK, since=_at(0))
+    assert (signal.kind, signal.subject, signal.pid) == (SignalKind.NEW_PROCESS_CPU, "cron-job", 77)
+
+
+def test_a_process_that_started_before_the_last_review_ended_is_not_new() -> None:
+    reviewed = make_process(78, "service", 0.9, started_at=_at(-20))
+
+    window = [_obs(60, reviewed), _obs(65, reviewed)]
+
+    assert find_signals(window, _CPU, _DISK, since=_at(0)) == ()
+
+
 def test_a_new_process_under_the_threshold_is_not_a_signal() -> None:
     mild = make_process(8, "build", 0.49, started_at=_at(1))
 
