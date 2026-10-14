@@ -4,14 +4,16 @@
 INVITE`` turns a ``pollen1.`` invite string into an enrolment (use ``-`` to read the string from
 standard input so it never appears in a process list or shell history); ``pollen run`` is the
 packet itself, the loop the service manager keeps alive; ``pollen install`` sets it up to start at
-login and records, for the later colonization step, the operator's chosen source for the Hive
-runtime (``--runtime-wheelhouse`` or ``--runtime-index``, never both) and the device's local
-Warden manifest; ``pollen uninstall`` removes only the service unit that install wrote; ``pollen
-status`` says what the packet is doing; ``pollen version`` prints the versions. The data directory
-is ``--data-dir``, else ``POLLEN_DATA_DIR``, else the platform's default, and this module is the
-only place that reads that variable. It reads no ``HIVEMIND_*`` variable. This is the one module in
-pollen allowed to print: the output is for the operator at a terminal and carries ids, counts and
-sentences, never a key, a token or the invite.
+login and records, for the colonization step, the operator's chosen source for the Hive
+runtime (``--runtime-wheelhouse`` or ``--runtime-index``, never both), the interpreter to build it
+with (``--runtime-python``) and the device's local Warden manifest; ``pollen uninstall`` removes
+the service unit that install wrote and stops the Warden the packet started, if one runs; ``pollen
+status`` says what the packet is doing and on which rung of the runtime ladder the device is;
+``pollen version`` prints the versions. The data directory is ``--data-dir``, else
+``POLLEN_DATA_DIR``, else the platform's default, and this module is the only place that reads that
+variable. It reads no ``HIVEMIND_*`` variable. This is the one module in pollen allowed to print:
+the output is for the operator at a terminal and carries ids, counts and sentences, never a key, a
+token or the invite.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. The entry point named in the
@@ -22,7 +24,8 @@ Key invariants:
     - Exit status 0 means done; 1 means failed; 78 (``EXIT_NO_RESTART``) means the packet stopped
       for a reason a restart cannot fix, so the service manager must not restart it.
     - Nothing here prints or logs the invite string, the token, the key or an argument value.
-    - ``uninstall`` removes the service unit and nothing else of the operator's.
+    - ``uninstall`` removes the service unit and ends the packet's own Warden; nothing else of
+      the operator's is touched, and the data directory stays.
 
 See Also:
     - docs/waggle/enrolment.md for the ceremony ``enrol`` runs.
@@ -47,14 +50,23 @@ from types import FrameType
 import psutil
 
 from pollen.agent import PollenPacket, StatusDocument, read_status
+from pollen.bootstrap import stop_recorded
 from pollen.build import build_packet
 from pollen.enrol import EnrolPlan, enrol_device, parse_invite
 from pollen.errors import NotEnrolledError, PollenError, ProtocolMismatchError
 from pollen.executors.info import runtime_version
-from pollen.platform import EXIT_NO_RESTART, PlatformShim, ServicePlan, launch_command, select_shim
+from pollen.platform import (
+    EXIT_NO_RESTART,
+    PlatformShim,
+    ProcessRef,
+    ServicePlan,
+    launch_command,
+    select_shim,
+)
 from pollen.state import DataLayout, InstallSettings, PacketState, load_state, save_state
 from waggle.clock import SystemClock
 from waggle.envelope import PROTOCOL_VERSION
+from waggle.messages.swarm import RuntimeLevel
 
 SHUTDOWN_WAIT_S = 20.0  # How long a stop waits for the packet to finish before cancelling it.
 STATUS_FRESH_S = 120.0  # A status document older than this was left by a packet no longer running.
@@ -106,13 +118,21 @@ def data_dir_for(option: str | None, shim: PlatformShim, env: Mapping[str, str])
     return (Path(chosen).expanduser() if chosen else shim.default_data_dir()).resolve()
 
 
-def status_lines(state: PacketState, status: StatusDocument | None, now: datetime) -> list[str]:
+def status_lines(
+    state: PacketState,
+    status: StatusDocument | None,
+    now: datetime,
+    *,
+    warden_runs: bool = False,
+) -> list[str]:
     """Render what ``pollen status`` prints: identity, grants and what the packet reports.
 
     Args:
         state: The persisted enrolment.
         status: The packet's status document, or None if it never wrote one.
         now: The current time.
+        warden_runs: Whether the Warden the state records is alive (the caller asks the
+            platform, which is not this function's business).
 
     Returns:
         The lines to print; ids, counts and sentences only.
@@ -122,6 +142,7 @@ def status_lines(state: PacketState, status: StatusDocument | None, now: datetim
         f"cell        {state.cell_id}",
         f"access      {state.access_level.value} (tier {state.comb_shield.value})",
         f"queen       {state.queen_url}",
+        _level_line(state, warden_runs=warden_runs),
     ]
     if status is None or (now - status.updated_at).total_seconds() > STATUS_FRESH_S:
         return [*lines, "state       not running (no recent status)"]
@@ -138,6 +159,18 @@ def status_lines(state: PacketState, status: StatusDocument | None, now: datetim
             "warning     the Queen's frames look stale or from the future: check the clock"
         )
     return lines
+
+
+def _level_line(state: PacketState, *, warden_runs: bool) -> str:
+    """Say which rung of the runtime ladder the device is on, and its Warden's health, if any."""
+    level = state.level.value.lower()
+    if state.warden is None:
+        return f"level       {level} (no Warden on this device)"
+    health = "running" if warden_runs else "not running"
+    return (
+        f"level       {level}, Warden {health} (pid {state.warden.pid}, "
+        f"hivemind {state.warden.runtime_version})"
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -166,13 +199,18 @@ def _install_arguments(verb: argparse.ArgumentParser) -> None:
     source.add_argument("--runtime-wheelhouse", type=_existing_dir, help="A directory of wheels.")
     source.add_argument("--runtime-index", type=_index_url, help="A package index URL.")
     verb.add_argument("--warden-manifest", type=_existing_file, help="The device's local manifest.")
+    verb.add_argument(
+        "--runtime-python",
+        type=_existing_file,
+        help="A Python 3.12 or newer to build the runtime with (else one is searched for).",
+    )
 
 
 _VERBS = {
     "enrol": "Enrol this device in the Swarm with an invite.",
     "run": "Run the packet in the foreground.",
     "install": "Set the packet up to start at login.",
-    "uninstall": "Remove the service unit; the data directory is kept.",
+    "uninstall": "Remove the service unit and stop the Warden it ran; the data is kept.",
     "status": "Show what the packet is doing.",
     "version": "Print the versions.",
 }
@@ -281,6 +319,7 @@ def _install(args: argparse.Namespace) -> int:
         runtime_wheelhouse=args.runtime_wheelhouse,
         runtime_index=args.runtime_index,
         warden_manifest=args.warden_manifest,
+        runtime_python=args.runtime_python,
     )
     if settings != InstallSettings():
         state = load_state(layout.state)  # Settings live in the enrolment: enrol first.
@@ -295,19 +334,48 @@ def _install(args: argparse.Namespace) -> int:
 
 
 def _uninstall(args: argparse.Namespace) -> int:
-    """``pollen uninstall``: remove the unit; leave the data directory alone."""
-    shim = _context(args)[1]
+    """``pollen uninstall``: remove the unit and the Warden it ran; leave the data directory."""
+    layout, shim = _context(args)
     result = shim.uninstall_service()
     print(result.detail)
+    status = asyncio.run(_withdraw_warden(layout, shim))
     print("The data directory was left in place; delete it yourself to forget the enrolment.")
+    return status
+
+
+async def _withdraw_warden(layout: DataLayout, shim: PlatformShim) -> int:
+    """Stop the Warden the state records, if any, so uninstalling leaves nothing running.
+
+    Returns:
+        0 when no Warden is left running, 1 when one is and could not be stopped.
+    """
+    try:
+        state = load_state(layout.state)
+    except PollenError:
+        return 0  # Not enrolled, or an unreadable state: there is no Warden to know of.
+    record = state.warden
+    if record is None:
+        return 0
+    # Uninstalling removes the unit that kept the packet, and with it the Warden's watcher, alive:
+    # a Warden left running would have nobody to supervise it.
+    if not await stop_recorded(record, shim, SystemClock()):
+        print(f"pollen: the Warden (pid {record.pid}) could not be stopped.", file=sys.stderr)
+        return 1  # Its record stays, so a packet that is started again still knows of it.
+    fields = {**state.model_dump(), "level": RuntimeLevel.GATEWAY, "warden": None}
+    save_state(layout.state, PacketState.model_validate(fields))
+    print("The Warden that ran on this device is no longer running.")
     return 0
 
 
 def _status(args: argparse.Namespace) -> int:
     """``pollen status``: the enrolment and what the packet reports about itself."""
-    layout, _ = _context(args)
+    layout, shim = _context(args)
     state = load_state(layout.state)
-    for line in status_lines(state, read_status(layout.status), SystemClock().now()):
+    record = state.warden
+    runs = record is not None and shim.group_alive(ProcessRef(record.pid, record.created))
+    for line in status_lines(
+        state, read_status(layout.status), SystemClock().now(), warden_runs=runs
+    ):
         print(line)
     return 0
 

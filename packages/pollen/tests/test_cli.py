@@ -5,15 +5,19 @@ invite into an enrolment, ``run`` is the packet until a signal stops it, ``insta
 ``uninstall`` manage the service unit and nothing else of the operator's, ``status`` says what the
 packet is doing and ``version`` prints the versions. Exit status 0 means done, 1 failed, and 78
 (``EXIT_NO_RESTART``) means the packet stopped for a reason a restart cannot fix, so the service
-manager must not restart it. These tests call ``main`` the way a shell would, with a recorder in
-place of the service manager and the scripted Queen for the verbs that need one.
+manager must not restart it. ``install`` also records the interpreter to build the Hive runtime
+with, ``status`` names the rung of the runtime ladder the device is on and whether its Warden runs,
+and ``uninstall`` ends the Warden the packet started. These tests call ``main`` the way a shell
+would, with a recorder in place of the service manager and the scripted Queen for the verbs that
+need one; the Warden, where one is needed, is a real process in a group of its own.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.cli and pollen.__main__.
 
 Key invariants:
     - Nothing printed carries the invite, a token or a key.
-    - The data directory survives ``uninstall``.
+    - The data directory survives ``uninstall``, and so does the record of a Warden that could
+      not be stopped.
     - A signal handler the CLI installs is the process's old one again when ``run`` returns.
 
 See Also:
@@ -27,6 +31,7 @@ import io
 import os
 import runpy
 import signal
+import subprocess
 import sys
 from collections.abc import Sequence
 from datetime import timedelta
@@ -41,9 +46,10 @@ from pollen import build_packet
 from pollen.agent import PacketStatus, StatusDocument, write_status
 from pollen.cli import _run_until_signalled, data_dir_for, main, status_lines
 from pollen.errors import ProtocolMismatchError
-from pollen.platform import EXIT_NO_RESTART, CommandResult, LinuxShim, select_shim
-from pollen.state import DataLayout, load_state, save_state
+from pollen.platform import EXIT_NO_RESTART, CommandResult, LinuxShim, SpawnSpec, select_shim
+from pollen.state import DataLayout, PacketState, WardenRecord, load_state, save_state
 from waggle.clock import Clock
+from waggle.messages.swarm import RuntimeLevel
 
 
 class Recorder:
@@ -91,6 +97,25 @@ def test_status_says_not_running_without_a_recent_document(device: Device, clock
     lines = status_lines(device.state, None, clock.now())
     assert lines[0] == f"device      {device.state.device_id}"
     assert lines[-1].startswith("state       not running")
+
+
+def test_status_says_the_device_is_on_the_bottom_rung_when_it_has_no_warden(
+    device: Device, clock: Clock
+) -> None:
+    lines = status_lines(device.state, None, clock.now())
+
+    assert "level       gateway (no Warden on this device)" in lines
+
+
+def test_status_names_the_rung_and_the_warden_of_a_colonized_device(clock: Clock) -> None:
+    record = WardenRecord(pid=4321, created=1.0, runtime_version="1.4.0", started_at=clock.now())
+    state = sample_state(clock, level=RuntimeLevel.COLONIZED, warden=record)
+
+    running = status_lines(state, None, clock.now(), warden_runs=True)
+    gone = status_lines(state, None, clock.now())
+
+    assert "level       colonized, Warden running (pid 4321, hivemind 1.4.0)" in running
+    assert "level       colonized, Warden not running (pid 4321, hivemind 1.4.0)" in gone
 
 
 def _document(clock: Clock, **changes: object) -> StatusDocument:
@@ -229,6 +254,20 @@ def test_install_writes_the_unit_and_records_the_operators_runtime_source(
     assert "installed" in capsys.readouterr().out
 
 
+def test_install_records_the_python_the_runtime_is_built_with(
+    recorder: Recorder, tmp_path: Path, clock: Clock
+) -> None:
+    layout = DataLayout(tmp_path / "data")
+    layout.ensure()
+    save_state(layout.state, sample_state(clock))
+    python = tmp_path / "python3.12"
+    python.write_text("#!/bin/sh\n")
+
+    assert main(["install", "--data-dir", str(layout.root), "--runtime-python", str(python)]) == 0
+
+    assert load_state(layout.state).install.runtime_python == str(python.resolve())
+
+
 def test_install_without_a_service_manager_prints_the_command_to_start_it(
     recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -261,9 +300,123 @@ def test_uninstall_removes_the_unit_and_leaves_the_data(
     save_state(layout.state, sample_state(clock))
     assert main(["install", "--data-dir", str(layout.root)]) == 0
     assert main(["uninstall", "--data-dir", str(layout.root)]) == 0
-    assert layout.state.exists()
-    assert "left in place" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert layout.state.exists() and "left in place" in out and "Warden" not in out
     assert ("systemctl", "--user", "disable", "--now", "pollen.service") in recorder.calls
+
+
+def test_uninstall_without_an_enrolment_has_no_warden_to_stop(
+    recorder: Recorder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["uninstall", "--data-dir", str(tmp_path / "never-enrolled")]) == 0
+
+    out = capsys.readouterr().out
+    assert "left in place" in out and "Warden" not in out
+
+
+async def _sleeper(shim: LinuxShim, tmp_path: Path) -> asyncio.subprocess.Process:
+    """Start a program that does nothing for a minute, as the leader of a group of its own."""
+    return await shim.spawn(
+        SpawnSpec(
+            argv=(sys.executable, "-c", "import time; time.sleep(60)"),
+            cwd=tmp_path,
+            env={},
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    )
+
+
+def _colonized(clock: Clock, shim: LinuxShim, pid: int) -> PacketState:
+    """The state of a device whose Warden is the process ``pid``."""
+    record = WardenRecord(
+        pid=pid,
+        created=shim.process_ref(pid).created,
+        runtime_version="1.4.0",
+        started_at=clock.now(),
+    )
+    return sample_state(clock, level=RuntimeLevel.COLONIZED, warden=record)
+
+
+async def test_status_asks_the_platform_whether_the_recorded_warden_runs(
+    tmp_path: Path, clock: Clock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shim = LinuxShim(tmp_path, {})
+    layout = DataLayout(tmp_path / "data")
+    layout.ensure()
+    warden = await _sleeper(shim, tmp_path)
+    save_state(layout.state, _colonized(clock, shim, warden.pid))
+    args = ["status", "--data-dir", str(layout.root)]
+
+    assert await asyncio.to_thread(main, args) == 0
+    alive = capsys.readouterr().out
+    warden.kill()
+    await warden.wait()
+    assert await asyncio.to_thread(main, args) == 0
+    dead = capsys.readouterr().out
+
+    assert f"Warden running (pid {warden.pid}, hivemind 1.4.0)" in alive
+    assert f"Warden not running (pid {warden.pid}, hivemind 1.4.0)" in dead
+
+
+async def test_uninstall_stops_the_warden_it_ran_and_puts_the_device_back_on_level_zero(
+    recorder: Recorder, tmp_path: Path, clock: Clock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shim = LinuxShim(tmp_path, {})
+    layout = DataLayout(tmp_path / "data")
+    layout.ensure()
+    warden = await _sleeper(shim, tmp_path)
+    save_state(layout.state, _colonized(clock, shim, warden.pid))
+
+    status = await asyncio.to_thread(main, ["uninstall", "--data-dir", str(layout.root)])
+
+    assert status == 0
+    assert await asyncio.wait_for(warden.wait(), timeout=20) == -signal.SIGTERM  # Asked, it left.
+    after = load_state(layout.state)
+    assert (after.level, after.warden) == (RuntimeLevel.GATEWAY, None)
+    assert "no longer running" in capsys.readouterr().out
+
+
+def test_uninstall_of_a_warden_that_is_already_gone_clears_its_record(
+    recorder: Recorder, tmp_path: Path, clock: Clock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    layout = DataLayout(tmp_path / "data")
+    layout.ensure()
+    record = WardenRecord(
+        pid=2**22 + 123, created=1.0, runtime_version="1.4.0", started_at=clock.now()
+    )
+    save_state(layout.state, sample_state(clock, level=RuntimeLevel.COLONIZED, warden=record))
+
+    assert main(["uninstall", "--data-dir", str(layout.root)]) == 0
+
+    assert load_state(layout.state).warden is None
+    assert "no longer running" in capsys.readouterr().out
+
+
+def test_uninstall_that_cannot_stop_the_warden_says_so_and_keeps_its_record(
+    recorder: Recorder,
+    tmp_path: Path,
+    clock: Clock,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def refuses(*_: object) -> bool:
+        return False  # The group is still there after the kill.
+
+    monkeypatch.setattr("pollen.cli.stop_recorded", refuses)
+    layout = DataLayout(tmp_path / "data")
+    layout.ensure()
+    record = WardenRecord(pid=4321, created=1.0, runtime_version="1.4.0", started_at=clock.now())
+    colonized = sample_state(clock, level=RuntimeLevel.COLONIZED, warden=record)
+    save_state(layout.state, colonized)
+
+    assert main(["uninstall", "--data-dir", str(layout.root)]) == 1
+
+    captured = capsys.readouterr()
+    assert "pid 4321" in captured.err and "could not be stopped" in captured.err
+    assert "left in place" in captured.out  # The unit is gone and the data stays regardless.
+    assert load_state(layout.state) == colonized  # A packet started again still knows of it.
 
 
 @pytest.mark.parametrize(
@@ -274,6 +427,7 @@ def test_uninstall_removes_the_unit_and_leaves_the_data(
         ["install", "--runtime-wheelhouse", "/definitely/not/here"],
         ["install", "--runtime-index", "ftp://nope"],
         ["install", "--warden-manifest", "/definitely/not/here.toml"],
+        ["install", "--runtime-python", "/definitely/not/here/python3"],
         ["install", "--runtime-index", "https://x.example", "--runtime-wheelhouse", "."],
         ["enrol"],
     ],
