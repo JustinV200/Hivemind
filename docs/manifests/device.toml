@@ -13,6 +13,11 @@
 # apply here too: every model slot is bound, every binding names a declared provider, and
 # `offline = true` accepts only loopback providers.
 #
+# There is no [exoskeleton] table. Whether a task may be given a display depends on the device
+# (the programs on its PATH, and the access level the operator granted it) and not on this file;
+# the Warden attaches one with a Virtual Cell's defaults, a 1280x800 screen and a 30 s budget for
+# it to come up (docs/runbooks/enrolling-a-device.md, "A device that can run a desktop").
+#
 # A provider's API key is never in this file. The Warden reads it from the device's own
 # environment, in the variable the provider names (api_key_env), which the packet inherits from
 # the service that starts it; keys never travel over the wire.

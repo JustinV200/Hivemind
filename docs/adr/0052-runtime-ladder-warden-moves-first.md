@@ -197,3 +197,29 @@ order to hand off, waits for the Handoff in real time for up to `HANDOFF_PATIENC
 for each task, and only then pauses it. A bee that does not come back from its command in time is
 paused all the same and resumes from its last acceptance state, as before. Clustering gives its
 bees no such time, because the provider it clusters on is the one they are stuck on.
+
+## Amendment (2026-10-14): a device's own Warden equips its bees with the Exoskeleton
+
+At Level 0 the display a task needs is started and driven through `PollenSession` by the Warden on
+the Hive Stand; from Level 1 on it is the device's own Warden's, through its local session, which is
+what "hands on the device" comes to for a screen. The Warden's composition root
+(`hivemind.cli.in_cell.borrowed.deps`) gives it the Exoskeleton wiring a Virtual Cell's Warden has
+(the default screen and readiness budget, the browser launcher where the `browser` extra is
+installed, ears behind the transcriber slot, a flight recorder), with two differences that come
+of what it runs on. Chromium keeps its own sandbox unless the Warden runs as root, because a
+borrowed machine is no sandbox. And the recorder's in-memory store forgets a recording a day after
+its last action, as the next one opens, because this Warden runs for months where a Virtual Cell's
+lives and dies with its Cell. As a Virtual Cell's does, the store is the Warden's memory, so no
+frame of its display is written to the device's disk and the recordings go when the Warden stops,
+until a later step ships them to the Queen. Which peripherals a bee gets is decided as it is at
+every rung, from the device's probed capabilities and the bee's capability set, which the device's
+access level has already narrowed (ADR-0054): a device at `SCRATCH` is refused a display, whatever
+programs it has.
+
+The container scenario (`tests/e2e/test_phase11_exit_exoskeleton.py`) found that the display itself
+already worked on a colonized device with the Warden's defaults, since `attach` plans from the
+session and the capabilities and reads nothing the composition root sets; what the device's Warden
+lacked was everything the wiring adds. A bee's clicks were applied on the device's display and never
+recorded, so GUI work on a device escaped the flight recorder (ADR-0032), a browser need could not
+be met, and the `listen` tool was not offered. The runtime the packet installs has no `browser`
+extra, so the launcher is there only where the operator put Playwright in the runtime's environment.

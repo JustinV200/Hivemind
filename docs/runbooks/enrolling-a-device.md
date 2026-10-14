@@ -111,6 +111,21 @@ and stops the Warden the packet started, if one runs, and nothing else; delete t
 the single-file build unpacks itself into a temporary directory and removes it when it ends.
 Enrolling the same machine again takes a new invite.
 
+## A device that can run a desktop
+
+A task that needs a display (it clicks, types or reads a screen) can be placed on a Linux device
+that has `Xvfb`, `openbox`, `xdotool` and ImageMagick's `import` on its `PATH`; on Ubuntu that is
+`sudo apt install xvfb openbox xdotool imagemagick`. The packet reports the device able to start a
+display when it finds all four, and nothing runs at boot. The device's access level must be `full`
+(`hive swarm access`): `scratch` allows a browser and no display, and the Hive does not place a
+desktop task on such a device. The display belongs to one task. Whichever Warden supervises the
+device (on the Hive Stand, or on the device once it is colonized) starts a private Xvfb and window
+manager in the lease's scratch, drives them for the task and stops them when it ends, so the
+device's own screen, if it has one, is never used and nothing is left running. A colonized device's
+Warden keeps the task's flight recording in its memory for a day and writes none of its frames to
+the device's disk. On a colonized device the browser fast path also needs the `browser` extra in
+the runtime the Warden runs from, which `pollen install` does not add.
+
 ## When it does not work
 
 - `pollen enrol` reports a pin mismatch: the listener's certificate is not the one in the invite.

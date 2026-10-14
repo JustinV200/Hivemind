@@ -2285,7 +2285,15 @@ promotion, `hive swarm` CLI.
   **Built 2026-10-14.** `PollenSession`'s `start`, `stop` and `is_running` carry the phase 6 X11
   backends to a Linux device unchanged (`tests/integration/test_exoskeleton_on_device.py` over
   device image variants; openbox no longer swallows the first click). On a colonized device or a Nuc
-  they run under the device's own Warden through its local session.
+  they run under the device's own Warden through its local session: `device_exoskeleton`
+  (`cli/compose/exoskeleton.py`) gives that Warden the wiring a Virtual Cell's has (flight recorder,
+  browser launcher where the extra is installed, ears), with Chromium's sandbox kept and the
+  recordings in the Warden's memory for a day after their last action. Proved on a container whose
+  image carries an X server (`tests/e2e/test_phase11_exit_exoskeleton.py`): the Warden on the
+  device starts the display through its own session, a Drone's click lands on it, the recorder
+  opens one recording, the task succeeds, and the device is left as found. That scenario found
+  that the first cut wired the Warden with nothing, so the display worked and none of its use was
+  recorded (ADR-0052, amended).
 - [x] **11.12 CLI.** `hive swarm invite|list|revoke|promote <node>|demote <node>|access <node>
   <level>|shield <node> meadow|propolis|run <node> "<cmd>"`; `hive cells list` shows devices as `REAL` with Warden location
   (`hive_stand` or `nuc`), access level and mode (`ACTIVE` or `WATCH`).
