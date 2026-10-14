@@ -11,7 +11,7 @@ and the watch probe that observes an idle device read-only. This package holds t
 transitions and the two pure decisions on it: whether a device can carry its own Warden (`level`)
 and whether a colonized device should start a model server of its own and become a Nuc (`nuc`);
 carrying the moves out is the Queen's (`hivemind.queen.swarm_gate.colonize` and
-`hivemind.queen.swarm_gate.nuc`).
+`hivemind.queen.swarm_gate.colonize.nuc`).
 
 Layer 3 (sources of Cells, and capabilities handed down). It imports `guard`, `cell`, `memory`,
 `supervision`, `brood_chamber`, `basket`, `pheromone`, `forage`, `llm`, `manifest`, `common` and

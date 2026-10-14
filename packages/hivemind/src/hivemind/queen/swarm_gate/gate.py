@@ -154,6 +154,7 @@ class SwarmGate:
         self._listener = listener
         self._registry = registry
         self._wardens = wardens
+        self._terms = terms
         # Set from the start, so the first pass serves any device that connected before `run`.
         self._wake = asyncio.Event()
         self._wake.set()
@@ -170,6 +171,11 @@ class SwarmGate:
     def listener(self) -> SwarmListener:
         """The swarm listener this gate owns."""
         return self._listener
+
+    @property
+    def terms(self) -> GateTerms:
+        """The numbers this gate works to, as the manifest gave them."""
+        return self._terms
 
     @property
     def wardens(self) -> DeviceWardens:

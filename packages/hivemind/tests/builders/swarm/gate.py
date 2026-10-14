@@ -87,7 +87,7 @@ RUNTIME_VERSION = "1.0.0"  # The runtime a colonized device installs.
 ADVERTISE_URL = "ws://127.0.0.1:47123"
 
 
-def gate_terms(**overrides: float | int | str) -> GateTerms:
+def gate_terms(**overrides: object) -> GateTerms:
     """Build the gate's numbers as these tests use them, with any of them replaced.
 
     Args:
@@ -96,7 +96,7 @@ def gate_terms(**overrides: float | int | str) -> GateTerms:
     Returns:
         The terms.
     """
-    fields: dict[str, float | int | str] = {
+    fields: dict[str, object] = {
         "interval_s": INTERVAL_S,
         "unreachable_grace_s": GRACE_S,
         "max_offline_s": MAX_OFFLINE_S,
@@ -312,8 +312,11 @@ def _no_wake() -> None:
     """Stand in for the gate's wake-up: the rig's parts are driven by the test, not a loop."""
 
 
-def make_gate_rig() -> GateRig:
+def make_gate_rig(terms: GateTerms | None = None) -> GateRig:
     """Build a gate over a fresh Queen, registry, hub and factory; nothing is started.
+
+    Args:
+        terms: The gate's numbers; `gate_terms()` when omitted.
 
     Returns:
         The rig. A test that runs the gate awaits `gate.start(rig.queen, rig.queen_deps)` and
@@ -339,13 +342,11 @@ def make_gate_rig() -> GateRig:
         ),
     )
     wardens = DeviceWardens(factory, hive.hub)
-    terms = gate_terms()
-    unreachable = UnreachableDevices(wardens, hive.registry, hive.recorder, terms)
-    colonizer = Colonizer(wardens, hive.registry, listener, terms, _no_wake)
-    reconciler = DeviceReconciler(
-        ReconcileDeps(hive.registry, listener, wardens, unreachable, colonizer)
-    )
-    gate = SwarmGate(listener, hive.registry, wardens, terms, clock)
+    numbers = terms if terms is not None else gate_terms()
+    unreachable = UnreachableDevices(wardens, hive.registry, hive.recorder, numbers)
+    colonizer = Colonizer(wardens, hive.registry, listener, numbers, _no_wake)
+    deps = ReconcileDeps(hive.registry, listener, wardens, unreachable, colonizer)
+    gate = SwarmGate(listener, hive.registry, wardens, numbers, clock)
     return GateRig(
         clock,
         hive,
@@ -354,9 +355,9 @@ def make_gate_rig() -> GateRig:
         factory,
         listener,
         wardens,
-        reconciler,
+        DeviceReconciler(deps),
         unreachable,
         colonizer,
-        terms,
+        numbers,
         gate,
     )

@@ -50,7 +50,7 @@ from hivemind.cell import CellIdentity
 from hivemind.cli.compose.deps.parts import HiveParts, manifest_dir
 from hivemind.cli.compose.swarm.device_warden import SwarmWardenFactory
 from hivemind.cli.compose.swarm.door import invite_endpoint
-from hivemind.cli.stores import open_swarm_registry
+from hivemind.cli.stores import open_swarm_registry, server_configs
 from hivemind.cli.version import collect_version_info
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.guard.scanner import ContentScanner
@@ -61,6 +61,7 @@ from hivemind.swarm import (
     GatewayHub,
     ListenerConfig,
     ListenerDeps,
+    OfferedServer,
     SwarmListener,
     SwarmRecorder,
     SwarmRegistry,
@@ -134,7 +135,20 @@ def _gate_terms(parts: HiveParts) -> GateTerms:
         runtime_version=collect_version_info().hivemind_version,
         relief_pressure=section.ladder.relief_pressure,
         min_free_memory_bytes=section.ladder.min_free_memory_bytes,
+        nuc_seat_pressure=section.nuc.seat_pressure,
+        servers=_offered_servers(parts),
     )
+
+
+def _offered_servers(parts: HiveParts) -> tuple[OfferedServer, ...]:
+    """List the model servers the Hive allows a device to start, each with the models it may load.
+
+    A device's Warden starts only a server its own manifest declares, and the Queen lets it load
+    only the Forage map entries the Hive Manifest lists for the same server id: the allowlist she
+    puts in its ceilings when she promotes the device to a Nuc.
+    """
+    configs = server_configs(parts.manifest)
+    return tuple(OfferedServer(server_id, config.sources) for server_id, config in configs.items())
 
 
 def _recorder(parts: HiveParts) -> SwarmRecorder:

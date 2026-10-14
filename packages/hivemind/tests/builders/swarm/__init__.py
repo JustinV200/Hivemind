@@ -46,6 +46,8 @@ Public API:
       Warden, and a device with a task running on it (colonizing).
     - PromotionScenario, make_promotion: a Level 0 device with work running, asking for the
       next rung, its packet scripted (promotion).
+    - NucDevice, ScriptedNucWarden, make_nuc_device, nuc_terms: a device asking for the Nuc rung
+      (or leaving it), its own Warden scripted, and the gate's numbers that allow it a server (nuc).
 """
 
 from builders.swarm.client import DeviceClient
@@ -100,6 +102,15 @@ from builders.swarm.live import (
     start_live_hive,
 )
 from builders.swarm.manifest import swarm_manifest
+from builders.swarm.nuc import (
+    NucDevice,
+    ScriptedNucWarden,
+    capacity_frame,
+    capacity_report_of,
+    gpu_capacity,
+    make_nuc_device,
+    nuc_terms,
+)
 from builders.swarm.parties import (
     DeviceParty,
     HiveParty,
@@ -149,6 +160,7 @@ __all__ = [
     "LinkRig",
     "LiveHive",
     "LiveHiveOptions",
+    "NucDevice",
     "PlacedDevice",
     "PromotionScenario",
     "RawLink",
@@ -158,16 +170,20 @@ __all__ = [
     "RouteRow",
     "RouterRig",
     "ScriptedDevice",
+    "ScriptedNucWarden",
     "ScriptedPacket",
     "SpyListener",
     "TamperableSigner",
     "TlsMaterial",
     "WardenHandlerLog",
     "attach_device_warden",
+    "capacity_frame",
+    "capacity_report_of",
     "dial_warden",
     "enrol_node",
     "free_port",
     "gate_terms",
+    "gpu_capacity",
     "lease_device",
     "linux_probes",
     "linux_route",
@@ -185,6 +201,7 @@ __all__ = [
     "make_hive_party",
     "make_hive_rig",
     "make_link_rig",
+    "make_nuc_device",
     "make_promotion",
     "make_raw_link",
     "make_router_rig",
@@ -193,6 +210,7 @@ __all__ = [
     "make_swarm_invite",
     "make_swarm_node",
     "make_tls_material",
+    "nuc_terms",
     "open_rig_session",
     "place_on_device",
     "real_guard",

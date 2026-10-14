@@ -8,11 +8,12 @@ the Warden is on the Hive Stand, attached to her, started and running while the 
 connected, told when the device drops and when it returns, rebuilt when the operator changes the
 device's terms. Once the operator colonizes the device (`hivemind.queen.swarm_gate.colonize`) its
 Warden runs on the device and dials in through the gate's door (`attach`), the same attach path a
-Virtual Cell's Warden uses, and it reconnects the same way. A device that is lost has its tasks
-held for a grace, then decided on by its rung (`unreachable`); a revoked one has them placed
-afresh (`takeback`). Placed under `queen`, not `swarm`, because attaching a Warden to the Queen
-needs the Queen: `hivemind.swarm` (Layer 3) may never import her (Layer 6), the same reason
-`hivemind.queen.cell_gate` sits here for Virtual Cells.
+Virtual Cell's Warden uses, and it reconnects the same way. A colonized device that declares a model
+server and has the room for it can be promoted once more, to a Nuc (`colonize.nuc`), and lowered
+back. A device that is lost has its tasks held for a grace, then decided on by its rung
+(`unreachable`); a revoked one has them placed afresh (`takeback`). Placed under `queen`, not
+`swarm`, because attaching a Warden to the Queen needs the Queen: `hivemind.swarm` (Layer 3) may
+never import her (Layer 6), the same reason `hivemind.queen.cell_gate` sits here for Virtual Cells.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built by the composition root when

@@ -231,3 +231,64 @@ def test_a_start_that_fails_after_the_gate_opened_closes_the_gate_again(
         assert hive.queen.wardens == ()
 
     asyncio.run(scenario())
+
+
+_SERVER = """
+[llm.providers.local]
+kind = "openai_compat"
+base_url = "http://127.0.0.1:8081/v1"
+
+[llm.servers.box]
+provider = "local"
+argv = ["server"]
+port = 8081
+sources = ["small", "large"]
+load_on_start = false
+
+[forage.map.small]
+provider = "local"
+model = "small-model"
+grade = 2
+context_window = 4096
+seats = 2
+vram_bytes_required = 4294967296
+
+[forage.map.large]
+provider = "local"
+model = "large-model"
+grade = 3
+context_window = 8192
+seats = 2
+vram_bytes_required = 12884901888
+"""
+
+
+def test_the_gate_is_built_with_the_servers_the_hive_allows_and_the_nuc_pressure(
+    tmp_path: Path,
+) -> None:
+    path = swarm_manifest(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8") + "\n[swarm.nuc]\nseat_pressure = 0.5\n" + _SERVER,
+        encoding="utf-8",
+    )
+
+    hive = _hive(path)
+
+    assert hive.swarm is not None
+    terms = hive.swarm.gate.terms
+    assert terms.nuc_seat_pressure == 0.5
+    [server] = terms.servers
+    assert server.server_id == "box"
+    # Each model the manifest lists for the server, in its order, with no host: the Hive's
+    # allowlist for whatever device declares this server.
+    assert [(s.source_id, s.spec.vram_bytes_required) for s in server.sources] == [
+        ("small", 4 * 1024**3),
+        ("large", 12 * 1024**3),
+    ]
+    assert all(s.spec.host_cell_id is None for s in server.sources)
+
+
+def test_a_hive_that_declares_no_server_allows_a_device_none(tmp_path: Path) -> None:
+    hive = _hive(swarm_manifest(tmp_path))
+
+    assert hive.swarm is not None and hive.swarm.gate.terms.servers == ()

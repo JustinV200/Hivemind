@@ -6,9 +6,11 @@ packet installs the Hive's runtime, the Warden's running tasks are paused into H
 0 Warden stops, the packet starts the Warden on the device under the same id, and the tasks resume
 there from their Handoffs, carried inline (ADR-0052). Every rung change, up or down, passes the
 Guard's `NUC_PROMOTION` point first; any failure rolls back to a Warden on the Hive Stand and says
-why on the trail; a withdrawal is made only by an idle Warden. A package, because the decision,
-the Guard check, the two flows, their steps and the place a Warden's arrival is reported are
-separate concepts that together outgrow one file (codingrules 5.2).
+why on the trail; a withdrawal is made only by an idle Warden. The next rung, a model server on
+the device as well, is the `nuc` sub-package: the same request, Guard check and rollback, with a
+different flow. A package, because the decision, the Guard check, the two flows, their steps and
+the place a Warden's arrival is reported are separate concepts that together outgrow one file
+(codingrules 5.2).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.swarm_gate`.
@@ -24,6 +26,8 @@ Key invariants:
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the ladder and the move.
     - hivemind.swarm.level for `decide_colonize`, the pure decision the first rung defers to.
+    - hivemind.swarm.nuc for `decide_nuc`, the pure decision the Nuc rungs defer to.
+    - hivemind.queen.swarm_gate.colonize.nuc for the flows that give a device a model server.
 
 Public API:
     - Colonizer, Flow, GUARD_DENIED_WORD: carries out the operator's requested rung (flow).

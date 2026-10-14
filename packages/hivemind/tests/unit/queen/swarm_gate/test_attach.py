@@ -20,13 +20,16 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Callable
 
+import pytest
 from builders.forage import make_capacity
 from builders.quarantine import settle
 from builders.queen import with_guard_policy
 from builders.segments import SegmentRig, make_segment_rig, segment_chunks, signed
 from builders.swarm import (
     GateRig,
+    capacity_report_of,
     dial_warden,
     enrol_node,
     make_device_party,
@@ -39,9 +42,13 @@ from hivemind.pheromone import TrailQuery
 from hivemind.queen import Queen
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.swarm_gate import DeviceWardenDoor, GateContext, link_services
+from hivemind.queen.swarm_gate.attach import through_the_gate
 from hivemind.queen.trail import TrailSegmentReceiver
 from hivemind.swarm import NodeStatus, RuntimeLevel, SwarmNode
-from waggle.ids import new_cell_id, new_warden_id
+from waggle.envelope import Envelope, Hop, wrap
+from waggle.errors import ConnectionLostError
+from waggle.ids import new_cell_id, new_message_id, new_warden_id
+from waggle.messages.swarm import NucAction, NucOutcome, NucPromoted
 from waggle.signing import Ed25519Signer
 
 _ROUNDS = 5_000  # Scheduling turns to wait for the Queen to hear what a Warden sent.
@@ -54,6 +61,8 @@ class _Events:
         self.admit = admits
         self.attached_with: list[bool] = []
         self.ended_links: list[WardenLink] = []
+        self.frames: list[Envelope] = []  # Every frame the door showed the gate, in order.
+        self.consumes: Callable[[Envelope], bool] = lambda envelope: False
 
     def admits(self, node: SwarmNode) -> bool:
         return self.admit
@@ -63,6 +72,10 @@ class _Events:
 
     async def ended(self, node: SwarmNode, link: WardenLink) -> None:
         self.ended_links.append(link)
+
+    def heard(self, node: SwarmNode, envelope: Envelope) -> bool:
+        self.frames.append(envelope)
+        return self.consumes(envelope)
 
 
 def _door(rig: GateRig, events: _Events, queen: Queen | None = None) -> DeviceWardenDoor:
@@ -321,3 +334,48 @@ async def test_the_services_require_a_signed_segment_and_answer_no_snapshots(rig
     assert services.recorder is not None
     assert services.recorder.hive_id == rig.queen_deps.identity.hive_id
     assert services.recorder.node_id == rig.queen_deps.identity.node_id
+
+
+async def _frames_of(*frames: Envelope, then: Exception | None = None) -> AsyncIterator[Envelope]:
+    """A connection's frames: these, then the end or the failure that ended it."""
+    for frame in frames:
+        yield frame
+    if then is not None:
+        raise then
+
+
+async def test_the_gate_sees_every_frame_before_the_queen_and_keeps_only_what_is_its_own(
+    rig: GateRig,
+) -> None:
+    node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+    events = _Events()
+    events.consumes = lambda envelope: isinstance(envelope.payload, NucPromoted)
+    hop = Hop(sender=node.warden_id, recipient=rig.hive.voice.hive_id, node_id=node.node_id)
+    answer = NucPromoted(
+        cell_id=node.cell_id,
+        device_id=node.device_id,
+        action=NucAction.DEMOTE,
+        outcome=NucOutcome.DEMOTED,
+        level=RuntimeLevel.COLONIZED,
+        server_id=None,
+        loaded_models=(),
+        reason="Scripted.",
+    )
+    mine = wrap(answer, hop, clock=rig.clock, correlation_id=new_message_id(rig.clock))
+    report = wrap(capacity_report_of(node, "box"), hop, clock=rig.clock)
+
+    kept = [f async for f in through_the_gate(_frames_of(mine, report, mine), node, events)]
+
+    assert kept == [report]  # The Queen hears the report, in order, and none of the answers.
+    assert events.frames == [mine, report, mine]  # The gate saw every one, first.
+
+
+async def test_a_connection_that_fails_fails_the_same_way_for_the_queens_reader(
+    rig: GateRig,
+) -> None:
+    node = await rig.enrol(level=RuntimeLevel.COLONIZED)
+    lost = ConnectionLostError("the link went away")
+
+    with pytest.raises(ConnectionLostError):
+        async for _frame in through_the_gate(_frames_of(then=lost), node, _Events()):
+            pass

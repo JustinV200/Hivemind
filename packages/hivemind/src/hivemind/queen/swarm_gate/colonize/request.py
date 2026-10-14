@@ -5,22 +5,24 @@ the rung wanted (`desired_level`); the Queen carries it out one rung at a time, 
 has no edge that skips one (ADR-0052). This is the rule that reads that request, as a pure
 function so every refusal is a row of a table, and the flow that acts on it holds no judgement of
 its own. From the first rung the step is a promotion if `decide_colonize` agrees the device can
-carry a Warden; from the second it is a withdrawal, which only an idle Warden may make, since its
-Handoffs live on the device. A rung that touches a Nuc is refused with its own word until the
-Nuc promotion exists (wave 3D); a refusal always names one stable word, and the operator reads it
-on the trail.
+carry a Warden; from the second it is a Nuc promotion if `decide_nuc` agrees it can carry a model
+server (that decision needs the Warden's declaration, so the caller makes it and hands it in), or
+a withdrawal, which only an idle Warden may make, since its Handoffs live on the device; from the
+third it is a Nuc demotion, which stops the server and needs no idle Warden. A refusal always
+names one stable word, and the operator reads it on the trail.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
     `hivemind.queen.swarm_gate.colonize`. Called by `.flow.Colonizer.request`. Calls into
     `hivemind.forage` (the footprint type), `hivemind.queen.swarm_gate.terms` and
-    `hivemind.swarm` (the node, the ladder and the pure colonization decision) only.
+    `hivemind.swarm` (the node, the ladder and the pure colonization and Nuc decisions) only.
 
 Key invariants:
     - Pure: no I/O, no clock; the same node, terms and facts give the same answer.
     - One rung at a time: whatever rung is wanted, the step returned is the next one toward it.
     - A request that cannot be carried out is a refusal with one stable word, never an exception.
     - A withdrawal is never ordered of a Warden that is not idle.
+    - A Nuc promotion is never started without a decision that accepted it.
 
 See Also:
     - hivemind.swarm.level for `decide_colonize`, which the first rung defers to.
@@ -34,9 +36,8 @@ from enum import Enum
 
 from hivemind.forage import RoleFootprint
 from hivemind.queen.swarm_gate.terms import GateTerms
-from hivemind.swarm import ColonizeFacts, RuntimeLevel, SwarmNode, decide_colonize
+from hivemind.swarm import ColonizeFacts, NucDecision, RuntimeLevel, SwarmNode, decide_colonize
 
-NUC_RUNG_WORD = "nuc_rung_unavailable"  # The Nuc promotion is wave 3D's; refused until it lands.
 NOT_ASKED_WORD = "not_asked"  # The node asks for nothing, or for the rung it is already on.
 BUSY_WORD = "warden_busy"  # A withdrawal while the Warden holds work: its Handoffs are on-device.
 
@@ -47,7 +48,6 @@ _LADDER = (RuntimeLevel.GATEWAY, RuntimeLevel.COLONIZED, RuntimeLevel.NUC)
 __all__ = [
     "BUSY_WORD",
     "NOT_ASKED_WORD",
-    "NUC_RUNG_WORD",
     "Ask",
     "Step",
     "decide_request",
@@ -60,6 +60,8 @@ class Step(Enum):
 
     PROMOTE = "promote"  # Move the Warden onto the device (GATEWAY -> COLONIZED).
     WITHDRAW = "withdraw"  # Move it back to the Hive Stand (COLONIZED -> GATEWAY).
+    NUC_PROMOTE = "nuc_promote"  # Start a model server beside the Warden (COLONIZED -> NUC).
+    NUC_DEMOTE = "nuc_demote"  # Stop it again (NUC -> COLONIZED).
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,10 +72,13 @@ class Ask:
         step: What to do; None when the request is refused.
         word: The reason to go ahead (a promotion's `ColonizeReason`) or the one word for the
             refusal. Never free text.
+        decision: The accepted Nuc decision a `NUC_PROMOTE` step acts on (its server and models);
+            None for every other step.
     """
 
     step: Step | None
     word: str
+    decision: NucDecision | None = None
 
 
 def next_rung(level: RuntimeLevel, wanted: RuntimeLevel) -> RuntimeLevel:
@@ -93,7 +98,12 @@ def next_rung(level: RuntimeLevel, wanted: RuntimeLevel) -> RuntimeLevel:
 
 
 def decide_request(
-    node: SwarmNode, terms: GateTerms, footprint: RoleFootprint, *, is_idle: bool
+    node: SwarmNode,
+    terms: GateTerms,
+    footprint: RoleFootprint,
+    *,
+    is_idle: bool,
+    nuc: NucDecision | None = None,
 ) -> Ask:
     """Decide what `node`'s pending `desired_level` asks of the Queen right now.
 
@@ -103,6 +113,8 @@ def decide_request(
         footprint: What one bee costs a Cell, for the device's Forage test.
         is_idle: Whether the device's Warden holds no work and reports WATCH; read by a
             withdrawal and by nothing else.
+        nuc: The Nuc decision for a colonized device asking for the third rung, made by the caller
+            because it needs what the device's Warden declared; read by that step and no other.
 
     Returns:
         A step and its reason, or a refusal and its word.
@@ -110,12 +122,23 @@ def decide_request(
     wanted = node.desired_level
     if wanted is None or wanted is node.level:
         return Ask(None, NOT_ASKED_WORD)
-    rung = next_rung(node.level, wanted)
-    if RuntimeLevel.NUC in (node.level, rung):
-        return Ask(None, NUC_RUNG_WORD)
-    if rung is RuntimeLevel.COLONIZED:
+    if node.level is RuntimeLevel.NUC:
+        # Every way down from a Nuc starts by stopping its server; the Warden stays where it is.
+        return Ask(Step.NUC_DEMOTE, "operator")
+    if next_rung(node.level, wanted) is RuntimeLevel.NUC:
+        return _nuc_promotion(nuc)
+    if node.level is RuntimeLevel.GATEWAY:
         return _promotion(node, terms, footprint)
     return Ask(Step.WITHDRAW, "operator") if is_idle else Ask(None, BUSY_WORD)
+
+
+def _nuc_promotion(nuc: NucDecision | None) -> Ask:
+    """Whether `decide_nuc` lets the device carry a model server, and its reason either way."""
+    if nuc is None:
+        return Ask(None, NOT_ASKED_WORD)  # No decision was made: nothing asks for a Nuc.
+    if nuc.reason is None:
+        return Ask(None, nuc.refusal or NOT_ASKED_WORD)
+    return Ask(Step.NUC_PROMOTE, nuc.reason.value, nuc)
 
 
 def _promotion(node: SwarmNode, terms: GateTerms, footprint: RoleFootprint) -> Ask:

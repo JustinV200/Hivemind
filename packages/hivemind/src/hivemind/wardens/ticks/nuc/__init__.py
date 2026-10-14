@@ -24,7 +24,7 @@ Key invariants:
 
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the ladder.
-    - hivemind.queen.swarm_gate.nuc for the Queen's side of the order.
+    - hivemind.queen.swarm_gate.colonize.nuc for the Queen's side of the order.
 
 Public API:
     - handle_nuc_promote: the tick handler (handle).

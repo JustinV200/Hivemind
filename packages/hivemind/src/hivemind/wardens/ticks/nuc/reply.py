@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - waggle.messages.swarm.colonized for ``NucPromote`` and ``NucPromoted``.
-    - hivemind.queen.swarm_gate.nuc for the Queen's side, which awaits this reply.
+    - hivemind.queen.swarm_gate.colonize.nuc for the Queen's side, which awaits this reply.
 """
 
 from __future__ import annotations

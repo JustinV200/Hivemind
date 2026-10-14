@@ -32,7 +32,7 @@ Key invariants:
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the ladder.
     - hivemind.wardens.local_pool.hosting.host for ``start`` and ``load``.
-    - hivemind.queen.swarm_gate.nuc for the flow that sends the order and awaits the reply.
+    - hivemind.queen.swarm_gate.colonize.nuc for the flow that sends the order and awaits the reply.
 """
 
 from __future__ import annotations

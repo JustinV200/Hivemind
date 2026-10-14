@@ -105,13 +105,15 @@ async def test_a_device_too_small_to_carry_a_warden_is_refused_once_and_the_requ
         assert await rig.hive.events("swarm.promoted") == []
 
 
-async def test_the_nuc_rung_is_refused_with_its_own_word(rig: GateRig) -> None:
+async def test_a_colonized_device_whose_warden_declared_no_server_is_refused_the_nuc_rung(
+    rig: GateRig,
+) -> None:
     async with rig.serving():
         node = await _asking(rig, RuntimeLevel.NUC, level=RuntimeLevel.COLONIZED)
 
         assert not await rig.colonizer.request(node)
 
-        assert await _decisions(rig) == [("rung_refused", "nuc_rung_unavailable")]
+        assert await _decisions(rig) == [("rung_refused", "no_server")]
 
 
 async def test_a_guard_that_denies_the_rung_stops_the_flow_before_it_touches_the_device(

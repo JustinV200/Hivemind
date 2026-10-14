@@ -16,9 +16,12 @@ three things before the shared attach path (`hivemind.queen.attach.serve_warden`
 What the door tells the gate when a Warden attaches or its connection ends is `DoorEvents`: the
 gate wakes its loop, tells a colonization its Warden arrived, and notes why a lost Warden went.
 The door never decides what a lost Warden means; that is the hold (`unreachable`), and the Warden's
-entry stays with the Queen for it to come back to. Everything after the handshake (the fan-out,
-`warden.spawned` or `warden.reconnected`, the snapshot relay, the signed trail segment, the
-refusals) is the shared path's, the same code a Virtual Cell's Warden goes through.
+entry stays with the Queen for it to come back to. Every frame of the connection passes the gate
+once before it reaches the Queen (`DoorEvents.heard`): the gate notes the model servers a capacity
+report declares, and keeps for itself the one kind that answers its own order (a Nuc promotion's
+`swarm.nuc_promoted`), which the Queen's inbox has no rule for. Everything after the handshake
+(the fan-out, `warden.spawned` or `warden.reconnected`, the snapshot relay, the signed trail
+segment, the refusals) is the shared path's, the same code a Virtual Cell's Warden goes through.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.swarm_gate`.
@@ -33,6 +36,8 @@ Key invariants:
     - A Warden the Queen's set refuses to spawn is never attached (`guard.denied` is already on
       the trail) and its connection is returned unserved.
     - A segment from a device's Warden must be signed with the node's registered key.
+    - A frame the gate consumed (``DoorEvents.heard`` returned True) never reaches the Queen; every
+      other frame does, in order, whether or not the gate looked at it.
     - The door holds no state of its own: every decision is read from the connection, the registry
       and the gate's events.
 
@@ -45,7 +50,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Protocol
 
 from hivemind.forage import ForageCapacity
@@ -70,7 +75,7 @@ from hivemind.swarm import (
 from waggle.envelope import Envelope, Hop
 from waggle.messages.cell.status import CellReady
 
-__all__ = ["DeviceWardenDoor", "DoorEvents", "GateDoorEvents", "link_services"]
+__all__ = ["DeviceWardenDoor", "DoorEvents", "GateDoorEvents", "link_services", "through_the_gate"]
 
 
 class DoorEvents(Protocol):
@@ -86,6 +91,10 @@ class DoorEvents(Protocol):
 
     async def ended(self, node: SwarmNode, link: WardenLink) -> None:
         """`node`'s Warden's connection ended while `link` was still its current link."""
+        ...
+
+    def heard(self, node: SwarmNode, envelope: Envelope) -> bool:
+        """Take in one frame of `node`'s Warden; True when it was the gate's and is consumed."""
         ...
 
 
@@ -124,11 +133,16 @@ class GateDoorEvents:
         self._wake()  # The loop ends the device's hold, if it had one, on its next pass.
 
     async def ended(self, node: SwarmNode, link: WardenLink) -> None:
-        """Note why the Warden went, and wake the loop to hold the device's tasks."""
+        """Note why the Warden went, stop any wait on it, and wake the loop to hold its tasks."""
         # Only noted here: the hold begins in the loop, from the registry and the Queen's table as
         # they are then, so a Warden that is already back costs nothing.
         self._unreachable.note(node.device_id, WARDEN_LINK_REASON)
+        self._colonizer.lost(node.device_id)  # An order sent to it will never be answered.
         self._wake()
+
+    def heard(self, node: SwarmNode, envelope: Envelope) -> bool:
+        """Hand the Warden's frame to the colonizer, which says whether the gate consumed it."""
+        return self._colonizer.heard(node, envelope)
 
 
 class DeviceWardenDoor:
@@ -190,7 +204,7 @@ class DeviceWardenDoor:
             node_id=node.node_id,  # The node whose key signed the frames: it speaks for the Cell.
             first=connection.first,
             transport=connection.transport,
-            frames=connection.frames,
+            frames=through_the_gate(connection.frames, node, self._events),
             hop=Hop(sender=voice.hive_id, recipient=node.warden_id, node_id=voice.hive_node_id),
             live_capacity=self._live_capacity(node),
         )
@@ -206,6 +220,20 @@ class DeviceWardenDoor:
             return (latest or node).capacity
 
         return read
+
+
+async def through_the_gate(
+    frames: AsyncIterator[Envelope], node: SwarmNode, events: DoorEvents
+) -> AsyncIterator[Envelope]:
+    """Yield the connection's frames, less those the gate consumed itself.
+
+    The gate looks at every frame once, in order, before the Queen's reader does; what it keeps is
+    what answers its own orders, which the Queen has no rule for. Whatever the connection raises
+    (a lost link, a forged frame) passes through to the Queen's reader unchanged.
+    """
+    async for envelope in frames:
+        if not events.heard(node, envelope):
+            yield envelope
 
 
 def link_services(context: GateContext, registry: SwarmRegistry) -> LinkServices:
