@@ -55,12 +55,15 @@ class Frame:
             under the stamp it was queued with, so this says when it was made, not when it arrived.
         heard_at: When the Queen's door heard it: the Hive's own clock, so that "arrived after the
             link came back" is a comparison with a moment the scenario noted.
+        envelope_id: The envelope's id, which is how a frame the Warden sent again is told from a
+            second frame of the same words.
     """
 
     kind: str
     task_id: str | None
     sent_at: datetime
     heard_at: datetime
+    envelope_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +109,8 @@ def tap(hive: Hive) -> Tap:
 
     def hear(node: SwarmNode, envelope: Envelope) -> bool:
         task_id = getattr(envelope.payload, "task_id", None)
-        record.frames.append(Frame(envelope.kind, task_id, envelope.sent_at, hive.clock.now()))
+        now = hive.clock.now()
+        record.frames.append(Frame(envelope.kind, task_id, envelope.sent_at, now, envelope.id))
         return heard(node, envelope)
 
     async def asking(warden: WardenLink, nuc_order: NucPromote, clock: Clock) -> NucPromoted:

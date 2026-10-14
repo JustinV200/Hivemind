@@ -253,14 +253,17 @@ def test_the_tap_records_what_the_door_hears_and_hands_it_on_unchanged() -> None
     colonizer = _Colonizer()
     record = tap(_hive(colonizer, clock))  # type: ignore[arg-type]
     wire = make_wire()
+    result = wire.result()
 
-    consumed = colonizer.heard(object(), wire.result())
+    consumed = colonizer.heard(object(), result)
     passed_on = colonizer.heard(object(), wire.forage_request())
 
     assert (consumed, passed_on) == (True, False)  # The gate's own answers, as it gave them.
     assert colonizer.heard_by_gate == ["task.result", "forage.request"]
     assert [frame.kind for frame in record.frames] == ["task.result", "forage.request"]
     assert record.of("task.result")[0].task_id == record.frames[0].task_id
+    # Kept by id too: that is how a frame sent again is told from a second one of the same words.
+    assert record.frames[0].envelope_id == result.id
     assert record.of("task.result", "task_not_this_one") == []
     # Heard when the Hive's clock said so, which is what "after the link came back" compares with.
     assert {frame.heard_at for frame in record.frames} == {clock.now()}

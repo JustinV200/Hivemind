@@ -9,8 +9,11 @@ scripted model on the Hive Stand's side of its cable and reads what the Warden o
 queued and recorded, `orders` listens at the Queen's door and sends the Warden an order of the
 scenario's own, `trail` reads what the scenario asserts off the Hive's trail (what ran when, how
 many at once, what arrived twice), `waits` is the bounded, named waiting, and `run` tells the whole
-story in order and returns the record the exit test asserts over. `orders`, `trail`, `waits` and
-`run` are imported from their modules, not from this face.
+story in order and returns the record the exit test asserts over. `window` hears what the Queen's
+replay window drops (a duplicate inside the reconnection grace leaves nothing on the trail) and
+`unnoticed` tells the second story, a cable pulled under a task whose result is sent before the
+loss is noticed, for `tests/e2e/test_phase11_exit_unnoticed.py`. `orders`, `trail`, `waits`, `run`,
+`window` and `unnoticed` are imported from their modules, not from this face.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.3), not shipped. Used by

@@ -352,6 +352,22 @@ Drone's grant without a free core.
   its outcome is deposited as Nectar, and that precedes her decision about the device when the grace
   ends. A device manifest carries its own `[supervision]` (`max_offline_s` and the budget), which is
   what lets the cases run in seconds instead of the shipped ten minutes.
+- `test_phase11_exit_unnoticed.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- the same
+  exit criterion for the result the cut hides: a result a Nuc sends in the seconds after the cable
+  is pulled, while its connection still looks alive (the websocket keepalive takes twenty to forty
+  seconds to give up, and a frame sent in that time returns as sent and is lost). One run of about
+  a minute and a half on one container climbed to a Nuc: a first task ends and is heard; a second
+  is put, and as its Drone's one ten-second command begins the cable is pulled; the command ends and
+  the Warden sends the result into the dead connection; when the keepalive gives up the Warden
+  notices and the cable is put back. Asserted: the result was sent after the pull and before the
+  loss was noticed and was never in the outbox; the Queen's door heard it once, after the cable
+  returned; the task completed once and no bee ran it twice; the first task's result, sent again
+  with the rest of that last stretch because the Warden could not know it had arrived, was dropped
+  by the Queen's replay window inside the reconnection grace (heard at the callback, nothing on the
+  trail), as were the releases the device's packet had sent in that stretch, when it had, and the
+  result she did not hold was not; no frame id was heard twice and no event was recorded twice.
+  Against the tree without the memory of what was sent the run fails at "the second task to end":
+  the result is gone. See "A device that is moved up the ladder".
 
 ## Budget
 
@@ -517,6 +533,10 @@ of its own (Level 2, a Nuc), on top of the whole-Hive rig above:
   the scenario's own (`order`). `trail.py` answers the questions the criteria ask of the Hive's trail
   (what ran first, how many at once, what was recorded twice), and `waits.py` the bounded, named
   waits. `run.py` tells the story in order and returns the `NucRun` the test asserts over.
+  `window.py` listens at the callback every refusal of the Queen's replay window passes through
+  (`window_drops`), because a duplicate inside the reconnection grace leaves nothing on the trail;
+  `unnoticed.py` tells the second story, a cable pulled under a task that ends before the loss is
+  noticed, and returns the `UnnoticedRun` that `test_phase11_exit_unnoticed.py` asserts over.
 
 `swarm/diagnose/` is the rig for the last exit criterion, on top of the two above: `scene` builds the
 whole Hive and the enrolled device from a `Setup` (the two scripted models' rounds, the device
