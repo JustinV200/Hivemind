@@ -30,6 +30,10 @@ Public API:
     - certificate_for: the Stand's certificate for a host name, with its pin (tls).
     - start_stand, enrol_container, ContainerDevice, DeviceStartError, HIVE_HOSTNAME, DATA_DIR: a
       Stand the containers dial and a packet enrolled in a container (enrolled).
+    - In-process scenarios import their own helpers by module, not from this face: `device`
+      (a real `pollen` packet run in the test's own process) and `hive` (a Hive built from a
+      manifest with `[swarm] enabled = true`, and reads of what it recorded), used by
+      tests/e2e/test_swarm_level0.py.
 """
 
 from e2e.swarm.container import (
