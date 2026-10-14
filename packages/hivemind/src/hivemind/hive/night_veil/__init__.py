@@ -15,9 +15,10 @@ provisions one, purges it on every path the Cell ends, and sweeps the ones a Que
 gone, over `hivemind.pheromone.retention`.
 
 Fits into the Hive:
-    Layer 3 (sources of Cells), inside `hive`. Attestation is called by `hivemind.queen.cell_gate.
-    provider.LifecycleVirtualCellProvider.acquire` before a NIGHT_VEIL Cell is handed to
-    placement; the boundary by `hivemind.hive.lifecycle.CellLifecycle` and the Absconding pass.
+    Layer 3 (sources of Cells), inside `hive`. Attestation is called by `hivemind.hive.attestation.
+    CellAttestation`, which `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider` asks
+    before a NIGHT_VEIL Cell is handed to placement; the boundary by `hivemind.hive.lifecycle.
+    CellLifecycle` and the Absconding pass.
     Calls into `hivemind.cell` (CellSession, ExecSpec, run, CombShieldLevel), `hivemind.hive.
     models`, `hivemind.pheromone` (CellEvent, TrailRecorder, the retention boundary) and waggle.
 
@@ -41,6 +42,8 @@ Public API:
       (session_commands, session_probe).
     - run_checks: call every check on a probe, collecting results by name (runner).
     - attest_cell: the effectful edge -- run, judge, record one cell.attested event (trail).
+    - record_attestation: the recording half every tier's attestation shares; the event names
+      the tier it attests (trail).
     - NightVeilBoundary, provisioned_facts, failure_facts, end_night_veil, adopt_night_veil,
       sweep_night_veil, night_veil_cells, is_night_veil_cell, with_tier_label, tier_from_labels,
       TIER_LABEL: the retention boundary's open, purge and restart sweep (boundary).
@@ -71,7 +74,7 @@ from hivemind.hive.night_veil.results import (
 from hivemind.hive.night_veil.runner import run_checks
 from hivemind.hive.night_veil.session_commands import SessionProbeConfig
 from hivemind.hive.night_veil.session_probe import SessionNightVeilProbe
-from hivemind.hive.night_veil.trail import attest_cell
+from hivemind.hive.night_veil.trail import attest_cell, record_attestation
 
 __all__ = [
     "CHECK_NAMES",
@@ -92,6 +95,7 @@ __all__ = [
     "is_night_veil_cell",
     "night_veil_cells",
     "provisioned_facts",
+    "record_attestation",
     "run_checks",
     "sweep_night_veil",
     "tier_from_labels",

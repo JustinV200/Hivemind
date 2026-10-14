@@ -83,6 +83,22 @@ def test_cell_attested_keeps_pass_or_fail_per_check_and_never_a_checks_detail() 
     }
 
 
+def test_cell_attested_keeps_the_tier_it_attests_beside_the_verdict() -> None:
+    payload: dict[str, JsonValue] = {
+        "tor_healthy": {"status": "PASS", "detail": "tor.service is active"},
+        "passed": True,
+        "red": [],
+        "comb_shield": "NIGHT_VEIL",
+    }
+
+    assert _cut("cell.attested", payload) == {
+        "tor_healthy": {"status": "PASS"},
+        "passed": True,
+        "red": [],
+        "comb_shield": "NIGHT_VEIL",
+    }
+
+
 def test_queen_placed_keeps_only_the_human_request_it_stands_on() -> None:
     payload: dict[str, JsonValue] = {
         "reason": "NIGHT_VEIL always provisions a fresh Virtual Cell.",

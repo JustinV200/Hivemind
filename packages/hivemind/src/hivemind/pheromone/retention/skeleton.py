@@ -50,7 +50,9 @@ from hivemind.pheromone.events import PheromoneEvent, TaskEvent
 # check's own detail text, which on a real probe can name an address a leak test saw.
 ATTESTED_KIND = "cell.attested"
 SUMMARY_KIND = "capping.summary"  # One per tier per Cell, recorded by the teardown purge.
-_ATTESTED_VERDICT_KEYS = frozenset({"passed", "red"})  # The overall verdict and the red names.
+# The overall verdict, the red names and the tier the event attests (as cell.provisioned names
+# its own): what a restarted Queen reads to tell a Night Veil Cell's attestation from another's.
+_ATTESTED_VERDICT_KEYS = frozenset({"passed", "red", "comb_shield"})
 _CHECK_STATUS_KEY = "status"  # The one field of a check's own result that survives: PASS or FAIL.
 _APPROVED_KIND = "capping.capped"  # Every required check passed: the gate approved the proposal.
 _REJECTED_KIND = "capping.rejected"  # A check failed before anything was applied.

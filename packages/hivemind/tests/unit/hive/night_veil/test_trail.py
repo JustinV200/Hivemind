@@ -13,9 +13,10 @@ See Also:
 
 from __future__ import annotations
 
+from hivemind.cell import CombShieldLevel
 from hivemind.hive.night_veil.fake import FakeNightVeilProbe
-from hivemind.hive.night_veil.results import CheckResult, CheckStatus
-from hivemind.hive.night_veil.trail import attest_cell
+from hivemind.hive.night_veil.results import CheckResult, CheckStatus, attest
+from hivemind.hive.night_veil.trail import attest_cell, record_attestation
 from hivemind.pheromone import MemoryPheromoneTrail, TrailQuery, TrailRecorder
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_hive_id, new_node_id
@@ -83,3 +84,30 @@ async def test_attest_cell_payload_never_carries_more_than_status_and_detail_per
     assert set(kill_switch_payload) == {"status", "detail"}
     assert "passed" in event.payload
     assert "red" in event.payload
+
+
+async def test_attest_cell_names_night_veil_as_the_tier_it_attested() -> None:
+    clock = FakeClock()
+    recorder, trail = _recorder(clock)
+
+    await attest_cell(FakeNightVeilProbe(), recorder, new_cell_id(clock))
+
+    [event] = await trail.query(TrailQuery())
+    assert event.payload["comb_shield"] == "NIGHT_VEIL"
+
+
+async def test_record_attestation_writes_the_tier_it_is_given_beside_the_verdict() -> None:
+    clock = FakeClock()
+    recorder, trail = _recorder(clock)
+    cell_id = new_cell_id(clock)
+    red = CheckResult(status=CheckStatus.FAIL, detail="tor runs")
+    attestation = attest({"tor_disabled": red})
+
+    await record_attestation(recorder, cell_id, CombShieldLevel.PROPOLIS, attestation)
+
+    [event] = await trail.query(TrailQuery())
+    assert (event.kind, event.subject_id) == ("cell.attested", cell_id)
+    assert event.payload["comb_shield"] == "PROPOLIS"
+    assert event.payload["passed"] is False
+    assert event.payload["red"] == ["tor_disabled"]
+    assert event.payload["tor_disabled"] == {"status": "FAIL", "detail": "tor runs"}

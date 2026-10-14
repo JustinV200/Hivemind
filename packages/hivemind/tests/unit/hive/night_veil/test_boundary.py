@@ -312,6 +312,35 @@ async def test_a_night_veil_cell_is_known_by_its_boundary_or_its_skeleton() -> N
     assert await is_night_veil_cell(hive.night_veil.veiled, held)
 
 
+async def test_a_propolis_cell_s_attestation_does_not_make_it_a_night_veil_cell() -> None:
+    hive = _Hive()
+    propolis, night_veil, unknown = (new_cell_id(hive.clock) for _ in range(3))
+    await hive.durable.record(_attested(hive, propolis, "PROPOLIS"))
+    await hive.durable.record(_attested(hive, night_veil, "NIGHT_VEIL"))
+    await hive.durable.record(_attested(hive, unknown, "A_TIER_FROM_THE_FUTURE"))
+
+    for trail in (hive.night_veil.veiled, hive.durable):
+        assert not await is_night_veil_cell(trail, propolis)
+        assert await is_night_veil_cell(trail, night_veil)
+        # A tier this code does not know is held as the strictest one: safe where release is not.
+        assert await is_night_veil_cell(trail, unknown)
+    assert await night_veil_cells(hive.night_veil.recorder) == frozenset({night_veil, unknown})
+
+
+async def test_adopt_and_the_restart_sweep_leave_a_propolis_cell_alone() -> None:
+    hive = _Hive()
+    propolis = new_cell_id(hive.clock)
+    await hive.durable.record(_attested(hive, propolis, "PROPOLIS"))
+
+    # An Absconding finds it from its labels and the skeleton and does not take it for Night Veil.
+    assert not await adopt_night_veil(hive.night_veil, propolis, {TIER_LABEL: "PROPOLIS"})
+    assert not hive.night_veil.segments.holds(propolis)
+    # A restart whose backend no longer holds it purges nothing and records no destruction.
+    assert await sweep_night_veil(hive.night_veil, {}) == ()
+    assert await hive.durable.query(TrailQuery(kind="cell.purged")) == ()
+    assert await hive.durable.query(TrailQuery(kind="cell.destroyed", subject_id=propolis)) == ()
+
+
 def _provisioned(hive: _Hive, cell_id: CellId, tier: str) -> CellEvent:
     """A skeleton `cell.provisioned` naming `tier`, as the lifecycle records it."""
     return CellEvent(
@@ -326,8 +355,8 @@ def _provisioned(hive: _Hive, cell_id: CellId, tier: str) -> CellEvent:
     )
 
 
-def _attested(hive: _Hive, cell_id: CellId) -> CellEvent:
-    """A skeleton `cell.attested` from a Queen older than the tier label: no tier named."""
+def _attested(hive: _Hive, cell_id: CellId, tier: str | None = None) -> CellEvent:
+    """A skeleton `cell.attested`; with no `tier` it is one from a Queen older than the tier."""
     return CellEvent(
         id=new_event_id(hive.clock),
         hive_id=hive.identity.hive_id,
@@ -336,5 +365,5 @@ def _attested(hive: _Hive, cell_id: CellId) -> CellEvent:
         actor="system",
         kind="cell.attested",
         subject_id=cell_id,
-        payload={"passed": True},
+        payload={"passed": True} if tier is None else {"passed": True, "comb_shield": tier},
     )

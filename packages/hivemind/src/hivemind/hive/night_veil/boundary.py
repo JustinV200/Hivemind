@@ -25,10 +25,12 @@ boundary intends, and the purge's summary is built from the checkpointed counts 
 A Cell's tier outlives the Queen that provisioned it in two places this module reads back: the
 backend label every provisioned Cell now carries (`with_tier_label`; Docker also keeps its own
 `hivemind.comb_shield`), and the skeleton itself, whose `cell.provisioned` names the tier and
-whose `cell.attested` exists only for a Night Veil Cell (so a Cell provisioned before the tier was
-recorded is still found). `is_night_veil_cell` asks both, with the boundary behind a trail, for a
-writer about to record something that would outlive the Cell (a Cell Wax note: the Queen refuses
-it for a Night Veil Cell).
+whose `cell.attested` names the tier it attested. Night Veil was the only tier attested once, so
+an attested event that names no tier is a Night Veil Cell's (a Cell provisioned before the tier was
+recorded is still found); one that names another tier, a PROPOLIS Cell's, is not, and nothing here
+holds, purges or refuses a note about that Cell. `is_night_veil_cell` asks both, with the boundary
+behind a trail, for a writer about to record something that would outlive the Cell (a Cell Wax
+note: the Queen refuses it for a Night Veil Cell).
 
 Fits into the Hive:
     Layer 3 (sources of Cells), inside `hivemind.hive.night_veil`. Built by the composition root
@@ -66,6 +68,7 @@ from hivemind.pheromone import (
     CellEvent,
     EphemeralSegments,
     NightVeilTeardownPurge,
+    PheromoneEvent,
     PheromoneTrail,
     PurgeReport,
     TrailQuery,
@@ -226,20 +229,35 @@ async def is_night_veil_cell(trail: PheromoneTrail, cell_id: CellId) -> bool:
     provisioned = await trail.query(TrailQuery(kind="cell.provisioned", subject_id=cell_id))
     if any(e.payload.get(TIER_LABEL) == _NIGHT_VEIL.value for e in provisioned):
         return True
-    # Attestation runs for a Night Veil Cell alone (`night_veil_cells`).
-    return bool(await trail.query(TrailQuery(kind="cell.attested", subject_id=cell_id, limit=1)))
+    attested = await trail.query(TrailQuery(kind="cell.attested", subject_id=cell_id))
+    return any(_attested_night_veil(e) for e in attested)
 
 
 async def night_veil_cells(recorder: TrailRecorder) -> frozenset[CellId]:
     """Return every Night Veil Cell the durable trail's skeleton names, newest first.
 
-    A `cell.provisioned` that names the tier, or any `cell.attested`: attestation runs for a
-    Night Veil Cell alone, so it finds one provisioned before the tier was recorded as well.
+    A `cell.provisioned` that names the tier, or a `cell.attested` that is a Night Veil one (it
+    names that tier, or none: Night Veil was attested before the event named a tier), so it finds
+    one provisioned before the tier was recorded as well. A PROPOLIS Cell's `cell.attested` names
+    its own tier and is not counted.
     """
     provisioned = await recorder.trail.query(_newest("cell.provisioned"))
     attested = await recorder.trail.query(_newest("cell.attested"))
     named = {e.subject_id for e in provisioned if e.payload.get(TIER_LABEL) == _NIGHT_VEIL.value}
-    return frozenset(CellId(cell) for cell in named | {e.subject_id for e in attested})
+    night_veil_attested = {e.subject_id for e in attested if _attested_night_veil(e)}
+    return frozenset(CellId(cell) for cell in named | night_veil_attested)
+
+
+def _attested_night_veil(event: PheromoneEvent) -> bool:
+    """Say whether a `cell.attested` event is a Night Veil Cell's, as the event itself says.
+
+    Night Veil's attestation was the only one once, and its skeleton cut keeps no field but the
+    verdicts and the tier, so an event naming no tier is a Night Veil one. An event naming a tier
+    this code does not know is read as Night Veil too: that is the strictest tier, and wrongly
+    holding a Cell's records is safe where wrongly releasing them is not.
+    """
+    named = event.payload.get(TIER_LABEL)
+    return named is None or named == _NIGHT_VEIL.value or named not in CombShieldLevel.__members__
 
 
 async def sweep_night_veil(
