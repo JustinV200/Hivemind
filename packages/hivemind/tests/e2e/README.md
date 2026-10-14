@@ -349,3 +349,35 @@ a 360 px pass, plus that the page never reloaded and wrote nowhere but the chat 
 routes. It needs Node, Playwright for Node and Chromium, and a `pnpm build`; it skips with the reason
 when any is missing. Keep its screenshots with `HIVE_E2E_OUT=<dir>`; see
 `packages/observation-web/e2e/README.md`.
+
+## The swarm's second machine
+
+`swarm/` is the rig for scenarios that need a device which is not the Hive Stand: a container with a
+filesystem, a process table and a network namespace of its own, running the Pollen Packet installed
+from wheels built from this tree, dialling a Hive Stand over `wss://` with a pinned self-signed
+certificate (phase 11, `.claude/phase-11-handoff.md` section 5). It needs a Docker daemon (23 or
+later) and `uv`; it is used like this:
+
+```python
+from e2e.swarm import Janitor, device_image, enrol_container, start_stand
+
+image = device_image()  # builds on first use, then reuses the tag
+janitor = Janitor()  # removes every container and network at close()
+hive = await start_stand(tmp_path)  # the swarm listener, on the bridge, over wss
+device = await enrol_container(hive, janitor, image)
+device.container.processes()  # {pid: command}, the snapshot to compare
+device.container.file_tree("/var/lib/pollen")  # {path: (kind, mode, size)}
+network = janitor.network()  # cut a device off: network.disconnect(container)
+```
+
+`device_image()` builds a wheelhouse (`uv build` of the three packages, and the third-party wheels of
+the lockfile for CPython 3.12 on x86-64 Linux, downloaded once into `~/.cache/hivemind-tests` and
+reused until the lockfile changes), then the image from `swarm/device/Dockerfile`, tagged by a hash
+of both: a cold run takes under a minute (nine seconds of downloads, half a minute of image), a run
+after a change to a package under ten seconds (the package layer of the image is cached), and a run
+with nothing changed only builds the wheels and finds the tag (about two seconds).
+`HIVEMIND_TEST_DEVICE_IMAGE` names an image to use as it is. Images of older trees stay until they
+are removed (each carries the label `hivemind.test=e2e-swarm`, so
+`docker image prune --all --filter label=hivemind.test=e2e-swarm` clears the unused ones). Pair a
+lease on the device with `builders.swarm.lease_device`. The proof that it all works is
+`tests/integration/test_pollen_in_container.py`.

@@ -11,7 +11,8 @@ Fits into the Hive:
     tests/unit/swarm/gateway.
 
 Key invariants:
-    - A certificate is valid from yesterday to tomorrow and covers `localhost` and 127.0.0.1.
+    - A certificate is valid from yesterday to tomorrow and covers `localhost`, 127.0.0.1 and
+      any further host names the caller names.
     - Each call makes a fresh key, so two materials never share a fingerprint.
 
 See Also:
@@ -21,6 +22,7 @@ See Also:
 from __future__ import annotations
 
 import ipaddress
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -53,12 +55,14 @@ class TlsMaterial:
     sha256: str
 
 
-def make_tls_material(directory: Path, name: str) -> TlsMaterial:
+def make_tls_material(directory: Path, name: str, hosts: Sequence[str] = ()) -> TlsMaterial:
     """Write a fresh self-signed certificate and key named `name` into `directory`.
 
     Args:
         directory: Where the `.crt` and `.key` files are written.
         name: The certificate's common name and the files' stem.
+        hosts: Host names the certificate also covers, for a device that dials the listener
+            by a name of its own (a container's `--add-host`) rather than by `localhost`.
 
     Returns:
         The two paths and the certificate's pin.
@@ -76,7 +80,11 @@ def make_tls_material(directory: Path, name: str) -> TlsMaterial:
         .not_valid_after(now + _VALIDITY_MARGIN)
         .add_extension(
             x509.SubjectAlternativeName(
-                [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+                [
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                    *(x509.DNSName(host) for host in hosts),
+                ]
             ),
             critical=False,
         )

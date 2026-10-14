@@ -114,4 +114,8 @@ self-signed certificate and its pin. `PollenSession` is tested against the scrip
 every clause of the `CellSession` contract, and is also registered in that suite
 (`tests/contracts/test_cell_session_contract.py`) against the real Packet, enrolled on a real
 listener and run in the test process (`tests/contracts/pollen_harness.py`, over the live Hive Stand
-of `builders/swarm/live.py`).
+of `builders/swarm/live.py`). The same session is driven across a real boundary by
+`tests/integration/test_pollen_in_container.py` (the Packet in a docker container, `tests/e2e/swarm/`),
+and the gateway contract itself is checked from the outside by the conformance suite
+`tests/contracts/test_gateway_contract*.py`, which runs any gateway as a subprocess against the real
+listener (`docs/waggle/gateway-contract.md` section 2).
