@@ -12,8 +12,8 @@ episode gets a decision, a REPLY when the human's message is in its prompt; a Dr
 tool rounds, counted from the tool results already in the conversation (so a respawn restarts the
 script); the judge approves; the transcriber returns the scripted words, chosen by a byte run the
 test planted in the clip's samples when the scenario maps one (`heard`), so one run can speak a goal
-and then an answer. The same app runs inside a test's own event loop (`serve`) or as its own
-process (`python scripted_openai.py --port N`).
+and then an answer. The same app runs on a thread of a test's own process (`serve_in_thread`) or
+as its own process (`python scripted_openai.py --port N`).
 
 The offline proof (roadmap 8.6, `tests/e2e/offline/`) widens the same server without changing its
 invariants: `/v1/embeddings` answers deterministic hashed bag-of-words vectors (a paraphrase that
@@ -25,7 +25,10 @@ a recorder that keeps only the shape of each chat request (never a body). `Scena
 what a Drone says when its rounds are done, so a diagnostic Drone (roadmap 11.9a) can end with the
 `CAUSE:` line its Warden reads; a scenario file scripts `steps` as JSON objects. A step can name the
 words a conversation must hold (`when`), which is how one server answers the task's Drone and the
-Drone its Warden sends to look into a lost link, both asking as the same model.
+Drone its Warden sends to look into a lost link, both asking as the same model. A Warden's
+Patrol (roadmap 11.10), the review of what it saw while it watched an idle machine, is answered
+from the facts its prompt carries: an ALARM only when the process `Scenario.alarm_on` names is among
+them, so a Warden that was shown nothing notable cannot be made to raise an Alarm by a canned reply.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the phase 10 exit-criteria
@@ -57,7 +60,7 @@ import socket
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator, Mapping
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -108,6 +111,11 @@ _RESULT_MARK = "Result for "  # How a prompted tool protocol echoes a tool resul
 # The content-part types that hold pixels.
 _IMAGE_PART_TYPES = frozenset({"image_url", "image", "input_image"})
 HOLD_MAX_S = 60.0  # A parked call is released by its test; this bound is a hang, not a timing.
+# How a Warden's Patrol prompt begins (its system prompt), and the line its facts carry for a new
+# process using a notable share of the CPU. Both are the Warden's own wording, restated because
+# this module also runs as its own process, where the Hive's code is not importable.
+_PATROL_HEADING = "# The Patrol"
+_PATROL_SIGNAL = re.compile(r'signal NEW_PROCESS_CPU: name="([^"]*)"')
 _SUMMARY = {
     "title": "Widget staging service restart",
     "summary": "How to restart the widget staging service after editing its settings file.",
@@ -125,7 +133,6 @@ __all__ = [
     "Switches",
     "build_app",
     "free_port",
-    "serve",
     "serve_in_thread",
     "write_manifest",
 ]
@@ -204,6 +211,8 @@ class Scenario:
             11.9a) ends with a first line `CAUSE: <the cause>` or `CAUSE: none found`, which is
             how its Warden reads what it learned.
         plan_json: When set, the planner answers this plan whole, whatever the goal.
+        alarm_on: The name of a process that makes a Warden's Patrol decide ALARM when the facts it
+            is shown name it as a new process using the CPU; any other Patrol finds nothing notable.
         ripener: The structured summary the ripener's model (a name ending `ripener`) answers.
         switches: The in-process controls and recorder (`Switches`); not part of equality.
     """
@@ -219,6 +228,7 @@ class Scenario:
     steps: tuple[Step, ...] | None = None
     closing: str = "Done."
     plan_json: Mapping[str, object] | None = None
+    alarm_on: str = ""
     ripener: Mapping[str, object] = field(default_factory=lambda: dict(_SUMMARY))
     switches: Switches = field(default_factory=Switches, compare=False)
 
@@ -341,26 +351,6 @@ def free_port() -> int:
         return int(probe.getsockname()[1])
 
 
-@asynccontextmanager
-async def serve(scenario: Scenario, port: int | None = None) -> AsyncIterator[str]:
-    """Run the scripted server in this event loop; yield its `/v1` base URL until the block ends."""
-    chosen = port if port is not None else free_port()
-    config = uvicorn.Config(
-        build_app(scenario), host="127.0.0.1", port=chosen, log_level="warning", lifespan="off"
-    )
-    server = uvicorn.Server(config)
-    task = asyncio.ensure_future(server.serve())
-    try:
-        async with asyncio.timeout(SERVER_START_S):
-            # uvicorn exposes no start event, only this flag: poll it, bounded.
-            while not server.started:  # noqa: ASYNC110
-                await asyncio.sleep(0.01)
-        yield f"http://127.0.0.1:{chosen}/v1"
-    finally:
-        server.should_exit = True
-        await task
-
-
 @contextmanager
 def serve_in_thread(scenario: Scenario, host: str = "127.0.0.1") -> Iterator[str]:
     """Run the scripted server on its own thread and loop; yield its loopback `/v1` base URL.
@@ -441,7 +431,9 @@ def _answer(scenario: Scenario, body: Mapping[str, object]) -> dict[str, object]
 
 
 def _queen(scenario: Scenario, text: str) -> dict[str, object]:
-    """Plan a goal, or decide an awake episode (a REPLY when the human wrote in the chat)."""
+    """Plan a goal, review a Patrol, or decide an awake episode (a REPLY if the human wrote)."""
+    if text.startswith(_PATROL_HEADING):
+        return _content(_patrol(scenario, text))
     if PLANNER_TAG in text:
         start = text.index(PLANNER_TAG) + len(PLANNER_TAG)
         goal = text[start : text.find("<<<end user>>>", start)].strip()
@@ -451,6 +443,13 @@ def _queen(scenario: Scenario, text: str) -> dict[str, object]:
             {"action": "REPLY", "reason": "The human wrote.", "message": scenario.reply}
         )
     return _content({"action": "ESCALATE_TO_HUMAN", "reason": "Scripted: the human decides."})
+
+
+def _patrol(scenario: Scenario, text: str) -> dict[str, object]:
+    """Decide a Patrol from its facts: an ALARM only for the process the scenario names."""
+    if scenario.alarm_on and scenario.alarm_on in _PATROL_SIGNAL.findall(text):
+        return {"choice": "ALARM", "reason": "A new process pins the CPU."}
+    return {"choice": "NOTHING", "reason": "An ordinary interval."}
 
 
 def _worker(

@@ -384,6 +384,23 @@ Drone's grant without a free core.
   the lease's scratch is gone and the operator's directories are as they were. Against the tree
   that wired the device's Warden with nothing the display still worked, and the run fails at the
   recording. See "A device that is moved up the ladder".
+- `test_phase11_exit_watch_colonized.py` (`@pytest.mark.e2e`; skips without a Docker daemon) --
+  roadmap step 11.10 on a device whose Warden has moved onto it (Level 1), the same night as
+  `test_phase11_exit_watch.py` told of a Level 0 device: one run of about four minutes on one
+  container. The operator's `hive swarm promote` moves the Warden onto the device; it watches its
+  own machine through a session that holds no lease and keeps what it sees in its Bee Bread on the
+  device, on its fifteen-second beat (the manifest asks for a sample and a Patrol at every beat).
+  A CPU hog planted on the device makes the next Patrol an ALARM while the operator has named no
+  directory (the observations it covers hold no file); `hive swarm watch NODE /srv/app` then makes
+  the Queen restart the Warden under the new list (the terms renewal), and a second hog's Patrol
+  covers the log lines of that directory and not those of `/srv/elsewhere`. Asserted: the operator
+  sees the Warden `on_cell`, COLONIZED and in WATCH; the idle device's Patrols are quiet and one a
+  beat; each hog becomes exactly one `PATROL_ANOMALY` Alarm the Queen holds; the Warden started
+  twice and leased once for each start (watching takes no lease); the model calls of the Patrols
+  are in the Warden's own trail; the machine's words are nowhere on the Hive's trail; the Hive sent
+  the packet no command, the lease's scratch is gone, the operator's directories are as they were
+  and the container's layer gained nothing outside the packet's directory. See "A device that is
+  moved up the ladder".
 
 ## Budget
 
@@ -562,6 +579,17 @@ pointer) while the scripted model holds the Drone's third call (`Switches.hold_a
 inside the provider's fifteen seconds), measures the device at rest before and after (`Rest`), and
 returns the `DesktopRun` that `test_phase11_exit_exoskeleton.py` asserts over.
 `tests/unit/swarm/test_desktop_rig.py` checks the parts that need no daemon.
+
+`swarm/colony/watching.py` is the watch story on the same footing: `run_watch_scenario` enrols and
+colonizes a container whose device manifest asks for a sample and a Patrol at every beat (the shared
+scripted model alarms only for the process `Scenario.alarm_on` names, and only when a Patrol's facts
+carry the Warden's own signal line for it), plants and kills the CPU hog twice around the operator's
+`hive swarm watch`, reads the Patrols from the device Warden's own trail (`device_patrols`) and the
+observations from its Bee Bread (`device_observations`: right after the ALARM Patrol that covered
+them, because a quiet Patrol discards what it covered), and returns the `WatchRun` that
+`test_phase11_exit_watch_colonized.py` asserts over. `tests/unit/swarm/test_watch_rig.py` checks
+the parts that need no daemon, among them that the scripted model's restated wording is the
+Warden's own and that the reader understands the store the Warden really writes.
 
 `swarm/diagnose/` is the rig for the last exit criterion, on top of the two above: `scene` builds the
 whole Hive and the enrolled device from a `Setup` (the two scripted models' rounds, the device
