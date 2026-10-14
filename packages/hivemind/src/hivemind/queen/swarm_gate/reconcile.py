@@ -20,7 +20,9 @@ repeated or reordered costs nothing. For one node:
   device with none is handed to the Queen's own rung decisions (`hivemind.queen.swarm_gate.rungs`),
   which may colonize it for relief or for a task that must survive a lost link.
 - A node on Level 1 or above has its Warden on the device, dialled in through the gate's door: it
-  is reachable while that Warden's link is open, and its tasks are held when it is not. If the
+  is reachable while that Warden's link is open, and its tasks are held when it is not, for the
+  Warden's link having closed if it was ever open (so the hold asks for its diagnosis) or for no
+  Warden having dialled in at all (so it asks for none). If the
   operator changed its terms its packet is sent them at once, even while the Warden is away, and the
   Warden itself is restarted under them (`Colonizer.renew`), since a Warden keeps the terms it was
   started with. A Nuc whose Warden connected afresh has its model server started again, or its rung
@@ -172,8 +174,16 @@ class DeviceReconciler:
         deps = self._deps
         await self._tell_packet(node)
         link = deps.wardens.link_of(node.warden_id)
-        if link is None or not link.transport.is_connected:
-            await deps.unreachable.lost(node)
+        if link is None:
+            await deps.unreachable.lost(node)  # No Warden has dialled in yet: nobody saw it go.
+            return
+        if not link.transport.is_connected:
+            # A Warden that was here and whose connection is closed: somebody saw it go, so the
+            # hold knows why. The door notes the same when its task sees the connection end, but a
+            # dead peer is closed by its keepalive some seconds before its reader returns, and a
+            # hold begun in between would read "no live link" and ask for no diagnosis, the
+            # one thing a device that was unplugged is owed (ADR-0056).
+            await deps.unreachable.warden_lost(node)
             return
         await deps.unreachable.found(node)
         if await deps.colonizer.renew(node):

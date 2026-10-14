@@ -32,7 +32,8 @@ from builders.swarm import (
 from hivemind.brood_chamber import TaskStatus
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.swarm_gate import HoldState
-from hivemind.swarm import NodeStatus, RuntimeLevel
+from hivemind.queen.swarm_gate.unreachable import WARDEN_LINK_REASON
+from hivemind.swarm import NodeStatus, RuntimeLevel, SwarmNode
 from waggle.messages.swarm import ColonizeAction
 
 _FLOW_ROUNDS = 40_000  # Scheduling turns a flow may take.
@@ -70,6 +71,52 @@ async def test_a_colonized_device_whose_wardens_link_has_closed_has_its_tasks_he
         assert held.payload["tasks"] == 1
         task = await rig.queen_deps.chamber.get(placed.task.id)
         assert task.status is TaskStatus.RUNNING  # Held, not failed and not moved.
+
+
+class _Asked:
+    """A diagnosis that notes each device it is asked to look into, and the reason it is given."""
+
+    def __init__(self) -> None:
+        self.begun: list[str] = []
+
+    async def begin(self, node: SwarmNode, reason: str) -> None:
+        self.begun.append(reason)
+
+    async def end(self, node: SwarmNode) -> None:
+        return None
+
+
+async def test_a_colonized_devices_closed_link_is_looked_into_before_the_door_says_why(
+    rig: GateRig,
+) -> None:
+    diagnosis = _Asked()
+    rig.unreachable.use_diagnosis(diagnosis)
+    async with rig.serving():
+        placed = await place_on_device(rig, RuntimeLevel.COLONIZED)
+        # A dead peer's connection reads closed to the pass when its keepalive gives up, some
+        # seconds before the door's reader returns and notes the Warden's link ended: nothing is
+        # noted here, as when the pass gets there first, and the device was still seen to go.
+        await placed.link.transport.close()
+
+        await rig.reconciler.sync(placed.node)
+
+        assert diagnosis.begun == [WARDEN_LINK_REASON]
+        [held] = await rig.hive.events("swarm.node_held")
+        assert held.payload["reason"] == WARDEN_LINK_REASON and held.payload["tasks"] == 1
+
+
+async def test_a_colonized_device_the_queen_has_no_warden_for_is_held_but_not_looked_into(
+    rig: GateRig,
+) -> None:
+    diagnosis = _Asked()
+    rig.unreachable.use_diagnosis(diagnosis)
+    async with rig.serving():
+        node = await rig.enrol(level=RuntimeLevel.COLONIZED)  # No Warden has dialled in.
+
+        await rig.reconciler.sync(node)
+
+        assert rig.unreachable.hold_of(node.device_id) is HoldState.HELD
+        assert diagnosis.begun == []  # Nobody saw it go.
 
 
 async def test_a_colonized_device_the_queen_has_no_warden_for_is_held_too(rig: GateRig) -> None:
