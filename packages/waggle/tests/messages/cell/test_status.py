@@ -74,6 +74,7 @@ from waggle.messages.reports import (
     CellCapabilitiesReport,
     PlatformReport,
 )
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS, MAX_OBSERVED_PATH_CHARS
 
 CLOCK = FakeClock()
 NOW = CLOCK.now()
@@ -391,6 +392,28 @@ def test_cell_ready_attestation_is_empty_exactly_for_meadow() -> None:
         _rebuild(example, comb_shield="MEADOW", attestation=(CHECK,))
     with pytest.raises(ValidationError, match="non-empty exactly when comb_shield is not MEADOW"):
         _rebuild(example, comb_shield="PROPOLIS", attestation=())
+
+
+def test_cell_ready_names_the_directories_its_warden_watches_and_names_none_by_default() -> None:
+    example = _example(CellReady)
+
+    assert isinstance(example, CellReady) and example.watch_roots == ()  # A Virtual Cell's.
+    watching = _rebuild(example, watch_roots=("/srv/watched", "C:/Logs"))
+    assert isinstance(watching, CellReady)
+    assert watching.watch_roots == ("/srv/watched", "C:/Logs")
+    assert CellReady.model_validate(watching.model_dump(mode="json")) == watching
+
+
+@pytest.mark.parametrize(
+    "roots",
+    [("/srv/a",) * (MAX_OBSERVE_ROOTS + 1), ("",), ("x" * (MAX_OBSERVED_PATH_CHARS + 1),)],
+    ids=["too-many", "empty-path", "too-long"],
+)
+def test_cell_ready_bounds_the_watched_directories_as_a_request_to_observe_does(
+    roots: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValidationError, match="watch_roots"):
+        _rebuild(_example(CellReady), watch_roots=roots)
 
 
 @pytest.mark.parametrize(

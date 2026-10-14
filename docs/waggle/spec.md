@@ -259,6 +259,9 @@ validates every message a newer one sends it, as long as the sender honours the 
   - `TrailSegmentSync.segment_signature` (section 8.10), with the helper `segment_signing_bytes`:
     a Swarm node's signature over the identity and digest of its offline trail segment.
   - `CellRequest.scratch_quota_bytes` (section 8.5) and `AlarmKind.PATROL_ANOMALY` (section 8.3).
+  - `NodeUpdate.watch_roots` (section 8.10) and `CellReady.watch_roots` (section 8.5): the
+    directories a colonized device's Warden watches, sent to the packet that starts it and
+    reported back by the Warden that runs with them.
 
   A sender uses none of these toward a peer that has not advertised minor 13 (section 4's rule).
 
@@ -1308,6 +1311,11 @@ capabilities, access level, Comb Shield level and check results so placement can
   recorded on the trail but never schedulable, and the Queen checks `comb_shield` and
   `access_level` against its provisioning or enrolment record for `cell_id` (receiver rules).
 - `runtime_version` (`str`): the HiveMind runtime version in the Cell. Max 64.
+- `watch_roots` (`tuple[str, ...]`, default `()`): the directories the Warden reads logs and file
+  changes from while it watches an idle Cell, as it runs with them (`PROTOCOL_MINOR` 13). Max 16,
+  each 1 to 256 characters. A Virtual Cell's Warden and a Level 0 device's name none; a colonized
+  device's names those its packet handed it at start, which the Queen compares with the list the
+  operator set for the device and restarts the Warden when they differ (receiver rule).
 
 #### CellHeartbeat
 
@@ -2414,6 +2422,12 @@ Queen-only (section 3): a packet accepts it only from the `hive` sender it enrol
   Greater than 0.
 - `heartbeat_interval_s` (`float`): how often the packet sends `DeviceHeartbeat`, from now on.
   Greater than 0.
+- `watch_roots` (`tuple[str, ...]`, default `()`): the directories the device's Warden reads logs
+  and file changes from while it watches an idle Cell, from now on; replaces the previous list
+  entirely (`PROTOCOL_MINOR` 13). Max 16, each 1 to 256 characters. The packet keeps them for the
+  Warden it starts (`HIVEMIND_WATCH_ROOTS`) and reads nothing itself: a `swarm.observe` names its
+  own roots. The Queen sends only directories the capabilities above let the Hive read, so a
+  device with none named, or none readable, gets `()`.
 - `reason` (`str`): why the terms changed.
 
 #### Colonize

@@ -398,8 +398,9 @@ When the operator changes a node's access level (`hive swarm access`) or its tie
 shield`), or when the node moves a rung of the runtime ladder, the Queen sends it a
 `swarm.node_update`. It is an event, sent only by the Queen, that carries the node's current
 `device_id`, `cell_id`, `warden_id`, `level`, `access_level`, `comb_shield` (never `NIGHT_VEIL`),
-`granted_capabilities`, `offline_limit_s` and `heartbeat_interval_s`, and a reason. The packet
-replaces the stored values with these, persists them, and applies them **from the next request**: a
+`granted_capabilities`, `offline_limit_s`, `heartbeat_interval_s` and `watch_roots`, and a reason.
+The packet replaces the stored values with these, persists them, and applies them **from the next
+request**: a
 request that arrives after the update is checked against the new values, including a request inside
 a lease opened before it; a process that is already running is not interrupted. The Queen also sends
 the node's current values when the node comes online, so a change made while the device was away
@@ -407,12 +408,17 @@ still reaches it. The packet never takes an update from anyone but the Queen: li
 kind it is accepted only from `hive_id`.
 
 The directories the operator names for the device's Warden to watch (`hive swarm watch <node>
-<directory>...`, or `--clear` for none) are not a term the packet stores, so they send no update:
-the Warden on the Hive Stand names them itself in every `swarm.observe` (`roots`, at most sixteen of
-at most 256 characters), and the packet judges each against its own `fs:read` grant before it reads
-a file. The Hive Stand refuses a directory that is not absolute in the device's own spelling (POSIX
-or Windows) or that the node's granted capabilities do not cover, and rebuilds the node's Level 0
-Warden when the list changes, as it does for a new level or tier.
+<directory>...`, or `--clear` for none) are a term too, but the packet reads none of them: a
+Warden on the Hive Stand (Level 0) names them itself in every `swarm.observe` (`roots`, at most
+sixteen of at most 256 characters) and the packet judges each against its own `fs:read` grant
+before it reads a file. They ride the update (`watch_roots`) for the Warden that lives on the
+device, which is local to its files and so has to be told where to look: the packet keeps them and
+passes them in `HIVEMIND_WATCH_ROOTS` to the Warden it starts, and the Warden says in its
+`cell.ready` which it runs with (`watch_roots`), so a list that was changed while it ran is found
+and the Warden is restarted under it, as for a new level or tier. The Hive Stand refuses a
+directory that is not absolute in the device's own spelling (POSIX or Windows) or that the node's
+granted capabilities do not cover, sends the packet only the ones they cover, and rebuilds the
+node's Level 0 Warden when the list changes.
 
 ## 11. Revoking a device
 

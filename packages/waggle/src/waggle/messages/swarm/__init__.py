@@ -34,7 +34,8 @@ Public API:
     - Ladder (ladder): Colonize, ColonizeAction, ColonizeOutcome, Colonized, NodeUpdate.
     - Colonized (colonized): NucPromote, NucPromoted, TrailSegmentSync, segment_signing_bytes.
     - Watch (watch): FileChange, FileChangeKind, LogLine, NetworkCounter, Observation,
-      ObservationKind, Observe, ProcessSample, ResourceSample.
+      ObservationKind, Observe, ProcessSample, ResourceSample, WatchRoots (the field type of the
+      directories a device's Warden watches, which a NodeUpdate and a CellReady carry).
 """
 
 from waggle.messages.swarm.colonized import (
@@ -69,6 +70,7 @@ from waggle.messages.swarm.watch import (
     Observe,
     ProcessSample,
     ResourceSample,
+    WatchRoots,
 )
 
 __all__ = [
@@ -96,5 +98,6 @@ __all__ = [
     "ResourceSample",
     "RuntimeLevel",
     "TrailSegmentSync",
+    "WatchRoots",
     "segment_signing_bytes",
 ]

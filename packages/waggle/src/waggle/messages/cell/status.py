@@ -1,26 +1,27 @@
 """Define the cell family's own-life messages and values: a Cell ready, its heartbeat, its needs.
 
-Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle dance). A Cell is
-a unit of compute: a Virtual Cell the Hive provisions, or a Real Cell, an existing device borrowed
-for a task and left exactly as found. The cell family is the life of a Cell and of the leases on
-it, and this module is the Cell's own half: ``CellReady`` announces a Cell as booted, probed and,
-where its tier requires it, attested, so placement (the Queen's, the central orchestrator's,
-choice of a Cell for a task) can consider it; ``CellHeartbeat`` is the Cell's liveness, distinct
-from the bee heartbeat, carrying its mode, leases and shield state but never capacity, which
-travels only on forage.capacity_report. The value models are ``AttestationCheck`` (one readiness
-check) and ``TaskNeedsReport`` (what placement decides on, the wire form of ``TaskNeeds``), and
-the enums are the closed sets the family's non-wax messages carry. The tenancy lifecycle
-(cell.request, cell.teardown_request, cell.lease_opened, cell.lease_released) lives in
-``waggle.messages.cell.leases`` and the Cell Wax notes in ``waggle.messages.cell.wax``, split
-out by responsibility so every file stays under the codingrules 5.1 size limit. Every bound is
-a named constant here; the number, not the name, is normative.
+Waggle is the Hive's bee-to-bee wire protocol (named after the honeybee waggle dance). A Cell is a
+unit of compute: a Virtual Cell the Hive provisions, or a Real Cell, an existing device borrowed for
+a task and left exactly as found. The cell family is the life of a Cell and of the leases on it, and
+this module is the Cell's own half: ``CellReady`` announces a Cell as booted, probed and, where its
+tier requires it, attested (and a colonized device's Warden also says which directories it watches),
+so placement (the Queen's, the central orchestrator's, choice of a Cell for a task) can consider it;
+``CellHeartbeat`` is the Cell's liveness, distinct from the bee heartbeat, carrying its mode, leases
+and shield state but never capacity, which travels only on forage.capacity_report. The value models
+are ``AttestationCheck`` (one readiness check) and ``TaskNeedsReport`` (what placement decides on,
+the wire form of ``TaskNeeds``), and the enums are the closed sets the family's non-wax messages
+carry. The tenancy lifecycle (cell.request, cell.teardown_request, cell.lease_opened,
+cell.lease_released) lives in ``waggle.messages.cell.leases`` and the Cell Wax notes in
+``waggle.messages.cell.wax``, split out by responsibility so every file stays under the codingrules
+5.1 size limit. Every bound is a named constant here; the number, not the name, is normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Registered by waggle.messages.registry, which maps
     each class to its kind; built by a Warden (the always-on supervisor of one Cell) and read by
     the Queen; imported by waggle.messages.cell.leases for the enums and TaskNeedsReport; calls
-    into waggle.messages.base, waggle.messages.labels and waggle.messages.reports only.
+    into waggle.messages.base, waggle.messages.labels, waggle.messages.reports and the swarm
+    family's watch value type (``WatchRoots``) only.
 
 Key invariants:
     - No class here carries its kind string; the registry is the only place kinds live.
@@ -59,6 +60,7 @@ from waggle.messages.reports import (
     CellCapabilitiesReport,
     PlatformReport,
 )
+from waggle.messages.swarm.watch import WatchRoots
 
 MAX_CHECK_NAME_CHARS = 64  # An attestation check's name is an identifier, never a sentence.
 MAX_CHECK_DETAIL_CHARS = 1_000  # What the check saw: a sentence or two, the size of a reason.
@@ -188,6 +190,13 @@ class CellReady(WaggleMessage):
     runtime_version: str = Field(
         max_length=MAX_RUNTIME_VERSION_CHARS,
         description="The HiveMind runtime version in the Cell.",
+    )
+    watch_roots: WatchRoots = Field(
+        default=(),
+        description="The directories the Warden reads logs and file changes from while it "
+        "watches an idle Cell, as it runs with them. Only a colonized device's Warden names "
+        "any: the Queen compares them with the list the operator set for the device and "
+        "restarts the Warden when they differ. Added in PROTOCOL_MINOR 13.",
     )
 
     @model_validator(mode="after")

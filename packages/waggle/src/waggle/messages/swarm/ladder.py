@@ -12,16 +12,18 @@ traffic. ``Colonize`` is the Queen's order to the packet, in three steps: PREPAR
 pinned runtime beside the packet, START launches the device's Warden under the same Warden id it
 had on the Hive Stand, and WITHDRAW stops it again; ``Colonized`` is the packet's answer to each.
 ``NodeUpdate`` is how the Queen changes the standing terms of an enrolled device (its rung, access
-level, Comb Shield tier, capability set and limits) without a new enrolment: the operator changed
-a level, or a device moved up the ladder. Added in PROTOCOL_MINOR 13 (roadmap phase 11, ADR-0051
-and ADR-0052). Every bound is a named constant here; the number, not the name, is normative.
+level, Comb Shield tier, capability set, limits and the directories its Warden watches) without a
+new enrolment: the operator changed a level, or a device moved up the ladder. Added in
+PROTOCOL_MINOR 13 (roadmap phase 11, ADR-0051 and ADR-0052). Every bound is a named constant here;
+the number, not the name, is normative.
 
 Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device
     connector), inside the waggle package. Registered by waggle.messages.registry, which maps
     each class to its kind; built by the Queen (the order and the update) or a Pollen Packet (the
-    answer) and read by the other; calls into waggle.messages.base, waggle.messages.labels and
-    waggle.messages.swarm.enrolment (the rungs and the capability bounds) only.
+    answer) and read by the other; calls into waggle.messages.base, waggle.messages.labels,
+    waggle.messages.swarm.enrolment (the rungs and the capability bounds) and
+    waggle.messages.swarm.watch (the type of a watched directory list) only.
 
 Key invariants:
     - No class here carries its kind string; the registry is the only place kinds live.
@@ -63,6 +65,7 @@ from waggle.messages.swarm.enrolment import (
     MAX_RUNTIME_VERSION_CHARS,
     RuntimeLevel,
 )
+from waggle.messages.swarm.watch import WatchRoots
 
 MAX_WARDEN_URL_CHARS = 512  # A wss:// URL with host, port and path; longer is not an endpoint.
 WARDEN_URL_PATTERN = r"^wss?://\S+$"  # A WebSocket scheme and no whitespace; waggle.uris rules on
@@ -159,6 +162,14 @@ class NodeUpdate(WaggleMessage):
     )
     heartbeat_interval_s: float = Field(
         gt=0, description="How often the packet sends DeviceHeartbeat, from now on."
+    )
+    watch_roots: WatchRoots = Field(
+        default=(),
+        description="The directories the device's Warden reads logs and file changes from while "
+        "it watches an idle Cell, from now on; replaces the previous list entirely. The packet "
+        "keeps them for the Warden it starts and reads none itself: a request to observe names "
+        "its own roots. Only directories the capabilities above let the Hive read are sent. "
+        "Added in PROTOCOL_MINOR 13; empty watches processes and resource use only.",
     )
     reason: _Reason = Field(description="Why the terms changed.")
 

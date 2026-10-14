@@ -94,6 +94,7 @@ __all__ = [
     "Observe",
     "ProcessSample",
     "ResourceSample",
+    "WatchRoots",
 ]
 
 
@@ -127,6 +128,10 @@ _ROOTED_KINDS = frozenset({ObservationKind.LOGS, ObservationKind.FILE_CHANGES})
 _Reason = Annotated[str, Field(max_length=MAX_REASON_CHARS)]
 # A watched path in an answer: non-empty, and short enough that a maximal answer fits a frame.
 _ObservedPath = Annotated[str, Field(min_length=1, max_length=MAX_OBSERVED_PATH_CHARS)]
+# The directories a device's Warden reads logs and file changes from: a bounded list of paths, as
+# `Observe.roots` carries them. `NodeUpdate` sends it to the packet and `CellReady` reports it back,
+# so both ends speak of exactly the list the Warden runs with.
+WatchRoots = Annotated[tuple[_ObservedPath, ...], Field(max_length=MAX_OBSERVE_ROOTS)]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

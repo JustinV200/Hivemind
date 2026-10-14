@@ -402,7 +402,9 @@ gateway:
 ### 9.5 Updates and housekeeping
 
 - **`swarm.node_update`** (Queen only): the gateway persists the new values and applies them from
-  the next request (enrolment.md section 10). A request already running is not interrupted.
+  the next request (enrolment.md section 10). A request already running is not interrupted. A
+  gateway that starts no Warden keeps `watch_roots` and never reads them; the Python packet hands
+  them to the Warden it starts, as `HIVEMIND_WATCH_ROOTS`, a JSON array of the paths.
 - **`control.queen_moved`**: enrolment.md section 12. The gateway replaces the Queen's address only
   on a notice the current Hive key verifies, whose `sequence` is above the highest it has persisted.
 - **`control.ping`**: answered with `control.pong` carrying the gateway's arrival time. The

@@ -40,6 +40,7 @@ from waggle.messages.swarm.ladder import (
     ColonizeOutcome,
     NodeUpdate,
 )
+from waggle.messages.swarm.watch import MAX_OBSERVE_ROOTS, MAX_OBSERVED_PATH_CHARS
 
 CLOCK = FakeClock()
 DEVICE_ID = new_id(IdKind.DEVICE, CLOCK)
@@ -151,6 +152,28 @@ def test_node_update_accepts_the_capability_set_at_every_bound_and_none_at_all()
     assert len(full.granted_capabilities) == MAX_GRANTED_CAPABILITIES
     # An empty set is a real update: a device that may now do nothing but be observed.
     assert _update(granted_capabilities=()).granted_capabilities == ()
+
+
+def test_node_update_carries_the_directories_the_wardens_watch_and_none_by_default() -> None:
+    assert _update().watch_roots == ()  # A device whose operator named no directory.
+    named = _update(watch_roots=("/var/log", "C:/Logs"))
+
+    assert named.watch_roots == ("/var/log", "C:/Logs")
+    assert NodeUpdate.model_validate(named.model_dump(mode="json")) == named
+    full = _update(watch_roots=("r" * MAX_OBSERVED_PATH_CHARS,) * MAX_OBSERVE_ROOTS)
+    assert len(full.watch_roots) == MAX_OBSERVE_ROOTS  # The bounds a request to observe has.
+
+
+@pytest.mark.parametrize(
+    "roots",
+    [("/srv/a",) * (MAX_OBSERVE_ROOTS + 1), ("",), ("x" * (MAX_OBSERVED_PATH_CHARS + 1),)],
+    ids=["too-many", "empty-path", "too-long"],
+)
+def test_node_update_bounds_the_watched_directories_as_a_request_to_observe_does(
+    roots: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValidationError, match="watch_roots"):
+        _update(watch_roots=roots)
 
 
 @pytest.mark.parametrize(
