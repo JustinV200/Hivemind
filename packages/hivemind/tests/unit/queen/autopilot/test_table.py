@@ -13,6 +13,7 @@ See Also:
 from __future__ import annotations
 
 from builders.supervision import make_inbox_item, make_telemetry
+from builders.swarm import make_capacity_report, make_device_party
 from builders.tasks import make_task
 
 from hivemind.brood_chamber import TaskStatus
@@ -21,8 +22,16 @@ from hivemind.supervision import AlarmKind as HiveAlarmKind
 from hivemind.supervision import EscalationPolicy, PolicyAction, PolicyRule
 from hivemind.supervision.attendant import InboxKind
 from waggle.clock import FakeClock
-from waggle.ids import new_alarm_id, new_device_id, new_task_id, new_warden_id, new_worker_id
+from waggle.ids import (
+    new_alarm_id,
+    new_cell_id,
+    new_device_id,
+    new_task_id,
+    new_warden_id,
+    new_worker_id,
+)
 from waggle.messages import AlarmSeverity
+from waggle.messages.cell.status import CellHeartbeat, CellMode
 from waggle.messages.control import HumanMessage
 from waggle.messages.labels import HoneyClearance
 from waggle.messages.supervision import (
@@ -378,6 +387,25 @@ def test_answer_routes_the_answer() -> None:
     action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
 
     assert action is QueenAction.ROUTE_ANSWER
+
+
+def test_the_frames_a_warden_says_again_whenever_its_link_is_made_wake_no_model() -> None:
+    """A device's Warden says them after it moved onto the device and after every reconnection."""
+    clock = FakeClock()
+    heartbeat = CellHeartbeat(
+        cell_id=new_cell_id(clock),
+        mode=CellMode.ACTIVE,
+        lease_ids=(),
+        worker_count=0,
+        is_shield_verified=False,
+        interval_s=5.0,
+    )
+    report = make_capacity_report(make_device_party(clock))
+    policy = EscalationPolicy(rules=(), default=PolicyAction.ESCALATE)
+
+    for payload in (heartbeat, report):
+        item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=payload)
+        assert decide(item, None, 0, policy, 3) is QueenAction.RECORD
 
 
 def test_an_unrecognised_payload_needs_judgement() -> None:

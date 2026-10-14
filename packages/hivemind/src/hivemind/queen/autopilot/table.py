@@ -6,7 +6,8 @@ InboxItem` (already scored and ordered by the Attendant), the `hivemind.brood_ch
 concerns (when one exists), how many attempts have already been made against it, the Queen's own
 `EscalationPolicy` and her attempt ceiling, it returns exactly one
 `hivemind.queen.autopilot.actions.QueenAction`. The table is keyed by the wrapped payload's own
-type: a `Heartbeat` is `RECORD`; a `TaskResult` resolves to `COMPLETE_TASK`, `RETRY_TASK` or
+type: a `Heartbeat` is `RECORD`, and so are the `CellHeartbeat` and `CapacityReport` a Warden says
+again whenever its link is made; a `TaskResult` resolves to `COMPLETE_TASK`, `RETRY_TASK` or
 `FAIL_TASK`; an `AlarmRaised` is mapped through `hivemind.supervision.policy.decide`, exactly the
 way `hivemind.wardens.autopilot.table._decide_alarm` does for a Warden, but capped by `limit`
 first, since the Queen is the last supervisor before the human and must never retry or rebind
@@ -64,7 +65,9 @@ from hivemind.queen.autopilot.actions import QueenAction
 from hivemind.supervision import Alarm, EscalationPolicy, PolicyAction
 from hivemind.supervision import decide as decide_policy
 from hivemind.supervision.attendant import InboxItem
+from waggle.messages.cell.status import CellHeartbeat
 from waggle.messages.control import HumanMessage
+from waggle.messages.forage import CapacityReport
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
 from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
 
@@ -131,7 +134,10 @@ def decide(
         return QueenAction.BLOCK_ON_QUESTION
     if isinstance(payload, Answer):
         return QueenAction.ROUTE_ANSWER
-    if isinstance(payload, Heartbeat):
+    if isinstance(payload, Heartbeat | CellHeartbeat | CapacityReport):
+        # The last two are what a Warden says again whenever its link is made (a device's, after
+        # its Warden moved onto it or its link came back): the gate has read what it needs from
+        # them, and there is nothing in them to decide, so no model is woken for them.
         return QueenAction.RECORD
     if isinstance(payload, HumanMessage):
         # ADR-0040: autopilot has no rule for free text; the human's words always wake a model.
