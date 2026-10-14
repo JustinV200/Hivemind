@@ -110,11 +110,36 @@ the file will be there).
   reads exactly this.
 - **Fixed locale:** `LANG=C.UTF-8`/`LC_ALL=C.UTF-8`, generated at build time. `locale_pinned`
   checks a Hive's own configured `[security.tiers.NIGHT_VEIL] locale_profile` against this.
-- **Randomised hostname:** `night-veil-hostname.service` sets a fresh `night-veil-<8 hex bytes>`
-  hostname from `/dev/urandom` on every boot -- never the Cell's own id or anything else the Queen
-  already knows, so the hostname itself carries no information back to this Hive either.
+- **Randomised hostname:** `night-veil-hostname.service` sets a fresh `night-veil-<8 hex digits>`
+  hostname (four bytes from `/dev/urandom`) on every boot -- never the Cell's own id or anything
+  else the Queen already knows, so the hostname itself carries no information back to this Hive
+  either. The backend that provisions the Cell gives it a name of the same shape
+  (`hivemind.hive.night_veil.new_night_veil_hostname`; the Docker backend sets the container's
+  hostname with it, since a container the daemon names itself carries its container id, and a name
+  built from the Cell's id would be the Queen's own), so the name is random whichever of the two
+  ran last. `randomized_hostname` reads `/proc/sys/kernel/hostname` and requires exactly that shape,
+  neither a name an image ships with (`localhost`, `ubuntu`, `night-veil-ubuntu`) nor the Hive
+  Stand's own.
+- **WebRTC off in the browser profile:** `tor-browser-user.js` is copied to the Tor Browser
+  profile as `user.js` (`media.peerconnection.enabled` false), which the browser reads after
+  `prefs.js` on every start. `webrtc_leak_blocked` reads that profile's `user.js` and `prefs.js`
+  and requires the effective setting to be false; it does not apply only on a Cell with no browser
+  at all.
 - **Metadata endpoints null-routed:** see the kill-switch section above; blocked three independent
   ways (an explicit nftables rule, the default-drop policy underneath it, and a blackhole route).
+
+## What the DNS and hidden-service checks look at
+
+Two attestation checks judge something the image does not set itself, so they are worth saying
+plainly. `dns_leak_free` reads `/etc/resolv.conf`, both routing tables and `/etc/tor/torrc` and
+asks where each `nameserver` is: it passes when every one is Tor's own DNS port on loopback (a
+`DNSPort 127.0.0.1:53` line in `torrc`, the only port a `resolv.conf` can name) or an address a
+packet to which leaves by a tunnel interface (the resolver OpenVPN's `resolvconf` hook wrote, as
+the kill-switch section describes). A resolver anywhere else, a loopback stub that is not Tor's
+(Docker's embedded `127.0.0.11`, systemd-resolved's `127.0.0.53`), or no resolver at all, fails.
+`hidden_service_reachable` sends a plain GET to the Hive Stand's onion address through the SOCKS
+port and requires the WebSocket listener's own answer, `426 Upgrade Required`; any other status,
+or none, is a different service or no service.
 
 ## What this image does not attempt
 

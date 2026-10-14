@@ -96,6 +96,10 @@ ENV LC_ALL=C.UTF-8
 # attestation check (hivemind.hive.night_veil.session_commands.CMD_TOR_BROWSER) looks for.
 COPY --from=tor-browser --chown=hive:hive /opt/tor-browser /opt/tor-browser
 RUN ln -s /opt/tor-browser/Browser/start-tor-browser /usr/local/bin/tor-browser
+# WebRTC switched off in the browser's own profile (the location-blind defaults, codingrules section
+# 8.7): `user.js` is read after `prefs.js` on every start, and the webrtc_leak_blocked attestation
+# check reads this exact file (hivemind.hive.night_veil.session_commands.TOR_BROWSER_PROFILE).
+COPY --chown=hive:hive images/night-veil-ubuntu/tor-browser-user.js /opt/tor-browser/Browser/TorBrowser/Data/Browser/profile.default/user.js
 
 # The kill-switch ruleset, Tor's own config, the boot-ordering drop-ins, and this image's own two
 # scripts (hostname randomisation, the PID-1-environment bridge) -- see each file's own header for
