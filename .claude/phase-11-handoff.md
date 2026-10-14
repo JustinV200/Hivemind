@@ -686,6 +686,23 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   Config a Nuc needs: the Hive manifest lists the server id with `load_on_start=false`, the device
   manifest has `[forage.map]` rows; a device's reconnect budget uses shipped defaults (a device
   manifest has no `[supervision]`).
+- **Wave 4F (landed).** The Queen's own rung decisions (`queen/swarm_gate/rungs/`): two pressures
+  defined in `pressure.py` (relief: the Hive Stand's own load from the Level 0 Wardens' sub-bees;
+  seats: the shared pool's seats in use against its seats), and `TaskNeeds.survives_link_loss`
+  (settable from a plan and the local CLI; not yet from the Entrance goal API or the remote CLI);
+  the reconcile pass hands every reachable device with no operator `desired_level` to a
+  `RungEvaluator`, which moves it through the same Guard-checked flows with its reason on
+  `swarm.promoted`/`swarm.demoted`, lowers it only after the reason has been gone a while and only
+  while idle, backs off a failed attempt, runs at most one pressure move at a time, and keeps its
+  memory of what it raised in process only. The operator's `desired_level` always wins, and
+  `demote` at GATEWAY pins a device. A terms change on a colonized or Nuc device sends
+  `swarm.node_update` at once and restarts the device's Warden through the packet (WITHDRAW,
+  START) with its tasks checkpointed and resumed (`colonize/renew/`, ADR-0053); a Nuc whose Warden
+  comes back without its server is promoted again or lowered cleanly (`colonize/nuc/restore.py`).
+  Two latent bugs went with it: `open_tasks` read only the oldest thousand tasks of any status,
+  and `resend_plan` raised on a plan naming a source no longer on the map. Then 567bc0a: a hold
+  asks the Hive Stand for a diagnosis only when it holds tasks, because a Hive that has just
+  started finds every enrolled device that has not dialled in yet unreachable.
 - **Wave 4 exit scenarios (landed).** 4A, the Level 0 bullets in real containers
   (`tests/e2e/test_phase11_exit_{level0,deadman,watch,propolis,replay}.py`, about two minutes
   together): enrol, list, a Drone's work left as found; the dead-man release and the
