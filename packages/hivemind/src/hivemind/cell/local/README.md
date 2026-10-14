@@ -35,6 +35,15 @@ beyond the standard library.
   real `asyncio.create_subprocess_exec` child, one process group per command, a watchdog that
   kills the whole tree on a timeout or a scratch-quota breach, and on POSIX an `RLIMIT_FSIZE`
   set via `preexec_fn` as a second line of defence between watchdog samples.
+- **Observer** (`hivemind.cell.local.observer`, roadmap step 11.10): `ObserverSession` -- a
+  `CellSession` that belongs to no lease and can run a command and nothing else. A colonized
+  device's Warden gives its lease back whenever it has nothing to supervise, so the machine keeps
+  no scratch between tasks, and it watches its idle machine through this session instead: a
+  lease opened for every look would put an open and a release on the trail every few minutes. It
+  stands in a directory it is given (the Warden's own state directory) and never writes to it;
+  `put_file`, `get_file`, `delete_file` and `start` refuse, `stop` and `is_running` find nothing,
+  and a command that times out or is cancelled has its whole process tree killed, as in the
+  session a lease opens (they share `process.py`).
 - **Background** (`hivemind.cell.local.background`, roadmap step 6.4): `BackgroundTable` -- the
   background processes one session started: each spawned in its own process group (a new session
   on POSIX, a new process group on Windows) with stdin closed and stdout/stderr to one log file in

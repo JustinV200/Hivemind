@@ -7,7 +7,9 @@ already-resolved view of the manifest's `[hive_stand]` section; `probe_host`/`re
 this machine's platform and capacity, POSIX and Windows side by side; `HiveStandSource` is the
 `RealCellSource` that hands out the Hive Stand's one Cell, leased and released, never provisioned;
 `LocalProcessSession` is the `CellSession` a lease opens, running commands as real OS processes
-under a scratch-quota watchdog; `HiveStandLeaseReleaser` is what a lease's `release()` delegates
+under a scratch-quota watchdog; `ObserverSession` is the `CellSession` that belongs to no lease and
+can run a command and nothing else, which a colonized device's Warden watches its idle machine
+through; `HiveStandLeaseReleaser` is what a lease's `release()` delegates
 to, killing survivors, restoring touched paths and removing scratch.
 
 Fits into the Hive:
@@ -41,6 +43,8 @@ Public API:
     - ScratchQuota, DirectorySizer, QUOTA_SAMPLE_INTERVAL_S, directory_size_bytes: how a lease's
       scratch usage is measured and capped (hivemind.cell.local.quota).
     - LocalProcessSession: a CellSession over a real OS process (hivemind.cell.local.session).
+    - ObserverSession: a lease-free CellSession that runs commands and refuses everything else
+      (hivemind.cell.local.observer).
     - HiveStandLeaseReleaser, kill_process_tree, KILL_GRACE_S: leaving the Hive Stand as found on
       release (hivemind.cell.local.releaser).
     - HiveStandSource, HIVE_STAND_SOURCE, hive_stand_cell_id: the RealCellSource for the Hive
@@ -49,6 +53,7 @@ Public API:
 """
 
 from hivemind.cell.local.config import DEFAULT_CELL_NAME, DEFAULT_SOURCE_NAME, HiveStandConfig
+from hivemind.cell.local.observer import ObserverSession
 from hivemind.cell.local.probe import (
     DEFAULT_MAX_SUB_BEES,
     ProbeResult,
@@ -78,6 +83,7 @@ __all__ = [
     "HiveStandLeaseReleaser",
     "HiveStandSource",
     "LocalProcessSession",
+    "ObserverSession",
     "ProbeResult",
     "ScratchQuota",
     "directory_size_bytes",
