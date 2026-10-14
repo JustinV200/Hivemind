@@ -47,7 +47,7 @@ from e2e.night_veil_hive import (
 )
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.pheromone import PheromoneEvent
+from hivemind.pheromone import TrailQuery
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.offline import Outage
 from waggle.ids import TaskId
@@ -92,13 +92,22 @@ async def _assert_clustered(run: NightVeilRun, deps: WardenDeps, task_id: TaskId
     assert run.backend.destroy_calls == []
 
 
-async def _assert_returned(run: NightVeilRun, deps: WardenDeps) -> tuple[PheromoneEvent, ...]:
-    """Tor is back: the Queen holds the Cell's Warden again, which left its outage; its segment."""
+async def _recorded_by_the_queen(run: NightVeilRun, kind: str) -> bool:
+    """Whether the Queen has recorded a `kind` event about the Cell, in its segment."""
+    [cell_id] = run.night_veil.segments.held_cells()
+    events = await run.night_veil.segments.query(cell_id, TrailQuery(kind=kind))
+    return any(event.node_id == run.hive.manifest.hive.node_id for event in events)
+
+
+async def _assert_returned(run: NightVeilRun, deps: WardenDeps) -> None:
+    """Tor is back: the Queen holds the Cell's Warden again, which left its outage."""
     outage = _outage(deps)
     await wait_until(lambda: _attached(run), timeout_s=_TIMEOUT_S)
     await wait_until(lambda: outage.cut_since is None, timeout_s=_TIMEOUT_S)
-    [cell_id] = run.night_veil.segments.held_cells()
-    return await run.night_veil.segments.query(cell_id, EVERYTHING)
+    # She takes it back as a Warden she knew: her own record, made after the link is attached.
+    await wait_until(
+        lambda: _recorded_by_the_queen(run, "warden.reconnected"), timeout_s=_TIMEOUT_S
+    )
 
 
 async def test_killing_tor_under_a_night_veil_cell_clusters_it_and_it_returns_over_tor_alone(
@@ -121,14 +130,13 @@ async def test_killing_tor_under_a_night_veil_cell_clusters_it_and_it_returns_ov
 
                 returned = FakeSocksProxy(routes)
                 await returned.start(port=port)  # Tor is back, on the port its clients hold.
-                segment = await _assert_returned(run, deps)
+                await _assert_returned(run, deps)
         finally:
             if returned is not None:
                 await returned.close()
 
-    # The Queen took the same Warden back as one she knew, and it came by the onion name, through
-    # the restarted Tor; the dead one had served only the Cell's first connection.
-    assert "warden.reconnected" in {event.kind for event in segment}
+    # The Warden came back by the onion name, through the restarted Tor; the dead one had served
+    # only the Cell's first connection.
     assert returned is not None and returned.requests == [(ONION, ONION_PORT)]
     assert run.tor.requests == [(ONION, ONION_PORT)]
     [after] = await tasks(run)
