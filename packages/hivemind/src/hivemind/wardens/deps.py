@@ -19,7 +19,8 @@ rows a rebind's target is resolved to a slot against (`bindings`), and (roadmap 
 untrusted-content scanner its sub-bees' tool results pass through (`scanner`), and (roadmap step
 10.6c) the stores beyond the memory tables a quarantine taints (`taint_ledgers`), and (roadmap
 step 8.3) the model servers it may host on its own Cell (`servers`, `register_provider`,
-`unregister_provider`).
+`unregister_provider`), and (roadmap step 11.6) what only a Swarm device's Warden is built with
+(`device`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built once per Warden by whichever
@@ -109,7 +110,26 @@ from waggle.transport.base import Transport
 
 DEFAULT_DISK_RESERVE_MB = 1024  # Mirrors hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB.
 
-__all__ = ["DEFAULT_DISK_RESERVE_MB", "WardenDeps"]
+__all__ = ["DEFAULT_DISK_RESERVE_MB", "DeviceDeps", "WardenDeps"]
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceDeps:
+    """What only the Warden of a Swarm device (a Real Cell the Hive borrows) is built with.
+
+    A device's Warden runs on the Hive Stand at Level 0 of the runtime ladder while its hands are
+    on the device, so a few things differ from the Hive Stand's own Warden. They are grouped in
+    this one value so `WardenDeps` carries a single optional field for all of them, and so the
+    steps that follow (colonization, watch mode, offline operation) extend this value instead of
+    growing that class (codingrules 5.1).
+
+    Attributes:
+        release_lease_when_idle: Whether the Warden gives its lease back the moment it settles to
+            WATCH with no sub-bee and no assignment waiting, and leases again when the next
+            `TaskAssign` arrives (ADR-0054: a borrowed device keeps no Hive scratch between tasks).
+    """
+
+    release_lease_when_idle: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,9 +137,9 @@ class WardenDeps:
     """Every collaborator one Warden is built with.
 
     Attributes:
-        source: Where this Warden's Cell comes from; `HiveStandSource` in production,
-            `hivemind.cell.fake.FakeCellSource` in tests. The Warden leases and releases through
-            it and never provisions.
+        source: Where this Warden's Cell comes from (`HiveStandSource`, a device's `SwarmSource`,
+            `hivemind.cell.fake.FakeCellSource` in tests); it leases and releases through it and
+            never provisions.
         queen_link: This Warden's own end of its Waggle link to the Queen.
         hop: This Warden's own address (`sender`), the Queen's (`recipient`) and the sending
             node's id, stamped on every envelope this Warden wraps and sends to the Queen.
@@ -233,6 +253,8 @@ class WardenDeps:
             and node keys: the signer of the manifests it deposits, the id its key is registered
             under at the Queen, and the verifier of the manifests it receives. None on the Hive
             Stand, whose store and Hive key are in `royal_jelly`.
+        device: What only a Swarm device's Warden is built with (`DeviceDeps`); None for the Hive
+            Stand's and a Virtual Cell's, which keep their lease for as long as they live.
     """
 
     source: RealCellSource
@@ -255,36 +277,31 @@ class WardenDeps:
     missed_heartbeats_before_stalled: int
     enforcer: Enforcer
     lease_capability: Capability
-    # Roadmap step 4.10 (judge review and sampled audit): additive fields, every one defaulted so
-    # a WardenDeps built before this dispatch (every existing test) keeps building unchanged.
+    # Roadmap step 4.10 (judge review, sampled audit): additive and defaulted, so old callers build.
     judge_reviewer: JudgeReviewer = field(default_factory=FakeJudgeReviewer)
     judge_rubrics: Mapping[RiskTier, JudgeRubric] = field(default_factory=load_judge_rubrics)
     audit_sampler: AuditSampler = field(default_factory=AuditSampler)
     findings_sink: FindingsSink = field(default_factory=InMemoryFindingsSink)
     audit_rates: AuditRates = field(default_factory=AuditRates)
     carried_raises: CarriedAuditRaises = field(default_factory=CarriedAuditRaises)
-    # Roadmap step 4.8's wiring step (per-grant lane attribution): additive, defaulted to an
-    # unmetered DirectCallGate that ignores grant_id/goal_id, so earlier callers keep one lane.
+    # Roadmap step 4.8 (per-grant lane attribution): defaulted to an unmetered gate, one lane.
     lane_for_grant: Callable[[str, str, Tempo], CallGate] = field(
         default_factory=lambda: _default_lane_for_grant
     )
-    # Roadmap step 5.0c (leave policy): additive fields, every one defaulted so a WardenDeps built
-    # before this dispatch (every existing test) keeps building unchanged. keep_root stays None
-    # until roadmap step 5.0e wires [hive_stand] keep_root; leave_home defaults to this process's
-    # own home directory, correct for the Hive Stand (v0's only Real Cell source).
+    # Roadmap step 5.0c (leave policy): additive and defaulted. keep_root stays None until step 5.0e
+    # wires [hive_stand] keep_root; leave_home defaults to this process's own home directory,
+    # correct for the Hive Stand (v0's only Real Cell source).
     leave_policy: LeavePolicyTable = field(default_factory=load_leave_policy)
     keep_root: Path | None = None
     leave_home: Path = field(default_factory=Path.home)
-    # Roadmap step 5.0e: additive, defaulted like every field above it.
-    disk_reserve_mb: int = DEFAULT_DISK_RESERVE_MB
+    disk_reserve_mb: int = DEFAULT_DISK_RESERVE_MB  # Roadmap step 5.0e: defaulted like the rest.
     # Roadmap step 5.3 / ADR-0027: None by default, because only a Warden whose trail store does not
     # live on the Queen's own machine has anything to ship (`hivemind.wardens.trail_sync`).
     trail_sync: TrailSync | None = None
     # Roadmap step 5.10's snapshot relay: a no-op by default, so every earlier WardenDeps behaves.
     snapshotter: Snapshotter = field(default_factory=NoopSnapshotter)
-    # Roadmap step 6.4 (ADR-0031): how this Warden equips a sub-bee whose task needs an
-    # Exoskeleton. Additive and defaulted: no browser launcher means a desktop still attaches
-    # without the browser fast path, and a browser-only task is refused with EXOSKELETON_FAILED.
+    # Roadmap step 6.4 (ADR-0031): how a sub-bee that needs an Exoskeleton is equipped. Defaulted:
+    # no browser launcher means a desktop still attaches, and a browser-only task is refused.
     exoskeleton_config: ExoskeletonConfig = field(default_factory=ExoskeletonConfig)
     browser_launcher: BrowserLauncher | None = None
     recording_store: RecordingStore | None = None  # Roadmap step 6.6; None records nothing.
@@ -313,6 +330,8 @@ class WardenDeps:
     node_signer: Signer | None = None
     node_signer_id: str | None = None
     hive_verifier: Verifier | None = None
+    # Roadmap step 11.6: set only by the Swarm's composition root (`hivemind.cli.compose.swarm`).
+    device: DeviceDeps | None = None
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

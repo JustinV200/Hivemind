@@ -170,6 +170,26 @@ Cell's kind) and the `[llm.slots]` rows (`bindings`) a binding key resolves agai
   Worker can hold `net` at all) and the goal's set (Waggle 1.8) off its `TaskAssign`, and keeps a
   candidate only where the Warden's set and the goal's both allow it.
 
+## A Swarm device's Warden (roadmap step 11.6)
+
+A device the Hive borrows runs its Warden at Level 0 of the runtime ladder: on the Hive Stand, in
+the Queen's process, with its hands on the device through `PollenSession`. `WardenDeps.device`
+(`DeviceDeps`, `deps.py`) is the one optional field that says so; the Hive Stand's and a Virtual
+Cell's Warden leave it `None` and behave exactly as before.
+
+- Release when idle (`ticks.lease.release_idle_lease`, called last by `ticks.assign.
+  settle_after_tick`): a Warden that has settled to WATCH with no sub-bee and no assignment parked
+  for a grant gives its lease back, so a borrowed machine keeps no Hive scratch between tasks. The
+  next `TaskAssign` finds no lease and `handle_assign` leases again (`Warden.start`). A release the
+  device cannot confirm leaves the lease ORPHANED and held, retried on the next tick and by `stop()`.
+- A lost link (`Warden.cell_lost` / `Warden.cell_found`, `ticks.lease.report_cell_lost`): the
+  swarm gate calls `cell_lost` when the device drops. The Warden raises one `CELL_UNREACHABLE`
+  Alarm per loss through the ordinary Alarm path (it keeps heartbeating on the Hive Stand, so the
+  Queen's liveness would never notice) and holds off the idle release until `cell_found`. What
+  becomes of the tasks on the device is the Queen's, and a later step's.
+- A session that cannot open right after the lease did (`open_lease`) gives the lease back and
+  waits in WATCH, like a refused lease does, rather than ending the run loop.
+
 ## How to test this
 
 Every module is tested against fakes: `hivemind.cell.fake.FakeCellSource`, `waggle.transport.

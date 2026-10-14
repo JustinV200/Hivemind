@@ -6,6 +6,8 @@ orders); local_pool refuses when max_sub_bees is reached -> park." `handle_assig
 rule, plus the Hive Stand Warden's own retry: when this Warden currently holds no lease at all
 (`WardenState.WATCH` from a refused `start()`), it retries the lease exactly once before giving up
 and escalating `AlarmKind.CELL_UNREACHABLE` to the Queen, per this Warden's own `start()` docstring.
+That retry is also how a Swarm device's Warden leases again after it gave its lease back when idle
+(roadmap step 11.6, `hivemind.wardens.ticks.lease.release_idle_lease`).
 `handle_grant` is the mirror image for the other arrival order: record the grant, then spawn
 whatever assignment was waiting for exactly this `grant_id`. `handle_revoke` is its undoing
 (roadmap step 10.6a: the Queen isolating this Warden's Cell revokes its grants): forget the grant,
@@ -26,7 +28,8 @@ Fits into the Hive:
     runtime.attempt.AttemptManager` does for `WorkerRuntime`), called from its tick's own dispatch.
     Calls into `hivemind.wardens.errors` (BindingRefusedError), `hivemind.wardens.spawn`
     (WardenCellContext, spawn_sub_bee), `hivemind.wardens.ticks.alarms` (report_refused,
-    retire_sub_bee, send_alarm_to_queen) and waggle only.
+    retire_sub_bee, send_alarm_to_queen), `hivemind.wardens.ticks.lease` (release_idle_lease) and
+    waggle only.
 
 Key invariants:
     - `handle_assign` never spawns twice for the same `task_id`: once a matching grant lets it
@@ -53,6 +56,7 @@ from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
 from hivemind.wardens.ticks.alarms import report_refused, retire_sub_bee, send_alarm_to_queen
+from hivemind.wardens.ticks.lease import release_idle_lease
 from hivemind.wardens.ticks.tools import comb_seams
 from waggle.ids import TaskId, new_event_id
 from waggle.messages.forage import GrantIssued, GrantRevoked
@@ -235,6 +239,10 @@ async def settle_after_tick(warden: Warden) -> None:
     state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`), beside
     the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel file stays
     inside its size cap (codingrules 5.1); it is the second half of this module's spawn duty.
+
+    Last of all (roadmap step 11.6), a Swarm device's Warden that has settled to WATCH gives its
+    lease back (`hivemind.wardens.ticks.lease.release_idle_lease`; every other Warden is
+    untouched), and the next TaskAssign finds no lease and leases again (`handle_assign`).
     """
     await spawn_parked(warden)
     target = settled_state((s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks)
@@ -253,6 +261,7 @@ async def settle_after_tick(warden: Warden) -> None:
             payload={},
         )
         await warden._deps.trail.record(event)
+    await release_idle_lease(warden)
 
 
 async def _retry_lease_or_escalate(warden: Warden, assignment: TaskAssign) -> None:

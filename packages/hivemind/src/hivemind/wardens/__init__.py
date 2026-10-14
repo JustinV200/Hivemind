@@ -38,6 +38,8 @@ Public API (roadmap steps 3.18, 3.19):
     - WardenState, TRANSITIONS, can_transition, assert_transition, is_terminal: the Warden state
       machine (state).
     - WardenDeps: every collaborator one Warden is built with (deps).
+    - DeviceDeps: what only a Swarm device's Warden is built with, one optional field on WardenDeps
+      (roadmap step 11.6; deps).
     - Warden: the TickLoop face itself, also a Supervisor over its sub-bees (warden).
     - AcceptanceReport, run_acceptance: the Warden-side half of acceptance criteria (acceptance).
     - CellRequestInputs, ForageRequestInputs, ToolRequestInputs, cell_request, forage_request,
@@ -60,7 +62,7 @@ Public API (roadmap steps 3.18, 3.19):
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
 from hivemind.wardens.autopilot import SubBeeView, WardenAction, decide
 from hivemind.wardens.awake import WardenDecision, decide_awake
-from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.deps import DeviceDeps, WardenDeps
 from hivemind.wardens.errors import (
     InvalidWardenTransitionError,
     LocalPoolExhaustedError,
@@ -95,6 +97,7 @@ __all__ = [
     "AcceptanceReport",
     "AuditingCappingGate",
     "CellRequestInputs",
+    "DeviceDeps",
     "ForageRequestInputs",
     "InvalidWardenTransitionError",
     "LocalPoolExhaustedError",

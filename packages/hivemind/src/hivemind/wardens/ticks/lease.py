@@ -18,9 +18,19 @@ Fits into the Hive:
     `hivemind.cell` (Cell, LeaseRefusedError, LeaseRequest), `hivemind.guard`,
     `hivemind.pheromone` (WardenEvent), `hivemind.wardens.state` and waggle only.
 
+A Swarm device's Warden (`WardenDeps.device`, roadmap step 11.6) differs in three ways, all here.
+It gives its lease back when it settles to WATCH with nothing left to supervise
+(`release_idle_lease`; the next TaskAssign leases again), because a borrowed machine keeps no Hive
+scratch between tasks (ADR-0054). It tells the Queen once per loss when its Cell's link drops
+(`report_cell_lost`), and holds off that idle release while the link is down, since a release
+nothing can confirm only orphans the lease. And a session that cannot open right after the lease
+did (the device went away between the two) is a WATCH, not a crash (`open_lease`).
+
 Key invariants:
     - The source's `lease` is never called unless the `lease_creation` check allowed it: a Warden
       whose set does not hold its Cell's lease capability touches nothing on the Cell.
+    - A lease is dropped from `warden._lease` only once `release()` confirmed it; one that could
+      not be released stays there (ORPHANED), so the next idle release or `stop()` retries it.
     - Every path records exactly the events the old `start()` did (`warden.watch`, or
       `warden.started` then `warden.active`), plus the Enforcer's own `guard.denied` on a refusal.
     - The held set is the `warden` role's default without its `{scratch}` entries: no lease, so no
@@ -28,6 +38,7 @@ Key invariants:
 
 See Also:
     - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for lease_creation.
+    - hivemind.wardens.deps.DeviceDeps for the switch that turns the idle release on.
     - hivemind.wardens.deps for WardenDeps.lease_capability and WardenDeps.enforcer.
     - hivemind.wardens.warden for Warden.start, this function's one caller.
 """
@@ -36,7 +47,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivemind.cell import Cell, LeaseRefusedError, LeaseRequest
+from hivemind.cell import Cell, CellError, LeaseRefusedError, LeaseRequest, RealCellLease
+from hivemind.common.logging import get_logger
 from hivemind.guard import (
     WARDEN_ROLE,
     EnforcementPoint,
@@ -47,12 +59,17 @@ from hivemind.guard import (
 )
 from hivemind.pheromone import WardenEvent
 from hivemind.wardens.state import WardenState, assert_transition
+from hivemind.wardens.ticks.alarms import send_alarm_to_queen
 from waggle.ids import new_event_id
+from waggle.messages.forage import SourceRemovalCause
+from waggle.messages.supervision import AlarmKind
 
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
 
-__all__ = ["open_lease"]
+log = get_logger(__name__)
+
+__all__ = ["clear_cell_lost", "open_lease", "release_idle_lease", "report_cell_lost"]
 
 
 async def open_lease(warden: Warden) -> None:
@@ -81,7 +98,16 @@ async def open_lease(warden: Warden) -> None:
         return
     warden._lease = lease
     warden._cell = cell
-    warden._session = await warden._deps.source.open_session(lease)
+    try:
+        warden._session = await warden._deps.source.open_session(lease)
+    except CellError as error:
+        # A device that answered the lease and went away before the session opened: nothing can
+        # run on it, so give the lease back and wait in WATCH like a refused lease does, instead
+        # of ending this Warden's run loop with an exception.
+        log.warning("warden.session_unavailable", lease_id=lease.id, error=type(error).__name__)
+        await _give_back(warden, lease)
+        await _watch(warden)
+        return
     # The operator's real-display opt-in rides on the Cell's own report (roadmap step 6.3).
     warden._ceiling = warden_set(
         warden._deps.guard,
@@ -93,6 +119,80 @@ async def open_lease(warden: Warden) -> None:
     warden._state = WardenState.ACTIVE
     await _record(warden, "warden.started")
     await _record(warden, "warden.active")
+
+
+async def _give_back(warden: Warden, lease: RealCellLease) -> None:
+    """Release `lease` and forget it, or keep it for a retry when the Cell cannot confirm it."""
+    try:
+        await lease.release()
+    except CellError as error:
+        # ORPHANED (`RealCellLease.release`): `warden._lease` keeps it, so an idle release or
+        # `stop()` tries again once the Cell can answer; forgetting it here would leave it for good.
+        log.warning("warden.release_unconfirmed", lease_id=lease.id, error=type(error).__name__)
+        return
+    warden._lease = None
+
+
+async def release_idle_lease(warden: Warden) -> None:
+    """Give a device Warden's lease back once it has settled to WATCH with nothing to supervise.
+
+    Called at the end of every tick by `hivemind.wardens.ticks.assign.settle_after_tick`; it does
+    nothing unless `WardenDeps.device` asks for it and the Warden is idle, so a Hive Stand's or a
+    Virtual Cell's Warden is untouched. Idle means WATCH, no sub-bee and no assignment parked for
+    a grant that is still to arrive (that one is about to start, so the lease stays). The next
+    TaskAssign finds no lease and leases again (`hivemind.wardens.ticks.assign`'s own retry). A
+    release the device cannot confirm leaves the lease ORPHANED and held; the next tick retries.
+
+    Args:
+        warden: The owning Warden (read and written directly; see the module docstring).
+    """
+    device, lease = warden._deps.device, warden._lease
+    if device is None or not device.release_lease_when_idle or lease is None:
+        return
+    # While the link is down a release only orphans the lease, so wait for `clear_cell_lost`.
+    if warden._state is not WardenState.WATCH or warden._cell_lost:
+        return
+    if warden._sub_bees or warden._pending:
+        return
+    # A model server dies with the lease that started it, so the Hive stops seeing it now.
+    if warden._models is not None:
+        await warden._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
+    await _give_back(warden, lease)
+
+
+async def report_cell_lost(warden: Warden, reason: str) -> None:
+    """Tell the Queen this Warden's Cell link dropped, once, however often the loss is reported.
+
+    The device's Warden runs on the Hive Stand, so unlike a Warden that went silent it keeps
+    heartbeating while its device is away: the Queen would never learn from liveness. The lease is
+    treated as lost from here until `clear_cell_lost`: kept, because the device's dead-man switch
+    or its return settles it, but not released (`release_idle_lease`). What happens to the tasks
+    on the device is the Queen's to decide, not this Warden's.
+
+    Args:
+        warden: The owning Warden.
+        reason: Why the link is gone (a closed link, missed heartbeats); a short sentence.
+    """
+    if warden._cell_lost:
+        return  # Already told for this loss.
+    # Set before the first await, so two reports of one loss can never both pass the check above.
+    warden._cell_lost = True
+    await send_alarm_to_queen(
+        warden,
+        kind=AlarmKind.CELL_UNREACHABLE,
+        detail=f"The link to this Warden's Cell was lost: {reason}",
+        reason="A Cell's link is not this Warden's to restore; the Queen decides what its tasks "
+        "do while the device is away.",
+    )
+
+
+def clear_cell_lost(warden: Warden) -> None:
+    """Note that this Warden's Cell link is back, so the next loss is reported afresh.
+
+    Args:
+        warden: The owning Warden.
+    """
+    warden._cell_lost = False
 
 
 async def _may_lease(warden: Warden, cell: Cell) -> bool:

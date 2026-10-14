@@ -46,6 +46,8 @@ Key invariants:
       composition root's event loop closes (codingrules section 11).
     - `_run_tick`'s own throwaway `stop_task` is reaped in a `finally`, so a tick cancelled from
       outside (a sub-bee's `runtime_task`, `run_hive`'s `TaskGroup`, a test) never abandons it.
+    - `cell_lost` raises one Alarm per loss and holds off the idle lease release until
+      `cell_found` (roadmap step 11.6); neither looks at what kind of Cell this Warden has.
     - The Hive Stand's Warden exists whenever the Queen runs: a `LeaseRefusedError` on `start()`
       moves it to `WATCH` with no lease, never prevents construction (codingrules section 8.8;
       CLAUDE.md's "Wardens never provision Cells").
@@ -157,7 +159,7 @@ class Warden(TickLoop):
         self._tool_relay = ticks.tools.ToolRelay()
         self._basket = ticks.basket.BasketTransfers()
         self._tool_jobs: set[asyncio.Task[None]] = set()
-        self._isolated = False
+        self._isolated, self._cell_lost = False, False  # `_cell_lost`: step 11.6, link is down.
         # A relayed snapshot freezes this Warden with its Cell: announced first, so the Queen
         # never reads the Hive's own freeze as this Warden gone silent (ticks.heartbeat).
         ticks.heartbeat.bind_freeze_announcer(self)
@@ -193,6 +195,14 @@ class Warden(TickLoop):
         await ticks.lease.open_lease(self)
         # Only once the lease is held (roadmap step 8.3): a server runs on the Cell it leased.
         await _host_models(self)
+
+    async def cell_lost(self, reason: str) -> None:
+        """Alarm the Queen that this Warden's Cell link dropped, once per loss (step 11.6)."""
+        await ticks.lease.report_cell_lost(self, reason)
+
+    def cell_found(self) -> None:
+        """Note this Warden's Cell link is back, so the next loss raises its own Alarm."""
+        ticks.lease.clear_cell_lost(self)
 
     async def stop(self) -> None:  # type: ignore[override]
         """End the loop first, then stop this Warden's heartbeats, every sub-bee and its lease.
