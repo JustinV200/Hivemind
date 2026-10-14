@@ -9,19 +9,21 @@ them on return), and pauses the sub-bees that have nothing to think with. A sub-
 binding runs entirely on this machine (a Nuc's) keeps going; one that needs a hosted model is told
 to stop at a Handoff, the pause Clustering uses (`Intervene(HANDOFF)`, a Queen-style one: the bee
 stops, writes its Handoff and is not started again by this Warden's own context check), and its
-task is held in the `Outage` until the Warden can start it again. `cluster_fully` is the other
-end: an outage that crosses `[supervision] max_offline_s` pauses everything left and joins the
-existing Clustering bookkeeping (`Warden._clustered_tasks`, the CLUSTERED state), because past
-that limit the Queen has judged the grant lost and those tasks are hers to resume with a fresh
-TaskAssign, as with any clustered task. `cut_cell` is the Level 0 counterpart, for a Warden on the
-Hive Stand whose device went away: no state change (it never goes OFFLINE), only the pause, so the
-sub-bees' commands stop failing against a Cell that is not there.
+task is held in the `Outage` until the Warden can start it again. A BINDING `ForageRequest` for
+each held task (`wait`) is queued in the outbox, for the Queen to read on the way back.
+`cluster_fully` is the other end: an outage that crosses `[supervision] max_offline_s` pauses
+everything left and joins the existing Clustering bookkeeping (`Warden._clustered_tasks`, the
+CLUSTERED state), because past that limit the Queen has judged the grant lost and those tasks are
+hers to resume with a fresh TaskAssign, as with any clustered task. `cut_cell` is the Level 0
+counterpart, for a Warden on the Hive Stand whose device went away: no state change (it never goes
+OFFLINE), only the pause, so the sub-bees' commands stop failing against a Cell that is not there.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     offline sub-package. Called by `hivemind.wardens.offline.resume.reconcile` from the Warden's
     tick. Calls into `hivemind.pheromone` (WardenEvent), `hivemind.wardens.spawn` (the binding's
-    locality), `hivemind.wardens.state`, `hivemind.wardens.links` and waggle only.
+    locality), `hivemind.wardens.offline.wait` (the request a held task files),
+    `hivemind.wardens.state`, `hivemind.wardens.links` and waggle only.
 
 Key invariants:
     - Every WardenState change here goes through the transition table (`can_transition`) and is
@@ -32,6 +34,8 @@ Key invariants:
       Handoff, and the lease stays as it was.
     - A paused task is held in the `Outage` before its bee is told to stop, so a bee that stops
       at once finds its task already held.
+    - A cut link files one request per task it held, at the cut; clustering fully and losing a
+      Cell hold tasks too but ask for nothing (the Queen is reachable, or the task is hers).
 
 See Also:
     - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for what keeps running.
@@ -48,6 +52,7 @@ from pydantic import JsonValue
 from hivemind.pheromone import WardenEvent
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.offline.outage import Outage
+from hivemind.wardens.offline.wait import ask_for_binding
 from hivemind.wardens.spawn.binding import binding_is_local
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, WardenState, can_transition
 from hivemind.workers.state import WorkerState
@@ -91,8 +96,12 @@ async def enter_offline(warden: Warden, outage: Outage) -> None:
     if can_transition(warden._state, WardenState.OFFLINE):
         warden._state = WardenState.OFFLINE
     paused = await pause_sub_bees(warden, outage, spare_local=True)
+    # A task held for want of a hosted model says so to the Queen, in a request that waits in the
+    # outbox with the results (ADR-0053): the cut-off Warden cannot grow, but it can ask.
+    for sub_bee in paused:
+        await ask_for_binding(warden, sub_bee)
     await record_event(
-        warden, "warden.offline", reason=LINK_LOST, paused=paused, frozen_grants=len(grants)
+        warden, "warden.offline", reason=LINK_LOST, paused=len(paused), frozen_grants=len(grants)
     )
 
 
@@ -128,7 +137,7 @@ async def cut_cell(warden: Warden, outage: Outage) -> None:
     await pause_sub_bees(warden, outage, spare_local=False)
 
 
-async def pause_sub_bees(warden: Warden, outage: Outage, *, spare_local: bool) -> int:
+async def pause_sub_bees(warden: Warden, outage: Outage, *, spare_local: bool) -> list[SubBee]:
     """Hold each working sub-bee's task and tell the bee to stop at a Handoff.
 
     Args:
@@ -138,10 +147,10 @@ async def pause_sub_bees(warden: Warden, outage: Outage, *, spare_local: bool) -
             still think while cut off (a Nuc's).
 
     Returns:
-        How many sub-bees were told to stop.
+        The sub-bees that were told to stop, in the order they were.
     """
     now = warden._deps.clock.now()
-    paused = 0
+    paused: list[SubBee] = []
     for sub_bee in tuple(warden._sub_bees.values()):
         if not _may_pause(warden, outage, sub_bee, spare_local=spare_local):
             continue
@@ -151,7 +160,7 @@ async def pause_sub_bees(warden: Warden, outage: Outage, *, spare_local: bool) -
         # the task again, so the Warden's own successor logic must not.
         sub_bee.handoff_ordered = False
         await _order_handoff(warden, sub_bee)
-        paused += 1
+        paused.append(sub_bee)
     return paused
 
 

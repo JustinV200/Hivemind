@@ -56,7 +56,10 @@ its Cell:
 
 - The link goes down: `enter_offline` moves the Warden to OFFLINE (`warden.offline`), leaves every
   shared grant as it is (an expiry while cut off is not a revocation), and tells each sub-bee whose
-  model binding is not entirely local to stop at a Handoff. A Nuc's bees keep running.
+  model binding is not entirely local to stop at a Handoff. A Nuc's bees keep running. The task of
+  each bee it stops files a BINDING `ForageRequest` (`wait.ask_for_binding`: the slot it ran on and
+  the grade its tempo asks of a model), which the link queues with the results; the Queen answers
+  it on the way back, and the Warden starts the task again whatever she says.
 - Past `[supervision] max_offline_s`: `cluster_fully` pauses everything left and joins the existing
   Clustering bookkeeping (CLUSTERED, `warden.clustered`). Those tasks are the Queen's to resume with
   a fresh `task.assign`.
@@ -127,7 +130,8 @@ pool with the objective "diagnose and, if possible, restore the link to the Quee
   task and grant (`local_assignment`) and the record it leaves (`record_verdict`,
   `deposit_findings`).
 - `reconcile`, `enter_offline`, `cluster_fully`, `cut_cell`, `leave_offline`, `RESUME_SETTLE_S`,
-  `RESUME_RETRY_S`.
+  `RESUME_RETRY_S`; `wait.ask_for_binding`, the request a held task files (imported from its
+  module, not from this face).
 
 The tick handlers in `hivemind.wardens.ticks` never import this package (it imports them); they
 reach an outage through `hivemind.wardens.deps.device_outage`.
