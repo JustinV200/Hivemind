@@ -754,8 +754,11 @@ Cell, which re-issues it to the Worker it spawns.
   `resume_from`, and `handoff.clearance` must equal `resume_from.clearance` (validators), so the
   label every check ran against is the label of the document. A tainted Handoff never travels.
   A frame that would exceed `MAX_FRAME_BYTES` with it raises `waggle.codec.too_large` at the
-  sender, which falls back to a fresh start rather than send a partial document. Defaults to
-  None, so an envelope from before this field existed still validates.
+  sender, which falls back to a fresh start rather than send a partial document. The Queen sends
+  `resume_from` without it when she holds no copy: the bees of a Virtual Cell or a colonized
+  device wrote their Handoffs in their Warden's own store, which is where the receiver resumes
+  from, and a receiver whose store lacks the one named starts the bee fresh (ADR-0024). Defaults
+  to None, so an envelope from before this field existed still validates.
 - `reason` (`str`): why this task was placed here, on this role and slot, now.
 
 #### TaskProgress
