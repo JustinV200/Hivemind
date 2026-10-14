@@ -8,7 +8,9 @@ connection too). The Cell must be cut off, then cluster fully past the Hive's of
 (`HIVEMIND_MAX_OFFLINE_S`), while nothing at all reaches the listener (the listener is right there
 on loopback: a Cell that fell back to any other route could have reached it), and when Tor comes
 back on the port it had the same Warden announces itself again over it. A connection that merely
-drops, with Tor still up, is redialed through Tor alone.
+drops, with Tor still up, is redialed through Tor alone. And a Cell its backend destroys closes
+that link, however its Warden's stop ends: a link that mends itself would otherwise go on
+redialing Tor for a Cell that is gone.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/in_cell/main.py (codingrules 5.1: split by feature from
@@ -25,28 +27,37 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import importlib
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 import pytest
-from builders.cell_listener import until
+from builders.cell_listener import until, until_async
 from builders.tor_stand import ONION, ONION_PORT, TorStand, tor_stand
 
 from hivemind.cli.in_cell.link import HIDDEN_SERVICE_CHECK, VIA_SOCKS_CHECK
 from hivemind.cli.in_cell.main import SHUTDOWN_GRACE_S, run_in_cell_warden
+from hivemind.cli.in_cell.redial import ProxyDialer
+from hivemind.pheromone import TrailQuery
 from hivemind.wardens.deps import WardenDeps
+from hivemind.wardens.offline import ReconnectingQueenLink
+from hivemind.wardens.warden import Warden
 from waggle.clock import SystemClock
 from waggle.envelope import Hop, wrap
 from waggle.messages.cell.status import CellHeartbeat, CellReady
 from waggle.messages.control.protocol import Shutdown
 from waggle.messages.forage import CapacityReport
 from waggle.messages.labels import Urgency
+from waggle.transport.base import Transport
 from waggle.transport.socks import FakeSocksProxy
 from waggle.transport.websocket import WebSocketTransport
 
 WAIT_S = 10.0  # Bounds every await that could hang; loopback answers in milliseconds.
 QUIET_S = 0.3  # Long enough that a connection made on purpose would have arrived by now.
 LIMIT_S = "0.5"  # The offline limit a test gives the Cell: short, so clustering is seen at once.
+_TURNS = 5  # Loop turns that carry a Warden from `warden.active` to its first tick's wait.
+_FAILED_REDIALS = 2  # The dial that made the connection, and the first redial that failed.
+_NEXT_REDIAL_S = 0.8  # Longer than the 0.5 s a link waits after its first failed redial.
 _CLOCK = SystemClock()
 
 
@@ -181,3 +192,177 @@ async def test_a_night_veil_cell_torn_down_while_cut_off_stops_within_its_grace(
         run_task.cancel()
 
     assert isinstance(outcome, asyncio.CancelledError)  # Nothing else came out of its teardown.
+
+
+async def _working(deps: WardenDeps) -> None:
+    """Wait until a Cell's Warden has started and gone into its first tick's wait."""
+
+    async def active() -> bool:
+        return bool(await deps.trail.query(TrailQuery(kind="warden.active")))
+
+    await asyncio.wait_for(until_async(active), timeout=WAIT_S)
+    for _ in range(_TURNS):
+        await asyncio.sleep(0)
+
+
+async def _destroyed(run_task: asyncio.Future[None]) -> BaseException | None:
+    """Cancel a Cell's task as its backend does, and return how its teardown ended."""
+    run_task.cancel()
+    [outcome] = await asyncio.wait_for(
+        asyncio.gather(run_task, return_exceptions=True), timeout=SHUTDOWN_GRACE_S + WAIT_S
+    )
+    return outcome
+
+
+async def test_a_night_veil_cell_destroyed_at_work_closes_its_link_and_never_redials(
+    stand: TorStand, tmp_path: Path
+) -> None:
+    built: list[WardenDeps] = []
+    run_task = asyncio.ensure_future(
+        run_in_cell_warden(stand.environ(tmp_path), _CLOCK, on_deps_built=built.append)
+    )
+    connections = stand.server.connections()
+    redialed: asyncio.Future[WebSocketTransport] | None = None
+    try:
+        first, _ready = await _announced(asyncio.ensure_future(anext(connections)))
+        await asyncio.wait_for(until(lambda: bool(built)), timeout=WAIT_S)
+        await _working(built[0])
+        redialed = asyncio.ensure_future(anext(connections))
+
+        outcome = await _destroyed(run_task)
+        # The Queen's end goes as it would after her teardown. A link left open would take that
+        # for Tor dropping it, and redial: a Cell that is gone dialing the Hive Stand.
+        await first.close()
+
+        assert await _quiet(redialed)
+    finally:
+        run_task.cancel()
+        if redialed is not None:
+            redialed.cancel()
+
+    assert isinstance(outcome, asyncio.CancelledError)
+    assert stand.proxy.requests == [(ONION, ONION_PORT)]  # The one dial of its life.
+
+
+async def test_a_night_veil_cell_destroyed_while_cut_off_dials_tor_no_more(
+    stand: TorStand, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dials: list[None] = []
+    real_dial = ProxyDialer.dial
+
+    async def counted(dialer: ProxyDialer) -> Transport:
+        dials.append(None)
+        return await real_dial(dialer)
+
+    monkeypatch.setattr(ProxyDialer, "dial", counted)
+    built: list[WardenDeps] = []
+    run_task = asyncio.ensure_future(
+        run_in_cell_warden(stand.environ(tmp_path), _CLOCK, on_deps_built=built.append)
+    )
+    connections = stand.server.connections()
+    try:
+        await _announced(asyncio.ensure_future(anext(connections)))
+        await asyncio.wait_for(until(lambda: bool(built)), timeout=WAIT_S)
+        await _working(built[0])
+
+        await stand.proxy.close()  # Tor dies: the link redials a dead port, waiting between tries.
+        await asyncio.wait_for(until(lambda: len(dials) >= _FAILED_REDIALS), timeout=WAIT_S)
+        outcome = await _destroyed(run_task)
+        attempts = len(dials)
+
+        await asyncio.sleep(_NEXT_REDIAL_S)  # By now a link left redialing would have tried again.
+    finally:
+        run_task.cancel()
+
+    assert isinstance(outcome, asyncio.CancelledError)
+    assert len(dials) == attempts
+
+
+async def _stop_never_ends(warden: Warden) -> None:
+    """A stop that hangs (a sub-bee that will not go, say) until the shutdown grace gives up."""
+    await asyncio.Event().wait()
+
+
+async def _stop_fails(warden: Warden) -> None:
+    """A stop that raises, as any bug in the Warden's cleanup would."""
+    raise RuntimeError("the Warden could not stop")
+
+
+@pytest.mark.parametrize("stop", [_stop_never_ends, _stop_fails])
+async def test_a_night_veil_cell_whose_warden_cannot_stop_still_closes_its_link(
+    stop: Callable[[Warden], Awaitable[None]],
+    stand: TorStand,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(Warden, "stop", stop)
+    # The module, not the package attribute `main` (the entry point function) that hides it.
+    main_module = importlib.import_module("hivemind.cli.in_cell.main")
+    monkeypatch.setattr(main_module, "SHUTDOWN_GRACE_S", QUIET_S)  # A hung stop gives up quickly.
+    built: list[WardenDeps] = []
+    run_task = asyncio.ensure_future(
+        run_in_cell_warden(stand.environ(tmp_path), _CLOCK, on_deps_built=built.append)
+    )
+    connections = stand.server.connections()
+    try:
+        first, _ready = await _announced(asyncio.ensure_future(anext(connections)))
+        await asyncio.wait_for(until(lambda: bool(built)), timeout=WAIT_S)
+        await _working(built[0])
+
+        await _destroyed(run_task)
+
+        # Whatever the stop did, the Cell hung up: its end of the connection is closed.
+        await asyncio.wait_for(until(lambda: not first.is_connected), timeout=WAIT_S)
+    finally:
+        run_task.cancel()
+
+
+async def test_a_night_veil_cell_destroyed_while_its_warden_starts_closes_its_link(
+    stand: TorStand, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    starting = asyncio.Event()
+
+    async def start(warden: Warden) -> None:
+        starting.set()
+        await asyncio.Event().wait()  # A start still under way when the backend destroys the Cell.
+
+    monkeypatch.setattr(Warden, "start", start)
+    run_task = asyncio.ensure_future(run_in_cell_warden(stand.environ(tmp_path), _CLOCK))
+    connections = stand.server.connections()
+    try:
+        first, _ready = await _announced(asyncio.ensure_future(anext(connections)))
+        await asyncio.wait_for(starting.wait(), timeout=WAIT_S)
+
+        outcome = await _destroyed(run_task)
+
+        await asyncio.wait_for(until(lambda: not first.is_connected), timeout=WAIT_S)
+    finally:
+        run_task.cancel()
+
+    assert isinstance(outcome, asyncio.CancelledError)
+
+
+async def test_a_night_veil_cell_whose_link_will_not_close_is_still_destroyed_within_its_grace(
+    stand: TorStand, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def never_closes(link: ReconnectingQueenLink) -> None:
+        await asyncio.Event().wait()  # A close handshake with a peer that never answers.
+
+    monkeypatch.setattr(ReconnectingQueenLink, "close", never_closes)
+    main_module = importlib.import_module("hivemind.cli.in_cell.main")
+    monkeypatch.setattr(main_module, "SHUTDOWN_GRACE_S", QUIET_S)
+    built: list[WardenDeps] = []
+    run_task = asyncio.ensure_future(
+        run_in_cell_warden(stand.environ(tmp_path), _CLOCK, on_deps_built=built.append)
+    )
+    connections = stand.server.connections()
+    try:
+        await _announced(asyncio.ensure_future(anext(connections)))
+        await asyncio.wait_for(until(lambda: bool(built)), timeout=WAIT_S)
+        await _working(built[0])
+
+        outcome = await _destroyed(run_task)  # Ends, or this times out: the close is bounded.
+    finally:
+        run_task.cancel()
+
+    assert isinstance(outcome, asyncio.CancelledError)

@@ -46,6 +46,10 @@ Key invariants:
       action, `hivemind.wardens.ticks.control.handle_stop`), so `run_in_cell_warden` only calls it
       again itself when `run()` ended some other way -- calling an already-stopped Warden's
       `stop()` a second time would re-release its lease and double-record `warden.stopped`.
+    - Once the link is built it is closed on every way out of `run_in_cell_warden`, whatever
+      became of the Warden's stop (it overran its grace, raised, or the Warden was cancelled
+      before it ran its first tick): a Night Veil Cell's link mends itself, so one left open
+      would go on redialing Tor for a Cell that no longer exists.
     - `on_deps_built`, when given, is called exactly once, with the freshly built `WardenDeps`,
       after `_connect_and_build` has already announced this Cell (`CellReady`/`CapacityReport`/
       `CellHeartbeat`) but strictly before `Warden.start()`/`.run()` -- so a caller can script
@@ -135,31 +139,35 @@ async def run_in_cell_warden(
     # Once, at start: the Hive Stand's addresses for this Cell's floors (never an onion's).
     config = dataclasses.replace(config, hive_stand_addresses=await hive_stand_addresses(config))
     transport, deps = await _connect_and_build(config, clock)
-    if on_deps_built is not None:
-        on_deps_built(deps)
     warden = Warden(config.warden_id, deps)
-    await warden.start()
-    _LOG.info("cell.warden.started", warden_id=config.warden_id)
+    # From here the link is open, so every way out closes it, one that comes before the Warden has
+    # run its first tick included: a Cell the Queen tears down at once (it failed its attestation)
+    # is cancelled while its Warden is still starting.
     try:
+        if on_deps_built is not None:
+            on_deps_built(deps)
+        await warden.start()
+        _LOG.info("cell.warden.started", warden_id=config.warden_id)
         await warden.run()
     finally:
         await _shut_down(warden, transport)
         _LOG.info("cell.warden.stopped", warden_id=config.warden_id)
 
 
-# How long a cancelled or failing in-Cell Warden may spend stopping sub-bees, releasing its lease,
-# shipping its last trail segment and closing the link before the Cell is abandoned to its
-# backend's destroy. The backend destroys the Cell either way; this only keeps the process from
-# hanging on a peer that has already gone (the Queen closed the socket first, say).
+# How long a cancelled or failing in-Cell Warden may spend stopping sub-bees, releasing its lease
+# and shipping its last trail segment, and then (as its own step) closing the link, before the
+# Cell is abandoned to its backend's destroy. The backend destroys the Cell either way; this only
+# keeps the process from hanging on a peer that has already gone (the Queen closed the socket
+# first, say).
 SHUTDOWN_GRACE_S = 3.0
 
 
 async def _shut_down(warden: Warden, transport: Transport) -> None:
-    """Stop `warden` (unless a Queen-sent Shutdown already did) and close the link, bounded.
+    """Stop `warden` (unless a Queen-sent Shutdown already did), then close the link, each bounded.
 
     Runs from `run_in_cell_warden`'s `finally`, so also on cancellation: everything here is
-    best-effort against a peer that may already be gone, and `SHUTDOWN_GRACE_S` bounds it so the
-    task always completes its cancellation.
+    best-effort against a peer that may already be gone, and `SHUTDOWN_GRACE_S` bounds each step
+    so the task always completes its cancellation.
     """
     try:
         async with asyncio.timeout(SHUTDOWN_GRACE_S):
@@ -168,9 +176,24 @@ async def _shut_down(warden: Warden, transport: Transport) -> None:
                 # through a Queen-sent Shutdown/CellTeardownRequest, which already calls stop()
                 # itself (module docstring's own invariant on why this is not unconditional).
                 await warden.stop()
-            await transport.close()
     except TimeoutError:
         _LOG.warning("cell.warden.shutdown_timed_out", grace_s=SHUTDOWN_GRACE_S)
+    finally:
+        # Whatever became of the stop (it ran out of grace, it raised, it was cancelled again) the
+        # link is closed: a Night Veil Cell's link mends itself, so one left open goes on redialing
+        # Tor for a Cell that no longer exists, and a bare transport left open holds the Queen's
+        # end of its connection until the process dies. The Warden of a colonized device closes
+        # its link the same way (`hivemind.cli.in_cell.borrowed.run`).
+        await _close_link(transport)
+
+
+async def _close_link(transport: Transport) -> None:
+    """Close the Queen link within a grace of its own, one a slow stop could not have spent."""
+    try:
+        async with asyncio.timeout(SHUTDOWN_GRACE_S):
+            await transport.close()
+    except TimeoutError:
+        _LOG.warning("cell.link.close_timed_out", grace_s=SHUTDOWN_GRACE_S)
 
 
 def _spawn_source(

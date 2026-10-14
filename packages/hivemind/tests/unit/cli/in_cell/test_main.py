@@ -23,6 +23,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -166,6 +167,12 @@ async def test_on_deps_built_runs_once_before_start_with_a_scriptable_provider(
         await server.close()
 
 
+async def _until_ended(frames: AsyncIterator[object]) -> None:
+    """Read a connection's frames until its peer closes it, whatever it still sends first."""
+    async for _frame in frames:
+        pass
+
+
 @pytest.mark.parametrize("close_server_first", [False, True])
 async def test_run_in_cell_warden_finishes_its_cancellation(
     close_server_first: bool, tmp_path: Path
@@ -174,7 +181,8 @@ async def test_run_in_cell_warden_finishes_its_cancellation(
 
     A backend destroying a Cell (or a Queen tearing its listener down first) cancels the process
     from outside rather than sending Shutdown; the task must still finish within the shutdown
-    grace, whether or not the Queen's side of the socket is already gone.
+    grace, whether or not the Queen's side of the socket is already gone, and a Queen still there
+    sees the Cell close its end.
     """
     queen_signer = Ed25519Signer.generate()
     server = WebSocketServer(Codec(signer=queen_signer))
@@ -197,5 +205,9 @@ async def test_run_in_cell_warden_finishes_its_cancellation(
         run_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(run_task, timeout=SHUTDOWN_GRACE_S + WAIT_S)
+
+        if not close_server_first:
+            # The Cell hung up on its own account: the Queen's stream of its frames ends.
+            await asyncio.wait_for(_until_ended(server_receive), timeout=WAIT_S)
     finally:
         await server.close()

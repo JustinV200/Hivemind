@@ -50,4 +50,7 @@ outlives.
 proxy is down or refusing), the announcer and the link's deps. `test_main_night_veil_redial.py`
 kills a fake Tor under a connected Cell at the entry point, and `tests/e2e/test_night_veil_tor_loss.py`
 does so under a working Cell in a whole Hive, with the listener it could have reached directly
-right there beside the proxy.
+right there beside the proxy. The same unit module destroys a Cell, as its backend does, to show
+that the Cell closes its link on every way out of `run_in_cell_warden` (a stop that hangs or
+raises, a start still under way) and a link left open is never there to redial for a Cell that is
+gone.
