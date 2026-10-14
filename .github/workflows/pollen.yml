@@ -1,0 +1,129 @@
+# HiveMind Pollen Packet binaries (roadmap step 11.7).
+#
+# What: builds the Pollen Packet, the thin gateway an operator installs on a device the Hive will
+# borrow, as a single-file executable on each platform a device is likely to run: Linux on x86-64
+# and on ARM64 (the Raspberry Pi), Windows on x86-64, and macOS on Apple silicon and on Intel. Each
+# leg runs the pollen unit suite, builds the binary with scripts/build_pollen.py, runs
+# `pollen version` from it, and uploads it as a workflow artifact. It runs on every `v*` tag, on
+# demand, and on a pull request that touches the packet or what the binary is made from.
+#
+# Why: a borrowed device has no Python 3.12 and no pip to install the packet with, and PyInstaller
+# cannot cross-compile, so each binary is built on its own platform. A tag is the moment a binary
+# is wanted and a pull request that breaks freezing (a module loaded by name, a dependency whose
+# files PyInstaller does not see) should fail before a tag, so both trigger it. It is not part of
+# ci.yml because it costs five runners and PyInstaller's analysis on every push.
+#
+# How it fits: a Linux binary links the C library of the machine that built it, and the runners
+# are newer than Raspberry Pi OS (ubuntu-24.04-arm has glibc 2.39, a Pi's Debian 12 has 2.36), so a
+# binary built on a runner would fail on a Pi with "version GLIBC_2.38 not found". The Linux legs
+# therefore build inside a Debian 12 container (the glibc floor is then Raspberry Pi OS's), and
+# prove the result by running it in a clean Debian 12 container with no Python in it. The image is
+# `python:3.12-bookworm`, not the -slim one: PyInstaller needs `objdump` (binutils), which -slim
+# lacks. Windows and macOS build on the runner. docs/runbooks/enrolling-a-device.md says how an
+# operator takes the artifact to a device.
+name: Pollen
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    # The packet and the protocol package it is built with, the script that builds it, this file,
+    # and the lock (a bumped pin changes what is frozen).
+    paths:
+      - "packages/pollen/**"
+      - "packages/waggle/**"
+      - "scripts/build_pollen.py"
+      - ".github/workflows/pollen.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+
+# A new push to the same PR supersedes the in-flight run for it.
+concurrency:
+  group: pollen-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege (codingrules section 15): the jobs read the repo and upload an artifact.
+permissions:
+  contents: read
+
+env:
+  BUILD_IMAGE: python:3.12-bookworm # Debian 12 with Python 3.12 and binutils.
+  CLEAN_IMAGE: debian:bookworm-slim # Debian 12 with nothing: the Raspberry Pi OS stand-in.
+
+jobs:
+  binary:
+    name: binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false # A failure on one platform should not hide the others' results.
+      matrix:
+        include:
+          - { target: linux-x86_64, os: ubuntu-22.04, binary: pollen }
+          - { target: linux-arm64, os: ubuntu-24.04-arm, binary: pollen }
+          - { target: windows-x86_64, os: windows-latest, binary: pollen.exe }
+          - { target: macos-arm64, os: macos-14, binary: pollen }
+          # macos-13, the last Intel image this step was written against, was retired by GitHub in
+          # December 2025; macos-15-intel is the x86-64 macOS runner that replaced it.
+          - { target: macos-x86_64, os: macos-15-intel, binary: pollen }
+    defaults:
+      run:
+        shell: bash # One shell on every platform, so the steps below read the same everywhere.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --group pollen-build
+      # The packet's own unit suite on this platform: the platform shims (systemd, launchd, the
+      # Windows service) are the code most likely to differ between the five legs.
+      - name: pollen unit suite
+        run: uv run --frozen pytest -q -p no:cacheprovider packages/pollen/tests
+      # The container sees the checkout read-only and writes only dist/, so nothing it creates
+      # (bytecode, a virtual environment, PyInstaller's work files) lands in the workspace but
+      # the binary. `only-system` keeps uv on the image's own Python, built against its glibc.
+      - name: Build the binary in a Debian 12 container
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          docker run --rm \
+            --volume "$PWD:/src:ro" --volume "$PWD/dist:/out" --workdir /src \
+            --env UV_PROJECT_ENVIRONMENT=/tmp/build-venv \
+            --env UV_PYTHON_PREFERENCE=only-system --env UV_PYTHON_DOWNLOADS=never \
+            "$BUILD_IMAGE" bash -euo pipefail -c '
+              pip install --quiet --no-cache-dir --disable-pip-version-check --root-user-action=ignore uv
+              uv sync --frozen --group pollen-build
+              uv run --frozen --group pollen-build python scripts/build_pollen.py --output-dir /out
+            '
+      - name: Build the binary
+        if: runner.os != 'Linux'
+        run: uv run --frozen python scripts/build_pollen.py
+      # scripts/build_pollen.py already ran the binary once; this is the same check made visible in
+      # its own step, from the file that will be uploaded rather than from the build's own call.
+      - name: pollen version
+        if: runner.os != 'Linux'
+        run: ./dist/${{ matrix.binary }} version
+      # The glibc floor, proved: a Debian 12 with no Python and no packages beyond its base runs
+      # the binary the way a Raspberry Pi's does. `install` has no systemd user manager to talk to
+      # here, so it must print the command that starts the packet and still succeed; `status` on a
+      # device that was never enrolled must say so and exit 1, not crash. (`! command` is never
+      # used for a check: bash -e does not stop on a negated command that fails.)
+      - name: pollen version, install and status on a clean Debian 12
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm --volume "$PWD/dist:/opt/pollen:ro" "$CLEAN_IMAGE" bash -euxo pipefail -c '
+            if command -v python3; then echo "the clean image has Python"; exit 1; fi
+            /opt/pollen/pollen version
+            /opt/pollen/pollen install --data-dir /tmp/pollen-data | tee /tmp/install.txt
+            grep -q "pollen run --data-dir /tmp/pollen-data" /tmp/install.txt
+            code=0
+            /opt/pollen/pollen status --data-dir /tmp/pollen-data || code=$?
+            test "$code" -eq 1
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pollen-${{ matrix.target }}
+          path: dist/${{ matrix.binary }}
+          if-no-files-found: error

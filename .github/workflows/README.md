@@ -1,8 +1,9 @@
 # CI workflows
 
-Two GitHub Actions workflows, per roadmap step 0.4. `hygiene.yml` (roadmap step 0.3) has been
-retired: its job is now the `hygiene` job below, folded into `ci.yml` so there is exactly one
-required workflow plus `integration.yml`.
+The GitHub Actions workflows: `ci.yml` and `integration.yml` from roadmap step 0.4, then
+`android.yml` and `pollen.yml`, which build release artifacts and run on tags and on demand.
+`hygiene.yml` (roadmap step 0.3) has been retired: its job is now the `hygiene` job below, folded
+into `ci.yml` so there is exactly one required workflow plus `integration.yml`.
 
 ## `ci.yml`
 
@@ -34,3 +35,23 @@ web app, syncs it into the Capacitor project under `packages/observation-web/and
 Gradle release build with the JDK the template targets and the Android SDK action, signs with the
 release key from CI secrets, and uploads the APK as a workflow artifact for the phase 14 release.
 The per-push gate for the front end stays the `web` job in `ci.yml`.
+
+## `pollen.yml`
+
+Roadmap step 11.7. Runs on tags `v*`, by hand (`workflow_dispatch`) and on a pull request that
+touches `packages/pollen/**`, `packages/waggle/**`, `scripts/build_pollen.py`, the lock or the
+workflow itself. One job on a five-leg matrix, each leg on its own platform because PyInstaller
+cannot cross-compile: `ubuntu-22.04` (Linux x86-64), `ubuntu-24.04-arm` (Linux ARM64, the
+Raspberry Pi), `windows-latest`, `macos-14` (Apple silicon) and `macos-15-intel` (x86-64; GitHub
+retired `macos-13`, which the step was written against, in December 2025). Every leg runs the
+pollen unit suite, builds the single-file `pollen` binary with `scripts/build_pollen.py`, runs
+`pollen version` from it and uploads it as the artifact `pollen-<target>`.
+
+The Linux legs build inside `python:3.12-bookworm` rather than on the runner. A binary links the
+glibc of the machine that built it, and the runners are newer than Raspberry Pi OS (24.04 has glibc
+2.39, a Pi's Debian 12 has 2.36). It is the full image, not `-slim`, because PyInstaller needs
+`objdump` from binutils. The same legs then run the binary in a clean `debian:bookworm-slim` with
+no Python: `pollen version`, `pollen install --data-dir ...` (no systemd there, so it must print
+the command that starts the packet and succeed) and `pollen status` (not enrolled, so it must say
+so and exit 1). `docs/runbooks/enrolling-a-device.md` says how an operator takes the artifact to a
+device.

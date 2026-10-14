@@ -39,4 +39,11 @@ builds, migration runners, and similar). Hygiene checkers landed in step 0.3, ru
   nothing and exits 1 on drift (ADR-0042: the contract is generated, never hand-written). Run as
   `uv run --frozen python scripts/write_landing_board.py [--check]` after changing a route or model.
 
+- `build_pollen.py` -- roadmap step 11.7: freezes the Pollen Packet and the Python it needs into
+  one executable file, `dist/pollen` (`pollen.exe` on Windows), with PyInstaller, then runs the
+  binary with `version` and fails unless it prints the packet's version line. Needs the
+  `pollen-build` dependency group and, on Linux, `objdump`. Run as `uv sync --frozen --group
+  pollen-build` then `uv run --frozen python scripts/build_pollen.py [--output-dir DIR] [--name
+  NAME] [--work-dir DIR] [--no-smoke]`; `.github/workflows/pollen.yml` runs it on every platform.
+
 Tests for all of the above live under `scripts/tests/`.

@@ -56,6 +56,15 @@ dev = [
     "pip-audit",          # Scans locked dependencies for known vulnerabilities.
     "types-psutil",       # psutil ships no inline types; its typeshed stubs keep mypy --strict honest (roadmap 10.5a).
 ]
+# The packaged Pollen Packet (roadmap step 11.7): scripts/build_pollen.py freezes the packet and the
+# Python it needs into one file with PyInstaller, so a Raspberry Pi OS or a bare Windows machine
+# runs it with nothing installed. A group of its own, not `dev`, because only the packaging
+# workflow (.github/workflows/pollen.yml) and an operator building a binary need it; a developer's
+# plain `uv sync` leaves it out. Pinned exactly: a freezer's analysis changes between releases, and
+# a binary that behaves differently from the last tag's must be a decision, not a surprise.
+pollen-build = [
+    "pyinstaller==6.22.3",  # The single-file freezer; its hooks cover cryptography, pydantic and websockets.
+]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tool configuration (roadmap step 0.2)
