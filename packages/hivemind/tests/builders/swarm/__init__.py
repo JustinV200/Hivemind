@@ -46,6 +46,9 @@ Public API:
       Warden, and a device with a task running on it (colonizing).
     - PromotionScenario, make_promotion: a Level 0 device with work running, asking for the
       next rung, its packet scripted (promotion).
+    - NOW, make_rung_facts, survival_task, report_stand, run_on, make_evaluator, run_pass,
+      make_reconciler: the facts of the Queen's own rung decision, a task that must outlive its
+      link, and the Hive those facts are read from, with the evaluator that reads it (rungs).
     - RenewalScenario, make_renewal: a colonized or Nuc device with work running whose terms the
       operator changes, its packet restarting the Warden when ordered (renewal).
     - NucDevice, ScriptedNucWarden, make_nuc_device, nuc_terms, restart_nuc_warden: a device
@@ -139,6 +142,16 @@ from builders.swarm.routes import (
     resolv_conf,
     scutil_dns,
 )
+from builders.swarm.rungs import (
+    NOW,
+    make_evaluator,
+    make_reconciler,
+    make_rung_facts,
+    report_stand,
+    run_on,
+    run_pass,
+    survival_task,
+)
 from builders.swarm.tls import TlsMaterial, make_tls_material
 
 __all__ = [
@@ -146,6 +159,7 @@ __all__ = [
     "GRACE_S",
     "INTERVAL_S",
     "MAX_OFFLINE_S",
+    "NOW",
     "RUNTIME_VERSION",
     "DeviceClient",
     "DeviceLease",
@@ -202,6 +216,7 @@ __all__ = [
     "make_endpoint",
     "make_enrol_envelope",
     "make_enrol_request",
+    "make_evaluator",
     "make_gate_rig",
     "make_heartbeat",
     "make_hive_party",
@@ -210,9 +225,11 @@ __all__ = [
     "make_nuc_device",
     "make_promotion",
     "make_raw_link",
+    "make_reconciler",
     "make_renewal",
     "make_router_rig",
     "make_rules",
+    "make_rung_facts",
     "make_source",
     "make_swarm_invite",
     "make_swarm_node",
@@ -221,10 +238,14 @@ __all__ = [
     "open_rig_session",
     "place_on_device",
     "real_guard",
+    "report_stand",
     "report_state",
     "resolv_conf",
     "restart_nuc_warden",
+    "run_on",
+    "run_pass",
     "scutil_dns",
     "start_live_hive",
+    "survival_task",
     "swarm_manifest",
 ]

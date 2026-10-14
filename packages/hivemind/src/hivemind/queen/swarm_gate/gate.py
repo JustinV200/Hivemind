@@ -10,8 +10,10 @@ colonized device's own Warden dials in through the gate's door (`hivemind.queen.
 the same path a Virtual Cell's Warden takes. A device whose link is lost has its tasks held, not
 failed, and decided on when the grace ends (`hivemind.queen.swarm_gate.unreachable`); a device the
 operator revoked is cut off and its tasks placed afresh; a rung the operator asked for is carried
-out by the colonizer (`hivemind.queen.swarm_gate.colonize`). All of it follows the registry and the
-hub, in one reconcile pass (`hivemind.queen.swarm_gate.reconcile`).
+out by the colonizer (`hivemind.queen.swarm_gate.colonize`), and a rung nobody asked for but the
+Hive needs (relief, a task that must survive a lost link) is decided by the Queen herself
+(`hivemind.queen.swarm_gate.rungs`) and carried out by the same flows. All of it follows the
+registry and the hub, in one reconcile pass (`hivemind.queen.swarm_gate.reconcile`).
 
 The gate does that work in a loop of its own, never inside the hub's callbacks. `on_online` and
 `on_offline` run in the very task that reads a device's link (the monitor even calls `on_online`
@@ -61,6 +63,7 @@ from hivemind.common.tasks import reap_all
 from hivemind.queen.swarm_gate.attach import DeviceWardenDoor, GateDoorEvents
 from hivemind.queen.swarm_gate.colonize import Colonizer
 from hivemind.queen.swarm_gate.reconcile import DeviceReconciler, ReconcileDeps
+from hivemind.queen.swarm_gate.rungs import RungEvaluator
 from hivemind.queen.swarm_gate.terms import GateContext, GateTerms
 from hivemind.queen.swarm_gate.unreachable import Diagnosis, UnreachableDevices
 from hivemind.queen.swarm_gate.wardens import DeviceWardens
@@ -161,7 +164,10 @@ class SwarmGate:
         self._wake.set()
         self._unreachable = UnreachableDevices(wardens, registry, listener.recorder, terms)
         self._colonizer = Colonizer(wardens, registry, listener, terms, self._wake.set)
-        deps = ReconcileDeps(registry, listener, wardens, self._unreachable, self._colonizer)
+        self._rungs = RungEvaluator(self._colonizer, listener.hub, clock, terms)
+        deps = ReconcileDeps(
+            registry, listener, wardens, self._unreachable, self._colonizer, self._rungs
+        )
         self._reconciler = DeviceReconciler(deps)
         self._lock = asyncio.Lock()
         self._loop = _GateLoop(clock, terms.interval_s, self._wake, self._sweep)
@@ -215,6 +221,7 @@ class SwarmGate:
         self._wardens.bind(queen)
         self._unreachable.bind(context)
         self._colonizer.bind(context)
+        self._rungs.bind(context)
         self._reconciler.bind(context)
         events = GateDoorEvents(
             self._colonizer, self._unreachable, self._listener.hub, self._wake.set

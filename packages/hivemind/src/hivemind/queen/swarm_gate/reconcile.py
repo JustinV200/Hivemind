@@ -16,14 +16,16 @@ repeated or reordered costs nothing. For one node:
   one it has. If the Warden's loop died, or the operator changed the node's access level or tier,
   its tasks are paused and taken back and a Warden is rebuilt, so the Cell it supervises carries
   the new values; for a changed tier the device is first sent `swarm.node_update` on its live link.
-  A pending `desired_level` is handed to the colonizer, which carries it out or refuses it.
+  A pending `desired_level` is handed to the colonizer, which carries it out or refuses it; a
+  device with none is handed to the Queen's own rung decisions (`hivemind.queen.swarm_gate.rungs`),
+  which may colonize it for relief or for a task that must survive a lost link.
 - A node on Level 1 or above has its Warden on the device, dialled in through the gate's door: it
   is reachable while that Warden's link is open, and its tasks are held when it is not. If the
   operator changed its terms its packet is sent them at once, even while the Warden is away, and the
   Warden itself is restarted under them (`Colonizer.renew`), since a Warden keeps the terms it was
   started with. A Nuc whose Warden connected afresh has its model server started again, or its rung
   lowered if that cannot be done (`Colonizer.restore`), so the registry never says a device has a
-  server it has not.
+  server it has not. A device with no request is also handed to the Queen's own rung decisions.
 - A node that is not reachable is handed to the hold (`hivemind.queen.swarm_gate.unreachable`),
   which marks it, holds its tasks for the grace and then decides.
 
@@ -61,6 +63,7 @@ from hivemind.queen.cluster import pause_on_warden
 from hivemind.queen.swarm_gate.colonize import Colonizer
 from hivemind.queen.swarm_gate.colonize.renew import TERMS_CHANGED_REASON
 from hivemind.queen.swarm_gate.colonize.steps import dismiss_remote, tell_terms
+from hivemind.queen.swarm_gate.rungs import RungEvaluator
 from hivemind.queen.swarm_gate.takeback import take_back
 from hivemind.queen.swarm_gate.terms import GateContext
 from hivemind.queen.swarm_gate.unreachable import UnreachableDevices
@@ -96,6 +99,7 @@ class ReconcileDeps:
         wardens: The table of Level 0 Wardens being kept in line.
         unreachable: The hold on a lost device's tasks, and its end when the device is back.
         colonizer: Carries out the rung an operator asked for, and says which devices it owns.
+        rungs: The Queen's own rung decisions for a device with no request; None decides none.
     """
 
     registry: SwarmRegistry
@@ -103,6 +107,7 @@ class ReconcileDeps:
     wardens: DeviceWardens
     unreachable: UnreachableDevices
     colonizer: Colonizer
+    rungs: RungEvaluator | None = None
 
 
 class DeviceReconciler:
@@ -124,7 +129,13 @@ class DeviceReconciler:
 
     async def sweep(self) -> None:
         """Reconcile every enrolled node; one that fails is logged and the rest go on."""
-        for node in await self._deps.registry.nodes():
+        nodes = await self._deps.registry.nodes()
+        rungs = self._deps.rungs
+        if rungs is not None:
+            # Once per pass: the moves she launched are settled and the Hive is read, so every
+            # device is judged on the same figures, the one that loads the Hive Stand most first.
+            nodes = await rungs.begin_pass(nodes)
+        for node in nodes:
             try:
                 await self.sync(node)
             except (SwarmError, CellError) as error:
@@ -169,8 +180,8 @@ class DeviceReconciler:
             return  # The Warden is being restarted under the terms the operator set.
         if node.desired_level is not None:
             await deps.colonizer.request(node)
-        else:
-            await deps.colonizer.restore(node)
+        elif not await deps.colonizer.restore(node) and deps.rungs is not None:
+            await deps.rungs.evaluate(node)
 
     async def _tell_packet(self, node: SwarmNode) -> None:
         """Send a colonized device's packet the terms the operator set, if it was not told yet.
@@ -200,6 +211,8 @@ class DeviceReconciler:
             await deps.wardens.serve(node)
         elif _terms_changed(served, node):
             await self._update(node)
+        elif node.desired_level is None and deps.rungs is not None:
+            await deps.rungs.evaluate(node)
 
     async def _update(self, node: SwarmNode) -> None:
         """Send the device its new terms, then rebuild its Warden so its Cell carries them."""

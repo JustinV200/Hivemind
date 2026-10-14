@@ -10,10 +10,14 @@ device's terms. Once the operator colonizes the device (`hivemind.queen.swarm_ga
 Warden runs on the device and dials in through the gate's door (`attach`), the same attach path a
 Virtual Cell's Warden uses, and it reconnects the same way. A colonized device that declares a model
 server and has the room for it can be promoted once more, to a Nuc (`colonize.nuc`), and lowered
-back. A device that is lost has its tasks held for a grace, then decided on by its rung
-(`unreachable`); a revoked one has them placed afresh (`takeback`). Placed under `queen`, not
-`swarm`, because attaching a Warden to the Queen needs the Queen: `hivemind.swarm` (Layer 3) may
-never import her (Layer 6), the same reason `hivemind.queen.cell_gate` sits here for Virtual Cells.
+back. A device nobody asked to move is judged by the Queen herself (`rungs`): colonized when the
+Hive Stand needs relief or a task on it must survive a lost link, given a model server when the
+seats are held or a task asks for autonomy, and taken back only after the reasons have been gone for
+a time and the device is idle. A device that is lost has its tasks held for a grace, then decided on
+by its rung (`unreachable`); a revoked one has them placed afresh (`takeback`). Placed under
+`queen`, not `swarm`, because attaching a Warden to the Queen needs the Queen: `hivemind.swarm`
+(Layer 3) may never import her (Layer 6), the same reason `hivemind.queen.cell_gate` sits here for
+Virtual Cells.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Built by the composition root when
@@ -53,6 +57,8 @@ Public API:
       (unreachable).
     - Colonizer, Promotion, Withdrawal, decide_request: moving a Warden onto a device and back
       (colonize).
+    - RungEvaluator, RungKeeper, decide_rung: the Queen's own decisions to raise a device a rung or
+      take one back, from the Hive's pressure and a task's need to outlive its link (rungs).
     - RegistrySegmentKeys: the key a device's trail segment must be signed with (keys).
     - take_back, tasks_on, open_tasks: taking a gone Warden's tasks back to be placed afresh,
       and reading the tasks that have not ended (takeback).
@@ -68,6 +74,7 @@ from hivemind.queen.swarm_gate.colonize import Colonizer, Promotion, Withdrawal,
 from hivemind.queen.swarm_gate.gate import SwarmGate
 from hivemind.queen.swarm_gate.keys import RegistrySegmentKeys
 from hivemind.queen.swarm_gate.reconcile import DeviceReconciler, ReconcileDeps
+from hivemind.queen.swarm_gate.rungs import RungEvaluator, RungKeeper, decide_rung
 from hivemind.queen.swarm_gate.takeback import open_tasks, take_back, tasks_on
 from hivemind.queen.swarm_gate.terms import GateContext, GateTerms
 from hivemind.queen.swarm_gate.unreachable import (
@@ -102,11 +109,14 @@ __all__ = [
     "Promotion",
     "ReconcileDeps",
     "RegistrySegmentKeys",
+    "RungEvaluator",
+    "RungKeeper",
     "ServedDevice",
     "SwarmGate",
     "UnreachableDevices",
     "Withdrawal",
     "decide_request",
+    "decide_rung",
     "link_services",
     "open_tasks",
     "take_back",
