@@ -64,6 +64,8 @@ Key invariants:
       never crash this Warden's tick loop (this dispatch's own fix 4; phase-7 handoff item 8);
       `announce_freeze` shares that same send.
     - An announced interval is never shorter than this Warden's own `heartbeat_interval_s`.
+    - A Heartbeat lists no child whose task the Warden minted itself (`SubBee.local`): the Queen
+      reads every child's task id, and she has never heard of that one.
     - A sub-bee row never outlives the Heartbeat that says it has ended: `record_heartbeat`
       retires it in the same call that mirrors the state, and starts its successor there too
       when this Warden's own Handoff order stopped it, so the task is never left with no bee.
@@ -208,6 +210,7 @@ async def _send_own_heartbeat(warden: Warden, interval_s: float) -> None:
             telemetry=sub_bee.last_telemetry or _empty_telemetry(),
         )
         for sub_bee in warden._sub_bees.values()
+        if sub_bee.local is None  # A task the Warden minted itself is not one the Queen knows.
     )
     message = Heartbeat(
         telemetry=own_telemetry,

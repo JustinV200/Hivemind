@@ -1,4 +1,4 @@
-"""Define SubBee: one Warden's own bookkeeping record for one sub-bee it has spawned.
+"""Define SubBee and LocalRun: one Warden's bookkeeping for a sub-bee it has spawned.
 
 A `SubBee` is not a boundary value (it never crosses a network boundary itself, and it owns its own
 mutable state in place, codingrules section 8.5): it is the Warden's own row for one Worker it is
@@ -19,14 +19,18 @@ moment it hears so, freeing its slot for the next assignment. `awaits_successor`
 that is not the task's end: a bee its own Warden ordered to hand off (`handoff_ordered`, for its
 context size) writes its Handoff and stops DONE, and the Handoff lever means "a fresh bee resumes
 the task from it", so its Warden starts that bee in the same slot rather than leaving the task
-RUNNING with no bee at all.
+RUNNING with no bee at all. `LocalRun` marks the one kind of row whose task the Warden asked for
+itself, with no Queen in it (a cut-off Warden's diagnostic Drone, ADR-0056): the bee's ending is
+kept on the row for the Warden to read, and is never accepted, retried or sent up as a task of
+hers.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
     by `hivemind.wardens.spawn.spawn.spawn_sub_bee`; read and mutated by
     `hivemind.wardens.warden.Warden` and its `hivemind.wardens.ticks` handlers on every report a
-    sub-bee sends. Calls into `hivemind.exoskeleton` (ExoskeletonHandle), `hivemind.guard`
-    (CapabilitySet), `hivemind.workers` (WorkerState, WorkerRuntime) and waggle only.
+    sub-bee sends. Calls into `hivemind.cell` (RequestOrigin), `hivemind.exoskeleton`
+    (ExoskeletonHandle), `hivemind.guard` (CapabilitySet), `hivemind.workers` (WorkerState,
+    WorkerRuntime) and waggle only.
 
 Key invariants:
     - `state` only ever moves along `hivemind.workers.state.TRANSITIONS`; a SubBee's own state is
@@ -39,6 +43,8 @@ Key invariants:
       the action that ends it (a respawn, a rebind, an escalation), unless a cancel came first.
     - `awaits_successor` holds only for a DONE bee whose stop this Warden ordered itself and no
       cancel followed: a stop the Queen ordered (Clustering, isolation) is hers to resume.
+    - A row with a `local` is never reported to the Queen: its claim and its Alarm stay on the row,
+      and the task id it carries is one the Queen has never heard of.
 
 See Also:
     - .claude/codingrules.md section 8.5 for the mutable-state-documented-here rule this class
@@ -55,6 +61,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 
+from hivemind.cell import RequestOrigin
 from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.guard import CapabilitySet
 from hivemind.workers.runtime import WorkerRuntime
@@ -62,16 +69,37 @@ from hivemind.workers.state import WorkerState, is_terminal
 from hivemind.workers.tools.comb import CombToolBundle
 from waggle.ids import EventId, TaskId, WorkerId
 from waggle.messages import HandoffRef
-from waggle.messages.supervision import ContextTelemetry
-from waggle.messages.task import TaskAssign
+from waggle.messages.supervision import AlarmRaised, ContextTelemetry
+from waggle.messages.task import TaskAssign, TaskResult
 from waggle.transport.memory import MemoryTransport
 
-__all__ = ["SubBee"]
+__all__ = ["LocalRun", "SubBee"]
 
 # Ends a bee with nothing left to send: KILLED (a TaskCancel, a Cancel lever, a lost link) carries
 # no TaskResult or Alarm, and neither does DONE after a stop-handoff (a claimed DONE's TaskResult
 # travels ahead of any later Heartbeat on the same ordered link, so acceptance retires it first).
 _ENDED_QUIETLY = frozenset({WorkerState.KILLED, WorkerState.DONE})
+
+
+@dataclass(slots=True)
+class LocalRun:
+    """What a Warden keeps of a sub-bee it started for itself, whose ending stays with it.
+
+    Attributes:
+        origin: Who asked for the task: the Warden, from its own judgement (never the Queen, never
+            a human), which is what the Guard's initiation floors read.
+        claim: The TaskResult the bee claimed, held here instead of being accepted and reported.
+        alarm: The Alarm that ended the bee, held here instead of being retried or escalated.
+    """
+
+    origin: RequestOrigin = RequestOrigin.WARDEN
+    claim: TaskResult | None = None
+    alarm: AlarmRaised | None = None
+
+    @property
+    def has_ended(self) -> bool:
+        """Whether the bee has said how it ended: it claimed a result or raised an Alarm."""
+        return self.claim is not None or self.alarm is not None
 
 
 @dataclass(slots=True)
@@ -117,6 +145,8 @@ class SubBee:
         comb_tools: The bundle of Comb tools this sub-bee's `WorkerContext` reads (roadmap 9.7),
             the one thing its Warden may change under it: `hivemind.wardens.ticks.tools.install`
             replaces its entries when a tool is promoted. None for a Warden with no Basket.
+        local: Set only for a task the Warden asked for itself (roadmap 11.9a): where its ending is
+            kept. None for every task the Queen assigned.
     """
 
     worker_id: WorkerId
@@ -137,6 +167,7 @@ class SubBee:
     cancelled: bool = field(default=False)
     handoff_ordered: bool = field(default=False)
     comb_tools: CombToolBundle | None = field(default=None)
+    local: LocalRun | None = field(default=None)
 
     @property
     def has_ended(self) -> bool:

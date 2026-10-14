@@ -5,7 +5,9 @@ Fits into the Hive:
     Warden on a device's deps (builders.offline_warden). When the link to the Queen goes the Warden
     moves to OFFLINE, leaves its grants as they are, and tells each sub-bee that has nothing local
     to think with to stop at a Handoff (a Nuc's bees keep going); past `max_offline_s` it clusters
-    fully; a Level 0 Warden, which never goes OFFLINE, pauses its bees when its Cell is lost.
+    fully; a Level 0 Warden, which never goes OFFLINE, pauses its bees when its Cell is lost. A bee
+    the Warden started for itself (a diagnostic Drone, roadmap 11.9a) is never one of those: it is
+    no task of the Queen's to resume.
 
 Key invariants:
     - None: this module holds tests only.
@@ -23,6 +25,7 @@ from builders.quarantine import drain, settle
 from hivemind.memory import Handoff
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.wardens import WardenDeps
+from hivemind.wardens.spawn import LocalRun
 from hivemind.wardens.state import WardenState
 from hivemind.workers.state import WorkerState
 from waggle.messages.supervision import AlarmKind
@@ -68,6 +71,26 @@ async def test_a_bee_whose_model_runs_on_the_device_keeps_going() -> None:
     assert scene.rows() == [bee] and not scene.outage.has_held
     [event] = await _events(scene.deps, "warden.offline")
     assert event.payload["paused"] == 0
+    await scene.stop()
+
+
+async def test_a_bee_the_warden_started_for_itself_is_never_paused_by_a_cut_or_the_limit() -> None:
+    scene = await start_offline_scene(pausable([]), max_offline_s=30.0)
+    [bee] = scene.rows()
+    bee.local = LocalRun()  # Its model is not local: a task of the Queen's would be paused here.
+
+    scene.cut()
+    await settle(lambda: scene.warden.state is WardenState.OFFLINE)
+    scene.clock.advance(WARDEN_BEAT_S * 4)  # Past max_offline_s: the Warden clusters fully.
+    await settle(lambda: scene.outage.is_clustered_fully)
+    await drain()
+
+    # It is not a task the Queen could resume from a Handoff, so nothing was held for her.
+    assert bee.runtime.state is WorkerState.RUNNING
+    assert scene.rows() == [bee] and not scene.outage.has_held
+    [event] = await _events(scene.deps, "warden.offline")
+    assert event.payload["paused"] == 0
+    assert await _events(scene.deps, "warden.clustered") == []
     await scene.stop()
 
 

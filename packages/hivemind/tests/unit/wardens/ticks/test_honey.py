@@ -4,7 +4,8 @@ Fits into the Hive:
     Mirrors src/hivemind/wardens/ticks/honey.py (codingrules section 3). Drives the relay
     directly against a real Warden, reading both of its links raw: the Queen's end of its queen
     link and a sub-bee's end of that sub-bee's own link (`builders.honey_wire.WireEnd`), so the
-    envelope ids, addresses and correlations of every hop are asserted, not just the payloads.
+    envelope ids, addresses and correlations of every hop are asserted, not just the payloads. A
+    bee the Warden started for itself has no task of the Queen's: its traffic stops here.
 
 Key invariants:
     - None: this module holds tests only.
@@ -25,8 +26,9 @@ from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_context, make_outcome, yield_then
 
 from hivemind.wardens.inbox import to_inbox_item
-from hivemind.wardens.spawn.sub_bee import SubBee
+from hivemind.wardens.spawn.sub_bee import LocalRun, SubBee
 from hivemind.wardens.ticks.honey import (
+    LOCAL_RUN_REASON,
     MAX_PENDING_HONEY_QUERIES,
     QUEEN_UNREACHABLE_REASON,
     REFUSED_QUERY_REASON,
@@ -242,6 +244,30 @@ async def test_a_disconnected_warden_answers_a_query_itself_and_drops_a_chunk() 
     assert answered.payload == _response(QUEEN_UNREACHABLE_REASON)
     assert answered.correlation_id == asked.id
     assert len(rig.warden._honey_relay) == 0
+
+
+async def test_a_bee_the_warden_started_for_itself_is_answered_here_and_its_chunk_dropped() -> None:
+    # Roadmap 11.9a: a diagnostic Drone's task is one the Queen has never heard of, so nothing of
+    # its Honey traffic goes up, whether or not a link to her is there.
+    rig = await _rig()
+    rig.sub_bee.local = LocalRun()
+    asked = rig.worker.envelope_for(_own_query(rig))
+    own = make_deposit_meta(
+        rig.warden._deps.clock, worker_id=rig.sub_bee.worker_id, task_id=rig.sub_bee.task_id
+    )
+    (chunk,) = split_deposit(b"a finding", own)
+    principal = rig.sub_bee.worker_id
+
+    await handle_honey_item(rig.warden, to_inbox_item(asked, principal), rig.sub_bee)
+    await handle_honey_item(
+        rig.warden, to_inbox_item(rig.worker.envelope_for(chunk), principal), rig.sub_bee
+    )
+
+    answered = await rig.worker.next()
+    assert answered.payload == _response(LOCAL_RUN_REASON)
+    assert answered.correlation_id == asked.id
+    assert len(rig.warden._honey_relay) == 0
+    await _assert_queen_got_nothing(rig)
 
 
 async def test_an_answer_for_a_sub_bee_whose_link_closed_is_dropped() -> None:

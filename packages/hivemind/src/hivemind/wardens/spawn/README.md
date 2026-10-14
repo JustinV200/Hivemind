@@ -12,6 +12,13 @@ it needs.
 - `WardenCellContext`, `spawn_sub_bee` (`spawn.py`): attenuate capabilities, carve a grant slice,
   resolve the assignment's slot to a live model, build the sub-bee's own `CappingGate` and
   `WorkerContext`, start its `WorkerRuntime`, and send it its first `TaskAssign`.
+- `LocalRun` (`sub_bee.py`), `LocalAssignment`, `spawn_local` (`local.py`, roadmap step 11.9a): a
+  sub-bee for a task the Warden minted itself, under a grant carved from its own local pool (a cut-off
+  Nuc's diagnostic Drone, ADR-0056). It is started by `spawn_sub_bee` on an explicit binding (so
+  the Guard still checks it) with no Comb tools, and its row has `local` set: the tick handlers keep
+  its claim and its Alarm on the row (`ticks/results.py`, `ticks/alarms.py`) instead of accepting,
+  retrying or sending them to a Queen who has never heard of the task; the Warden's heartbeat lists
+  no such child and `retire_sub_bee` frees no pool slot for it.
 - `sub_bee_capabilities`, `declared_write_roots` (`attenuate.py`, roadmap step 10.3): one sub-bee's
   slice, read off its `TaskAssign` -- the role default, the task's network scopes and the goal's
   set, narrowed by `hivemind.workers.worker_capabilities`.

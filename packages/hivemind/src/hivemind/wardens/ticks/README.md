@@ -17,14 +17,17 @@ every decided action to one of these; none of them is a general-purpose module o
   the Queen's `HoneyResponse` is relayed back correlated to the sub-bee's own envelope; an
   unmatched response is logged, and a Queen `control.error` about a relayed deposit is logged at
   warning. A closed link never ends the Warden's tick: with no Queen to forward to, a query is
-  answered at once (`QUEEN_UNREACHABLE_REASON`) and a chunk is logged and dropped.
+  answered at once (`QUEEN_UNREACHABLE_REASON`) and a chunk is logged and dropped. A bee the
+  Warden started for itself (`SubBee.local`, roadmap 11.9a) has no task of the Queen's: its query is
+  answered at once, empty (`LOCAL_RUN_REASON`), and its chunk dropped, so neither is forwarded.
 - `assign`: spawn a sub-bee once its `TaskAssign` and `GrantIssued` have both arrived; park
   otherwise; retry a refused lease once before escalating `CELL_UNREACHABLE`. Every `TaskAssign`
   is a new attempt, so it first supersedes whatever the Warden still holds for the task (the FAILED
   row an escalated crash left, a bee the Queen retried or resumed): retired, its slot freed.
 - `results`: run acceptance on a sub-bee's claimed `TaskResult`, on the Warden's own session. A
   device error while checking (`DEVICE_ERRORS`: a closed session, a refused request, a lost link)
-  reports the task FAILED with the error's class and never ends the Warden's loop.
+  reports the task FAILED with the error's class and never ends the Warden's loop. A claim from a
+  bee the Warden started for itself (`SubBee.local`, roadmap 11.9a) is kept on its row instead.
 - `trail_ship`: ship this Warden's own trail segment right before a `TaskResult` goes to the
   Queen, so a Cell paused or destroyed on that result never takes the task's rows with it;
   called by `results` and `alarms`.
@@ -33,7 +36,8 @@ every decided action to one of these; none of them is a general-purpose module o
   runtime stopped, its link closed, its slot freed), shared with `results`, `control`,
   `heartbeat`, `Warden.stop` and the quarantine path; a respawn keeps the slot for the fresh bee
   (`keep_slot`). `resume_from_handoff`: a bee stopped at a Handoff its own Warden ordered is
-  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot.
+  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot. An Alarm
+  from a bee the Warden started for itself is kept on its row, and such a bee takes no slot.
 - `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
   `lease_creation` point. `release_lease` is the one way a lease is given back (the idle release,
   and the offline return that leases a device again); `report_cell_lost`/`clear_cell_lost` also

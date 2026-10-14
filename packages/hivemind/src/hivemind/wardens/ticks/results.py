@@ -22,6 +22,8 @@ Fits into the Hive:
 Key invariants:
     - Acceptance always runs on `warden._session` -- the Warden's own -- never on any session the
       sub-bee itself held (codingrules section 8.12: "the proposer never verifies its own work").
+    - A claim from a bee the Warden asked for itself (`SubBee.local`, roadmap 11.9a) is kept on its
+      row and never accepted, retired here or reported: the Queen has no such task.
     - `retire_sub_bee` runs exactly once per TaskResult(CLAIMED) handled, whatever the outcome, so
       the local pool slot is released and the sub-bee's link is closed either way; and only after
       acceptance, so a URL_MATCHES or ELEMENT_TEXT criterion still has the task's browser to read.
@@ -82,6 +84,10 @@ async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> N
         sub_bee: The sub-bee whose claim this is.
         claim: The sub-bee's own TaskResult(CLAIMED), for its summary, artifacts and spend.
     """
+    if sub_bee.local is not None:
+        # The Warden asked for this task itself: its ending is the Warden's to read, not hers.
+        sub_bee.local.claim = claim
+        return
     if warden._session is None:
         return  # Defensive: unreachable once a sub-bee has spawned on this Warden's own session.
     outage = device_outage(warden._deps)

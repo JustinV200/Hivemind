@@ -179,8 +179,8 @@ async def record_event(warden: Warden, kind: str, **payload: JsonValue) -> None:
 
 def _may_pause(warden: Warden, outage: Outage, sub_bee: SubBee, *, spare_local: bool) -> bool:
     """Whether `sub_bee` should be told to stop: working, not already paused, and cut off."""
-    if sub_bee.state not in _WORKING or sub_bee.cancelled:
-        return False
+    if sub_bee.state not in _WORKING or sub_bee.cancelled or sub_bee.local is not None:
+        return False  # A bee the Warden started for itself is not a task the Queen could resume.
     # Paused already, by the Queen's Clustering or by this very outage: it is hers or ours already.
     if sub_bee.task_id in warden._clustered_tasks or outage.is_holding(sub_bee.task_id):
         return False

@@ -32,6 +32,9 @@ Key invariants:
       or misdirected payload, a response for a sub-bee that has since ended, and a send on a link
       that closed are logged and dropped (a query's asker is answered at once instead).
     - `HoneyRelay` never holds more than `MAX_PENDING_HONEY_QUERIES` entries.
+    - A bee this Warden started for itself (`SubBee.local`, roadmap 11.9a) has its query answered
+      here, empty, and its deposit dropped, so nothing of a task the Queen has never heard of
+      reaches her.
 
 See Also:
     - docs/waggle/spec.md sections 3 and 8.7 for relaying, first-hop identity and the honey family.
@@ -66,10 +69,14 @@ REFUSED_QUERY_REASON = (
     "nothing was searched."
 )
 QUEEN_UNREACHABLE_REASON = "The Queen is unreachable from this Warden; nothing was searched."
+LOCAL_RUN_REASON = (
+    "This run is the Warden's own and has no task of the Queen's; no Honey was searched."
+)
 # A link that closed or dropped between a message arriving and its relay leaving.
 _LINK_GONE = (TransportClosedError, ConnectionLostError)
 
 __all__ = [
+    "LOCAL_RUN_REASON",
     "MAX_PENDING_HONEY_QUERIES",
     "QUEEN_UNREACHABLE_REASON",
     "REFUSED_QUERY_REASON",
@@ -149,6 +156,13 @@ async def handle_honey_item(warden: Warden, item: InboxItem, sub_bee: SubBee | N
     if upward != from_sub_bee:
         log.warning("wardens.honey.misdirected", kind=item.payload_kind, principal=item.principal)
         return
+    if (
+        sub_bee is not None
+        and sub_bee.local is not None
+        and isinstance(payload, HoneyQuery | NectarDeposit)
+    ):
+        await _keep_local(warden, item, payload, sub_bee)
+        return
     if isinstance(payload, HoneyQuery) and sub_bee is not None:
         await _forward_query(warden, item, payload, sub_bee)
     elif isinstance(payload, NectarDeposit) and sub_bee is not None:
@@ -163,6 +177,17 @@ async def handle_honey_item(warden: Warden, item: InboxItem, sub_bee: SubBee | N
             code=payload.code,
             correlation_id=item.correlation_id,
         )
+
+
+async def _keep_local(
+    warden: Warden, item: InboxItem, payload: HoneyQuery | NectarDeposit, sub_bee: SubBee
+) -> None:
+    """Answer a Warden-started bee's query itself and drop its deposit: they stay on this side."""
+    if isinstance(payload, HoneyQuery):
+        # Answered at once, so its `recall` never waits out a timeout for a Queen who is not asked.
+        await _answer_sub_bee(warden, sub_bee, _empty(LOCAL_RUN_REASON), MessageId(item.id))
+    else:
+        log.debug("wardens.honey.local_deposit_dropped", worker_id=sub_bee.worker_id)
 
 
 async def _forward_query(

@@ -55,6 +55,10 @@ Public API (roadmap step 10.3):
     - sub_bee_capabilities, declared_write_roots, widen_lease_reachability: a sub-bee's capability
       slice and the lease widening its declared write roots need (attenuate).
     - BindingCheck, authorize_binding, binding_check: the `slot_binding` point (binding, spawn).
+
+Public API (roadmap step 11.9a):
+    - LocalRun (sub_bee), LocalAssignment, spawn_local (local): a sub-bee a Warden starts for a task
+      it minted itself, whose ending stays on its row.
 """
 
 from hivemind.wardens.spawn.attenuate import (
@@ -65,6 +69,7 @@ from hivemind.wardens.spawn.attenuate import (
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
 from hivemind.wardens.spawn.comb import CombHandles, CombSeams, make_handles, visible_entries
 from hivemind.wardens.spawn.in_cell import InCellSpawnConfig, InCellSpawnSource
+from hivemind.wardens.spawn.local import LocalAssignment, spawn_local
 from hivemind.wardens.spawn.route import BindingTarget, Routed, RouteScope, route_rebind
 from hivemind.wardens.spawn.spawn import (
     WardenCellContext,
@@ -72,7 +77,7 @@ from hivemind.wardens.spawn.spawn import (
     spawn_sub_bee,
     stop_sub_bee,
 )
-from hivemind.wardens.spawn.sub_bee import SubBee
+from hivemind.wardens.spawn.sub_bee import LocalRun, SubBee
 
 __all__ = [
     "BindingCheck",
@@ -81,6 +86,8 @@ __all__ = [
     "CombSeams",
     "InCellSpawnConfig",
     "InCellSpawnSource",
+    "LocalAssignment",
+    "LocalRun",
     "RouteScope",
     "Routed",
     "SubBee",
@@ -90,6 +97,7 @@ __all__ = [
     "declared_write_roots",
     "make_handles",
     "route_rebind",
+    "spawn_local",
     "spawn_sub_bee",
     "stop_sub_bee",
     "sub_bee_capabilities",

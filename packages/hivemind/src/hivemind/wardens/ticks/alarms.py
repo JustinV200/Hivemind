@@ -52,6 +52,9 @@ Key invariants:
       can only ever name a *source* within the current grant (every v0 grant's own `allowed`
       entries share one `ModelSlot.WORKER`, so it never actually differs from `sub_bee.binding`) --
       this dispatch's own fix 3b/3c.
+    - An Alarm from a bee the Warden asked for itself (`SubBee.local`, roadmap 11.9a) is kept on its
+      row and handled by nothing here: no retry, no rebind, no escalation, because the Queen has
+      neither the task nor a grant for it.
 
 See Also:
     - docs/adr/0012-wardens-alarms-and-the-escalation-chain.md for the escalation chain this
@@ -128,6 +131,11 @@ async def handle_alarm_action(
         binding: An explicit target `[llm.slots]` key for REBIND (from an awake decision); None
             lets `_rebind` pick the next entry in the grant's own allowed bindings.
     """
+    if sub_bee.local is not None:
+        # The Warden's own run (roadmap 11.9a): an Alarm ends it and is the Warden's to read. It is
+        # never retried, rebound or sent to the Queen, who has no such task and no grant for it.
+        sub_bee.local.alarm = alarm
+        return
     if action is WardenAction.RETRY:
         await _record_handled(warden, alarm, action)
         await _respawn(warden, sub_bee, alarm, binding_override=None)
@@ -465,8 +473,10 @@ async def retire_sub_bee(warden: Warden, sub_bee: SubBee, *, keep_slot: bool = F
     receive_task = warden._receive_tasks.pop(sub_bee.worker_id, None)
     if receive_task is not None:
         await reap(receive_task)
-    if not keep_slot:
-        # Back to the pool for the next assignment, unless a successor is about to take it.
+    if not keep_slot and sub_bee.local is None:
+        # Back to the pool for the next assignment, unless a successor is about to take it. A bee
+        # the Warden started for itself (roadmap 11.9a) never took one: the Queen's grant is not
+        # what it runs under.
         warden._sub_bee_slots.release()
     await sub_bee.link.close()
 
