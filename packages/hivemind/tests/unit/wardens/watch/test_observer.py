@@ -48,12 +48,13 @@ from waggle.messages.swarm import FileChange, FileChangeKind, LogLine, Observati
 
 _ROOT = "/data/logs"
 _SYSTEM = (ObservationKind.PROCESS_LIST, ObservationKind.RESOURCE_USE)
+_OWNER = "warden_owner"
 
 
 async def _kept(ctx: MemoryContext, clock: FakeClock) -> list[Observation]:
     """Every Observation kept so far."""
     window = timedelta(days=30)
-    kept = await store.load_observations(ctx, clock.now() - window, clock.now() + window)
+    kept = await store.load_observations(ctx, _OWNER, clock.now() - window, clock.now() + window)
     return [item.observation for item in kept]
 
 
@@ -109,7 +110,7 @@ async def test_a_sample_is_kept_as_a_c2_bee_bread_entry() -> None:
     observation = make_observation(clock.now(), processes=[make_process(name="a", cpu_share=0.2)])
     watch = make_watch_deps(StubProbe(observation))
 
-    kept = await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY)
+    kept = await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
     assert kept is True
     assert await _kept(ctx, clock) == [observation]
@@ -127,8 +128,10 @@ async def test_the_probe_is_asked_only_for_what_the_level_and_the_roots_allow() 
     ctx, _trail = make_memory_context(clock)
     probe = StubProbe(make_observation(clock.now(), resources=make_resources()))
 
-    await WatchObserver(make_watch_deps(probe), ctx).sample(AccessLevel.SCRATCH)
-    await WatchObserver(make_watch_deps(probe, roots=(_ROOT,)), ctx).sample(AccessLevel.FULL)
+    await WatchObserver(make_watch_deps(probe), ctx, _OWNER).sample(AccessLevel.SCRATCH)
+    await WatchObserver(make_watch_deps(probe, roots=(_ROOT,)), ctx, _OWNER).sample(
+        AccessLevel.FULL
+    )
 
     (no_roots, with_roots) = probe.calls
     assert no_roots == (_SYSTEM, (), None)
@@ -140,7 +143,7 @@ async def test_samples_are_swept_past_the_retention_window() -> None:
     ctx, _trail = make_memory_context(clock)
     probe = StubProbe(make_observation(clock.now(), resources=make_resources()))
     watch = make_watch_deps(probe, retention_s=120.0)
-    observer = WatchObserver(watch, ctx)
+    observer = WatchObserver(watch, ctx, _OWNER)
     await observer.sample(AccessLevel.READ_ONLY)
 
     clock.advance(121.0)
@@ -154,7 +157,7 @@ async def test_nothing_found_is_not_kept() -> None:
     ctx, _trail = make_memory_context(clock)
     watch = make_watch_deps(StubProbe(make_observation(clock.now())))
 
-    kept = await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY)
+    kept = await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
     assert kept is False
     assert await _kept(ctx, clock) == []
@@ -174,7 +177,7 @@ async def test_the_next_sample_asks_for_changes_after_the_newest_one_seen() -> N
     second = make_observation(clock.now(), file_changes=[_change(clock, -5, "/r/c")])
     probe = StubProbe(first, second)
     watch = make_watch_deps(probe, roots=(_ROOT,))
-    observer = WatchObserver(watch, ctx)
+    observer = WatchObserver(watch, ctx, _OWNER)
 
     await observer.sample(AccessLevel.READ_ONLY)
     await observer.sample(AccessLevel.READ_ONLY)
@@ -190,7 +193,7 @@ async def test_a_file_stamped_in_the_future_cannot_move_the_cursor_past_the_pres
     sample = make_observation(clock.now(), file_changes=[_change(clock, 10**8)])
     watch = make_watch_deps(StubProbe(sample), roots=(_ROOT,))
 
-    await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY)
+    await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
     assert watch.schedule.file_cursor == sample.observed_at  # Not the year 2023.
 
@@ -202,7 +205,7 @@ async def test_the_cursor_only_moves_forward_and_stays_when_nothing_changed() ->
     older = make_observation(clock.now(), file_changes=[_change(clock, -40)])
     quiet = make_observation(clock.now(), resources=make_resources())
     watch = make_watch_deps(StubProbe(newer, older, quiet), roots=(_ROOT,))
-    observer = WatchObserver(watch, ctx)
+    observer = WatchObserver(watch, ctx, _OWNER)
 
     for _ in range(3):
         await observer.sample(AccessLevel.READ_ONLY)
@@ -217,7 +220,7 @@ async def test_no_cursor_is_sent_when_file_changes_are_not_watched() -> None:
     watch = make_watch_deps(probe)
     watch.schedule.file_cursor = clock.now()
 
-    await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY)
+    await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
     assert probe.calls[0][2] is None
 
@@ -242,7 +245,7 @@ async def test_a_failed_look_is_not_kept_and_not_raised(error: Exception) -> Non
     ctx, _trail = make_memory_context(clock)
     watch = make_watch_deps(StubProbe(error))
 
-    kept = await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY)
+    kept = await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
     assert kept is False
     assert await _kept(ctx, clock) == []
@@ -255,7 +258,7 @@ async def test_a_snapshot_that_breaks_its_own_bounds_is_a_failed_look() -> None:
         Observation.model_validate({"device_id": "x"})
     watch = make_watch_deps(StubProbe(caught.value))
 
-    assert await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY) is False
+    assert await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY) is False
 
 
 async def test_a_bug_in_the_probe_is_not_swallowed() -> None:
@@ -264,7 +267,7 @@ async def test_a_bug_in_the_probe_is_not_swallowed() -> None:
     watch = make_watch_deps(StubProbe(TypeError("a bug")))
 
     with pytest.raises(TypeError):
-        await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY)
+        await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
 
 async def test_a_probe_that_never_answers_is_given_up_on(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -276,7 +279,7 @@ async def test_a_probe_that_never_answers_is_given_up_on(monkeypatch: pytest.Mon
     monkeypatch.setattr(observer_module, "OBSERVE_TIMEOUT_S", 0.01)
     ctx, _trail = make_memory_context(FakeClock())
 
-    kept = await WatchObserver(make_watch_deps(Hung()), ctx).sample(AccessLevel.READ_ONLY)
+    kept = await WatchObserver(make_watch_deps(Hung()), ctx, _OWNER).sample(AccessLevel.READ_ONLY)
 
     assert kept is False
 
@@ -292,7 +295,7 @@ async def test_a_store_that_will_not_take_the_sample_is_a_failed_look(
     ctx, _trail = make_memory_context(clock)
     watch = make_watch_deps(StubProbe(make_observation(clock.now(), resources=make_resources())))
 
-    assert await WatchObserver(watch, ctx).sample(AccessLevel.READ_ONLY) is False
+    assert await WatchObserver(watch, ctx, _OWNER).sample(AccessLevel.READ_ONLY) is False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -311,7 +314,7 @@ async def test_sampling_through_a_session_never_calls_a_write_method_on_it() -> 
     probe = SessionWatchProbe(DEVICE_ID, clock)
     probe.use_session(session)
     watch = make_watch_deps(probe, roots=(_ROOT,))
-    observer = WatchObserver(watch, ctx)
+    observer = WatchObserver(watch, ctx, _OWNER)
 
     assert await observer.sample(AccessLevel.READ_ONLY) is True
     assert await observer.sample(AccessLevel.FULL) is True

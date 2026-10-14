@@ -192,16 +192,19 @@ async def deposit_recording_ref(
     return entry
 
 
-async def deposit_watch_observation(payload: str, ctx: MemoryContext) -> BeeBreadEntry:
+async def deposit_watch_observation(payload: str, owner: str, ctx: MemoryContext) -> BeeBreadEntry:
     """Keep one watch-mode observation, in full, as a C2 WATCH_OBSERVATION entry.
 
     A watching Warden's samples describe the operator's own machine, so their label comes from
     where they were taken, not from the depositor (codingrules section 8.9): this function takes no
     clearance and always writes `C2`. The entry has no task: watching happens when no bee works.
+    It names its owner in `ref_ids`, because the Hive Stand's Warden and every device's keep their
+    observations in one store, and each Patrol must read, and discard, only its own.
 
     Args:
         payload: The observation as JSON text, within `BeeBreadEntry.payload`'s own field limit
             (the caller shrinks an oversized sample before depositing it).
+        owner: The id of the Warden that took the observation.
         ctx: The store, identity and clock to write with.
 
     Returns:
@@ -209,7 +212,7 @@ async def deposit_watch_observation(payload: str, ctx: MemoryContext) -> BeeBrea
     """
     entry = _build_payload_entry(
         BeeBreadEntryKind.WATCH_OBSERVATION, payload, None, HoneyClearance.C2, ctx
-    )
+    ).model_copy(update={"ref_ids": (owner,)})
     await _deposit(entry, ctx)
     return entry
 

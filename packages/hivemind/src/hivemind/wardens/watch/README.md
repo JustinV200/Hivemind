@@ -27,7 +27,8 @@ imported by `hivemind.wardens.deps`):
   interval; one that finds nothing is not kept.
 - `store.py`: an Observation as a `C2` `WATCH_OBSERVATION` Bee Bread entry (halved until it fits),
   swept past `retention_s` each time one is saved; read back oldest first; discarded by a Patrol
-  that found nothing.
+  that found nothing. Every Warden of a Hive Stand keeps its samples in the one memory store, so an
+  entry names its Warden in `ref_ids` and a Patrol reads and discards only its own.
 - `signals.py`: the pure pre-filter: a new process over `cpu_share_alarm`, the disk past
   `disk_fill_alarm`, and a restart loop, as typed `WatchSignal`s (labelled facts, never verdicts).
 - `digest.py`: the Patrol's two texts. `summary_of` is the Hive's own framing (counts and times

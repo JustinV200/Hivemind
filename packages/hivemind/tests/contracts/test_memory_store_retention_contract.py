@@ -27,6 +27,7 @@ from builders.memory import make_bee_bread_entry
 from hivemind.cell import HoneyClearance
 from hivemind.common.sqlite import connect
 from hivemind.memory import BeeBreadEntry, BeeBreadEntryKind
+from hivemind.memory.errors import BeeBreadEntryNotFoundError
 from hivemind.memory.store.memory import InMemoryMemoryStore
 from hivemind.memory.store.protocol import MemoryStore
 from hivemind.memory.store.sqlite import SqliteMemoryStore
@@ -179,3 +180,52 @@ async def test_a_purged_entry_is_gone_for_good(store: MemoryStore) -> None:
 
     window = (entry.created_at, entry.created_at)
     assert await store.list_bee_bread_of_kind(_OBSERVATION, *window, HoneyClearance.C2) == ()
+
+
+async def test_list_of_kind_narrows_to_the_entries_that_name_an_id(store: MemoryStore) -> None:
+    clock = FakeClock()
+    mine = await _add(
+        store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_a",)
+    )
+    await _add(store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_b",))
+    both = await _add(
+        store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_b", "warden_a")
+    )
+    await _add(store, clock, _OBSERVATION, clearance=HoneyClearance.C2)  # Names nobody.
+    window = (mine.created_at, clock.now())
+
+    found = await store.list_bee_bread_of_kind(_OBSERVATION, *window, HoneyClearance.C2, "warden_a")
+    everyone = await store.list_bee_bread_of_kind(_OBSERVATION, *window, HoneyClearance.C2)
+
+    assert [entry.id for entry in found] == [mine.id, both.id]
+    assert len(everyone) == 4  # Without an id, nothing is narrowed.
+
+
+async def test_purge_with_an_id_removes_only_the_entries_that_name_it(store: MemoryStore) -> None:
+    clock = FakeClock()
+    mine = await _add(
+        store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_a",)
+    )
+    theirs = await _add(
+        store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_b",)
+    )
+    other_kind = await _add(store, clock, BeeBreadEntryKind.TRANSCRIPT, ref_ids=("warden_a",))
+    cutoff = clock.now()
+
+    removed = await store.purge_bee_bread_before(_OBSERVATION, cutoff, "warden_a")
+
+    assert removed == 1
+    with pytest.raises(BeeBreadEntryNotFoundError):
+        await store.get_bee_bread_entry(mine.id, HoneyClearance.C2)
+    assert await store.get_bee_bread_entry(theirs.id, HoneyClearance.C2) == theirs
+    assert await store.get_bee_bread_entry(other_kind.id, HoneyClearance.C2) == other_kind
+
+
+async def test_purge_without_an_id_removes_every_owners_old_entries(store: MemoryStore) -> None:
+    clock = FakeClock()
+    await _add(store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_a",))
+    await _add(store, clock, _OBSERVATION, clearance=HoneyClearance.C2, ref_ids=("warden_b",))
+
+    removed = await store.purge_bee_bread_before(_OBSERVATION, clock.now())
+
+    assert removed == 2

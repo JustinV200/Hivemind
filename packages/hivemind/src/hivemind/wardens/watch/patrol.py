@@ -89,17 +89,19 @@ class PatrolPort(Protocol):
 class Patrol:
     """Reviews a watching Warden's observations; owns no state, the schedule is `WatchDeps`'."""
 
-    def __init__(self, watch: WatchDeps, ctx: MemoryContext, port: PatrolPort) -> None:
+    def __init__(self, watch: WatchDeps, ctx: MemoryContext, port: PatrolPort, owner: str) -> None:
         """Bind a Patrol to one Warden's watch settings, memory and port.
 
         Args:
             watch: The settings (the two thresholds, retention) and the schedule this advances.
             ctx: The Warden's store, identity and clock the observations are read with.
             port: The Warden-facing half: the episode, its delivery and the record.
+            owner: The id of the Warden whose observations this Patrol reviews and discards.
         """
         self._watch = watch
         self._ctx = ctx
         self._port = port
+        self._owner = owner
 
     async def run(self) -> PatrolOutcome | None:
         """Review everything kept since the last reviewing Patrol.
@@ -111,7 +113,7 @@ class Patrol:
         schedule, settings = self._watch.schedule, self._watch.settings
         until = self._ctx.clock.now()
         since = schedule.patrolled_until or until - timedelta(seconds=settings.retention_s)
-        loaded = await store.load_observations(self._ctx, since, until)
+        loaded = await store.load_observations(self._ctx, self._owner, since, until)
         # The window is inclusive at both ends, so what was kept at the very instant the last
         # Patrol stopped is read again; the ids it already reviewed are what tell the two apart.
         kept = [item for item in loaded if item.entry_id not in schedule.reviewed_ids]
@@ -141,5 +143,5 @@ class Patrol:
             return PatrolOutcome.SKIPPED
         if decision.choice is PatrolChoice.NOTHING:
             # Everything up to the newest observation this Patrol covered, and no later one.
-            await store.discard_before(self._ctx, window.until + _AFTER)
+            await store.discard_before(self._ctx, self._owner, window.until + _AFTER)
         return PatrolOutcome.of(decision.choice)

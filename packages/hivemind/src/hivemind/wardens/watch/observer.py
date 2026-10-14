@@ -96,15 +96,17 @@ def is_empty(observation: Observation) -> bool:
 class WatchObserver:
     """Takes a watching Warden's samples; owns no state, the schedule belongs to `WatchDeps`."""
 
-    def __init__(self, watch: WatchDeps, ctx: MemoryContext) -> None:
+    def __init__(self, watch: WatchDeps, ctx: MemoryContext, owner: str) -> None:
         """Bind the observer to one Warden's watch settings and memory.
 
         Args:
             watch: The probe, the settings and the schedule (whose file cursor this moves).
             ctx: The Warden's store, identity and clock, which the sample is kept with.
+            owner: The id of the Warden taking the samples, which they are kept under.
         """
         self._watch = watch
         self._ctx = ctx
+        self._owner = owner
 
     async def sample(self, level: AccessLevel) -> bool:
         """Take one observation now and keep it.
@@ -135,7 +137,7 @@ class WatchObserver:
             log.debug("warden.watch_empty", reason=observation.reason)
             return False
         try:
-            await store.save(observation, self._ctx, settings.retention_s)
+            await store.save(observation, self._ctx, self._owner, settings.retention_s)
         except _KEEP_FAILURES as error:
             log.warning("warden.watch_not_kept", error=type(error).__name__)
             return False

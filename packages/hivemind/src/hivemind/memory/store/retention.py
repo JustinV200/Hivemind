@@ -16,8 +16,9 @@ Fits into the Hive:
     taint) only.
 
 Key invariants:
-    - A purge touches exactly one kind and only entries strictly older than the cutoff; every other
-      kind, and every pin, note, Handoff, episode and Cell Wax row, is left as it was.
+    - A purge touches exactly one kind and only entries strictly older than the cutoff (and, when
+      it names an id, only the entries that name it); every other kind, and every pin, note,
+      Handoff, episode and Cell Wax row, is left as it was.
     - A read returns only entries within the reader's allowance and never a TAINTED one, the same
       two filters `list_bee_bread_between` applies.
     - No event is recorded for a purge: it is a retention rule, not an audit fact about one row
@@ -52,7 +53,12 @@ class _RetentionMemoryStore:
     _lock: asyncio.Lock
 
     async def list_bee_bread_of_kind(
-        self, kind: BeeBreadEntryKind, start: datetime, end: datetime, allowance: HoneyClearance
+        self,
+        kind: BeeBreadEntryKind,
+        start: datetime,
+        end: datetime,
+        allowance: HoneyClearance,
+        ref_id: str | None = None,
     ) -> tuple[BeeBreadEntry, ...]:
         """Return entries of `kind` in `[start, end]`; see `MemoryStore.list_bee_bread_of_kind`."""
         async with self._lock:
@@ -64,17 +70,22 @@ class _RetentionMemoryStore:
             and start <= entry.created_at <= end
             and entry.clearance.rank <= allowance.rank
             and not is_refused(entry.tainted)
+            and (ref_id is None or ref_id in entry.ref_ids)
         ]
         matches.sort(key=lambda entry: (entry.created_at, entry.id))
         return tuple(matches)
 
-    async def purge_bee_bread_before(self, kind: BeeBreadEntryKind, cutoff: datetime) -> int:
+    async def purge_bee_bread_before(
+        self, kind: BeeBreadEntryKind, cutoff: datetime, ref_id: str | None = None
+    ) -> int:
         """Delete `kind` entries older than `cutoff`; see `MemoryStore.purge_bee_bread_before`."""
         async with self._lock:
             stale = [
                 entry_id
                 for entry_id, entry in self._bee_bread.items()
-                if entry.kind is kind and entry.created_at < cutoff
+                if entry.kind is kind
+                and entry.created_at < cutoff
+                and (ref_id is None or ref_id in entry.ref_ids)
             ]
             for entry_id in stale:
                 del self._bee_bread[entry_id]

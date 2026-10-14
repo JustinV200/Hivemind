@@ -169,11 +169,12 @@ async def test_deposit_watch_observation_is_always_c2_and_has_no_task() -> None:
     clock = FakeClock()
     ctx = _ctx(clock)
 
-    entry = await deposit_watch_observation('{"processes": []}', ctx)
+    entry = await deposit_watch_observation('{"processes": []}', "warden_a", ctx)
 
     assert entry.kind == BeeBreadEntryKind.WATCH_OBSERVATION
     assert entry.clearance is HoneyClearance.C2  # By provenance: the operator's own machine.
     assert entry.task_id is None
+    assert entry.ref_ids == ("warden_a",)  # Who kept it: several Wardens share the store.
     assert entry.payload == '{"processes": []}'
     assert entry.text is None
     assert await ctx.store.get_bee_bread_entry(entry.id, HoneyClearance.C2) == entry
@@ -182,7 +183,7 @@ async def test_deposit_watch_observation_is_always_c2_and_has_no_task() -> None:
 async def test_deposit_watch_observation_is_hidden_from_a_reader_below_c2() -> None:
     clock = FakeClock()
     ctx = _ctx(clock)
-    await deposit_watch_observation("{}", ctx)
+    await deposit_watch_observation("{}", "warden_a", ctx)
 
     below = await ctx.store.list_bee_bread_of_kind(
         BeeBreadEntryKind.WATCH_OBSERVATION,
@@ -198,7 +199,7 @@ async def test_deposit_watch_observation_records_a_trail_event_with_no_observati
     clock = FakeClock()
     ctx, trail = _ctx_and_trail(clock)
 
-    entry = await deposit_watch_observation('{"log_lines": [{"line": "secret"}]}', ctx)
+    entry = await deposit_watch_observation('{"log_lines": [{"line": "secret"}]}', "warden_a", ctx)
 
     events = await trail.query(TrailQuery(subject_id=entry.id))
     assert [event.kind for event in events] == ["memory.bee_bread_deposited"]

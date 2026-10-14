@@ -54,9 +54,10 @@ nothing accumulates as a conversation.
   (the lookup-only index: by id, by task, between two times), and `deposit_transcript`/
   `deposit_tool_result`/`deposit_handoff_ref`/`deposit_hot_state_item` (every write path, roadmap
   step 4.2). Roadmap step 11.10 adds `BeeBreadEntryKind.WATCH_OBSERVATION` and
-  `deposit_watch_observation`: one sample of what a watching Warden saw, always `C2`, kept only for
-  a retention window (`MemoryStore.purge_bee_bread_before`, which touches one kind only, and
-  `list_bee_bread_of_kind`, the read that narrows to it) and never ripened into Honey.
+  `deposit_watch_observation`: one sample of what a watching Warden saw, always `C2`, naming that
+  Warden in `ref_ids`, kept only for a retention window (`MemoryStore.purge_bee_bread_before`,
+  which touches one kind only, and `list_bee_bread_of_kind`, the read that narrows to it; both can
+  narrow further to one Warden's entries) and never ripened into Honey.
 - `handoff.py` -- `Decision` and `Handoff`, the resumable snapshot a bee writes before its context
   resets.
 - `checkpoint.py` -- `write_checkpoint`/`read_handoff`, the write and read paths for a `Handoff`;

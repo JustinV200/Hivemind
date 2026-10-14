@@ -39,6 +39,8 @@ from hivemind.wardens.watch.patrol import Patrol
 from hivemind.wardens.watch.signals import SignalKind
 from waggle.clock import FakeClock
 
+_OWNER = "warden_owner"
+
 
 def _decision(choice: PatrolChoice, **extra: object) -> PatrolDecision:
     """A decision of `choice` with a reason."""
@@ -53,7 +55,7 @@ class _Rig:
         self.ctx, _trail = make_memory_context(self.clock)
         self.watch: WatchDeps = make_watch_deps(StubProbe(), retention_s=86_400.0)
         self.port = port
-        self.patrol = Patrol(self.watch, self.ctx, port)
+        self.patrol = Patrol(self.watch, self.ctx, port, _OWNER)
 
     async def keep(
         self, name: str, share: float = 0.01, *, wait: bool = True, **parts: object
@@ -61,7 +63,7 @@ class _Rig:
         """Keep one sample `name` now, then (unless `wait` is off) let a minute pass."""
         processes = [make_process(1, name, share, started_at=self.clock.now())]
         observation = make_observation(self.clock.now(), processes=processes, **parts)  # type: ignore[arg-type]
-        await store.save(observation, self.ctx, 86_400.0)
+        await store.save(observation, self.ctx, _OWNER, 86_400.0)
         if wait:
             self.clock.advance(60.0)
 
@@ -69,7 +71,7 @@ class _Rig:
         """The names of the samples still kept."""
         span = timedelta(days=30)
         found = await store.load_observations(
-            self.ctx, self.clock.now() - span, self.clock.now() + span
+            self.ctx, _OWNER, self.clock.now() - span, self.clock.now() + span
         )
         return [item.observation.processes[0].name for item in found]
 
@@ -174,6 +176,29 @@ async def test_the_window_spans_the_oldest_to_the_newest_observation_it_covers()
     (window,) = rig.port.windows
     assert (window.since, window.until) == (first, last)
     assert [o.processes[0].name for o in window.observations] == ["a", "b"]
+
+
+async def test_a_patrol_reviews_and_discards_only_its_own_wardens_observations() -> None:
+    rig = _Rig(ScriptedPatrolPort(_decision(PatrolChoice.NOTHING)))
+    await rig.keep("mine", wait=False)
+    # Every Warden of a Hive Stand keeps its samples in the one store: this one is another's.
+    others = [make_process(1, "theirs", 0.01, started_at=rig.clock.now())]
+    await store.save(
+        make_observation(rig.clock.now(), processes=others), rig.ctx, "warden_other", 86_400.0
+    )
+    rig.clock.advance(60.0)
+
+    result = await rig.patrol.run()
+
+    assert result is PatrolOutcome.NOTHING
+    (window,) = rig.port.windows
+    assert [o.processes[0].name for o in window.observations] == ["mine"]
+    span = timedelta(days=30)
+    left = await store.load_observations(
+        rig.ctx, "warden_other", rig.clock.now() - span, rig.clock.now() + span
+    )
+    assert [item.observation.processes[0].name for item in left] == ["theirs"]
+    assert await rig.kept() == []
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -281,7 +306,7 @@ def test_the_patrol_is_built_from_a_context_and_a_port_only() -> None:
     ctx, _trail = make_memory_context(clock)
     watch = make_watch_deps(StubProbe(make_observation(clock.now(), resources=make_resources())))
 
-    patrol = Patrol(watch, ctx, ScriptedPatrolPort(_decision(PatrolChoice.NOTHING)))
+    patrol = Patrol(watch, ctx, ScriptedPatrolPort(_decision(PatrolChoice.NOTHING)), _OWNER)
 
     assert isinstance(ctx, MemoryContext) and isinstance(patrol, Patrol)
     assert isinstance(clock.now(), datetime)

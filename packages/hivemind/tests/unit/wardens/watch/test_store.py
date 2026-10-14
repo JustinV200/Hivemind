@@ -32,6 +32,7 @@ from waggle.clock import FakeClock
 from waggle.messages.swarm import FileChange, FileChangeKind, LogLine, Observation
 
 _DAY = 86_400.0
+_OWNER = "warden_owner"  # Any id: the real one is the Warden's own.
 
 
 def _big(clock: FakeClock, lines: int = 200) -> Observation:
@@ -52,7 +53,7 @@ def _big(clock: FakeClock, lines: int = 200) -> Observation:
 async def _kept(ctx: MemoryContext, clock: FakeClock) -> list[Observation]:
     """Every Observation kept, read back across a window that holds them all."""
     start, end = clock.now() - timedelta(days=30), clock.now() + timedelta(days=30)
-    return [item.observation for item in await load_observations(ctx, start, end)]
+    return [item.observation for item in await load_observations(ctx, _OWNER, start, end)]
 
 
 def test_a_small_observation_is_encoded_whole() -> None:
@@ -86,7 +87,7 @@ async def test_save_keeps_a_c2_entry_with_no_task_and_no_text_on_the_trail() -> 
         clock.now(), log_lines=[LogLine(path="/r/a.log", line="password=hunter2")]
     )
 
-    await save(observation, ctx, _DAY)
+    await save(observation, ctx, _OWNER, _DAY)
 
     (entry,) = await ctx.store.list_bee_bread_of_kind(
         BeeBreadEntryKind.WATCH_OBSERVATION,
@@ -102,10 +103,14 @@ async def test_save_keeps_a_c2_entry_with_no_task_and_no_text_on_the_trail() -> 
 async def test_save_sweeps_the_observations_past_their_retention() -> None:
     clock = FakeClock()
     ctx, _trail = make_memory_context(clock)
-    await save(make_observation(clock.now(), processes=[make_process(name="old")]), ctx, 3_600.0)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="old")]), ctx, _OWNER, 3_600.0
+    )
     clock.advance(3_601.0)
 
-    await save(make_observation(clock.now(), processes=[make_process(name="new")]), ctx, 3_600.0)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="new")]), ctx, _OWNER, 3_600.0
+    )
 
     assert [o.processes[0].name for o in await _kept(ctx, clock)] == ["new"]
 
@@ -113,10 +118,14 @@ async def test_save_sweeps_the_observations_past_their_retention() -> None:
 async def test_save_keeps_an_observation_still_inside_its_retention() -> None:
     clock = FakeClock()
     ctx, _trail = make_memory_context(clock)
-    await save(make_observation(clock.now(), processes=[make_process(name="a")]), ctx, 3_600.0)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="a")]), ctx, _OWNER, 3_600.0
+    )
     clock.advance(3_599.0)
 
-    await save(make_observation(clock.now(), processes=[make_process(name="b")]), ctx, 3_600.0)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="b")]), ctx, _OWNER, 3_600.0
+    )
 
     assert [o.processes[0].name for o in await _kept(ctx, clock)] == ["a", "b"]
 
@@ -126,11 +135,13 @@ async def test_load_observations_returns_the_window_oldest_first_with_the_time_k
     ctx, _trail = make_memory_context(clock)
     kept_at = []
     for name in ("a", "b", "c"):
-        await save(make_observation(clock.now(), processes=[make_process(name=name)]), ctx, _DAY)
+        await save(
+            make_observation(clock.now(), processes=[make_process(name=name)]), ctx, _OWNER, _DAY
+        )
         kept_at.append(clock.now())
         clock.advance(60.0)
 
-    window = await load_observations(ctx, kept_at[1], kept_at[2])
+    window = await load_observations(ctx, _OWNER, kept_at[1], kept_at[2])
 
     assert [(i.kept_at, i.observation.processes[0].name) for i in window] == [
         (kept_at[1], "b"),
@@ -144,10 +155,12 @@ async def test_an_entry_that_does_not_parse_is_skipped_not_raised() -> None:
 
     clock = FakeClock()
     ctx, _trail = make_memory_context(clock)
-    await deposit_watch_observation("this is not an observation", ctx)
-    await deposit_watch_observation('{"processes": "wrong"}', ctx)
+    await deposit_watch_observation("this is not an observation", _OWNER, ctx)
+    await deposit_watch_observation('{"processes": "wrong"}', _OWNER, ctx)
     clock.advance(1.0)
-    await save(make_observation(clock.now(), processes=[make_process(name="ok")]), ctx, _DAY)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="ok")]), ctx, _OWNER, _DAY
+    )
 
     assert [o.processes[0].name for o in await _kept(ctx, clock)] == ["ok"]
 
@@ -156,10 +169,71 @@ async def test_discard_before_deletes_the_observations_older_than_the_cutoff_onl
     clock = FakeClock()
     ctx, _trail = make_memory_context(clock)
     for name in ("a", "b", "c"):
-        await save(make_observation(clock.now(), processes=[make_process(name=name)]), ctx, _DAY)
+        await save(
+            make_observation(clock.now(), processes=[make_process(name=name)]), ctx, _OWNER, _DAY
+        )
         clock.advance(60.0)
 
-    deleted = await discard_before(ctx, clock.now() - timedelta(seconds=90))
+    deleted = await discard_before(ctx, _OWNER, clock.now() - timedelta(seconds=90))
 
     assert deleted == 2
     assert [o.processes[0].name for o in await _kept(ctx, clock)] == ["c"]
+
+
+async def _names(ctx: MemoryContext, owner: str, clock: FakeClock) -> list[str]:
+    """The process names in each Observation `owner` still keeps, oldest first."""
+    start, end = clock.now() - timedelta(days=30), clock.now() + timedelta(days=30)
+    kept = await load_observations(ctx, owner, start, end)
+    return [item.observation.processes[0].name for item in kept]
+
+
+async def test_wardens_sharing_one_store_each_read_only_their_own_observations() -> None:
+    clock = FakeClock()
+    ctx, _trail = make_memory_context(clock)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="stand")]), ctx, "a", _DAY
+    )
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="laptop")]), ctx, "b", _DAY
+    )
+
+    assert await _names(ctx, "a", clock) == ["stand"]
+    assert await _names(ctx, "b", clock) == ["laptop"]
+    assert await _names(ctx, "c", clock) == []
+
+
+async def test_one_wardens_discard_leaves_the_others_observations_alone() -> None:
+    clock = FakeClock()
+    ctx, _trail = make_memory_context(clock)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="stand")]), ctx, "a", _DAY
+    )
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="laptop")]), ctx, "b", _DAY
+    )
+    clock.advance(60.0)
+
+    deleted = await discard_before(ctx, "a", clock.now())
+
+    assert deleted == 1
+    assert await _names(ctx, "a", clock) == []
+    assert await _names(ctx, "b", clock) == ["laptop"]  # Not yet reviewed by its own Patrol.
+
+
+async def test_the_retention_sweep_clears_every_wardens_expired_observations() -> None:
+    clock = FakeClock()
+    ctx, _trail = make_memory_context(clock)
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="old-a")]), ctx, "a", 100.0
+    )
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="old-b")]), ctx, "b", 100.0
+    )
+    clock.advance(101.0)
+
+    await save(
+        make_observation(clock.now(), processes=[make_process(name="new-a")]), ctx, "a", 100.0
+    )
+
+    assert await _names(ctx, "a", clock) == ["new-a"]
+    assert await _names(ctx, "b", clock) == []  # Whoever saves sweeps: one retention for all.

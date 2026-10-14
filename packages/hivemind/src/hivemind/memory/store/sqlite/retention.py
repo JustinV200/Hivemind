@@ -14,7 +14,8 @@ Fits into the Hive:
     hivemind.memory.store.sqlite.bee_bread only.
 
 Key invariants:
-    - A purge deletes one kind and only entries strictly older than the cutoff.
+    - A purge deletes one kind and only entries strictly older than the cutoff (and, when it
+      names an id, only the entries that name it).
     - A read never returns a TAINTED entry or one above the reader's allowance, exactly as
       `list_bee_bread_between` does.
 
@@ -49,20 +50,31 @@ class _SqliteRetentionStore:
     _lock: asyncio.Lock
 
     async def list_bee_bread_of_kind(
-        self, kind: BeeBreadEntryKind, start: datetime, end: datetime, allowance: HoneyClearance
+        self,
+        kind: BeeBreadEntryKind,
+        start: datetime,
+        end: datetime,
+        allowance: HoneyClearance,
+        ref_id: str | None = None,
     ) -> tuple[BeeBreadEntry, ...]:
         """Return entries of `kind` in `[start, end]`; see `MemoryStore.list_bee_bread_of_kind`."""
         async with self._lock:
             # Blocking: one indexed SELECT (the created_at index) on the store's own thread.
             rows = await self._thread.run(
-                bee_bread.select_kind_rows, self._connection, kind, (start, end), allowance
+                bee_bread.select_kind_rows,
+                self._connection,
+                kind,
+                (start, end),
+                (allowance, ref_id),
             )
         return tuple(BeeBreadEntry.model_validate_json(row["body"]) for row in rows)
 
-    async def purge_bee_bread_before(self, kind: BeeBreadEntryKind, cutoff: datetime) -> int:
+    async def purge_bee_bread_before(
+        self, kind: BeeBreadEntryKind, cutoff: datetime, ref_id: str | None = None
+    ) -> int:
         """Delete `kind` entries older than `cutoff`; see `MemoryStore.purge_bee_bread_before`."""
         async with self._lock:
             # Blocking: one DELETE in one transaction; the store's retention DELETE for Bee Bread.
             return await self._thread.run(
-                bee_bread.purge_kind_transaction, self._connection, kind, cutoff
+                bee_bread.purge_kind_transaction, self._connection, kind, (cutoff, ref_id)
             )

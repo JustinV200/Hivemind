@@ -46,6 +46,10 @@ _SELECT_BY_ID_SQL = "SELECT body, clearance FROM memory_bee_bread WHERE id = ?"
 _SELECT_SQL = "SELECT body FROM memory_bee_bread"
 _ORDER_BY = " ORDER BY created_at, id"
 _DELETE_KIND_BEFORE_SQL = "DELETE FROM memory_bee_bread WHERE kind = ? AND created_at < ?"
+# Narrows either statement to the entries whose `ref_ids` name one id (a Warden's observations).
+_NAMES_ID = (
+    " AND EXISTS (SELECT 1 FROM json_each(memory_bee_bread.body, '$.ref_ids') WHERE value = ?)"
+)
 
 
 def add_entry_transaction(
@@ -104,24 +108,35 @@ def select_kind_rows(
     connection: sqlite3.Connection,
     kind: BeeBreadEntryKind,
     window: tuple[datetime, datetime],
-    allowance: HoneyClearance,
+    scope: tuple[HoneyClearance, str | None],
 ) -> list[sqlite3.Row]:
-    """Select bee_bread entries of `kind` in `window` within `allowance`, oldest first."""
+    """Select bee_bread entries of `kind` in `window`, oldest first.
+
+    `scope` is the reader's allowance and, optionally, the one id the entries' `ref_ids` must name.
+    """
+    allowance, ref_id = scope
     values = _allowed_clearance_values(allowance)
     placeholders = ",".join("?" for _ in values)
     sql = (
         f"{_SELECT_SQL} WHERE kind = ? AND created_at >= ? AND created_at <= ? "
-        f"AND clearance IN ({placeholders}) AND {UNTAINTED_CLAUSE}{_ORDER_BY}"
+        f"AND clearance IN ({placeholders}) AND {UNTAINTED_CLAUSE}"
+        f"{_NAMES_ID if ref_id is not None else ''}{_ORDER_BY}"
     )
     start, end = window
     params = (kind.value, start.isoformat(), end.isoformat(), *values)
-    return connection.execute(sql, params).fetchall()
+    return connection.execute(sql, (*params, ref_id) if ref_id is not None else params).fetchall()
 
 
 def purge_kind_transaction(
-    connection: sqlite3.Connection, kind: BeeBreadEntryKind, cutoff: datetime
+    connection: sqlite3.Connection, kind: BeeBreadEntryKind, bounds: tuple[datetime, str | None]
 ) -> int:
-    """Delete bee_bread rows of `kind` older than `cutoff` in one transaction; return how many."""
+    """Delete bee_bread rows of `kind` older than a cutoff in one transaction; return how many.
+
+    `bounds` is the cutoff and, optionally, the one id the rows' `ref_ids` must name.
+    """
+    cutoff, ref_id = bounds
+    sql = _DELETE_KIND_BEFORE_SQL + (_NAMES_ID if ref_id is not None else "")
+    params = (kind.value, cutoff.isoformat())
     with transaction(connection):
-        cursor = connection.execute(_DELETE_KIND_BEFORE_SQL, (kind.value, cutoff.isoformat()))
+        cursor = connection.execute(sql, (*params, ref_id) if ref_id is not None else params)
         return cursor.rowcount

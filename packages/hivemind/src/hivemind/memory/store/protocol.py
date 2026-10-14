@@ -308,26 +308,35 @@ class _BeeBreadStore(Protocol):
         ...
 
     async def list_bee_bread_of_kind(
-        self, kind: BeeBreadEntryKind, start: datetime, end: datetime, allowance: HoneyClearance
+        self,
+        kind: BeeBreadEntryKind,
+        start: datetime,
+        end: datetime,
+        allowance: HoneyClearance,
+        ref_id: str | None = None,
     ) -> tuple[BeeBreadEntry, ...]:
         """Return every entry of `kind` written in `[start, end]`, within `allowance`, oldest first.
 
         The same read as `list_bee_bread_between`, narrowed to one kind in the store itself, so a
         caller that wants one kind (a Patrol's observations) never loads the others' payloads (a
-        transcript can be 200,000 characters) just to throw them away.
+        transcript can be 200,000 characters) just to throw them away. Several Wardens keep
+        entries of one kind in one store, so a caller can narrow further to one id.
 
         Args:
             kind: The only kind to return.
             start: Inclusive lower bound.
             end: Inclusive upper bound.
             allowance: The reader's clearance ceiling.
+            ref_id: When given, only entries whose `ref_ids` name it (a Warden's own observations).
 
         Returns:
             Matching entries, ordered by `(created_at, id)`.
         """
         ...
 
-    async def purge_bee_bread_before(self, kind: BeeBreadEntryKind, cutoff: datetime) -> int:
+    async def purge_bee_bread_before(
+        self, kind: BeeBreadEntryKind, cutoff: datetime, ref_id: str | None = None
+    ) -> int:
         """Delete every entry of `kind` written before `cutoff`.
 
         The store's retention path for the Bee Bread kinds that live for a window (roadmap step
@@ -339,6 +348,8 @@ class _BeeBreadStore(Protocol):
         Args:
             kind: The only kind to delete.
             cutoff: Entries written at or after this time are kept.
+            ref_id: When given, only entries whose `ref_ids` name it go (one Warden's own
+                observations, when several keep theirs in the same store); others are kept.
 
         Returns:
             How many entries were removed.

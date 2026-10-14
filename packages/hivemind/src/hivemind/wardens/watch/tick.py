@@ -111,16 +111,17 @@ async def _watch(warden: Warden, watch: WatchDeps) -> None:
     if not schedule.is_seeded:
         await _seed(warden, watch)
     ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+    owner = str(warden._warden_id)
     if schedule.sample_is_due(deps.clock.now()):
         try:
-            await WatchObserver(watch, ctx).sample(cell.access_level)
+            await WatchObserver(watch, ctx, owner).sample(cell.access_level)
         finally:
             # Advanced even when it raised, so a failing look is retried at the next interval
             # and not at every tick.
             schedule.next_sample_at = deps.clock.now() + timedelta(seconds=settings.interval_s)
     if schedule.patrol_is_due(deps.clock.now()):
         try:
-            await Patrol(watch, ctx, WardenPatrolPort(warden, cell)).run()
+            await Patrol(watch, ctx, WardenPatrolPort(warden, cell), owner).run()
         finally:
             schedule.next_patrol_at = deps.clock.now() + timedelta(
                 seconds=settings.patrol_interval_s

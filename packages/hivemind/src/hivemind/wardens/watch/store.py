@@ -19,6 +19,8 @@ Fits into the Hive:
 Key invariants:
     - Everything saved here is `C2` and none of it reaches Honey (the House Bee passes the kind
       over); the trail records that an entry was deposited, never what was in it.
+    - An entry names the Warden that kept it: a Warden reads and discards its own and no other's,
+      though every Warden of a Hive Stand keeps them in the one store.
     - `load_observations` returns oldest first, within the window, and never an entry it could
       not parse.
     - Nothing here is a trail payload or a log line: Observation text stays in the store.
@@ -87,26 +89,32 @@ def encode_observation(observation: Observation) -> str:
     return text
 
 
-async def save(observation: Observation, ctx: MemoryContext, retention_s: float) -> None:
+async def save(
+    observation: Observation, ctx: MemoryContext, owner: str, retention_s: float
+) -> None:
     """Keep one Observation as a C2 entry and sweep the ones past retention.
 
     Args:
         observation: The sample to keep.
-        ctx: The Warden's store, identity and clock.
-        retention_s: Seconds an entry is kept; older ones are purged by this same call.
+        ctx: The store, identity and clock to write with.
+        owner: The id of the Warden keeping it. The Hive Stand's Warden and every device's keep
+            theirs in one store; each reads and discards only its own.
+        retention_s: Seconds an entry is kept; older ones, whoever's, are purged by this same
+            call, since the manifest gives every Warden the same retention.
     """
-    await deposit_watch_observation(encode_observation(observation), ctx)
+    await deposit_watch_observation(encode_observation(observation), owner, ctx)
     cutoff = ctx.clock.now() - timedelta(seconds=retention_s)
     await ctx.store.purge_bee_bread_before(BeeBreadEntryKind.WATCH_OBSERVATION, cutoff)
 
 
 async def load_observations(
-    ctx: MemoryContext, since: datetime, until: datetime
+    ctx: MemoryContext, owner: str, since: datetime, until: datetime
 ) -> tuple[KeptObservation, ...]:
-    """Read the Observations kept between two instants, oldest first.
+    """Read the Observations one Warden kept between two instants, oldest first.
 
     Args:
-        ctx: The Warden's store, identity and clock.
+        ctx: The store, identity and clock to read with.
+        owner: The id of the Warden whose observations are read.
         since: Inclusive lower bound on when an entry was kept.
         until: Inclusive upper bound.
 
@@ -114,7 +122,7 @@ async def load_observations(
         The kept Observations; an entry that does not parse is left out.
     """
     entries = await ctx.store.list_bee_bread_of_kind(
-        BeeBreadEntryKind.WATCH_OBSERVATION, since, until, HoneyClearance.C2
+        BeeBreadEntryKind.WATCH_OBSERVATION, since, until, HoneyClearance.C2, owner
     )
     found: list[KeptObservation] = []
     for entry in entries:
@@ -126,17 +134,20 @@ async def load_observations(
     return tuple(found)
 
 
-async def discard_before(ctx: MemoryContext, cutoff: datetime) -> int:
-    """Delete every kept Observation older than `cutoff`; what a Patrol that found nothing does.
+async def discard_before(ctx: MemoryContext, owner: str, cutoff: datetime) -> int:
+    """Delete a Warden's kept Observations older than `cutoff`, as a Patrol that found nothing does.
 
     Args:
-        ctx: The Warden's store, identity and clock.
+        ctx: The store, identity and clock to delete with.
+        owner: The id of the Warden whose observations go; no other Warden's are touched.
         cutoff: Entries kept strictly before this instant are deleted.
 
     Returns:
         How many were deleted.
     """
-    return await ctx.store.purge_bee_bread_before(BeeBreadEntryKind.WATCH_OBSERVATION, cutoff)
+    return await ctx.store.purge_bee_bread_before(
+        BeeBreadEntryKind.WATCH_OBSERVATION, cutoff, owner
+    )
 
 
 def _halved(observation: Observation) -> Observation:
