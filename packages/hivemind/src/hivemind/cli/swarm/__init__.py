@@ -1,10 +1,11 @@
-"""Assemble `hive swarm`: invite, list, revoke, access, shield, promote, demote and run.
+"""Assemble `hive swarm`: invite, list, revoke, access, shield, watch, promote, demote and run.
 
 Roadmap step 11.12 gives the operator a terminal for the Swarm (the mesh of existing machines the
 Hive borrows as Real Cells, each carrying a Pollen Packet, the thin gateway installed on it).
 The commands are split the way `hivemind.cli.tools` and `hivemind.cli.basket` split theirs:
 `invite` (mint a single-use invite), `listing` (`list`), `changes` (`revoke`, `access`, `shield`,
-`promote`, `demote`: the operator's acts on a device, each a call to `hivemind.swarm.operator`) and
+`promote`, `demote`: the operator's acts on a device, each a call to `hivemind.swarm.operator`),
+`watch` (the directories a device's idle Warden reads logs and file changes in) and
 `run` (a goal that can be placed on one device only, with `pinned` building its ceiling and waiting
 for the device), with a shared `context` (the group's `--manifest`, the operator's desk, the
 argument types) and `render` (printing). `cells` is not a command: it reads the enrolled devices as
@@ -17,7 +18,7 @@ own). This face only wires them together (codingrules 5.4).
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Imported by `hivemind.cli.app`, which mounts
     `app` under the `swarm` command-group name. Calls into `hivemind.cli.swarm.context`,
-    `.invite`, `.listing`, `.changes` and `.run` only.
+    `.invite`, `.listing`, `.changes`, `.watch` and `.run` only.
 
 Key invariants:
     - None: this file holds composition only; no command logic is defined here.
@@ -28,8 +29,8 @@ See Also:
     - docs/runbooks/enrolling-a-device.md for the whole path an operator follows.
 
 Public API:
-    - app: the `hive swarm` Typer app (`invite`, `list`, `revoke`, `access`, `shield`, `promote`,
-      `demote`, `run`).
+    - app: the `hive swarm` Typer app (`invite`, `list`, `revoke`, `access`, `shield`, `watch`,
+      `promote`, `demote`, `run`).
 """
 
 import typer
@@ -45,6 +46,7 @@ from hivemind.cli.swarm.context import swarm_callback
 from hivemind.cli.swarm.invite import invite_command
 from hivemind.cli.swarm.listing import list_command
 from hivemind.cli.swarm.run import SwarmRunCommand, run_command
+from hivemind.cli.swarm.watch import watch_command
 
 __all__ = ["app"]
 
@@ -58,6 +60,7 @@ app.command("list")(list_command)
 app.command("revoke")(revoke_command)
 app.command("access")(access_command)
 app.command("shield")(shield_command)
+app.command("watch")(watch_command)
 app.command("promote")(promote_command)
 app.command("demote")(demote_command)
 app.command("run", cls=SwarmRunCommand)(run_command)
