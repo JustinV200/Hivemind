@@ -15,7 +15,10 @@ because a Virtual Cell's Warden is in precisely the same position. `TrailSync` i
 root leaves it `None` (its Warden and its Queen already share one trail store, and syncing would
 merge a store into itself) and `hivemind.cli.in_cell.deps` wires a real one in. `_send` guards each
 wire send with `hivemind.wardens.links.send_guarded` (phase 7 handoff, open item 8), so a Queen
-link that closed or dropped mid-export ends the export, never the Warden's tick loop.
+link that closed or dropped mid-export ends the export, never the Warden's tick loop. A Warden that
+holds its node's key (an in-Cell Warden, a colonized device's) signs the segment's identity and
+digest on the final chunk (`TrailSyncDeps.signer`, Waggle 1.13), because the Queen merges a Swarm
+node's segment into her audit log only with a signature that verifies (ADR-0053).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Called
@@ -34,6 +37,10 @@ Key invariants:
       (`TrailSegmentSync`'s own validator), and every chunk of one export carries the same
       `first_event_id`/`last_event_id`/`total_bytes`, which is the group key the receiver
       (`hivemind.queen.trail.sync`) reassembles on.
+    - Only the final chunk carries a signature, over `segment_signing_bytes` of the export's own
+      node id, first and last event ids, event count and digest; a Warden with no signer sends
+      none, and an export is signed again each time it is sent.
+    - One export is on the wire at a time (a lock), however many callers ask for a sync.
     - A re-sent export is harmless: `PheromoneTrail.merge_segment` is idempotent by event id, so a
       retry after a half-delivered export inserts each event at most once; `sync()`/`_send()` never
       let `TransportClosedError`/`ConnectionLostError` escape (phase-7 handoff open item 8) and
@@ -50,6 +57,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -58,10 +66,11 @@ from typing import Protocol
 from hivemind.pheromone import PheromoneTrail, TrailSegment
 from hivemind.wardens.links import send_guarded
 from waggle.clock import Clock
+from waggle.codec import Signer
 from waggle.envelope import Hop, wrap
 from waggle.ids import CellId, EventId, HiveId, NodeId, WardenId
 from waggle.messages.base import MAX_CHUNK_BYTES
-from waggle.messages.swarm import TrailSegmentSync
+from waggle.messages.swarm import TrailSegmentSync, segment_signing_bytes
 from waggle.transport.base import Transport
 
 # The `segment_format_version` every chunk this module sends carries, and the only one
@@ -85,6 +94,12 @@ class TrailSyncDeps:
         warden_id: This Warden's own id; the `sender` of every envelope, and named on every chunk.
         hive_id: The Queen's own bee address; the `recipient` of every envelope this sender sends.
         clock: Injected time source for every envelope id and `sent_at` timestamp.
+        signer: The node's own key, when this Warden holds one (an in-Cell or a device Warden
+            does; the Hive Stand's, which syncs nothing, does not need to). The final chunk of
+            every export then carries `segment_signature`, a signature over the segment's identity
+            and digest (`waggle.messages.swarm.segment_signing_bytes`), which the Queen requires
+            of a Swarm node's segment before she merges it (roadmap 11.9, ADR-0053). None signs
+            nothing, as a peer older than Waggle 1.13 sent it.
     """
 
     trail: PheromoneTrail
@@ -94,6 +109,7 @@ class TrailSyncDeps:
     warden_id: WardenId
     hive_id: HiveId
     clock: Clock
+    signer: Signer | None = None
 
 
 class TrailSync(Protocol):
@@ -151,9 +167,18 @@ class WaggleTrailSync:
         self._deps = deps
         self._last_event_id: EventId | None = None
         self._since: datetime | None = None
+        # One export on the wire at a time: the Warden's heartbeat cadence, a result about to be
+        # reported and a reconnection can each ask for a sync, and two exports of one segment
+        # interleaved chunk by chunk would be reassembled by the Queen into neither.
+        self._lock = asyncio.Lock()
 
     async def sync(self) -> bool:
         """Export this node's segment and send it, unless it is empty or has not grown."""
+        async with self._lock:
+            return await self._sync_locked()
+
+    async def _sync_locked(self) -> bool:
+        """Do `sync`'s work while holding the lock that keeps exports from interleaving."""
         segment = await self._deps.trail.export_segment(self._deps.node_id, since=self._since)
         if not segment.events:
             return True  # Nothing recorded yet (or nothing since the last send): nothing to ship.
@@ -225,4 +250,25 @@ class WaggleTrailSync:
             # TrailSegmentSync's own validator: the digest belongs on the closing chunk and
             # nowhere else, because only there does it describe a complete export.
             sha256=meta.sha256 if final else None,
+            segment_signature=self._signature(meta) if final else None,
+        )
+
+    def _signature(self, meta: _ExportMeta) -> str | None:
+        """Sign the segment's identity and digest with the node's key, or None without a key.
+
+        The Queen merges a segment into her audit log, and the dedupe by ids and digest proves
+        order, not authorship: this signature is the node vouching for the segment as its own, and
+        it is the same bytes the Queen rebuilds from the final chunk to check it.
+        """
+        signer = self._deps.signer
+        if signer is None:
+            return None
+        return signer.sign(
+            segment_signing_bytes(
+                meta.node_id,
+                meta.first_event_id,
+                meta.last_event_id,
+                meta.event_count,
+                meta.sha256,
+            )
         )

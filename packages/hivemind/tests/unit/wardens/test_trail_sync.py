@@ -15,14 +15,18 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass
+
+import pytest
 
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.wardens.trail_sync import SEGMENT_FORMAT_VERSION, TrailSyncDeps, WaggleTrailSync
 from waggle.clock import FakeClock
 from waggle.codec import Codec
+from waggle.errors import SignatureError
 from waggle.ids import (
     CellId,
     NodeId,
@@ -33,7 +37,9 @@ from waggle.ids import (
     new_node_id,
     new_warden_id,
 )
-from waggle.messages.swarm import TrailSegmentSync
+from waggle.messages.base import MAX_CHUNK_BYTES
+from waggle.messages.swarm import TrailSegmentSync, segment_signing_bytes
+from waggle.signing import Ed25519Signer, Ed25519Verifier
 from waggle.transport.memory import MemoryTransport
 
 
@@ -63,7 +69,7 @@ def _event(clock: FakeClock, node_id: NodeId) -> CellEvent:
     )
 
 
-def _build(clock: FakeClock) -> _Scenario:
+def _build(clock: FakeClock, signer: Ed25519Signer | None = None) -> _Scenario:
     """Build a WaggleTrailSync over a fresh trail and the receiving end of its transport."""
     trail = MemoryPheromoneTrail(clock)
     node_id, cell_id, warden_id = new_node_id(clock), new_cell_id(clock), new_warden_id(clock)
@@ -77,6 +83,7 @@ def _build(clock: FakeClock) -> _Scenario:
             warden_id=warden_id,
             hive_id=new_hive_id(clock),
             clock=clock,
+            signer=signer,
         )
     )
     return _Scenario(
@@ -162,3 +169,104 @@ async def test_sync_ships_a_second_export_once_more_events_are_recorded() -> Non
     second = await anext(scenario.receiver.receive())
     assert isinstance(second.payload, TrailSegmentSync)
     assert second.payload.event_count == 2  # export_segment(since=...) is inclusive of the first.
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Waggle 1.13: the final chunk carries the node's signature over the segment
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _signing_input(message: TrailSegmentSync) -> bytes:
+    """What the Queen rebuilds from a final chunk alone, and so what must have been signed."""
+    assert message.sha256 is not None
+    return segment_signing_bytes(
+        message.node_id,
+        message.first_event_id,
+        message.last_event_id,
+        message.event_count,
+        message.sha256,
+    )
+
+
+async def _first_chunk(scenario: _Scenario) -> TrailSegmentSync:
+    """The first frame the scenario's receiver got, narrowed to a trail segment chunk."""
+    message = (await anext(scenario.receiver.receive())).payload
+    assert isinstance(message, TrailSegmentSync)
+    return message
+
+
+async def test_a_warden_holding_a_signer_signs_the_final_chunk_and_it_verifies() -> None:
+    clock = FakeClock()
+    signer = Ed25519Signer.generate()
+    scenario = _build(clock, signer)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+
+    await scenario.sync.sync()
+
+    message = await _first_chunk(scenario)
+    assert message.final and message.segment_signature is not None
+    Ed25519Verifier({scenario.node_id: signer.public_key_bytes}).verify(
+        scenario.node_id, _signing_input(message), message.segment_signature
+    )
+
+
+async def test_a_signature_made_for_another_nodes_key_does_not_verify() -> None:
+    clock = FakeClock()
+    scenario = _build(clock, Ed25519Signer.generate())
+    await scenario.trail.record(_event(clock, scenario.node_id))
+    await scenario.sync.sync()
+    message = await _first_chunk(scenario)
+    assert message.segment_signature is not None
+    stranger = Ed25519Verifier({scenario.node_id: Ed25519Signer.generate().public_key_bytes})
+
+    with pytest.raises(SignatureError):
+        stranger.verify(scenario.node_id, _signing_input(message), message.segment_signature)
+
+
+async def test_a_warden_with_no_signer_sends_no_signature() -> None:
+    clock = FakeClock()
+    scenario = _build(clock)
+    await scenario.trail.record(_event(clock, scenario.node_id))
+
+    await scenario.sync.sync()
+
+    assert (await _first_chunk(scenario)).segment_signature is None
+
+
+async def _record_many(scenario: _Scenario, clock: FakeClock) -> None:
+    """Record enough events that one export needs more than one chunk of MAX_CHUNK_BYTES."""
+    for _ in range(MAX_CHUNK_BYTES // _EVENT_BYTES_AT_LEAST * 2):
+        await scenario.trail.record(_event(clock, scenario.node_id))
+
+
+_EVENT_BYTES_AT_LEAST = 300  # A recorded event serialises to at least this many bytes.
+
+
+async def test_only_the_final_chunk_of_a_multi_chunk_export_is_signed() -> None:
+    clock = FakeClock()
+    scenario = _build(clock, Ed25519Signer.generate())
+    await _record_many(scenario, clock)
+
+    await scenario.sync.sync()
+
+    await scenario.receiver.close()
+    chunks = [e.payload async for e in scenario.receiver.receive()]
+    messages = [c for c in chunks if isinstance(c, TrailSegmentSync)]
+    assert len(messages) > 1
+    assert [m.segment_signature is not None for m in messages] == [False] * (len(messages) - 1) + [
+        True
+    ]
+
+
+async def test_two_syncs_asked_at_once_do_not_interleave_their_chunks() -> None:
+    clock = FakeClock()
+    scenario = _build(clock, Ed25519Signer.generate())
+    await _record_many(scenario, clock)
+
+    await asyncio.gather(scenario.sync.sync(), scenario.sync.sync())
+
+    await scenario.receiver.close()
+    chunks = [e.payload async for e in scenario.receiver.receive()]
+    offsets = [c.offset for c in chunks if isinstance(c, TrailSegmentSync)]
+    # The second caller finds the segment already sent and sends nothing: one export, in order.
+    assert offsets == sorted(offsets) and offsets[0] == 0 and len(set(offsets)) == len(offsets)

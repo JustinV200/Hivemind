@@ -330,5 +330,8 @@ def _build_trail_sync(
             warden_id=config.warden_id,
             hive_id=config.hive_id,
             clock=clock,
+            # The frame key doubles as the segment's signer (Waggle 1.13): the Queen requires a
+            # Swarm node's segment to carry the node's own signature before she merges it.
+            signer=config.signer,
         )
     )
