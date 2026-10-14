@@ -2472,7 +2472,9 @@ capability for the Cell (`watch:<cell_id>`) before it collects anything and refu
   inside what the Cell's watch capability and access level allow. Max 16, each min 1 and max 256
   (`MAX_OBSERVED_PATH_CHARS`, the bound of the paths reported under a root, so no root asks for
   what could never be reported back); non-empty exactly when `kinds` includes `LOGS` or
-  `FILE_CHANGES` (validator).
+  `FILE_CHANGES` (validator). The Hive Stand sends the directories the operator named for the
+  device (`hive swarm watch`) and, until they name some, asks for neither kind; the packet's
+  collectors never follow a symbolic link at any depth under a root.
 - `since_at` (`datetime | None`): the file-change cursor: report only changes after this instant.
   Only with `FILE_CHANGES` (validator); None asks for the packet's own recent window.
 - `max_items` (`int`): the most items to return in each of the process list, the file changes and

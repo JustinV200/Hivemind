@@ -114,3 +114,39 @@ lease would leave scratch behind; fixed collectors in the packet avoid all three
 observations indefinitely or in Honey: they are raw, personal and mostly uninteresting, so a short
 window in Bee Bread is the right life for them. Holding the lease open while watching: a lease owns
 scratch and processes, and a device is meant to carry none of the Hive between tasks.
+
+## Amendment (2026-10-14): who names the directories a device's Warden reads
+
+The Decision says logs and file changes are read "under the roots the watcher may read" and does
+not say who names them. On the Hive Stand's own Cell the manifest does (`[supervision.watch]
+roots`). A device's Warden was built with none, because the Hive's manifest knows nothing of
+another machine's directories, so on a device only the process list and resource use were ever
+observed: a log line or a changed file there never reached an observation.
+
+**The operator names them, per device, after enrolment.** `hive swarm watch NODE DIRECTORY...`
+stores the list on the node (`SwarmNode.watch_roots`), `--clear` empties it, and naming none shows
+what is set. None is the default, so a device is watched for its processes and resource use until
+the operator chooses a directory, and the Hive never guesses where a log lives. `checked_roots`
+judges the list before it is stored: every directory absolute in the device's own spelling (POSIX
+or Windows, told by the text and not by the Hive Stand's system), at most the sixteen of at most
+256 characters that `swarm.observe` carries, readable under the node's granted capabilities, in
+normal form, each once and none inside another, since the packet reads a whole tree. The Warden's
+build filters the stored list through the same capabilities once more (`readable_roots`), in case
+the access level was narrowed since, and `swarm.watch_changed` records the new list: a grant to
+read a directory belongs in the audit trail, and it is the one swarm event that carries paths. The
+Queen's reconcile pass treats the list as it treats the access level and the tier: a Warden keeps
+the settings it was built with, so a change rebuilds the device's Level 0 Warden.
+
+**The packet stays the authority.** The Hive's list is a request and grants nothing. The packet
+answers for a root only if its own `fs:read` capability covers it, and never follows a symbolic
+link out of a directory it walks, so a link inside a watched directory that leads elsewhere is not
+read. A root outside the grant is refused at the desk and again at the packet.
+
+**Why not the other places.** Enrolment's capabilities say what the Hive may read (`fs:read:**` at
+every level), not where the logs are; putting directories in the invite would need the device's
+layout before the device exists and a new invite for every change. `hive swarm access` sets what a
+bee may do, and this ADR holds that a wider level never widens watching, so tying directories to
+it would undo that. A device manifest suits a Warden that is local to its files, which would name
+them in its own `[supervision.watch] roots`; but a Level 0 device has no manifest, and the Warden
+`cli/in_cell` builds for a colonized device carries no watch settings today, so it does not watch
+at all. Wiring that, and where it takes its roots, is left to the step that makes it watch.

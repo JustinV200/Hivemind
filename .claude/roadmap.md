@@ -2074,7 +2074,17 @@ promotion, `hive swarm` CLI.
   `session.exec` is its own process group with stdout and stderr streamed, argument lists only; not
   a persistent shell, which the `CellSession` contract does not ask for), `files.py`, `info.py`,
   `process.py` (background processes) and `observe/` (watch mode, 11.10). Proved in a container
-  (`tests/e2e/test_phase11_exit_deadman.py`).
+  (`tests/e2e/test_phase11_exit_deadman.py`). **Quota wired end to end, 2026-10-14.** The packet
+  honoured a quota on `cell.request` from the start, but nothing on the Hive Stand sent one, so the
+  packet's own 512 MiB applied to every device. A device's Warden now puts the Queen's
+  `Ceilings.scratch_disk_bytes_per_lease` on every lease request
+  (`LeaseRequest.scratch_quota_bytes`, read afresh each lease; 0 means she set none),
+  `SwarmSource` sends it as the existing
+  `cell.request.scratch_quota_bytes` (no new wire field), and where she set none it sends the
+  Hive's `[swarm] scratch_quota_mb` (default 512, the packet's own figure). A command that fills
+  scratch past the figure is killed by the packet's watchdog and the Capping gate rolls it back.
+  Proved in a container, a manifest default and then a Queen's `forage.ceilings_set`
+  (`tests/e2e/test_phase11_exit_quota.py`).
 - [x] **11.5 PollenSession.** `swarm/session.py`: the Hive Stand side `CellSession` over the
   `session.*` messages. Passes the `CellSession` contract suite against a packet in a container.
   **Built 2026-10-13.** `swarm/session/` (`PollenSession`, the `CellSession` over `session.*`). It
@@ -2279,7 +2289,17 @@ promotion, `hive swarm` CLI.
   Patrol's delivery has its own timeout. The Cell page shows the mode and the last Patrol; the Hive
   Stand is watched too. Proved in a container with intervals of seconds: no writes outside the
   packet's directory, Patrols on schedule, a planted CPU hog an Alarm at the next Patrol
-  (`tests/e2e/test_phase11_exit_watch.py`).
+  (`tests/e2e/test_phase11_exit_watch.py`). **Roots on a device, 2026-10-14.** Logs and file
+  changes were watched on the Hive Stand only: a device's Warden was built with no roots, so a log
+  line or a changed file on a device never reached an observation. The operator now names them per
+  device (`hive swarm watch`, ADR-0054's amendment), none until they do. The node record carries
+  them (`SwarmNode.watch_roots`), `PollenWatchProbe` asks the packet for exactly those its granted
+  capabilities let it read, and a change rebuilds the Level 0 Warden. The packet answers only
+  inside its `fs:read` grant and never follows a symbolic link out of a root. Proved in a
+  container: a new log line and a changed file under the named directory reach an observation, a
+  path outside it (or through a link inside it) never does, and `--clear` stops both
+  (`tests/e2e/test_phase11_exit_watch_roots.py`). Left: a colonized device's Warden is built with
+  no watch settings at all (`cli/in_cell`), so it does not watch, and takes no roots yet.
 - [x] **11.11 Exoskeleton on devices.** Through `PollenSession` the X11 backends from phase 6 work
   on a Linux device unchanged; on a Nuc they run locally under the device's Warden.
   **Built 2026-10-14.** `PollenSession`'s `start`, `stop` and `is_running` carry the phase 6 X11
@@ -2305,6 +2325,9 @@ promotion, `hive swarm` CLI.
   `hive_stand` or `on_cell` (a column of its own gives the rung, GATEWAY, COLONIZED or NUC, so a Nuc
   reads `on_cell`/`NUC` rather than the `nuc` this step named). Proved through Typer's runner in
   `tests/e2e/test_swarm_cli.py` and on a container in `tests/e2e/test_phase11_exit_level0.py`.
+  **`watch`, 2026-10-14.** `hive swarm watch <node> [<directory>...] [--clear]` names the
+  directories whose logs and file changes the device's idle Warden reads (11.10), shows them when
+  none is given, and records `swarm.watch_changed`.
 
 ### Exit criteria
 

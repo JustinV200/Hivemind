@@ -99,6 +99,23 @@ two rungs at once. To let a device be colonized, tell `pollen install` where the
 comes from, after enrolling: `--runtime-wheelhouse DIR` or `--runtime-index URL`, and optionally
 `--warden-manifest FILE` for the device's local Warden manifest.
 
+While the device has no task, its Warden watches it read-only (ADR-0054): the process list and
+resource use always, and the log lines and file changes of the directories you name, none until you
+do:
+
+    hive swarm watch kitchen-pi /var/log/pihole /srv/data
+    hive swarm watch kitchen-pi
+    hive swarm watch kitchen-pi --clear
+
+Each directory is absolute on the device's own system (`C:\Users\me\logs` on Windows), at most
+sixteen are taken, and one inside another you named is dropped. The Hive refuses a directory the
+device's granted capabilities do not let it read; every access level grants `fs:read:**`, so a
+device enrolled today accepts any. With no directory the command shows what is set, and `--clear`
+stops the file watching. The running Hive rebuilds the device's Warden for the new list, and the
+packet answers only for directories inside its own `fs:read` grant and never follows a symbolic
+link out of one. What the Warden sees is kept for a day, labelled personal, and the Hive sends the
+device no command to see it.
+
 ## 6. Take the device back
 
 On the Hive Stand, `hive swarm revoke kitchen-pi` ends the enrolment for good: the running Hive

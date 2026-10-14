@@ -324,7 +324,10 @@ These are the guard's per-level grants (`guard/access.py`) cut down to the famil
 enforce on the machine itself: the others (the network, devices, the peripherals of the Exoskeleton,
 the virtual display, input and audio a task may ask for) are enforced by the Hive Stand and never
 reach the packet. The `watch` capability bounds what the Warden may observe on the Cell (ADR-0054),
-and the packet checks it again on every `swarm.observe`.
+and the packet checks it again on every `swarm.observe`. Which directories the idle Warden asks
+about is not decided here: the operator names them after enrolment (`hive swarm watch`, section
+10), none until then, and the packet answers for a directory only if the device's `fs:read`
+grants it.
 
 ### 7.2 What the packet checks
 
@@ -403,6 +406,14 @@ the node's current values when the node comes online, so a change made while the
 still reaches it. The packet never takes an update from anyone but the Queen: like every Queen-only
 kind it is accepted only from `hive_id`.
 
+The directories the operator names for the device's Warden to watch (`hive swarm watch <node>
+<directory>...`, or `--clear` for none) are not a term the packet stores, so they send no update:
+the Warden on the Hive Stand names them itself in every `swarm.observe` (`roots`, at most sixteen of
+at most 256 characters), and the packet judges each against its own `fs:read` grant before it reads
+a file. The Hive Stand refuses a directory that is not absolute in the device's own spelling (POSIX
+or Windows) or that the node's granted capabilities do not cover, and rebuilds the node's Level 0
+Warden when the list changes, as it does for a new level or tier.
+
 ## 11. Revoking a device
 
 `hive swarm revoke <node>` marks the node `REVOKED`, a final state. The Queen's swarm gate then
@@ -450,8 +461,8 @@ trusted node, addressed to the packet, sent by the Queen, fresh and not a duplic
 
 ## 14. Trail events and error codes
 
-Trail events the ceremony writes, all in the `swarm` family. None carries a token, an invite string,
-a key or a path.
+Trail events the ceremony writes, all in the `swarm` family. None carries a token, an invite string
+or a key, and none a path but `swarm.watch_changed`, which lists the directories the operator named.
 
 | Event | When |
 |---|---|
@@ -463,6 +474,7 @@ a key or a path.
 | `swarm.node_held` | The Queen holds a lost device's tasks for the grace period (ids, the rung and the reason a link was lost; never an address). |
 | `swarm.promoted`, `swarm.demoted` | A device moves a rung of the runtime ladder, or a move is undone, with `from_level`, `to_level` and a reason word. |
 | `swarm.access_changed`, `swarm.shield_changed` | The operator changes the node's level or tier. |
+| `swarm.watch_changed` | The operator changes the directories its Warden watches (`hive swarm watch`): how many there were and the new list. |
 | `swarm.revoked` | The node is revoked. |
 
 Error codes a device meets during the ceremony:

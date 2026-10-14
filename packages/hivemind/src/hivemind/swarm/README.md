@@ -105,17 +105,22 @@ hears that release and records it, so the lease is never left looking open.
   route and DNS; the commands and the judges themselves are `hivemind.cell.tunnel`'s, shared with
   the Virtual Cell attestation (`hivemind.hive.propolis`), and `PropolisChecks` adds the
   `swarm.shield_*` record; `PollenWatchProbe.observe(kinds, roots, since_at)` asks an idle device
-  what it looks like without a lease.
+  what it looks like without a lease, and `readable_roots(node)` is the directories the operator
+  named for that device (`SwarmNode.watch_roots`) that its granted capabilities let the Warden
+  read: the only ones it is asked about.
 - **Operator desk** (`operator`): what `hive swarm` does to a device that is already enrolled, with
   the trail event each write leaves. `OperatorDesk(registry, recorder)` revokes (`swarm.revoked`),
-  sets access (`swarm.access_changed`, with the capability strings recomputed) and sets the tier
-  (`swarm.shield_changed`, `NIGHT_VEIL` refused), and `move` writes the `desired_level` wish, one
-  rung, with no event (the Queen's swarm gate acts on it), and the `ceiling`, the highest rung the
-  Queen may take the device to by her own decisions: a `promote` lifts it and a `demote` sets it
-  to the rung the device is lowered to, which pins a device down. `find_node` resolves a device
-  id, a Cell id or a unique label. Refusals carry their reason: `UnknownNodeError`,
-  `AmbiguousNodeError`, `TierRefusedError`, `RungUnavailableError`. It is not re-exported above
-  this sub-package: import it from `hivemind.swarm.operator`.
+  sets access (`swarm.access_changed`, with the capability strings recomputed), sets the tier
+  (`swarm.shield_changed`, `NIGHT_VEIL` refused), names the directories its idle Warden reads
+  logs and file changes in (`set_watch_roots`, `swarm.watch_changed`; `checked_roots` refuses a
+  relative path, too many, or one its capabilities do not let the Hive read), and `move` writes
+  the `desired_level` wish, one rung, with no event (the Queen's swarm gate acts on it), and the
+  `ceiling`, the highest rung the Queen may take the device to by her own decisions: a `promote`
+  lifts it and a `demote` sets it to the rung the device is lowered to, which pins a device down.
+  `find_node` resolves a device id, a Cell id or a unique label. Refusals carry their reason:
+  `UnknownNodeError`, `AmbiguousNodeError`, `TierRefusedError`, `RungUnavailableError`,
+  `WatchRootRefusedError`. It is not re-exported above this sub-package: import it from
+  `hivemind.swarm.operator`.
 
 ## Who runs the Warden
 
@@ -135,7 +140,10 @@ An invite token appears only in the string shown once at the Hive Stand; the reg
 SHA-256. No trail event, log line or error carries a token, a key, a command's arguments, a path or
 a file's content: events name ids, counts and reason codes, and a command is recorded as the
 program's base name plus a count of its arguments. What a device reports (a process list, routes,
-log lines) is the most sensitive label on arrival and is neither logged nor recorded here.
+log lines) is the most sensitive label on arrival and is neither logged nor recorded here. The one
+event that lists paths is `swarm.watch_changed`: the directories the operator named for a device's
+Warden to read, which are the operator's own grant and what an audit of who may read what needs.
+The error that refuses a directory names its position in the list, never the directory.
 
 ## How to test
 
