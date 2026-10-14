@@ -14,11 +14,19 @@ working while disconnected.
   manifest declares in `[llm.servers]` through the Warden's `CellSession` on a Cell that reports
   `can_host_model` (branching on the capability, never the Cell's kind), waits for the provider's
   own health probe (`launch.py`), adds each source to the live Forage map with this Cell as host
-  and sends the Queen `forage.source_added` (`report.py`), and reverses all of it in the opposite
-  order on `stop`, `unload` (a Queen-ordered eviction) or `stop_all` (the Warden's own `stop()`,
-  before the lease is released: nothing it started survives). `sources.plan_loads` is the
+  and sends the Queen `forage.source_added` (`report.py`, `offering.py`), and reverses all of it in
+  the opposite order on `stop`, `unload` (a Queen-ordered eviction) or `stop_all` (the Warden's own
+  `stop()`, before the lease is released: nothing it started survives). `sources.plan_loads` is the
   ceilings rule, pure: a source loads only when it is in `Ceilings.loadable_sources` and the
-  cumulative VRAM stays within `model_vram_bytes` (with no ceilings the manifest is the allowlist).
+  cumulative VRAM stays within `model_vram_bytes` (with no ceilings the manifest is the allowlist);
+  each source it keeps out is a `Refusal` with a scope word. A promotion to a Nuc (roadmap 11.8)
+  starts a server with `start(server_id, only=..., deadline_s=...)`: `only` is the models the Queen
+  named (each one refused is recorded as a `guard.denied` at the slot-binding point, rule
+  `guard.scope.loadable_source`, `model_vram` or `server_source`), `deadline_s` shortens the
+  health wait and never stretches it. `load(server_id, source_id)` offers one more model of a
+  running server: within the ceilings it is autonomous and reported only as a new source, outside
+  them it is refused and recorded the same way. A start that is cancelled while it waits for the
+  server stops the process it started (`launch.bring_up`).
   `config.ServerConfig` is the decoupled row the Warden reads (it may not import the manifest;
   `hivemind.cli.stores.server_configs` builds it) and `door.provider_door` closes the register and
   unregister callables over the model registry. A server that never turns healthy is stopped and

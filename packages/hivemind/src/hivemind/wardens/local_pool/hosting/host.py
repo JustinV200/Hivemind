@@ -11,16 +11,19 @@ probe; and only then adds each source to the live Forage map, with this Cell as 
 Queen (``report``). Stopping reverses it in the opposite order, so nothing is routed to a server
 that is going away: sources leave the map and the Queen is told first, then the process is stopped,
 then the provider is given back. A server that never becomes healthy is stopped and recorded as
-dead, and a started server that later dies is found by ``sweep``. Real Cells are borrowed and left
-exactly as found (codingrules section 8.7): ``stop_all`` is how the Warden makes sure nothing it
-started outlives its lease.
+dead, and a started server that later dies is found by ``sweep``. A server the Queen's promotion of
+a device names is started the same way with ``only`` (the models to offer first) and ``deadline_s``
+(how long she will wait), and ``load`` offers one more model of a server that already runs, within
+the ceilings and without asking. Real Cells are borrowed and left exactly as found (codingrules
+section 8.7): ``stop_all`` is how the Warden makes sure nothing it started outlives its lease.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     local_pool.hosting sub-package. Built by ``hivemind.wardens.warden.Warden`` once it holds its
     lease, started from ``Warden.start``, swept on its heartbeat, stopped by ``Warden.stop`` and by
-    ``hivemind.wardens.ticks.control`` (a Queen-ordered eviction). Calls into ``config``,
-    ``launch``, ``report``, ``sources``, ``hivemind.cell``, ``hivemind.forage`` and waggle only.
+    ``hivemind.wardens.ticks.control`` (a Queen-ordered eviction) and ``hivemind.wardens.ticks.
+    nuc`` (a promotion or demotion). Calls into ``config``, ``launch``, ``offering``, ``report``,
+    ``sources``, ``hivemind.cell``, ``hivemind.forage`` and waggle only.
 
 Key invariants:
     - A source is on the Forage map and announced to the Queen only while its server's health probe
@@ -30,6 +33,7 @@ Key invariants:
     - A Cell without ``can_host_model`` starts nothing; the reason is logged once, not per server.
     - The sum of loaded sources' VRAM never exceeds the Queen's ``model_vram_bytes`` when she has
       set ceilings.
+    - A start that is cancelled leaves no process behind (``launch.bring_up``).
 
 See Also:
     - docs/adr/0044-local-model-serving-via-openai-compatible-api.md for the decision.
@@ -40,17 +44,17 @@ See Also:
 from __future__ import annotations
 
 import types
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from hivemind.common.logging import get_logger
-from hivemind.forage import ModelSource
 from hivemind.wardens.errors import UnknownServerError
-from hivemind.wardens.local_pool.hosting.config import HostedCell, RunningServer
-from hivemind.wardens.local_pool.hosting.launch import bring_up, give_back
-from hivemind.wardens.local_pool.hosting.report import ReportPort, announce_added, announce_removed
-from hivemind.wardens.local_pool.hosting.sources import plan_loads, vram_of
+from hivemind.wardens.local_pool.hosting.config import HostedCell, RunningServer, bounded
+from hivemind.wardens.local_pool.hosting.launch import bring_up, shut_down
+from hivemind.wardens.local_pool.hosting.offering import Offering
+from hivemind.wardens.local_pool.hosting.report import ReportPort
+from hivemind.wardens.local_pool.hosting.sources import narrow, plan_loads, vram_in_use
 from waggle.ids import WardenId
 from waggle.messages.forage import SourceRemovalCause
 
@@ -83,7 +87,7 @@ class ModelServerHost:
         self._place = place
         self._running: dict[str, RunningServer] = {}
         self._declined: str | None = None
-        self._port = ReportPort(
+        port = ReportPort(
             queen_link=deps.queen_link,
             hop=deps.hop,
             trail=deps.trail,
@@ -92,6 +96,7 @@ class ModelServerHost:
             warden_id=warden_id,
             cell_id=place.cell.id,
         )
+        self._offering = Offering(deps, place, port)
 
     @property
     def running(self) -> Mapping[str, RunningServer]:
@@ -116,11 +121,18 @@ class ModelServerHost:
             if config.load_on_start:
                 await self.start(server_id)
 
-    async def start(self, server_id: str) -> bool:
+    async def start(
+        self, server_id: str, only: Collection[str] | None = None, deadline_s: float | None = None
+    ) -> bool:
         """Start one declared server and offer its models; True when it is now running.
 
         Args:
             server_id: A key of ``WardenDeps.servers``.
+            only: The source ids to offer, when the Queen named them (a promotion's first models);
+                a name the ceilings or the server refuse is recorded as a Guard denial. None offers
+                every source the ceilings allow, as the manifest's own start does.
+            deadline_s: The longest she will wait for the server to answer; the manifest's own
+                bound still applies when it is the shorter.
 
         Returns:
             True when the server runs (including one already running); False when nothing was
@@ -137,17 +149,43 @@ class ModelServerHost:
             return True
         if not self._may_host():
             return False
-        plan = plan_loads(config.sources, self._place.ceilings_of(), self._vram_in_use())
-        for source_id, why in plan.refused:
-            log.info("wardens.hosting.refused", server_id=server_id, source_id=source_id, why=why)
+        wanted, unknown = narrow(config.sources, only)
+        plan = plan_loads(wanted, self._place.ceilings_of(), vram_in_use(self._running.values()))
+        # Only what the Queen named is a request worth an audit row; a manifest that lists more
+        # models than the ceilings allow is just logged.
+        await self._offering.refuse(server_id, (*unknown, *plan.refused), record=only is not None)
         if not plan.load:
             return False  # Nothing this server may serve here: starting it would only waste VRAM.
-        server = await bring_up(self._deps, self._place, self._port, config, plan.load)
+        config = bounded(config, deadline_s)  # An order can hurry a start, never stretch one.
+        server = await bring_up(self._deps, self._place, self._offering.port, config, plan.load)
         if server is None:
             return False  # bring_up already stopped what it started and recorded the failure.
         self._running[server_id] = server
         for source in server.sources:
-            await self._offer(server_id, source)
+            await self._offering.offer(server_id, source)
+        return True
+
+    async def load(self, server_id: str, source_id: str) -> bool:
+        """Offer one more source of a running server, within the ceilings; True when it is on offer.
+
+        Autonomous, and reported as a new source only (codingrules 8.10); a source outside the
+        ceilings is refused, as a Guard denial on the trail.
+
+        Args:
+            server_id: A running server.
+            source_id: The Forage map source to offer from it.
+
+        Returns:
+            True when the source is on offer now; False when the server is not running here or the
+            source may not be loaded.
+        """
+        server = self._running.get(server_id)
+        if server is None:
+            return False  # Nothing runs to load it into: a promotion starts the server first.
+        grown = await self._offering.load(server, source_id, vram_in_use(self._running.values()))
+        if grown is None:
+            return False
+        self._running[server_id] = grown
         return True
 
     async def stop(self, server_id: str, cause: SourceRemovalCause) -> bool:
@@ -166,8 +204,8 @@ class ModelServerHost:
             return False
         # Withdrawn before the kill: no call may be routed to a source whose process is going.
         for source in server.sources:
-            await self._withdraw(server_id, source, cause)
-        await self._shut_down(server)
+            await self._offering.withdraw(server_id, source, cause)
+        await shut_down(self._deps, self._place, server)
         return True
 
     async def stop_all(self, cause: SourceRemovalCause) -> None:
@@ -197,7 +235,7 @@ class ModelServerHost:
         if not kept:
             return await self.stop(server_id, cause)
         self._running[server_id] = replace(server, sources=kept)
-        await self._withdraw(server_id, gone, cause)
+        await self._offering.withdraw(server_id, gone, cause)
         return True
 
     async def sweep(self) -> None:
@@ -206,10 +244,6 @@ class ModelServerHost:
             if not await self._place.session.is_running(server.process):
                 log.warning("wardens.hosting.died", server_id=server_id)
                 await self.stop(server_id, SourceRemovalCause.SERVER_DIED)
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Bring-up and tear-down
-    # ──────────────────────────────────────────────────────────────────────────
 
     def _may_host(self) -> bool:
         """Return whether this Warden can host a model server here, declining once if not."""
@@ -228,27 +262,3 @@ class ModelServerHost:
             self._declined = reason
             log.warning("wardens.hosting.declined", reason=reason)
         return False
-
-    def _vram_in_use(self) -> int:
-        """Return the VRAM the sources already on the map occupy, in bytes."""
-        return sum(vram_of(s) for server in self._running.values() for s in server.sources)
-
-    async def _offer(self, server_id: str, source: ModelSource) -> None:
-        """Put ``source`` on the live Forage map and tell the Queen it is servable."""
-        if self._deps.map is not None:
-            await self._deps.map.add_source(source)
-        reason = f"Loaded on {server_id} within this Warden's ceilings."
-        await announce_added(self._port, server_id, source, reason)
-
-    async def _withdraw(
-        self, server_id: str, source: ModelSource, cause: SourceRemovalCause
-    ) -> None:
-        """Take ``source`` off the live map and tell the Queen it is gone."""
-        if self._deps.map is not None:
-            await self._deps.map.remove_source(source.source_id)
-        await announce_removed(self._port, server_id, source, cause, f"Source left: {cause.value}.")
-
-    async def _shut_down(self, server: RunningServer) -> None:
-        """Stop the server's process and give its provider back to the registry."""
-        await self._place.session.stop(server.process)
-        await give_back(self._deps, server.config.provider, server.provider)

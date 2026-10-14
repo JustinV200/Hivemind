@@ -8,8 +8,11 @@ map as sources hosted on this Cell, and tells the Queen (the central orchestrato
 ``forage.source_added``; stopping reverses every step. This package is that mechanism: ``config``
 (the decoupled ``ServerConfig`` the Warden reads, since it may not import the manifest), ``sources``
 (which sources fit the Queen's ceilings, and the wire messages), ``report`` (sending and recording
-them), ``launch`` (the process, its health wait and the bring-up), ``door`` (the registry seam)
-and ``host`` (the ``ModelServerHost`` that ties them together).
+them), ``offering`` (putting a source on the map and with the Queen, taking it off, loading one
+more within the ceilings, and recording a refusal as a Guard denial), ``launch`` (the process, its
+health wait and the bring-up), ``door`` (the registry seam) and ``host`` (the ``ModelServerHost``
+that ties them together). A device's promotion to a Nuc uses the host through ``start`` with the
+models to offer first and the Queen's deadline, and ``load`` for each model after that.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -33,7 +36,9 @@ Public API:
     - ServerConfig, HostedCell, RunningServer, RegisterProvider, UnregisterProvider: its inputs and
       a snapshot row of what it runs (config).
     - provider_door: the registry closures a composition root builds (door).
-    - plan_loads, LoadPlan: the ceilings rule, pure (sources).
+    - plan_loads, LoadPlan, Refusal, narrow, vram_in_use: the ceilings rule, pure (sources).
+    - Offering: the Forage map, the Queen and the Guard, as one source is offered or refused
+      (offering).
 """
 
 from hivemind.wardens.local_pool.hosting.config import (
@@ -45,16 +50,27 @@ from hivemind.wardens.local_pool.hosting.config import (
 )
 from hivemind.wardens.local_pool.hosting.door import provider_door
 from hivemind.wardens.local_pool.hosting.host import ModelServerHost
-from hivemind.wardens.local_pool.hosting.sources import LoadPlan, plan_loads
+from hivemind.wardens.local_pool.hosting.offering import Offering
+from hivemind.wardens.local_pool.hosting.sources import (
+    LoadPlan,
+    Refusal,
+    narrow,
+    plan_loads,
+    vram_in_use,
+)
 
 __all__ = [
     "HostedCell",
     "LoadPlan",
     "ModelServerHost",
+    "Offering",
+    "Refusal",
     "RegisterProvider",
     "RunningServer",
     "ServerConfig",
     "UnregisterProvider",
+    "narrow",
     "plan_loads",
     "provider_door",
+    "vram_in_use",
 ]

@@ -37,7 +37,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from hivemind.cell import BackgroundProcess, Cell, CellSession
 from hivemind.forage import Ceilings, ModelSource
@@ -50,7 +50,14 @@ RegisterProvider = Callable[[str, ProviderConfig], LLMProvider]
 # caller now owns (and must close), False when the manifest still declares the name.
 UnregisterProvider = Callable[[str], bool]
 
-__all__ = ["HostedCell", "RegisterProvider", "RunningServer", "ServerConfig", "UnregisterProvider"]
+__all__ = [
+    "HostedCell",
+    "RegisterProvider",
+    "RunningServer",
+    "ServerConfig",
+    "UnregisterProvider",
+    "bounded",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,3 +121,22 @@ class HostedCell:
     cell: Cell
     session: CellSession
     ceilings_of: Callable[[], Ceilings | None]
+
+
+def bounded(config: ServerConfig, deadline_s: float | None) -> ServerConfig:
+    """Return ``config`` with its start-up wait cut to ``deadline_s`` when that is shorter.
+
+    A promotion carries the longest the Queen will wait for the server; the manifest's own bound
+    still applies when it is the shorter of the two, so an order can hurry a start and never
+    stretch one.
+
+    Args:
+        config: The manifest row.
+        deadline_s: The Queen's deadline in seconds, or None when she set none.
+
+    Returns:
+        ``config`` itself, or a copy with ``startup_timeout_s`` lowered to the deadline.
+    """
+    if deadline_s is None or deadline_s >= config.startup_timeout_s:
+        return config
+    return replace(config, startup_timeout_s=deadline_s)

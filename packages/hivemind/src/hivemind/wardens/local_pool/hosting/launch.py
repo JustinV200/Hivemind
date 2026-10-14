@@ -8,7 +8,9 @@ scratch so a failed start leaves something to read. ``wait_healthy`` then polls 
 ``health()`` (the OpenAI-compatible adapter's cheap ``GET /models``) until it reports HEALTHY, the
 process dies, or the start-up bound passes, so the Warden never announces a source whose server
 cannot answer yet. Substitution is a plain ``str.replace`` per argument, never ``str.format``,
-because a server's arguments may legitimately carry braces (a JSON option).
+because a server's arguments may legitimately carry braces (a JSON option). A start that is
+cancelled while it waits (a Warden stopping in the middle of a promotion) stops the process it
+started before the cancellation goes on, because until the start returns nobody else holds it.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -21,6 +23,8 @@ Key invariants:
     - ``wait_healthy`` never waits past ``timeout_s`` of the injected clock, and never raises for a
       probe that fails: a half-started server can fail its probe in many ways, all of them "not
       yet".
+    - ``bring_up`` leaves no process behind however it ends: a server that never turns healthy, a
+      program that cannot start and a cancellation all stop what was started.
 
 See Also:
     - hivemind.cell.session for BackgroundSpec and the CellSession contract.
@@ -29,7 +33,9 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -60,7 +66,7 @@ LOG_NAME_TEMPLATE = (
 
 log = get_logger(__name__)
 
-__all__ = ["POLL_INTERVAL_S", "bring_up", "give_back", "launch_spec", "wait_healthy"]
+__all__ = ["POLL_INTERVAL_S", "bring_up", "give_back", "launch_spec", "shut_down", "wait_healthy"]
 
 
 def launch_spec(config: ServerConfig, scratch_dir: Path) -> BackgroundSpec:
@@ -164,19 +170,26 @@ async def bring_up(
         await give_back(deps, config.provider, provider)
         await _record_dead(report, config, planned)
         return None
-
-    async def alive() -> bool:
-        return await session.is_running(process)
-
-    # Bounded by the manifest's startup_timeout_s on the injected clock.
-    if not await wait_healthy(provider, alive, deps.clock, config.startup_timeout_s):
-        log.warning("wardens.hosting.unhealthy", server_id=config.server_id)
-        await session.stop(process)
-        await give_back(deps, config.provider, provider)
+    started = RunningServer(config, process, provider, ())
+    if not await _until_healthy(deps, place, started):
         await _record_dead(report, config, planned)
         return None
     offered = tuple(hosted(source, place.cell.id) for source in planned)
-    return RunningServer(config, process, provider, offered)
+    return replace(started, sources=offered)
+
+
+async def shut_down(deps: WardenDeps, place: HostedCell, server: RunningServer) -> None:
+    """Stop ``server``'s process and give its provider back to the registry.
+
+    Args:
+        deps: The Warden's collaborators; its provider door is used here.
+        place: The Cell and session the process runs on.
+        server: The running server to end.
+    """
+    # Local signal and reap: milliseconds, and the session's own bound covers a process that will
+    # not die.
+    await place.session.stop(server.process)
+    await give_back(deps, server.config.provider, server.provider)
 
 
 async def give_back(deps: WardenDeps, name: str, provider: LLMProvider) -> None:
@@ -192,6 +205,39 @@ async def give_back(deps: WardenDeps, name: str, provider: LLMProvider) -> None:
     # A manifest-declared provider stays registered and is closed by the registry itself.
     if unregister is not None and unregister(name):
         await provider.aclose()
+
+
+async def _until_healthy(deps: WardenDeps, place: HostedCell, started: RunningServer) -> bool:
+    """Wait for a just-started server to answer; end it when it never does, or when cancelled.
+
+    Args:
+        deps: The Warden's collaborators; its clock paces the wait.
+        place: The Cell and session the process runs on.
+        started: The server as started, with no sources yet.
+
+    Returns:
+        True once the provider is healthy; False after the server was stopped and its provider
+        given back, because its process died or the start-up bound passed.
+    """
+    session, process = place.session, started.process
+
+    async def alive() -> bool:
+        return await session.is_running(process)
+
+    try:
+        # Bounded by the manifest's startup_timeout_s on the injected clock.
+        healthy = await wait_healthy(
+            started.provider, alive, deps.clock, started.config.startup_timeout_s
+        )
+    except asyncio.CancelledError:
+        # Nobody holds this process yet (the host records it only when the start returns), so the
+        # cancellation would leave it running on a borrowed machine: end it, then let go on.
+        await shut_down(deps, place, started)
+        raise
+    if not healthy:
+        log.warning("wardens.hosting.unhealthy", server_id=started.config.server_id)
+        await shut_down(deps, place, started)
+    return healthy
 
 
 def _register(deps: WardenDeps, config: ServerConfig) -> LLMProvider | None:
