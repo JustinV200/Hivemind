@@ -24,7 +24,8 @@ Fits into the Hive:
 Key invariants:
     - The window only advances for a decision that was carried out; SKIPPED keeps everything.
     - Only a `NOTHING` Patrol deletes observations, and only the ones it covered.
-    - The model call has a timeout, and only the model's declared failures are caught.
+    - The model call and the delivery of its decision each have a timeout, and only the
+      model's declared failures are caught.
     - No observation text reaches a log line, an event or this module's return value.
 
 See Also:
@@ -48,18 +49,18 @@ from hivemind.wardens.watch.deps import WatchDeps
 from hivemind.wardens.watch.digest import PatrolWindow
 from hivemind.wardens.watch.signals import find_signals
 
-PATROL_TIMEOUT_S = (
-    300.0  # Seconds a Patrol's episode may take: one structured answer, and its retries.
-)
-_AFTER = timedelta(
-    microseconds=1
-)  # The smallest step: a window starts just after the last one's end.
+# Seconds a Patrol's episode may take: one structured answer, and its retries.
+PATROL_TIMEOUT_S = 300.0
+# Seconds to hand a decision to the Queen's link or the Basket door.
+DELIVERY_TIMEOUT_S = 60.0
+# The smallest step: a window starts just after the last one's end.
+_AFTER = timedelta(microseconds=1)
 # Failures that mean "no model decided": it was unreachable, refused, out of budget or too slow.
 _NO_DECISION = (LLMError, TimeoutError)
 
 log = get_logger(__name__)
 
-__all__ = ["PATROL_TIMEOUT_S", "Patrol", "PatrolPort"]
+__all__ = ["DELIVERY_TIMEOUT_S", "PATROL_TIMEOUT_S", "Patrol", "PatrolPort"]
 
 
 class PatrolPort(Protocol):
@@ -146,9 +147,19 @@ class Patrol:
         except _NO_DECISION as error:
             log.warning("warden.patrol_unanswered", error=type(error).__name__)
             return PatrolOutcome.SKIPPED
-        if not await self._port.carry_out(decision, window):
+        if not await self._deliver(decision, window):
             return PatrolOutcome.SKIPPED
         if decision.choice is PatrolChoice.NOTHING:
             # Everything up to the newest observation this Patrol covered, and no later one.
             await store.discard_before(self._ctx, self._owner, window.until + _AFTER)
         return PatrolOutcome.of(decision.choice)
+
+    async def _deliver(self, decision: PatrolDecision, window: PatrolWindow) -> bool:
+        """Carry the decision out within a bound; a delivery that hangs counts as not delivered."""
+        try:
+            async with asyncio.timeout(DELIVERY_TIMEOUT_S):
+                return await self._port.carry_out(decision, window)
+        except TimeoutError:
+            # A stalled link must not stall the Warden; the Patrol is retried with its window kept.
+            log.warning("warden.patrol_undelivered", error="TimeoutError")
+            return False

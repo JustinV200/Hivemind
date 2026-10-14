@@ -280,6 +280,23 @@ async def test_a_model_that_never_answers_skips_the_patrol(monkeypatch: pytest.M
     assert await rig.kept() == ["a"]
 
 
+async def test_a_delivery_that_never_completes_skips_the_patrol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Stalled(ScriptedPatrolPort):
+        async def carry_out(self, decision: object, window: object) -> bool:
+            await asyncio.sleep(30)
+            raise AssertionError("unreachable")
+
+    monkeypatch.setattr(patrol_module, "DELIVERY_TIMEOUT_S", 0.01)
+    rig = _Rig(Stalled(_decision(PatrolChoice.ALARM)))
+    await rig.keep("a")
+
+    assert await rig.patrol.run() is PatrolOutcome.SKIPPED
+    assert await rig.kept() == ["a"]
+    assert rig.watch.schedule.patrolled_until is None  # Not advanced: the next Patrol retries it.
+
+
 @pytest.mark.parametrize("choice", [PatrolChoice.ALARM, PatrolChoice.NECTAR, PatrolChoice.WAX])
 async def test_a_decision_that_could_not_be_delivered_skips_the_patrol(
     choice: PatrolChoice,
