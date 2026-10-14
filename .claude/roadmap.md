@@ -1998,18 +1998,40 @@ promotion, `hive swarm` CLI.
 
 ### Steps
 
-- [ ] **11.1 Enrolment protocol.** `docs/waggle/enrolment.md`: one-time token from `hive swarm
+- [x] **11.1 Enrolment protocol.** `docs/waggle/enrolment.md`: one-time token from `hive swarm
   invite`; the packet presents it with its public key, its `CellCapabilities` and its
   `ForageCapacity`; the Queen replies with the Hive's key and the node's capabilities. Tokens
   expire and are single use.
-- [ ] **11.2 Swarm registry and source.** `SwarmNode`, `NodeStatus`, SQLite registry, enrolment,
+  **Built 2026-10-14.** `docs/waggle/enrolment.md` (Waggle 1.13). The invite `hive swarm invite`
+  prints is a `pollen1.` string of eight keys (`hive_id`, the token, the listener's URL, the Hive
+  Stand's node id and key, its TLS certificate's SHA-256 pin, the expiry and a label), so the
+  packet's first frame is addressed to the Hive and its first connection is pinned. The packet
+  presents the token with its public key, its `CellCapabilities`, its `ForageCapacity` and a
+  `PlatformReport`; the enrolment door (`swarm/enrolment/`) replies with the Hive's key and the
+  node's capabilities, access level and Comb Shield tier. Tokens are single use and expire; a
+  refused enrolment says why. `pollen/enrol/` is the packet's half.
+- [x] **11.2 Swarm registry and source.** `SwarmNode`, `NodeStatus`, SQLite registry, enrolment,
   heartbeat, and `SwarmSource` (a `RealCellSource` whose `lease()` and `release()` round-trip with
   the device and wait for restore confirmation).
-- [ ] **11.3 Pollen gateway.** `pollen/agent/packet.py`: connect out, heartbeat, verify signatures,
+  **Built 2026-10-14.** `swarm/models.py` (`SwarmNode`, `NodeStatus`, `RuntimeLevel`, capacity and
+  capabilities as reported), `swarm/registry/` (SQLite and in-memory behind one protocol), the
+  listener's heartbeat watch (`swarm/gateway/`: a device that misses its beats is UNREACHABLE,
+  `swarm.online` and `swarm.unreachable` on the trail), and `SwarmSource` (`swarm/source.py`), a
+  `RealCellSource` whose `lease()` opens the lease on the device and whose `SwarmLeaseReleaser`
+  waits for the device's restore report before the release counts.
+- [x] **11.3 Pollen gateway.** `pollen/agent/packet.py`: connect out, heartbeat, verify signatures,
   check every request against the node's capabilities locally, hand `session.*` and `lease` traffic
   to the executors, keep an outbox. It persists the Queen's address from enrolment and replaces it
   only on a `QueenMoved` signed by the Hive key (13.2a). No supervision logic; no model client.
-- [ ] **11.3a Per-node frame ceiling.** The server half of `waggle/transport/websocket.py`
+  **Built 2026-10-14.** `pollen/agent/`: the link (dial out over `wss://` with the pinned
+  certificate, heartbeat, reconnect with backoff), signature verification on every frame, a
+  dispatcher that checks every request against the node's capabilities locally before any executor
+  sees it, the outbox (replayed in order on reconnection), and `control.py` (`control.ping`,
+  `swarm.node_update`, `control.queen_moved`). The Queen's address comes from enrolment and is
+  replaced only by a `control.queen_moved` signed by the Hive key (`pollen/agent/moved.py`). No
+  supervision logic and no model client in the packet. Left to 13.2a: the relocation notice carries
+  no TLS pin for the new address.
+- [x] **11.3a Per-node frame ceiling.** The server half of `waggle/transport/websocket.py`
   gains `max_frames_per_minute` per connection, lax on purpose (default 6000, a hundred a
   second, well above any Warden's heartbeat and result traffic) with a burst allowance; over
   it the server closes the connection with a reason code and the node reconnects with its
@@ -2018,7 +2040,11 @@ promotion, `hive swarm` CLI.
   action the transport takes alone; the Guard Bee only counts the events, and repeated
   ceilings from one node in a window are a dire pattern (13.4a), since isolation keeps the
   socket open and only a Sting Cut invalidates the node's keys.
-- [ ] **11.3b Replay window.** ADR-0005 leaves deduplication to receivers that care; every
+  **Built 2026-10-13.** `waggle/transport/ceiling.py`: 6,000 frames a minute per connection with a
+  burst of 600; over it the server closes with code 4029 and the node reconnects with its own
+  backoff. The Hive Stand's swarm listener and Virtual Cell listener record `guard.frame_ceiling`
+  with the node id on each close (`waggle` writes no trail); the Guard Bee counts the events.
+- [x] **11.3b Replay window.** ADR-0005 leaves deduplication to receivers that care; every
   receiver now must. The server half keeps the envelope ids seen per node over a bounded window
   (`replay_window_minutes`, default 10, and a cap on ids kept) and drops a duplicate without
   handling it, so a lost ack followed by an outbox replay stays idempotent. A duplicate inside
@@ -2026,19 +2052,48 @@ promotion, `hive swarm` CLI.
   `guard.replay_refused` with the node id, and a burst is the signature-or-replay dire pattern
   (13.4a). `docs/waggle/spec.md` states the obligation, and the gateway contract (11.7a) carries
   it, so a compiled gateway is held to it too.
-- [ ] **11.4 Device-side lease, executors and dead-man switch.** `pollen/lease/` (scratch dir
+  **Built 2026-10-13.** `waggle/transport/replay.py`: the envelope ids seen per node over
+  `replay_window_minutes` (default 10), capped at 50,000 ids and shared by every connection of one
+  server, so a duplicate is dropped unhandled whichever connection carries it. Inside the
+  reconnection grace after `warden.reconnected` a duplicate is silent; any other is
+  `guard.replay_refused` with the node id. `docs/waggle/spec.md` states the obligation and the
+  gateway contract (11.7a) carries it. Proved across a container boundary: a replayed `session.exec`
+  runs once and a frame with a broken signature closes the link with 1008
+  (`tests/e2e/test_phase11_exit_replay.py`).
+- [x] **11.4 Device-side lease, executors and dead-man switch.** `pollen/lease/` (scratch dir
   under the quota the node's `Ceilings` carry, enforced the way 3.11 does on the Hive Stand;
   started pids, restore; **dead-man**: when the link is lost longer than the enrolled limit and no
   Warden runs on the device, kill what the lease started and release), `pollen/executors/session.py`
   (persistent shell with streaming, argument lists only), `files.py`, `info.py`.
-- [ ] **11.5 PollenSession.** `swarm/session.py`: the Hive Stand side `CellSession` over the
+  **Built 2026-10-13.** `pollen/lease/`: scratch under the quota the node's `Ceilings` carry (a
+  watchdog as in 3.11), every started process recorded with its creation time (a release never
+  signals a reused pid), restore records, and the dead-man switch: past the enrolled limit with no
+  Warden on the device it kills what the lease started, releases with cause `DEAD_MAN` and reports
+  the release when the link returns. `pollen/executors/`: `session.py` and `run/` (each
+  `session.exec` is its own process group with stdout and stderr streamed, argument lists only; not
+  a persistent shell, which the `CellSession` contract does not ask for), `files.py`, `info.py`,
+  `process.py` (background processes) and `observe/` (watch mode, 11.10). Proved in a container
+  (`tests/e2e/test_phase11_exit_deadman.py`).
+- [x] **11.5 PollenSession.** `swarm/session.py`: the Hive Stand side `CellSession` over the
   `session.*` messages. Passes the `CellSession` contract suite against a packet in a container.
-- [ ] **11.6 Level 0: a Warden per device, on the Hive Stand.** Enrolment starts a Warden on
+  **Built 2026-10-13.** `swarm/session/` (`PollenSession`, the `CellSession` over `session.*`). It
+  passes the `CellSession` contract suite against a real packet over a real WebSocket, and
+  `tests/integration/test_pollen_in_container.py` runs the packet in a container.
+- [x] **11.6 Level 0: a Warden per device, on the Hive Stand.** Enrolment starts a Warden on
   the Hive Stand bound to the device through `PollenSession`, with a shared grant and a local
   pool consisting of the device's host compute for sub-bee slots (their brains run beside the
   Warden on the Hive Stand; only their hands are on the device). Placement sees the device; the
   Undertaker releases its leases. Documented limit: remote exec latency; no autonomy when the
   link drops.
+  **Built 2026-10-14.** The swarm gate (`queen/swarm_gate/`) gives every online Level 0 device a
+  Warden on the Hive Stand (`cli/compose/swarm/device_warden.py`) bound to the device through
+  `PollenSession`, with a shared grant and a local pool sized from the device's own cores and
+  memory; every command a sub-bee sends passes a per-lease command guard. Placement sees the device
+  as a `REAL` candidate (pin a goal with `cell:real:<cell_id>`); every Real Cell release path, the
+  Undertaker's included, reaches the device through `SwarmLeaseReleaser`. A device whose lease the
+  device refuses (an unverified Propolis tunnel) keeps its task parked and retried, not dropped. The
+  documented limits stand: remote exec latency, and no autonomy when the link drops. Proved in a
+  container (`tests/e2e/test_phase11_exit_level0.py`).
 - [ ] **11.6a Level 1: the Warden moves onto the device (colonization).** `swarm/level.py` +
   `pollen/bootstrap/`:
   when the Queen decides the device should carry its own Warden (its Forage suffices and the Hive
@@ -2047,19 +2102,32 @@ promotion, `hive swarm` CLI.
   device and resumes from the Handoff, its sub-bees are respawned beside it, and the Queen sets
   its `Ceilings`. Models still come from the hosting plan's shared sources. `warden.migrated`.
   The Warden is always the first bee to move; a device never runs sub-bees without their Warden.
-- [ ] **11.7 Platform shims and packaging.** `pollen/platform/{linux,windows,macos}.py` (any
+- [x] **11.7 Platform shims and packaging.** `pollen/platform/{linux,windows,macos}.py` (any
   Linux distro through generic systemd and XDG paths, with Arch and Ubuntu tested; Windows; macOS);
   `pollen install|uninstall`; single-file builds in CI for Linux x86-64 and ARM64 (Raspberry Pi),
   Windows x86-64, macOS ARM64 and x86-64. The packet reports OS, distro, arch, package manager,
   shell and Python availability at enrolment, and that report is what every later decision about
   the device reads: placement, tool eligibility, scaffolding targets, Nuc eligibility.
-- [ ] **11.7a Gateway contract for other runtimes.** `docs/waggle/gateway-contract.md`: the
+  **Built 2026-10-14.** `pollen/platform/{linux,windows,macos}.py` (a systemd user unit and XDG
+  paths on any Linux, a scheduled task on Windows, a launchd agent on macOS), `pollen
+  install|uninstall|status|version`; `scripts/build_pollen.py` and `.github/workflows/pollen.yml`
+  build the single-file packet for Linux x86-64 and ARM64 (inside Debian 12, so its glibc floor is
+  Raspberry Pi OS's), Windows x86-64 and macOS ARM64 and x86-64; the CI Arch job runs the packet's
+  tests on Arch. The enrolment `PlatformReport` carries OS, distribution, architecture, package
+  manager, shell and Python, and the decisions about the device read it (placement by `os`,
+  colonization by `python_version`). A frozen packet hands the programs it starts the device's own
+  loader path, not PyInstaller's. Proved on a clean Debian 12 container standing in for Raspberry Pi
+  OS (`tests/e2e/test_phase11_exit_binary.py`); ARM64 itself only on the CI matrix.
+- [x] **11.7a Gateway contract for other runtimes.** `docs/waggle/gateway-contract.md`: the
   minimal message set a Pollen-equivalent must implement (enrol, heartbeat, capability report,
   lease open and release, the `session.*` family, outbox replay, signature verification), with
   the conformance suite from 1.9 runnable against any implementation over WebSocket. This is the
   path for devices the Python packet cannot reach, such as phones and constrained IoT boards: a
   small compiled gateway speaking the same contract, written after Brood 1.0. The protocol is the
   product; the Python packet is its first implementation.
+  **Built 2026-10-13.** `docs/waggle/gateway-contract.md` and the conformance suite
+  `tests/contracts/test_gateway_contract*.py`, which runs against any gateway named by
+  `HIVEMIND_GATEWAY_COMMAND` (the Python packet by default) over a real WebSocket.
 - [ ] **11.8 Level 2: Nuc promotion.** `swarm/nuc.py`: on a Level 1 device the Queen decides
   from the device's free VRAM, the Hive Stand's seat pressure and the tasks' autonomy needs; she
   writes a hosting plan with local sources first, sets the model ceilings, and sends `NucPromote`.
@@ -2067,12 +2135,24 @@ promotion, `hive swarm` CLI.
   ceilings, and reports the new sources; from then on its local pool includes seats. Demotion is
   the reverse. Guard-gated. A device cannot go straight from Level 0 to Level 2; the Warden moves
   first.
-- [ ] **11.8a Real Cell Comb Shield is operator-set.** `swarm/enrolment.py` records the tier the
+- [x] **11.8a Real Cell Comb Shield is operator-set.** `swarm/enrolment.py` records the tier the
   operator chose at enrolment, Meadow or Propolis, changed only by `hive swarm shield <node>`;
   placement never changes a Real Cell's tier. For Propolis the Warden verifies the device's own
   VPN before each lease (default route via the tunnel, DNS through it, direct egress denied) and
   refuses to place otherwise; HiveMind never installs, starts or reroutes a VPN on a Real Cell.
   Night Veil requests are denied on Real Cells and redirected to Virtual placement.
+  **Built 2026-10-14.** The tier rides on the invite and is changed only by `hive swarm shield`;
+  placement never raises a Cell's tier, so a PROPOLIS task never lands on a MEADOW Cell, Real or
+  Virtual (on the Virtual side a spec must provision the tier the task needs). For Propolis the
+  device's Warden verifies the device's own tunnel before each lease through fixed read-only
+  commands and pure judges (`cell/tunnel/`, moved down from `swarm/shield/`; ADR-0057): default
+  route via the tunnel, DNS through it, no direct IPv6 route, direct egress refused;
+  `swarm.shield_verified` or `swarm.shield_refused` with per-check results, the scratch released and
+  the task held, never failed, and nothing on the device changed. A NIGHT_VEIL goal is denied at
+  placement on a Real Cell and goes Virtual. A PROPOLIS Virtual Cell is attested from its image with
+  the same checks plus `tor_disabled` before it is ready, and again when resumed (ADR-0057). Proved
+  in containers (`tests/e2e/test_phase11_exit_propolis.py`,
+  `tests/integration/test_docker_propolis.py`).
 - [ ] **11.9 Offline Wardens.** `wardens/offline/`: on link loss a device Warden keeps working
   with what it owns. A Nuc keeps its sub-bees running on its local pool, and shared grants are
   frozen; a Level 1 Warden clusters its sub-bees at once, since it has no models to think with, and
@@ -2106,7 +2186,7 @@ promotion, `hive swarm` CLI.
   access than being connected would. It reports back to its Warden — fixed, diagnosed but can't
   fix, or no cause found — and deposits its findings as Nectar either way, then 11.9's existing
   timeline resumes untouched.
-- [ ] **11.10 Watch mode and the hourly Patrol.** Real Cells stay enrolled between sessions, so
+- [x] **11.10 Watch mode and the hourly Patrol.** Real Cells stay enrolled between sessions, so
   their Wardens are long-lived. `wardens/watch/`: when a Real Cell has no active bees its Warden
   enters `WATCH`, a read-only autopilot state that observes within the Cell's access level
   (process list, resource use, logs and file-change events in allowed roots, network counters)
@@ -2117,11 +2197,32 @@ promotion, `hive swarm` CLI.
   notable" and discards. Watch mode never writes to the device, never captures
   screen or input, and is visible in the UI as the Cell's mode. Applies to the Hive Stand as well.
   A bee assignment moves the Warden back to `ACTIVE`.
-- [ ] **11.11 Exoskeleton on devices.** Through `PollenSession` the X11 backends from phase 6 work
+  **Built 2026-10-14.** `wardens/watch/`: a Warden with no bee working enters `WATCH` and observes
+  through a probe, the `SessionWatchProbe` on the Hive Stand (two fixed read-only scripts through
+  the Warden's own lease) or the `PollenWatchProbe` on a device (the packet's `observe` executors);
+  observations go to Bee Bread with a retention window. On `[supervision.watch]`'s Patrol interval
+  one awake episode over the observations since the last Patrol raises a `PATROL_ANOMALY` Alarm,
+  deposits a Nectar summary, proposes Cell Wax, or records `warden.patrol` with "nothing notable"; a
+  Patrol's delivery has its own timeout. The Cell page shows the mode and the last Patrol; the Hive
+  Stand is watched too. Proved in a container with intervals of seconds: no writes outside the
+  packet's directory, Patrols on schedule, a planted CPU hog an Alarm at the next Patrol
+  (`tests/e2e/test_phase11_exit_watch.py`).
+- [x] **11.11 Exoskeleton on devices.** Through `PollenSession` the X11 backends from phase 6 work
   on a Linux device unchanged; on a Nuc they run locally under the device's Warden.
-- [ ] **11.12 CLI.** `hive swarm invite|list|revoke|promote <node>|demote <node>|access <node>
+  **Built 2026-10-14.** `PollenSession`'s `start`, `stop` and `is_running` carry the phase 6 X11
+  backends to a Linux device unchanged (`tests/integration/test_exoskeleton_on_device.py` over
+  device image variants; openbox no longer swallows the first click). On a colonized device or a Nuc
+  they run under the device's own Warden through its local session.
+- [x] **11.12 CLI.** `hive swarm invite|list|revoke|promote <node>|demote <node>|access <node>
   <level>|shield <node> meadow|propolis|run <node> "<cmd>"`; `hive cells list` shows devices as `REAL` with Warden location
   (`hive_stand` or `nuc`), access level and mode (`ACTIVE` or `WATCH`).
+  **Built 2026-10-14.** `cli/swarm/`: `hive swarm
+  invite|list|revoke|access|shield|promote|demote|run`, over the operator desk `swarm/operator/`
+  (revoke, narrow and move a device). `hive cells list` shows a device as `REAL` with source
+  `swarm`, its access level, tier and mode (`ACTIVE` or `WATCH`), and where its Warden runs:
+  `hive_stand` or `on_cell` (a column of its own gives the rung, GATEWAY, COLONIZED or NUC, so a Nuc
+  reads `on_cell`/`NUC` rather than the `nuc` this step named). Proved through Typer's runner in
+  `tests/e2e/test_swarm_cli.py` and on a container in `tests/e2e/test_phase11_exit_level0.py`.
 
 ### Exit criteria
 
