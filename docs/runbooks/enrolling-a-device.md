@@ -111,10 +111,15 @@ Each directory is absolute on the device's own system (`C:\Users\me\logs` on Win
 sixteen are taken, and one inside another you named is dropped. The Hive refuses a directory the
 device's granted capabilities do not let it read; every access level grants `fs:read:**`, so a
 device enrolled today accepts any. With no directory the command shows what is set, and `--clear`
-stops the file watching. The running Hive rebuilds the device's Warden for the new list, and the
-packet answers only for directories inside its own `fs:read` grant and never follows a symbolic
-link out of one. What the Warden sees is kept for a day, labelled personal, and the Hive sends the
-device no command to see it.
+stops the file watching. The running Hive applies the new list by itself: it rebuilds the device's
+Warden on the Hive Stand, or, for a device whose Warden has moved onto it, tells the packet and
+restarts that Warden under the new list, as for a new access level (a task running on it is paused
+at a Handoff and resumes). The packet, and a Warden on the device, read only directories inside
+the device's own `fs:read` grant and never follow a symbolic link out of one. A Warden on the
+device looks as often, and keeps what it sees as long, as the `[supervision.watch]` table of its
+own `warden.toml` says (`docs/manifests/device.toml`), and wakes on its fifteen-second heartbeat, so
+that is the closest it can look. What the Warden sees is kept for a day, labelled personal, and the
+Hive sends the device no command to see it; a Warden on the device keeps it on the device.
 
 ## 6. Take the device back
 

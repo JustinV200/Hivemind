@@ -825,6 +825,26 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   colonized Warden's renewal and in Clustering's resume (`pause_on_warden` waits for a checkpoint
   in the Queen's Bee Bread that a device's Warden never writes there; `pause_for_move` and
   `cluster.resume` should call `recall_handoff`), and the Honey Store has no taint ledger.
+- **Wave 5E (landed).** Two findings of the independent phase 11 tester. (1) A colonized device's
+  Warden did not watch: `cli/in_cell/borrowed` built it with no `WatchDeps`, so step 11.10 stopped
+  applying to a device the moment its Warden moved onto it. It now watches like every Real Cell's:
+  `SessionWatchProbe` over a lease-free, read-only `ObserverSession` (`cell/local/observer.py`; the
+  Warden gives its lease back when idle, so lending the probe the lease's session would have seen
+  none), the Patrol's numbers from the device manifest's new `[supervision.watch]`
+  (`DeviceWatchSection` on `WatchTuning`, no `roots`), and the operator's directories carried as the
+  other terms are: `SwarmNode.watch_roots` -> `NodeUpdate.watch_roots` (only those the capabilities
+  cover) -> the packet's state -> `HIVEMIND_WATCH_ROOTS` at START -> `CellReady.watch_roots` back ->
+  the desk's `Reported` -> `terms_drifted` -> the wave 4F renewal (a restart), held to the access
+  level at both ends (`readable_under`). Waggle 1.13 gained the two fields (additive). The Warden
+  wakes on its fifteen-second heartbeat, so a sample or a Patrol cannot come closer than a beat.
+  Proved on a container (`tests/e2e/test_phase11_exit_watch_colonized.py`). Writing the proof meant
+  removing `serve` from `tests/e2e/scripted_openai.py`, which had no caller and let the file take
+  the Patrol answer inside its 400-line cap. (2) `pause_for_move` (a colonized Warden's renewal) and
+  `cluster.resume` read only the Queen's Bee Bread for a Handoff; they now call `recall_handoff` too,
+  with the same refusals (4862cee, ADR-0053's amendment). Left: `pause_on_warden` still waits for
+  a checkpoint in the Queen's own Bee Bread that a device's Warden never writes there (its patience
+  is `HANDOFF_PATIENCE_S`; it returns early when she holds an older one), and the Honey Store has
+  no taint ledger.
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
   Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
   the one failure (fixed above).

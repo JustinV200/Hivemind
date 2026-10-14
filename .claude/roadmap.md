@@ -2334,8 +2334,17 @@ promotion, `hive swarm` CLI.
   inside its `fs:read` grant and never follows a symbolic link out of a root. Proved in a
   container: a new log line and a changed file under the named directory reach an observation, a
   path outside it (or through a link inside it) never does, and `--clear` stops both
-  (`tests/e2e/test_phase11_exit_watch_roots.py`). Left: a colonized device's Warden is built with
-  no watch settings at all (`cli/in_cell`), so it does not watch, and takes no roots yet.
+  (`tests/e2e/test_phase11_exit_watch_roots.py`). **On a colonized device, 2026-10-14.** The Warden
+  `cli/in_cell/borrowed` builds was given no watch settings, so a device stopped being watched
+  when its Warden moved onto it. It now watches like every Real Cell's: a `SessionWatchProbe` over
+  a lease-free read-only `ObserverSession` (it gives its lease back when idle), the Patrol's
+  numbers from the device manifest's `[supervision.watch]` and the operator's directories carried
+  as the other terms are (`NodeUpdate.watch_roots`, the packet's state, `HIVEMIND_WATCH_ROOTS` at
+  START, `CellReady.watch_roots` back), so naming one restarts the Warden under it by the terms
+  renewal, held to the access level at both ends (ADR-0054's second amendment). Proved in a
+  container: the Warden in WATCH, Patrols on its beat and quiet, a planted hog an Alarm at the next
+  Patrol, no file read until a directory is named and then its log lines and no other's, and no
+  write outside the packet's directory (`tests/e2e/test_phase11_exit_watch_colonized.py`).
 - [x] **11.11 Exoskeleton on devices.** Through `PollenSession` the X11 backends from phase 6 work
   on a Linux device unchanged; on a Nuc they run locally under the device's Warden.
   **Built 2026-10-14.** `PollenSession`'s `start`, `stop` and `is_running` carry the phase 6 X11

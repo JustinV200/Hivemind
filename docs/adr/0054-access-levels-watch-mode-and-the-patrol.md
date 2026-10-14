@@ -149,4 +149,69 @@ bee may do, and this ADR holds that a wider level never widens watching, so tyin
 it would undo that. A device manifest suits a Warden that is local to its files, which would name
 them in its own `[supervision.watch] roots`; but a Level 0 device has no manifest, and the Warden
 `cli/in_cell` builds for a colonized device carries no watch settings today, so it does not watch
-at all. Wiring that, and where it takes its roots, is left to the step that makes it watch.
+at all. Wiring that, and where it takes its roots, is left to the step that makes it watch. The
+next amendment is that step.
+
+## Amendment (2026-10-14): a colonized device's Warden watches
+
+The first amendment ended on a gap: the Warden `cli/in_cell` builds for a colonized device (Level 1
+and 2) carried no watch settings, so it did not watch at all. Step 11.10 applies to every Real Cell,
+so a device stopped being watched at the moment its Warden moved onto it, which is the opposite of
+what moving it should do. The Warden on a device is local to the machine, so it looks the way the
+Hive Stand's own does: fixed read-only scripts through a session (`SessionWatchProbe`), with the
+same Patrol, the same C2 observations in its own Bee Bread (the device's SQLite file) and the same
+`warden.patrol` records, which ride the trail it ships. Four things had to be decided.
+
+**It looks through a session that holds no lease.** The Hive Stand's Warden holds one lease for its
+whole life and lends the probe that lease's session. A device's Warden gives its lease back whenever
+it has nothing to supervise, so the machine keeps no scratch between tasks (a scenario asserts it),
+and a lease opened for each look would put an open and a release on its trail at every beat for as
+long as the device is idle. It looks through an `ObserverSession` (`cell/local/observer.py`), a
+`CellSession` that belongs to no lease: it runs a command through the same child-process machinery
+as every session and refuses everything else (write, read or delete a file, start a background
+process), so the probe cannot write to the device because the session it holds cannot. It stands in
+the Warden's own state directory and never creates a scratch of its own.
+
+**The numbers are the device manifest's.** `[supervision.watch]` in `warden.toml`
+(`DeviceWatchSection`) holds the five numbers the Hive's table has (sample interval, retention,
+Patrol interval, the CPU and disk thresholds, `WatchTuning`) and the Hive's shipped values when it is
+absent. `roots` is not a key there and is refused with the reason: the Hive Stand's directories are
+not the device's, and the operator names a device's with `hive swarm watch`. The Patrol is an awake
+episode on the Warden's own `warden` slot binding, assembled from its own Bee Bread like any other,
+and nothing it does writes to the device: the observations and records go to the state directory.
+
+**The directories travel as the other terms do.** Not by the device manifest, which an operator
+writes once at install time and the Hive Stand's operator cannot reach, and not by a message to the
+Warden, which has none for any term. They ride the path the access level and the tier already take.
+`hive swarm watch` stores the list on the node; the Queen's reconcile pass sends the packet
+`swarm.node_update` with it (`NodeUpdate.watch_roots`, only the directories the node's capabilities
+cover, `readable_roots`), and the packet keeps it in its state; the packet starts the Warden with it
+in `HIVEMIND_WATCH_ROOTS`, a JSON array; the Warden says which list it runs with in its `cell.ready`
+(`CellReady.watch_roots`); the gate's desk keeps that with the access level and the tier it
+reported; and `terms_drifted` compares all three with the registry's. A difference starts the terms
+renewal (ADR-0053): the packet is told, the bees pause at Handoffs, the packet stops the Warden and
+starts it, and the new Warden's `cell.ready` is checked against the terms; one that comes up under
+the old list is never trusted, and the device falls back to Level 0, where the Hive Stand's Warden
+asks the packet for exactly the registry's list. Naming a directory therefore costs what a new
+access level costs: a restart, with any task paused and resumed from its Handoff. That is the price
+of one way for a term to reach a Warden, and a restart is the lightest way the pieces allow.
+
+**It is held to the access level at both ends.** The Queen sends only what the node's capabilities
+let the Hive read, and the Warden filters what it was handed through the same rule
+(`readable_under` over `granted_capabilities`) before it reads. The Warden reports back what it was
+handed, not what it kept, and the Queen compares that with what she sends, not with the operator's
+whole list. A difference between the two ends' rules (an old stored capability set) then makes the
+Warden read less than was asked and leaves a visible discrepancy, where comparing what was kept
+would have restarted the device for ever; and a directory the capabilities do not cover is no
+difference at all, since it is never sent.
+
+Two limits are the design's. A Warden on a device wakes every fifteen seconds (its heartbeat), and
+watching runs on its tick, so a sample and a Patrol cannot come closer than a beat whatever
+`[supervision.watch]` asks; the first sample of a Warden that has just started has no CPU baseline,
+so a process's share is measured from its second. And a quiet Patrol discards what it covered, so
+the observations that hold a log line are on the device only until the next quiet one; an ALARM
+keeps its window. Proved in a container (`tests/e2e/test_phase11_exit_watch_colonized.py`): the
+Warden on the device sits in WATCH with no lease, is Patrolled on its beat and quietly, makes a
+planted CPU hog an Alarm at the next Patrol (the observations it covered hold no file while no
+directory is named), is restarted by the Queen when `hive swarm watch` names one, and then covers
+that directory's log lines and no other directory's, with the device left as found.
