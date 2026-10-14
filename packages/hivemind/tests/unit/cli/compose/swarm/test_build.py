@@ -289,6 +289,25 @@ def test_the_gate_is_built_with_the_servers_the_hive_allows_and_the_nuc_pressure
     assert all(s.spec.host_cell_id is None for s in server.sources)
 
 
+def test_the_gate_is_built_with_the_times_that_keep_the_queen_from_flapping_a_device(
+    tmp_path: Path,
+) -> None:
+    path = swarm_manifest(tmp_path)
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n[swarm.ladder]\nlower_after_s = 61.0\nretry_after_s = 7.0\n"
+        + "\n[swarm.nuc]\nlower_after_s = 62.0\nretry_after_s = 8.0\n",
+        encoding="utf-8",
+    )
+
+    hive = _hive(path)
+
+    assert hive.swarm is not None
+    terms = hive.swarm.gate.terms
+    assert (terms.lower_after_s, terms.retry_after_s) == (61.0, 7.0)
+    assert (terms.nuc_lower_after_s, terms.nuc_retry_after_s) == (62.0, 8.0)
+
+
 def test_a_hive_that_declares_no_server_allows_a_device_none(tmp_path: Path) -> None:
     hive = _hive(swarm_manifest(tmp_path))
 

@@ -8,7 +8,9 @@ its tasks are re-placed too (`[supervision] max_offline_s`), the runtime version
 on a device it colonizes, the thresholds `decide_colonize` weighs (`[swarm.ladder]`), and what
 `decide_nuc` weighs: the seat pressure past which a Nuc is wanted (`[swarm.nuc]`) and the model
 servers the Hive allows a device to start, each with the Forage map entries it may load
-(`[llm.servers]`). The `GateContext` is the other half: the Queen and her collaborators, bound when
+(`[llm.servers]`). Each rung also carries the two times that keep the Queen's own moves from
+flapping (`lower_after_s` and `retry_after_s`; `hivemind.queen.swarm_gate.rungs` reads them). The
+`GateContext` is the other half: the Queen and her collaborators, bound when
 the gate starts, so the pieces that act on tasks (the hold, the colonization) read them from one
 place and a test can bind a Queen without opening a listener.
 
@@ -33,7 +35,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivemind.manifest.schema.swarm import DEFAULT_NUC_SEAT_PRESSURE
+from hivemind.manifest.schema.swarm import (
+    DEFAULT_LOWER_AFTER_S,
+    DEFAULT_NUC_SEAT_PRESSURE,
+    DEFAULT_RETRY_AFTER_S,
+)
 from hivemind.swarm import OfferedServer
 
 if TYPE_CHECKING:
@@ -63,6 +69,14 @@ class GateTerms:
         servers: The model servers the Hive allows a device to start, with the Forage map entries
             each may load, in manifest order (`[llm.servers]` and `[forage.map]`); a device's
             Warden can start only one of these that its own manifest also declares.
+        lower_after_s: Seconds every reason the Queen colonized a device for must have been gone
+            before she takes its Warden back (`[swarm.ladder] lower_after_s`).
+        retry_after_s: Seconds she leaves a device alone after a colonization or withdrawal she
+            began failed (`[swarm.ladder] retry_after_s`).
+        nuc_lower_after_s: The same wait before she stops a model server she started
+            (`[swarm.nuc] lower_after_s`).
+        nuc_retry_after_s: The same pause after a Nuc promotion or demotion she began failed
+            (`[swarm.nuc] retry_after_s`).
     """
 
     interval_s: float
@@ -73,6 +87,10 @@ class GateTerms:
     min_free_memory_bytes: int
     nuc_seat_pressure: float = DEFAULT_NUC_SEAT_PRESSURE
     servers: tuple[OfferedServer, ...] = ()
+    lower_after_s: float = DEFAULT_LOWER_AFTER_S
+    retry_after_s: float = DEFAULT_RETRY_AFTER_S
+    nuc_lower_after_s: float = DEFAULT_LOWER_AFTER_S
+    nuc_retry_after_s: float = DEFAULT_RETRY_AFTER_S
 
 
 @dataclass(frozen=True, slots=True)

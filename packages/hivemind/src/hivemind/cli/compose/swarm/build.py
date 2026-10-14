@@ -142,6 +142,10 @@ def _gate_terms(parts: HiveParts) -> GateTerms:
         min_free_memory_bytes=section.ladder.min_free_memory_bytes,
         nuc_seat_pressure=section.nuc.seat_pressure,
         servers=_offered_servers(parts),
+        lower_after_s=section.ladder.lower_after_s,
+        retry_after_s=section.ladder.retry_after_s,
+        nuc_lower_after_s=section.nuc.lower_after_s,
+        nuc_retry_after_s=section.nuc.retry_after_s,
     )
 
 

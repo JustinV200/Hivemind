@@ -70,6 +70,15 @@ def test_the_ladder_and_nuc_defaults_are_the_documented_thresholds() -> None:
     assert section.nuc.seat_pressure == 0.75
 
 
+def test_each_rung_waits_a_quarter_hour_before_undoing_and_five_minutes_after_a_failure() -> None:
+    section = SwarmSection()
+
+    # What keeps the Queen from flapping a device: when she undoes a move she made on her own,
+    # and how soon she tries a device again after an attempt on it failed.
+    assert (section.ladder.lower_after_s, section.ladder.retry_after_s) == (900.0, 300.0)
+    assert (section.nuc.lower_after_s, section.nuc.retry_after_s) == (900.0, 300.0)
+
+
 def test_a_manifest_that_omits_the_section_gets_the_disabled_default() -> None:
     manifest = load_manifest(_MANIFESTS_DIR / "minimal.toml")
 
@@ -84,8 +93,13 @@ def test_the_section_round_trips_through_its_own_dump() -> None:
         listen_port=9000,
         advertise_url="wss://hive.example.org:9000/",
         default_access="SCRATCH",
-        ladder={"relief_pressure": 0.5, "min_free_memory_bytes": 0},
-        nuc={"seat_pressure": 1.0},
+        ladder={
+            "relief_pressure": 0.5,
+            "min_free_memory_bytes": 0,
+            "lower_after_s": 60.0,
+            "retry_after_s": 30.0,
+        },
+        nuc={"seat_pressure": 1.0, "lower_after_s": 120.0, "retry_after_s": 45.0},
         **_TLS,
     )
 
@@ -114,6 +128,10 @@ def test_the_section_round_trips_through_its_own_dump() -> None:
         ({"ladder": {"min_free_memory_bytes": -1}}, "greater than or equal to 0"),
         ({"nuc": {"seat_pressure": 0}}, "greater than 0"),
         ({"nuc": {"seat_pressure": 1.01}}, "less than or equal to 1"),
+        ({"ladder": {"lower_after_s": 0}}, "greater than 0"),
+        ({"ladder": {"retry_after_s": -1}}, "greater than 0"),
+        ({"nuc": {"lower_after_s": 0}}, "greater than 0"),
+        ({"nuc": {"retry_after_s": 0}}, "greater than 0"),
         ({"enabled": "perhaps"}, "enabled"),
         ({"ladder": {"relief_pressure": 0.5, "headroom": 1}}, "extra"),
         ({"workers": 4}, "extra"),

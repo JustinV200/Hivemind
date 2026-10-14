@@ -10,7 +10,11 @@ liveness is judged (the heartbeat cadence and the number of beats it may miss, t
 a device with no Warden on it enforces on itself, and how long the Queen holds a lost device's
 tasks before deciding), the access level an invite gets when the operator names none, and two
 sub-tables of thresholds: ``[swarm.ladder]`` (when moving a device's Warden onto it, colonizing it,
-is worth doing) and ``[swarm.nuc]`` (when giving it a model server of its own is). The schema
+is worth doing) and ``[swarm.nuc]`` (when giving it a model server of its own is). Each sub-table
+also holds the two times that keep the Queen from flapping a device between rungs when she moves
+it on her own: how long every reason for a move must have been gone before she undoes it
+(``lower_after_s``), and how long she leaves a device alone after an attempt on it failed
+(``retry_after_s``). The schema
 checks only what a value is, and the one rule that keeps a secret off the wire in the clear: a
 listener on any address other than loopback serves ``wss://``, so it needs both halves of a
 certificate. A device packet pins that certificate's fingerprint from the invite, so a self-signed
@@ -66,6 +70,13 @@ DEFAULT_SWARM_ACCESS = AccessLevel.FULL  # What an invite grants when the operat
 DEFAULT_RELIEF_PRESSURE = 0.75  # Seat or memory pressure past which the Hive Stand wants relief.
 DEFAULT_MIN_FREE_MEMORY_BYTES = 1_073_741_824  # 1 GiB: room for a Warden, a sub-bee and headroom.
 DEFAULT_NUC_SEAT_PRESSURE = 0.75  # Hive Stand seat pressure past which a Nuc is worth building.
+DEFAULT_LOWER_AFTER_S = 900.0  # Fifteen minutes with no reason left before the Queen takes back a
+# rung she raised: long enough that a lull between two tasks does not undo the move that the
+# next task would only repeat, short enough that an idle device is not kept raised for hours.
+DEFAULT_RETRY_AFTER_S = 300.0  # Five minutes before the Queen tries a device again after a
+# failed attempt; a runtime install or a model server start rarely fixes itself faster.
+MAX_RETRY_DOUBLINGS = 5  # A device that keeps failing is waited on twice as long each time, up to
+# 2**5 = 32 times `retry_after_s`: a broken device costs the Hive one attempt a day, not one a pass.
 MAX_PORT = 65535  # The highest TCP port; 0 is allowed and means "let the OS choose" (tests).
 MAX_HOST_CHARS = 253  # The longest fully qualified domain name the DNS wire format allows.
 MAX_PATH_TEXT_CHARS = 4_096  # A certificate or key path; PATH_MAX on Linux.
@@ -79,15 +90,18 @@ _HOST_NAME_PATTERN = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$")
 __all__ = [
     "DEFAULT_DEAD_MAN_S",
     "DEFAULT_INVITE_TTL_MINUTES",
+    "DEFAULT_LOWER_AFTER_S",
     "DEFAULT_MIN_FREE_MEMORY_BYTES",
     "DEFAULT_NUC_SEAT_PRESSURE",
     "DEFAULT_RELIEF_PRESSURE",
+    "DEFAULT_RETRY_AFTER_S",
     "DEFAULT_SWARM_ACCESS",
     "DEFAULT_SWARM_HEARTBEAT_INTERVAL_S",
     "DEFAULT_SWARM_HEARTBEAT_MISS_LIMIT",
     "DEFAULT_SWARM_LISTEN_HOST",
     "DEFAULT_SWARM_LISTEN_PORT",
     "DEFAULT_UNREACHABLE_GRACE_S",
+    "MAX_RETRY_DOUBLINGS",
     "SwarmLadderSection",
     "SwarmNucSection",
     "SwarmSection",
@@ -117,6 +131,21 @@ class SwarmLadderSection(BaseModel):
         "Warden onto it, on top of the Forage footprint of a Warden plus one sub-bee; 0 turns "
         "the floor off and leaves the footprint as the only test.",
     )
+    lower_after_s: float = Field(
+        default=DEFAULT_LOWER_AFTER_S,
+        gt=0,
+        description="Seconds every reason the Queen colonized a device for (the Hive Stand "
+        "needing relief, a task that must survive a lost link) must have been gone before she "
+        "takes its Warden back to the Hive Stand, and then only while the device is idle. A "
+        "device the operator promoted is never taken back by her.",
+    )
+    retry_after_s: float = Field(
+        default=DEFAULT_RETRY_AFTER_S,
+        gt=0,
+        description="Seconds the Queen waits after a colonization or a withdrawal she began on "
+        "her own failed before she tries that device again; each further failure in a row "
+        "doubles the wait, up to 32 times this.",
+    )
 
 
 class SwarmNucSection(BaseModel):
@@ -132,6 +161,21 @@ class SwarmNucSection(BaseModel):
         "Queen may promote a colonized device to a Nuc so its sub-bees stop competing for them; "
         "a task's need to keep working offline, or the operator's own `promote`, can promote "
         "below it.",
+    )
+    lower_after_s: float = Field(
+        default=DEFAULT_LOWER_AFTER_S,
+        gt=0,
+        description="Seconds every reason the Queen gave a device a model server for (the Hive "
+        "Stand's seats under pressure, a task that must survive a lost link) must have been "
+        "gone before she stops that server, and then only while the device is idle. A Nuc the "
+        "operator promoted is never demoted by her.",
+    )
+    retry_after_s: float = Field(
+        default=DEFAULT_RETRY_AFTER_S,
+        gt=0,
+        description="Seconds the Queen waits after a Nuc promotion or demotion she began on her "
+        "own failed before she tries that device again; each further failure in a row doubles "
+        "the wait, up to 32 times this.",
     )
 
 
