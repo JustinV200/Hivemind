@@ -38,7 +38,14 @@ from waggle.messages import AlarmSeverity
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.status import ReleaseCause
 from waggle.messages.control.protocol import ErrorMessage, Shutdown
-from waggle.messages.forage import GrantIssued, SourceEvict, SourceRef
+from waggle.messages.forage import (
+    ForageDelta,
+    ForageOutcome,
+    ForageReply,
+    GrantIssued,
+    SourceEvict,
+    SourceRef,
+)
 from waggle.messages.honey import HoneyResponse
 from waggle.messages.labels import AccuracyBar, Postcondition, PostconditionKind, Tempo, Urgency
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
@@ -360,3 +367,21 @@ def test_decide_maps_a_nuc_promote_to_nuc_promote() -> None:
     action = decide(make_inbox_item(payload=order, principal="queen"), None, make_policy())
 
     assert action is WardenAction.NUC_PROMOTE
+
+
+def test_decide_maps_a_forage_reply_to_record_and_not_to_an_awake_episode() -> None:
+    # The Queen answers every ForageRequest a Warden files (a held task's, a starved seat's). It
+    # went unmapped, so each answer woke a model to decide nothing, and a model that answered in a
+    # form the episode could not read ended the Warden's tick (found by the phase 11 Nuc scenario).
+    reply = ForageReply(
+        grant_id=new_grant_id(_CLOCK),
+        outcome=ForageOutcome.DENIED,
+        granted=ForageDelta(seats=0, source_id=None, slot=None, minimum_grade=None),
+        revision=None,
+        expires_at=None,
+        reason="BINDING requests pick a higher-grade binding for a slot; routing does that.",
+    )
+
+    action = decide(make_inbox_item(payload=reply, principal="queen"), None, make_policy())
+
+    assert action is WardenAction.RECORD

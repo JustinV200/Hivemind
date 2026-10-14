@@ -70,7 +70,14 @@ from waggle.messages.cell import CellTaintOrder
 from waggle.messages.cell.leases import CellTeardownRequest
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.control.protocol import ErrorMessage, Shutdown
-from waggle.messages.forage import CeilingsSet, GrantIssued, GrantRevoked, PlanWritten, SourceEvict
+from waggle.messages.forage import (
+    CeilingsSet,
+    ForageReply,
+    GrantIssued,
+    GrantRevoked,
+    PlanWritten,
+    SourceEvict,
+)
 from waggle.messages.honey import HoneyQuery, HoneyResponse, NectarDeposit
 from waggle.messages.registry import kind_for
 from waggle.messages.supervision import (
@@ -215,7 +222,10 @@ def _decide_relay_or_record(payload: object) -> WardenAction | None:
         return WardenAction.QUARANTINE
     if isinstance(payload, TaskCancel | TaskPause | TaskResume | Intervene):
         return WardenAction.FORWARD_CONTROL
-    if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten):
+    if isinstance(payload, TaskProgress | Heartbeat | CeilingsSet | PlanWritten | ForageReply):
+        # A ForageReply answers a request this Warden filed and forgot (routing's, or a held
+        # task's); the grant it names arrives as a GrantIssued, and a denial changes nothing, so
+        # there is nothing in it to judge.
         return WardenAction.RECORD
     if isinstance(payload, CellSnapshotReply | CellRollbackReply):
         # Roadmap step 5.10's own follow-up gap (the snapshot relay): resolved by this Warden's

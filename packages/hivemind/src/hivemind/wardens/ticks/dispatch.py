@@ -193,7 +193,10 @@ async def _relay(
 
 
 async def _record_routine(warden: Warden, item: InboxItem, payload: object) -> None:
-    """Handle a RECORD-only item: a grant or its revocation, a heartbeat, progress, ceilings..."""
+    """Handle a RECORD-only item: a grant or its revocation, a heartbeat, progress, ceilings...
+
+    A ForageReply is recorded by doing nothing: the grant it names comes as a GrantIssued.
+    """
     if isinstance(payload, GrantIssued):
         await assign.handle_grant(warden, payload)
     elif isinstance(payload, GrantRevoked):
