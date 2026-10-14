@@ -40,9 +40,10 @@
 #
 # Node integrity seams (no rule yet, because no step has built what records them): Waggle replay
 # refusal (11.3b, guard.replay_refused), repeated frame-ceiling closes (11.3a,
-# guard.frame_ceiling), a merged segment whose events fail the node's key (11.9) and a capability
-# report that changed without re-enrolment (13.4a). Each becomes one table here with its kind. A
-# frame that fails its signature before its link is attached proves no Cell and is not recorded.
+# guard.frame_ceiling) and a capability report that changed without re-enrolment (13.4a). Each
+# becomes one table here with its kind. A segment whose signature does not verify against its
+# node's registered key (11.9) is already one: guard.segment_refused, reason bad_signature, below.
+# A frame that fails its signature before its link is attached proves no Cell and is not recorded.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # A bee's own behaviour
@@ -237,13 +238,15 @@ confidence = "critical"
 action = "isolate_cell"
 
 # A trail segment shipped under a node, Warden or Cell its Cell's link never proved
-# (guard.segment_refused, reason another_node or another_cell): a Cell writing the Hive's audit
-# record in another node's name, or routing it as another Cell's (a Night Veil Cell's onto the
-# durable trail, say). Nothing of it was merged. A shipped dire pattern.
+# (guard.segment_refused, reason another_node or another_cell), or signed with a key that is not
+# the sending node's registered one (reason bad_signature, ADR-0053): a Cell writing the Hive's
+# audit record in another node's name, or routing it as another Cell's (a Night Veil Cell's onto
+# the durable trail, say), or vouching for it with a key it does not hold. Nothing of it was
+# merged. A shipped dire pattern.
 [rules.segment_forgery]
-title = "a trail segment shipped under another node's or Cell's identity"
+title = "a trail segment shipped under another node's or Cell's identity, or badly signed"
 counts = [
-    { kind = "guard.segment_refused", where = { reason = ["another_node", "another_cell"] } },
+    { kind = "guard.segment_refused", where = { reason = ["another_node", "another_cell", "bad_signature"] } },
 ]
 group_by = "cell"
 window_s = 3600.0
@@ -251,11 +254,14 @@ threshold = 1
 confidence = "critical"
 action = "isolate_cell"
 
-# A trail segment the Queen could not merge (guard.segment_refused, reason format or corrupt): a
-# gap in the Cell's audit record, from a fault or a tampered export; the Queen judges which.
+# A trail segment the Queen could not merge (guard.segment_refused, reason format, corrupt or
+# unsigned): a gap in the Cell's audit record, from a fault, a tampered export or a Swarm node's
+# Warden that does not sign the segments it must (ADR-0053); the Queen judges which.
 [rules.segment_unmergeable]
 title = "a trail segment the Queen could not merge"
-counts = [{ kind = "guard.segment_refused", where = { reason = ["format", "corrupt"] } }]
+counts = [
+    { kind = "guard.segment_refused", where = { reason = ["format", "corrupt", "unsigned"] } },
+]
 group_by = "cell"
 window_s = 3600.0
 threshold = 1

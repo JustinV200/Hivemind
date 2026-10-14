@@ -176,6 +176,7 @@ from hivemind.queen.cell_gate import (
     CellListener,
     CellListenerDeps,
     CellSnapshotHandler,
+    GateSegmentKeys,
     LifecycleVirtualCellProvider,
     QueenReadinessGate,
     make_on_cell_granted,
@@ -331,17 +332,7 @@ def _build_lifecycle(
         identity,
         overwinter=OverwinterSettings(pool=pool, config=overwinter_config),
     )
-    # Unconditional, unlike the snapshot relay below: any backend's own Warden -- "fake" included,
-    # the one `tests.builders.virtual_cells.ContainerSpawningFakeCellBackend` runs a real in-Cell
-    # Warden over -- ships its local trail segment as TrailSegmentSync chunks on every heartbeat
-    # and once more from `stop()` (hivemind.wardens.trail_sync's own module docstring); leaving
-    # this unbound for "fake" left every one of those chunks silently dropped (`CellListener.
-    # _dispatch`'s own "no-op when CellListenerDeps names no ... receiver"), so a Cell's whole
-    # local trail was lost even when `hivemind.queen.cell_gate.quiesce.make_quiesce` gave its
-    # Warden a clean chance to ship it (this dispatch's own fix, confirmed missing by the phase 5
-    # e2e slice: the Queen's trail held only her own node id for a finished Virtual Cell's task).
-    # A Night Veil Cell's segment goes to its ephemeral segment instead (codingrules 12).
-    listener.bind_trail_receiver(TrailSegmentReceiver(trail, trail.segments))
+    _bind_trail_receiver(listener, trail, gate)
     if section.backend in ("docker", "qemu"):
         # "fake" (dev/test only) never declares can_snapshot=True (hivemind.hive.backends.fake's
         # own default), so it would only ever draw NoopSnapshotter -- opening a real SQLite
@@ -350,6 +341,27 @@ def _build_lifecycle(
         # ever gets a chance to release). Only a real backend gets the snapshot relay wired in.
         _attach_snapshot(manifest, listener, lifecycle, clock)
     return gate, listener, registry, lifecycle, ctx
+
+
+def _bind_trail_receiver(
+    listener: CellListener, trail: VeiledTrail, gate: QueenReadinessGate
+) -> None:
+    """Bind the receiver that merges every Virtual Cell's shipped trail segment into `trail`.
+
+    Unconditional, unlike the snapshot relay: any backend's own Warden -- "fake" included, the one
+    `tests.builders.virtual_cells.ContainerSpawningFakeCellBackend` runs a real in-Cell Warden
+    over -- ships its local trail segment as TrailSegmentSync chunks on every heartbeat and once
+    more from `stop()` (hivemind.wardens.trail_sync's own module docstring); leaving this unbound
+    for "fake" left every one of those chunks silently dropped, so a Cell's whole local trail was
+    lost even when `hivemind.queen.cell_gate.quiesce.make_quiesce` gave its Warden a clean chance
+    to ship it (confirmed missing by the phase 5 e2e slice: the Queen's trail held only her own
+    node id for a finished Virtual Cell's task). A Night Veil Cell's segment goes to its ephemeral
+    segment instead (codingrules 12). A segment that arrives signed is verified against the key
+    the gate registered for its Cell; an unsigned one merges as it always did (roadmap 11.9: a
+    Virtual Cell's Warden is not required to sign).
+    """
+    keys = GateSegmentKeys(gate)
+    listener.bind_trail_receiver(TrailSegmentReceiver(trail, trail.segments, keys))
 
 
 def _build_provider(

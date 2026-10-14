@@ -127,12 +127,14 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 |---|---|---|---|---|---|---|
 | `subject_forgery` | `guard_bee.subject_forged`: a record a Cell's node made about what another Cell owns | cell (the recorder's) | 1 h | 1 | `isolate_cell`, critical | no |
 | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
-| `segment_forgery` | `guard.segment_refused` for `another_node` or `another_cell` | cell | 1 h | 1 | `isolate_cell`, critical | no |
-| `segment_unmergeable` | `guard.segment_refused` for `format` or `corrupt` | cell | 1 h | 1 | `isolate_cell`, high | no |
+| `segment_forgery` | `guard.segment_refused` for `another_node`, `another_cell` or `bad_signature` | cell | 1 h | 1 | `isolate_cell`, critical | no |
+| `segment_unmergeable` | `guard.segment_refused` for `format`, `corrupt` or `unsigned` | cell | 1 h | 1 | `isolate_cell`, high | no |
 | `request_forgery` | `guard.entrance_login_failed` for `request_signature` or `request_replay` | hive | 10 min | 2 | `reduce_entrance`, high | no |
 
-The Cell gate (`hivemind.queen.cell_gate`, the Queen's listener every Virtual Cell's Warden dials)
-records the next three, about the Cell whose own proved link carried the frame:
+The Queen's two gates, the Cell gate (`hivemind.queen.cell_gate`, the listener every Virtual Cell's
+Warden dials) and the swarm gate (`hivemind.queen.swarm_gate`, which attaches a colonized device's
+Warden), serve a Warden's link through one shared path (`hivemind.queen.attach`) and so record the
+next two the same way, about the Cell whose own proved link carried the frame:
 
 - **`guard.envelope_refused`**: a frame on an attached link failed its signature (reason
   `invalid`, `missing` or `unknown_node`). The link is closed. A tampered link, or a Cell signing
@@ -145,8 +147,15 @@ records the next three, about the Cell whose own proved link carried the frame:
   Veil Cell's own refusals are veiled with the rest of its record (codingrules 12): they reach
   its segment, never the durable trail the Guard Bee reads. `format` and `corrupt`: an unknown
   segment format, or bytes that do not match the size, digest or event count the chunk declared.
-  The link stays up: an honest Cell's bad export is a fault to hear of, not a reason to cut its
-  Warden off mid-task.
+  `bad_signature` and `unsigned` (Waggle 1.13, ADR-0053): the final chunk of an export carries an
+  Ed25519 signature by the sending node over the segment's identity and digest, and the Queen
+  checks it before anything is merged. A Swarm node's segment must be signed by the key the
+  registry holds for it: one signed with any other key, or whose signed fields were changed
+  afterwards, is `bad_signature`, and one with no signature at all is `unsigned`. A Virtual Cell's
+  segment need not be signed, but one that is is verified against the key the readiness gate
+  registered for its Cell, so it can only be `bad_signature`. Nothing of a refused export is
+  merged, and a partial one is dropped so a retry starts clean. The link stays up: an honest
+  Cell's bad export is a fault to hear of, not a reason to cut its Warden off mid-task.
 
 Each reason is recorded once per link, so no Cell can flood the trail. `subject_forgery`,
 `envelope_forgery` and `segment_forgery` are shipped dire patterns: the Queen isolates the Cell by
@@ -154,11 +163,15 @@ rule. A frame that
 fails its signature before its link is attached proves no Cell (whoever dialled may have named any
 Cell's id), so the gate closes that connection and records nothing against anyone.
 
+The Guard Bee learns which node speaks for which Cell from the Queen's own `warden.spawned`, and,
+since a Warden can come back on a link that proves another node (it moves onto its device when it
+is colonized, ADR-0052), from `warden.reconnected` as well. Both are believed from the Hive Stand's
+node alone, so a node cannot claim a Cell by recording either itself.
+
 `request_forgery` is someone holding a session token without its device's key. The node-integrity
 failures later steps add become rules once each has a trail kind: Waggle replay refusal
-(`guard.replay_refused`, 11.3b), repeated frame-ceiling closes (`guard.frame_ceiling`, 11.3a), a
-merged segment whose events fail the node's key (11.9), and a capability report that changed
-without re-enrolment (13.4a).
+(`guard.replay_refused`, 11.3b), repeated frame-ceiling closes (`guard.frame_ceiling`, 11.3a), and
+a capability report that changed without re-enrolment (13.4a).
 
 ### The Hive Entrance
 
@@ -198,7 +211,8 @@ a rule may count it.
 
 It learns who owns what from the Queen's own records, and only those her own node recorded:
 `warden.spawned` names each Warden's Cell and the node its link proved (the Cell gate's handshake,
-or the Hive Stand's own process), `queen.assigned` every Cell a task was placed on, and
+a device's, or the Hive Stand's own process), `warden.reconnected` the same for a Warden that came
+back on a link proving another node, `queen.assigned` every Cell a task was placed on, and
 `forage.granted` a grant's task. A bee is owned through the `worker.spawned` its own Cell's node
 recorded, and a Capping proposal through its `capping.proposed`, each only when the task it names
 was placed on that Cell. Then an event counts when:

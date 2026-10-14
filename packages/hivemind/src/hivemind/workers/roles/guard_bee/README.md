@@ -71,8 +71,9 @@ heartbeat and one round after the events behind it.
 
 Attribution. A Virtual Cell's Warden ships its own trail segment, so a compromised Cell can
 record anything on its own node. The index learns who owns what from the Queen's records alone
-(`warden.spawned` names each Warden's Cell and the node its link proved; `queen.assigned` each Cell
-a task was placed on; `forage.granted` a grant's task) and a bee or proposal through the claim its
+(`warden.spawned`, and `warden.reconnected` for a Warden that came back on another node's link,
+name each Warden's Cell and the node its link proved; `queen.assigned` each Cell a task was placed
+on; `forage.granted` a grant's task) and a bee or proposal through the claim its
 own Cell's node made. `facts_of` returns only facts the Hive Stand recorded or whose node's Cell
 owns all they name; one naming what another Cell owns is returned instead under the derived kind
 `guard_bee.subject_forged`, about the recording node's Cell alone, which `subject_forgery` counts.

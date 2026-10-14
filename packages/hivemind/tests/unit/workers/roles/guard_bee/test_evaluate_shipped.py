@@ -27,6 +27,7 @@ from builders.guard_bee import SHIPPED_RULE_SEEDERS, GuardBeeRig, make_guard_bee
 
 from hivemind.pheromone import PheromoneEvent
 from hivemind.workers.roles.guard_bee import load_guard_rules
+from waggle.ids import new_cell_id
 
 
 async def _alerts_for(rig: GuardBeeRig, key: str) -> list[PheromoneEvent]:
@@ -57,3 +58,27 @@ async def test_a_shipped_rule_stays_quiet_just_under_its_threshold(key: str) -> 
     alerts = await _alerts_for(rig, key)
 
     assert alerts == []
+
+
+@pytest.mark.parametrize(
+    ("reason", "rule"),
+    [
+        ("another_node", "segment_forgery"),
+        ("another_cell", "segment_forgery"),
+        ("bad_signature", "segment_forgery"),
+        ("format", "segment_unmergeable"),
+        ("corrupt", "segment_unmergeable"),
+        ("unsigned", "segment_unmergeable"),
+    ],
+)
+async def test_each_segment_refusal_reason_is_counted_by_its_own_rule_alone(
+    reason: str, rule: str
+) -> None:
+    # A segment signed with a key that is not its node's is a forgery; one that should have been
+    # signed and was not is a gap the Queen judges (ADR-0053); neither is counted by the other rule.
+    rig = make_guard_bee()
+    await rig.seed.refused("guard.segment_refused", new_cell_id(rig.clock), reason)
+
+    await rig.bee.tick()
+
+    assert [alert.payload["rule"] for alert in await rig.alerts()] == [rule]

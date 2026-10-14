@@ -25,7 +25,8 @@ Key invariants:
       `CellReady` naming an `expect`-ed Cell.
     - A connection's fan-out holds at most `listener.FANOUT_QUEUE_SIZE` envelopes the Queen has
       not read; past that it leaves the socket unread, so backpressure reaches the Cell.
-    - A trail segment chunk is merged only when it names its link's own node and Warden.
+    - A trail segment chunk is merged only when it names its link's own node and Warden, and a
+      signed one only when it verifies under the key registered for its Cell.
 
 See Also:
     - docs/adr/0027-virtual-cells-connect-outbound-only-and-boot-a-warden.md for the connection
@@ -50,6 +51,8 @@ Public API:
       (hivemind.queen.cell_gate.shutdown).
     - CellSnapshotHandler: answers a Warden's own CellSnapshotRequest/CellRollbackRequest, the
       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
+    - GateSegmentKeys: the key a Virtual Cell's trail segment is checked against when it is signed
+      (hivemind.queen.cell_gate.segment_keys, roadmap 11.9).
     - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND: what one Cell's
       link refused, recorded for the Guard Bee (hivemind.queen.cell_gate.refusals, roadmap step
       10.6).
@@ -71,6 +74,7 @@ from hivemind.queen.cell_gate.refusals import (
     transport_refusals,
 )
 from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
+from hivemind.queen.cell_gate.segment_keys import GateSegmentKeys
 from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
 
@@ -80,6 +84,7 @@ __all__ = [
     "CellListener",
     "CellListenerDeps",
     "CellSnapshotHandler",
+    "GateSegmentKeys",
     "LifecycleVirtualCellProvider",
     "LinkRefusals",
     "QueenReadinessGate",
