@@ -29,6 +29,8 @@ Fits into the Hive:
 Key invariants:
     - A dial is one attempt: the backoff between attempts belongs to `redial`, so a dialer that
       retried inside itself would stretch the schedule.
+    - `redial` stops as soon as it is told the link was closed: before each attempt, and once a
+      connection is made, which it closes rather than hand on. A closed link never dials again.
     - Every await on the network has a timeout constant; a failure the network can cause
       (`TransportError`, `OSError`, `TimeoutError`) is retried, and nothing else is swallowed.
     - The link is declared online only after the queue and the held questions have been sent,
@@ -203,14 +205,25 @@ class TrailReconnect:
             await self._trail_sync.sync()
 
 
-async def redial(parts: Reconnection) -> Transport:
+def _never() -> bool:
+    """The default `abandoned` of a redial nobody can close: it goes on until it connects."""
+    return False
+
+
+async def redial(
+    parts: Reconnection, *, abandoned: Callable[[], bool] = _never
+) -> Transport | None:
     """Dial and announce until both succeed, waiting longer after each failure.
 
     Args:
         parts: The dialer, announcer and clock.
+        abandoned: Whether the owner closed the link meanwhile. Asked before each attempt and
+            once more when a connection is made, so a closed link never dials again and never
+            keeps what it dialled after it was closed.
 
     Returns:
-        A connected transport that has announced the Cell.
+        A connected transport that has announced the Cell; None when `abandoned` became true
+        first, any connection already made having been closed.
 
     Raises:
         asyncio.CancelledError: The caller was cancelled (the Warden is stopping); the connection
@@ -218,6 +231,9 @@ async def redial(parts: Reconnection) -> Transport:
     """
     delay = RECONNECT_INITIAL_S
     while True:
+        # A link its owner closed does not dial again, however long it slept for this attempt.
+        if abandoned():
+            return None
         transport: Transport | None = None
         try:
             async with asyncio.timeout(DIAL_TIMEOUT_S):  # A silent network ends the attempt.
@@ -236,6 +252,10 @@ async def redial(parts: Reconnection) -> Transport:
             if transport is not None:
                 await close_quietly(transport)
             raise
+        # Closed while the attempt ran: nothing owns this connection any more, so it is not kept.
+        if abandoned():
+            await close_quietly(transport)
+            return None
         return transport
 
 

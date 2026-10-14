@@ -41,6 +41,9 @@ Key invariants:
       a send happens under that same lock, so no message is queued after the last replay.
     - `close` ends a pending `receive` through the connection's own close, as the WebSocket
       transport's does; a Warden's `stop` cancels its receive task before the link is closed.
+    - A closed link never dials again: a recovery in progress is told (`redial`'s `abandoned`), so
+      a receive task that outlives its Warden, because the Warden never got to reap it, can still
+      not go on redialing for it. It ends after the attempt or the wait it was in.
     - Sends are serialised: the recovery's frames and the Warden's never interleave on the wire.
     - While recovering, only a trail-segment sync passes through to the new connection, since the
       recovery asks for exactly that; everything else is routed as if the link were still down.
@@ -221,9 +224,8 @@ class ReconnectingQueenLink:
         if inner is None:
             raise ConnectionLostError("The link to the Queen has no connection.")
         async with self._send_lock:
-            async with asyncio.timeout(
-                SEND_TIMEOUT_S
-            ):  # A live link takes a frame in milliseconds.
+            # A live link takes a frame in milliseconds.
+            async with asyncio.timeout(SEND_TIMEOUT_S):
                 await inner.send(envelope)
 
     async def _route_offline(self, envelope: Envelope) -> None:
@@ -266,11 +268,13 @@ class ReconnectingQueenLink:
         """Dial, catch the Queen up and go online, as often as it takes."""
         clock = self._reconnection.clock
         while not self._closed:
+            dialed = await redial(self._reconnection, abandoned=lambda: self._closed)
+            # `close` cannot reach a recovery running in the receive task, so `redial` was told.
+            if dialed is None:
+                return
             # Whatever this connection takes that must arrive is remembered, the queue's replay
             # and the held questions included: a connection that dies unnoticed swallows those too.
-            transport = RememberingTransport(
-                await redial(self._reconnection), self._recent, clock, must_arrive
-            )
+            transport = RememberingTransport(dialed, self._recent, clock, must_arrive)
             self._inner = transport
             self._set_phase(LinkPhase.RECOVERING)
             outage_s = max(0.0, clock.monotonic() - self._lost_at)

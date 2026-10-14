@@ -27,9 +27,11 @@ reports ONLINE again:
 ```
 
 `receive` never ends before `close`, so a Warden that reads the link waits through an outage
-instead of spinning on an exhausted iterator. The dial, the announcement and the after-reconnect
-step are injected (`QueenDialer`, `Announcer`, `AfterReconnect`), so one class serves any remote
-Warden and a test drives it with scripted ones.
+instead of spinning on an exhausted iterator. Once `close` has been called the link dials no more:
+the recovery running in the Warden's receive task is told, and ends at its next attempt (closing a
+connection it had just made) instead of redialing for a link nobody holds. The dial, the
+announcement and the after-reconnect step are injected (`QueenDialer`, `Announcer`,
+`AfterReconnect`), so one class serves any remote Warden and a test drives it with scripted ones.
 
 A link whose far end vanished (a cable pulled) is not known to be down until the websocket's
 keepalive gives up, 40 s after the last traffic, and every send in that time returns as if it had

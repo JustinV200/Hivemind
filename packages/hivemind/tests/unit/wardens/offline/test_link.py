@@ -4,8 +4,9 @@ Fits into the Hive:
     Mirrors src/hivemind/wardens/offline/link.py (codingrules section 3). Over a scripted Queen on
     in-memory connections: the link announces the Cell on every connection, forwards sends while
     up, routes them by the offline table while down, reports its phase to a watcher, never ends its
-    `receive` before it is closed (so a Warden reading it does not spin), and catches the Queen up
-    in order after a drop. The same behaviour over a real socket is `test_link_socket.py`.
+    `receive` before it is closed (so a Warden reading it does not spin), dials no more once it is
+    closed, and catches the Queen up in order after a drop. The same behaviour over a real socket
+    is `test_link_socket.py`.
 
 Key invariants:
     - None: this module holds tests only.
@@ -219,6 +220,41 @@ async def test_a_closed_link_refuses_sends_and_ends_receive(tmp_path: Path) -> N
         await rig.link.send(rig.wire.result())
     assert not rig.link.is_online
     await rig.stop()
+
+
+async def test_a_link_closed_between_attempts_dials_no_more_and_its_receive_ends(
+    rig: LinkRig,
+) -> None:
+    await _online(rig)
+    # The Queen refuses every dial: the link backs off and tries again, and again.
+    rig.queen.fail_dials = 1_000_000
+    rig.queen.drop()
+    await rig.until(lambda: rig.queen.dials >= 4)
+
+    await rig.link.close()
+    await rig.pump_ended()  # The recovery saw the close at its next attempt: no cancel was needed.
+    dials = rig.queen.dials
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    assert rig.queen.dials == dials  # Not one more, though the Queen is still refusing.
+
+
+async def test_a_link_closed_while_a_dial_is_in_flight_does_not_keep_the_connection_it_gets(
+    rig: LinkRig,
+) -> None:
+    await _online(rig)
+    await _cut(rig)
+    await rig.until(lambda: rig.queen.dials == 2)  # A dial is in flight, held back.
+    seen = len(rig.phases)
+
+    await rig.link.close()
+    rig.queen.release_dials()  # The dial that was in flight connects, to a link nobody holds.
+    await rig.pump_ended()
+
+    assert not rig.link.is_online
+    assert LinkPhase.ONLINE not in rig.phases[seen:]  # It never went back up after being closed.
+    assert not rig.queen.warden_ends[-1].is_connected  # And what it dialled was closed, not kept.
 
 
 async def test_cancelling_the_reader_during_a_recovery_ends_it_cleanly(tmp_path: Path) -> None:

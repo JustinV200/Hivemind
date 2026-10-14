@@ -3,7 +3,8 @@
 Fits into the Hive:
     Mirrors src/hivemind/wardens/offline/reconnect.py (codingrules section 3). `redial` waits 0.5 s
     and doubles to 30 s between failed attempts, closes a connection that fails while announcing,
-    and closes the one in flight when it is cancelled. `rejoin` replays the queue, tells the
+    closes the one in flight when it is cancelled, and stops, closing any connection it had just
+    made, once it is told the link was closed. `rejoin` replays the queue, tells the
     after-reconnect step, then sends what was queued meanwhile and the held questions, and flips
     the link online last, with nothing left behind. `TrailReconnect` records `warden.reconnected`
     and ships the trail.
@@ -70,7 +71,7 @@ async def test_a_failed_dial_waits_half_a_second_and_doubles_up_to_thirty() -> N
 
     assert rig.clock.sleeps == [*_SCHEDULE, 30.0, 30.0]
     assert rig.queen.dials == 10
-    assert transport.is_connected
+    assert transport is not None and transport.is_connected
     await rig.queen.aclose()
 
 
@@ -129,7 +130,7 @@ async def test_a_dial_that_never_answers_is_given_up_after_its_time_limit(
 
     transport = await redial(parts)
 
-    assert transport.is_connected
+    assert transport is not None and transport.is_connected
     assert rig.clock.sleeps == [0.5]
     await rig.queen.aclose()
 
@@ -152,6 +153,30 @@ async def test_cancelling_the_redial_closes_the_connection_it_had_made() -> None
         await task
 
     assert [frame async for frame in rig.queen.ends[0].receive()] == []  # Closed behind it.
+    await rig.queen.aclose()
+
+
+async def test_a_redial_told_the_link_was_closed_stops_before_it_dials_again() -> None:
+    rig = _Rig()
+    rig.queen.fail_dials = 9
+
+    transport = await redial(rig.parts, abandoned=lambda: rig.queen.dials >= 2)
+
+    assert transport is None
+    assert rig.queen.dials == 2  # The third attempt was never made, though the Queen still refuses.
+    assert rig.clock.sleeps == [0.5, 1.0]
+    await rig.queen.aclose()
+
+
+async def test_a_connection_made_after_the_link_was_closed_is_closed_not_handed_on() -> None:
+    rig = _Rig()
+    asked = iter([False, True])  # Open as the attempt began, closed by the time it connected.
+
+    transport = await redial(rig.parts, abandoned=lambda: next(asked))
+
+    assert transport is None
+    assert rig.queen.dials == 1
+    assert not rig.queen.warden_ends[0].is_connected
     await rig.queen.aclose()
 
 
