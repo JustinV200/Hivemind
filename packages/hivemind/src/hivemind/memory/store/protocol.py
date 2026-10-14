@@ -7,9 +7,11 @@ memory v0 lives. This module fixes the one seam both implementations
 SqliteMemoryStore`) must honour: every write takes the `MemoryEvent` to record alongside it and
 commits both together, in the same transaction, exactly the way `hivemind.brood_chamber.store.
 sqlite.SqliteTaskStore` does for tasks (codingrules section 12). `remove_pin`, `remove_note`
-(roadmap step 4.2, for `hivemind.memory.demote.demote`), `purge_episodes_before` and
-`purge_night_veil` (the Night Veil teardown's, codingrules section 12: rows about a Night Veil
-Cell or its tasks never outlive it) are this protocol's deletion paths named here;
+(roadmap step 4.2, for `hivemind.memory.demote.demote`), `purge_episodes_before`,
+`purge_bee_bread_before` (roadmap step 11.10: one Bee Bread kind's retention window, and what a
+Patrol that found nothing discards) and `purge_night_veil` (the Night Veil teardown's, codingrules
+section 12: rows about a Night Veil Cell or its tasks never outlive it) are this protocol's
+deletion paths named here;
 `SqliteMemoryStore` documents one more (evicting a note past
 `hivemind.memory.notes.MAX_NOTES_PER_AUTHOR`) as an internal duty of `add_note` rather than a
 separate method, since nothing above the store ever needs to trigger it directly. The four
@@ -84,7 +86,7 @@ from waggle.ids import CellId, EventId, TaskId
 if TYPE_CHECKING:
     # Type-checking only: see the module docstring's "Key invariants" for why a real import here
     # would be circular (hivemind.memory.bee_bread.index imports MemoryStore from this module).
-    from hivemind.memory.bee_bread.entry import BeeBreadEntry
+    from hivemind.memory.bee_bread.entry import BeeBreadEntry, BeeBreadEntryKind
 
 __all__ = ["MemoryStore"]
 
@@ -302,6 +304,44 @@ class _BeeBreadStore(Protocol):
 
         Returns:
             Matching entries, ordered by `(created_at, id)`.
+        """
+        ...
+
+    async def list_bee_bread_of_kind(
+        self, kind: BeeBreadEntryKind, start: datetime, end: datetime, allowance: HoneyClearance
+    ) -> tuple[BeeBreadEntry, ...]:
+        """Return every entry of `kind` written in `[start, end]`, within `allowance`, oldest first.
+
+        The same read as `list_bee_bread_between`, narrowed to one kind in the store itself, so a
+        caller that wants one kind (a Patrol's observations) never loads the others' payloads (a
+        transcript can be 200,000 characters) just to throw them away.
+
+        Args:
+            kind: The only kind to return.
+            start: Inclusive lower bound.
+            end: Inclusive upper bound.
+            allowance: The reader's clearance ceiling.
+
+        Returns:
+            Matching entries, ordered by `(created_at, id)`.
+        """
+        ...
+
+    async def purge_bee_bread_before(self, kind: BeeBreadEntryKind, cutoff: datetime) -> int:
+        """Delete every entry of `kind` written before `cutoff`.
+
+        The store's retention path for the Bee Bread kinds that live for a window (roadmap step
+        11.10: a watch observation, labelled `C2`, is kept `[supervision.watch] retention_s` and
+        discarded at once when the Patrol that covered it found nothing notable). Only the one
+        kind is ever touched; no event is recorded, since a retention purge is not an audit fact
+        about any one row (the episode purge above makes the same trade).
+
+        Args:
+            kind: The only kind to delete.
+            cutoff: Entries written at or after this time are kept.
+
+        Returns:
+            How many entries were removed.
         """
         ...
 

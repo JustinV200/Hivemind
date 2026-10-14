@@ -9,13 +9,16 @@ the Pheromone Trail (`ref_ids` -- `hivemind.memory` may not import `hivemind.bro
 entry never holds the referenced record itself, only its id), which task it concerns, its
 `HoneyClearance`, when it was written, an optional short preview capped by the manifest's
 `item_cap_chars` (`text`), and an optional full payload for the kinds whose content lives here
-and nowhere else yet (`payload`, for `TRANSCRIPT`, `TOOL_RESULT` and `SUMMARY`: the Honey Store does
-not exist until phase 7, so a deposited transcript, an oversized tool result, or a compacted summary
-(roadmap step 4.3, `hivemind.memory.compact.compact`) is stored here in full, and whatever holds the
-entry's own id -- hot state, a Handoff -- carries only that id as its "reference", never the payload
-text itself). `SUMMARY` is what `compact` deposits: never itself a source for a further compaction
-(docs/adr/0022: "never from a previous summary... one level of summary"), so `compact` refuses an
-entry of this kind offered to it as a source.
+and nowhere else yet (`payload`, for `TRANSCRIPT`, `TOOL_RESULT`, `SUMMARY` and `WATCH_OBSERVATION`:
+the Honey Store does not exist until phase 7, so a deposited transcript, an oversized tool result,
+or a compacted summary (roadmap step 4.3, `hivemind.memory.compact.compact`) is stored here in
+full, and whatever holds the entry's own id -- hot state, a Handoff -- carries only that id as its
+"reference", never the payload text itself). `SUMMARY` is what `compact` deposits: never itself a
+source for a further compaction (docs/adr/0022: "never from a previous summary... one level of
+summary"), so `compact` refuses an entry of this kind offered to it as a source.
+`WATCH_OBSERVATION` (roadmap step 11.10, ADR-0054) is one sample of what a watching Warden saw on
+its Cell, held in full because nothing else keeps it; it is always `C2` (it describes the
+operator's own machine), lives only for a retention window and is never ripened into Honey.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Read and written by
@@ -30,8 +33,9 @@ Key invariants:
     - `text` and `payload` are never both set by this dispatch's own writers
       (hivemind.memory.bee_bread.deposit, hivemind.memory.compact): an index-only entry
       (TASK_HISTORY, TRAIL_EVENT, HANDOFF, NOTE) carries `text` and no `payload`; a full-content
-      entry (TRANSCRIPT, TOOL_RESULT, SUMMARY) carries `payload` and no `text`. Nothing in this
-      model enforces that split; it is a convention its writer modules follow.
+      entry (TRANSCRIPT, TOOL_RESULT, SUMMARY, WATCH_OBSERVATION) carries `payload` and no
+      `text`. Nothing in this model enforces that split; it is a convention its writer modules
+      follow.
     - An entry is deposited unlabelled; only `hivemind.memory.taint` sets its `tainted` label, and
       no lookup ever returns a TAINTED entry (roadmap 10.6d: its transcript cannot be compacted
       back into a prompt).
@@ -86,6 +90,9 @@ class BeeBreadEntryKind(Enum):
     # itself a source for a further compaction (hivemind.memory.compact: one level only).
     RECORDING = "RECORDING"  # References an Exoskeleton flight recording by id (roadmap 6.6); its
     # frames stay in the RecordingStore, the recording's Nectar body until phase 7 (ADR-0032).
+    WATCH_OBSERVATION = "WATCH_OBSERVATION"  # Holds one watch-mode Observation's JSON, in full, as
+    # `payload` (roadmap 11.10, ADR-0054). Always C2, kept only for a retention window, and never
+    # ripened into Honey: `hivemind.workers.roles.house_bee` has no Nectar kind for it.
 
 
 class BeeBreadEntry(BaseModel):

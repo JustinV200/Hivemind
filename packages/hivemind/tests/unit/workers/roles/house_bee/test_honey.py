@@ -261,6 +261,36 @@ async def test_deposit_aged_bee_bread_passes_over_index_only_entries_but_moves_p
     assert await harness.access.store.get_watermark(BEE_BREAD_WATERMARK) is not None
 
 
+async def test_deposit_aged_bee_bread_never_ripens_a_watch_observation_into_honey(
+    tmp_path: Path,
+) -> None:
+    # Roadmap step 11.10 / ADR-0054: an observation describes the operator's own machine and lives
+    # for a retention window in Bee Bread; the sweep must pass over it, not carry it into Honey.
+    clock = FakeClock()
+    ctx = memory_context(clock)
+    harness = await open_honey_access(tmp_path, clock)
+    await store_bee_bread(
+        ctx,
+        make_bee_bread_entry(
+            clock=clock,
+            kind=BeeBreadEntryKind.WATCH_OBSERVATION,
+            task_id=None,
+            ref_ids=(),
+            text=None,
+            payload='{"processes": []}',
+            clearance=HoneyClearance.C2,
+        ),
+    )
+    clock.advance(_AGED_S)
+
+    deposited = await deposit_aged_bee_bread(
+        sweep_deps(ctx, harness.access, _stand(clock)), sweep_window(clock)
+    )
+
+    assert deposited == 0
+    assert await _pending(harness) == ()
+
+
 async def test_deposit_aged_bee_bread_passes_over_a_handoff_that_no_longer_exists(
     tmp_path: Path,
 ) -> None:

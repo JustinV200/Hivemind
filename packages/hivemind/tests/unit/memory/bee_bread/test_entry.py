@@ -46,7 +46,8 @@ def test_bee_bread_entry_kind_has_one_member_per_roadmap_step_4_3_shape() -> Non
     # Roadmap step 4.2's original six, plus SUMMARY (roadmap step 4.3: hivemind.memory.compact's
     # own deposited kind, marking a compacted entry so it is never itself offered as a further
     # compaction source), plus RECORDING (roadmap step 6.6: the reference to a flight recording
-    # whose frames live in the RecordingStore, never in Bee Bread).
+    # whose frames live in the RecordingStore, never in Bee Bread), plus WATCH_OBSERVATION
+    # (roadmap step 11.10: one watching Warden's sample, C2 and kept only for a retention window).
     assert {member.value for member in BeeBreadEntryKind} == {
         "TASK_HISTORY",
         "TRAIL_EVENT",
@@ -56,6 +57,7 @@ def test_bee_bread_entry_kind_has_one_member_per_roadmap_step_4_3_shape() -> Non
         "TOOL_RESULT",
         "SUMMARY",
         "RECORDING",
+        "WATCH_OBSERVATION",
     }
 
 

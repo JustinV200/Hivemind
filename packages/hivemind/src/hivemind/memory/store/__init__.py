@@ -14,8 +14,9 @@ Fits into the Hive:
 Key invariants:
     - Whatever is not re-exported here is private to this package (codingrules 5.4).
     - hivemind.memory.store.sqlite's only DELETE statements are remove_pin, remove_note,
-      purge_episodes_before, and the per-author note eviction inside add_note; no other write
-      path ever rewrites or removes a row.
+      purge_episodes_before, purge_bee_bread_before (one kind past its retention window) and the
+      per-author note eviction inside add_note; no other write path ever rewrites or removes a
+      row.
 
 See Also:
     - .claude/codingrules.md section 12 for the same-transaction rule every implementation follows.

@@ -31,7 +31,8 @@ Public API:
       MAX_REF_IDS: the one row shape this tier stores (entry).
     - BeeBread: the lookup-only reader, by id, by task, between two times (index).
     - deposit_transcript, deposit_tool_result, deposit_handoff_ref, deposit_recording_ref,
-      deposit_hot_state_item, deposit_dropped_items: every write path into this tier (deposit).
+      deposit_hot_state_item, deposit_dropped_items, deposit_watch_observation: every write path
+      into this tier (deposit).
 """
 
 from hivemind.memory.bee_bread.deposit import (
@@ -41,6 +42,7 @@ from hivemind.memory.bee_bread.deposit import (
     deposit_recording_ref,
     deposit_tool_result,
     deposit_transcript,
+    deposit_watch_observation,
 )
 from hivemind.memory.bee_bread.entry import (
     MAX_ENTRY_PAYLOAD_CHARS,
@@ -64,4 +66,5 @@ __all__ = [
     "deposit_recording_ref",
     "deposit_tool_result",
     "deposit_transcript",
+    "deposit_watch_observation",
 ]

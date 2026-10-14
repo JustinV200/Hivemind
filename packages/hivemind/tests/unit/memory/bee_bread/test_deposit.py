@@ -13,6 +13,8 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from builders.memory import make_alarm_summary, make_pin, make_task_summary
 
@@ -24,6 +26,7 @@ from hivemind.memory.bee_bread.deposit import (
     deposit_hot_state_item,
     deposit_tool_result,
     deposit_transcript,
+    deposit_watch_observation,
 )
 from hivemind.memory.bee_bread.entry import BeeBreadEntryKind
 from hivemind.memory.context import MemoryContext, MemoryIdentity
@@ -160,3 +163,43 @@ async def test_deposit_dropped_items_skips_a_pin_without_raising() -> None:
 
     assert len(entries) == 1
     assert entries[0].ref_ids == (task.id,)
+
+
+async def test_deposit_watch_observation_is_always_c2_and_has_no_task() -> None:
+    clock = FakeClock()
+    ctx = _ctx(clock)
+
+    entry = await deposit_watch_observation('{"processes": []}', ctx)
+
+    assert entry.kind == BeeBreadEntryKind.WATCH_OBSERVATION
+    assert entry.clearance is HoneyClearance.C2  # By provenance: the operator's own machine.
+    assert entry.task_id is None
+    assert entry.payload == '{"processes": []}'
+    assert entry.text is None
+    assert await ctx.store.get_bee_bread_entry(entry.id, HoneyClearance.C2) == entry
+
+
+async def test_deposit_watch_observation_is_hidden_from_a_reader_below_c2() -> None:
+    clock = FakeClock()
+    ctx = _ctx(clock)
+    await deposit_watch_observation("{}", ctx)
+
+    below = await ctx.store.list_bee_bread_of_kind(
+        BeeBreadEntryKind.WATCH_OBSERVATION,
+        clock.now() - timedelta(seconds=1),
+        clock.now() + timedelta(seconds=1),
+        HoneyClearance.C1,
+    )
+
+    assert below == ()  # memory.assemble filters by clearance, so a Night Veil bee never sees it.
+
+
+async def test_deposit_watch_observation_records_a_trail_event_with_no_observation_text() -> None:
+    clock = FakeClock()
+    ctx, trail = _ctx_and_trail(clock)
+
+    entry = await deposit_watch_observation('{"log_lines": [{"line": "secret"}]}', ctx)
+
+    events = await trail.query(TrailQuery(subject_id=entry.id))
+    assert [event.kind for event in events] == ["memory.bee_bread_deposited"]
+    assert events[0].payload == {"entry_kind": "WATCH_OBSERVATION"}  # Counts and kinds, no text.

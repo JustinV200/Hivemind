@@ -15,6 +15,8 @@ Fits into the Hive:
 Key invariants:
     - `add_entry_transaction` writes its row and its MemoryEvent inside one
       `hivemind.common.sqlite.transaction` block (codingrules section 12).
+    - `purge_kind_transaction` is the table's only DELETE (roadmap step 11.10): it names one kind
+      and a cutoff, so no other kind of entry can ever go with it, and it records no event.
 
 See Also:
     - hivemind.memory.store.sqlite.store for SqliteMemoryStore, the one caller.
@@ -29,7 +31,7 @@ from datetime import datetime
 
 from hivemind.cell import HoneyClearance
 from hivemind.common.sqlite import transaction
-from hivemind.memory.bee_bread.entry import BeeBreadEntry
+from hivemind.memory.bee_bread.entry import BeeBreadEntry, BeeBreadEntryKind
 from hivemind.memory.store.sqlite.records import UNTAINTED_CLAUSE, _allowed_clearance_values
 from hivemind.memory.taint import require_unlabelled
 from hivemind.pheromone import MemoryEvent, insert_event
@@ -43,6 +45,7 @@ _INSERT_SQL = (
 _SELECT_BY_ID_SQL = "SELECT body, clearance FROM memory_bee_bread WHERE id = ?"
 _SELECT_SQL = "SELECT body FROM memory_bee_bread"
 _ORDER_BY = " ORDER BY created_at, id"
+_DELETE_KIND_BEFORE_SQL = "DELETE FROM memory_bee_bread WHERE kind = ? AND created_at < ?"
 
 
 def add_entry_transaction(
@@ -95,3 +98,30 @@ def select_between_rows(
         f"AND clearance IN ({placeholders}) AND {UNTAINTED_CLAUSE}{_ORDER_BY}"
     )
     return connection.execute(sql, (start.isoformat(), end.isoformat(), *values)).fetchall()
+
+
+def select_kind_rows(
+    connection: sqlite3.Connection,
+    kind: BeeBreadEntryKind,
+    window: tuple[datetime, datetime],
+    allowance: HoneyClearance,
+) -> list[sqlite3.Row]:
+    """Select bee_bread entries of `kind` in `window` within `allowance`, oldest first."""
+    values = _allowed_clearance_values(allowance)
+    placeholders = ",".join("?" for _ in values)
+    sql = (
+        f"{_SELECT_SQL} WHERE kind = ? AND created_at >= ? AND created_at <= ? "
+        f"AND clearance IN ({placeholders}) AND {UNTAINTED_CLAUSE}{_ORDER_BY}"
+    )
+    start, end = window
+    params = (kind.value, start.isoformat(), end.isoformat(), *values)
+    return connection.execute(sql, params).fetchall()
+
+
+def purge_kind_transaction(
+    connection: sqlite3.Connection, kind: BeeBreadEntryKind, cutoff: datetime
+) -> int:
+    """Delete bee_bread rows of `kind` older than `cutoff` in one transaction; return how many."""
+    with transaction(connection):
+        cursor = connection.execute(_DELETE_KIND_BEFORE_SQL, (kind.value, cutoff.isoformat()))
+        return cursor.rowcount

@@ -15,6 +15,10 @@ names it, so `hivemind.memory.bee_bread.index.BeeBread.by_task`/`.between` surfa
 a second store-level search path. `deposit_hot_state_item` is what
 `hivemind.memory.demote.demote` calls to archive a hot-state candidate that is leaving hot state.
 
+`deposit_watch_observation` (roadmap step 11.10) keeps one sample of what a watching Warden saw on
+its Cell, always at `C2` because it describes the operator's own machine (codingrules 8.9: a label
+comes from provenance, so this function takes none to get wrong).
+
 `deposit_dropped_items` (roadmap step 4.4) is the flood test's own bridge: `hivemind.memory.
 hot_state.packing.assemble`'s optional `on_drop` callback lets a caller collect every candidate the
 packer left out of a budgeted prompt (`Prompt.dropped` already carries their ids; `on_drop` hands
@@ -28,7 +32,8 @@ Fits into the Hive:
     `deposit_hot_state_item` is called by hivemind.memory.demote.demote; `deposit_dropped_items` is
     called by hivemind.queen.awake.episode.decide_awake and hivemind.wardens.awake.episode.
     decide_awake, after hivemind.memory.hot_state.packing.assemble; `deposit_tool_result` is
-    exposed for a future Worker tool-loop caller. Calls into hivemind.cell (HoneyClearance),
+    exposed for a future Worker tool-loop caller; `deposit_watch_observation` is called by
+    `hivemind.wardens.watch` (the Warden's observer). Calls into hivemind.cell (HoneyClearance),
     hivemind.common.errors (InvariantViolationError), hivemind.memory.bee_bread.entry,
     hivemind.memory.context (MemoryContext), hivemind.memory.relevance (Scorable), hivemind.
     memory.hot_state.summaries, hivemind.memory.notes, hivemind.memory.pins, hivemind.pheromone
@@ -41,6 +46,8 @@ Key invariants:
       never returns a reason for one; pins never decay). Called with one anyway, it raises
       `InvariantViolationError` rather than silently archiving something that should never leave
       hot state.
+    - `deposit_watch_observation` always labels its entry `C2` and gives it no task: an observation
+      is the operator's own machine, and its life is a retention window, never a task's.
     - `deposit_dropped_items` skips a Pin or a CellWaxSummary rather than raising: unlike
       `deposit_hot_state_item`'s own callers (which never pass one, by construction), packing's
       `on_drop` callback can in principle collect either under an extreme budget, and both have
@@ -85,6 +92,7 @@ __all__ = [
     "deposit_hot_state_item",
     "deposit_tool_result",
     "deposit_transcript",
+    "deposit_watch_observation",
 ]
 
 
@@ -179,6 +187,28 @@ async def deposit_recording_ref(
         task_id=task_id,
         clearance=clearance,
         created_at=ctx.clock.now(),
+    )
+    await _deposit(entry, ctx)
+    return entry
+
+
+async def deposit_watch_observation(payload: str, ctx: MemoryContext) -> BeeBreadEntry:
+    """Keep one watch-mode observation, in full, as a C2 WATCH_OBSERVATION entry.
+
+    A watching Warden's samples describe the operator's own machine, so their label comes from
+    where they were taken, not from the depositor (codingrules section 8.9): this function takes no
+    clearance and always writes `C2`. The entry has no task: watching happens when no bee works.
+
+    Args:
+        payload: The observation as JSON text, within `BeeBreadEntry.payload`'s own field limit
+            (the caller shrinks an oversized sample before depositing it).
+        ctx: The store, identity and clock to write with.
+
+    Returns:
+        The stored BeeBreadEntry; its `created_at` is the instant a Patrol's window is cut by.
+    """
+    entry = _build_payload_entry(
+        BeeBreadEntryKind.WATCH_OBSERVATION, payload, None, HoneyClearance.C2, ctx
     )
     await _deposit(entry, ctx)
     return entry

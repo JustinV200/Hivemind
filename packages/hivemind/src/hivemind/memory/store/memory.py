@@ -54,6 +54,7 @@ from hivemind.memory.handoff import Handoff
 from hivemind.memory.notes import MAX_NOTES_PER_AUTHOR, Note
 from hivemind.memory.pins import Pin
 from hivemind.memory.store.night_veil import _NightVeilMemoryStore
+from hivemind.memory.store.retention import _RetentionMemoryStore
 from hivemind.memory.store.review import review_text
 from hivemind.memory.taint import (
     TaintableItem,
@@ -242,12 +243,15 @@ class _TaintMemoryStore:
             self._bee_bread[target.item_id] = entry.model_copy(update={"tainted": marker})
 
 
-class InMemoryMemoryStore(_WaxMemoryStore, _TaintMemoryStore, _NightVeilMemoryStore):
+class InMemoryMemoryStore(
+    _WaxMemoryStore, _TaintMemoryStore, _NightVeilMemoryStore, _RetentionMemoryStore
+):
     """An in-process MemoryStore: 6 dicts (pins/notes/handoffs/episodes/bee_bread/wax), 1 lock.
 
-    Composed with `_WaxMemoryStore`, `_TaintMemoryStore` and `_NightVeilMemoryStore` (Cell Wax's,
-    the taint label's and the Night Veil purge's own quarters, split out purely for codingrules
-    5.1's class-length limit); `InMemoryMemoryStore` itself is the whole class every caller names.
+    Composed with `_WaxMemoryStore`, `_TaintMemoryStore`, `_NightVeilMemoryStore` and
+    `_RetentionMemoryStore` (Cell Wax's, the taint label's, the Night Veil purge's and the Bee
+    Bread retention window's own quarters, split out purely for codingrules 5.1's class-length
+    limit); `InMemoryMemoryStore` itself is the whole class every caller names.
     """
 
     def __init__(self, trail: PheromoneTrail) -> None:

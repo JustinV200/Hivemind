@@ -62,6 +62,7 @@ from hivemind.memory.pins import Pin
 from hivemind.memory.store.sqlite import bee_bread, records
 from hivemind.memory.store.sqlite import wax as wax_sql
 from hivemind.memory.store.sqlite.night_veil import _SqliteNightVeilStore
+from hivemind.memory.store.sqlite.retention import _SqliteRetentionStore
 from hivemind.memory.store.sqlite.taint import _SqliteTaintStore
 from hivemind.pheromone import MemoryEvent
 from waggle.clock import Clock
@@ -103,7 +104,7 @@ def apply_memory_migrations(connection: sqlite3.Connection, clock: Clock) -> tup
     return apply_migrations(connection, SUBSYSTEM, migrations, clock)
 
 
-class SqliteMemoryStore(_SqliteTaintStore, _SqliteNightVeilStore):
+class SqliteMemoryStore(_SqliteTaintStore, _SqliteNightVeilStore, _SqliteRetentionStore):
     """The durable MemoryStore: six SQLite tables, one connection, one lock per instance."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
