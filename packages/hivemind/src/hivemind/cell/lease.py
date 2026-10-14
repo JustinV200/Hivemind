@@ -40,6 +40,10 @@ Key invariants:
       most once, only by the call that actually succeeds. That holds when the call is cancelled
       mid-release too (the lease is ORPHANED and the cancellation re-raised), because a stop that
       follows a cancelled idle release must find a lease it may release, not one stuck RELEASING.
+    - A pid stays in `started_pids` while any process of its group lives; a session forgets it
+      (`forget_started_process`) only once the command is reaped and its whole group is gone,
+      because the kernel then reuses the id and a release that signalled it would hit an
+      unrelated process on a machine the Hive only borrows.
     - Two `release()` calls at once (a Warden's `stop()` racing its own idle release, or the
       return from an outage) are serialised: the second waits for the first and returns its
       report, instead of tripping over `RELEASING -> RELEASING`. Whoever releases first does the
@@ -356,20 +360,20 @@ class RealCellLease:
         """
         assert_transition(self.state, LeaseState.OPEN, lease_id=self.id)
         self.state = LeaseState.OPEN
-        await self._record(
-            "cell.leased",
-            {
-                "lease_id": self.id,
-                "holder": self.holder,
-                "task_id": self.task_id,
-                "access_level": self.access_level.value,
-                "comb_shield": self.comb_shield.value,
-            },
-        )
+        await self._record("cell.leased", _leased_payload(self))
 
     def note_started_process(self, pid: int) -> None:
         """Record `pid`, a process this lease's session started, so `release()` can kill it."""
         self._started_pids.append(pid)
+
+    def forget_started_process(self, pid: int) -> None:
+        """Stop tracking `pid` once its process group is gone (see the module's key invariants).
+
+        Args:
+            pid: A recorded process id whose group has emptied; an unknown one is a no-op.
+        """
+        # An id is reused only after its group is gone, so every recorded copy of it is stale.
+        self._started_pids = [known for known in self._started_pids if known != pid]
 
     async def note_touched_path(self, path: Path) -> None:
         """Record that this lease's session touched `path`, resolved first.
@@ -494,6 +498,21 @@ def _resolve_touched(rule: PathRule, path: Path, scratch_root: Path) -> tuple[Pa
     """
     resolved = rule.resolve(path)
     return resolved, rule.is_within(resolved, rule.resolve(scratch_root))
+
+
+def _leased_payload(lease: RealCellLease) -> dict[str, JsonValue]:
+    """Build the `cell.leased` event's payload: whose lease it is, at which access and tier.
+
+    Module-level (not a `RealCellLease` method) purely to keep that class within codingrules
+    5.1's class-length limit; `open` is its only caller.
+    """
+    return {
+        "lease_id": lease.id,
+        "holder": lease.holder,
+        "task_id": lease.task_id,
+        "access_level": lease.access_level.value,
+        "comb_shield": lease.comb_shield.value,
+    }
 
 
 def _released_payload(lease: RealCellLease, report: LeaseReleaseReport) -> dict[str, JsonValue]:

@@ -31,6 +31,7 @@ import pytest
 
 from hivemind.cell.local.process import EXIT_COMMAND_NOT_STARTED, ProcessContext, run_child_process
 from hivemind.cell.local.quota import ScratchQuota
+from hivemind.cell.local.releaser import kill_process_tree, process_group_alive
 from hivemind.cell.session import ExecSpec, ExitStatus, OutputChunk, OutputStream
 from waggle.clock import SystemClock
 
@@ -65,10 +66,20 @@ async def _run(spec: ExecSpec, ctx: ProcessContext) -> _Collected:
     return _Collected(exit_code=exit_status.code, stdout=bytes(stdout), stderr=bytes(stderr))
 
 
-def _context(tmp_path: Path, *, quota: ScratchQuota | None, started: list[int]) -> ProcessContext:
-    """Build a ProcessContext over `tmp_path`, recording every started pid into `started`."""
+def _context(
+    tmp_path: Path,
+    *,
+    quota: ScratchQuota | None,
+    started: list[int],
+    finished: list[int] | None = None,
+) -> ProcessContext:
+    """Build a ProcessContext over `tmp_path`, recording started (and forgotten) pids."""
     return ProcessContext(
-        clock=SystemClock(), scratch_dir=tmp_path, quota=quota, on_started=started.append
+        clock=SystemClock(),
+        scratch_dir=tmp_path,
+        quota=quota,
+        on_started=started.append,
+        on_finished=finished.append if finished is not None else None,
     )
 
 
@@ -153,6 +164,44 @@ async def test_a_cancelled_run_kills_its_child_before_the_cancel_completes(tmp_p
 
     # Killed by the cancel itself; the poll only waits for the event loop to reap the dead child.
     await _wait_until(lambda: not _is_process_alive(started[0]), _WAIT_TIMEOUT_S)
+
+
+async def test_a_finished_command_whose_group_is_gone_is_forgotten(tmp_path: Path) -> None:
+    # Once the group is empty the kernel may reuse the id for an unrelated process, so the lease
+    # must stop tracking it, or its release would signal that stranger.
+    started: list[int] = []
+    finished: list[int] = []
+    ctx = _context(tmp_path, quota=None, started=started, finished=finished)
+
+    completed = await _run(ExecSpec(argv=(sys.executable, "-c", "print('hi')")), ctx)
+
+    assert completed.exit_code == 0
+    assert finished == started
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX-only")
+async def test_a_command_whose_daemon_still_holds_its_group_stays_tracked(tmp_path: Path) -> None:
+    # The command forks a sleeper (same process group, output detached so the pipes close) and
+    # exits: the group outlives the command, so release must still be able to kill it.
+    started: list[int] = []
+    finished: list[int] = []
+    ctx = _context(tmp_path, quota=None, started=started, finished=finished)
+    script = (
+        "import subprocess, sys; "
+        f"subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({_LONG_SLEEP_S})'], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+    )
+    try:
+        completed = await _run(ExecSpec(argv=(sys.executable, "-c", script)), ctx)
+
+        assert completed.exit_code == 0
+        assert started
+        assert finished == []
+        assert process_group_alive(started[0])
+    finally:
+        # Nothing in this test releases a lease, so the daemon is the test's own to kill.
+        if started:
+            await kill_process_tree(started[0], SystemClock())
 
 
 async def _wait_until(predicate: Callable[[], bool], timeout_s: float) -> None:

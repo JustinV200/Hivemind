@@ -58,7 +58,13 @@ from builders.virtual_cells import (
     VirtualCellsTuning,
     virtual_cells_manifest,
 )
-from e2e.kernel_helpers import HaikuScript, pid_alive, snapshot_tree, wait_until
+from e2e.kernel_helpers import (
+    HaikuScript,
+    pid_alive,
+    record_started_pids,
+    snapshot_tree,
+    wait_until,
+)
 from e2e.phase6_exit_helpers import (
     LOGIN_PASSWORD,
     assert_no_screenshot_bytes,
@@ -113,21 +119,22 @@ class _RealCellRun:
     events: tuple[PheromoneEvent, ...]
 
 
-async def _run_login_on_hive_stand(hive: Hive) -> _RealCellRun:
+async def _run_login_on_hive_stand(hive: Hive, started_pids: list[int]) -> _RealCellRun:
     """Run the login goal to completion on the Hive Stand; capture what criterion 2 checks after.
 
     Every value criterion 2 needs is read here, inside the `run_hive` block, because the sub-bee's
     retirement (and so its Exoskeleton detach) happens as part of the task finishing, and the
-    lease itself closes once this function's own `async with` exits.
+    lease itself closes once this function's own `async with` exits. `started_pids` is
+    `record_started_pids`'s list: the lease forgets a stopped process's pid once its group is
+    gone, while criterion 2 checks every pid the run ever started.
     """
     async with run_hive(hive):
         report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
-        lease = hive.warden.lease
-        assert lease is not None
-        started_pids = lease.started_pids
         events = await hive.stores.trail.query(TrailQuery())
         cell_id = str(hive.warden_link.cell.id)
-    return _RealCellRun(report=report, started_pids=started_pids, cell_id=cell_id, events=events)
+    return _RealCellRun(
+        report=report, started_pids=tuple(started_pids), cell_id=cell_id, events=events
+    )
 
 
 def _pid_is_dead(pid: int) -> Callable[[], bool]:
@@ -164,7 +171,7 @@ def _assert_no_screenshots_anywhere(captured: str, run: _RealCellRun) -> None:
 
 
 def test_real_cell_login_leaves_the_stand_as_found_and_records_both_frames(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """(1a) + (2) + (3, recording half): the login goal on the Hive Stand, for real.
 
@@ -187,7 +194,7 @@ def test_real_cell_login_leaves_the_stand_as_found_and_records_both_frames(
             manifest, environ={}, clock=SystemClock(), responders={"fake": script.responder}
         )
         before = snapshot_tree(tmp_path, exclude=(data_dir,))
-        run = asyncio.run(_run_login_on_hive_stand(hive))
+        run = asyncio.run(_run_login_on_hive_stand(hive, record_started_pids(monkeypatch)))
 
     assert run.report.succeeded, run.report
     _assert_left_as_found(tmp_path, data_dir, before, run)
@@ -206,7 +213,7 @@ def test_real_cell_login_leaves_the_stand_as_found_and_records_both_frames(
 
 
 def test_browser_only_login_needs_no_x11_and_leaves_the_stand_as_found(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """(1c) + (2): `TaskNeeds.browser_only` on the Hive Stand -- no Xvfb, openbox or PulseAudio.
 
@@ -230,7 +237,7 @@ def test_browser_only_login_needs_no_x11_and_leaves_the_stand_as_found(
             manifest, environ={}, clock=SystemClock(), responders={"fake": script.responder}
         )
         before = snapshot_tree(tmp_path, exclude=(data_dir,))
-        run = asyncio.run(_run_login_on_hive_stand(hive))
+        run = asyncio.run(_run_login_on_hive_stand(hive, record_started_pids(monkeypatch)))
 
     assert run.report.succeeded, run.report
     _assert_left_as_found(tmp_path, data_dir, before, run)

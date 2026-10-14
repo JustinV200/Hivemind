@@ -11,8 +11,8 @@ Queen retry, or a resume from Handoff) always assembles a brand-new prompt (codi
 call counter shared across attempts would misread how many rounds the *current* one has made,
 where counting tool results already present in `request.messages` reads correctly every time.
 `wait_until` is this suite's one polling primitive on the real clock (most scenarios run their Hive
-on a real `SystemClock`, never a fixed `asyncio.sleep`); `snapshot_tree` and `pid_alive` are what
-scenario (h)'s left-as-found assertion checks against.
+on a real `SystemClock`, never a fixed `asyncio.sleep`); `snapshot_tree`, `pid_alive` and
+`record_started_pids` are what scenario (h)'s left-as-found assertion checks against.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used mainly by
@@ -59,7 +59,7 @@ from builders.queen import make_queen_deps, plan_responder
 from builders.wardens import make_warden_deps
 
 from hivemind.brood_chamber import TaskFilter, TaskStatus
-from hivemind.cell import Cell, CellKind
+from hivemind.cell import Cell, CellKind, RealCellLease
 from hivemind.forage import ForageMap
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
@@ -190,6 +190,33 @@ def capture_encoded_envelope_sizes(monkeypatch: pytest.MonkeyPatch) -> list[int]
 
     monkeypatch.setattr(Codec, "encode", _wrapped)
     return sizes
+
+
+def record_started_pids(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Monkeypatch `RealCellLease.note_started_process` to record every pid a lease is told of.
+
+    A lease forgets a command's pid once its whole process group is gone (the kernel may then
+    hand the id to an unrelated process), so `lease.started_pids` read after a run no longer
+    lists the commands that run finished; a left-as-found check needs every pid it ever started,
+    which this keeps. Every session reaches the method through its lease instance at call time,
+    so patching the class captures every lease the scenario opens.
+
+    Args:
+        monkeypatch: The test's own fixture; the patch is undone automatically at teardown.
+
+    Returns:
+        A list this function appends each recorded pid to, in start order. The caller reads it
+        after the scenario has run.
+    """
+    pids: list[int] = []
+    original_note = RealCellLease.note_started_process
+
+    def _wrapped(self: RealCellLease, pid: int) -> None:
+        pids.append(pid)
+        original_note(self, pid)
+
+    monkeypatch.setattr(RealCellLease, "note_started_process", _wrapped)
+    return pids
 
 
 def text_response(text: str) -> LLMResponse:

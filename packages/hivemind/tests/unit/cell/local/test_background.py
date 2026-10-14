@@ -73,6 +73,23 @@ async def test_start_reports_the_pid_before_returning_and_stop_reaps_it(tmp_path
     assert not table.is_running(process)
 
 
+async def test_stop_forgets_the_pid_once_its_group_is_gone(tmp_path: Path) -> None:
+    # A reaped process with an empty group frees its id for the kernel to reuse: the lease must
+    # stop tracking it, or a later release would signal whatever process takes the id next.
+    finished: list[int] = []
+    table = BackgroundTable(SystemClock())
+    started: list[int] = []
+    ctx = BackgroundContext(
+        scratch_dir=tmp_path, on_started=started.append, on_finished=finished.append
+    )
+    process = await table.start(BackgroundSpec(argv=_SLEEPER), ctx)
+    assert finished == []  # Still running: still the lease's to kill.
+
+    await table.stop(process)
+
+    assert finished == [process.pid]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="process groups and /proc are POSIX-only")
 async def test_stop_kills_a_daemon_forked_into_the_group_after_its_launcher_exited(
     tmp_path: Path,

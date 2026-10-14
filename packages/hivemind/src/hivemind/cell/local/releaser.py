@@ -70,6 +70,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import psutil
+
 from hivemind.cell.lease import LeaseReleaseReport, RealCellLease, RestoreRecord
 from hivemind.cell.leavings import ApprovedBy, Leaving, LeavingsStore
 from hivemind.cell.source import CellIdentity
@@ -86,7 +88,7 @@ KILL_GRACE_S = 0.2  # A brief, bounded window for SIGTERM to let a child exit be
 _SCRATCH_REMOVE_ATTEMPTS = 5
 _SCRATCH_REMOVE_RETRY_S = 0.05
 
-__all__ = ["KILL_GRACE_S", "HiveStandLeaseReleaser", "kill_process_tree"]
+__all__ = ["KILL_GRACE_S", "HiveStandLeaseReleaser", "kill_process_tree", "process_group_alive"]
 
 
 class HiveStandLeaseReleaser:
@@ -202,6 +204,37 @@ async def kill_process_tree(pid: int, clock: Clock) -> bool:
         return await _kill_tree_posix(pid, clock)
 
 
+def process_group_alive(pid: int) -> bool:
+    """Return whether any process of the group `pid` leads (POSIX) or `pid` itself (Windows) lives.
+
+    A session asks this once it has reaped a command: an empty group's id may be reused by the
+    kernel for an unrelated process, so the lease must stop tracking it, while a group a daemon
+    still holds is the Hive's own and stays tracked for release to kill.
+
+    Args:
+        pid: A process id a `CellSession` started (on POSIX also its group id).
+
+    Returns:
+        True while the group (or, on Windows, the process) still has a live member; False once
+        nothing is left, the case in which forgetting the id is safe.
+    """
+    if sys.platform == "win32":
+        # Windows has no process groups to probe; taskkill /T needs a live root, so a dead root
+        # has nothing left that a later kill could reach either.
+        return _windows_pid_alive(pid)
+    else:
+        try:
+            # Signal 0 is a probe: it checks the group exists without delivering anything.
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # A group we may not signal is not ours to kill; report it alive so it is never
+            # forgotten into something release would then misjudge.
+            return True
+        return True
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Killing: POSIX (os.killpg, SIGTERM then SIGKILL) and Windows (taskkill /T /F)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -233,6 +266,11 @@ async def _kill_tree_posix(pid: int, clock: Clock) -> bool:
             # The suppressed case: the whole group exited on its own during the grace period.
             os.killpg(pid, signal.SIGKILL)
         return True
+
+
+def _windows_pid_alive(pid: int) -> bool:
+    """Return whether `pid` is alive on Windows, through psutil (no group probe exists there)."""
+    return bool(psutil.pid_exists(pid))
 
 
 async def _kill_tree_windows(pid: int) -> bool:

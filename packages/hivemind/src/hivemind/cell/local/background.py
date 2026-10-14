@@ -50,7 +50,7 @@ from typing import IO
 
 from hivemind.cell.errors import BackgroundStartError
 from hivemind.cell.local.process import resolve_cwd
-from hivemind.cell.local.releaser import kill_process_tree
+from hivemind.cell.local.releaser import kill_process_tree, process_group_alive
 from hivemind.cell.session import BackgroundProcess, BackgroundSpec, resolve_scratch_path
 from hivemind.common.logging import get_logger
 from waggle.clock import Clock
@@ -71,10 +71,13 @@ class BackgroundContext:
             only place a log file may be written.
         on_started: Called once, with the new pid, the moment it is known; a session passes its
             lease's `note_started_process` so the lease's release can kill the process too.
+        on_finished: Called with the pid once `stop` has reaped the process and its whole group
+            is gone, so the lease stops tracking an id the kernel may reuse; None keeps it.
     """
 
     scratch_dir: Path
     on_started: Callable[[int], None]
+    on_finished: Callable[[int], None] | None = None
 
 
 class BackgroundTable:
@@ -92,6 +95,9 @@ class BackgroundTable:
         """
         self._clock = clock
         self._running: dict[int, asyncio.subprocess.Process] = {}
+        # Each started pid's forget callback (its context's on_finished), kept beside its handle
+        # because stop() is given only the process, never the context it was started with.
+        self._forget: dict[int, Callable[[int], None]] = {}
 
     async def start(self, spec: BackgroundSpec, ctx: BackgroundContext) -> BackgroundProcess:
         """Start `spec` in its own process group and return once its pid is recorded.
@@ -128,6 +134,8 @@ class BackgroundTable:
         # lease's release to find (this module's first invariant).
         ctx.on_started(process.pid)
         self._running[process.pid] = process
+        if ctx.on_finished is not None:
+            self._forget[process.pid] = ctx.on_finished
         log.debug("cell.background_started", pid=process.pid, program=spec.argv[0])
         return BackgroundProcess(pid=process.pid, argv=spec.argv, log_path=log_path)
 
@@ -179,6 +187,11 @@ class BackgroundTable:
         # The group is killed even when the leader has exited: a daemon it forked can outlive it.
         await kill_process_tree(pid, self._clock)
         await _reap(handle)
+        # Reaped with its group gone: the id is free for the kernel to reuse, so the lease forgets
+        # it and its release can never signal whatever process takes the id next.
+        forget = self._forget.pop(pid, None)
+        if forget is not None and not process_group_alive(pid):
+            forget(pid)
         return was_running
 
 

@@ -60,7 +60,7 @@ from pathlib import Path
 
 from hivemind.cell.errors import CommandTimeoutError, ScratchQuotaExceededError
 from hivemind.cell.local.quota import QUOTA_SAMPLE_INTERVAL_S, ScratchQuota
-from hivemind.cell.local.releaser import kill_process_tree
+from hivemind.cell.local.releaser import kill_process_tree, process_group_alive
 from hivemind.cell.session import ExecEvent, ExecSpec, ExitStatus, OutputChunk, OutputStream
 from hivemind.common.errors import InvariantViolationError
 from waggle.clock import Clock
@@ -97,12 +97,16 @@ class ProcessContext:
         on_started: Called once, with the spawned child's pid, the moment it is known -- before
             anything else touches the child -- so the caller's own lease bookkeeping
             (`RealCellLease.note_started_process`) never misses a pid to a crash mid-exec.
+        on_finished: Called with the pid once the child is reaped and its whole process group
+            is gone, so the lease stops tracking an id the kernel may reuse
+            (`RealCellLease.forget_started_process`); None tracks every pid until release.
     """
 
     clock: Clock
     scratch_dir: Path
     quota: ScratchQuota | None
     on_started: Callable[[int], None]
+    on_finished: Callable[[int], None] | None = None
 
 
 def resolve_cwd(scratch_dir: Path, cwd: Path | None) -> Path:
@@ -167,6 +171,8 @@ async def run_child_process(spec: ExecSpec, ctx: ProcessContext) -> AsyncIterato
         if process.returncode is None:
             await kill_process_tree(process.pid, ctx.clock)
         raise
+    finally:
+        _forget_if_gone(process, ctx)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -315,3 +321,18 @@ async def _write_stdin(process: asyncio.subprocess.Process, data: bytes | None) 
     process.stdin.write(data)
     await process.stdin.drain()  # An external await: bounded by the OS pipe buffer draining.
     process.stdin.close()
+
+
+def _forget_if_gone(process: asyncio.subprocess.Process, ctx: ProcessContext) -> None:
+    """Tell the lease to stop tracking a reaped child whose whole process group has emptied.
+
+    Synchronous on purpose: it runs in a generator's `finally`, where an await could be cut short
+    by the generator's own close, and the probe it makes is a single signal-0 system call.
+    """
+    # Still running or not yet reaped: keep tracking it, release must still be able to kill it.
+    if ctx.on_finished is None or process.returncode is None:
+        return
+    # A daemon the command forked still holds the group: it is the Hive's, so it stays tracked.
+    if process_group_alive(process.pid):
+        return
+    ctx.on_finished(process.pid)

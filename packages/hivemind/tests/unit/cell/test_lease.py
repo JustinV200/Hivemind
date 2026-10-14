@@ -122,6 +122,19 @@ def test_note_started_process_records_every_pid(tmp_path: Path) -> None:
     assert lease.started_pids == (111, 222)
 
 
+def test_forget_started_process_drops_every_copy_and_ignores_an_unknown_pid(tmp_path: Path) -> None:
+    lease = _make_lease(tmp_path)
+    lease.note_started_process(111)
+    lease.note_started_process(222)
+    lease.note_started_process(111)  # The kernel handed the id out again once its group was gone.
+
+    lease.forget_started_process(111)
+    lease.forget_started_process(333)  # Never recorded: a no-op, never an error.
+
+    # A release now signals only 222: a stale 111 could name an unrelated process.
+    assert lease.started_pids == (222,)
+
+
 async def test_note_touched_path_inside_scratch_writes_no_event(tmp_path: Path) -> None:
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)

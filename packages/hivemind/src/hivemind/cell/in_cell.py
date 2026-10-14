@@ -127,6 +127,7 @@ class InCellSession:
             # Key invariant: no scratch-usage watchdog inside a Virtual Cell (module docstring).
             quota=None,
             on_started=self._lease.note_started_process,
+            on_finished=self._lease.forget_started_process,
         )
         async for event in run_child_process(spec, ctx):
             yield event
@@ -209,7 +210,9 @@ class InCellSession:
         if not self._open:
             raise SessionClosedError(self._scratch_dir)
         ctx = BackgroundContext(
-            scratch_dir=self._scratch_dir, on_started=self._lease.note_started_process
+            scratch_dir=self._scratch_dir,
+            on_started=self._lease.note_started_process,
+            on_finished=self._lease.forget_started_process,
         )
         return await self._background.start(spec, ctx)
 

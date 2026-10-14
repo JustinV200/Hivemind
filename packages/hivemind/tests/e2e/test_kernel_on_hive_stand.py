@@ -83,6 +83,7 @@ from e2e.kernel_helpers import (
     capture_encoded_envelope_sizes,
     default_worker_turn,
     pid_alive,
+    record_started_pids,
     set_budget_fraction,
     snapshot_tree,
     text_response,
@@ -763,7 +764,7 @@ def _pid_is_dead(pid: int) -> Callable[[], bool]:
 @_LEVELS
 @_BUDGETS
 def test_the_hive_stand_is_left_exactly_as_found_after_the_goal(
-    tmp_path: Path, capabilities: str, quarter_budget: bool
+    tmp_path: Path, capabilities: str, quarter_budget: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """(h) the left-as-found snapshot holds: unchanged tree, empty scratch, every pid dead.
 
@@ -789,18 +790,20 @@ def test_the_hive_stand_is_left_exactly_as_found_after_the_goal(
     hive = _hive(manifest_path, HaikuScript(worker_turn))
     data_dir = tmp_path / "data"
     before = snapshot_tree(tmp_path, exclude=(data_dir,))
-    asyncio.run(_run_left_as_found(hive))
+    started_pids = record_started_pids(monkeypatch)
+    asyncio.run(_run_left_as_found(hive, started_pids))
     assert snapshot_tree(tmp_path / "scratch") == {}
     assert snapshot_tree(tmp_path, exclude=(data_dir,)) == before
 
 
-async def _run_left_as_found(hive: Hive) -> None:
-    """The async body `test_the_hive_stand_is_left_exactly_as_found_...` drives."""
+async def _run_left_as_found(hive: Hive, started_pids: list[int]) -> None:
+    """The async body `test_the_hive_stand_is_left_exactly_as_found_...` drives.
+
+    `started_pids` is `record_started_pids`'s list, not the lease's own: the lease forgets a
+    finished command's pid once its group is gone, while this check needs every pid it started.
+    """
     async with run_hive(hive):
         report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_TIMEOUT_S)
-        lease = hive.warden.lease
-        assert lease is not None
-        started_pids = list(lease.started_pids)
     assert report.succeeded, report
     assert started_pids  # the run really did start at least one real child process.
     for pid in started_pids:
