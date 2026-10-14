@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from builders.attested_cells import GatedFakeCellBackend, StubQueen, make_tier_spec
 from builders.cells import make_cell
 from builders.cli import fake_manifest
 from builders.forage import make_footprint
@@ -25,14 +26,18 @@ from hivemind.cli.compose import virtual_cell_backends
 from hivemind.cli.compose.virtual_cell_backends import night_veil_socks_proxy_url
 from hivemind.cli.compose.virtual_cells import (
     _fail_closed_night_veil_probe,
+    _fail_closed_propolis_probe,
     build_virtual_cells,
     docker_gateway_url,
 )
+from hivemind.hive import CellProvisionError
 from hivemind.hive.backends.docker.fake import FakeDockerClient
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.manifest.schema.placement import VirtualCellsSection
 from hivemind.manifest.schema.security.tiers import SecuritySection, TierProfile
+from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import (
     ForageView,
     Inventory,
@@ -276,3 +281,32 @@ def test_night_veil_socks_proxy_url_reads_the_configured_tor_socks(tmp_path: Pat
 def test_fail_closed_night_veil_probe_raises_a_clear_error() -> None:
     with pytest.raises(NotImplementedError, match="no real probe wired up"):
         _fail_closed_night_veil_probe(make_cell())
+
+
+def test_fail_closed_propolis_probe_raises_a_clear_error() -> None:
+    with pytest.raises(NotImplementedError, match="no real probe wired up"):
+        _fail_closed_propolis_probe(make_cell())
+
+
+@pytest.mark.parametrize("tier", [CombShieldLevel.PROPOLIS, CombShieldLevel.NIGHT_VEIL])
+async def test_a_hive_built_here_readies_no_cell_of_a_tier_it_cannot_attest(
+    tmp_path: Path, tier: CombShieldLevel
+) -> None:
+    # The composition root's own default: no session path to a Virtual Cell exists, so each
+    # attested tier's probe factory fails closed and no Cell of that tier becomes ready.
+    manifest = _load_with_virtual_cells(tmp_path)
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    parts = build_virtual_cells(manifest, trail, clock)
+    assert parts is not None
+    wardens: list[WardenLink] = []
+    parts.registry.register("gated", lambda: GatedFakeCellBackend(clock, parts.gate, wardens))
+    parts.provider.bind_queen(StubQueen(wardens))
+    placement = ProvisionVirtual(spec=make_tier_spec(tier), backend="gated", reason="test")
+
+    with pytest.raises(CellProvisionError, match="no real probe wired up"):
+        await parts.provider.acquire(placement, None)  # type: ignore[arg-type]
+
+    kinds = [event.kind for event in await trail.query(TrailQuery())]
+    assert "cell.ready" not in kinds
+    assert "cell.destroyed" in kinds

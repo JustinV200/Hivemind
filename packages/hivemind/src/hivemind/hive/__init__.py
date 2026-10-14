@@ -1,8 +1,9 @@
 """Provision and destroy Virtual Cells: VM or container Cells the Queen owns, not borrows.
 
 This is the hive package (lowercase, distinct from the Hive as a whole). It covers their lifecycle
-(roadmap step 5.6, not yet built), Night Veil attestation (the always-teardown-only security tier,
-step 5.7b) and the Overwintering pool that keeps a dormant Cell around for fast reuse (step 5.9).
+(roadmap step 5.6, not yet built), the attestation of an image before its Cell is ready (Night
+Veil's, the always-teardown-only security tier, step 5.7b; Propolis's, ADR-0057) and the
+Overwintering pool that keeps a dormant Cell around for fast reuse (step 5.9).
 Step 5.1/5.2 land first: the Virtual Cell request and lifecycle types (`VirtualCellSpec`,
 `NetworkPolicy`, `VirtualCellStatus`), the `CellBackend` protocol every provisioning backend
 implements, its in-memory reference implementation (`FakeCellBackend`), and the registry a
@@ -71,8 +72,18 @@ Public API:
     - CheckStatus, CheckResult, Attestation, CHECK_NAMES, attest, NightVeilProbe,
       FakeNightVeilProbe, SessionProbeConfig, SessionNightVeilProbe, run_checks, attest_cell:
       deterministic Night Veil bootstrap attestation, roadmap step 5.7b (hivemind.hive.night_veil).
+    - PropolisProbe, PROPOLIS_CHECK_NAMES, FakePropolisProbe, SessionPropolisProbe,
+      attest_propolis_cell: the Propolis attestation, the Real Cell's tunnel checks plus "Tor is
+      not running" (hivemind.hive.propolis, ADR-0057).
+    - CellAttestation, NightVeilProbeFactory, PropolisProbeFactory: attest a freshly provisioned
+      Cell at its own tier, MEADOW by nothing (hivemind.hive.attestation).
 """
 
+from hivemind.hive.attestation import (
+    CellAttestation,
+    NightVeilProbeFactory,
+    PropolisProbeFactory,
+)
 from hivemind.hive.backends import (
     BackendCapabilities,
     CellBackend,
@@ -142,6 +153,13 @@ from hivemind.hive.overwinter import (
     Scrubber,
     decide_release,
 )
+from hivemind.hive.propolis import (
+    PROPOLIS_CHECK_NAMES,
+    FakePropolisProbe,
+    PropolisProbe,
+    SessionPropolisProbe,
+    attest_propolis_cell,
+)
 from hivemind.hive.registry import BackendRegistry, CellBackendFactory
 from hivemind.hive.snapshot import (
     DockerSnapshotter,
@@ -157,11 +175,13 @@ from hivemind.hive.snapshot import (
 __all__ = [
     "CHECK_NAMES",
     "EGRESS_TIMEOUT_S",
+    "PROPOLIS_CHECK_NAMES",
     "TRANSITIONS",
     "Attestation",
     "BackendCapabilities",
     "BackendCapabilityError",
     "BackendRegistry",
+    "CellAttestation",
     "CellBackend",
     "CellBackendFactory",
     "CellBootstrap",
@@ -185,6 +205,7 @@ __all__ = [
     "EgressOutcome",
     "FakeCellBackend",
     "FakeNightVeilProbe",
+    "FakePropolisProbe",
     "FakeReadinessGate",
     "HiveError",
     "InvalidCellTransitionError",
@@ -194,12 +215,15 @@ __all__ = [
     "LiveVirtualCell",
     "NetworkPolicy",
     "NightVeilProbe",
+    "NightVeilProbeFactory",
     "OverwinterConfig",
     "OverwinterDecision",
     "OverwinterPool",
     "OverwinterSettings",
     "PoolView",
     "PooledCandidate",
+    "PropolisProbe",
+    "PropolisProbeFactory",
     "QemuCellBackend",
     "QemuSnapshotter",
     "QueenEndpoint",
@@ -209,6 +233,7 @@ __all__ = [
     "Scrubber",
     "SessionNightVeilProbe",
     "SessionProbeConfig",
+    "SessionPropolisProbe",
     "SnapshotLedger",
     "SnapshotLedgerPort",
     "SnapshotNotFoundError",
@@ -223,6 +248,7 @@ __all__ = [
     "assert_transition",
     "attest",
     "attest_cell",
+    "attest_propolis_cell",
     "build_docker_backend",
     "build_qemu_backend",
     "can_enter_dormant",

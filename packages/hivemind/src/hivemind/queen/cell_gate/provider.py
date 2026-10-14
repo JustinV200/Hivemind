@@ -44,19 +44,20 @@ key invariants). A Cell that reached PROVISIONING (`lifecycle.provision` returne
 attestation was red) is torn down through `hivemind.hive.cell_state`'s PROVISIONING -> DESTROYING
 edge, so nothing is left tracked for a sweep to find.
 
-**Night Veil attestation (roadmap step 5.7b, ADR-0030, this branch closing a gap an earlier
-implementer's own report named):** for a freshly provisioned Cell whose `comb_shield` is
-NIGHT_VEIL, `_acquire_provision` calls `hive.night_veil.attest_cell(probe, self._trail, cell.id)`
-after the link is found but before `mark_ready` -- "readiness is attestation of an image, never
-configuration of a Cell" (ADR-0030). Any red check, or the probe itself failing to run, tears the
-Cell down and raises `CellProvisionError` naming the failing checks; a passed attestation falls
-through to `mark_ready` exactly as before this step. The probe itself is injected as
-`probe_factory: Callable[[Cell], NightVeilProbe]`, never defaulted to a fake here (codingrules
-14.4's fakes are for tests, never a silent production default): the composition root
-(`hivemind.cli.compose.virtual_cells`) supplies it, and today supplies one that fails closed with
+**Attestation by tier (roadmap step 5.7b, ADR-0030, ADR-0057):** for a freshly provisioned Cell,
+`_acquire_provision` asks its `hivemind.hive.attestation.CellAttestation` to attest it after the
+link is found but before `mark_ready` -- "readiness is attestation of an image, never
+configuration of a Cell" (ADR-0030). What that means is the tier's, and is `CellAttestation`'s
+business and not this module's: a NIGHT_VEIL Cell is attested by Night Veil's thirteen checks, a
+PROPOLIS Cell by the Real Cell's four tunnel checks and Tor's absence, a MEADOW Cell by nothing.
+Any red check, a tier with no probe configured, or the attestation failing to run, tears the Cell
+down and raises `CellProvisionError` naming why; a passed one (or none) falls through to
+`mark_ready`. The probe factories are injected through that object, never defaulted to a fake here
+(codingrules 14.4's fakes are for tests, never a silent production default): the composition root
+(`hivemind.cli.compose.virtual_cells`) supplies them, and today supplies ones that fail closed with
 a clear error, because `WardenLink` (`hivemind.queen.deps`) carries a Waggle `Transport`, not a
-`hivemind.cell.CellSession` `SessionNightVeilProbe` needs -- no session-opening seam exists yet
-from the Queen to a Virtual Cell (this module's own report names the gap).
+`hivemind.cell.CellSession` a session probe needs -- no session-opening seam exists yet from the
+Queen to a Virtual Cell, so a real `hive run` readies no PROPOLIS or NIGHT_VEIL Cell.
 
 **The Night Veil boundary (codingrules section 12):** once a NIGHT_VEIL Cell is acquired for a
 task, `acquire` binds the task to it in the boundary's ephemeral segments (`night_veil`), before
@@ -81,8 +82,8 @@ Fits into the Hive:
     one exists (the same late-binding `CellListener.start(queen)` already uses, since a
     `QueenDeps.virtual_provider` must exist before `Queen(deps)` can be constructed at all). Calls
     into `hivemind.brood_chamber` (Task), `hivemind.hive` (CellProvisionError, VirtualCellSpec),
-    `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.night_veil` (NightVeilProbe,
-    attest_cell), `hivemind.pheromone` (TrailRecorder, EphemeralSegments),
+    `hivemind.hive.lifecycle` (CellLifecycle), `hivemind.hive.attestation` (CellAttestation),
+    `hivemind.pheromone` (EphemeralSegments),
     `hivemind.queen.cell_gate.gate` (QueenReadinessGate), `hivemind.queen.deps` (WardenLink),
     `hivemind.queen.placement` (Placement, ProvisionVirtual, ReuseDormant), `hivemind.queen.queen`
     (Queen) and waggle only.
@@ -95,21 +96,21 @@ Key invariants:
       a failed acquire never leaves an orphaned Cell for the Undertaker's own sweep to find later.
     - A freshly provisioned Cell never reaches `mark_ready` unless its link carries the tier it
       was provisioned at.
-    - A NIGHT_VEIL Cell never reaches `mark_ready` without a passed `attest_cell` call first
-      (ADR-0030): a red check, or the probe raising, tears the Cell down the same way any other
-      post-provision failure does.
+    - A NIGHT_VEIL or PROPOLIS Cell never reaches `mark_ready` without a passed attestation first
+      (ADR-0030, ADR-0057): a red check, a tier with no probe, or the attestation failing to run
+      tears the Cell down the same way any other post-provision failure does, whatever ended it.
     - A task handed a NIGHT_VEIL Cell's link is bound to that Cell's segment before `acquire`
       returns it.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the acquire sequence this module implements.
-    - .claude/roadmap.md step 5.7b for the Night Veil attestation hook this module adds.
+    - .claude/roadmap.md step 5.7b for the attestation hook this module holds.
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the retry-once Consequences this
       provider's own `CellProvisionError` triggers one layer up.
     - docs/adr/0030-night-veil-retention-and-clearance-boundary.md for "readiness is attestation
       of an image, never configuration of a Cell".
-    - hivemind.hive.night_veil for NightVeilProbe and attest_cell, this module's own attestation
-      call.
+    - docs/adr/0057-propolis-is-verified-by-looking.md for the PROPOLIS tier's attestation.
+    - hivemind.hive.attestation for CellAttestation, this module's own attestation call.
     - hivemind.queen.dispatcher.acquire for acquire_virtual, this provider's one caller.
     - hivemind.queen.cell_gate.listener for CellListener, which attaches the WardenLink this
       provider looks up.
@@ -118,16 +119,16 @@ See Also:
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable
 from typing import Protocol
 
 from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, CombShieldLevel
+from hivemind.common.errors import HiveMindError
 from hivemind.hive import CellProvisionError, VirtualCellSpec
+from hivemind.hive.attestation import CellAttestation
 from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.hive.models import DEFAULT_READY_TIMEOUT_S
-from hivemind.hive.night_veil import NightVeilProbe, attest_cell
-from hivemind.pheromone import EphemeralSegments, TrailRecorder
+from hivemind.pheromone import EphemeralSegments
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import Placement, ProvisionVirtual, ReuseDormant, ReuseReal
@@ -137,12 +138,13 @@ from waggle.signing import public_key_from_hex
 # The reason a sandbox's provision carries, beside the ordinary placement reasons.
 SANDBOX = "comb sandbox"
 
-# A NIGHT_VEIL Cell's own probe factory: builds a fresh NightVeilProbe for the Cell being attested.
-# Callable rather than a bare probe instance, since a real SessionNightVeilProbe needs a live
-# CellSession bound to *this* Cell, not one shared across every provision (module docstring).
-NightVeilProbeFactory = Callable[[Cell], NightVeilProbe]
+# What a probe or its factory raises when it cannot run at all, as opposed to finding a red check:
+# a session that never opened or a command the Guard denied (HiveMindError), a factory that fails
+# closed (NotImplementedError), a transport that broke (OSError), a Cell no link is attached for
+# (LookupError) or a result the attestation's own models refused (ValueError).
+_ATTEST_FAILURES = (HiveMindError, NotImplementedError, OSError, LookupError, ValueError)
 
-__all__ = ["LifecycleVirtualCellProvider", "NightVeilProbeFactory"]
+__all__ = ["LifecycleVirtualCellProvider"]
 
 
 class LifecycleVirtualCellProvider:
@@ -157,8 +159,7 @@ class LifecycleVirtualCellProvider:
         self,
         lifecycle: CellLifecycle,
         gate: QueenReadinessGate,
-        trail: TrailRecorder,
-        probe_factory: NightVeilProbeFactory,
+        attestation: CellAttestation,
         night_veil: EphemeralSegments | None = None,
     ) -> None:
         """Build a LifecycleVirtualCellProvider; call `bind_queen` before the first `acquire`.
@@ -167,18 +168,15 @@ class LifecycleVirtualCellProvider:
             lifecycle: Drives every Virtual Cell state edge and backend call.
             gate: Resolves once the Cell's own CellReady/CellHeartbeat handshake has verified;
                 the same instance the composition root also wires into every registered backend.
-            trail: The Queen-side trail-writer identity `attest_cell` records a NIGHT_VEIL Cell's
-                own `cell.attested` event with.
-            probe_factory: Builds the `NightVeilProbe` a freshly provisioned NIGHT_VEIL Cell is
-                attested against (module docstring: never a bare fake, injected by the composition
-                root).
+            attestation: Attests a freshly provisioned Cell at its own tier before it is ready
+                (module docstring: its probe factories are never a bare fake, they are injected
+                by the composition root).
             night_veil: The Night Veil boundary's ephemeral segments a task is bound into once it
                 is handed a NIGHT_VEIL Cell; None (a Hive with no Virtual side) binds nothing.
         """
         self._lifecycle = lifecycle
         self._gate = gate
-        self._trail = trail
-        self._probe_factory = probe_factory
+        self._attestation = attestation
         self._night_veil = night_veil
         self._queen: _WardensView | None = None
 
@@ -237,11 +235,10 @@ class LifecycleVirtualCellProvider:
             ) from exc
         # The task is bound to the tier its link carries, which the Cell announced itself.
         await self._require_provisioned_tier(cell, link, placement)
-        if cell.comb_shield is CombShieldLevel.NIGHT_VEIL:
-            # ADR-0030: "readiness is attestation of an image, never configuration of a Cell."
-            # Runs after the link is found (attest_cell needs nothing from it) but strictly
-            # before mark_ready, so a Cell that fails attestation is never handed to placement.
-            await self._attest_or_teardown(cell, placement)
+        # ADR-0030: "readiness is attestation of an image, never configuration of a Cell." Runs
+        # after the link is found (attestation needs nothing from it) but strictly before
+        # mark_ready, so a Cell that fails attestation is never handed to placement.
+        await self._attest_or_teardown(cell, placement)
         await self._lifecycle.mark_ready(cell.id, link.warden_id)
         return link
 
@@ -284,31 +281,29 @@ class LifecycleVirtualCellProvider:
         )
 
     async def _attest_or_teardown(self, cell: Cell, placement: ProvisionVirtual) -> None:
-        """Attest `cell` (NIGHT_VEIL only); a red check or a probe failure tears it down.
+        """Attest `cell` at its tier (MEADOW needs none); anything but a pass tears it down.
 
         Raises:
-            CellProvisionError: The probe itself could not run, or attestation recorded at least
-                one red check; either way `cell` has already been torn down (best-effort) before
-                this raises.
+            CellProvisionError: A check was red, the tier has no probe, or the attestation could
+                not run; `cell` has already been torn down (best-effort) before this raises.
         """
+        tier = cell.comb_shield.value
+        # Set only by a way of ending that is not a pass. Left as it starts, it means the
+        # attestation was cut short by something this code did not expect (a bug, a cancel): the
+        # Cell is torn down all the same, and that error is the one the caller sees.
+        refusal: str | None = f"{tier} attestation did not finish"
         try:
-            probe = self._probe_factory(cell)
-            attestation = await attest_cell(probe, self._trail, cell.id)
-        except Exception as exc:
-            await self._teardown_best_effort(cell.id)
-            raise CellProvisionError(
-                placement.backend,
-                placement.spec.image,
-                f"Night Veil attestation could not run: {exc}",
-            ) from exc
-        if attestation.passed:
-            return
-        await self._teardown_best_effort(cell.id)
-        raise CellProvisionError(
-            placement.backend,
-            placement.spec.image,
-            f"Night Veil attestation failed: {', '.join(sorted(attestation.red))}",
-        )
+            attestation = await self._attestation.attest(cell)
+            refusal = None
+            if attestation is not None and not attestation.passed:
+                refusal = f"{tier} attestation failed: {', '.join(sorted(attestation.red))}"
+        except _ATTEST_FAILURES as exc:
+            refusal = f"{tier} attestation could not run: {exc}"
+        finally:
+            if refusal is not None:
+                await self._teardown_best_effort(cell.id)
+        if refusal is not None:
+            raise CellProvisionError(placement.backend, placement.spec.image, refusal)
 
     async def _acquire_dormant(self, placement: ReuseDormant) -> WardenLink:
         """Resume `placement.cell_id`, wait for its Warden, and return its link."""

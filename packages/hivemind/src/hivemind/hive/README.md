@@ -2,8 +2,8 @@
 
 The hive package (lowercase, distinct from the Hive as a whole) provisions and destroys Virtual
 Cells: VM or container Cells the Queen owns outright rather than borrows. It covers their
-lifecycle, Night Veil attestation (the always-teardown-only security tier) and the Overwintering
-pool that keeps a dormant Cell around for fast reuse.
+lifecycle, Night Veil and Propolis attestation (the always-teardown-only security tier, and the
+VPN-only one) and the Overwintering pool that keeps a dormant Cell around for fast reuse.
 
 ## Public API (roadmap step 5.1/5.2)
 
@@ -50,10 +50,27 @@ pool that keeps a dormant Cell around for fast reuse.
   browser automation exists, never a silent downgrade), `attest_cell` the effectful edge that runs
   every check and records exactly one `cell.attested` trail event, win or lose. `FakeNightVeilProbe`
   is what a composition root uses until `images/night-veil-ubuntu` (5.3a) is attestable for real;
-  `SessionNightVeilProbe` runs each check as a fixed, documented command over a `CellSession`. The
-  hook to gate `CellReady` on this before `mark_ready` (and tear the Cell down on a red result) is
-  a report item: it sits in `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider.
-  acquire`, outside this dispatch's file list.
+  `SessionNightVeilProbe` runs each check as a fixed, documented command over a `CellSession`.
+  `record_attestation` is the recording half every tier shares: the one `cell.attested` event names
+  the tier it attests (`comb_shield`), and an event that names none is Night Veil's, which was the
+  only attestation once. The `CellReady` gate (attest before `mark_ready`, tear the Cell down on a
+  red result) is `hivemind.queen.cell_gate.provider.LifecycleVirtualCellProvider`'s, over the
+  `CellAttestation` below.
+- `PropolisProbe` / `PROPOLIS_CHECK_NAMES` / `FakePropolisProbe` / `SessionPropolisProbe` /
+  `attest_propolis_cell` / `judge_tor_disabled` (`propolis/`, ADR-0057): the Propolis tier's
+  attestation of a Virtual Cell's image before `CellReady`, by the Real Cell's own checks
+  (`hivemind.cell.tunnel`: the default route through the tunnel, DNS through it, no direct IPv6
+  path, direct egress refused) plus one more, that Tor is not running (no `tor` process, no socket
+  listening on Tor's usual ports: three fixed reads, `ps -eo comm=` and `/proc/net/tcp{,6}`).
+  `PropolisProbe` has one method, `checks()`, since the four tunnel checks are judged from one
+  snapshot of one routing table; `attest_propolis_cell` fails a check the probe left out or called
+  not applicable, so a probe cannot pass vacuously, and records the one `cell.attested` event,
+  win or lose. Nothing is installed or rerouted: the image is looked at, never configured.
+- `CellAttestation` / `NightVeilProbeFactory` / `PropolisProbeFactory` (`attestation.py`): attest a
+  freshly provisioned Cell at its own tier -- MEADOW by nothing, PROPOLIS by `propolis/`, NIGHT_VEIL
+  by `night_veil/` -- from one table of tier to attestation, so the provider asks one question and
+  a tier with no probe configured is refused, never passed. A resumed (Overwintered) Cell is not
+  attested again here.
 - `NightVeilBoundary` / `TIER_LABEL` / `with_tier_label` / `tier_from_labels` /
   `provisioned_facts` / `failure_facts` / `end_night_veil` / `adopt_night_veil` /
   `night_veil_cells` / `is_night_veil_cell` / `sweep_night_veil` (`night_veil/boundary.py`,

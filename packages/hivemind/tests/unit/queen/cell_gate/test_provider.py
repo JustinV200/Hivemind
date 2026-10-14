@@ -28,6 +28,7 @@ from builders.forage import make_capacity
 from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, CombShieldLevel
 from hivemind.hive import NetworkPolicy
+from hivemind.hive.attestation import CellAttestation, NightVeilProbeFactory
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.hive.backends.fake import FakeCellBackend
@@ -42,7 +43,7 @@ from hivemind.hive.registry import BackendRegistry
 from hivemind.pheromone import TrailQuery, TrailRecorder
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider, NightVeilProbeFactory
+from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import ProvisionVirtual, ReuseDormant
 from waggle.clock import FakeClock
@@ -197,12 +198,10 @@ def _build(
     recorder = TrailRecorder(
         trail=trail, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
     )
-    provider = LifecycleVirtualCellProvider(
-        lifecycle,
-        gate,
-        recorder,
-        probe_factory if probe_factory is not None else _always_green_probe,
+    attestation = CellAttestation(
+        recorder, probe_factory if probe_factory is not None else _always_green_probe
     )
+    provider = LifecycleVirtualCellProvider(lifecycle, gate, attestation)
     provider.bind_queen(_StubQueen(wardens))
     return provider, lifecycle, wardens, gate, trail
 
@@ -390,7 +389,7 @@ async def test_acquire_sandbox_with_no_backend_registered_cannot_provision() -> 
         trail=trail, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
     )
     provider = LifecycleVirtualCellProvider(
-        lifecycle, QueenReadinessGate(), recorder, _always_green_probe
+        lifecycle, QueenReadinessGate(), CellAttestation(recorder, _always_green_probe)
     )
     provider.bind_queen(_StubQueen([]))
 

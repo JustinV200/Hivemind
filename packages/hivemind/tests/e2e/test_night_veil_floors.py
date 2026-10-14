@@ -36,6 +36,7 @@ from builders.queen import make_queen_deps
 from hivemind.brood_chamber import Task, TaskFilter, TaskStatus
 from hivemind.cell import Cell, CombShieldLevel
 from hivemind.hive import VirtualCellRecord
+from hivemind.hive.attestation import CellAttestation
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellReadyInfo, NightVeilLink, QueenEndpoint
 from hivemind.hive.backends.fake import FakeCellBackend
@@ -135,7 +136,8 @@ def _hive(
     recorder = TrailRecorder(
         trail=base.trail, clock=base.clock, hive_id=identity.hive_id, node_id=identity.node_id
     )
-    cells = LifecycleVirtualCellProvider(lifecycle, gate, recorder, lambda _c: FakeNightVeilProbe())
+    attestation = CellAttestation(recorder, lambda _c: FakeNightVeilProbe())
+    cells = LifecycleVirtualCellProvider(lifecycle, gate, attestation)
     deps = dataclasses.replace(
         base,
         virtual_provider=cells,

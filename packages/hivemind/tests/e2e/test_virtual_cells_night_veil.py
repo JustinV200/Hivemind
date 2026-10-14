@@ -33,6 +33,7 @@ from builders.cells import make_identity
 from hivemind.brood_chamber import Task
 from hivemind.cell import Cell, CombShieldLevel
 from hivemind.hive import CellProvisionError, VirtualCellRecord
+from hivemind.hive.attestation import CellAttestation, NightVeilProbeFactory
 from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellReadyInfo
 from hivemind.hive.backends.fake import FakeCellBackend
@@ -46,10 +47,7 @@ from hivemind.hive.registry import BackendRegistry
 from hivemind.pheromone import PheromoneTrail, TrailQuery, TrailRecorder
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.provider import (
-    LifecycleVirtualCellProvider,
-    NightVeilProbeFactory,
-)
+from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.placement import ProvisionVirtual
 from waggle.clock import FakeClock
@@ -192,9 +190,10 @@ def _night_veil_provider(
         trail=trail, clock=clock, hive_id=identity.hive_id, node_id=identity.node_id
     )
     always_green: NightVeilProbeFactory = lambda _cell: FakeNightVeilProbe()  # noqa: E731
-    provider = LifecycleVirtualCellProvider(
-        lifecycle, gate, recorder, probe_factory if probe_factory is not None else always_green
+    attestation = CellAttestation(
+        recorder, probe_factory if probe_factory is not None else always_green
     )
+    provider = LifecycleVirtualCellProvider(lifecycle, gate, attestation)
     provider.bind_queen(_StubQueen(wardens))
     return provider, lifecycle, wardens, trail
 

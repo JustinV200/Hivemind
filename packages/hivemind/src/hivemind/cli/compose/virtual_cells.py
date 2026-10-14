@@ -77,8 +77,9 @@ Fits into the Hive:
     Virtual Cell's capacity, which the Cell itself repeats from its bootstrap -- NetworkPolicy,
     OverwinterConfig, OverwinterPool, OverwinterSettings, VirtualCellSpec, mint_cell_bootstrap is
     not used here -- backends mint their own),
-    `hivemind.hive.night_veil` (NightVeilProbe, the fail-closed
-    `_fail_closed_night_veil_probe` below returns), `hivemind.manifest` (HiveManifest),
+    `hivemind.hive.attestation` (CellAttestation), `hivemind.hive.night_veil` (NightVeilProbe,
+    what the fail-closed `_fail_closed_night_veil_probe` below returns), `hivemind.hive.propolis`
+    (PropolisProbe, likewise for `_fail_closed_propolis_probe`), `hivemind.manifest` (HiveManifest),
     `hivemind.pheromone` (PheromoneTrail, TrailRecorder), `hivemind.queen.cell_gate`
     (CellListener, CellListenerDeps, LifecycleVirtualCellProvider, QueenReadinessGate,
     make_on_task_finished, make_quiesce), `hivemind.queen.dispatcher.snapshot` (the two
@@ -106,18 +107,19 @@ Fits into the Hive:
     into it, and the segment receiver keeps a Night Veil Cell's shipped segment out of the trail.
     `VirtualCellsParts.night_veil` carries it to the Queen's deps and to an Absconding.
 
-    **Night Veil probe wiring (roadmap step 5.7b, this branch closing a gap an earlier
-    implementer's own report named):** `LifecycleVirtualCellProvider` now takes a `probe_factory`
-    it calls to attest a freshly provisioned NIGHT_VEIL Cell before `mark_ready`
-    (`hivemind.queen.cell_gate.provider`'s own module docstring). The real
-    `hive.night_veil.SessionNightVeilProbe` needs a live `hivemind.cell.CellSession` bound to the
-    Cell being attested, and `WardenLink` (`hivemind.queen.deps`) carries only a Waggle
-    `Transport` today -- no session-opening seam exists yet from the Queen to a Virtual Cell.
-    Rather than defaulting to `FakeNightVeilProbe` here (codingrules 14.4: fakes are for tests,
-    never a silent production default), `_fail_closed_night_veil_probe` below raises a clear,
-    actionable error the moment a NIGHT_VEIL placement is actually attempted, so the gap fails
-    loudly instead of attesting against fabricated results. Report item: replace it with a
-    `SessionNightVeilProbe` factory once a Queen-side `CellSession` path exists.
+    **Attestation probe wiring (roadmap step 5.7b, ADR-0057):** `LifecycleVirtualCellProvider`
+    takes a `hivemind.hive.attestation.CellAttestation`, which attests a freshly provisioned
+    NIGHT_VEIL or PROPOLIS Cell before `mark_ready` (the provider's own module docstring). A real
+    `hive.night_veil.SessionNightVeilProbe` or `hive.propolis.SessionPropolisProbe` needs a live
+    `hivemind.cell.CellSession` bound to the Cell being attested, and `WardenLink`
+    (`hivemind.queen.deps`) carries only a Waggle `Transport` today -- no session-opening seam
+    exists yet from the Queen to a Virtual Cell. Rather than defaulting to a fake here (codingrules
+    14.4: fakes are for tests, never a silent production default), `_fail_closed_night_veil_probe`
+    and `_fail_closed_propolis_probe` below each raise a clear, actionable error the moment a Cell
+    of their tier is actually attested, so the gap fails loudly instead of attesting against
+    fabricated results: a real `hive run` readies no PROPOLIS Cell and no NIGHT_VEIL Cell, and a
+    MEADOW Cell is unaffected. Report item: replace each with a session-probe factory once a
+    Queen-side `CellSession` path exists.
 
 Key invariants:
     - `build_virtual_cells` returns `None` whenever `manifest.virtual_cells.backend` is `None`, and
@@ -130,6 +132,8 @@ Key invariants:
       backend, `section.backend`'s own selected name -- never "fake" alongside a real one.
     - Every backend candidate's specs are exactly (terminal-only `default_image`, Exoskeleton
       `exoskeleton_image`), in that order, with identical resources (roadmap step 6.12).
+    - Both attested tiers' probe factories are fail-closed: until a real one replaces them, no
+      PROPOLIS and no NIGHT_VEIL Cell becomes ready in a Hive built here.
 
 See Also:
     - .claude/roadmap.md step 5.6 for the composition-root wiring this module implements, and
@@ -168,7 +172,9 @@ from hivemind.hive import (
     OverwinterSettings,
     VirtualCellSpec,
 )
+from hivemind.hive.attestation import CellAttestation
 from hivemind.hive.night_veil import NightVeilBoundary, NightVeilProbe
+from hivemind.hive.propolis import PropolisProbe
 from hivemind.manifest import HiveManifest
 from hivemind.manifest.schema.placement import NetworkPolicyName, VirtualCellsSection
 from hivemind.pheromone import PheromoneTrail, TrailRecorder, VeiledTrail
@@ -373,16 +379,17 @@ def _build_provider(
 ) -> LifecycleVirtualCellProvider:
     """Build the real VirtualCellProvider.
 
-    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1).
-    `_fail_closed_night_veil_probe` is this Hive's own probe_factory until a Queen-side
-    CellSession path exists (module docstring's own "Night Veil probe wiring").
+    Split out of `build_virtual_cells` for its own line budget (codingrules 5.1). The two
+    `_fail_closed_*_probe` functions are this Hive's own probe factories until a Queen-side
+    CellSession path exists (module docstring's own "Attestation probe wiring").
     """
     recorder = TrailRecorder(
         trail=trail, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
     )
-    return LifecycleVirtualCellProvider(
-        lifecycle, gate, recorder, _fail_closed_night_veil_probe, night_veil=trail.segments
+    attestation = CellAttestation(
+        recorder, _fail_closed_night_veil_probe, _fail_closed_propolis_probe
     )
+    return LifecycleVirtualCellProvider(lifecycle, gate, attestation, night_veil=trail.segments)
 
 
 def _attach_snapshot(
@@ -531,6 +538,26 @@ def _fail_closed_night_veil_probe(cell: Cell) -> NightVeilProbe:
         f"Night Veil attestation has no real probe wired up yet for Cell {cell.id}: no "
         "CellSession path exists from the Queen to a Virtual Cell (roadmap step 5.7b's own gap). "
         "Wire a SessionNightVeilProbe factory here once one does."
+    )
+
+
+def _fail_closed_propolis_probe(cell: Cell) -> PropolisProbe:
+    """Refuse to attest any PROPOLIS Cell: no Queen-side CellSession path exists yet.
+
+    The same gap as `_fail_closed_night_veil_probe`, for the second attested tier (ADR-0057): a real
+    `hive.propolis.SessionPropolisProbe` needs a live `hivemind.cell.CellSession` for the Cell being
+    attested, and nothing here can build one from a bare `hivemind.cell.Cell` yet. Raising, rather
+    than quietly handing back a `FakePropolisProbe`, means a PROPOLIS Cell is torn down and refused
+    instead of "passing" an attestation that looked at nothing: no probe, no PROPOLIS Cell.
+
+    Raises:
+        NotImplementedError: Always; `LifecycleVirtualCellProvider._attest_or_teardown` catches
+            this like any other probe failure, tears `cell` down and raises `CellProvisionError`.
+    """
+    raise NotImplementedError(
+        f"PROPOLIS attestation has no real probe wired up yet for Cell {cell.id}: no CellSession "
+        "path exists from the Queen to a Virtual Cell (the gap Night Veil's attestation has too). "
+        "Wire a SessionPropolisProbe factory here once one does."
     )
 
 
