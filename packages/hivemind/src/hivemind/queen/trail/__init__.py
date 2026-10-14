@@ -2,10 +2,12 @@
 
 Everything the Queen does to the Pheromone Trail lives here: `.record` builds the one shape every
 `queen.*` and `forage.*` event this Queen writes shares, and `.sync` reassembles the segment a
-Warden inside a Virtual Cell (ADR-0027) ships over its own Queen link and merges it into the same
-log. Grouped into a package by codingrules 5.6 ("a source directory holds at most ten modules"),
-which `hivemind/queen/` reached once roadmap steps 5.0b/5.0d added `goal_submission` and
-`leave_memory` beside this dispatch's own modules; the two were already one concept.
+remote Warden (a Virtual Cell's, ADR-0027, or a colonized device's, ADR-0052) ships over its own
+Queen link and merges it into the same log, after `.signature` has checked that the node it names
+signed it (roadmap 11.9, ADR-0053); `.errors` holds the typed reasons an export is refused.
+Grouped into a package by codingrules 5.6 ("a source directory holds at most ten modules"), which
+`hivemind/queen/` reached once roadmap steps 5.0b/5.0d added `goal_submission` and `leave_memory`
+beside this dispatch's own modules; the two were already one concept.
 
 Importers keep naming the package, never a module inside it: `from hivemind.queen.trail import
 record_event` read the same before the split, and the old `hivemind.queen.trail_sync`'s own
@@ -28,25 +30,36 @@ See Also:
 Public API:
     - record_event, record_forage_event: the Queen's own event writers; queen_event: the same
       queen.* shape built without recording it, for a store that writes it with its row (record).
-    - TrailSegmentReceiver, SegmentSyncError, CorruptSegmentError, ForeignSegmentError,
-      UnknownSegmentFormatError: the remote-segment receiver and its typed errors (sync).
+    - TrailSegmentReceiver: the remote-segment receiver (sync).
+    - SegmentSyncError, CorruptSegmentError, ForeignSegmentError, UnknownSegmentFormatError,
+      UnsignedSegmentError, BadSegmentSignatureError: why an export is refused (errors).
+    - SegmentKey, SegmentKeys, check_segment_signature: the key a node signs its segments with, a
+      gate's lookup of it, and the check of a segment's signature against it (signature).
 """
 
-from hivemind.queen.trail.record import queen_event, record_event, record_forage_event
-from hivemind.queen.trail.sync import (
+from hivemind.queen.trail.errors import (
+    BadSegmentSignatureError,
     CorruptSegmentError,
     ForeignSegmentError,
     SegmentSyncError,
-    TrailSegmentReceiver,
     UnknownSegmentFormatError,
+    UnsignedSegmentError,
 )
+from hivemind.queen.trail.record import queen_event, record_event, record_forage_event
+from hivemind.queen.trail.signature import SegmentKey, SegmentKeys, check_segment_signature
+from hivemind.queen.trail.sync import TrailSegmentReceiver
 
 __all__ = [
+    "BadSegmentSignatureError",
     "CorruptSegmentError",
     "ForeignSegmentError",
+    "SegmentKey",
+    "SegmentKeys",
     "SegmentSyncError",
     "TrailSegmentReceiver",
     "UnknownSegmentFormatError",
+    "UnsignedSegmentError",
+    "check_segment_signature",
     "queen_event",
     "record_event",
     "record_forage_event",

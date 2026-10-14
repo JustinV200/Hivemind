@@ -7,12 +7,19 @@ records into a store that dies with the container, so it ships its segment over 
 as `waggle.messages.swarm.TrailSegmentSync` chunks; `TrailSegmentReceiver` is what turns those back
 into a `hivemind.pheromone.TrailSegment` and merges it, keyed by the sending node id.
 
-The Cell listener (`hivemind.queen.cell_gate`) drains each Virtual Cell's link and hands this
-module every chunk that names the node and Warden its link proved (the spec's receiver rule, which
-only the holder of the envelope can check); what either refuses, the listener records as
-`guard.segment_refused` (roadmap step 10.6). The contract this module offers is one call: hand it
-every `TrailSegmentSync` that arrives, in any order of interleaving between senders, and it merges
-each complete export exactly once.
+The gates (`hivemind.queen.cell_gate` for Virtual Cells' Wardens, `hivemind.queen.swarm_gate` for
+devices') drain each remote Warden's link and hand this module every chunk that names the node and
+Warden its link proved (the spec's receiver rule, which only the holder of the envelope can
+check); what either refuses, the link records as `guard.segment_refused` (roadmap step 10.6). The
+contract this module offers is one call: hand it every `TrailSegmentSync` that arrives, in any
+order of interleaving between senders, and it merges each complete export exactly once.
+
+From phase 11 (roadmap 11.9, ADR-0053) a complete export is also *authenticated* before it is
+merged: given the `SegmentKeys` of its gate, the receiver checks the final chunk's
+`segment_signature` against the key registered for the sending node (a Swarm node's is required, a
+Virtual Cell's is verified when present). ADR-0007's dedupe proves order, not authorship; this is
+what stops a hijacked connection or a faulty node putting events into the audit record under
+another node's name.
 
 A Night Veil Cell's segment is never merged into the trail (codingrules section 12: its
 execution records live in an ephemeral segment keyed to the Cell). Given the Night Veil boundary's
@@ -32,6 +39,9 @@ Key invariants:
     - A chunk whose `segment_format_version` this module does not know is refused outright
       (`UnknownSegmentFormatError`), never merged on a guess -- that is the field's whole purpose
       (`waggle.messages.swarm.colonized.TrailSegmentSync.segment_format_version`).
+    - An export whose sender must sign (`SegmentKey.is_required`) and did not, or whose signature
+      does not verify, is refused before anything is merged (`UnsignedSegmentError`,
+      `BadSegmentSignatureError`), and its partial buffer is dropped like any refused export's.
     - A reassembled export whose SHA-256 does not match the `final` chunk's own `sha256`, or whose
       length does not match `total_bytes`, is refused (`CorruptSegmentError`): a partial merge of a
       truncated segment would put un-auditable gaps into the Hive's audit record. So is a segment
@@ -42,7 +52,7 @@ Key invariants:
     - A Night Veil Cell's segment never reaches the trail: it goes to the ephemeral segments, or
       nowhere once the Cell is purged.
     - `receive` never raises for an ordinary out-of-order or duplicate chunk; it only raises the
-      two typed errors above, both of which mean "this export is not mergeable at all".
+      typed errors above, each of which means "this export is not mergeable at all".
 
 See Also:
     - .claude/codingrules.md section 12 for the per-node-segments rule and its merge semantics.
@@ -59,46 +69,30 @@ from dataclasses import dataclass, field
 from pydantic import ValidationError
 
 from hivemind.pheromone import EphemeralSegments, PheromoneTrail, TrailSegment
+from hivemind.queen.trail.errors import (
+    BadSegmentSignatureError,
+    CorruptSegmentError,
+    ForeignSegmentError,
+    SegmentSyncError,
+    UnknownSegmentFormatError,
+    UnsignedSegmentError,
+)
+from hivemind.queen.trail.signature import SegmentKeys, check_segment_signature
 from hivemind.wardens.trail_sync import SEGMENT_FORMAT_VERSION
 from waggle.ids import CellId, NodeId
 from waggle.messages.swarm import TrailSegmentSync
 
+# The typed errors live in `.errors` (so `.signature` can raise them without importing this module)
+# and are re-exported here, where importers have always found them.
 __all__ = [
+    "BadSegmentSignatureError",
     "CorruptSegmentError",
     "ForeignSegmentError",
     "SegmentSyncError",
     "TrailSegmentReceiver",
     "UnknownSegmentFormatError",
+    "UnsignedSegmentError",
 ]
-
-
-class SegmentSyncError(Exception):
-    """A TrailSegmentSync export this Queen cannot merge (codingrules section 10: typed errors)."""
-
-
-class UnknownSegmentFormatError(SegmentSyncError):
-    """A chunk declared a `segment_format_version` this Queen does not know how to read."""
-
-    def __init__(self, version: int) -> None:
-        """Name the version that was offered and the one this Queen understands."""
-        super().__init__(
-            f"TrailSegmentSync declared segment_format_version {version}; this Hive reads "
-            f"version {SEGMENT_FORMAT_VERSION} only."
-        )
-        self.version = version
-
-
-class CorruptSegmentError(SegmentSyncError):
-    """A reassembled export did not match its own declared size, digest or event count."""
-
-    def __init__(self, node_id: NodeId, detail: str) -> None:
-        """Name the node whose export was refused and why."""
-        super().__init__(f"TrailSegmentSync from node {node_id} is not mergeable: {detail}")
-        self.node_id = node_id
-
-
-class ForeignSegmentError(CorruptSegmentError):
-    """A reassembled export is another node's segment than the node its chunk was shipped as."""
 
 
 @dataclass(slots=True)
@@ -137,7 +131,12 @@ class TrailSegmentReceiver:
     export currently being reassembled, and empties again as each one's `final` chunk arrives.
     """
 
-    def __init__(self, trail: PheromoneTrail, night_veil: EphemeralSegments | None = None) -> None:
+    def __init__(
+        self,
+        trail: PheromoneTrail,
+        night_veil: EphemeralSegments | None = None,
+        keys: SegmentKeys | None = None,
+    ) -> None:
         """Build a receiver that merges into `trail`, veiling each Night Veil Cell's segment.
 
         Args:
@@ -145,9 +144,12 @@ class TrailSegmentReceiver:
                 is merged into it under the sending node's own id, so nodes never collide.
             night_veil: The Night Veil boundary's ephemeral segments (module docstring); None
                 merges every segment into `trail`, for a Hive with no Virtual side.
+            keys: Where the key a sender signs with is found (module docstring); None checks no
+                signature, for a receiver whose gate holds no node keys.
         """
         self._trail = trail
         self._night_veil = night_veil
+        self._keys = keys
         self._partials: dict[_GroupKey, _Partial] = {}
 
     async def receive(self, message: TrailSegmentSync) -> int:
@@ -167,6 +169,9 @@ class TrailSegmentReceiver:
 
         Raises:
             UnknownSegmentFormatError: `message.segment_format_version` is not one this Hive reads.
+            UnsignedSegmentError: The sender's segments must be signed (a Swarm node's) and the
+                final chunk carries no signature.
+            BadSegmentSignatureError: The final chunk's signature is not the sender's.
             CorruptSegmentError: The reassembled export's size or SHA-256 digest does not match
                 what the final chunk declared, it is not a readable `TrailSegment`, it does not
                 hold the `event_count` events the chunk promised; `ForeignSegmentError`, the
@@ -182,7 +187,16 @@ class TrailSegmentReceiver:
         # Dropped before the merge runs, not after: a refused export must not leave a half-filled
         # buffer behind for the sender's own retry to append to (invariant 1).
         del self._partials[key]
+        # Authenticity before integrity: the signature covers the digest the final chunk declares,
+        # so a forged export is refused as forged, not as merely corrupt.
+        await self._authenticate(message)
         return await self._merge(message, bytes(partial.body))
+
+    async def _authenticate(self, message: TrailSegmentSync) -> None:
+        """Check the final chunk's signature against its sender's key, if this receiver has keys."""
+        if self._keys is None:
+            return  # A gate with no node keys checks no signature.
+        check_segment_signature(message, await self._keys.key_for(message))
 
     async def _merge(self, message: TrailSegmentSync, body: bytes) -> int:
         """Verify the reassembled `body` against `message`'s own claims, then merge it."""
