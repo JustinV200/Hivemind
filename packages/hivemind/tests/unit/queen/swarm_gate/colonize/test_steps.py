@@ -24,6 +24,7 @@ from builders.swarm.gate import IdleDevice
 from hivemind.brood_chamber import TaskStatus
 from hivemind.memory import MemoryContext, write_checkpoint
 from hivemind.queen.attach import detach_warden
+from hivemind.queen.cluster import protocol
 from hivemind.queen.swarm_gate import GateContext
 from hivemind.queen.swarm_gate.colonize import ColonizeStepError
 from hivemind.queen.swarm_gate.colonize import steps as steps_module
@@ -38,6 +39,7 @@ from hivemind.queen.swarm_gate.colonize.steps import (
     tell_device,
 )
 from hivemind.swarm import RuntimeLevel, SwarmNode
+from waggle.messages import HandoffRef
 from waggle.messages.swarm import ColonizeAction, ColonizeOutcome, NodeUpdate
 
 _TINY_S = 0.05  # Real seconds for an order's deadline when the test wants the packet silent.
@@ -182,6 +184,32 @@ async def test_pausing_stops_each_running_task_and_notes_the_handoff_it_wrote(
         assert move.refs == {placed.task.id: ref}
         assert (await deps.chamber.get(placed.task.id)).status is TaskStatus.PAUSED
         await end.pump_until(lambda: bool(end.task_pauses))  # The bee was told.
+
+
+async def test_a_move_waits_for_a_bee_inside_a_command_and_notes_the_handoff_it_then_writes(
+    rig: GateRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A Drone on a device is mostly inside a command, and writes its Handoff only when the command
+    # returns. The Warden the move ends takes its bees with it, so the Queen waits (this test is
+    # about that wait; the rig's other tests give it no time) and notes what the bee then wrote.
+    monkeypatch.setattr(steps_module, "HANDOFF_PATIENCE_S", 5.0)
+    async with rig.serving():
+        placed = await place_on_device(rig, RuntimeLevel.COLONIZED)
+        deps = rig.queen_deps
+        ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+        written: list[HandoffRef] = []
+
+        async def command_returns(_seconds: float) -> None:
+            written.append(await write_checkpoint(make_handoff(deps.clock), placed.task.id, ctx))
+
+        monkeypatch.setattr(protocol, "_pause", command_returns)
+        move = Move(placed.node, placed.device.link)
+
+        await pause_for_move(GateContext(rig.queen, deps), move, "Colonizing.")
+
+        assert len(written) == 1  # It looked once more, found the Handoff and stopped waiting.
+        assert move.refs == {placed.task.id: written[0]}
+        assert (await deps.chamber.get(placed.task.id)).status is TaskStatus.PAUSED
 
 
 async def test_a_task_whose_bee_wrote_no_handoff_is_paused_with_none_noted(rig: GateRig) -> None:

@@ -79,6 +79,10 @@ WITHDRAW_DEADLINE_S = 60.0
 ATTACH_TIMEOUT_S = 90.0  # After START answered: the Warden it launched must still dial in.
 REPLY_MARGIN_S = 15.0  # Past an order's own deadline: the packet answers FAILED at it, not before.
 MOVING_REASON = "colonizing"  # Why the dispatcher leaves a Cell alone while its Warden moves.
+# How long, for each task, a move waits for a bee that is inside a command to come back from it and
+# write its Handoff. The Warden the move ends takes its bees with it, and a bee paused before it
+# has written one resumes with nothing: a long command is the usual place to find a long task.
+HANDOFF_PATIENCE_S = 30.0
 # The words that mean the packet cannot be asked anything: sending it WITHDRAW would only wait out
 # another deadline.
 DEAD_LINK_WORDS = frozenset({"link_lost", "packet_silent"})
@@ -88,6 +92,7 @@ log = get_logger(__name__)
 __all__ = [
     "ATTACH_TIMEOUT_S",
     "DEAD_LINK_WORDS",
+    "HANDOFF_PATIENCE_S",
     "MOVING_REASON",
     "PREPARE_DEADLINE_S",
     "REPLY_MARGIN_S",
@@ -292,7 +297,9 @@ async def pause_for_move(context: GateContext, move: Move, reason: str) -> None:
     """Hold the Cell, then have every running bee of the device's Warden write a Handoff and stop.
 
     The Cell is held first (`DispatchBook.held`) so that, while its Warden is between machines,
-    the dispatcher places, retries and resumes nothing onto it; `resume_all` opens it again.
+    the dispatcher places, retries and resumes nothing onto it; `resume_all` opens it again. A bee
+    that is inside a command is waited for, up to `HANDOFF_PATIENCE_S` for each task, because it
+    can write its Handoff only when the command returns and the Warden's end takes it with it.
 
     Args:
         context: The Queen and her collaborators.
@@ -301,7 +308,9 @@ async def pause_for_move(context: GateContext, move: Move, reason: str) -> None:
     """
     deps, node = context.deps, move.node
     deps.dispatch.held.hold(node.cell_id, MOVING_REASON)
-    move.paused = await pause_on_warden(deps, context.queen.wardens, node.warden_id, reason)
+    move.paused = await pause_on_warden(
+        deps, context.queen.wardens, node.warden_id, reason, patience_s=HANDOFF_PATIENCE_S
+    )
     for task_id in move.paused:
         move.refs[task_id] = await latest_handoff(deps, task_id)
 

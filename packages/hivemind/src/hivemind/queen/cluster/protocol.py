@@ -58,6 +58,10 @@ Key invariants:
       already_running`.
     - `pause_on_warden` is `cluster`'s pause for one Warden's tasks, whatever the cause; it records
       no `queen.clustered` and sets no mode, since nothing about a provider changed.
+    - A pause waits for a bee's Handoff in scheduling turns and never in real time, unless its
+      caller gives `patience_s`: a move does, because the Warden it ends takes its bees with it
+      and a bee inside a command writes its Handoff only when the command returns; Clustering
+      gives none, so it never waits on a clock.
     - Every affected task id lands in exactly one of `ClusterOutcome.affected_task_ids`/
       `ResumeOutcome.resumed_task_ids`, and `queen.clustered`/`queen.resumed` is recorded exactly
       once per call, after every affected task's own wire messages and chamber transition, never
@@ -105,6 +109,10 @@ if TYPE_CHECKING:
     from hivemind.queen.deps import QueenDeps, WardenLink
 
 _CHECKPOINT_POLL_ATTEMPTS = 2_000  # Scheduling yields, not a timed wait; see _wait_for_checkpoint.
+_PATIENCE_STEP_S = 0.1  # How often a patient wait looks again for the Handoff, in real seconds.
+# The pause between those looks. It is the real one, and a name of its own so that a test can stand
+# in for the time a bee inside a command takes without spending any of it.
+_pause = asyncio.sleep
 
 __all__ = [
     "ClusterOutcome",
@@ -196,7 +204,11 @@ async def cluster(
 
 
 async def pause_on_warden(
-    deps: QueenDeps, wardens: Sequence[WardenLink], warden_id: WardenId, reason: str
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    warden_id: WardenId,
+    reason: str,
+    patience_s: float = 0.0,
 ) -> tuple[TaskId, ...]:
     """Checkpoint-then-pause every RUNNING task placed on `warden_id`, as Clustering does.
 
@@ -211,6 +223,10 @@ async def pause_on_warden(
             the orders (a task whose Warden is not is skipped).
         warden_id: The Warden whose running tasks to pause.
         reason: Why, folded into every order and the chamber's own event.
+        patience_s: How long, in real seconds and for each task, to wait for a bee that is inside
+            a command to come back from it and write its Handoff, once the scheduling turns run
+            out. A move gives some, because the Warden it ends takes its bees with it; Clustering
+            gives none, because the provider it clusters on is down and its bees are stuck on it.
 
     Returns:
         The tasks actually paused, oldest first.
@@ -221,7 +237,7 @@ async def pause_on_warden(
         TaskFilter(status=TaskStatus.RUNNING, limit=MAX_TASK_FILTER_LIMIT)
     )
     affected = tuple((task.id, warden_id) for task in tasks if task.warden_id == warden_id)
-    return await _pause_affected(deps, wardens, affected, reason)
+    return await _pause_affected(deps, wardens, affected, reason, patience_s)
 
 
 async def _pause_affected(
@@ -229,6 +245,7 @@ async def _pause_affected(
     wardens: Sequence[WardenLink],
     affected: tuple[tuple[TaskId, WardenId], ...],
     reason: str,
+    patience_s: float = 0.0,
 ) -> tuple[TaskId, ...]:
     """Checkpoint-then-pause every `(task_id, warden_id)` pair; return the ones actually paused."""
     task_ids: list[TaskId] = []
@@ -250,7 +267,7 @@ async def _pause_affected(
         # racing ahead of it. A bee that never checkpoints within the budget (stuck, or already
         # gone) is still paused regardless -- resume then falls back to no Handoff (docs/adr/0024:
         # "a bee whose Handoff cannot be read resumes from the task's last acceptance state").
-        await _wait_for_checkpoint(deps, task_id)
+        await _wait_for_checkpoint(deps, task_id, patience_s)
         # Only now the pause: a Worker the runtime has paused sits at its pause wait and cannot
         # hand off (PAUSED has no edge to HANDING_OFF), so a pause sent beside the HANDOFF kept a
         # real Drone, one that was in a model call when both arrived, from ever checkpointing.
@@ -330,18 +347,27 @@ def _grant_uses_provider(grant: ForageGrant, provider: str, forage_map: ForageMa
     return False
 
 
-async def _wait_for_checkpoint(deps: QueenDeps, task_id: TaskId) -> None:
-    """Yield the event loop until `task_id` has a Bee Bread Handoff entry, or the budget runs out.
+async def _wait_for_checkpoint(deps: QueenDeps, task_id: TaskId, patience_s: float = 0.0) -> None:
+    """Wait until `task_id` has a Bee Bread Handoff entry, or the budget (and patience) runs out.
 
-    A bounded number of plain scheduling yields (`asyncio.sleep(0)`), never a real delay and
-    never a call into `deps.clock` -- this is not a timed wait, just giving whatever already-
-    scheduled coroutine is cooperatively checking `handoff_requested` (a Worker's own tool loop)
-    the turns it needs to actually reach that check and write its checkpoint.
+    First a bounded number of plain scheduling yields (`asyncio.sleep(0)`), never a call into
+    `deps.clock` -- this is not a timed wait, just giving whatever already-scheduled coroutine is
+    cooperatively checking `handoff_requested` (a Worker's own tool loop) the turns it needs to
+    actually reach that check and write its checkpoint. A bee that is inside a command (a
+    `sleep` on a device, a build) reaches that check only when the command returns, which no
+    number of turns hurries; where the caller has patience the wait goes on in real time, in
+    short steps, up to `patience_s`, and ends the moment the Handoff lands.
     """
     for _ in range(_CHECKPOINT_POLL_ATTEMPTS):
         if await latest_handoff(deps, task_id) is not None:
             return
         await asyncio.sleep(0)
+    waited = 0.0
+    while waited < patience_s:
+        await _pause(_PATIENCE_STEP_S)
+        waited += _PATIENCE_STEP_S
+        if await latest_handoff(deps, task_id) is not None:
+            return
 
 
 async def latest_handoff(deps: QueenDeps, task_id: TaskId) -> HandoffRef | None:

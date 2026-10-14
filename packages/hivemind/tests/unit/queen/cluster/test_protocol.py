@@ -123,6 +123,86 @@ async def test_cluster_sends_the_task_pause_only_once_the_checkpoint_has_landed(
     assert handoff_present_at_pause == [True]
 
 
+async def _running_task() -> tuple[QueenDeps, Queen, TaskId, MemoryContext]:
+    """A Queen with one task RUNNING on an attached Warden, and a way to write its Handoff."""
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    goal_id = await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    ctx = MemoryContext(store=deps.memory, identity=deps.identity, clock=deps.clock)
+    return deps, queen, goal_id, ctx
+
+
+async def test_a_pause_with_patience_waits_for_a_bee_inside_a_command_to_write_its_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bee inside a command checkpoints only when the command returns: a move waits for that."""
+    deps, queen, goal_id, ctx = await _running_task()
+    warden_id = (await deps.chamber.get(goal_id)).warden_id
+    assert warden_id is not None
+    looks: list[float] = []
+    at_pause: list[bool] = []
+    send_task_pause = protocol._send_task_pause
+
+    async def command_returns(seconds: float) -> None:
+        looks.append(seconds)
+        if len(looks) == 3:  # The command ends at the third look, and the bee hands off.
+            await write_checkpoint(make_handoff(), goal_id, ctx)
+
+    async def spy(deps_: QueenDeps, link_: WardenLink, task_id: TaskId, reason: str) -> None:
+        at_pause.append(await protocol.latest_handoff(deps_, task_id) is not None)
+        await send_task_pause(deps_, link_, task_id, reason)
+
+    monkeypatch.setattr(protocol, "_pause", command_returns)
+    monkeypatch.setattr(protocol, "_send_task_pause", spy)
+
+    paused = await protocol.pause_on_warden(deps, queen.wardens, warden_id, "Moving.", 5.0)
+
+    assert paused == (goal_id,)
+    assert len(looks) == 3  # It looked again in short steps and stopped when the Handoff landed,
+    assert at_pause == [True]  # and only then did it pause the bee, which could no longer hand off.
+
+
+async def test_a_pause_with_patience_gives_up_when_it_runs_out_and_pauses_anyway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deps, queen, goal_id, _ctx = await _running_task()
+    warden_id = (await deps.chamber.get(goal_id)).warden_id
+    assert warden_id is not None
+    looks: list[float] = []
+
+    async def never_returns(seconds: float) -> None:
+        looks.append(seconds)  # The command goes on; no Handoff.
+
+    monkeypatch.setattr(protocol, "_pause", never_returns)
+
+    paused = await protocol.pause_on_warden(deps, queen.wardens, warden_id, "Moving.", 0.25)
+
+    assert paused == (goal_id,)  # Paused all the same: it resumes from its last acceptance state.
+    assert len(looks) == 3  # And the wait was bounded: three steps of a tenth pass a quarter.
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.PAUSED
+    assert await protocol.latest_handoff(deps, goal_id) is None
+
+
+async def test_a_pause_with_no_patience_never_waits_on_a_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    deps, queen, goal_id, _ctx = await _running_task()
+    warden_id = (await deps.chamber.get(goal_id)).warden_id
+    assert warden_id is not None
+
+    async def forbidden(seconds: float) -> None:
+        raise AssertionError(f"waited {seconds} s on a clock: Clustering has no time to give")
+
+    monkeypatch.setattr(protocol, "_pause", forbidden)
+
+    paused = await protocol.pause_on_warden(deps, queen.wardens, warden_id, "Moving.")
+
+    assert paused == (goal_id,)
+
+
 async def test_cluster_leaves_leases_and_grants_untouched() -> None:
     provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
     deps, link, warden_end = make_queen_deps(fake_provider=provider)
