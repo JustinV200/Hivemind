@@ -88,6 +88,16 @@ hears that release and records it, so the lease is never left looking open.
   route and DNS; `PollenWatchProbe.observe(kinds, roots, since_at)` asks an idle device what it
   looks like without a lease.
 
+## Who runs the Warden
+
+Nothing in this package supervises, and it may not import the Queen. The Queen's swarm gate
+(`hivemind.queen.swarm_gate`) subscribes to the hub, and keeps one Level 0 Warden per connected
+device (the Warden runs on the Hive Stand; its Cell is the device, reached through `PollenSession`).
+The composition root (`hivemind.cli.compose.swarm`) builds that Warden around a `SwarmSource`, and
+subscribes the source to the hub for the Warden's life so a dead-man release is heard. The Warden
+releases its lease whenever it is idle and leases again for the next task, so a borrowed machine
+keeps no Hive scratch between tasks.
+
 ## What is never recorded
 
 An invite token appears only in the string shown once at the Hive Stand; the registry keeps its

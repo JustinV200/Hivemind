@@ -13,25 +13,27 @@ grant (`hivemind.queen.deps.WardenLink.live_capacity`), and the Queen gets `[for
 zero_grant_patience_s`, how long a fresh task may wait for that capacity to make room. Roadmap
 phase 9 adds the Royal Jelly Lab's and the Basket's handles (`hivemind.cli.compose.royal_jelly.
 build_royal_jelly`), built once after Honey and held by both the Queen and the Hive Stand's
-Warden.
+Warden. Roadmap phase 11 adds the Swarm (`hivemind.cli.compose.swarm.build_swarm`): with `[swarm]
+enabled` the Hive also holds the listener devices dial and the Queen's gate that keeps a Warden on
+each, built last, once the shared parts and the one untrusted-content scanner exist.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Calls into
     `hivemind.cell`, `hivemind.cli.compose.deps`, `.guard`, `.honey`, `.links`, `.night_veil`,
-    `.royal_jelly`, `.virtual_cells`, `hivemind.cli.stores`, `hivemind.common.secrets` (the Hive's
-    persisted signing key, for the Virtual side and the Basket), `hivemind.entrance` (the relay
-    and telemetry board `hive serve` binds), `hivemind.forage` (ForageCapacity), `hivemind.guard`,
-    `hivemind.honey_store`,
-    `hivemind.llm`, `hivemind.manifest`, `hivemind.queen` (and `hivemind.queen.deps` for
-    DispatchBook, GrantWaits and LiveCapacity), `hivemind.wardens`,
-    `hivemind.workers.roles.house_bee` and waggle only.
+    `.royal_jelly`, `.swarm`, `.virtual_cells`, `hivemind.cli.stores`, `hivemind.common.secrets`
+    (the Hive's persisted signing key, for the Virtual side and the Basket), `hivemind.entrance`
+    (the relay and telemetry board `hive serve` binds), `hivemind.forage` (ForageCapacity),
+    `hivemind.guard`, `hivemind.honey_store`, `hivemind.llm`, `hivemind.manifest`,
+    `hivemind.queen` (and `hivemind.queen.deps` for DispatchBook, GrantWaits and LiveCapacity),
+    `hivemind.wardens`, `hivemind.workers.roles.house_bee` and waggle only.
 
 Key invariants:
     - `build_hive` never touches the network: every provider it constructs is lazy
       (`hivemind.llm.registry.ProviderRegistry.provider`'s own rule), and its own `asyncio.run`
       calls only probe this host's own capacity (`hivemind.cell.local.HiveStandSource.cells`, to
-      seed the Queen<->Warden link's Cell) and, with a Virtual side, read or mint the Hive's
-      signing key in the local secret store (`_virtual_side`).
+      seed the Queen<->Warden link's Cell) and, with a Virtual side or a Swarm, read or mint the
+      Hive's signing key in the local secret store (`_virtual_side`, `build_swarm`).
+    - A Hive with `[swarm] enabled = false` (the default) holds no Swarm: `Hive.swarm` is None.
     - The Queen and the Hive Stand's Warden share one untrusted-content scanner (roadmap 10.6b),
       built from `[guard.untrusted_content]` and keyed from the secret store at `[hive]
       secrets_dir`; its key is minted on the first flag, never at build time.
@@ -68,6 +70,7 @@ from hivemind.cli.compose.honey import build_honey_access
 from hivemind.cli.compose.links import HiveLinks, build_hive_links
 from hivemind.cli.compose.night_veil import attach_side_channels, veil_trail
 from hivemind.cli.compose.royal_jelly import build_royal_jelly
+from hivemind.cli.compose.swarm import SwarmAccess, build_swarm
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import build_forage_map, build_provider_registry
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
@@ -123,6 +126,9 @@ class Hive:
         royal_jelly: The Royal Jelly Lab's and the Basket's handles, the same ones the Queen holds
             as `QueenDeps.royal_jelly` and the Hive Stand's Warden as `WardenDeps.royal_jelly`;
             None when the stores carry no Comb Registry or Basket (roadmap phase 9).
+        swarm: The Swarm's gate, listener, registry and invite door, when `[swarm] enabled`;
+            None otherwise, in which case `run_hive` touches nothing Swarm-related at all
+            (roadmap step 11.6).
     """
 
     manifest: HiveManifest
@@ -142,6 +148,7 @@ class Hive:
     honey: HoneyAccess | None = None
     house_bee: HouseBeeRipening | None = None
     royal_jelly: RoyalJellyAccess | None = None
+    swarm: SwarmAccess | None = None
 
     @property
     def guard_door(self) -> GuardRequestDoor:
@@ -345,6 +352,7 @@ def _assemble_hive(
         honey=extras.honey,
         house_bee=_house_bee(extras.honey, links, parts.clock),
         royal_jelly=parts.royal_jelly,
+        swarm=build_swarm(parts, scanner),  # Roadmap step 11.6: None unless `[swarm] enabled`.
     )
 
 

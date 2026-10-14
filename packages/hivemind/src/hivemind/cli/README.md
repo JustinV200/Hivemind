@@ -117,6 +117,16 @@ typer layer that calls into a subsystem's public API and never contains logic of
   metered by the seats and rate limits the Queen shipped with each provider row, and recorded as
   an `llm.call` on the Cell's own trail segment, which reaches the Queen's trail when it syncs (a
   Night Veil Cell's reaches only its ephemeral segment, purged at teardown: codingrules 12).
+  Roadmap step 11.6: with `[swarm] enabled`, `build_hive` also builds the Swarm
+  (`compose/swarm/`, `build_swarm`): the registry in the Hive's own database, the enrolment door,
+  the listener (TLS from the section, plaintext `ws://` on loopback otherwise) and the Queen's swarm
+  gate, held as `Hive.swarm`; `run_hive` starts the gate after the Hive Stand's Warden is attached
+  and the Virtual side is open, runs it beside the Queen and stops it before her (its Wardens
+  release their devices' leases first). `SwarmWardenFactory` (`compose/swarm/device_warden.py`)
+  makes a device's Level 0 Warden from `deps.build_cell_warden_deps`, the part of the Hive Stand's
+  Warden bag any Real Cell shares (no keep root, Royal Jelly access, model server or Exoskeleton),
+  with `cell:real:<its cell>` as its lease capability and a command guard scoped to each lease it
+  opens (`compose/swarm/lease_scope.py`).
 - `run.py` -- `hive run "goal text" --manifest hive.toml [--clearance C1] [--timeout 300]
   [--json] [--comb-shield night_veil]`: the one command that calls `build_hive`/`run_hive`/
   `run_goal`. With `--comb-shield` (roadmap step 10.3c) the goal is asked for as a durable goal

@@ -8,12 +8,15 @@ supervisor for the machine the Queen runs on) talk over an unsigned
 `tests.builders.queen.make_queen_deps`'s own `_build_link` already builds for tests. `build_hive_
 links` is that same construction, shipped: it mints the Warden's own id, builds the pair, and
 addresses each end's `waggle.envelope.Hop` as `hive_<id>` (the Queen) and `warden_<id>` (the
-Warden), both carrying the manifest's own `[hive] node_id`.
+Warden), both carrying the manifest's own `[hive] node_id`. A Swarm device's Warden (roadmap step
+11.6) runs in this process too, over the same kind of pair, but its id was minted at enrolment and
+is the node's for life, so `build_hive_links` takes it when it is given instead of minting one.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
-    `hivemind.cli.compose.hive.build_hive`, once per Hive. Calls into `hivemind.cell` (Cell),
-    `hivemind.queen.deps` (WardenLink) and waggle only.
+    `hivemind.cli.compose.hive.build_hive`, once per Hive, and by `hivemind.cli.compose.swarm`,
+    once per device Warden it builds. Calls into `hivemind.cell` (Cell), `hivemind.queen.deps`
+    (WardenLink) and waggle only.
 
 Key invariants:
     - `HiveLinks.queen_link.hop.sender` and `HiveLinks.warden_hop.sender` are each other's
@@ -63,21 +66,30 @@ class HiveLinks:
     warden_hop: Hop
 
 
-def build_hive_links(hive_id: HiveId, node_id: NodeId, cell: Cell, clock: Clock) -> HiveLinks:
+def build_hive_links(
+    hive_id: HiveId,
+    node_id: NodeId,
+    cell: Cell,
+    clock: Clock,
+    *,
+    warden_id: WardenId | None = None,
+) -> HiveLinks:
     """Build the Queen<->Warden link: an unsigned, in-process MemoryTransport pair.
 
     Args:
         hive_id: The Hive's own id (`[hive] id`); addresses the Queen's own end as `hive_<id>`.
         node_id: This process's own node id (`[hive] node_id`); stamped on both ends' hops.
-        cell: The Hive Stand's own Cell, from `hivemind.cell.local.HiveStandSource.cells`; the
-            Queen-side `WardenLink` carries it so placement can read its capabilities and capacity
-            without ever holding the Warden's own session.
+        cell: The Hive Stand's own Cell, from `hivemind.cell.local.HiveStandSource.cells`, or a
+            Swarm device's; the Queen-side `WardenLink` carries it so placement can read its
+            capabilities and capacity without ever holding the Warden's own session.
         clock: Source of the freshly minted `WardenId`.
+        warden_id: The Warden's id when it already has one (a Swarm device's, minted at
+            enrolment); a fresh one is minted when omitted.
 
     Returns:
-        Both ends of the link, plus the minted `WardenId` both hops address.
+        Both ends of the link, plus the `WardenId` both hops address.
     """
-    warden_id = new_warden_id(clock)
+    warden_id = warden_id if warden_id is not None else new_warden_id(clock)
     queen_transport, warden_transport = MemoryTransport.pair(Codec(), Codec())
     queen_hop = Hop(sender=hive_id, recipient=warden_id, node_id=node_id)
     warden_hop = Hop(sender=warden_id, recipient=hive_id, node_id=node_id)

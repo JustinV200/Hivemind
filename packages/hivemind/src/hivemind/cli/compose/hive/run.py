@@ -1,21 +1,27 @@
 """Define run_hive: lease the Hive Stand's Cell, run the Queen and Warden, and tear both down.
 
 `run_hive` is an `asynccontextmanager`: it attaches the Hive Stand's Warden (the Queen's
-`warden_spawn` point, roadmap step 10.3), opens the Virtual side when one is configured, leases
-the Hive Stand's one Cell, runs the Queen and the Warden -- and the House Bee's ripening loop,
-when the Hive has a Honey Store (roadmap phase 7) -- as background tasks for as long as the `async
-with` block is open, and tears everything down -- releasing the lease, "left as found" -- on exit.
+`warden_spawn` point, roadmap step 10.3), opens the Virtual side when one is configured, opens the
+Swarm when `[swarm] enabled` (roadmap step 11.6), leases the Hive Stand's one Cell, runs the Queen
+and the Warden -- and the House Bee's ripening loop, when the Hive has a Honey Store (roadmap
+phase 7), and the Swarm gate, which runs a Warden for each device that is up -- as background
+tasks for as long as the `async with` block is open, and tears everything down -- releasing every
+lease, "left as found" -- on exit.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Called by
     `hivemind.cli.run`, `hivemind.cli.compose.entrance` and every end-to-end test. Calls into
-    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive) and the Queen, Warden
-    and House Bee a Hive holds only.
+    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive) and the Queen, Warden,
+    House Bee and Swarm gate a Hive holds only.
 
 Key invariants:
     - The House Bee's ripening loop starts after the Queen and stops before her, so she never
       runs a tick without it and it never ripens for a Queen already gone; a Hive with no Honey
       Store (a hand-built HiveStores) has no loop and runs exactly as before phase 7.
+    - The Swarm gate starts after the Hive Stand's Warden is attached and the Virtual side is open,
+      and stops before the Queen: its Wardens release their leases over the devices' links while
+      she still hears them, and the listener closes those links only after. A Hive with
+      `[swarm] enabled = false` has no gate and runs exactly as before phase 11.
     - `run_hive` always stops the Queen, stops the Warden (releasing its lease), awaits both of
       their `run()` tasks, closes the Guard Bee, the Virtual side, the Queen<->Warden link and
       then every model provider's connections, in that order, whether its `async with` block
@@ -68,11 +74,14 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
         ripening_task = (
             group.create_task(hive.house_bee.run()) if hive.house_bee is not None else None
         )
+        # Roadmap step 11.6: the gate runs every device's Warden as a task of its own group.
+        swarm_task = group.create_task(hive.swarm.gate.run()) if hive.swarm is not None else None
         try:
             yield
         finally:
             # Before the Queen (module docstring's "Key invariants").
             await _stop_ripening(hive, ripening_task)
+            await _stop_swarm(hive, swarm_task)
             # Stop the Queen first (codingrules section 8.8: she holds no session, nothing to
             # release), then the Warden, which releases its lease -- "left as found" -- before its
             # own run() loop is allowed to end; both are cooperative signals (their own stop()),
@@ -130,7 +139,25 @@ async def _start(hive: Hive) -> None:
         await hive.virtual_cells.prepare()
         await hive.virtual_cells.listener.start(hive.queen)
         await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+    if hive.swarm is not None:
+        # Roadmap step 11.6: after the Hive Stand's Warden is attached and the Virtual side is open,
+        # so the Queen has her own Cell to place on before a device's Warden joins her; devices
+        # that dial in from here on wait for `gate.run()` to serve them.
+        await hive.swarm.gate.start(hive.queen)
     await hive.warden.start()
+
+
+async def _stop_swarm(hive: Hive, swarm_task: asyncio.Task[None] | None) -> None:
+    """Stop the Swarm gate (every device Warden releasing its lease, then the listener); wait.
+
+    A no-op for a Hive with `[swarm] enabled = false`. `asyncio.wait`, not a bare await, for the
+    reason `_stop_ripening` gives: should the gate itself have failed, `run_hive`'s TaskGroup
+    reports that failure, and the Queen and Warden still stop cleanly after this returns.
+    """
+    if hive.swarm is None or swarm_task is None:
+        return  # The Swarm is off: no gate was ever started.
+    await hive.swarm.gate.stop()
+    await asyncio.wait({swarm_task})
 
 
 async def _stop_ripening(hive: Hive, ripening_task: asyncio.Task[None] | None) -> None:

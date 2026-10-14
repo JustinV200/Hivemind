@@ -31,7 +31,8 @@ See Also:
 Public API:
     - HiveStores, HiveParts, open_default_stores, build_hive_stand_source, build_fanner,
       build_ledger (parts): the shared stores and collaborators.
-    - HIVE_STAND_LEASE, build_warden_deps (warden): the Hive Stand's Warden's bag.
+    - HIVE_STAND_LEASE, build_warden_deps, build_cell_warden_deps (warden): the Hive Stand's
+      Warden's bag, and the part of it any Real Cell's Warden shares (a Swarm device's).
     - build_queen_deps (queen): the Queen's bag.
     - build_enforcer (hivemind.cli.compose.guard, re-exported): the one Guard Enforcer.
 """
@@ -46,13 +47,18 @@ from hivemind.cli.compose.deps.parts import (
     open_default_stores,
 )
 from hivemind.cli.compose.deps.queen import build_queen_deps
-from hivemind.cli.compose.deps.warden import HIVE_STAND_LEASE, build_warden_deps
+from hivemind.cli.compose.deps.warden import (
+    HIVE_STAND_LEASE,
+    build_cell_warden_deps,
+    build_warden_deps,
+)
 from hivemind.cli.compose.guard import build_enforcer
 
 __all__ = [
     "HIVE_STAND_LEASE",
     "HiveParts",
     "HiveStores",
+    "build_cell_warden_deps",
     "build_enforcer",
     "build_fanner",
     "build_hive_stand_source",
