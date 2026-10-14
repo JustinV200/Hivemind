@@ -26,7 +26,12 @@ from hivemind.cli.in_cell.borrowed import (
     build_borrowed_config,
     is_borrowed,
 )
-from hivemind.cli.in_cell.borrowed.config import SCRATCH_DIR, SOURCE_NAME
+from hivemind.cli.in_cell.borrowed.config import (
+    DEVICE_MAX_OFFLINE_S,
+    DEVICE_RECONNECT_BUDGET,
+    SCRATCH_DIR,
+    SOURCE_NAME,
+)
 from hivemind.common.errors import ConfigurationError
 from hivemind.manifest import ManifestError, read_in_cell_env
 from waggle.clock import SystemClock
@@ -216,3 +221,24 @@ def test_a_lease_mode_nobody_knows_is_refused_not_run_as_a_virtual_cell(tmp_path
 
     with pytest.raises(ConfigurationError, match="HIVEMIND_CELL_LEASE"):
         is_borrowed(read_in_cell_env({**kit.environ, "HIVEMIND_CELL_LEASE": "rented"}))
+
+
+def test_the_budget_for_finding_out_why_the_link_went_is_carved_out_of_the_offline_limit(
+    tmp_path: Path,
+) -> None:
+    config = _config(make_kit(tmp_path, _URL))
+
+    # The shipped defaults of `[supervision] reconnect_budget`, which a device manifest lacks.
+    assert config.reconnect_budget is DEVICE_RECONNECT_BUDGET
+    assert (config.reconnect_budget.attempts, config.reconnect_budget.wall_clock_s) == (2, 300.0)
+    assert config.reconnect_budget.wall_clock_s < DEVICE_MAX_OFFLINE_S == config.max_offline_s
+
+
+def test_the_diagnostic_drone_is_told_the_queens_host_and_nothing_else_of_her_address(
+    tmp_path: Path,
+) -> None:
+    kit = make_kit(tmp_path, "wss://hive.example:8720/waggle?token=secret")
+
+    config = _config(kit, HIVEMIND_TLS_PIN=_PIN)
+
+    assert config.queen_host == "hive.example"  # No port, no path, no credential.

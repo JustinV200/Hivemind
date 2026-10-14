@@ -161,7 +161,20 @@ next dials on cue (`fail_dials`, `block_dials`) and drops or closes the current 
 deps (`DeviceDeps` with an `Outage`, and a `RemoteDeps` over a `SwitchLink` the test flips for a
 Warden that dials the Queen) with one task running `pausable`, a role that works until told to hand
 off, writes a Handoff and stops, and, started again from it, records what it resumed from.
-`OfflineScene.cut`, `restore` and `wait_paused` drive and observe the outage.
+`OfflineScene.cut`, `restore` and `wait_paused` drive and observe the outage. A `Searching` (a
+budget, the Queen's host, a way to make the Warden a Nuc, and optionally the real Drone role in place
+of the script) makes it search for why its link went (roadmap 11.9a).
+
+## `diagnose.py` (roadmap 11.9a, a cut-off Nuc's diagnostic Drone)
+
+`start_nuc_scene(script)` starts that scene as a Nuc: ceilings from the Queen and a stand-in model
+server serving the one source the Warden's `worker` slot row names, whose provider counts as local.
+The Drone is a script: `says(text)` ends at once with `text` as its closing message, `hangs`
+works until it is stopped, `raises` crashes, `says_when(event, text)` waits for a signal and
+`in_turn(first, second)` gives each Drone of a search its own. `start_thinking_nuc_scene(provider)`
+runs the real Drone role on a `FakeLLMProvider` the test scripts, for what only the real role
+shows (the tools it holds, the words its model is given). `diagnosed`, `drones` and `nectar_text`
+read what a search left on the trail, in the Warden's table and at the Queen's end.
 
 ## `borrowed.py` (roadmap 11.6a, a colonized device's Warden)
 

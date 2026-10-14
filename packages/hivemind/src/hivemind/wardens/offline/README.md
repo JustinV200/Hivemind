@@ -68,20 +68,65 @@ its Cell:
   `cell_found` gives the old lease back, leases the device again (a refusal is asked again after
   `RESUME_RETRY_S`) and resumes.
 
-## Public API (roadmap steps 11.6a, 11.9)
+## Why the link went: the diagnostic Drone (roadmap 11.9a)
+
+Retrying with backoff is the floor, and a Warden that can think does more. A Nuc (a colonized
+device whose Warden also serves a model of its own) sends one short-lived Drone from its own local
+pool with the objective "diagnose and, if possible, restore the link to the Queen at <host>"
+(`docs/adr/0056-active-reconnection-diagnostic-drones.md`). `diagnose/` is that search, driven from
+`reconcile` on every tick like the rest of this package:
+
+```
+ link lost ──► IDLE ──► RUNNING ──► (claim) ──► IDLE ──► ... another Drone, told what the first said
+                          │                       │
+                          │                       └─► FINISH (attempts spent, or time)
+                          └─► VERIFYING (a cause was named; wait up to 45 s for the link) ──► FINISH
+ FINISH: record warden.diagnosed, deposit the findings as Nectar (queued while the link is down)
+```
+
+- **Who and on what.** Only a Warden that holds a model of its own and ceilings from the Queen: a
+  `[llm.slots]` key that serves the WORKER slot, whose whole fallback chain runs on this machine
+  and whose model one of its servers is serving right now. A Level 1 Warden with no server sends no
+  Drone and records nothing. The Drone is a `TaskAssign` and a `GrantIssued` minted on the Warden
+  (`RequestOrigin.WARDEN`, started by `wardens.spawn.spawn_local`), never sent anywhere; it takes no
+  slot of the Queen's grant and is bounded by the Cell's `Ceilings.max_sub_bees` instead.
+- **What it may do.** Its goal ceiling leaves it commands, files and its one model slot, and its
+  tools (`tool:*`, which its role lists that way): it holds no `question:human`, no `net`, no write
+  outside scratch, and `tool:*` does not cover `tool:request`, so it can ask nobody, reach no
+  network of its own, keep nothing and request no tool. The Warden answers its Honey queries empty
+  and drops its deposits (`ticks/honey.py`). The Cell's access level and the Capping gate bound the
+  rest exactly as for a connected bee. It never touches the Royal Jelly Lab or the Quarantine Comb.
+  Its command tool says only whether a command worked, and three failures stop a Drone, so its
+  objective tells it to run each check so that the output lands in a file and the command exits 0.
+- **The budget.** `[supervision] reconnect_budget` (`attempts`, `wall_clock_s`) is carved out of
+  `max_offline_s`, never added to it: the search is over by `wall_clock_s` after the link went, and
+  Clustering keeps its deadline as the backstop. Another Drone is sent only after one that named no
+  cause.
+- **How it ends.** The link, not the Drone's word, decides: FIXED when the link is back and a cause
+  was named, DIAGNOSED when a cause is known and the link is still down 45 s later, NO_CAUSE
+  otherwise. A Drone that fixed the link is given 30 s after it returns to write up what it did.
+  The Drone's closing text opens with one line, `CAUSE: <the cause>` or `CAUSE: none found`.
+- **What it leaves.** `warden.diagnosed` on the Warden's trail (outcome, a stable reason, counts)
+  and one Nectar document, C2, deposited by the Warden itself for no task.
+- **What the Queen never sees.** The Drone's claim and Alarm stay on its row (`SubBee.local`); the
+  Warden's heartbeat lists no such child; its task id and grant are not hers.
+
+## Public API (roadmap steps 11.6a, 11.9, 11.9a)
 
 - `ReconnectingQueenLink`, `LinkPhase`; `Reconnection`, `QueenDialer`, `Announcer`, `AfterReconnect`,
   `TrailReconnect`, `WardenRecord`.
 - `OfflineAction`, `OfflineRefusedError`, `decide_offline`, `owes_reply`; `OfflineOutbox`,
   `open_outbox`.
-- `Outage`, `HeldTask`, `RemoteDeps`, `QueenLinkView`; `is_link_down`, `outage_of`, `remote_of`,
-  `wake_future`.
+- `Outage`, `HeldTask`, `RemoteDeps`, `ReconnectBudget`, `QueenLinkView`; `is_link_down`,
+  `outage_of`, `remote_of`, `wake_future`.
+- `diagnose` (a sub-package): `investigate` (the tick's call), `Verdict`, `Investigation`, the Drone's
+  task and grant (`local_assignment`) and the record it leaves (`record_verdict`,
+  `deposit_findings`).
 - `reconcile`, `enter_offline`, `cluster_fully`, `cut_cell`, `leave_offline`, `RESUME_SETTLE_S`,
   `RESUME_RETRY_S`.
 
 The tick handlers in `hivemind.wardens.ticks` never import this package (it imports them); they
-reach an outage through `hivemind.wardens.deps.device_outage`. Active reconnection (diagnosing why
-the link went, wave 3D) will extend this package.
+reach an outage through `hivemind.wardens.deps.device_outage`.
 
 ## How to test this
 
@@ -91,4 +136,6 @@ uv run --frozen pytest packages/hivemind/tests/unit/wardens/offline -q
 
 `test_link_socket.py` runs the link against a real `WebSocketServer` that goes away and comes
 back; the other link tests script the Queen in memory (`builders/offline.py`); the Warden-level
-tests run a real Warden on a device's deps (`builders/offline_warden.py`).
+tests run a real Warden on a device's deps (`builders/offline_warden.py`). The search for why the
+link went is tested in `diagnose/`: the pure judgement as tables, and whole searches against a Nuc
+whose Drone is a script (`builders/diagnose.py`).

@@ -42,6 +42,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 
@@ -52,7 +53,12 @@ from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_confi
 from hivemind.common.errors import ConfigurationError
 from hivemind.manifest import InCellEnv, load_device_manifest
 from hivemind.manifest.schema.core import DEFAULT_DISK_RESERVE_MB, DEFAULT_SCRATCH_QUOTA_MB
-from hivemind.manifest.schema.supervision import DEFAULT_MAX_OFFLINE_S
+from hivemind.manifest.schema.supervision import (
+    DEFAULT_MAX_OFFLINE_S,
+    DEFAULT_RECONNECT_ATTEMPTS,
+    DEFAULT_RECONNECT_WALL_CLOCK_S,
+)
+from hivemind.wardens.offline import ReconnectBudget
 from waggle.clock import Clock
 from waggle.errors import InvalidIdError
 from waggle.ids import IdKind, NodeId, WardenId, parse_id
@@ -68,11 +74,17 @@ CELL_NAME = "swarm-device"  # Its human-readable label; the Queen names the node
 SCRATCH_DIR = "scratch"  # Under the state directory: every lease's own scratch subdirectory.
 NODE_KEY_BYTES = 32  # An Ed25519 seed, which is what the packet's key file holds.
 DEVICE_MAX_OFFLINE_S = DEFAULT_MAX_OFFLINE_S  # `[supervision] max_offline_s`, which a device lacks.
+# `[supervision] reconnect_budget`, which a device lacks too: the shipped defaults, carved out of
+# the offline limit above as the manifest's own validator requires (300 s against 600 s).
+DEVICE_RECONNECT_BUDGET = ReconnectBudget(
+    attempts=DEFAULT_RECONNECT_ATTEMPTS, wall_clock_s=DEFAULT_RECONNECT_WALL_CLOCK_S
+)
 
 __all__ = [
     "BORROWED",
     "CELL_NAME",
     "DEVICE_MAX_OFFLINE_S",
+    "DEVICE_RECONNECT_BUDGET",
     "OWNED",
     "SCRATCH_DIR",
     "SOURCE_NAME",
@@ -95,6 +107,9 @@ class BorrowedConfig:
         tls_pin: The swarm listener's certificate pin, for a `wss://` URL; None for `ws://`.
         llm: The device manifest's model tables and the servers it declares.
         max_offline_s: How long the link may stay down before the Warden clusters fully.
+        reconnect_budget: What it may spend, carved out of that, finding out why the link went.
+        queen_host: The Queen's host, as the diagnostic Drone's objective names it; no port, no
+            path, no credential.
     """
 
     runtime: InCellRuntimeConfig
@@ -103,6 +118,8 @@ class BorrowedConfig:
     tls_pin: str | None
     llm: DeviceLlm
     max_offline_s: float
+    reconnect_budget: ReconnectBudget = DEVICE_RECONNECT_BUDGET
+    queen_host: str = ""
 
 
 def is_borrowed(env: InCellEnv) -> bool:
@@ -167,6 +184,7 @@ def build_borrowed_config(env: InCellEnv, clock: Clock) -> BorrowedConfig:
         tls_pin=env.tls_pin,
         llm=llm,
         max_offline_s=DEVICE_MAX_OFFLINE_S,
+        queen_host=urlsplit(base.queen_waggle_url).hostname or "",
     )
 
 

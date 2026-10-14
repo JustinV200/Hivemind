@@ -11,7 +11,9 @@ paused and when the cut began. The freeze: entering OFFLINE pauses the sub-bees 
 local to think with, and an outage past `max_offline_s` clusters fully. The way back: `reconcile`
 compares the Warden with its link and its Cell on every tick, leaves OFFLINE, and starts the paused
 tasks again from their Handoffs. A Level 0 device Warden, which never goes OFFLINE, uses the same
-pause and resume when the swarm gate reports its Cell lost and found.
+pause and resume when the swarm gate reports its Cell lost and found. A Warden that holds a model of
+its own also looks for why the link went: `diagnose` sends one short-lived Drone from its local
+pool, inside a budget carved out of `max_offline_s` (roadmap 11.9a, ADR-0056).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. The
@@ -45,7 +47,8 @@ Public API (roadmap step 11.9):
       injected dial, announcement and after-reconnect steps, and the usual last of them.
     - OfflineAction, OfflineRefusedError, decide_offline, owes_reply: the offline table.
     - OfflineOutbox, open_outbox: the durable queue and the questions held in memory.
-    - Outage, HeldTask, RemoteDeps, QueenLinkView: what a device Warden remembers while cut off.
+    - Outage, HeldTask, RemoteDeps, ReconnectBudget, QueenLinkView: what a device Warden
+      remembers while cut off, and the budget it may spend finding out why (roadmap 11.9a).
     - reconcile, enter_offline, cluster_fully, cut_cell, leave_offline: the tick's call, and the
       freeze and the way back it is made of; RESUME_SETTLE_S and RESUME_RETRY_S, the two pauses.
     - is_link_down, outage_of, remote_of, wake_future: what the Warden asks of its deps.
@@ -57,6 +60,7 @@ from hivemind.wardens.offline.outage import (
     HeldTask,
     Outage,
     QueenLinkView,
+    ReconnectBudget,
     RemoteDeps,
     is_link_down,
     outage_of,
@@ -98,6 +102,7 @@ __all__ = [
     "Outage",
     "QueenDialer",
     "QueenLinkView",
+    "ReconnectBudget",
     "ReconnectingQueenLink",
     "Reconnection",
     "RemoteDeps",

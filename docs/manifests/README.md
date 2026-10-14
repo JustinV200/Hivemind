@@ -58,7 +58,10 @@ take the schema's repo-root-relative default.
   beside it, copied from the Hive's manifest, describe the models that server may load. The Hive's
   own manifest must list the same server id in `[llm.servers]` (with `load_on_start = false`) for
   the Queen to promote the device. API keys come from the device's own environment, as everywhere
-  else.
+  else. A device manifest has no `[supervision]`, so its Warden's offline limit and its budget for
+  sending a Drone to find out why its link went (roadmap 11.9a, ADR-0056) are the shipped defaults
+  (`max_offline_s` and `[supervision.reconnect_budget]`), and the Drone runs on a model the device
+  serves itself, never on one that needs the Queen.
 
 ## The transcriber and `kind = "whisper_local"` (roadmap step 6.5a)
 

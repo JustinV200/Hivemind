@@ -10,8 +10,11 @@ the Warden itself (whose class is at its size limit) and handed to it in `Device
 paused, each with the Handoff its bee wrote (`HeldTask`); when the cut began; whether its lease
 belongs to a link that has gone; and an event that wakes the Warden's tick the instant something
 changes, because the Warden would otherwise notice only on its next heartbeat. `RemoteDeps` is the
-other half, for a Warden on the device: the reconnecting link it asks "are you up", and the limit
-past which it gives up waiting and clusters fully.
+other half, for a Warden on the device: the reconnecting link it asks "are you up", the limit past
+which it gives up waiting and clusters fully, and, for a Warden that investigates why its link went
+(ADR-0056), the budget it may spend on that and the host it is trying to reach. The `Outage` holds
+that search too (`investigation`), because it is the one thing about a cut that outlives the cut by
+a moment: a Drone that fixed the link is still writing up what it did.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -26,9 +29,12 @@ Key invariants:
     - A task is held under its id exactly once; holding it again replaces the earlier entry.
     - `wake_future` always returns something the tick can reap, so a Warden with no outage waits
       exactly as before.
+    - `investigation` is cleared only by the search itself, never by `begin` or `end`, so ending
+      the outage does not lose a Drone's finding; a new outage replaces a search left over.
 
 See Also:
     - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for what an outage does.
+    - docs/adr/0056-active-reconnection-diagnostic-drones.md for the budget and the search.
     - hivemind.wardens.offline.freeze for the pause, and hivemind.wardens.offline.resume for the
       way back.
 """
@@ -46,12 +52,14 @@ from waggle.messages import HandoffRef
 from waggle.messages.task import TaskAssign
 
 if TYPE_CHECKING:
+    from hivemind.wardens.offline.diagnose.state import Investigation
     from hivemind.wardens.warden import Warden
 
 __all__ = [
     "HeldTask",
     "Outage",
     "QueenLinkView",
+    "ReconnectBudget",
     "RemoteDeps",
     "is_link_down",
     "outage_of",
@@ -86,6 +94,20 @@ class QueenLinkView(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ReconnectBudget:
+    """What a Warden may spend finding out why its link went (`[supervision] reconnect_budget`).
+
+    Attributes:
+        attempts: How many diagnostic Drones it may send, one after another.
+        wall_clock_s: Seconds, counted from the moment the link went, all of them may take
+            together. It is carved out of `max_offline_s` and is below it, never added to it.
+    """
+
+    attempts: int
+    wall_clock_s: float
+
+
+@dataclass(frozen=True, slots=True)
 class RemoteDeps:
     """What a Warden that dials the Queen from a device is built with, beyond an `Outage`.
 
@@ -93,10 +115,15 @@ class RemoteDeps:
         link: The Warden's reconnecting link (`ReconnectingQueenLink`), read for its state.
         max_offline_s: How long the link may stay down before the Warden clusters fully, whatever
             it can still think with (`[supervision] max_offline_s`, codingrules 8.13).
+        reconnect_budget: What it may spend on a diagnostic Drone while the link is down; None
+            investigates nothing (roadmap 11.9a).
+        peer: The Queen's host as the Drone's objective names it; never a credential or a path.
     """
 
     link: QueenLinkView
     max_offline_s: float
+    reconnect_budget: ReconnectBudget | None = None
+    peer: str = ""
 
 
 class Outage:
@@ -115,6 +142,7 @@ class Outage:
         self.is_lease_stale = False  # The Cell is back, but the lease it had may not be.
         self.retry_after: datetime | None = None  # Not before this does a failed resume try again.
         self.frozen_grants: dict[str, int] = {}  # grant id -> revision held when the cut began.
+        self.investigation: Investigation | None = None  # The search for why it went (11.9a).
         self._held: dict[TaskId, HeldTask] = {}
         self._wake = asyncio.Event()
 

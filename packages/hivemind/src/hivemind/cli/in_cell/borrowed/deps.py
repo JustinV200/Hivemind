@@ -9,7 +9,9 @@ its restart. Its lease needs `cell:real:<its Cell>` (the `warden` role's `cell:r
 this one machine), which is what the Guard's `lease_creation` point reads. It is a device's Warden
 (`DeviceDeps`): it gives its lease back whenever it settles with nothing to supervise, so the
 machine keeps no scratch between tasks (ADR-0054), and it holds an `Outage` and a `RemoteDeps`
-because its link to the Queen can be lost, unlike the in-process one of a Level 0 Warden. And it is
+because its link to the Queen can be lost, unlike the in-process one of a Level 0 Warden; the
+`RemoteDeps` carries the budget it may spend sending a Drone to find out why, and the host it is
+trying to reach (roadmap 11.9a). And it is
 given none of the Virtual Cell's extras: no Queen-relayed snapshotter (a device cannot be
 snapshotted), no resident Basket and no Exoskeleton wiring: none of those are the machine's to
 give to a Cell it only borrows. It does carry the model servers its manifest declares
@@ -152,6 +154,11 @@ def build_borrowed_warden_deps(
         device=DeviceDeps(
             release_lease_when_idle=True,
             outage=Outage(),
-            remote=RemoteDeps(link=parts.link, max_offline_s=config.max_offline_s),
+            remote=RemoteDeps(
+                link=parts.link,
+                max_offline_s=config.max_offline_s,
+                reconnect_budget=config.reconnect_budget,
+                peer=config.queen_host,
+            ),
         ),
     )

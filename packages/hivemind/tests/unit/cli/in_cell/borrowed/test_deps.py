@@ -33,7 +33,7 @@ from hivemind.cli.in_cell.borrowed import (
     build_device_link,
     open_device_stores,
 )
-from hivemind.cli.in_cell.borrowed.config import DEVICE_MAX_OFFLINE_S
+from hivemind.cli.in_cell.borrowed.config import DEVICE_MAX_OFFLINE_S, DEVICE_RECONNECT_BUDGET
 from hivemind.cli.in_cell.deps import VIRTUAL_CELL_LEASE
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.manifest import read_in_cell_env
@@ -90,7 +90,7 @@ async def test_memory_and_trail_are_the_durable_ones(
 async def test_it_is_a_device_wardens_that_dials_the_queen(
     built: tuple[BorrowedKit, BorrowedConfig, WardenDeps],
 ) -> None:
-    _kit, _config, deps = built
+    _kit, config, deps = built
 
     device = deps.device
     assert device is not None
@@ -101,6 +101,8 @@ async def test_it_is_a_device_wardens_that_dials_the_queen(
     assert isinstance(link, ReconnectingQueenLink)  # The Warden's link redials and replays.
     assert device.remote.link is link
     assert device.remote.max_offline_s == DEVICE_MAX_OFFLINE_S
+    assert device.remote.reconnect_budget == DEVICE_RECONNECT_BUDGET  # It searches for why.
+    assert device.remote.peer == config.queen_host
     assert link.phase is LinkPhase.OFFLINE  # Built unconnected: the run connects it.
 
 

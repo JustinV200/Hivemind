@@ -32,7 +32,9 @@ and a reconnection announces the Cell again.
 - **Composition** (`deps`): `build_device_link`, `build_borrowed_warden_deps`, `BorrowedParts`. The
   deps are `hivemind.cli.in_cell.deps.build_core_deps` plus: the SQLite memory store, a lease
   capability `cell:real:<cell id>`, and the `DeviceDeps` group (idle release, an `Outage`, a
-  `RemoteDeps`). None of a Virtual Cell's extras (snapshotter, resident Basket, Exoskeleton wiring);
+  `RemoteDeps` with the offline limit, the budget for a diagnostic Drone when the link goes
+  (`DEVICE_RECONNECT_BUDGET`, the shipped defaults of `[supervision.reconnect_budget]`) and the
+  Queen's host the Drone is told to reach). None of a Virtual Cell's extras (snapshotter, resident Basket, Exoskeleton wiring);
   the declared model servers are known to the Warden but never started until a promotion.
 - **Run** (`run`): `run_borrowed_warden(env, clock, *, on_deps_built, stop)` and `stop_on_signals`.
 

@@ -10,7 +10,9 @@ that is up again leaves it. Leaving OFFLINE goes to whatever the sub-bees say: A
 that kept going, WATCH if none runs (codingrules Appendix C, "OFFLINE -> WATCH": the link came back
 with no sub-bee running). The tasks it paused start again a moment later, and the ordinary settle
 makes it ACTIVE then. A Warden that clustered fully stays CLUSTERED, its tasks the Queen's to
-resume with a fresh TaskAssign.
+resume with a fresh TaskAssign. A Warden that holds a model of its own also searches for why its
+link went (`hivemind.wardens.offline.diagnose`, roadmap 11.9a), driven from the same pass; the
+search never changes what the pass does about the link, the Cell or the tasks it paused.
 
 Resuming a paused task is the same act as any TaskAssign for it: the assignment, with
 `resume_from` set to the Handoff its bee wrote, goes back through `handle_assign` and the two gates
@@ -24,7 +26,7 @@ it; a refused lease is asked for again after `RESUME_RETRY_S`.
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     offline sub-package. Called once per tick by `hivemind.wardens.warden.Warden`. Calls into
-    `hivemind.wardens.offline.freeze`, `hivemind.wardens.ticks` (assign, lease),
+    `hivemind.wardens.offline.diagnose`, `.freeze`, `hivemind.wardens.ticks` (assign, lease),
     `hivemind.wardens.isolation`, `hivemind.wardens.quarantine`, `hivemind.wardens.state` and
     waggle only.
 
@@ -50,6 +52,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from hivemind.wardens.isolation import admit_resume
+from hivemind.wardens.offline.diagnose.step import investigate
 from hivemind.wardens.offline.freeze import cluster_fully, cut_cell, enter_offline, record_event
 from hivemind.wardens.offline.outage import HeldTask, Outage, RemoteDeps, outage_of, remote_of
 from hivemind.wardens.quarantine import admit_respawn
@@ -88,6 +91,8 @@ async def reconcile(warden: Warden) -> None:
     remote = remote_of(warden)
     if remote is not None:
         await _follow_link(warden, outage, remote)
+        # After the link is read, so a search for why it went begins in the tick that finds it down.
+        await investigate(warden, outage, remote)
     await _follow_cell(warden, outage)
     await _resume_held(warden, outage)
 

@@ -26,6 +26,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from builders.memory import make_handoff
@@ -35,15 +36,15 @@ from builders.workers import RunScript, ScriptedWorker, make_assignment, make_ou
 
 from hivemind.memory import Handoff
 from hivemind.wardens import DeviceDeps, WardenDeps
-from hivemind.wardens.offline import Outage, RemoteDeps
+from hivemind.wardens.offline import Outage, ReconnectBudget, RemoteDeps
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.wardens.warden import Warden
-from hivemind.workers.base import WorkerOutcome
+from hivemind.workers.base import Worker, WorkerOutcome
 from hivemind.workers.context import WorkerContext
 from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.ids import TaskId
-from waggle.messages.task import TaskAssign
+from waggle.messages.task import TaskAssign, WorkerRole
 
 WORKER_BEAT_S = 1.0  # Each sub-bee's own heartbeat cadence.
 WARDEN_BEAT_S = 10.0  # The Warden's own: the tick that follows a quiet return rides this one.
@@ -53,13 +54,38 @@ _FULL = 950  # Tokens used: past the 0.66 handoff threshold the test deps carry.
 _STOP_TIMEOUT_S = 5.0  # A hung stop fails the test instead of blocking the suite.
 
 __all__ = [
+    "NOT_SEARCHING",
     "WARDEN_BEAT_S",
     "WORKER_BEAT_S",
     "OfflineScene",
+    "Searching",
     "SwitchLink",
     "pausable",
     "start_offline_scene",
 ]
+
+
+@dataclass(frozen=True)
+class Searching:
+    """What makes a scene's Warden search for why its link went (roadmap 11.9a).
+
+    Attributes:
+        budget: What the search may spend, as `[supervision] reconnect_budget` gives it; None
+            searches nothing, which is a scene's default.
+        peer: The Queen's host, as the Drone's objective names it.
+        prepare: Called with the Warden once it holds its lease and before its tick loop runs, to
+            make it a Nuc (give it ceilings and a server that serves).
+        drone: Builds the role implementation of each sub-bee in place of the scene's script: the
+            real Drone on a scripted model, for a test of what a model is offered and says.
+    """
+
+    budget: ReconnectBudget | None = None
+    peer: str = ""
+    prepare: Callable[[Warden], None] | None = None
+    drone: Callable[[WorkerRole], Worker] | None = None
+
+
+NOT_SEARCHING = Searching()  # A scene's default: the Warden investigates nothing.
 
 
 class SwitchLink:
@@ -155,6 +181,7 @@ async def start_offline_scene(
     remote: bool = True,
     max_offline_s: float = 600.0,
     assign: bool = True,
+    searching: Searching = NOT_SEARCHING,
     **overrides: object,
 ) -> OfflineScene:
     """Start a device Warden with an outage, give it one task and wait until its bee runs.
@@ -165,6 +192,8 @@ async def start_offline_scene(
         remote: Whether the Warden dials the Queen from the device (Level 1), with a link the
             test flips; False builds a Level 0 device Warden, whose Cell the test loses and finds.
         max_offline_s: The limit past which a remote Warden clusters fully.
+        searching: Gives a remote Warden a budget to search for why its link went with, and a way
+            to make it a Nuc; the default searches nothing.
         **overrides: Field values for `make_warden_deps` (a `local_providers`, say).
 
     Returns:
@@ -172,10 +201,12 @@ async def start_offline_scene(
     """
     clock = FakeClock()
     outage, link = Outage(), SwitchLink()
-    remote_deps = RemoteDeps(link, max_offline_s) if remote else None
+    remote_deps = (
+        RemoteDeps(link, max_offline_s, searching.budget, searching.peer) if remote else None
+    )
     deps, queen, warden_id = make_warden_deps(
         clock,
-        worker_factory=lambda role: ScriptedWorker(script, role=role),
+        worker_factory=_roles(script, searching),
         heartbeat_interval_s=WARDEN_BEAT_S,
         worker_heartbeat_interval_s=WORKER_BEAT_S,
         device=DeviceDeps(outage=outage, remote=remote_deps),
@@ -183,14 +214,27 @@ async def start_offline_scene(
     )
     warden = Warden(warden_id, deps)
     await warden.start()
+    if searching.prepare is not None:
+        searching.prepare(warden)  # Before the first tick can settle the Warden idle.
     run_task = asyncio.ensure_future(warden.run())
     assignment = make_assignment(clock=clock)
     scene = OfflineScene(warden, queen, clock, run_task, deps, outage, link, assignment)
-    if not assign:
-        return scene
-    await queen.send(make_grant_issued(clock, assignment))
-    await queen.send(assignment)
+    if assign:
+        await _give_the_task(scene)
+    return scene
+
+
+def _roles(script: RunScript, searching: Searching) -> Callable[[WorkerRole], Worker]:
+    """The role implementations the scene's sub-bees run: its script, or the real roles."""
+    if searching.drone is not None:
+        return searching.drone
+    return lambda role: ScriptedWorker(script, role=role)
+
+
+async def _give_the_task(scene: OfflineScene) -> None:
+    """Send the Warden its grant and its task, and wait until its bee runs."""
+    await scene.queen.send(make_grant_issued(scene.clock, scene.assignment))
+    await scene.queen.send(scene.assignment)
     await settle(lambda: scene.rows() != [])
     [bee] = scene.rows()
     await settle(lambda: bee.runtime.state is WorkerState.RUNNING)
-    return scene
