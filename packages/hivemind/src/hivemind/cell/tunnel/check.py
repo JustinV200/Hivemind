@@ -13,12 +13,15 @@ contributes nothing, so its check fails closed; an operating system with no comm
 (Windows today) fails a single `platform_supported` check, because a tier that cannot be verified
 is not granted. The same function serves a Real Cell (`hivemind.swarm.shield`, before each lease)
 and a Virtual one (`hivemind.hive.propolis`, before the Cell is ready), which is why it sits here.
+`judge_outputs` is the pure half: the judging of already-read text, for a caller that reads the
+three files another way, as the in-Cell Warden does of its own Cell (`hivemind.cli.in_cell`).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.cell.tunnel`. Called
     by `hivemind.swarm.shield.propolis` and `hivemind.hive.propolis.session_probe`, each over the
-    `CellSession` of the Cell it verifies, so every command passes the Guard like any other. Calls
-    into `hivemind.cell.session`, the tunnel judges and routes, and the standard library.
+    `CellSession` of the Cell it verifies, so every command passes the Guard like any other;
+    `judge_outputs` also by `hivemind.cli.in_cell.propolis`. Calls into `hivemind.cell.session`,
+    the tunnel judges and routes, and the standard library.
 
 Key invariants:
     - The commands are fixed per operating system and read-only; no argument is ever taken from
@@ -36,7 +39,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from hivemind.cell.needs import OsFamily
@@ -67,6 +70,7 @@ __all__ = [
     "PROBE_TIMEOUT_S",
     "ProbeCommand",
     "check_tunnel",
+    "judge_outputs",
     "read_command",
 ]
 
@@ -95,19 +99,19 @@ COMMANDS: dict[OsFamily, tuple[ProbeCommand, ...]] = {
 }
 
 
-def _linux_routes(outputs: dict[str, str]) -> tuple[Route, ...]:
+def _linux_routes(outputs: Mapping[str, str]) -> tuple[Route, ...]:
     """Read Linux's two route tables; a missing IPv6 table is no IPv6 route."""
     return parse_linux_routes(outputs.get("routes", "")) + parse_linux_routes6(
         outputs.get("routes6", "")
     )
 
 
-def _macos_routes(outputs: dict[str, str]) -> tuple[Route, ...]:
+def _macos_routes(outputs: Mapping[str, str]) -> tuple[Route, ...]:
     """Read macOS's one `netstat` table, both address families."""
     return parse_macos_routes(outputs.get("routes", ""))
 
 
-_ROUTE_READERS: dict[OsFamily, Callable[[dict[str, str]], tuple[Route, ...]]] = {
+_ROUTE_READERS: dict[OsFamily, Callable[[Mapping[str, str]], tuple[Route, ...]]] = {
     OsFamily.LINUX: _linux_routes,
     OsFamily.MACOS: _macos_routes,
 }
@@ -125,11 +129,34 @@ async def check_tunnel(session: CellSession, os_family: OsFamily) -> ShieldRepor
     """
     commands = COMMANDS.get(os_family)
     if commands is None:
-        return ShieldReport((CheckResult(CHECK_PLATFORM, False, "unsupported_platform"),))
+        return _unsupported()  # Nothing is run on a system the Hive has no fixed command for.
     outputs = {command.key: await read_command(session, command) for command in commands}
-    routes = _ROUTE_READERS[os_family](outputs)
+    return judge_outputs(os_family, outputs)
+
+
+def judge_outputs(os_family: OsFamily, outputs: Mapping[str, str]) -> ShieldReport:
+    """Judge a Cell's tunnel from the text its commands printed, however that text was read.
+
+    Pure: no command runs and nothing is read here.
+
+    Args:
+        os_family: The Cell's operating system, which says how its text is laid out.
+        outputs: The text of each command, by `ProbeCommand.key` ("routes", "routes6" and "dns"
+            on Linux, "routes" and "dns" on macOS); a key left out is text that could not be had.
+
+    Returns:
+        The report: four checks for a supported system, one failed check for any other.
+    """
+    reader = _ROUTE_READERS.get(os_family)
+    if reader is None:
+        return _unsupported()
     nameservers: tuple[IpAddress, ...] = parse_nameservers(outputs.get("dns", ""))
-    return judge_all(routes, nameservers)
+    return judge_all(reader(outputs), nameservers)
+
+
+def _unsupported() -> ShieldReport:
+    """The report for a system with no fixed commands: one failed platform check."""
+    return ShieldReport((CheckResult(CHECK_PLATFORM, False, "unsupported_platform"),))
 
 
 async def read_command(session: CellSession, command: ProbeCommand) -> str:

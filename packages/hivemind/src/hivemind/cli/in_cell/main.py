@@ -14,8 +14,10 @@ run a real, task-executing `Warden` over that same transport until it stops.
 `Clock` so a test drives the whole sequence without touching the real environment or a real timer.
 Roadmap step 10.3a: the transport dials through the SOCKS proxy the bootstrap names (a Night Veil
 Cell's Tor SOCKS port; never directly once one is named), a Night Veil Cell's `CellReady` carries
-its control-link checks, and the Hive Stand's addresses are resolved once, before the Warden is
-built, so its floors know them (`hivemind.cli.in_cell.hive_stand`; an onion host never is).
+its control-link checks, a Propolis Cell's the tunnel checks it makes of its own routes and
+resolvers (`hivemind.cli.in_cell.propolis`), and the Hive Stand's addresses are resolved once,
+before the Warden is built, so its floors know them (`hivemind.cli.in_cell.hive_stand`; an onion
+host never is).
 
 Roadmap step 11.6a: with `HIVEMIND_CELL_LEASE=borrowed` the same entry point runs the Warden of a
 colonized Swarm device instead (`hivemind.cli.in_cell.borrowed`); a Virtual Cell's path is the
@@ -77,6 +79,7 @@ from hivemind.cli.in_cell.borrowed import is_borrowed, run_borrowed_warden, stop
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
 from hivemind.cli.in_cell.hive_stand import hive_stand_addresses
+from hivemind.cli.in_cell.propolis import own_tunnel_attestation
 from hivemind.cli.version import collect_version_info
 from hivemind.common.logging import configure_logging, get_logger
 from hivemind.manifest.env import InCellEnv, read_in_cell_env
@@ -223,11 +226,14 @@ async def _connect_and_announce(
 def _attestation(
     tier: CombShieldLevel, transport: WebSocketClientTransport
 ) -> tuple[AttestationCheck, ...]:
-    """Return the checks this Cell's CellReady carries: its control link's, for Night Veil."""
-    # MEADOW attests nothing (CellReady's own rule); config refused every tier but these two.
-    if tier is not CombShieldLevel.NIGHT_VEIL:
-        return ()
-    return cell_link.control_link_attestation(transport.uri, transport.socks_proxy)
+    """Return the checks this Cell's CellReady carries, by its tier (CellReady's own rule)."""
+    if tier is CombShieldLevel.NIGHT_VEIL:
+        return cell_link.control_link_attestation(transport.uri, transport.socks_proxy)
+    if tier is CombShieldLevel.PROPOLIS:
+        # The tunnel checks, made of its own routes and resolvers: a tiered Cell with no checks
+        # would not even construct its CellReady. The Hive's attestation decides readiness.
+        return own_tunnel_attestation()
+    return ()  # MEADOW attests nothing.
 
 
 _DEFAULT_LOG_LEVEL = "INFO"  # Used when HIVEMIND_LOG_LEVEL is not set.

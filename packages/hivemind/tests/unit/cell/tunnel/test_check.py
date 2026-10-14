@@ -40,6 +40,7 @@ from hivemind.cell.tunnel import (
     MAX_PROBE_BYTES,
     PROBE_TIMEOUT_S,
     check_tunnel,
+    judge_outputs,
     read_command,
 )
 from waggle.clock import FakeClock
@@ -186,3 +187,25 @@ async def test_read_command_is_empty_when_the_command_could_not_be_run() -> None
 
     assert await read_command(_session({}), command) == ""  # Not scripted: exit 127.
     assert await read_command(_session({}, slow=frozenset({"cat"})), command) == ""
+
+
+def test_judge_outputs_judges_text_that_was_read_some_other_way() -> None:
+    # What the in-Cell Warden does of its own Cell: the same text, read from files not commands.
+    outputs = {
+        "routes": _linux_table(_FULL_TUNNEL),
+        "routes6": linux_route6("tun0", "::/0") + "\n",
+        "dns": resolv_conf("10.8.0.1"),
+    }
+
+    assert judge_outputs(OsFamily.LINUX, outputs).is_verified
+
+
+def test_judge_outputs_fails_closed_for_text_that_was_never_read() -> None:
+    report = judge_outputs(OsFamily.LINUX, {})
+
+    assert not report.is_verified
+    assert CHECK_DEFAULT_ROUTE in report.failed
+
+
+def test_judge_outputs_agrees_with_check_tunnel_for_a_system_with_no_commands() -> None:
+    assert judge_outputs(OsFamily.WINDOWS, {}).failed == (CHECK_PLATFORM,)

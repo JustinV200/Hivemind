@@ -2,8 +2,9 @@
 
 Roadmap step 10.3a: the Cell's Comb Shield tier is read from `HIVEMIND_COMB_SHIELD` (unset reads
 as MEADOW), and the link must fit it: a Night Veil Cell dials a v3 onion service through a
-loopback SOCKS proxy, an onion Queen URL belongs to a Night Veil Cell only, and PROPOLIS, which no
-in-Cell attestation covers yet, is refused.
+loopback SOCKS proxy, an onion Queen URL belongs to a Night Veil Cell only, and PROPOLIS, which
+the Hive attests from the image before the Cell is ready (docs/adr/0057), is accepted on the
+ordinary link: no onion, and no SOCKS proxy needed.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/in_cell/config.py (codingrules 5.1: split by feature from
@@ -103,12 +104,37 @@ def test_a_proxy_that_would_leak_the_name_is_refused(proxy: str) -> None:
         _config(HIVEMIND_SOCKS_PROXY_URL=proxy)
 
 
-@pytest.mark.parametrize(
-    ("value", "why"), [("SUNSHINE", "not a Comb Shield tier"), ("PROPOLIS", "attest")]
-)
-def test_a_tier_this_cell_cannot_announce_is_refused(value: str, why: str) -> None:
-    with pytest.raises(ConfigurationError, match=why):
-        _config(HIVEMIND_COMB_SHIELD=value)
+def test_a_tier_that_is_not_one_is_refused_and_the_error_lists_all_three() -> None:
+    with pytest.raises(ConfigurationError, match="MEADOW, PROPOLIS or NIGHT_VEIL"):
+        _config(HIVEMIND_COMB_SHIELD="SUNSHINE")
+
+
+@pytest.mark.parametrize("value", ["PROPOLIS", "propolis", " Propolis "])
+def test_a_propolis_bootstrap_is_a_propolis_cell_on_the_ordinary_link(value: str) -> None:
+    config = _config(HIVEMIND_COMB_SHIELD=value)
+
+    assert config.spawn_config.comb_shield is CombShieldLevel.PROPOLIS
+    assert config.queen_waggle_url == "ws://host.docker.internal:8710"
+    assert config.socks_proxy_url is None  # It needs no proxy: Tor is disabled at this tier.
+
+
+def test_a_propolis_cell_may_not_name_an_onion_queen_url() -> None:
+    with pytest.raises(ConfigurationError, match="only a NIGHT_VEIL Cell dials"):
+        _config(HIVEMIND_COMB_SHIELD="PROPOLIS", HIVEMIND_QUEEN_WAGGLE_URL=_ONION_URL)
+
+
+def test_a_propolis_cell_may_not_reach_an_onion_queen_even_through_a_proxy() -> None:
+    with pytest.raises(ConfigurationError, match="HIVEMIND_COMB_SHIELD is PROPOLIS"):
+        _config(
+            HIVEMIND_COMB_SHIELD="PROPOLIS",
+            HIVEMIND_QUEEN_WAGGLE_URL=_ONION_URL,
+            HIVEMIND_SOCKS_PROXY_URL=_TOR,
+        )
+
+
+def test_a_propolis_cell_s_proxy_is_still_held_to_the_loopback_rule() -> None:
+    with pytest.raises(ConfigurationError, match="HIVEMIND_SOCKS_PROXY_URL is invalid"):
+        _config(HIVEMIND_COMB_SHIELD="PROPOLIS", HIVEMIND_SOCKS_PROXY_URL="http://127.0.0.1:8080")
 
 
 def test_a_mistyped_onion_address_is_refused_as_an_invalid_queen_url() -> None:

@@ -108,8 +108,11 @@ typer layer that calls into a subsystem's public API and never contains logic of
   recording to the Cell's own trail, with `VIRTUAL_CELL_LEASE` (`cell:virtual`). Roadmap step
   10.3a: that policy names the Hive Stand as the Cell reaches it (`in_cell/hive_stand.py`: the
   Queen URL's host by name, and its addresses resolved once at start, never an onion's); the
-  Cell's tier comes from `HIVEMIND_COMB_SHIELD` (`in_cell/config.py`, held to its link), and a
-  Night Veil Cell dials only through its Tor SOCKS proxy and attests that link on `CellReady`.
+  Cell's tier comes from `HIVEMIND_COMB_SHIELD` (`in_cell/config.py`, held to its link), a
+  Night Veil Cell dials only through its Tor SOCKS proxy and attests that link on `CellReady`, and
+  a Propolis Cell (ADR-0057) dials the ordinary endpoint, no onion and no proxy needed, and
+  reports on `CellReady` the tunnel checks it makes of its own routes and resolvers
+  (`in_cell/propolis.py`; the Hive's attestation of the image from outside is what decides).
   Its capacity comes from `HIVEMIND_RESERVATION` beside it: what its backend reserved from its
   `VirtualCellSpec`, with no load, never the host's cores, memory and load average a container
   would probe; the Queen places it by the same figures (`compose/virtual_cells.py`).

@@ -23,8 +23,10 @@ Roadmap step 10.3a: this Cell's tier is no longer assumed MEADOW. It comes from 
 tier of every Cell minted before it existed), and the link has to match it: a Night Veil Cell must
 dial a v3 onion service through a loopback SOCKS proxy (`HIVEMIND_SOCKS_PROXY_URL`), and a Queen
 URL that is an onion service is a Night Veil Cell's only, so a missing tier can never pass a Night
-Veil link off as MEADOW. PROPOLIS is refused: no in-Cell attestation exists for it yet, and a
-Cell that cannot attest its tier must not announce it.
+Veil link off as MEADOW. PROPOLIS is accepted now that the Hive attests it from its image
+before the Cell is ready (docs/adr/0057, `hivemind.hive.propolis`), so a Cell announcing it has been
+looked at; its link is the ordinary endpoint, like MEADOW's: it may not name an onion Queen URL and
+needs no SOCKS proxy (Tor is disabled at that tier).
 
 Its capacity comes from the bootstrap too. A container shares its host's kernel, so probing it
 reads the host's cores, the host's memory and the host's load average: on a busy Hive Stand every
@@ -286,8 +288,7 @@ def _parse_comb_shield(value: str | None) -> CombShieldLevel:
     """Return the tier `HIVEMIND_COMB_SHIELD` names; MEADOW when it is unset.
 
     Raises:
-        ConfigurationError: The value names no tier, or names PROPOLIS, which this Cell cannot
-            attest (module docstring).
+        ConfigurationError: The value names no tier.
     """
     if value is None:
         return CombShieldLevel.MEADOW  # A bootstrap from before the tier was written.
@@ -295,13 +296,9 @@ def _parse_comb_shield(value: str | None) -> CombShieldLevel:
         tier = CombShieldLevel[value.strip().upper()]
     except KeyError as exc:
         raise ConfigurationError(
-            f"HIVEMIND_COMB_SHIELD={value!r} is not a Comb Shield tier (MEADOW or NIGHT_VEIL)."
+            f"HIVEMIND_COMB_SHIELD={value!r} is not a Comb Shield tier "
+            "(MEADOW, PROPOLIS or NIGHT_VEIL)."
         ) from exc
-    if tier is CombShieldLevel.PROPOLIS:
-        raise ConfigurationError(
-            "HIVEMIND_COMB_SHIELD=PROPOLIS: no in-Cell attestation exists for PROPOLIS yet, and a "
-            "Cell that cannot attest its tier must not announce it."
-        )
     return tier
 
 
@@ -309,6 +306,9 @@ def _check_link_matches_tier(
     tier: CombShieldLevel, queen_waggle_url: str, socks_proxy_url: str | None
 ) -> None:
     """Refuse a link that does not fit the tier: Night Veil dials an onion through Tor, only.
+
+    MEADOW and PROPOLIS share the ordinary link: a clearnet Queen URL, and a proxy only if one is
+    given (and then only a valid one). Tor belongs to Night Veil alone.
 
     Raises:
         ConfigurationError: The proxy is not a loopback socks5h/socks4a one; a NIGHT_VEIL Cell's

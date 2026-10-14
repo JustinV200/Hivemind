@@ -24,7 +24,9 @@ device at Level 0, now on the device, leasing the machine itself and keeping its
 in SQLite files so a Handoff survives a restart. A Virtual Cell's path is the default, unchanged.
 Roadmap step 10.3a: the Cell's tier comes from its bootstrap (`HIVEMIND_COMB_SHIELD`, validated
 against its link by `config`), a Night Veil Cell dials the Queen's onion service only through
-the Tor SOCKS proxy the bootstrap names and attests that link on `CellReady` (`link`), and
+the Tor SOCKS proxy the bootstrap names and attests that link on `CellReady` (`link`), a Propolis
+Cell (accepted now that the Hive attests its image, docs/adr/0057) dials the ordinary endpoint
+and reports the tunnel checks it makes of itself on `CellReady` (`propolis`), and
 `hive_stand` names the Hive Stand as this Cell reaches it (its host, and the addresses that host
 resolved to once at start; an onion is never resolved) for the Warden's floors.
 

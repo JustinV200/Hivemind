@@ -27,8 +27,9 @@ See Also:
     - docs/adr/0057-propolis-is-verified-by-looking.md for why one set of judges serves both.
 
 Public API:
-    - check_tunnel, read_command, ProbeCommand, COMMANDS, CHECK_PLATFORM, PROBE_TIMEOUT_S,
-      MAX_PROBE_BYTES: the fixed commands and the run (check).
+    - check_tunnel, judge_outputs, read_command, ProbeCommand, COMMANDS, CHECK_PLATFORM,
+      PROBE_TIMEOUT_S, MAX_PROBE_BYTES: the fixed commands, the run, and the judging of text read
+      some other way (check).
     - ShieldReport, CheckResult, judge_all, the four judges and their CHECK_* names: the pure
       checks (judges).
     - Route, effective_interface, is_tunnel, TUNNEL_PREFIXES and the parsers: the routing-table
@@ -42,6 +43,7 @@ from hivemind.cell.tunnel.check import (
     PROBE_TIMEOUT_S,
     ProbeCommand,
     check_tunnel,
+    judge_outputs,
     read_command,
 )
 from hivemind.cell.tunnel.judges import (
@@ -94,6 +96,7 @@ __all__ = [
     "judge_dns",
     "judge_egress",
     "judge_ipv6",
+    "judge_outputs",
     "parse_linux_routes",
     "parse_linux_routes6",
     "parse_macos_routes",

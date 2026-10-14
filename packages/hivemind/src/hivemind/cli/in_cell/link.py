@@ -19,7 +19,9 @@ gap that leaves).
 
 Roadmap step 10.3a: the Cell announces the tier it was provisioned at (`HIVEMIND_COMB_SHIELD`, no
 longer always MEADOW), and `CellReady` carries check results exactly when that tier attests. A
-Night Veil Cell reports the two checks it can make of its own control link
+Propolis Cell reports the tunnel checks it makes of its own routes and resolvers
+(`hivemind.cli.in_cell.propolis`). A Night Veil Cell reports the two checks it can make of its own
+control link
 (`control_link_attestation`): that Waggle dials the Queen only through the SOCKS proxy, and that
 the Queen it reaches is her onion service, which the `CellReady` arriving over that link proves.
 They mirror two of `hivemind.hive.night_veil.results.CHECK_NAMES`; the Queen's own attestation of
@@ -116,7 +118,8 @@ class CellLinkDeps:
             `CellHeartbeat.interval_s`.
         runtime_version: The installed `hivemind` distribution version, carried on `CellReady`.
         attestation: The checks `CellReady` carries for this Cell's tier: none for MEADOW, the
-            control-link checks for NIGHT_VEIL (`control_link_attestation`).
+            tunnel checks for PROPOLIS (`hivemind.cli.in_cell.propolis`), the control-link checks
+            for NIGHT_VEIL (`control_link_attestation`).
     """
 
     transport: Transport
@@ -254,7 +257,8 @@ def _build_cell_ready(deps: CellLinkDeps) -> CellReady:
         access_level=deps.cell.access_level.to_wire(),
         comb_shield=deps.cell.comb_shield.to_wire(),
         # Empty exactly when comb_shield is MEADOW (CellReady's own validator); a Night Veil
-        # Cell carries its control-link checks (roadmap step 10.3a, main.py builds them).
+        # Cell carries its control-link checks and a Propolis one its tunnel checks (main.py
+        # builds them).
         attestation=deps.attestation,
         runtime_version=deps.runtime_version,
     )
