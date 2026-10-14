@@ -719,14 +719,31 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   from its image (the four tunnel checks and `tor_disabled`) before it is ready, the in-Cell
   Warden accepts PROPOLIS, `cell.attested` names its tier; proved against containers of the base
   image (`tests/integration/test_docker_propolis.py`, needs `hivemind/base-ubuntu:dev`).
+- **Wave 4B (landed).** The Level 1 and Nuc bullet on a real container
+  (`tests/e2e/test_phase11_exit_nuc.py`, twelve assertions over one run of about five minutes):
+  a long task at Level 0, `hive swarm promote` colonizes the device and the task resumes once on
+  it from its Handoff under the same Warden id, the Nuc promotion's frames in order with no
+  request, a cable pulled mid-task (the task finishes on the local pool, a high-bar subtask waits
+  with its `ForageRequest` queued and resumes once), the segment merged and `warden.reconnected`,
+  results once each and nothing duplicated, an allowlisted load with no request and one outside
+  the allowlist `guard.denied` at SLOT_BINDING. The two whole-Hive container rigs are one
+  (`e2e/swarm/`). Ten defects fixed on the way, each with a regression test: a device nobody saw
+  go got a diagnosis; a device's old lease was released before the dead-man report was heard; a
+  bee killed by a Level 0 cut counted as a crash and left its task RUNNING with no bee (now held
+  in the outage with its Handoff, the open item from 4A); a Level 0 Warden had no outage to hold
+  tasks in; a server-only provider with no default model ended the Queen's tick;
+  `cell.heartbeat` and capacity reports woke the Queen's model; a `ForageReply` killed a Warden;
+  a held task now files a BINDING `ForageRequest`; a move paused a bee mid-command before it
+  could write its Handoff (moves now wait up to `HANDOFF_PATIENCE_S`, 30 s); and the stretch of
+  trail before a pulled cable is noticed never reached the Hive (the segment rewinds by
+  `UNNOTICED` on reconnection).
 - **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
   that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
   tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested
   again (70ce8a5); `test_swarm_level0.py` read a revoked device's link before the close that
   follows the Warden's stop (abb5e6d).
-- **Open, found by wave 4.** A Level 0 device cut mid-command that returns inside the grace leaves
-  its task RUNNING with a crashed sub-bee (`WORKER_CRASHED`, then `guard.denied` at slot binding on
-  the respawn). The packet counts a link as proof of life only once it has been open a ping
+- **Open, found by wave 4.** (The Level 0 cut that left a task RUNNING with a crashed sub-bee is
+  fixed, wave 4B.) The packet counts a link as proof of life only once it has been open a ping
   interval (20 s), so a `dead_man_s` shorter than that can trip on a young healthy link. A real
   `hive run` readies no PROPOLIS or NIGHT_VEIL Virtual Cell (no Queen-side session to a Virtual
   Cell, the templates are MEADOW only, the Docker backend grants `NET_ADMIN` only to VPN_TOR, no
