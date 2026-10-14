@@ -2053,13 +2053,14 @@ promotion, `hive swarm` CLI.
   (13.4a). `docs/waggle/spec.md` states the obligation, and the gateway contract (11.7a) carries
   it, so a compiled gateway is held to it too.
   **Built 2026-10-13.** `waggle/transport/replay.py`: the envelope ids seen per node over
-  `replay_window_minutes` (default 10), capped at 50,000 ids and shared by every connection of one
-  server, so a duplicate is dropped unhandled whichever connection carries it. Inside the
-  reconnection grace after `warden.reconnected` a duplicate is silent; any other is
-  `guard.replay_refused` with the node id. `docs/waggle/spec.md` states the obligation and the
-  gateway contract (11.7a) carries it. Proved across a container boundary: a replayed `session.exec`
-  runs once and a frame with a broken signature closes the link with 1008
-  (`tests/e2e/test_phase11_exit_replay.py`).
+  `REPLAY_WINDOW_S` (600 s, a constant of the transport rather than the step's
+  `replay_window_minutes` knob), capped at 50,000 ids and shared by every connection of one server,
+  so a duplicate is dropped unhandled whichever connection carries it. Inside the reconnection grace
+  (`RECONNECT_GRACE_S`, 120 s, counted from the link's attach, before its first frame is read) a
+  duplicate is silent; any other is `guard.replay_refused` with the node id. `docs/waggle/spec.md`
+  states the obligation and the gateway contract (11.7a) carries it. Proved across a container
+  boundary: a replayed `session.exec` runs once and a frame with a broken signature closes the link
+  with 1008 (`tests/e2e/test_phase11_exit_replay.py`).
 - [x] **11.4 Device-side lease, executors and dead-man switch.** `pollen/lease/` (scratch dir
   under the quota the node's `Ceilings` carry, enforced the way 3.11 does on the Hive Stand;
   started pids, restore; **dead-man**: when the link is lost longer than the enrolled limit and no
@@ -2077,8 +2078,8 @@ promotion, `hive swarm` CLI.
 - [x] **11.5 PollenSession.** `swarm/session.py`: the Hive Stand side `CellSession` over the
   `session.*` messages. Passes the `CellSession` contract suite against a packet in a container.
   **Built 2026-10-13.** `swarm/session/` (`PollenSession`, the `CellSession` over `session.*`). It
-  passes the `CellSession` contract suite against a real packet over a real WebSocket, and
-  `tests/integration/test_pollen_in_container.py` runs the packet in a container.
+  passes the `CellSession` contract suite against a real packet run in process over a real
+  WebSocket, and `tests/integration/test_pollen_in_container.py` runs the packet in a container.
 - [x] **11.6 Level 0: a Warden per device, on the Hive Stand.** Enrolment starts a Warden on
   the Hive Stand bound to the device through `PollenSession`, with a shared grant and a local
   pool consisting of the device's host compute for sub-bee slots (their brains run beside the
@@ -2129,9 +2130,10 @@ promotion, `hive swarm` CLI.
   Raspberry Pi OS's), Windows x86-64 and macOS ARM64 and x86-64; the CI Arch job runs the packet's
   tests on Arch. The enrolment `PlatformReport` carries OS, distribution, architecture, package
   manager, shell and Python, and the decisions about the device read it (placement by `os`,
-  colonization by `python_version`). A frozen packet hands the programs it starts the device's own
-  loader path, not PyInstaller's. Proved on a clean Debian 12 container standing in for Raspberry Pi
-  OS (`tests/e2e/test_phase11_exit_binary.py`); ARM64 itself only on the CI matrix.
+  scaffolding, colonization by `python_version`; tool eligibility and the Nuc decision do not yet).
+  A frozen packet hands the programs it starts the device's own loader path, not PyInstaller's.
+  Proved on a clean Debian 12 container standing in for Raspberry Pi OS
+  (`tests/e2e/test_phase11_exit_binary.py`); ARM64 itself only on the CI matrix.
 - [x] **11.7a Gateway contract for other runtimes.** `docs/waggle/gateway-contract.md`: the
   minimal message set a Pollen-equivalent must implement (enrol, heartbeat, capability report,
   lease open and release, the `session.*` family, outbox replay, signature verification), with
@@ -2197,9 +2199,10 @@ promotion, `hive swarm` CLI.
   with what it owns. A Nuc keeps its sub-bees on its local pool with shared grants frozen; a Level 1
   Warden clusters its sub-bees at once and keeps them warm; both queue results, Alarms, Nectar and
   `ForageRequest`s in the outbox, write a local trail segment (its final chunk signed with the node
-  key), retry with backoff, refuse what needs the Queen, and cluster fully past `max_offline_s`
-  (waking at that deadline, not at the next beat). The frames that must arrive and were sent in the
-  stretch before a dead link is noticed (up to `UNNOTICED`) are kept in a bounded ring
+  key), retry with backoff, refuse a new Cell, keep a request for shared Forage queued and a
+  question for a human held until she is back, and cluster fully past `max_offline_s` (waking at
+  that deadline, not at the next beat). The frames that must arrive and were sent in the stretch
+  before a dead link is noticed (up to `UNNOTICED`) are kept in a bounded ring
   (`waggle.transport.recent`) and sent again under their own ids on reconnection, before the outbox;
   the receiver's replay window drops what it already had, and the packet does the same for
   `session.exit` and `cell.lease_released`. On reconnection: that ring, the outbox, the segment
@@ -2288,7 +2291,8 @@ promotion, `hive swarm` CLI.
   (`hive_stand` or `nuc`), access level and mode (`ACTIVE` or `WATCH`).
   **Built 2026-10-14.** `cli/swarm/`: `hive swarm
   invite|list|revoke|access|shield|promote|demote|run`, over the operator desk `swarm/operator/`
-  (revoke, narrow and move a device). `hive cells list` shows a device as `REAL` with source
+  (revoke, narrow and move a device); `run <node> "<goal>"` runs a goal pinned to the device (its
+  Drone runs the command), not a raw command. `hive cells list` shows a device as `REAL` with source
   `swarm`, its access level, tier and mode (`ACTIVE` or `WATCH`), and where its Warden runs:
   `hive_stand` or `on_cell` (a column of its own gives the rung, GATEWAY, COLONIZED or NUC, so a Nuc
   reads `on_cell`/`NUC` rather than the `nuc` this step named). Proved through Typer's runner in
