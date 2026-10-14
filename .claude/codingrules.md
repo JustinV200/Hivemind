@@ -1337,7 +1337,7 @@ Rules:
 - All configuration is a **Hive Manifest**: a TOML file validated into `HiveManifest` (pydantic) in
   `manifest/`. Subsystems receive the slice they need (`manifest.hive`, `manifest.honey_store`)
   as typed objects, never the whole manifest and never raw dicts.
-- Environment variables are read in exactly one place (`manifest/env.py`), are prefixed
+- Environment variables are read in exactly one place (`manifest/env/`), are prefixed
   `HIVEMIND_`, and only override manifest values. They are documented in `docs/manifests/`.
 - Defaults live in the pydantic model with a `description`, not scattered through code.
 - The `[llm]` section declares providers and **model slots** (section 8.6). Model ids, base URLs
