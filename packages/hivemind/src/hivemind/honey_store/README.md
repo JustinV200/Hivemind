@@ -51,7 +51,9 @@ The honey_store package is the Honey Store, the Hive's cold-tier knowledge base.
   `PruneResult` return shapes and `NectarEvents`/`PruneEvents` (how `add_nectar`/`prune_vectors`
   build their trail events from what they found: a new row, a duplicate, a raised label or
   nothing for a Night Veil deposit; a prune's per-model counts, or nothing for a refusal);
-  `has_source` and the new `nectar_sources`, `scope_counts` reads (ADR-0037); `ripen`'s optional
+  `has_source` and the new `nectar_sources`, `scope_counts` reads (ADR-0037); `handoff_nectars`,
+  a task's HANDOFF Nectar from one Cell, newest first, the Queen's way to a Handoff written where
+  she cannot read it (`queen/swarm_gate/recall.py`); `ripen`'s optional
   `reading` (the Ripener's own label, stored in the same transaction, ADR-0038) and the lowering
   methods `lowering_candidates`, `add_lowering`, `list_lowerings`, `pending_lowerings`,
   `get_lowering`, `note_lowering`, `apply_lowering` and `reject_lowering`, with their

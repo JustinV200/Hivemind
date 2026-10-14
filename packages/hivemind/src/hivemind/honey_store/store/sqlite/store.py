@@ -93,7 +93,7 @@ from hivemind.honey_store.store.sqlite.vec import (
 )
 from hivemind.pheromone import HoneyEvent
 from waggle.clock import Clock
-from waggle.ids import CellId, HoneyId, NectarId
+from waggle.ids import CellId, HoneyId, NectarId, TaskId
 
 # create()'s loud-failure check, matching SqliteMemoryStore.create's own guard.
 _PHEROMONE_TABLE_CHECK_SQL = (
@@ -157,6 +157,12 @@ class _NectarMethods(_StoreParts):
             return await self._thread.run(
                 sources_sql.select_has_source, self._connection, source_key
             )
+
+    async def handoff_nectars(
+        self, task_id: TaskId, cell_id: CellId, limit: int
+    ) -> tuple[Nectar, ...]:
+        """Return a task's HANDOFF rows from one Cell, newest first; see the protocol."""
+        return await self._run(nectar_sql.select_handoff_nectars, task_id, cell_id, limit)
 
     async def nectar_sources(self, nectar_id: NectarId) -> tuple[NectarSource, ...]:
         """Return `nectar_id`'s extra sources; see `HoneyStore.nectar_sources`."""

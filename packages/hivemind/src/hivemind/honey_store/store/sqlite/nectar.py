@@ -15,7 +15,8 @@ higher of each of the two labelling facts intake records (`declared_clearance`,
 eligible for a judge-reviewed lowering, never more. A Nectar whose label was lowered below its
 floor keeps that lowering when the same text arrives again from a Real Cell: the judge or the human
 already cleared that floor for the stored text, which a merge never changes, so the duplicate
-brings only its declared label.
+brings only its declared label. `select_handoff_nectars` is the one read by task: the Queen's way to
+find a Handoff a bee wrote where she cannot read it (a colonized device's own store).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the honey_store package. Called
@@ -44,6 +45,8 @@ Key invariants:
       insert_source_if_new`'s own unique indexes make a retried or already-known one a no-op.
     - A merged labelling fact is the higher of the two, and unknown (NULL) when either side's is
       unknown: a row from before ADR-0038, or a draft built outside intake, never gains a fact.
+    - `select_handoff_nectars` never returns an EPHEMERAL row, a row of the Night Veil tier or a
+      tainted one: a Night Veil Cell's memory does not leave it (ADR-0030).
 
 See Also:
     - hivemind.honey_store.store.sqlite.store for SqliteHoneyStore, the one caller.
@@ -93,6 +96,17 @@ _SELECT_BY_SOURCE_KEY_SQL = "SELECT * FROM honey_nectar WHERE source_key = ?"
 _SELECT_BY_SHA256_SQL = "SELECT * FROM honey_nectar WHERE sha256 = ? AND ephemeral_cell_id IS ?"
 _SELECT_PENDING_SQL = "SELECT * FROM honey_nectar WHERE state = ? ORDER BY received_at, id LIMIT ?"
 _SELECT_HAS_SOURCE_SQL = "SELECT 1 FROM honey_nectar WHERE source_key = ?"
+# One task's Handoffs, as its bees deposited them from one Cell, newest first. A Handoff the Queen
+# ripened out of her own Bee Bread is hers already, so only a bee's own deposit counts. An
+# ephemeral row is a Night Veil Cell's side channel (ADR-0035) and a row of that tier never
+# outlives the Cell's boundary, so neither is ever a candidate; a tainted one is refused whatever
+# else is true of it.
+_SELECT_HANDOFFS_SQL = """
+SELECT * FROM honey_nectar
+WHERE kind = ? AND origin = ? AND task_id = ? AND cell_id = ? AND ephemeral_cell_id IS NULL
+    AND origin_tier <> ? AND tainted = 0
+ORDER BY observed_at DESC, received_at DESC, id DESC LIMIT ?
+"""
 _UPDATE_CLEARANCE_SQL = "UPDATE honey_nectar SET clearance = ?, clearance_rank = ? WHERE id = ?"
 _UPDATE_FACTS_SQL = (
     "UPDATE honey_nectar SET declared_clearance = ?, declared_clearance_rank = ?, "
@@ -158,6 +172,23 @@ def select_pending_nectar(connection: sqlite3.Connection, limit: int) -> tuple[N
 def select_has_source(connection: sqlite3.Connection, source_key: str) -> bool:
     """Return whether a row with this `source_key` already exists."""
     return connection.execute(_SELECT_HAS_SOURCE_SQL, (source_key,)).fetchone() is not None
+
+
+def select_handoff_nectars(
+    connection: sqlite3.Connection, task_id: TaskId, cell_id: CellId, limit: int
+) -> tuple[Nectar, ...]:
+    """Return `task_id`'s ordinary HANDOFF rows its bees deposited from `cell_id`, newest first."""
+    params = (
+        NectarKind.HANDOFF.value,
+        NectarOrigin.BEE.value,
+        task_id,
+        cell_id,
+        CombShieldLevel.NIGHT_VEIL.value,
+        limit,
+    )
+    return tuple(
+        _row_to_nectar(row) for row in connection.execute(_SELECT_HANDOFFS_SQL, params).fetchall()
+    )
 
 
 def mark_nectar_failed_transaction(

@@ -26,9 +26,11 @@ caller.**
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy). Implemented by
     `hivemind.honey_store.store.sqlite.SqliteHoneyStore`; used by `hivemind.honey_store.nectar`
-    (intake), `.ripening` (the Ripener), `.honey` (retrieval) and `.lowering` (label lowering), and
-    by `hive honey`. Calls into `hivemind.honey_store.models`, `hivemind.pheromone` (HoneyEvent) and
-    `waggle.ids` only (and `hivemind.honey_store.lowering` for type checking).
+    (intake), `.ripening` (the Ripener), `.honey` (retrieval) and `.lowering` (label lowering), by
+    `hive honey`, and, for `handoff_nectars`, by the Queen's take-back of a lost device's tasks
+    (`hivemind.queen.swarm_gate.recall`). Calls into `hivemind.honey_store.models`,
+    `hivemind.pheromone` (HoneyEvent) and `waggle.ids` only (and `hivemind.honey_store.lowering`
+    for type checking).
 
 Key invariants:
     - Every mutation method's event commits together with the row(s) it describes, or neither
@@ -74,7 +76,7 @@ from hivemind.honey_store.models import (
     VectorCandidate,
 )
 from hivemind.pheromone import HoneyEvent
-from waggle.ids import CellId, HoneyId, NectarId
+from waggle.ids import CellId, HoneyId, NectarId, TaskId
 from waggle.messages.base import UtcDatetime
 
 if TYPE_CHECKING:
@@ -252,6 +254,31 @@ class _NectarRowsStore(Protocol):
 
         Returns:
             True when `source_key` is recorded on either table.
+        """
+        ...
+
+    async def handoff_nectars(
+        self, task_id: TaskId, cell_id: CellId, limit: int
+    ) -> tuple[Nectar, ...]:
+        """Return the HANDOFF Nectar a task's bees deposited from one Cell, newest first.
+
+        The Queen's one way to find a Handoff that was written where she cannot read it: a
+        colonized device's Warden keeps its memory in a store of its own, and the Handoff
+        document reaches her only as the HANDOFF Nectar its bee deposits (keyed
+        `handoff:<event id>`, ADR-0035).
+
+        Args:
+            task_id: The task whose Handoffs to look for.
+            cell_id: The Cell they were gathered on (a deposit names its Cell, and intake trusts
+                the Queen's record of the sender over the claim).
+            limit: The most rows to return.
+
+        Returns:
+            At most `limit` rows, the latest `observed_at` first (then the latest received). Only
+            what a bee deposited over Waggle (a Handoff ripened out of the Queen's own Bee Bread
+            is hers already) and only ordinary rows: never a Night Veil Cell's EPHEMERAL side
+            channel nor a row of that tier, whose memory does not leave it (ADR-0030), and none
+            whose tainted marker is set.
         """
         ...
 
