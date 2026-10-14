@@ -384,3 +384,13 @@ def test_lease_release_report_left_paths_defaults_to_empty() -> None:
     report = LeaseReleaseReport(killed_processes=0, residual_paths=(), is_restored=True)
 
     assert report.left_paths == ()
+
+
+def test_a_lease_request_names_no_scratch_quota_unless_the_caller_does() -> None:
+    assert make_lease_request().scratch_quota_bytes is None
+    assert make_lease_request(scratch_quota_bytes=4_096).scratch_quota_bytes == 4_096
+
+
+def test_a_lease_request_refuses_a_negative_scratch_quota() -> None:
+    with pytest.raises(ValidationError):
+        make_lease_request(scratch_quota_bytes=-1)

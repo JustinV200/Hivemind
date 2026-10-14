@@ -10,6 +10,9 @@ this Warden's Cell needs (`WardenDeps.lease_capability`, set by the composition 
 the source: `cell:hive_stand`, `cell:virtual`, ...) must be allowed by the `warden` role's default
 through the Guard's `Enforcer`, with the Cell's own tier and access level as the context; a
 refusal is a `guard.denied` row and a WATCH, exactly like a lease the source itself refused.
+The request also carries the scratch quota the Queen's ceilings allow one lease
+(`Ceilings.scratch_disk_bytes_per_lease`, roadmap step 11.4), read afresh at every lease, so a
+Cell that enforces a quota of its own, a device's packet, holds the lease to the Queen's figure.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -111,15 +114,8 @@ async def open_lease(warden: Warden) -> None:
         await _watch(warden)
         return
     cell = cells[0]  # v0: one Warden, one Cell.
-    request = LeaseRequest(
-        cell_id=cell.id,
-        holder=warden._warden_id,
-        task_id=None,
-        access_level=cell.access_level,
-        allowed_paths=(),
-    )
     try:
-        lease = await warden._deps.source.lease(request)
+        lease = await warden._deps.source.lease(_lease_request(warden, cell))
     except LeaseRefusedError:
         await _watch(warden)
         return
@@ -284,6 +280,26 @@ def _wake(warden: Warden) -> None:
     outage = device_outage(warden._deps)
     if outage is not None:
         outage.nudge()
+
+
+def _lease_request(warden: Warden, cell: Cell) -> LeaseRequest:
+    """Build the request for `warden`'s lease on `cell`: the most access the Cell grants it.
+
+    The scratch quota is the Queen's: her ceilings are the only say over how much scratch one
+    lease may hold. They are read here, at every lease, because they are set after the Warden is
+    built (at its first dispatch) and may change later, so a lease asked for after a change is
+    held to the new figure. Before any ceilings arrive the request names none and the Cell's own
+    default stands.
+    """
+    ceilings = warden._ceilings
+    return LeaseRequest(
+        cell_id=cell.id,
+        holder=warden._warden_id,
+        task_id=None,
+        access_level=cell.access_level,
+        allowed_paths=(),
+        scratch_quota_bytes=None if ceilings is None else ceilings.scratch_quota_bytes,
+    )
 
 
 async def _may_lease(warden: Warden, cell: Cell) -> bool:

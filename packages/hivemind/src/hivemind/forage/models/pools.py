@@ -123,13 +123,26 @@ class Ceilings(BaseModel):
     scratch_disk_bytes_per_lease: Annotated[int, Field(ge=0)] = Field(
         default=0,
         description="Disk the Warden may give one Real Cell lease's scratch directory "
-        "(roadmap step 4.8); 0 means no ceiling beyond the Cell's own free disk.",
+        "(roadmap step 4.8); 0 means the Queen set no ceiling, so the figure the Warden's own "
+        "composition names for its Cell (or the Cell's own default) holds.",
     )
     resident_basket_disk_bytes: Annotated[int, Field(ge=0)] = Field(
         default=0,
         description="Disk the Warden may keep resident for its own Comb Basket (roadmap step "
         "4.8); 0 means no ceiling beyond the Cell's own free disk.",
     )
+
+    @property
+    def scratch_quota_bytes(self) -> int | None:
+        """The quota one lease's scratch directory is held to, or None when the Queen set none.
+
+        The wire's 0 is "no ceiling", not "no scratch at all", so it must never reach a lease
+        request as a quota of 0 bytes: a Cell would then refuse every write the lease makes.
+
+        Returns:
+            `scratch_disk_bytes_per_lease` when it is positive, else None.
+        """
+        return self.scratch_disk_bytes_per_lease or None
 
     @classmethod
     def from_wire(cls, wire: WireCeilingsReport) -> Ceilings:

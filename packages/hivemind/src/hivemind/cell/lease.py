@@ -134,6 +134,15 @@ class LeaseRequest(BaseModel):
     allowed_paths: tuple[Path, ...] = Field(
         default=(), max_length=MAX_ALLOWED_PATHS, description="Paths outside scratch to allow."
     )
+    scratch_quota_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description="The most bytes the lease's scratch directory may hold, from the holder's "
+        "Ceilings (scratch_disk_bytes_per_lease). A source whose Cell enforces a quota of its "
+        "own asks the Cell to hold the lease to it (the Swarm source puts it on cell.request); "
+        "None leaves the source's own default, and a source that sizes its quota from its own "
+        "configuration (the Hive Stand's `[hive_stand] scratch_quota_mb`) does not read it.",
+    )
 
 
 class LeaseReleaseReport(BaseModel):

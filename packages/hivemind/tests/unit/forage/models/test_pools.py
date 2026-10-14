@@ -82,6 +82,17 @@ def test_ceilings_scratch_and_basket_disk_round_trip_through_the_wire_form() -> 
     assert Ceilings.from_wire(wire) == original
 
 
+def test_ceilings_scratch_quota_is_the_figure_the_queen_set() -> None:
+    assert _ceilings(scratch_disk_bytes_per_lease=4_096).scratch_quota_bytes == 4_096
+
+
+def test_ceilings_scratch_quota_is_none_when_the_queen_set_no_figure() -> None:
+    # On the wire 0 means "no ceiling", never "no scratch bytes at all": read as a quota of zero it
+    # would make a Cell refuse every write a lease makes.
+    assert _ceilings().scratch_disk_bytes_per_lease == 0
+    assert _ceilings().scratch_quota_bytes is None
+
+
 def test_ceilings_rejects_max_sub_bees_above_the_wire_bound() -> None:
     with pytest.raises(ValidationError):
         _ceilings(max_sub_bees=1_000)
