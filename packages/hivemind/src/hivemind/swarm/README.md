@@ -55,7 +55,7 @@ for a device that enrolled and never connected), and `ONLINE` again on the next 
 heartbeat. A device with no Warden on it releases its own leases after `dead_man_s`; the source
 hears that release and records it, so the lease is never left looking open.
 
-## Public API (roadmap steps 11.1, 11.2, 11.5, 11.8a)
+## Public API (roadmap steps 11.1, 11.2, 11.5, 11.8a, 11.12)
 
 - **Errors** (`errors`): `SwarmError` and its subclasses (`EnrolmentDeniedError`,
   `InviteFormatError`, `NodeRevokedError`, `LadderError`, `GatewayUnavailableError`,
@@ -87,6 +87,14 @@ hears that release and records it, so the lease is never left looking open.
   Propolis device's lease back until fixed read-only commands show its tunnel carries the default
   route and DNS; `PollenWatchProbe.observe(kinds, roots, since_at)` asks an idle device what it
   looks like without a lease.
+- **Operator desk** (`operator`): what `hive swarm` does to a device that is already enrolled, with
+  the trail event each write leaves. `OperatorDesk(registry, recorder)` revokes (`swarm.revoked`),
+  sets access (`swarm.access_changed`, with the capability strings recomputed) and sets the tier
+  (`swarm.shield_changed`, `NIGHT_VEIL` refused), and `move` writes only the `desired_level` wish,
+  one rung, with no event: the Queen's swarm gate acts on it. `find_node` resolves a device id, a
+  Cell id or a unique label. Refusals carry their reason: `UnknownNodeError`,
+  `AmbiguousNodeError`, `TierRefusedError`, `RungUnavailableError`. It is not re-exported above
+  this sub-package: import it from `hivemind.swarm.operator`.
 
 ## Who runs the Warden
 
