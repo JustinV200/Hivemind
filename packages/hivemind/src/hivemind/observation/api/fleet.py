@@ -42,6 +42,7 @@ from hivemind.observation.views.cells import CellMode, CellView, MaskStateName
 from hivemind.observation.views.frames import TelemetrySampleView
 from hivemind.observation.views.wardens import WardenView
 from waggle.messages.base import CellIdField, TaskIdField, WardenIdField
+from waggle.messages.swarm import RuntimeLevel
 from waggle.messages.task import WorkerRole
 
 _CONFIG = ConfigDict(frozen=True, extra="forbid")  # Every view here: immutable, no strays.
@@ -65,6 +66,7 @@ __all__ = [
     "highest_severity",
     "live_wax",
     "warden_runs",
+    "warden_runs_at",
 ]
 
 
@@ -123,8 +125,9 @@ class FleetRow(BaseModel):
     )
     access_level: AccessLevel = Field(description="How much of it the Hive may touch.")
     warden_runs: WardenRuns | None = Field(
-        description="Where its Warden runs: hive_stand, or on_cell (inside a Virtual Cell). "
-        "Null with no Warden, and for a Swarm Cell until phase 11 tracks its runtime level."
+        description="Where its Warden runs: hive_stand, or on_cell (inside a Virtual Cell, or on "
+        "a Swarm device once its Warden has moved onto it). Null with no Warden, and for a Swarm "
+        "Cell whose registry rung this Hive does not read."
     )
     models_from: ModelsFrom = Field(
         description="Where its bees' models come from, from its hosting plan; unknown with none."
@@ -213,21 +216,40 @@ def cell_status(cell: CellView, warden: WardenView | None) -> str:
 
 
 def warden_runs(cell: CellView) -> WardenRuns | None:
-    """Say where a Cell's Warden runs, as far as today's records tell.
+    """Say where a Cell's Warden runs, as far as the records tell.
 
     Args:
         cell: The Cell's view.
 
     Returns:
         ``on_cell`` for a Virtual Cell's Warden (it runs inside it), ``hive_stand`` for the Hive
-        Stand's own; None with no Warden or for a Swarm Cell, whose runtime level (gateway only
-        or on the device) is not tracked until phase 11.
+        Stand's own, and for a Swarm Cell the answer its registry rung gives (``warden_runs_at``);
+        None with no Warden, or for a Swarm Cell whose rung was not read.
     """
     if cell.warden_id is None:
         return None
     if cell.virtual_status is not None:
         return "on_cell"
+    # A Swarm Cell's Warden moves with its rung, so the registry's rung decides, not the source.
+    if cell.runtime_level is not None:
+        return warden_runs_at(cell.runtime_level)
     return "hive_stand" if cell.source == HIVE_STAND_SOURCE else None
+
+
+def warden_runs_at(level: RuntimeLevel) -> WardenRuns:
+    """Say where a Swarm device's Warden runs on a rung of the runtime ladder.
+
+    The one rule every reader of a Swarm Cell shares (the Fleet, the Cell page, the metrics and
+    ``hive cells list``): the Warden is the first bee to move onto a device (ADR-0052), so it runs
+    on the Hive Stand on the bottom rung and on the device from the second rung up.
+
+    Args:
+        level: The rung the device is on.
+
+    Returns:
+        ``hive_stand`` at GATEWAY (Level 0); ``on_cell`` at COLONIZED and NUC (Levels 1 and 2).
+    """
+    return "hive_stand" if level is RuntimeLevel.GATEWAY else "on_cell"
 
 
 def live_wax(wax: Sequence[CellWax], as_of: datetime) -> tuple[CellWax, ...]:

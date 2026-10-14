@@ -4,11 +4,12 @@ The Observation Hive's Fleet list and Cell pages render a Cell from one model (c
 views are data-shaped; tier and Mask state are always shown). ``CellView`` joins what the Hive
 knows about a Cell from each place that knows it: the Cell record its Warden's link carries (kind,
 source, Comb Shield tier, access level, capabilities), the Virtual Cell lifecycle's status for a
-Virtual Cell, the Pheromone Trail (its newest lease edge, its newest lifecycle event, its Warden's
-newest mode edge) and the Brood Chamber (the unfinished tasks placed on it). The Pheromone Mask
-(the per-Cell tactic state of roadmap 6.13) is not tracked yet, so ``mask_state`` is always
-present in the contract and null until it is. Nothing here is personal: names are the operator's
-own labels and every other field an id, an enum, a flag or a time.
+Virtual Cell, the swarm registry for a Swarm Cell (the rung of the runtime ladder its device is
+on, which says where its Warden runs), the Pheromone Trail (its newest lease edge, its newest
+lifecycle event, its Warden's newest mode edge) and the Brood Chamber (the unfinished tasks placed
+on it). The Pheromone Mask (the per-Cell tactic state of roadmap 6.13) is not tracked yet, so
+``mask_state`` is always present in the contract and null until it is. Nothing here is personal:
+names are the operator's own labels and every other field an id, an enum, a flag or a time.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.views``. Built
@@ -35,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivemind.cell import AccessLevel, CellKind, CombShieldLevel, LeaseState, OsFamily
 from hivemind.hive import VirtualCellStatus
 from waggle.messages.base import CellIdField, TaskIdField, WardenIdField
+from waggle.messages.swarm import RuntimeLevel
 
 _CONFIG = ConfigDict(frozen=True, extra="forbid")  # Every view here: immutable, no strays.
 
@@ -70,6 +72,12 @@ class CellView(BaseModel):
         default=None,
         description="The Pheromone Mask state (OFF, WARDEN or QUEEN_FORCED); null until roadmap "
         "6.13 tracks it per Cell.",
+    )
+    runtime_level: RuntimeLevel | None = Field(
+        default=None,
+        description="A Swarm Cell's rung of the runtime ladder, from the swarm registry: GATEWAY "
+        "(its Warden runs on the Hive Stand), COLONIZED or NUC (its Warden runs on the device); "
+        "null for every other Cell, and for a Swarm Cell when this Hive reads no registry.",
     )
     lease_state: LeaseState | None = Field(
         description="A Real Cell's lease from its newest lease edge on the trail: OPEN after "

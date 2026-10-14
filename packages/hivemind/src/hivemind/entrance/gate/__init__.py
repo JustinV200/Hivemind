@@ -37,8 +37,8 @@ Public API:
     - StepUpRequiredError, CapabilityDeniedError, RateLimitedError: the gate's refusals (errors).
     - EntranceServices, QueenDoor, PushServices, GateGuards, EntranceRules, StreamServices,
       DoorControl, ListenerDeps, get_services, get_listener: the services (services).
-    - HiveReads, HiveCensus, VirtualCellCensus, LlmReads, ForageMapReads, HoneyReads: what is read
-      directly (reads).
+    - HiveReads, HiveCensus, VirtualCellCensus, LlmReads, ForageMapReads, HoneyReads, SwarmReads:
+      what is read directly (reads).
     - Services, Here, CallerParam, ArrivalParam: a route's parameters (params).
 """
 
@@ -82,6 +82,7 @@ from hivemind.entrance.gate.reads import (
     HiveReads,
     HoneyReads,
     LlmReads,
+    SwarmReads,
     VirtualCellCensus,
 )
 from hivemind.entrance.gate.services import (
@@ -160,6 +161,7 @@ __all__ = [
     "SocketSpec",
     "StepUpRequiredError",
     "StreamServices",
+    "SwarmReads",
     "Switch",
     "VirtualCellCensus",
     "arrival_of",

@@ -365,6 +365,8 @@ def _entrance_hive(hive: Hive) -> EntranceHive:
         virtual_cells=virtual.lifecycle if virtual is not None else None,
         forage_map=deps.map,  # Where each source is hosted, for the Fleet's models badge.
         honey=_honey_browser(hive),
+        # The registry's rungs say where each device's Warden runs; none without a Swarm.
+        swarm=hive.swarm.registry if hive.swarm is not None else None,
     )
     return EntranceHive(
         queen=hive.queen, reads=reads, enforcer=hive.enforcer, policy=hive.enforcer.policy

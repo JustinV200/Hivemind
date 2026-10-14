@@ -2044,6 +2044,8 @@ export interface components {
             name: string;
             /** @description Its operating system family, when known. */
             os: components["schemas"]["OsFamily"] | null;
+            /** @description A Swarm Cell's rung of the runtime ladder, from the swarm registry: GATEWAY (its Warden runs on the Hive Stand), COLONIZED or NUC (its Warden runs on the device); null for every other Cell, and for a Swarm Cell when this Hive reads no registry. */
+            runtime_level?: components["schemas"]["RuntimeLevel"] | null;
             /**
              * Source
              * @description What produced it: hive_stand, swarm, or a Virtual backend.
@@ -2874,7 +2876,7 @@ export interface components {
             warden_id: string | null;
             /**
              * Warden Runs
-             * @description Where its Warden runs: hive_stand, or on_cell (inside a Virtual Cell). Null with no Warden, and for a Swarm Cell until phase 11 tracks its runtime level.
+             * @description Where its Warden runs: hive_stand, or on_cell (inside a Virtual Cell, or on a Swarm device once its Warden has moved onto it). Null with no Warden, and for a Swarm Cell whose registry rung this Hive does not read.
              */
             warden_runs: ("hive_stand" | "on_cell") | null;
         };
@@ -4323,6 +4325,12 @@ export interface components {
              */
             cancel_goals: boolean;
         };
+        /**
+         * RuntimeLevel
+         * @description Which rung of the Swarm ladder a device is on: how much of the Hive runs on it.
+         * @enum {string}
+         */
+        RuntimeLevel: "GATEWAY" | "COLONIZED" | "NUC";
         /**
          * SecurityEventView
          * @description An Entrance security event, as the trail records it.

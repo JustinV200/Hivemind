@@ -23,19 +23,22 @@ import pytest
 from builders.cells import make_cell
 from builders.queen import make_queen_deps
 from builders.supervision import make_telemetry
+from builders.swarm import enrol_node, make_device_party, make_swarm_node
 
 from hivemind.cell import AccessLevel, CellKind, CombShieldLevel, LeaseState
 from hivemind.entrance.errors import CellNotFoundError
-from hivemind.entrance.gate import HiveReads, LlmReads
+from hivemind.entrance.gate import HiveReads, LlmReads, SwarmReads
 from hivemind.entrance.reads import cell_view, cell_views, warden_views
 from hivemind.entrance.streams import TelemetryBoard
 from hivemind.hive import LiveVirtualCell, VirtualCellStatus
 from hivemind.observation import CellMode
 from hivemind.pheromone import event_class_for
 from hivemind.queen import QueenDeps, WardenLink, WardenLiveness
+from hivemind.swarm import MemorySwarmRegistry
 from waggle.clock import FakeClock
 from waggle.ids import WardenId, new_cell_id, new_event_id
 from waggle.messages.supervision import Heartbeat, WardenState
+from waggle.messages.swarm import RuntimeLevel
 
 _IMAGE, _BACKEND = "hive/worker:1", "docker"  # A Virtual Cell's image and backend, by name.
 
@@ -60,7 +63,10 @@ class _Lifecycle:
 
 
 def _reads(
-    deps: QueenDeps, census: _Census, lifecycle: _Lifecycle | None = None
+    deps: QueenDeps,
+    census: _Census,
+    lifecycle: _Lifecycle | None = None,
+    swarm: SwarmReads | None = None,
 ) -> tuple[HiveReads, TelemetryBoard]:
     """What the Entrance reads, over the Queen's stores; the telemetry board beside it."""
     board = TelemetryBoard()
@@ -76,6 +82,7 @@ def _reads(
         telemetry=board,
         llm=llm,
         virtual_cells=lifecycle,
+        swarm=swarm,
     )
     return reads, board
 
@@ -180,3 +187,35 @@ def test_a_warden_the_queen_judged_offline_reads_offline_whatever_it_said() -> N
 
     assert (view.state, view.offline, view.missed_heartbeats) == (WardenState.OFFLINE, True, 3)
     assert (view.cell_id, view.sub_bees, view.live_grants) == (link.cell.id, 0, 0)
+
+
+@pytest.mark.parametrize("level", list(RuntimeLevel))
+async def test_a_swarm_cell_carries_the_rung_its_device_is_on_from_the_registry(
+    level: RuntimeLevel,
+) -> None:
+    clock = FakeClock()
+    node = make_swarm_node(make_device_party(clock), clock, level=level)
+    registry = MemorySwarmRegistry()
+    await enrol_node(registry, node, clock)
+    deps, link, _ = make_queen_deps(clock, cell=node.as_cell())
+    reads, _ = _reads(deps, _Census((link,)), swarm=registry)
+
+    view = await cell_view(reads, node.cell_id)
+
+    assert (view.source, view.runtime_level) == ("swarm", level)
+
+
+async def test_a_cell_the_registry_does_not_know_and_a_hive_without_a_registry_carry_no_rung() -> (
+    None
+):
+    clock = FakeClock()
+    stranger = make_swarm_node(make_device_party(clock), clock, level=RuntimeLevel.NUC)
+    registry = MemorySwarmRegistry()
+    await enrol_node(registry, stranger, clock)
+    deps, link, _ = make_queen_deps(clock)  # The Hive Stand's own Cell: no device is it.
+
+    with_registry, _ = _reads(deps, _Census((link,)), swarm=registry)
+    without, _ = _reads(deps, _Census((link,)))
+
+    assert (await cell_view(with_registry, link.cell.id)).runtime_level is None
+    assert (await cell_view(without, link.cell.id)).runtime_level is None

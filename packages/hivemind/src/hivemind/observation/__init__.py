@@ -113,6 +113,7 @@ from hivemind.observation.api import (
     summary_view,
     thoughts_page,
     warden_runs,
+    warden_runs_at,
 )
 from hivemind.observation.metrics import (
     CONTENT_TYPE as METRICS_CONTENT_TYPE,
@@ -335,4 +336,5 @@ __all__ = [
     "thoughts_page",
     "trail_event_view",
     "warden_runs",
+    "warden_runs_at",
 ]

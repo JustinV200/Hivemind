@@ -55,6 +55,7 @@ from hivemind.queen import (
     WardenLink,
     WardenLiveness,
 )
+from hivemind.swarm import SwarmNode
 from waggle.ids import WardenId
 from waggle.messages.honey import HoneyResponse
 
@@ -68,6 +69,7 @@ __all__ = [
     "HiveReads",
     "HoneyReads",
     "LlmReads",
+    "SwarmReads",
     "VirtualCellCensus",
 ]
 
@@ -91,6 +93,19 @@ class VirtualCellCensus(Protocol):
 
     def live_cells(self) -> tuple[LiveVirtualCell, ...]:
         """Every Virtual Cell the lifecycle tracks, dormant and provisioning ones included."""
+        ...
+
+
+class SwarmReads(Protocol):
+    """The Swarm's registry read side; ``hivemind.swarm.SwarmRegistry`` satisfies it as it is.
+
+    The Entrance reads which rung of the runtime ladder each enrolled device is on (it decides
+    where the device's Warden runs); it never writes the registry, whose changes are the operator's
+    (``hive swarm``) and the Queen's swarm gate's.
+    """
+
+    async def nodes(self) -> tuple[SwarmNode, ...]:
+        """Every enrolled device, revoked ones included, oldest enrolment first."""
         ...
 
 
@@ -161,6 +176,9 @@ class HiveReads:
             leaves every Cell's hosting ``unknown``.
         honey: The Honey browser over the Hive's Honey Store, with a retriever for search; None
             for a Hive that keeps no Honey Store, whose Honey routes then answer 404.
+        swarm: The swarm registry, to say which rung each Swarm Cell's device is on and so where
+            its Warden runs; None for a Hive with no Swarm, whose Swarm Cells (there are none)
+            would carry no rung.
     """
 
     goal_requests: GoalRequestStore
@@ -175,3 +193,4 @@ class HiveReads:
     virtual_cells: VirtualCellCensus | None = field(default=None)
     forage_map: ForageMapReads | None = field(default=None)
     honey: HoneyReads | None = field(default=None)
+    swarm: SwarmReads | None = field(default=None)

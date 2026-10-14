@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from builders.forage import make_source
 from builders.memory import make_cell_wax
 from builders.observation import after, make_cell_view, make_event, make_sample, make_warden_view
@@ -38,10 +39,12 @@ from hivemind.observation import (
     live_wax,
     open_alarms,
     warden_runs,
+    warden_runs_at,
 )
 from waggle.clock import FakeClock
 from waggle.ids import new_alarm_id, new_worker_id
 from waggle.messages.supervision import WardenState, WorkerState
+from waggle.messages.swarm import RuntimeLevel
 from waggle.messages.task import WorkerRole
 
 _CLOCK = FakeClock()
@@ -152,7 +155,37 @@ def test_a_virtual_cells_status_and_warden_place_come_from_its_lifecycle() -> No
     assert cell_status(bare, None) == "UNKNOWN"
     assert warden_runs(bare) is None  # No Warden attached.
     swarm = make_cell_view(warden_id=warden.id, source="swarm")
-    assert warden_runs(swarm) is None  # Runtime level untracked until phase 11.
+    assert warden_runs(swarm) is None  # A Swarm Cell whose rung was not read: not guessed.
+
+
+@pytest.mark.parametrize(
+    ("level", "place"),
+    [
+        (RuntimeLevel.GATEWAY, "hive_stand"),
+        (RuntimeLevel.COLONIZED, "on_cell"),
+        (RuntimeLevel.NUC, "on_cell"),
+    ],
+)
+def test_a_swarm_cells_warden_runs_where_its_rung_of_the_ladder_puts_it(
+    level: RuntimeLevel, place: str
+) -> None:
+    warden = make_warden_view()
+    swarm = make_cell_view(warden_id=warden.id, source="swarm", runtime_level=level)
+
+    assert warden_runs_at(level) == place
+    assert warden_runs(swarm) == place
+    [row] = fleet_view(_inputs(cells=[swarm], wardens=[warden])).rows
+    assert row.warden_runs == place
+
+
+def test_a_swarm_cell_with_no_warden_runs_none_whatever_its_rung() -> None:
+    swarm = make_cell_view(source="swarm", runtime_level=RuntimeLevel.COLONIZED)
+
+    assert warden_runs(swarm) is None
+
+
+def test_the_rung_is_null_on_every_cell_that_is_not_a_swarm_device() -> None:
+    assert make_cell_view().runtime_level is None
 
 
 def test_wax_is_live_only_while_written_and_unexpired() -> None:

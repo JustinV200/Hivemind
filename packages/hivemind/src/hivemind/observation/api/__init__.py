@@ -95,6 +95,7 @@ from hivemind.observation.api.fleet import (
     highest_severity,
     live_wax,
     warden_runs,
+    warden_runs_at,
 )
 from hivemind.observation.api.hosting import (
     HostingFacts,
@@ -200,4 +201,5 @@ __all__ = [
     "summary_view",
     "thoughts_page",
     "warden_runs",
+    "warden_runs_at",
 ]

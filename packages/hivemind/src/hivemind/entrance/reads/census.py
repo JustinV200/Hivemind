@@ -40,6 +40,7 @@ from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.queen import ForageLedger, WardenLink, WardenLiveness
 from waggle.ids import CellId, TaskId, WardenId
 from waggle.messages.supervision import WardenState
+from waggle.messages.swarm import RuntimeLevel
 
 if TYPE_CHECKING:
     # Type-only: the streams package imports this one, so a runtime import here cycles.
@@ -74,11 +75,12 @@ async def cell_views(reads: HiveReads) -> tuple[CellView, ...]:
     """
     placed = await _placed_tasks(reads)
     virtual = {live.cell_id: live for live in _live_virtual(reads)}
+    rungs = await _swarm_rungs(reads)
     found: list[_Found] = []
     # Attached first: a Warden's link carries the Cell record the Queen places work with.
     for link in reads.census.wardens:
         live = virtual.pop(link.cell.id, None)
-        found.append(_Found(_record(link.cell), link.warden_id, live))
+        found.append(_Found(_record(link.cell), link.warden_id, live, rungs.get(link.cell.id)))
     # Then the lifecycle's Cells no Warden is attached to (provisioning, dormant, going away).
     for live in virtual.values():
         record = _record(live.cell) if live.cell is not None else _unrecorded(live)
@@ -144,6 +146,7 @@ class _Found:
     record: _Record
     warden_id: WardenId | None
     live: LiveVirtualCell | None
+    rung: RuntimeLevel | None = None  # A Swarm Cell's rung of the ladder; None for any other.
 
 
 async def _view(reads: HiveReads, found: _Found, placed: Mapping[CellId, list[TaskId]]) -> CellView:
@@ -159,6 +162,7 @@ async def _view(reads: HiveReads, found: _Found, placed: Mapping[CellId, list[Ta
         comb_shield=record.comb_shield,
         access_level=record.access_level,
         mode=mode,
+        runtime_level=found.rung,
         # The newest lease edge decides: OPEN after cell.leased, RELEASED after cell.released.
         lease_state=next((_LEASE_EDGES[e.kind] for e in events if e.kind in _LEASE_EDGES), None),
         virtual_status=live.status if live is not None else None,
@@ -188,6 +192,18 @@ async def _newest(reads: HiveReads, family: str, subject_id: str) -> tuple[Phero
     )
     # Latency: one local indexed trail read.
     return await reads.trail.query(query)
+
+
+async def _swarm_rungs(reads: HiveReads) -> dict[CellId, RuntimeLevel]:
+    """Map each enrolled device's Cell to the rung of the runtime ladder it is on.
+
+    The rung says where the device's Warden runs (on the Hive Stand at GATEWAY, on the device from
+    COLONIZED up), and only the registry knows it; a Hive with no Swarm has no registry to ask.
+    """
+    if reads.swarm is None:
+        return {}
+    # Latency: one local indexed registry read each time the views are rebuilt.
+    return {node.cell_id: node.level for node in await reads.swarm.nodes()}
 
 
 async def _placed_tasks(reads: HiveReads) -> dict[CellId, list[TaskId]]:
