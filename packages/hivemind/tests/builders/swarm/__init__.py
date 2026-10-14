@@ -33,6 +33,10 @@ Public API:
     - linux_probes, macos_probes, linux_route, linux_route6, macos_netstat, resolv_conf,
       scutil_dns: the text of a device's routing table and DNS settings (routes).
     - ScriptedDevice, DeviceScript, ExecScript, ReleaseScript: the device double (device).
+    - LiveHive, LiveHiveOptions, TamperableSigner, free_port, start_live_hive: a Hive Stand on
+      real time and real sockets, for a real gateway to dial (live).
+    - LeasedDevice, lease_device, real_guard: lease a connected device with the real Guard in
+      front and open its session (leasing).
 """
 
 from builders.swarm.client import DeviceClient
@@ -56,6 +60,14 @@ from builders.swarm.enrolment import (
 )
 from builders.swarm.guards import RecordingGuard
 from builders.swarm.hive import HiveRig, HubLog, WardenHandlerLog, make_hive_rig
+from builders.swarm.leasing import LeasedDevice, lease_device, real_guard
+from builders.swarm.live import (
+    LiveHive,
+    LiveHiveOptions,
+    TamperableSigner,
+    free_port,
+    start_live_hive,
+)
 from builders.swarm.parties import (
     DeviceParty,
     HiveParty,
@@ -92,16 +104,22 @@ __all__ = [
     "HiveParty",
     "HiveRig",
     "HubLog",
+    "LeasedDevice",
     "LinkRig",
+    "LiveHive",
+    "LiveHiveOptions",
     "RawLink",
     "RecordingGuard",
     "ReleaseScript",
     "RouteRow",
     "RouterRig",
     "ScriptedDevice",
+    "TamperableSigner",
     "TlsMaterial",
     "WardenHandlerLog",
     "enrol_node",
+    "free_port",
+    "lease_device",
     "linux_probes",
     "linux_route",
     "linux_route6",
@@ -125,6 +143,8 @@ __all__ = [
     "make_swarm_node",
     "make_tls_material",
     "open_rig_session",
+    "real_guard",
     "resolv_conf",
     "scutil_dns",
+    "start_live_hive",
 ]

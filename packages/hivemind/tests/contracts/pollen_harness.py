@@ -33,29 +33,20 @@ import contextlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from builders.cells import make_identity
+from builders.swarm.leasing import lease_device
 from builders.swarm.live import LiveHive
 
 from hivemind.cell import AccessLevel, CombShieldLevel
-from hivemind.cell.lease import LeaseReleaseReport, LeaseRequest, RealCellLease
+from hivemind.cell.lease import LeaseReleaseReport, RealCellLease
 from hivemind.cell.lease_state import LeaseState
-from hivemind.guard import (
-    Enforcer,
-    PolicyContext,
-    load_guard_policy,
-    warden_principal,
-    warden_set,
-)
-from hivemind.manifest import GuardSection
 from hivemind.swarm import SwarmSource
-from hivemind.swarm.session import EnforcedCommandGuard, PollenSession
+from hivemind.swarm.session import PollenSession
 from pollen.agent import PollenPacket
 from pollen.build import build_packet
 from pollen.enrol import EnrolPlan, enrol_device, parse_invite
 from pollen.platform import select_shim
 from pollen.state import DataLayout, PacketState
 from waggle.clock import SystemClock
-from waggle.ids import WardenId
 
 __all__ = ["PollenDevice", "start_device"]
 
@@ -122,35 +113,10 @@ async def start_device(
     try:
         await hive.wait_for(state.device_id, DIAL_TIMEOUT_S)
         node = await hive.node(state.device_id)
-        source = SwarmSource(node, hive.hub, hive.recorder, _guard(hive, node.warden_id, layout))
-        hive.hub.subscribe(source)  # So a dead-man release the device reports is heard.
-        request = LeaseRequest(
-            cell_id=node.cell_id,
-            holder=node.warden_id,
-            task_id=None,
-            access_level=AccessLevel.FULL,
-            allowed_paths=allowed_paths,
-        )
-        lease = await source.lease(request)
-        opened = await source.open_session(lease)
+        leased = await lease_device(hive, node, PurePosixPath(layout.root), allowed_paths)
     except BaseException:
         packet.stop()
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
         raise
-    assert isinstance(opened, PollenSession)
-    return PollenDevice(state, packet, task, source, lease, opened)
-
-
-def _guard(hive: LiveHive, warden_id: WardenId, layout: DataLayout) -> EnforcedCommandGuard:
-    """Build the real Guard for the device's Warden, holding everything FULL access allows."""
-    policy = load_guard_policy(None, GuardSection())
-    identity = make_identity(hive.clock, hive_id=hive.party.hive_id, node_id=hive.party.node_id)
-    return EnforcedCommandGuard(
-        Enforcer(policy, hive.trail, hive.clock, identity),
-        hive.recorder,
-        warden_principal(warden_id),
-        # FULL's set does not depend on the scratch root, which the lease has not made yet.
-        warden_set(policy, AccessLevel.FULL, PurePosixPath(layout.root)),
-        PolicyContext(comb_shield=CombShieldLevel.MEADOW, access_level=AccessLevel.FULL),
-    )
+    return PollenDevice(state, packet, task, leased.source, leased.lease, leased.session)
