@@ -8,7 +8,10 @@ applies to CPython 3.12 on x86-64 Linux, the device) and downloads their wheels 
 for those tags; the downloads are kept in a cache keyed by the pins, so only a changed lockfile
 downloads again). `device_image` puts the wheelhouse and `device/Dockerfile` into a build context,
 tags the image by a hash of both, and builds it only when no image has that tag: a change to a
-package or to the Dockerfile makes a new tag, and anything else reuses the old image.
+package or to the Dockerfile makes a new tag, and anything else reuses the old image. A variant
+is the same device with more apt packages installed (`device_image(("xvfb", ...))`, the X server
+and tools of a desktop for the Exoskeleton tests): the package names are part of the hash, so each
+variant has a tag of its own and the plain image's is unchanged by them.
 `HIVEMIND_TEST_DEVICE_IMAGE` names an image to use instead, built some other way.
 
 A build behind a proxy that only the host can reach (an address on its loopback, which a
@@ -23,8 +26,9 @@ Fits into the Hive:
     later, whose builder understands the Dockerfile's `RUN --mount`).
 
 Key invariants:
-    - The image tag is a pure function of the wheels and the Dockerfile, so two machines that
-      build the same tree get the same tag, and a build never happens twice for one tree.
+    - The image tag is a pure function of the wheels, the Dockerfile and the extra packages, so
+      two machines that build the same tree get the same tag, and a build never happens twice for
+      one tree.
     - A failed build or download raises with the tail of the tool's own output, never an empty
       "failed"; nothing half-built is ever cached or tagged.
     - No credential goes into the image: a proxy that needs one is not forwarded, and the
@@ -40,6 +44,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -82,6 +87,9 @@ DEVICE_ENVIRONMENT = {
     "extra": "",
 }
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# An apt package name (Debian policy 5.6.1): the build argument is expanded by a shell, so nothing
+# else is let through.
+PACKAGE_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]+$")
 CA_VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 
 __all__ = [
@@ -100,14 +108,20 @@ class ImageUnavailableError(Exception):
 
 
 @functools.cache
-def device_image() -> str:
+def device_image(extra_packages: tuple[str, ...] = ()) -> str:
     """Return the tag of the device image for this tree, building it first if need be.
 
+    Args:
+        extra_packages: apt packages to install besides the plain device's, such as an X server
+            for a test of the Exoskeleton; none for the plain device.
+
     Returns:
-        The image to start device containers from; `HIVEMIND_TEST_DEVICE_IMAGE` if set.
+        The image to start device containers from; `HIVEMIND_TEST_DEVICE_IMAGE` if set (which
+        is then used as it is, whatever packages were asked for).
 
     Raises:
         ImageUnavailableError: `HIVEMIND_TEST_DEVICE_IMAGE` is set to an image docker lacks.
+        ValueError: A package name is not an apt package name.
         CommandError: A wheel could not be built or downloaded, or the image did not build.
     """
     override = os.environ.get(IMAGE_VARIABLE)
@@ -115,12 +129,16 @@ def device_image() -> str:
         if not _image_exists(override):
             raise ImageUnavailableError(f"{IMAGE_VARIABLE}={override} is not an image here.")
         return override
+    bad = [name for name in extra_packages if PACKAGE_NAME.match(name) is None]
+    if bad:
+        raise ValueError(f"Not apt package names: {', '.join(bad)}.")
     with tempfile.TemporaryDirectory(prefix="hivemind-device-image-") as scratch:
         context = Path(scratch)
         wheelhouse(context / "wheelhouse")
-        tag = f"{REPOSITORY}:{image_digest(context / 'wheelhouse', DOCKERFILE)}"
+        digest = image_digest(context / "wheelhouse", DOCKERFILE, extra_packages)
+        tag = f"{REPOSITORY}:{digest}"
         if not _image_exists(tag):
-            _build(tag, context)
+            _build(tag, context, extra_packages)
     return tag
 
 
@@ -213,12 +231,14 @@ def _cache_dir() -> Path:
     return Path(base) / "hivemind-tests" / "device-image"
 
 
-def image_digest(wheels: Path, dockerfile: Path) -> str:
-    """Hash the Dockerfile and every wheel (name and bytes) into the image's identity."""
+def image_digest(wheels: Path, dockerfile: Path, extra_packages: tuple[str, ...] = ()) -> str:
+    """Hash the Dockerfile, every wheel (name and bytes) and the extra packages into an identity."""
     digest = hashlib.sha256(dockerfile.read_bytes())
     for wheel in sorted(wheels.glob("*.whl")):
         digest.update(wheel.name.encode())
         digest.update(wheel.read_bytes())
+    if extra_packages:  # Only a variant adds to the hash, so the plain image keeps its own.
+        digest.update(b"\0extra-packages\0" + " ".join(sorted(extra_packages)).encode())
     return digest.hexdigest()[:16]
 
 
@@ -227,7 +247,7 @@ def _image_exists(tag: str) -> bool:
     return docker("image", "inspect", tag, check=False).exit_code == 0
 
 
-def _build(tag: str, context: Path) -> None:
+def _build(tag: str, context: Path, extra_packages: tuple[str, ...] = ()) -> None:
     """Build the image from the Dockerfile and the wheelhouse already in `context`.
 
     Raises:
@@ -238,6 +258,8 @@ def _build(tag: str, context: Path) -> None:
         context / "ca"
     ).mkdir()  # The Dockerfile mounts it; it holds a certificate only behind a proxy.
     args = ["build", "--tag", tag, "--label", f"{LABEL}={LABEL_VALUE}", *proxy_flags(context)]
+    if extra_packages:
+        args += ["--build-arg", f"EXTRA_PACKAGES={' '.join(extra_packages)}"]
     built = docker(*args, str(context), timeout_s=BUILD_TIMEOUT_S, check=False)
     if built.exit_code != 0:
         tail = "\n".join(built.stderr.strip().splitlines()[-OUTPUT_TAIL_LINES:])

@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from e2e.swarm import container as container_module
+from e2e.swarm import image as image_module
 from e2e.swarm.container import (
     CommandError,
     CommandResult,
@@ -37,7 +39,7 @@ from e2e.swarm.container import (
     process_table,
     run,
 )
-from e2e.swarm.image import device_pins, image_digest, proxy_flags
+from e2e.swarm.image import IMAGE_VARIABLE, device_image, device_pins, image_digest, proxy_flags
 
 PIN = re.compile(r"^[a-z0-9][a-z0-9_.-]*==[0-9][^\s;]*$")  # `name==version`, no marker left on it.
 BUNDLE = b"-----BEGIN CERTIFICATE-----\nproxy\n-----END CERTIFICATE-----\n"
@@ -212,6 +214,77 @@ def test_the_image_tag_follows_the_wheels_and_the_dockerfile_and_nothing_else(
 
     assert len({baseline, changed_wheel, changed_dockerfile}) == 3
     assert len(baseline) == 16
+
+
+def test_a_variants_packages_are_part_of_its_tag_in_any_order_and_the_plain_tag_is_untouched(
+    tmp_path: Path,
+) -> None:
+    wheels, dockerfile = tmp_path / "wheelhouse", tmp_path / "Dockerfile"
+    wheels.mkdir()
+    dockerfile.write_text("FROM ubuntu:24.04\n")
+    (wheels / "a-1-py3-none-any.whl").write_bytes(b"first")
+    plain = image_digest(wheels, dockerfile)
+
+    desktop = image_digest(wheels, dockerfile, ("xvfb", "xdotool"))
+
+    assert image_digest(wheels, dockerfile, ()) == plain  # No packages is the plain device.
+    assert desktop != plain
+    assert image_digest(wheels, dockerfile, ("xdotool", "xvfb")) == desktop
+    assert image_digest(wheels, dockerfile, ("xvfb",)) != desktop
+
+
+class NoImageYet(FakeDocker):
+    """A docker that has no image of any tag, so asking for one runs the build."""
+
+    def __call__(self, *args: str, timeout_s: float = 0.0, check: bool = True) -> CommandResult:
+        """Record the call; answer an image lookup with "no such image", all else with success."""
+        done = super().__call__(*args, timeout_s=timeout_s, check=check)
+        if args[:2] == ("image", "inspect"):
+            return CommandResult(done.argv, 1, "", "no such image")
+        return done
+
+
+def _empty_wheelhouse(destination: Path) -> Path:
+    """Stand in for `wheelhouse`, which builds wheels and downloads others: an empty directory."""
+    destination.mkdir()
+    return destination
+
+
+@pytest.fixture
+def building(monkeypatch: pytest.MonkeyPatch, no_proxy: None) -> Iterator[NoImageYet]:
+    """Make `device_image` build against a recorder: no docker, no wheels, no network, no cache."""
+    docker = NoImageYet()
+    monkeypatch.setattr(image_module, "docker", docker)
+    monkeypatch.setattr(image_module, "wheelhouse", _empty_wheelhouse)
+    monkeypatch.delenv(IMAGE_VARIABLE, raising=False)
+    device_image.cache_clear()  # The tag of an earlier call must not stand in for this build.
+    yield docker
+    device_image.cache_clear()  # Nor may this build's tag stand in for a later test's.
+
+
+def test_a_variant_is_built_with_its_packages_as_a_build_argument_and_a_plain_one_without(
+    building: NoImageYet,
+) -> None:
+    desktop = device_image(("xvfb", "xdotool"))
+    plain = device_image()
+
+    builds = [call for call in building.calls if call[0] == "build"]
+    assert [_values(call, "--tag") for call in builds] == [[desktop], [plain]]
+    assert [_values(call, "--build-arg") for call in builds] == [
+        ["EXTRA_PACKAGES=xvfb xdotool"],
+        [],
+    ]
+    assert desktop != plain
+
+
+@pytest.mark.parametrize("name", ["x", "Xvfb", "xvfb;reboot", "$(id)", "a b", "-y"])
+def test_a_package_name_a_shell_could_read_as_more_than_a_name_is_refused_before_any_build(
+    building: NoImageYet, name: str
+) -> None:
+    with pytest.raises(ValueError, match="apt package names"):
+        device_image(("xvfb", name))
+
+    assert building.calls == []
 
 
 @pytest.fixture

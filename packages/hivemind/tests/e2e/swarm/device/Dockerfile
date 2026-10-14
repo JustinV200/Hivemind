@@ -9,12 +9,18 @@
 # package mirror is reachable from the places these tests run (a sandbox may allow the Ubuntu
 # mirror and not Debian's). Why the tools: `ps` takes the device's process table before and
 # after a lease, `ip` and `ping` are what a diagnostic command on a real device would use.
+#
+# Variants: `image.py` passes `EXTRA_PACKAGES` (space-separated apt names) to make a device that has
+# more installed than the plain one, such as the X server and tools of a desktop for the
+# Exoskeleton tests. The default is empty, so the plain image is built exactly as it was.
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 # Set only when the build reaches the mirror through a proxy that containers cannot reach on
 # their own (image.py then also builds on the host network); apt is pointed at it for this layer.
 ARG APT_PROXY=""
+# Extra apt packages for a variant of the device; empty for the plain one.
+ARG EXTRA_PACKAGES=""
 
 RUN --mount=type=bind,source=ca,target=/opt/build-ca \
     set -eu; \
@@ -25,7 +31,7 @@ RUN --mount=type=bind,source=ca,target=/opt/build-ca \
     fi; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        ca-certificates python3 python3-venv procps iproute2 iputils-ping; \
+        ca-certificates python3 python3-venv procps iproute2 iputils-ping $EXTRA_PACKAGES; \
     rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/99build-proxy
 
 # The wheelhouse stays in the image: a device that is colonized later installs the Hive runtime
