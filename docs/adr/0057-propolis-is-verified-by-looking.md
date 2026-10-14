@@ -105,5 +105,5 @@ at Propolis: it is half of what the tier promises, and unchecked it would be kep
 wrote the image. A separate event kind for a PROPOLIS attestation: one fact in two kinds splits
 every reader of the trail in two, where a tier in the payload costs one reader one condition.
 Passing a Cell when no probe is configured, with a warning: readiness would then be a default and
-not something earned, which is what a tier exists to prevent. Letting the tier-less boundary rule
-stand: every PROPOLIS Cell would be purged as if it were Night Veil.
+not something earned, which is what a tier exists to prevent. Keeping the boundary's old rule that
+any `cell.attested` row means Night Veil: every PROPOLIS Cell would be purged as if it were one.
