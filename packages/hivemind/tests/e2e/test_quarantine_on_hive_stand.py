@@ -37,6 +37,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import psutil
 import pytest
 from builders.cli import ManifestTuning, fake_manifest
 from builders.taint import make_taint_judge
@@ -53,7 +54,7 @@ from e2e.kernel_helpers import (
 )
 
 from hivemind.brood_chamber import TaskFilter, TaskStatus
-from hivemind.cell import HoneyClearance, LeaseState
+from hivemind.cell import HoneyClearance, LeaseState, RealCellLease
 from hivemind.cli.compose import GoalReport, Hive, build_hive, run_goal, run_hive
 from hivemind.guard import QUEEN_ROLE, queen_principal, role_set
 from hivemind.llm import LLMRequest, LLMResponse, TextPart
@@ -83,6 +84,7 @@ _GOAL_TIMEOUT_S = 30.0  # The whole scenario, quarantine and way out included; a
 _WAIT_S = 10.0  # Bound on each step's wait; each lands well inside a second.
 _FILES = ("haiku_1.txt", "haiku_2.txt", "haiku_3.txt")
 _LINGER_S = 60  # The command outlives the scenario: only the quarantine can end it.
+_LINGER_MARK = f"time.sleep({_LINGER_S})"  # How the command is told apart from probe ones.
 # The quarantine runs in one Warden tick, its command's kill grace included (0.2 s), so the
 # Queen's three-missed-beats offline rule needs a cadence that tick fits inside, as the shipped
 # 5 s one does; the builder's own 0.05 s would read that one tick as an unreachable Cell.
@@ -150,10 +152,12 @@ async def _quarantine_mid_command(hive: Hive) -> _Held:
     """Wait for the Drone's command to run, then order its quarantine as a Guard request would."""
     lease = hive.warden.lease
     assert lease is not None
-    # The command is the one process this run starts; its pid is recorded the moment it spawns.
-    await wait_until(lambda: bool(lease.started_pids), timeout_s=_WAIT_S)
-    pid = lease.started_pids[-1]
-    assert pid_alive(pid)
+    # The lease also records the Warden's own watch-probe commands (it watches its Cell while no
+    # bee works, ADR-0054), so the Drone's command is found by its command line, not taken as the
+    # newest recorded pid.
+    await wait_until(lambda: _linger_pid(lease) is not None, timeout_s=_WAIT_S)
+    pid = _linger_pid(lease)
+    assert pid is not None and pid_alive(pid)
     [task] = await hive.stores.chamber.list(TaskFilter())
     [bee] = hive.warden.sub_bees
     suspect = (await _events(hive, "capping.proposed"))[-1].id
@@ -177,6 +181,17 @@ async def _quarantine_mid_command(hive: Hive) -> _Held:
         event_id=event_id, written_at=written.at, clearance=WireHoneyClearance.C1
     )
     return _Held(task.id, bee.worker_id, pid, suspect, intervened, checkpoint)
+
+
+def _linger_pid(lease: RealCellLease) -> int | None:
+    """The pid of the Drone's lingering command while it runs; None until it has started."""
+    for pid in reversed(lease.started_pids):
+        try:
+            if _LINGER_MARK in " ".join(psutil.Process(pid).cmdline()):
+                return pid
+        except psutil.Error:
+            continue  # Gone between the lease's record and this look: a probe that just finished.
+    return None
 
 
 async def _assert_quarantined(hive: Hive, held: _Held) -> None:
