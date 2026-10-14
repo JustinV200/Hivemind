@@ -16,6 +16,8 @@ repeated or reordered costs nothing. For one node:
   one it has. If the Warden's loop died, or the operator changed the node's access level or tier,
   its tasks are paused and taken back and a Warden is rebuilt, so the Cell it supervises carries
   the new values; for a changed tier the device is first sent `swarm.node_update` on its live link.
+  The directories the operator named for the device's Warden to watch are such a term too: a
+  Warden keeps the settings it was built with, so a change rebuilds it.
   A pending `desired_level` is handed to the colonizer, which carries it out or refuses it; a
   device with none is handed to the Queen's own rung decisions (`hivemind.queen.swarm_gate.rungs`),
   which may colonize it for relief or for a task that must survive a lost link.
@@ -273,6 +275,12 @@ class DeviceReconciler:
 
 
 def _terms_changed(served: ServedDevice, node: SwarmNode) -> bool:
-    """Whether the operator changed the access level or tier the Warden was built with."""
+    """Whether the operator changed what the Warden was built with: level, tier or watch roots."""
     built = served.node
-    return built.access_level is not node.access_level or built.comb_shield is not node.comb_shield
+    # The watch roots are in the list because a Warden keeps the settings it was built with, and
+    # its probe asks the packet for exactly those directories.
+    return (
+        built.access_level is not node.access_level
+        or built.comb_shield is not node.comb_shield
+        or built.watch_roots != node.watch_roots
+    )

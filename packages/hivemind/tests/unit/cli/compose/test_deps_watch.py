@@ -19,13 +19,20 @@ from pathlib import Path
 
 import pytest
 from builders.cli import ManifestTuning, fake_manifest
+from builders.swarm import make_device_party, make_swarm_node
 
 from hivemind.cell import hive_stand_cell_id
 from hivemind.cli.compose import Hive, build_hive
 from hivemind.cli.compose.deps import HiveParts
-from hivemind.cli.compose.deps.watch import device_id_of_cell, hive_stand_watch, watch_settings
+from hivemind.cli.compose.deps.watch import (
+    device_id_of_cell,
+    device_watch,
+    hive_stand_watch,
+    watch_settings,
+)
 from hivemind.manifest import ManifestError, load_manifest
-from hivemind.wardens.watch import SessionWatchProbe, WatchSettings
+from hivemind.swarm import GatewayHub, PollenWatchProbe
+from hivemind.wardens.watch import SessionWatchProbe, WatchDeps, WatchSettings
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import IdKind, new_cell_id, parse_id
 
@@ -57,7 +64,7 @@ def _parts(hive: Hive) -> HiveParts:
 def test_the_settings_are_the_manifests_watch_table(tmp_path: Path) -> None:
     hive = _hive(tmp_path, _TABLE)
 
-    settings = watch_settings(hive.manifest, with_roots=True)
+    settings = watch_settings(hive.manifest, ("/var/log", "/srv/app"))
 
     assert settings == WatchSettings(
         interval_s=0.25,
@@ -70,7 +77,7 @@ def test_the_settings_are_the_manifests_watch_table(tmp_path: Path) -> None:
 
 
 def test_a_manifest_that_says_nothing_gets_the_documented_defaults(tmp_path: Path) -> None:
-    settings = watch_settings(_hive(tmp_path).manifest, with_roots=True)
+    settings = watch_settings(_hive(tmp_path).manifest, ())
 
     assert (settings.interval_s, settings.retention_s, settings.patrol_interval_s) == (
         300.0,
@@ -80,13 +87,49 @@ def test_a_manifest_that_says_nothing_gets_the_documented_defaults(tmp_path: Pat
     assert settings.roots == ()
 
 
+def _device_watch(hive: Hive, **overrides: object) -> WatchDeps:
+    """The WatchDeps a device's Warden is built with, for a node with `overrides`."""
+    clock = FakeClock()
+    node = make_swarm_node(make_device_party(clock), clock, **overrides)
+    return device_watch(_parts(hive), node, GatewayHub(clock))
+
+
 def test_a_devices_settings_never_carry_the_hive_stands_directories(tmp_path: Path) -> None:
     hive = _hive(tmp_path, _TABLE)
 
-    settings = watch_settings(hive.manifest, with_roots=False)
+    watch = _device_watch(hive)
 
-    assert settings.roots == ()  # Those paths are on this machine, not on the device.
-    assert settings.interval_s == 0.25
+    # `_TABLE` names /var/log and /srv/app for the Hive Stand's own Warden: those paths are on
+    # this machine, not on the device, and the operator has named none for it.
+    assert watch.settings.roots == ()
+    assert watch.settings.interval_s == 0.25  # The numbers are the Hive's, shared by every Warden.
+    assert isinstance(watch.probe, PollenWatchProbe)
+    assert watch.bind_session is None
+
+
+def test_a_devices_settings_carry_the_directories_the_operator_named_for_it(
+    tmp_path: Path,
+) -> None:
+    hive = _hive(tmp_path, _TABLE)
+
+    watch = _device_watch(hive, watch_roots=("/srv/device-logs", "/var/lib/device-data"))
+
+    assert watch.settings.roots == ("/srv/device-logs", "/var/lib/device-data")
+
+
+def test_a_directory_the_devices_capabilities_do_not_cover_is_not_asked_for(
+    tmp_path: Path,
+) -> None:
+    hive = _hive(tmp_path, _TABLE)
+
+    # The packet would refuse a whole look at the device for the second directory.
+    watch = _device_watch(
+        hive,
+        watch_roots=("/srv/allowed/logs", "/srv/other"),
+        granted_capabilities=("fs:read:/srv/allowed/**", "watch:cell_whatever"),
+    )
+
+    assert watch.settings.roots == ("/srv/allowed/logs",)
 
 
 def test_the_hive_stands_device_id_is_its_cell_ids_ulid_and_a_valid_device_id() -> None:

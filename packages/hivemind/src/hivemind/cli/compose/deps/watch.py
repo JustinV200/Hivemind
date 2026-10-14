@@ -5,10 +5,12 @@ where it runs relative to the Cell. The Hive Stand's own Warden is local to its 
 through its own session (`SessionWatchProbe`, which the Warden lends its session to as it opens
 one: `bind_session`), and reads the directories `[supervision.watch] roots` names. A Swarm device's
 Warden runs on the Hive Stand with only a Pollen Packet on the device, so it asks the packet
-(`PollenWatchProbe`), and names no roots: the packet answers only for the paths the device's own
-capabilities grant, and the Hive's manifest knows nothing of another machine's directories. Both
-share the numbers in `[supervision.watch]`. The Hive Stand has no device, but an Observation
-carries a device id, so the probe is given one derived from the Hive Stand's Cell id.
+(`PollenWatchProbe`), and reads the directories the operator named for that device
+(`hive swarm watch`, stored with the node), less any its granted capabilities do not let it read:
+the Hive's manifest knows nothing of another machine's directories, and a device's directories
+differ from its neighbour's. A device with none named is watched for its processes and resource
+use only. Both share the numbers in `[supervision.watch]`. The Hive Stand has no device, but an
+Observation carries a device id, so the probe is given one derived from the Hive Stand's Cell id.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.deps`. Called by
@@ -19,7 +21,8 @@ Fits into the Hive:
 
 Key invariants:
     - A probe is chosen by where its Warden runs, never by looking at what kind of Cell it has.
-    - A device's Warden watches no root the Hive Stand's manifest names.
+    - A device's Warden watches no root the Hive Stand's manifest names, and only roots the
+      operator named for that device that the device's own capabilities let it read.
     - The Hive Stand's device id is a pure function of its Cell id: the same on every run.
 
 See Also:
@@ -33,20 +36,21 @@ from __future__ import annotations
 from hivemind.cell import hive_stand_cell_id
 from hivemind.cli.compose.deps.parts import HiveParts
 from hivemind.manifest import HiveManifest
-from hivemind.swarm import GatewayHub, PollenWatchProbe, SwarmNode
+from hivemind.swarm import GatewayHub, PollenWatchProbe, SwarmNode, readable_roots
 from hivemind.wardens.watch import SessionWatchProbe, WatchDeps, WatchSettings
 from waggle.ids import CellId, DeviceId, IdKind, parse_id
 
 __all__ = ["device_id_of_cell", "device_watch", "hive_stand_watch", "watch_settings"]
 
 
-def watch_settings(manifest: HiveManifest, *, with_roots: bool) -> WatchSettings:
+def watch_settings(manifest: HiveManifest, roots: tuple[str, ...]) -> WatchSettings:
     """Convert `[supervision.watch]` into the numbers a watching Warden runs by.
 
     Args:
         manifest: The loaded Hive Manifest.
-        with_roots: Whether the manifest's `roots` apply: true for the Hive Stand's own Warden,
-            false for a device's, whose directories are not this machine's.
+        roots: The directories whose logs and file changes this Warden reads: the manifest's own
+            for the Hive Stand's Warden, the operator's for a device's, whose directories are not
+            this machine's and are not in the manifest.
 
     Returns:
         The settings.
@@ -58,7 +62,7 @@ def watch_settings(manifest: HiveManifest, *, with_roots: bool) -> WatchSettings
         patrol_interval_s=watch.patrol_interval_s,
         cpu_share_alarm=watch.cpu_share_alarm,
         disk_fill_alarm=watch.disk_fill_alarm,
-        roots=watch.roots if with_roots else (),
+        roots=roots,
     )
 
 
@@ -89,7 +93,7 @@ def hive_stand_watch(parts: HiveParts) -> WatchDeps:
     probe = SessionWatchProbe(device_id_of_cell(cell_id), parts.clock)
     return WatchDeps(
         probe=probe,
-        settings=watch_settings(manifest, with_roots=True),
+        settings=watch_settings(manifest, manifest.supervision.watch.roots),
         bind_session=probe.use_session,
     )
 
@@ -103,9 +107,10 @@ def device_watch(parts: HiveParts, node: SwarmNode, hub: GatewayHub) -> WatchDep
         hub: Where the device's live link is found.
 
     Returns:
-        WatchDeps over a `PollenWatchProbe`, with no roots and no session to lend.
+        WatchDeps over a `PollenWatchProbe` with the directories the operator named for this
+        device that it may read (none until they name some), and no session to lend.
     """
     return WatchDeps(
         probe=PollenWatchProbe(node, hub),
-        settings=watch_settings(parts.manifest, with_roots=False),
+        settings=watch_settings(parts.manifest, readable_roots(node)),
     )

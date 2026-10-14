@@ -232,8 +232,8 @@ class WatchSection(BaseModel):
         max_length=MAX_OBSERVE_ROOTS,
         description="Absolute directories on the Hive Stand whose log files and file changes its "
         "own Warden watches while it has no bees working; none watches only processes and "
-        "resource use. A Swarm device has no roots here: its packet answers only for the paths "
-        "its own capabilities grant.",
+        "resource use. A Swarm device's directories are not here: the operator names them for "
+        "each device with `hive swarm watch`.",
     )
 
     @field_validator("roots")

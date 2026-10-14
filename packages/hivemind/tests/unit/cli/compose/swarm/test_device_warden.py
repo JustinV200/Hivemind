@@ -136,6 +136,16 @@ def test_it_watches_its_idle_device_by_asking_the_packet_and_names_no_directory(
     assert watch.schedule is not stand.schedule
 
 
+def test_it_watches_the_directories_the_operator_named_for_its_device(tmp_path: Path) -> None:
+    _, _, built = _built(tmp_path, watch_roots=("/srv/app/logs", "/var/lib/app"))
+
+    watch = built.warden._deps.watch
+
+    assert watch is not None
+    assert watch.settings.roots == ("/srv/app/logs", "/var/lib/app")
+    assert isinstance(watch.probe, PollenWatchProbe)  # Still the packet: no lease, no command.
+
+
 def test_it_holds_nothing_of_the_hive_stands_own_disk_display_or_models(tmp_path: Path) -> None:
     hive, _, built = _built(tmp_path)
     deps, stand = built.warden._deps, hive.warden._deps

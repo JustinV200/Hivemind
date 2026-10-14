@@ -428,8 +428,9 @@ cpu_share_alarm = 0.5
 # nearly full.
 disk_fill_alarm = 0.95
 # Absolute directories on the Hive Stand whose log files and file changes its own Warden watches
-# (up to 16). Empty here, so only processes and resource use are watched. A Swarm device has no
-# roots here: its packet answers only for the paths its own capabilities grant.
+# (up to 16). Empty here, so only processes and resource use are watched. A Swarm device's
+# directories are not here: its paths are not this machine's, and they differ from one device to
+# the next. The operator names them per device with `hive swarm watch NODE DIRECTORY...`.
 roots = []
 # roots = ["/var/log", "/home/me/projects"]
 

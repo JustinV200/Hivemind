@@ -230,6 +230,40 @@ async def test_a_changed_tier_rebuilds_the_warden_too(rig: GateRig) -> None:
         assert rig.factory.built[1].link.cell.comb_shield is CombShieldLevel.PROPOLIS
 
 
+async def test_a_change_of_the_directories_to_watch_rebuilds_the_warden_with_them(
+    rig: GateRig,
+) -> None:
+    async with rig.serving():
+        node = await rig.enrol()
+        await rig.connect(node)
+        await rig.reconciler.sync(node)
+        old = rig.wardens.get(node.device_id)
+        assert old is not None and old.node.watch_roots == ()
+        await rig.hive.registry.set_watch_roots(node.device_id, ("/srv/logs",))
+
+        await rig.reconciler.sync(await _fresh(rig, node))
+
+        # A Warden keeps the settings it was built with, so the new directories mean a new Warden.
+        new = rig.wardens.get(node.device_id)
+        assert new is not None and new is not old
+        assert old.warden.state is WardenState.STOPPED
+        assert new.node.watch_roots == ("/srv/logs",)
+        assert [link.warden_id for link in rig.queen.wardens] == [node.warden_id]
+
+
+async def test_the_same_directories_leave_the_warden_alone(rig: GateRig) -> None:
+    async with rig.serving():
+        node = await rig.enrol(watch_roots=("/srv/logs",))
+        await rig.connect(node)
+        await rig.reconciler.sync(node)
+        old = rig.wardens.get(node.device_id)
+
+        await rig.reconciler.sync(await _fresh(rig, node))
+
+        assert rig.wardens.get(node.device_id) is old
+        assert len(rig.factory.built) == 1
+
+
 async def test_terms_that_could_not_be_sent_leave_the_warden_as_it_was(rig: GateRig) -> None:
     async with rig.serving():
         node = await rig.enrol()
