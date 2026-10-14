@@ -98,3 +98,34 @@ being cut off would then reward whatever caused it. Leaving a Level 0 device's o
 investigate: its hands are on the lost device, so it can only report what it already knows. No Hive
 Stand side at all: the Queen would wait out the grace period blind, though the Hive Stand's own
 network may be the fault.
+
+## Amendment (2026-10-14): what the diagnosis scenario found
+
+The scenario ran the criterion's three cases on real containers, each on a docker network of its
+own, with the Drones' commands running for real and only their choice of commands scripted. It
+changed three things the ADR promised.
+
+**A device carries its own offline terms.** The on-device Warden used the shipped constants, a
+300 s budget and a 600 s limit, whatever the device was. A device manifest now has `[supervision]`
+with `max_offline_s` and `[supervision.reconnect_budget]`, validated as the Hive's is (the budget
+below the limit, carved out of it), and the borrowed Warden reads it. A fast device can wait less,
+a slow link more, and a scenario takes seconds where it would have taken tens of minutes.
+
+**The Hive Stand looks at a colonized device whose Warden's link closed, whoever noticed.** The
+hold begins when the Queen's reconcile pass finds the Warden's connection not connected, and a dead
+peer is closed by the websocket's keepalive some seconds before the door's reader returns and says
+why. A hold begun in that gap read its reason as "no live link", the word for a device nobody saw
+go, and asked the Hive Stand for nothing: the grace ran out blind. The pass now says why itself
+when a Warden that was here is found closed (`queen/swarm_gate/reconcile.py`). The look is made for
+any lost device that holds a task, so a fault the Nuc mends in a second still gets a look from the
+Hive Stand's end; it changes nothing and never touches the Nuc's task, and the finding is
+deposited well before the grace ends.
+
+**The budget and the limit are deadlines of the clock, so the Warden wakes for them.** Its tick
+ran when a frame arrived or its heartbeat fell due, and neither is a deadline: a Warden with no
+task bee talking slept through `wall_clock_s` and `max_offline_s` to its next beat, and the verdict
+and the full Clustering came up to a whole heartbeat late (`warden.diagnosed` said 41.9 s spent of
+a 40 s budget). The pass now says when the clock will next change what it does (`Outage.wake_in`,
+raced by `wake_future`), and the real run judges the search 0.008 s after its budget and clusters
+0.001 s after its limit. "The search is over by `wall_clock_s`" is therefore true of a quiet
+Warden too, and Clustering's deadline is still the one the manifest says.
