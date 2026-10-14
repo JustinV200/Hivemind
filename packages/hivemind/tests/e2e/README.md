@@ -368,6 +368,22 @@ Drone's grant without a free core.
   result she did not hold was not; no frame id was heard twice and no event was recorded twice.
   Against the tree without the memory of what was sent the run fails at "the second task to end":
   the result is gone. See "A device that is moved up the ladder".
+- `test_phase11_exit_exoskeleton.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- roadmap
+  step 11.11's second half, the X11 backends under a colonized device's own Warden: one run of about
+  a minute on one container whose image carries an X server (`device_image(X11_PACKAGES)`, built on
+  first use and shared with `tests/integration/test_exoskeleton_on_device.py`, which proves the
+  first half, the Hive Stand driving the display through the packet). The operator's `hive swarm
+  promote` moves the Warden onto the device; a goal whose ceiling names that Cell and a display, and
+  whose one task needs a display, is put to the Queen; the Warden on the device starts Xvfb and
+  openbox through its own session, the Drone clicks at a point and presses a key, and its model is
+  parked before the report so that the test can look into the container with the display up (the
+  desktop in the process table, the display's pointer where the Drone clicked). Asserted: the task
+  was placed on the device and succeeded once; the attach and the detach are in the device Warden's
+  own trail and the Hive Stand sent the packet no command after the move; the Warden opened one
+  flight recording and no frame is on the Hive's trail; and afterwards no display process is left,
+  the lease's scratch is gone and the operator's directories are as they were. Against the tree
+  that wired the device's Warden with nothing the display still worked, and the run fails at the
+  recording. See "A device that is moved up the ladder".
 
 ## Budget
 
@@ -537,6 +553,15 @@ of its own (Level 2, a Nuc), on top of the whole-Hive rig above:
   (`window_drops`), because a duplicate inside the reconnection grace leaves nothing on the trail;
   `unnoticed.py` tells the second story, a cable pulled under a task that ends before the loss is
   noticed, and returns the `UnnoticedRun` that `test_phase11_exit_unnoticed.py` asserts over.
+
+`swarm/colony/desktop.py` is the Exoskeleton story on the same footing, with the device image's X11
+variant: `run_desktop_scenario` colonizes the device, puts the desktop goal to the Queen
+(`desktop_ceiling`), looks into the container with the display up (`_display_of`: the Xvfb command
+line gives the cookie, the server's socket the display number, `xdotool getmouselocation` the
+pointer) while the scripted model holds the Drone's third call (`Switches.hold_at`, released well
+inside the provider's fifteen seconds), measures the device at rest before and after (`Rest`), and
+returns the `DesktopRun` that `test_phase11_exit_exoskeleton.py` asserts over.
+`tests/unit/swarm/test_desktop_rig.py` checks the parts that need no daemon.
 
 `swarm/diagnose/` is the rig for the last exit criterion, on top of the two above: `scene` builds the
 whole Hive and the enrolled device from a `Setup` (the two scripted models' rounds, the device

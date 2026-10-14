@@ -61,6 +61,7 @@ from e2e.swarm import (
     start_stand,
 )
 from e2e.swarm.container import Container, FileEntry
+from e2e.swarm.image import X11_PACKAGES
 
 from hivemind.cell.session import BackgroundSpec
 from hivemind.exoskeleton import (
@@ -82,9 +83,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="module")]
 # What `subprocess.Popen` is started with: one program, or the program and its arguments.
 type Program = str | bytes | os.PathLike[str] | os.PathLike[bytes]
 
-# What a desktop needs on the device: the packet's probe wants all four programs it names
-# (Xvfb, xdotool, import, openbox), and `xev` of x11-utils is the window that reports its events.
-X11_PACKAGES = ("xvfb", "xdotool", "x11-utils", "imagemagick", "openbox")
 # The programs the Exoskeleton runs on a device; none of them may ever be started on this host.
 X11_PROGRAMS = frozenset({"Xvfb", "openbox", "xdotool", "import", "xev"})
 TEST_TIMEOUT_S = 240.0  # A whole scenario, a cold packet and a display start included.

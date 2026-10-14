@@ -12,12 +12,15 @@ many at once, what arrived twice), `waits` is the bounded, named waiting, and `r
 story in order and returns the record the exit test asserts over. `window` hears what the Queen's
 replay window drops (a duplicate inside the reconnection grace leaves nothing on the trail) and
 `unnoticed` tells the second story, a cable pulled under a task whose result is sent before the
-loss is noticed, for `tests/e2e/test_phase11_exit_unnoticed.py`. `orders`, `trail`, `waits`, `run`,
-`window` and `unnoticed` are imported from their modules, not from this face.
+loss is noticed, for `tests/e2e/test_phase11_exit_unnoticed.py`, and `desktop` tells the third, a
+task that needs a display put to a colonized device whose image carries an X server, for
+`tests/e2e/test_phase11_exit_exoskeleton.py`. `orders`, `trail`, `waits`, `run`, `window`,
+`unnoticed` and `desktop` are imported from their modules, not from this face.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.3), not shipped. Used by
-    `tests/e2e/test_phase11_exit_nuc.py` and its unit tests under `tests/unit/swarm`.
+    `tests/e2e/test_phase11_exit_nuc.py` and the other colonized-device scenarios, and by their
+    unit tests under `tests/unit/swarm`.
 
 Key invariants:
     - This file holds re-exports and `__all__` only.

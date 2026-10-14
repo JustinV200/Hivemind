@@ -55,6 +55,10 @@ from e2e.swarm.container import LABEL, LABEL_VALUE, CommandError, daemon_answers
 from packaging.requirements import Requirement
 
 IMAGE_VARIABLE = "HIVEMIND_TEST_DEVICE_IMAGE"  # An image to use as it is, instead of building.
+# The variant a desktop needs on a device: the packet's probe wants Xvfb, xdotool, import and
+# openbox before it reports `can_start_display`, and `xev` of x11-utils is a window that reports
+# the events it receives. One tuple for every test that wants it, so they share one cached image.
+X11_PACKAGES = ("xvfb", "xdotool", "x11-utils", "imagemagick", "openbox")
 CACHE_VARIABLE = "HIVEMIND_TEST_CACHE_DIR"  # Where downloaded wheels are kept between runs.
 REPOSITORY = "hivemind-test-device"
 REPO_ROOT = Path(__file__).resolve().parents[5]  # tests/e2e/swarm/image.py up to the checkout.
@@ -95,6 +99,7 @@ CA_VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 
 __all__ = [
     "IMAGE_VARIABLE",
+    "X11_PACKAGES",
     "ImageUnavailableError",
     "device_image",
     "device_image_or_skip",
