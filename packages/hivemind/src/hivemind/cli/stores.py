@@ -46,10 +46,11 @@ Key invariants:
       that write the same file use separate connections (WAL makes that fine, ADR-0006 decision
       1), so a `hive tasks` and a `hive trail` command run one after another never share state.
     - `provider_configs` derives `ProviderConfig.default_model` from every provider's first
-      `[llm.slots]` row, in manifest table order, regardless of that provider's `kind` -- the same
-      rule `hivemind.llm.registry.MissingDefaultModelError`'s docstring documents as the
-      composition root's job. Only `_build_openai_compat` (`hivemind.llm.registry`) ever reads the
-      field; every other kind's factory carries a populated-but-unused value.
+      `[llm.slots]` row, in manifest table order (else its first `[forage.map]` row, for a provider
+      only a model server answers as), regardless of that provider's `kind` -- the same rule
+      `hivemind.llm.registry.MissingDefaultModelError`'s docstring documents as the composition
+      root's job. Only `_build_openai_compat` (`hivemind.llm.registry`) ever reads the field;
+      every other kind's factory carries a populated-but-unused value.
     - `build_forage_map` gives every `[forage.map.*]` source an initial `Abundance` of its own
       declared `seats` and both rate-limit fields left `None`, since a freshly loaded manifest has
       never been measured yet and a hosted provider's real headroom is measured, not assumed
@@ -635,7 +636,8 @@ def provider_configs(manifest: HiveManifest) -> Mapping[str, ProviderConfig]:
     Returns:
         Every `[llm.providers]` row, keyed by its own manifest name, as a ProviderConfig; each
         one's `default_model` is that provider's first `[llm.slots]` model id, regardless of kind
-        (see this module's Key invariants) -- `None` only for a configured provider no slot binds.
+        (see this module's Key invariants), else its first `[forage.map]` row's -- `None` only for
+        a configured provider that no slot binds and no map row names.
         Each row's embedding options (roadmap 7.1) carry straight through from `spec.embedding`,
         except `embedding_local_files_only`, which this composition root forces `True` whenever
         `manifest.llm.offline` is set, regardless of what the manifest itself said: an in-process
@@ -885,13 +887,18 @@ def _responder_installing_fake_factory(responders: Mapping[str, Responder]) -> P
 
 
 def _first_model_by_provider(manifest: HiveManifest) -> dict[str, str]:
-    """Return the first `[llm.slots]` row's model id seen for each provider name, in table order.
+    """Return the first model id seen for each provider name: a slot's, else a map row's.
 
     The one rule `provider_configs` needs to fill in `ProviderConfig.default_model` for a
     `kind="openai_compat"` row, which has no manifest-level default of its own (see
-    `hivemind.llm.registry.MissingDefaultModelError`'s docstring).
+    `hivemind.llm.registry.MissingDefaultModelError`'s docstring). The `[llm.slots]` rows come
+    first, in table order. A provider no slot binds still serves what its `[forage.map]` rows
+    say, and is still looked up: a grant lists every source its bee may spend on, and the Queen
+    probes the health of every provider a live grant names. The provider a device's model server
+    answers as is exactly that (the Hive Stand binds no slot to a model that only a Nuc serves),
+    so without a model to name it a lookup of it ended the Queen's tick.
     """
     defaults: dict[str, str] = {}
-    for row in manifest.llm.slots.values():
+    for row in (*manifest.llm.slots.values(), *manifest.forage.map.values()):
         defaults.setdefault(row.provider, row.model)
     return defaults

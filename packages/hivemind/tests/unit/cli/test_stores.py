@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 import typer
+from builders.cli import fake_manifest
 from pydantic import ValidationError
 
 from hivemind.basket import SqliteBasketStore
@@ -262,6 +263,37 @@ def test_provider_configs_derives_default_model_even_for_a_non_openai_compat_pro
     configs = provider_configs(manifest)
 
     assert configs["anthropic"].default_model == manifest.llm.slots["queen"].model
+
+
+def test_provider_configs_names_a_model_for_a_provider_only_a_map_row_serves(
+    tmp_path: Path,
+) -> None:
+    # The provider a device's model server answers as: the Hive Stand binds no slot to a model that
+    # only a Nuc serves. A grant lists its sources, so the Queen looks the provider up to probe it,
+    # and a provider with no model to name ended her tick (found by the phase 11 Nuc scenario).
+    path = fake_manifest(tmp_path)
+    island = (
+        '[llm.providers.island]\nkind = "openai_compat"\nbase_url = "http://127.0.0.1:18081/v1"\n'
+    )
+    row = '[forage.map.island_model]\nprovider = "island"\nmodel = "island-7b"\ngrade = 2\n'
+    path.write_text(
+        f"{path.read_text('utf-8')}\n{island}\n{row}context_window = 4096\nseats = 1\n",
+        encoding="utf-8",
+    )
+
+    configs = provider_configs(load_manifest(path, {}))
+
+    assert configs["island"].default_model == "island-7b"
+
+
+def test_provider_configs_leaves_a_provider_nothing_names_without_a_model(tmp_path: Path) -> None:
+    path = fake_manifest(tmp_path)
+    island = (
+        '[llm.providers.island]\nkind = "openai_compat"\nbase_url = "http://127.0.0.1:18081/v1"\n'
+    )
+    path.write_text(f"{path.read_text('utf-8')}\n{island}", encoding="utf-8")
+
+    assert provider_configs(load_manifest(path, {}))["island"].default_model is None
 
 
 def test_server_configs_turns_each_llm_server_into_the_wardens_decoupled_config() -> None:
