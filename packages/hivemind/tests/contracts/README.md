@@ -19,3 +19,11 @@ docstring of `test_gateway_contract.py` is the one place the template's placehol
 
 `pollen_harness.py` registers `PollenSession` in the `CellSession` suite against the real packet,
 run in this process on the same live Hive Stand.
+
+`test_pollen_warden_env.py` and `test_pollen_warden_process.py` are contracts between two packages
+that cannot import each other. The first feeds the environment `pollen.bootstrap` gives the Warden it
+starts on a colonized device, unchanged, to the code that reads it in `hivemind.cli.in_cell.borrowed`,
+so a renamed variable or a key written in another encoding on either side fails there. The second
+starts the real `hivemind-in-cell` console script with pollen's own `WardenKeeper` against a scripted
+swarm listener, checks the frames it announces itself with, withdraws it with SIGTERM and checks it
+left by its own hand and gave the device back.

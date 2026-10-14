@@ -172,3 +172,12 @@ state directory, every id, the Queen's signer and the device's. `device_verifier
 signed as the device's node and nothing else, so a scripted `WebSocketServer(Codec(signer=
 kit.queen_signer, verifier=kit.device_verifier))` stands in for the swarm listener and rejects a
 frame signed with another key. `device_manifest_text(with_server=...)` is the manifest alone.
+
+## `pollen_packet.py` (roadmap 11.6a, the packet's side of a colonized device)
+
+`make_packet(tmp_path, *, url, pin, level)` writes what a Pollen Packet holds after it has enrolled:
+the node key (with the packet's own `create_key`), the `PacketState` with the device manifest
+recorded as an install setting, and the Queen's and the device's signers; it returns a `Packet`.
+`install_runtime` makes the runtime environment a finished PREPARE leaves, out of this workspace's
+own interpreter and its `hivemind-in-cell` console script (`warden_script()` finds it), so a Warden
+the packet starts from it is the real one. Used by the two `contracts/test_pollen_warden_*` tests.
