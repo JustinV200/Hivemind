@@ -64,7 +64,7 @@ def _parts(hive: Hive) -> HiveParts:
 def test_the_settings_are_the_manifests_watch_table(tmp_path: Path) -> None:
     hive = _hive(tmp_path, _TABLE)
 
-    settings = watch_settings(hive.manifest, ("/var/log", "/srv/app"))
+    settings = watch_settings(hive.manifest.supervision.watch, ("/var/log", "/srv/app"))
 
     assert settings == WatchSettings(
         interval_s=0.25,
@@ -77,7 +77,7 @@ def test_the_settings_are_the_manifests_watch_table(tmp_path: Path) -> None:
 
 
 def test_a_manifest_that_says_nothing_gets_the_documented_defaults(tmp_path: Path) -> None:
-    settings = watch_settings(_hive(tmp_path).manifest, ())
+    settings = watch_settings(_hive(tmp_path).manifest.supervision.watch, ())
 
     assert (settings.interval_s, settings.retention_s, settings.patrol_interval_s) == (
         300.0,

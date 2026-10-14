@@ -9,8 +9,11 @@ Warden runs on the Hive Stand with only a Pollen Packet on the device, so it ask
 (`hive swarm watch`, stored with the node), less any its granted capabilities do not let it read:
 the Hive's manifest knows nothing of another machine's directories, and a device's directories
 differ from its neighbour's. A device with none named is watched for its processes and resource
-use only. Both share the numbers in `[supervision.watch]`. The Hive Stand has no device, but an
-Observation carries a device id, so the probe is given one derived from the Hive Stand's Cell id.
+use only. Both share the numbers in `[supervision.watch]`, and the Warden that lives on a
+colonized device has the same numbers from its own device manifest
+(`hivemind.cli.in_cell.borrowed.watch`, which uses `watch_settings` too). The Hive Stand has no
+device, but an Observation carries a device id, so the probe is given one derived from the Hive
+Stand's Cell id.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.deps`. Called by
@@ -35,7 +38,7 @@ from __future__ import annotations
 
 from hivemind.cell import hive_stand_cell_id
 from hivemind.cli.compose.deps.parts import HiveParts
-from hivemind.manifest import HiveManifest
+from hivemind.manifest import WatchTuning
 from hivemind.swarm import GatewayHub, PollenWatchProbe, SwarmNode, readable_roots
 from hivemind.wardens.watch import SessionWatchProbe, WatchDeps, WatchSettings
 from waggle.ids import CellId, DeviceId, IdKind, parse_id
@@ -43,11 +46,13 @@ from waggle.ids import CellId, DeviceId, IdKind, parse_id
 __all__ = ["device_id_of_cell", "device_watch", "hive_stand_watch", "watch_settings"]
 
 
-def watch_settings(manifest: HiveManifest, roots: tuple[str, ...]) -> WatchSettings:
-    """Convert `[supervision.watch]` into the numbers a watching Warden runs by.
+def watch_settings(tuning: WatchTuning, roots: tuple[str, ...]) -> WatchSettings:
+    """Convert the numbers of `[supervision.watch]` into the settings a watching Warden runs by.
 
     Args:
-        manifest: The loaded Hive Manifest.
+        tuning: The Hive Manifest's `[supervision.watch]` for a Warden on the Hive Stand (and the
+            devices it watches from there), or a device manifest's own for a Warden that lives on
+            its device.
         roots: The directories whose logs and file changes this Warden reads: the manifest's own
             for the Hive Stand's Warden, the operator's for a device's, whose directories are not
             this machine's and are not in the manifest.
@@ -55,13 +60,12 @@ def watch_settings(manifest: HiveManifest, roots: tuple[str, ...]) -> WatchSetti
     Returns:
         The settings.
     """
-    watch = manifest.supervision.watch
     return WatchSettings(
-        interval_s=watch.interval_s,
-        retention_s=watch.retention_s,
-        patrol_interval_s=watch.patrol_interval_s,
-        cpu_share_alarm=watch.cpu_share_alarm,
-        disk_fill_alarm=watch.disk_fill_alarm,
+        interval_s=tuning.interval_s,
+        retention_s=tuning.retention_s,
+        patrol_interval_s=tuning.patrol_interval_s,
+        cpu_share_alarm=tuning.cpu_share_alarm,
+        disk_fill_alarm=tuning.disk_fill_alarm,
         roots=roots,
     )
 
@@ -93,7 +97,7 @@ def hive_stand_watch(parts: HiveParts) -> WatchDeps:
     probe = SessionWatchProbe(device_id_of_cell(cell_id), parts.clock)
     return WatchDeps(
         probe=probe,
-        settings=watch_settings(manifest, manifest.supervision.watch.roots),
+        settings=watch_settings(manifest.supervision.watch, manifest.supervision.watch.roots),
         bind_session=probe.use_session,
     )
 
@@ -112,5 +116,5 @@ def device_watch(parts: HiveParts, node: SwarmNode, hub: GatewayHub) -> WatchDep
     """
     return WatchDeps(
         probe=PollenWatchProbe(node, hub),
-        settings=watch_settings(parts.manifest, readable_roots(node)),
+        settings=watch_settings(parts.manifest.supervision.watch, readable_roots(node)),
     )

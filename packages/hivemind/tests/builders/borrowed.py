@@ -7,7 +7,8 @@ so a test can start `run_borrowed_warden` against a scripted listener, check the
 against the keys it should have signed them with, and change one variable at a time to see the
 configuration refuse it. `DEVICE_MANIFEST` is a complete `[llm]` section with one shared provider,
 every slot bound to it, and, on request, a declared model server with the `[forage.map]` row of
-the model it loads and a local binding the worker slot falls back to.
+the model it loads and a local binding the worker slot falls back to. `watch` adds the one variable
+a device that has directories to watch is also given.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the tests under
@@ -26,6 +27,7 @@ See Also:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -140,6 +142,20 @@ def make_kit(
         device_signer=device_signer,
     )
     kit.environ.update(_environ(kit, url, access_level))
+    return kit
+
+
+def watch(kit: BorrowedKit, *roots: str) -> BorrowedKit:
+    """Have the packet hand the Warden of `kit` the directories `roots` to watch.
+
+    Args:
+        kit: The device's kit; its environment gains the variable the packet sets.
+        roots: The directories, as the operator named them for the device.
+
+    Returns:
+        `kit`, so a test can write ``watch(make_kit(...), "/var/log")``.
+    """
+    kit.environ["HIVEMIND_WATCH_ROOTS"] = json.dumps(list(roots))
     return kit
 
 

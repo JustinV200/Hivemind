@@ -1,17 +1,18 @@
 """Dial the swarm listener and announce a colonized device's Cell on each new connection.
 
 A Warden that dials the Queen from a device holds its link through `ReconnectingQueenLink`
-(`hivemind.wardens.offline`), which redials on a lost connection through an injected dialer and
-says who the Cell is again through an injected announcer. This module is those two, specific to a
-device: `DeviceDialer` opens one pinned, signed connection to the swarm listener (one attempt;
-the link owns the backoff between attempts), and `DeviceAnnouncer` sends the three frames the
-Queen's readiness gate and capacity books start from, `cell.ready`, `forage.capacity_report` and
-`cell.heartbeat`, in that order. `cell.ready` carries the level the Queen granted the device and
-its tier, as the Cell the lease source reports them, and the capacity report carries the Cell's
-live figures and the model servers the device manifest declares (none of them started), so the
-Queen can judge the device's eligibility to become a Nuc. `LateTrailSync` lets the link, which is
-built before the Warden's deps (the Warden is handed the link), ship the trail through the very
-`TrailSync` the Warden's deps will hold, so only one export is ever on the wire.
+(`hivemind.wardens.offline`), which redials on a lost connection through an injected dialer and says
+who the Cell is again through an injected announcer. This module is those two, specific to a device:
+`DeviceDialer` opens one pinned, signed connection to the swarm listener (one attempt; the link owns
+the backoff between attempts), and `DeviceAnnouncer` sends the three frames the Queen's readiness
+gate and capacity books start from, `cell.ready`, `forage.capacity_report` and `cell.heartbeat`, in
+that order. `cell.ready` carries the level the Queen granted the device and its tier, as the Cell
+the lease source reports them, and the directories the Warden was started to watch, so the Queen can
+tell when the operator has since named others. The capacity report carries the Cell's live figures
+and the model servers the device manifest declares (none of them started), so the Queen can judge
+the device's eligibility to become a Nuc. `LateTrailSync` lets the link, which is built before the
+Warden's deps (the Warden is handed the link), ship the trail through the very `TrailSync` the
+Warden's deps will hold, so only one export is ever on the wire.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Built by
@@ -110,6 +111,7 @@ class DeviceAnnouncer:
         source: RealCellSource,
         servers: tuple[ModelServerReport, ...],
         clock: Clock,
+        watch_roots: tuple[str, ...] = (),
     ) -> None:
         """Remember what the announcement is made of.
 
@@ -118,11 +120,14 @@ class DeviceAnnouncer:
             source: Where the Cell, with its live figures, is read from on each announcement.
             servers: The model servers the device manifest declares, none of them started.
             clock: Stamps every frame.
+            watch_roots: The directories the Warden was started to watch, as the packet handed
+                them over; they do not change while it runs.
         """
         self._identity = identity
         self._source = source
         self._servers = servers
         self._clock = clock
+        self._watch_roots = watch_roots
         self._runtime_version = collect_version_info().hivemind_version
 
     async def announce(self, transport: Transport) -> None:
@@ -144,6 +149,7 @@ class DeviceAnnouncer:
             clock=self._clock,
             heartbeat_interval_s=DEFAULT_HEARTBEAT_INTERVAL_S,  # What the Queen judges liveness by.
             runtime_version=self._runtime_version,
+            watch_roots=self._watch_roots,
         )
         await cell_link.send_cell_ready(deps)
         await cell_link.send_capacity_report(

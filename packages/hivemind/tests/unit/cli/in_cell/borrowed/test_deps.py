@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from builders.borrowed import SERVER_ID, BorrowedKit, make_kit
+from builders.borrowed import SERVER_ID, BorrowedKit, make_kit, watch
 
 from hivemind.cell import NoopSnapshotter
 from hivemind.cell.local import HiveStandSource
@@ -47,6 +47,7 @@ from hivemind.memory import SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.offline import LinkPhase, Outage, ReconnectBudget, ReconnectingQueenLink
+from hivemind.wardens.watch import SessionWatchProbe
 from waggle.clock import SystemClock
 
 _CLOCK = SystemClock()
@@ -55,13 +56,18 @@ _HAS_BROWSER_EXTRA = importlib.util.find_spec("playwright") is not None
 _SUPERVISION = (
     "[supervision]\nmax_offline_s = 90\n"
     "[supervision.reconnect_budget]\nattempts = 3\nwall_clock_s = 40\n"
+    "[supervision.watch]\ninterval_s = 7\nretention_s = 600\npatrol_interval_s = 120\n"
 )
+_ROOTS = ("/var/log/app", "/srv/data")  # What the operator named for this device to watch.
 
 
 @pytest.fixture
 async def built(tmp_path: Path) -> AsyncIterator[tuple[BorrowedKit, BorrowedConfig, WardenDeps]]:
     """A device Warden's real deps over real stores, nothing started or connected."""
-    kit = make_kit(tmp_path, "ws://127.0.0.1:8720", with_server=True, supervision=_SUPERVISION)
+    kit = watch(
+        make_kit(tmp_path, "ws://127.0.0.1:8720", with_server=True, supervision=_SUPERVISION),
+        *_ROOTS,
+    )
     config = build_borrowed_config(read_in_cell_env(kit.environ), _CLOCK)
     stores = await open_device_stores(config.state_dir, _CLOCK)
     runtime = config.runtime
@@ -168,3 +174,21 @@ async def test_the_models_are_the_device_manifests_and_the_judge_is_bound(
     assert deps.bindings == config.runtime.slots
     assert deps.judge_reviewer is not None  # The manifest binds every slot, the judge's included.
     assert deps.routing_rules is not None and deps.routing_rules.offline is False
+
+
+async def test_it_watches_its_machine_by_the_manifests_numbers_and_the_directories_it_was_given(
+    built: tuple[BorrowedKit, BorrowedConfig, WardenDeps],
+) -> None:
+    _kit, _config, deps = built
+
+    watching = deps.watch
+    assert watching is not None  # Every Real Cell's Warden watches it while no bee works.
+    assert isinstance(watching.probe, SessionWatchProbe)  # Local to its machine: it looks itself.
+    assert watching.bind_session is None  # And through no lease, which it gives back when idle.
+    settings = watching.settings
+    assert (settings.interval_s, settings.retention_s, settings.patrol_interval_s) == (
+        7.0,
+        600.0,
+        120.0,
+    )
+    assert settings.roots == _ROOTS

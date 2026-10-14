@@ -110,11 +110,35 @@ def test_a_wss_listener_is_dialled_with_the_pin_the_packet_holds(tmp_path: Path)
     assert config.runtime.queen_waggle_url == HOSTED and config.tls_pin == PIN
 
 
-@pytest.mark.parametrize(("url", "pin"), [(LOOPBACK, None), (HOSTED, PIN)])
-def test_the_warden_reads_every_variable_the_packet_sets(
-    tmp_path: Path, url: str, pin: str | None
+def test_the_directories_the_queen_named_reach_the_warden_as_the_packet_was_told_them(
+    tmp_path: Path,
 ) -> None:
-    environ = _environ(make_packet(tmp_path, url=url, pin=pin))
+    roots = ("/var/log/app", "C:\\Logs\\app", '/srv/with "quotes" and spaces')
+    packet = make_packet(tmp_path, watch_roots=roots)
+
+    config = build_borrowed_config(read_in_cell_env(_environ(packet)), SystemClock())
+
+    # In the order the Queen sent them, byte for byte: the Warden reports them back to her.
+    assert config.watch_roots == roots == packet.state.watch_roots
+
+
+def test_a_packet_told_of_no_directories_starts_a_warden_that_watches_none(tmp_path: Path) -> None:
+    packet = make_packet(tmp_path)
+
+    environ = _environ(packet)
+
+    assert "HIVEMIND_WATCH_ROOTS" not in environ
+    assert build_borrowed_config(read_in_cell_env(environ), SystemClock()).watch_roots == ()
+
+
+@pytest.mark.parametrize(
+    ("url", "pin", "roots"),
+    [(LOOPBACK, None, ()), (HOSTED, PIN, ("/var/log",))],
+)
+def test_the_warden_reads_every_variable_the_packet_sets(
+    tmp_path: Path, url: str, pin: str | None, roots: tuple[str, ...]
+) -> None:
+    environ = _environ(make_packet(tmp_path, url=url, pin=pin, watch_roots=roots))
     whole = read_in_cell_env(environ).model_dump(exclude={"environ"})
 
     for name in environ:

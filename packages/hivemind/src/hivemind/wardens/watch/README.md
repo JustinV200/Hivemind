@@ -4,6 +4,16 @@ The watch package is Watch mode: a Warden with no active Workers observes its Ce
 reviews it on a schedule (a Patrol) instead of sitting idle (ADR-0054). It applies to the Hive
 Stand's own Warden and to every Swarm device's Warden.
 
+## Where a Warden looks from
+
+Three Wardens watch, each through the probe that suits where it runs: the Hive Stand's own, through
+its lease's session (`SessionWatchProbe`, lent the session as it opens it); a Level 0 device's, on
+the Hive Stand, by asking the device's packet (`PollenWatchProbe`, `hivemind.swarm.watch`); and a
+colonized device's own, through a session that holds no lease (`SessionWatchProbe` over an
+`ObserverSession`, `hivemind.cli.in_cell.borrowed.watch`), since it gives its lease back when idle.
+The Warden never asks which it has: the composition roots choose, and `WatchDeps.bind_session` is
+set only for the first. A device's Warden keeps its observations in its own Bee Bread on the device.
+
 ## Public API (roadmap step 11.10)
 
 - `PatrolChoice`, `PatrolDecision`, `PatrolOutcome`, `PatrolWaxSeverity` (`decision.py`): the one

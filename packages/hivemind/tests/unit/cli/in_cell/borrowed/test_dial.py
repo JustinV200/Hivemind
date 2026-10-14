@@ -19,7 +19,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from builders.borrowed import SERVER_ID, make_kit
+from builders.borrowed import SERVER_ID, make_kit, watch
 
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local import HiveStandSource
@@ -45,9 +45,11 @@ from waggle.transport.websocket_server import WebSocketServer
 WAIT_S = 5.0  # Bounds every await that could hang; in-memory and loopback answer in milliseconds.
 
 
-async def _announcer(tmp_path: Path, servers: bool) -> DeviceAnnouncer:
+async def _announcer(tmp_path: Path, servers: bool, roots: tuple[str, ...] = ()) -> DeviceAnnouncer:
     """A device announcer over the real lease source of a kit (FULL access, MEADOW tier)."""
     kit = make_kit(tmp_path, "ws://127.0.0.1:8720", access_level="FULL", with_server=servers)
+    if roots:
+        watch(kit, *roots)
     config = build_borrowed_config(read_in_cell_env(kit.environ), SystemClock())
     clock = FakeClock()
     runtime = config.runtime
@@ -65,12 +67,13 @@ async def _announcer(tmp_path: Path, servers: bool) -> DeviceAnnouncer:
         source,
         config.llm.servers,
         clock,
+        config.watch_roots,
     )
 
 
-async def _announced(tmp_path: Path, servers: bool) -> list[object]:
+async def _announced(tmp_path: Path, servers: bool, roots: tuple[str, ...] = ()) -> list[object]:
     """Announce over an in-memory pair and return the payloads the Queen's end received."""
-    announcer = await _announcer(tmp_path, servers)
+    announcer = await _announcer(tmp_path, servers, roots)
     warden_end, queen_end = MemoryTransport.pair(Codec(), Codec())
     await announcer.announce(warden_end)
     receive = queen_end.receive()
@@ -94,6 +97,23 @@ async def test_the_ready_frame_carries_the_level_and_tier_the_queen_granted(
     assert ready.access_level is AccessLevel.FULL  # The device's level, not a Virtual Cell's.
     assert ready.comb_shield is CombShieldLevel.MEADOW
     assert ready.attestation == ()
+
+
+async def test_the_ready_frame_carries_the_directories_the_warden_was_started_to_watch(
+    tmp_path: Path,
+) -> None:
+    roots = ("/var/log/app", "/srv/data")
+
+    ready, _capacity, _heartbeat = await _announced(tmp_path, servers=False, roots=roots)
+
+    assert isinstance(ready, CellReady)
+    assert ready.watch_roots == roots  # As the packet handed them over: the Queen compares them.
+
+
+async def test_a_warden_started_with_no_directories_says_so(tmp_path: Path) -> None:
+    ready, _capacity, _heartbeat = await _announced(tmp_path, servers=False)
+
+    assert isinstance(ready, CellReady) and ready.watch_roots == ()
 
 
 async def test_the_capacity_report_lists_the_declared_servers_and_starts_none(

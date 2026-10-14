@@ -10,8 +10,11 @@ every Virtual Cell's Warden is validated by, for everything the two share (the Q
 the URL, the tier), then replaces what is the device's alone: the ids, the model tables, which come
 from the device manifest and not from a bootstrap, a source configuration for the machine
 (`HiveStandConfig` named for a Swarm device, the same lease machinery the Hive Stand uses), and the
-offline limit and the budget for a diagnostic Drone, which the device manifest's `[supervision]`
-sets (the Hive's shipped defaults when it has none).
+offline limit, the budget for a diagnostic Drone and the numbers it watches the machine by (how
+often it looks, how long it keeps what it saw, how often it reviews that), which the device
+manifest's `[supervision]` sets (the Hive's shipped defaults when it has none). The directories
+it reads logs from are the operator's, named for this device on the Hive Stand, and arrive in
+`HIVEMIND_WATCH_ROOTS` as the packet was last told them.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Called by
@@ -31,6 +34,10 @@ Key invariants:
       Cell's gateway-host carve-out.
     - The scratch root and every store live under `HIVEMIND_STATE_DIR`, so the machine keeps
       nothing of the Warden's outside the directory the packet made for it.
+    - `HIVEMIND_WATCH_ROOTS` is the one variable that may be left out (a device with no directory
+      named); when set it is a JSON array held to the bounds of the wire (`WatchRoots`), and it is
+      kept exactly as the packet gave it, since the Warden reports it back to the Queen to be
+      compared with what she last sent.
 
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the move this configures.
@@ -46,19 +53,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter, ValidationError
 
 from hivemind.cell.local import HiveStandConfig
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.cli.in_cell.borrowed.llm import DeviceLlm, device_llm
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.common.errors import ConfigurationError
-from hivemind.manifest import DeviceSupervisionSection, InCellEnv, load_device_manifest
+from hivemind.manifest import (
+    DeviceSupervisionSection,
+    InCellEnv,
+    WatchTuning,
+    load_device_manifest,
+)
 from hivemind.manifest.schema.core import DEFAULT_DISK_RESERVE_MB, DEFAULT_SCRATCH_QUOTA_MB
 from hivemind.wardens.offline import ReconnectBudget
 from waggle.clock import Clock
 from waggle.errors import InvalidIdError
 from waggle.ids import IdKind, NodeId, WardenId, parse_id
+from waggle.messages.swarm import WatchRoots
 from waggle.transport.tls import is_valid_pin
 from waggle.uris import check_waggle_uri
 
@@ -70,6 +83,7 @@ SOURCE_NAME = (
 CELL_NAME = "swarm-device"  # Its human-readable label; the Queen names the node herself.
 SCRATCH_DIR = "scratch"  # Under the state directory: every lease's own scratch subdirectory.
 NODE_KEY_BYTES = 32  # An Ed25519 seed, which is what the packet's key file holds.
+_WATCH_ROOTS = TypeAdapter(WatchRoots)  # The wire's own bounds on the directories a Warden watches.
 
 __all__ = [
     "BORROWED",
@@ -99,6 +113,12 @@ class BorrowedConfig:
             (`[supervision] max_offline_s` of the device manifest).
         reconnect_budget: What it may spend, carved out of that, finding out why the link went
             (`[supervision.reconnect_budget]` of the device manifest).
+        watch: How it samples and reviews the machine while no bee works (`[supervision.watch]`
+            of the device manifest).
+        watch_roots: The directories the operator named for it to read logs and file changes
+            from, as the packet handed them over (`HIVEMIND_WATCH_ROOTS`); none until they name
+            some. The Warden reads these held to its access level (`borrowed.watch`), and
+            reports them as they are.
         queen_host: The Queen's host, as the diagnostic Drone's objective names it; no port, no
             path, no credential.
     """
@@ -110,6 +130,8 @@ class BorrowedConfig:
     llm: DeviceLlm
     max_offline_s: float
     reconnect_budget: ReconnectBudget
+    watch: WatchTuning
+    watch_roots: tuple[str, ...] = ()
     queen_host: str = ""
 
 
@@ -176,6 +198,8 @@ def build_borrowed_config(env: InCellEnv, clock: Clock) -> BorrowedConfig:
         llm=llm,
         max_offline_s=manifest.supervision.max_offline_s,
         reconnect_budget=_reconnect_budget(manifest.supervision),
+        watch=manifest.supervision.watch,
+        watch_roots=_watch_roots(env.watch_roots_json),
         queen_host=urlsplit(base.queen_waggle_url).hostname or "",
     )
 
@@ -223,6 +247,23 @@ def _reconnect_budget(section: DeviceSupervisionSection) -> ReconnectBudget:
     # figures are handed over as they are and nothing here can make the search outlast it.
     budget = section.reconnect_budget
     return ReconnectBudget(attempts=budget.attempts, wall_clock_s=budget.wall_clock_s)
+
+
+def _watch_roots(raw: str | None) -> tuple[str, ...]:
+    """Parse `HIVEMIND_WATCH_ROOTS`: the JSON array of directories the packet was told to hand over.
+
+    Raises:
+        ConfigurationError: The text is not a JSON array of at most sixteen paths of one to 256
+            characters. The message never carries the text, which names the operator's directories.
+    """
+    if raw is None:
+        return ()  # A device with no directory named watches processes and resource use only.
+    try:
+        return _WATCH_ROOTS.validate_json(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(
+            "HIVEMIND_WATCH_ROOTS is not a JSON array of at most 16 paths of 1 to 256 characters."
+        ) from exc
 
 
 def _check_tier(tier: CombShieldLevel) -> None:

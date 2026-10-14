@@ -23,14 +23,17 @@ their last action (this Warden runs for months). It does carry the model servers
 declares (`WardenDeps.servers`), none of which starts at
 Level 1: the Queen asks for one with a `swarm.nuc_promote` when she promotes the device to a Nuc
 (roadmap step 11.8), and the Warden starts it then through the same `ModelServerHost` every Warden
-has. `build_device_link` builds the `ReconnectingQueenLink` the Warden is handed.
+has. It watches its own machine (`WardenDeps.watch`, roadmap step 11.10) like the Warden of every
+Real Cell, through `hivemind.cli.in_cell.borrowed.watch`. `build_device_link` builds the
+`ReconnectingQueenLink` the Warden is handed.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Called by
     `hivemind.cli.in_cell.borrowed.run`. Calls into `hivemind.cli.in_cell.deps` (`build_core_deps`),
     `hivemind.cli.compose.exoskeleton` (`device_exoskeleton`),
-    `hivemind.cli.in_cell.borrowed.dial`/`.stores`/`.config`, `hivemind.guard`, `hivemind.memory`,
-    `hivemind.wardens` (WardenDeps, DeviceDeps, the offline package) and waggle only.
+    `hivemind.cli.in_cell.borrowed.dial`/`.stores`/`.config`/`.watch`, `hivemind.guard`,
+    `hivemind.memory`, `hivemind.wardens` (WardenDeps, DeviceDeps, the offline package) and waggle
+    only.
 
 Key invariants:
     - The Warden's id, node and Cell are the ones in the config, never freshly minted: the move
@@ -66,6 +69,7 @@ from hivemind.cli.in_cell.borrowed.dial import (
     LateTrailSync,
 )
 from hivemind.cli.in_cell.borrowed.stores import DeviceStores
+from hivemind.cli.in_cell.borrowed.watch import device_watch
 from hivemind.cli.in_cell.deps import build_core_deps
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.memory import MemoryIdentity
@@ -132,6 +136,7 @@ def build_device_link(
             source,
             config.llm.servers,
             clock,
+            config.watch_roots,
         ),
         after=TrailReconnect(record, trail_sync),
         clock=clock,
@@ -158,6 +163,9 @@ def build_borrowed_warden_deps(
         deps,
         memory=parts.stores.memory,
         servers=config.llm.hostable,  # Declared, not started: a Nuc promotion starts one.
+        # Every Real Cell's Warden watches it while it has no bees working (ADR-0054); this one
+        # is local to its machine, so it looks itself, through a session that holds no lease.
+        watch=device_watch(config, clock),
         # The cell's own id names the capability, never its kind: this module built the source.
         lease_capability=Capability(
             family=CapabilityFamily.CELL_REAL, scope=runtime.spawn_config.cell_id

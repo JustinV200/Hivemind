@@ -82,6 +82,7 @@ def make_packet(
     url: str = LOOPBACK,
     pin: str | None = None,
     level: AccessLevel = AccessLevel.FULL,
+    watch_roots: tuple[str, ...] = (),
 ) -> Packet:
     """Write what an enrolment leaves under `tmp_path` and return it.
 
@@ -90,6 +91,7 @@ def make_packet(
         url: The Queen's address the state records; a `wss://` one needs `pin`.
         pin: The certificate pin for a `wss://` Queen; None for `ws://`.
         level: The access level the Queen granted the device.
+        watch_roots: The directories the Queen's last `swarm.node_update` named for its Warden.
 
     Returns:
         The packet: its state, layout, both ends' signers and the device manifest.
@@ -119,6 +121,7 @@ def make_packet(
         granted_capabilities=("fs:read:**",),
         offline_limit_s=120.0,
         heartbeat_interval_s=15.0,
+        watch_roots=watch_roots,
         enrolled_at=clock.now(),
         install=InstallSettings(warden_manifest=str(manifest)),
     )

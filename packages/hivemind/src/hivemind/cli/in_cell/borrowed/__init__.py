@@ -10,9 +10,10 @@ validates that environment and the device manifest (`[llm]` and the `[forage.map
 load; `llm` converts them into the provider, slot and server tables); `stores` opens the durable
 stores; `dial` is the dialer and announcer the reconnecting link uses on each connection (it
 announces the level and tier the Queen granted, and the model servers the manifest declares, not
-started); `deps` builds the link and the Warden's deps from the core a Virtual Cell's Warden
-shares; `run` connects and runs the Warden until a signal or a Queen-sent Shutdown stops it,
-leaving the device as it was found. A Virtual Cell's Warden (the default, `owned` mode) is
+started, and the directories it was handed to watch); `deps` builds the link and the Warden's deps
+from the core a Virtual Cell's Warden shares; `watch` builds the watch mode it observes its own
+machine in (ADR-0054); `run` connects and runs the Warden until a signal or a Queen-sent Shutdown
+stops it, leaving the device as it was found. A Virtual Cell's Warden (the default, `owned` mode) is
 untouched by any of this.
 
 Fits into the Hive:
@@ -44,6 +45,7 @@ Public API:
     - DeviceLlm, device_llm: the device manifest's model tables (llm).
     - DeviceStores, open_device_stores: the durable stores (stores).
     - build_device_link, build_borrowed_warden_deps, BorrowedParts: the composition (deps).
+    - device_watch, readable_watch_roots: the watch mode of the device's own Warden (watch).
     - DeviceDialer, DeviceAnnouncer, DeviceIdentity, LateTrailSync: the link's collaborators (dial).
 """
 
@@ -68,6 +70,7 @@ from hivemind.cli.in_cell.borrowed.dial import (
 from hivemind.cli.in_cell.borrowed.llm import DeviceLlm, device_llm
 from hivemind.cli.in_cell.borrowed.run import run_borrowed_warden, stop_on_signals
 from hivemind.cli.in_cell.borrowed.stores import DeviceStores, open_device_stores
+from hivemind.cli.in_cell.borrowed.watch import device_watch, readable_watch_roots
 
 __all__ = [
     "BORROWED",
@@ -84,8 +87,10 @@ __all__ = [
     "build_borrowed_warden_deps",
     "build_device_link",
     "device_llm",
+    "device_watch",
     "is_borrowed",
     "open_device_stores",
+    "readable_watch_roots",
     "run_borrowed_warden",
     "stop_on_signals",
 ]

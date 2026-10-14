@@ -120,6 +120,10 @@ class CellLinkDeps:
         attestation: The checks `CellReady` carries for this Cell's tier: none for MEADOW, the
             tunnel checks for PROPOLIS (`hivemind.cli.in_cell.propolis`), the control-link checks
             for NIGHT_VEIL (`control_link_attestation`).
+        watch_roots: The directories this Warden watches while it has no bees working, as it was
+            started with them; `CellReady` carries them so the Queen can tell a Warden that runs
+            under the directories the operator has since changed. Only a colonized device's
+            Warden has any.
     """
 
     transport: Transport
@@ -131,6 +135,7 @@ class CellLinkDeps:
     heartbeat_interval_s: float
     runtime_version: str
     attestation: tuple[AttestationCheck, ...] = ()
+    watch_roots: tuple[str, ...] = ()
 
 
 def control_link_attestation(
@@ -261,4 +266,5 @@ def _build_cell_ready(deps: CellLinkDeps) -> CellReady:
         # builds them).
         attestation=deps.attestation,
         runtime_version=deps.runtime_version,
+        watch_roots=deps.watch_roots,
     )

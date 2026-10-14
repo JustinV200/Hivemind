@@ -40,6 +40,9 @@ and a reconnection announces the Cell again.
   Warden attaches a display, input, audio or a browser to its own lease through its own session
   (see "The Exoskeleton on a device" below); the declared model servers are known to the Warden but
   never started until a promotion.
+- **Watch** (`watch`): `device_watch(config, clock) -> WatchDeps` and `readable_watch_roots(config)`,
+  the watch mode of the device's own Warden (roadmap 11.10, ADR-0054's second amendment; see "Watch
+  mode on a device" below).
 - **Run** (`run`): `run_borrowed_warden(env, clock, *, on_deps_built, stop)` and `stop_on_signals`.
 
 ## The environment the packet gives the Warden
@@ -57,10 +60,29 @@ and a reconnection announces the Cell again.
 | `HIVEMIND_ACCESS_LEVEL`, `HIVEMIND_COMB_SHIELD` | What the Queen granted the device |
 | `HIVEMIND_STATE_DIR` | Where the Warden's SQLite files, outbox and scratch live |
 | `HIVEMIND_DEVICE_MANIFEST` | The device manifest (`[llm]`, `[forage.map]`, `[supervision]`; `docs/manifests/device.toml`) |
+| `HIVEMIND_WATCH_ROOTS` | Optional. A JSON array of the directories the operator named for the Warden to watch (`hive swarm watch`), as the Queen last told the packet; at most 16 paths of 1 to 256 characters |
 
 Provider API keys are read from the device's own environment, in the variable each provider's
 `api_key_env` names, and never from the wire. `tests/contracts/test_pollen_warden_env.py` checks
 that the environment `pollen.bootstrap` builds is the one this package reads.
+
+## Watch mode on a device
+
+Every Real Cell's Warden watches its Cell while no bee works (ADR-0054), and this one is local to
+its machine, so it looks the way the Hive Stand's own Warden does: the fixed read-only scripts of
+`SessionWatchProbe`, one Patrol on the manifest's interval, `C2` observations in its own Bee Bread
+(the SQLite file under the state directory) and `warden.patrol` on the trail it ships. It does not
+look through a lease, because it gives its lease back whenever it is idle: it looks through an
+`ObserverSession` (`hivemind.cell.local`), which belongs to no lease, runs a command and refuses
+everything else (writing, reading or deleting a file, starting a process), standing in the state
+directory. The numbers come from the device manifest's `[supervision.watch]` (the Hive's shipped
+values when it has none, and no `roots` key). The directories come from `HIVEMIND_WATCH_ROOTS`,
+held to what the device's access level lets a Warden read (`readable_under`, the rule the Queen
+applies before she sends them), and the Warden reports them as it was handed them in
+`cell.ready.watch_roots`: the Queen compares that with her list, and a difference restarts the
+Warden under the new one (the terms renewal, ADR-0053). The Warden wakes on its heartbeat, every
+fifteen seconds, and watches on that tick, so that is the closest a sample or a Patrol can come.
+`tests/e2e/test_phase11_exit_watch_colonized.py` proves it on a container.
 
 ## The Exoskeleton on a device
 
@@ -85,7 +107,8 @@ display: `real_display_allowed` is not something the packet tells it.
 
 On every connection, a fixed order, every frame sent by the Warden and signed as the device's node:
 
-1. `cell.ready` (with the level and tier the Queen granted), `forage.capacity_report` (trigger
+1. `cell.ready` (with the level and tier the Queen granted, and the directories the Warden was
+   started to watch), `forage.capacity_report` (trigger
    `RECONNECTED`: the Cell's live figures and the model servers the manifest declares, none
    started), `cell.heartbeat`;
 2. after a link that was lost, the frames of its last stretch that must arrive (a result, a
