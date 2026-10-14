@@ -50,8 +50,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivemind.common.errors import ConflictError
 from hivemind.exoskeleton import AttachError
-from hivemind.pheromone import WardenEvent
+from hivemind.memory import Handoff, HandoffNotFoundError
+from hivemind.pheromone import MemoryEvent, WardenEvent
 from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
@@ -66,7 +68,14 @@ from waggle.messages.task import TaskAssign
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
 
-__all__ = ["handle_assign", "handle_grant", "handle_revoke", "spawn_parked"]
+__all__ = [
+    "handle_assign",
+    "handle_grant",
+    "handle_revoke",
+    "settle_after_tick",
+    "spawn_parked",
+    "store_inline_handoff",
+]
 
 
 async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
@@ -77,6 +86,8 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
         assignment: The TaskAssign to spawn or park.
     """
     await _supersede(warden, assignment.task_id)
+    # Before anything can spawn, so the resume path below finds the Handoff in this Warden's store.
+    await store_inline_handoff(warden, assignment)
     if warden._lease is None or warden._cell is None or warden._session is None:
         await _retry_lease_or_escalate(warden, assignment)
         return
@@ -132,6 +143,55 @@ async def _supersede(warden: Warden, task_id: TaskId) -> None:
         await retire_sub_bee(warden, sub_bee)
     warden._pending.pop(task_id, None)
     warden._clustered_tasks.discard(task_id)
+
+
+async def store_inline_handoff(warden: Warden, assignment: TaskAssign) -> None:
+    """File the Handoff a TaskAssign carries inline in this Warden's own memory store.
+
+    A Warden that moved onto a device cannot read the Hive Stand's store (ADR-0052), so the Queen
+    sends the Handoff itself beside the reference (`TaskAssign.handoff`, Waggle 1.13). The existing
+    resume path reads it by `resume_from.event_id`, so it is filed under exactly that key, with the
+    clearance it carries, before anything spawns. It never replaces what this store already holds
+    under the key (a re-driven assignment, a Handoff this Warden wrote itself, or one its store
+    labels tainted), and a tainted Handoff never arrives this way (the wire form has no label).
+
+    Args:
+        warden: The owning Warden (read directly; see the module docstring).
+        assignment: The TaskAssign; one with no inline Handoff is left alone.
+    """
+    inline, ref = assignment.handoff, assignment.resume_from
+    if inline is None or ref is None:
+        return
+    store = warden._deps.memory
+    try:
+        await store.get_handoff(ref.event_id)
+    except HandoffNotFoundError:
+        pass  # Not held here: the usual case, and the one this function exists for.
+    else:
+        return  # Already held; whatever it says (taint included) is what the resume will read.
+    # The wire form mirrors the stored one field for field; JSON mode turns the wire enum for the
+    # label into the string the Hive's own enum reads, whichever side of the layer line it is on.
+    handoff = Handoff.model_validate(inline.model_dump(mode="json"))
+    identity, clock = warden._deps.identity, warden._deps.clock
+    event = MemoryEvent(
+        id=ref.event_id,
+        hive_id=identity.hive_id,
+        node_id=identity.node_id,
+        at=clock.now(),
+        actor=identity.actor,
+        kind="memory.handoff",
+        subject_id=assignment.task_id,
+        # Counts only, as a checkpoint's event carries (codingrules 12): never the Handoff's text.
+        payload={
+            "origin": "task.assign",
+            "decision_count": len(handoff.decisions),
+            "pinned_fact_count": len(handoff.pinned_facts),
+        },
+    )
+    try:
+        await store.put_handoff(ref.event_id, handoff, assignment.task_id, event)
+    except ConflictError:
+        return  # Filed between the look and the write (another path of this tick): equally good.
 
 
 async def handle_grant(warden: Warden, grant: GrantIssued) -> None:
@@ -245,7 +305,10 @@ async def settle_after_tick(warden: Warden) -> None:
     untouched), and the next TaskAssign finds no lease and leases again (`handle_assign`).
     """
     await spawn_parked(warden)
-    target = settled_state((s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks)
+    # Handed the current state so an OFFLINE Warden stays OFFLINE: only its reconnection moves it.
+    target = settled_state(
+        (s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks, warden._state
+    )
     if target is not warden._state:  # Something changed since the last check.
         assert_transition(warden._state, target, warden_id=warden._warden_id)
         warden._state = target
