@@ -40,7 +40,7 @@ from builders.swarm import (
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
-from hivemind.swarm.gateway import SwarmListener
+from hivemind.swarm.gateway import ListenerConfig, LivenessRules, SwarmListener
 from hivemind.swarm.gateway.refusals import RECONNECT_GRACE_S
 from hivemind.swarm.node_state import NodeStatus
 from waggle.codec import Signer
@@ -314,6 +314,35 @@ async def test_a_device_wardens_connection_is_handed_to_the_bound_handler(live: 
         handler.seen[0].first.id == ready.id and handler.seen[0].node.device_id == party.device_id
     )
     assert live.listener.hub is live.stand.hub
+
+
+async def test_the_listener_exposes_the_voice_and_the_recorder_it_was_built_with(
+    live: _Live,
+) -> None:
+    assert live.listener.voice == live.stand.voice
+    assert live.listener.recorder is live.stand.recorder  # What the gate records its events with.
+
+
+async def test_a_wardens_url_is_where_the_listener_listens_when_none_is_advertised(
+    live: _Live,
+) -> None:
+    assert live.listener.warden_url == live.listener.uri  # The address actually bound.
+
+
+async def test_a_wardens_url_is_the_advertised_one_when_there_is_one() -> None:
+    stand = make_hive_rig()
+    config = ListenerConfig(
+        host="127.0.0.1",
+        port=0,
+        tls_cert=None,
+        tls_key=None,
+        liveness=LivenessRules(4),
+        advertise_url="wss://hive.example:8443",
+    )
+
+    listener = stand.listener(config)
+
+    assert listener.warden_url == "wss://hive.example:8443"  # Needs no start: it is configured.
 
 
 async def test_bytes_that_are_not_an_envelope_close_that_connection_and_the_listener_serves_on(

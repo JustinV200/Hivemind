@@ -185,6 +185,7 @@ class SwarmListener:
         """
         clock = deps.recorder.clock
         self._deps = deps
+        self._config = config
         self._ring = KeyRing()
         monitor = HeartbeatMonitor(deps.registry, deps.hub, deps.recorder, config.liveness)
         self._router = ConnectionRouter(
@@ -214,6 +215,25 @@ class SwarmListener:
     def hub(self) -> GatewayHub:
         """The directory of live device links this listener fills."""
         return self._deps.hub
+
+    @property
+    def voice(self) -> HiveVoice:
+        """The Hive Stand's own address: the sender of every frame this listener sends."""
+        return self._deps.voice
+
+    @property
+    def recorder(self) -> SwarmRecorder:
+        """The trail, clock and identity the Swarm records its events with."""
+        return self._deps.recorder
+
+    @property
+    def warden_url(self) -> str:
+        """The URL a device's Warden is told to dial: the advertised one, else where this listens.
+
+        Valid once the listener has started: with no `advertise_url` it is the address actually
+        bound, which is the one a test with an OS-chosen port can reach.
+        """
+        return self._config.advertise_url or self._server.uri
 
     def bind_warden_handler(self, handler: WardenConnectionHandler | None) -> None:
         """Hand every verified device Warden connection to `handler` from now on.

@@ -40,6 +40,8 @@ Public API:
     - SwarmNode, SwarmInvite, InviteState, SWARM_SOURCE: the registry's rows (models).
     - NodeStatus, can_transition, assert_transition: the node status machine (node_state).
     - RuntimeLevel, can_move, is_promotion, assert_move: the runtime ladder (level).
+    - decide_colonize, ColonizeFacts, ColonizeDecision, ColonizeReason: whether a device's Warden
+      should move onto it (level).
     - SwarmRecorder: the trail, clock and identity the Swarm records with (events).
     - SwarmSource, SwarmLeaseReleaser: an enrolled device as a Real Cell source (source).
     - PollenWatchProbe: read-only observation of an idle device (watch).
@@ -93,7 +95,16 @@ from hivemind.swarm.gateway import (
     WardenConnection,
     WardenConnectionHandler,
 )
-from hivemind.swarm.level import RuntimeLevel, assert_move, can_move, is_promotion
+from hivemind.swarm.level import (
+    ColonizeDecision,
+    ColonizeFacts,
+    ColonizeReason,
+    RuntimeLevel,
+    assert_move,
+    can_move,
+    decide_colonize,
+    is_promotion,
+)
 from hivemind.swarm.models import SWARM_SOURCE, InviteState, SwarmInvite, SwarmNode
 from hivemind.swarm.node_state import NodeStatus, assert_transition, can_transition
 from hivemind.swarm.registry import MemorySwarmRegistry, SqliteSwarmRegistry, SwarmRegistry
@@ -109,6 +120,9 @@ from hivemind.swarm.watch import PollenWatchProbe
 
 __all__ = [
     "SWARM_SOURCE",
+    "ColonizeDecision",
+    "ColonizeFacts",
+    "ColonizeReason",
     "CommandDeniedError",
     "CommandGuard",
     "DeviceCommand",
@@ -163,6 +177,7 @@ __all__ = [
     "assert_transition",
     "can_move",
     "can_transition",
+    "decide_colonize",
     "is_promotion",
     "parse_invite_string",
 ]

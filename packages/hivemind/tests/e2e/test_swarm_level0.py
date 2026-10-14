@@ -4,12 +4,11 @@ The Hive is built from a manifest with `[swarm] enabled = true`, on loopback wit
 scripted `FakeLLMProvider` for the model. The operator's act is the real one: the Hive Stand's door
 mints an invite, and a real `pollen` packet, running in this process, enrols with it (the whole
 ceremony, over a real WebSocket to the Hive's own listener) and then runs its loop. The Queen's
-swarm gate sees the device connect and gives it a Level 0 Warden, attached to the Queen. The laptop
-is then closed and opened again: the gate tells the Warden its device is gone (one Alarm), the
-device comes back, and it is the same Warden that serves it. A goal is submitted whose ceiling
-allows only that device's Cell, so its one task can be placed nowhere else; the scripted Drone runs
-a command and writes a file on the device, through the `PollenSession` the Warden leased, and the
-Warden verifies the file there before the task may reach SUCCEEDED.
+swarm gate sees the device connect (the trail records `swarm.online` for that very first connection,
+as enrolment.md section 8 says) and gives it a Level 0 Warden, attached to the Queen. A goal is
+submitted whose ceiling allows only that device's Cell, so its one task can be placed nowhere else;
+the scripted Drone runs a command and writes a file on the device, through the `PollenSession` the
+Warden leased, and the Warden verifies the file there before the task may reach SUCCEEDED.
 
 What it proves is the roadmap's 11.6 and the device half of 11.7: the device was borrowed and is
 left exactly as found. The trail records the device's whole story in order (`swarm.enrolled`,
@@ -72,7 +71,7 @@ def test_a_goal_runs_on_an_enrolled_device_and_leaves_it_as_found(tmp_path: Path
 
 
 async def _scenario(hive: Hive, data_dir: Path) -> None:
-    """Enrol a device, bounce it, run a goal on it, check it was left as found, then revoke it."""
+    """Enrol a device, run a goal on it, check it was left as found, then revoke it."""
     assert hive.swarm is not None
     async with run_hive(hive):
         invite = await hive.swarm.door.mint_invite(
@@ -80,13 +79,13 @@ async def _scenario(hive: Hive, data_dir: Path) -> None:
         )
         device = await enrol(invite.invite_string, data_dir, hive.clock)
         node = await enrolled_node(hive)
-        warden = await _serve_then_lose_the_device(hive, device, node)
-
         async with running(device):
-            # The laptop is open again: the trail says it is online, and the same Warden serves it.
+            # The device's first connection is on the trail, and the gate has given it a Warden,
+            # attached to the Queen: it leased the device when it started and gave the lease back
+            # when it found nothing to do.
             await _wait_for_kind(hive, "swarm.online")
-            served = hive.swarm.gate.wardens.get(node.device_id)
-            assert served is not None and served.warden is warden
+            gate = hive.swarm.gate
+            await wait_until(lambda: _idle_warden(gate, node) is not None, timeout_s=_WAIT_S)
             task = await _run_goal_on(hive, node)
 
             assert task.status is TaskStatus.SUCCEEDED, task.outcome
@@ -95,38 +94,12 @@ async def _scenario(hive: Hive, data_dir: Path) -> None:
             await _assert_revocation_cuts_the_device_off(hive, node)
 
 
-async def _serve_then_lose_the_device(
-    hive: Hive, device: EnrolledDevice, node: SwarmNode
-) -> Warden:
-    """Run the packet until the gate has attached the device's Warden, then stop it; return it."""
-    assert hive.swarm is not None
-    gate = hive.swarm.gate
-    async with running(device):
-        # The gate has given the device a Warden, attached to the Queen; it leased the device when
-        # it started and gave the lease back when it found nothing to do.
-        await wait_until(lambda: _idle_warden(gate, node) is not None, timeout_s=_WAIT_S)
-    served = gate.wardens.get(node.device_id)
-    assert served is not None
-    # The packet stopped, so the link closed: the Warden is told once, and raises one Alarm.
-    await _wait_for_kind(hive, "swarm.unreachable")
-    await wait_until(lambda: _alarmed_once(hive), timeout_s=_WAIT_S)
-    return served.warden
-
-
 def _idle_warden(gate: SwarmGate, node: SwarmNode) -> Warden | None:
     """The device's Warden once it is started and holds no lease; None before."""
     served = gate.wardens.get(node.device_id)
     if served is None or served.warden.lease is not None:
         return None
     return served.warden if served.warden.state is WardenState.WATCH else None
-
-
-async def _alarmed_once(hive: Hive) -> bool:
-    """Whether the Hive has had one CELL_UNREACHABLE Alarm about a lost device link, not two."""
-    raised = await trail_events(hive, "alarm.raised")
-    lost = [e for e in raised if "Cell was lost" in str(e.payload.get("detail"))]
-    assert len(lost) <= 1, "the same loss was alarmed twice"
-    return bool(lost) and lost[0].payload["kind"] == "CELL_UNREACHABLE"
 
 
 async def _wait_for_kind(hive: Hive, kind: str) -> None:

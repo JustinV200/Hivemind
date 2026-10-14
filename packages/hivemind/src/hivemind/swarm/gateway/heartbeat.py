@@ -23,6 +23,8 @@ Fits into the Hive:
 Key invariants:
     - A status change is recorded with its trail event in one registry transaction; a change
       another writer got to first (a compare-and-set loss) is not an error and not re-recorded.
+    - Every link established is on the trail as `swarm.online`: the move from UNREACHABLE with its
+      status change, a link on a node that was already ONLINE as the event alone.
     - An UNREACHABLE node is restored by the next verified heartbeat or by a freshly verified
       connection, either of which is proof of life, and only the writer that wins the move
       announces it.
@@ -43,6 +45,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
+
+from pydantic import JsonValue
 
 from hivemind.common.logging import get_logger
 from hivemind.forage import ForageCapacity, HostCapacity
@@ -170,6 +174,12 @@ class HeartbeatMonitor:
         if current.status is NodeStatus.UNREACHABLE:
             moved = await self._move(current, NodeStatus.ONLINE, "link_connected")
             current = moved or await self._registry.node(node.device_id) or current
+        else:
+            # Already ONLINE (its first connection after enrolment, a reconnect the sweep had
+            # not yet noticed, or the Hive restarting under a node the registry still calls
+            # online): no status moves, but a link was established and enrolment.md section 8
+            # has every one on the trail.
+            await self._record_online(current, "link_connected")
         return current
 
     async def link_down(self, node: SwarmNode, link: DeviceLink, reason: str) -> None:
@@ -264,6 +274,22 @@ class HeartbeatMonitor:
         updated = await self._registry.update_facts(node.device_id, current.capabilities, capacity)
         self._hub.update_node(updated)
 
+    async def _record_online(self, node: SwarmNode, reason: str) -> None:
+        """Record `swarm.online` for a link established on a node that was already ONLINE."""
+        payload = self._payload(node, reason)
+        await self._recorder.record(
+            self._recorder.swarm_event("swarm.online", node.device_id, payload)
+        )
+
+    def _payload(self, node: SwarmNode, reason: str) -> dict[str, JsonValue]:
+        """The ids and the reason a status event carries: no address, key or path."""
+        return {
+            "device_id": node.device_id,
+            "node_id": node.node_id,
+            "cell_id": node.cell_id,
+            "reason": reason,
+        }
+
     async def _move(self, node: SwarmNode, new: NodeStatus, reason: str) -> SwarmNode | None:
         """Move a node's status with its trail event in one transaction.
 
@@ -272,16 +298,7 @@ class HeartbeatMonitor:
             same move): that writer recorded its own change, so this one records nothing.
         """
         kind = "swarm.online" if new is NodeStatus.ONLINE else "swarm.unreachable"
-        event = self._recorder.swarm_event(
-            kind,
-            node.device_id,
-            {
-                "device_id": node.device_id,
-                "node_id": node.node_id,
-                "cell_id": node.cell_id,
-                "reason": reason,
-            },
-        )
+        event = self._recorder.swarm_event(kind, node.device_id, self._payload(node, reason))
         try:
             return await self._registry.set_status(
                 node.device_id, node.status, new, self._recorder.clock.now(), event

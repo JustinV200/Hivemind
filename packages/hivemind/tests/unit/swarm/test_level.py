@@ -4,8 +4,8 @@ Fits into the Hive:
     Mirrors src/hivemind/swarm/level.py (codingrules section 3: tests/unit mirrors src/ one-to-one).
     The ladder is GATEWAY <-> COLONIZED <-> NUC, and a Warden moves onto a device before a model
     server does, so GATEWAY and NUC are never neighbours. Every pair of rungs is tried against the
-    table, in the same way node_state is walked. The decision whether to colonize a device is
-    wave 3's (`decide_colonize`); this file covers the transitions only.
+    table, in the same way node_state is walked. The decision whether to colonize a device
+    (`decide_colonize`) is tested in test_level_decide.py; this file covers the transitions only.
 
 Key invariants:
     - None: this module holds tests only.

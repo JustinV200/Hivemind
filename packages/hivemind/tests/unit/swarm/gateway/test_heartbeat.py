@@ -143,7 +143,24 @@ async def test_admitting_an_online_device_touches_it_and_changes_no_status(rig: 
 
     assert admitted.status is NodeStatus.ONLINE
     assert (await rig.stored()).last_seen_at == rig.raw.clock.now()
-    assert await rig.kinds() == []
+
+
+async def test_a_link_on_a_device_that_was_already_online_is_still_recorded_as_swarm_online(
+    rig: _Rig,
+) -> None:
+    # The first connection after enrolment, a reconnect the sweep had not noticed, the Hive
+    # restarting under a node the registry still calls online: enrolment.md section 8 puts every
+    # established link on the trail, not only the move out of UNREACHABLE.
+    await rig.monitor.admit(rig.node)
+    await rig.monitor.admit(rig.node)
+
+    online = await rig.trail.query(TrailQuery(kind="swarm.online"))
+
+    assert len(online) == 2
+    assert {event.subject_id for event in online} == {rig.node.device_id}
+    assert {event.payload["reason"] for event in online} == {"link_connected"}
+    assert {event.payload["node_id"] for event in online} == {rig.node.node_id}
+    assert (await rig.stored()).status is NodeStatus.ONLINE  # No status moved: just the record.
 
 
 async def test_admitting_an_unreachable_device_brings_it_online_and_records_why(rig: _Rig) -> None:
