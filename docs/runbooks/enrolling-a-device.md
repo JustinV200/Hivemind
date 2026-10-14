@@ -63,7 +63,7 @@ On the device:
 
 Reading the invite from standard input (`-`) keeps it out of the process list and the shell
 history. `pollen enrol` checks the invite, pins the Hive's key and certificate, makes the device's
-identity and prints `Enrolled as device_... on Cell cell_..., access scratch.` `pollen install` sets
+identity and prints `Enrolled as device_... on Cell cell_..., access SCRATCH.` `pollen install` sets
 the packet up to start at login (a systemd user unit on Linux). Where there is no user session
 manager, such as a container or an SSH login without one, it says so and prints the command that
 starts the packet by hand; run that, or run `pollen run` in a terminal to watch the packet work. On
@@ -104,9 +104,12 @@ comes from, after enrolling: `--runtime-wheelhouse DIR` or `--runtime-index URL`
 On the Hive Stand, `hive swarm revoke kitchen-pi` ends the enrolment for good: the running Hive
 closes the link, stops the device's Warden, which releases any lease and leaves the device as it
 found it, and forgets its key. The device's row stays, marked revoked, for the audit. On the
-device, `pollen uninstall` removes the unit and nothing else; delete the data directory
-(`~/.local/share/pollen` on Linux) to forget the enrolment. Enrolling the same machine again takes
-a new invite.
+device, stop the packet (Ctrl-C if you ran it by hand), then `pollen uninstall` removes the unit
+and stops the Warden the packet started, if one runs, and nothing else; delete the data directory
+(`~/.local/share/pollen` on Linux) to forget the enrolment, and the binary (`sudo rm
+/usr/local/bin/pollen`) to take the packet off the machine. Nothing else of the packet's is left:
+the single-file build unpacks itself into a temporary directory and removes it when it ends.
+Enrolling the same machine again takes a new invite.
 
 ## When it does not work
 
