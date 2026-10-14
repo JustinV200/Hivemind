@@ -158,3 +158,27 @@ off her map and plans from the shared pool, exactly as an operator's demotion wo
 cannot be reached decides nothing and is tried again when it can. A re-attach whose stored hosting
 plan names a source that has since left the map (a Warden's server stops with it) no longer fails:
 that plan is not sent, and the restoration writes the next.
+
+## Amendment (2026-10-14): what the Nuc scenario found
+
+Three things the real cable showed that the in-process rigs could not.
+
+**A held task asks, and is answered when the link is back.** The Warden held a task whose bee needed
+a hosted model, and said nothing of it. It now files a BINDING `ForageRequest` for it as it holds it
+(`wardens/offline/wait.py`): the slot the task ran on and the grade its tempo asks of a model, and
+nothing a grant could grow by, since an offline Warden cannot grow. The link queues it with the
+results; the Queen reads it on the way back and, today, answers that a binding is routing's to pick
+and not the ledger's, which is an answer. The Warden does not wait for it: it starts the task again
+when the link is back. The reply is recorded, not judged: it used to reach an awake episode.
+
+**The trail is sent again from before the loss was noticed.** A send that returns has put a frame
+on a connection, not in the Queen's hands. A cable pulled out from under a device leaves the
+connection looking alive until the websocket's keepalive gives up, forty seconds after the last
+traffic, and every trail sync in that time returned as if it had arrived while the sync's cursor
+moved on, so those events were never on the Hive's trail. On a reconnection the sync is rewound by
+twice the keepalive (`UNNOTICED`) before it ships, and the Queen drops what she already holds by
+event id. Frames that are not the trail (a result, an Alarm) sent in that stretch are still lost:
+only what the Warden queued after it noticed is replayed, and nothing acknowledges the rest. A task
+that finishes in the forty seconds after a cable is pulled therefore has its result lost, which is
+the next thing to close (an acknowledgement of results, or a short memory of what was sent live that
+a reconnection replays under the same ids, which the Queen's replay window already drops).

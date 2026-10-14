@@ -185,3 +185,15 @@ carries the wish out. `hive swarm demote` also writes a `ceiling` on the device,
 the Queen may take it to by her own decisions: a `promote` lifts it, a `demote` sets it to the rung
 the device is lowered to, so a device pinned at the gateway is never climbed again. A device above
 its ceiling is taken down, one rung, when it is idle; she never climbs past it.
+
+## Amendment (2026-10-14): a move waits for a bee that is inside a command
+
+The move pauses each running task of the Warden it ends, and the Handoff a task resumes from is the
+one its bee writes when told to. A Drone is inside a command (a `sleep`, a build, a test run) for
+nearly all of its time and can write a Handoff only between two commands, so the pause used to
+reach it first and a paused bee cannot hand off: the task resumed on the device from nothing, and
+the move kept it from failing while throwing its progress away. The Queen now sends the bee the
+order to hand off, waits for the Handoff in real time for up to `HANDOFF_PATIENCE_S` (thirty seconds)
+for each task, and only then pauses it. A bee that does not come back from its command in time is
+paused all the same and resumes from its last acceptance state, as before. Clustering gives its
+bees no such time, because the provider it clusters on is the one they are stuck on.
