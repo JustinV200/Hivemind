@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
+from datetime import datetime
 from typing import Any
 
 from pydantic import JsonValue
@@ -123,8 +124,7 @@ class Warden(TickLoop):
             deps: Every collaborator this Warden needs.
         """
         super().__init__(deps.clock)
-        self._warden_id = warden_id
-        self._deps = deps
+        self._warden_id, self._deps = warden_id, deps
         self._state = WardenState.STARTING
         self._lease: RealCellLease | None = None
         self._cell: Cell | None = None
@@ -135,6 +135,7 @@ class Warden(TickLoop):
         self._sub_bee_slots = SubBeeSlots(0)
         self._grants: dict[str, GrantIssued] = {}
         self._pending: dict[str, TaskAssign] = {}
+        self._lease_retry: dict[str, datetime] = {}  # 11.8a: when to ask for a refused lease again.
         self._questions: dict[str, WorkerId] = {}
         self._question_envelope_ids: dict[str, MessageId] = {}
         # Roadmap step 7.8: which sub-bee asked each Honey query this Warden forwarded, so the

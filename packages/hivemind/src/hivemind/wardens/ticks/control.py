@@ -175,10 +175,17 @@ def _drop_hold(warden: Warden, task_id: TaskId | None, payload: _Control) -> Non
 
     Her word on a task wins over this Warden's own pause of it (roadmap 11.9): a task she
     cancelled is not started again on return, and one she paused is hers to resume. A lever that
-    leaves the task where it is (compact, checkpoint, rebind) keeps the hold.
+    leaves the task where it is (compact, checkpoint, rebind) keeps the hold. The same holds for
+    an assignment parked for a lease its device refused (roadmap 11.8a): once she cancels or pauses
+    the task it is not started when the device finally allows it.
     """
+    if task_id is None:
+        return
+    ends_the_wait = _is_pause(payload) or _is_cancel(payload)
+    if ends_the_wait and warden._lease_retry.pop(task_id, None) is not None:
+        warden._pending.pop(task_id, None)
     outage = device_outage(warden._deps)
-    if outage is None or task_id is None:
+    if outage is None:
         return
     if _is_pause(payload) or _is_cancel(payload) or isinstance(payload, TaskResume):
         outage.forget(task_id)

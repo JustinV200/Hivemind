@@ -117,8 +117,18 @@ if TYPE_CHECKING:
     from hivemind.wardens.offline.outage import Outage, RemoteDeps
 
 DEFAULT_DISK_RESERVE_MB = 1024  # Mirrors hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB.
+# Seconds a device's Warden waits before it asks again for a lease the device refused while a task
+# waits: the swarm's own default beat, so a tunnel the operator brings up is used within moments
+# and a device that keeps refusing is asked a few times a minute, not on every tick.
+DEFAULT_LEASE_RETRY_S = 15.0
 
-__all__ = ["DEFAULT_DISK_RESERVE_MB", "DeviceDeps", "WardenDeps", "device_outage"]
+__all__ = [
+    "DEFAULT_DISK_RESERVE_MB",
+    "DEFAULT_LEASE_RETRY_S",
+    "DeviceDeps",
+    "WardenDeps",
+    "device_outage",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,11 +152,16 @@ class DeviceDeps:
             reconnecting link, whose state decides OFFLINE, and the limit past which it clusters
             fully. None for a Warden on the Hive Stand, whose Queen link is in process and never
             goes down.
+        lease_retry_s: Seconds the Warden waits before it asks the device for a lease again after
+            the device refused one while a task was waiting for it (a Propolis tunnel not yet
+            verified, the device away). The task is kept, not failed, and starts when a lease
+            is granted; a Hive Stand's Warden, which has no device, drops it as it always did.
     """
 
     release_lease_when_idle: bool = True
     outage: Outage | None = None
     remote: RemoteDeps | None = None
+    lease_retry_s: float = DEFAULT_LEASE_RETRY_S
 
 
 @dataclass(frozen=True, slots=True)

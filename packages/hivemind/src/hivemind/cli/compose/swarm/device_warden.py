@@ -112,7 +112,8 @@ class SwarmWardenFactory:
             parts, self._shielded(node, LeaseScopedSource(swarm_source, guard)), links, lease
         )
         watch = device_watch(parts, node, self._hub)  # Roadmap step 11.10: it asks the packet.
-        deps = replace(deps, scanner=self._scanner, device=DeviceDeps(), watch=watch)
+        device = DeviceDeps(lease_retry_s=manifest.swarm.heartbeat_interval_s)
+        deps = replace(deps, scanner=self._scanner, device=device, watch=watch)
         link = replace(links.queen_link, live_capacity=self._live_capacity(node))
         return DeviceWarden(Warden(node.warden_id, deps), link, hub_listeners=(swarm_source,))
 

@@ -91,6 +91,18 @@ def test_it_is_a_device_warden_that_gives_its_lease_back_when_idle(tmp_path: Pat
     assert built.warden._deps.device == DeviceDeps(release_lease_when_idle=True)
 
 
+def test_it_asks_a_device_that_refused_a_lease_again_at_the_swarms_own_beat(
+    tmp_path: Path,
+) -> None:
+    path = swarm_manifest(tmp_path, heartbeat_interval_s=2.5)
+    hive = build_hive(load_manifest(path, {}), environ={}, clock=SystemClock())
+
+    built = _factory(hive).build(_node())
+
+    device = built.warden._deps.device
+    assert device is not None and device.lease_retry_s == 2.5
+
+
 def test_it_watches_its_idle_device_by_asking_the_packet_and_names_no_directory(
     tmp_path: Path,
 ) -> None:

@@ -7,7 +7,11 @@ rule, plus the Hive Stand Warden's own retry: when this Warden currently holds n
 (`WardenState.WATCH` from a refused `start()`), it retries the lease exactly once before giving up
 and escalating `AlarmKind.CELL_UNREACHABLE` to the Queen, per this Warden's own `start()` docstring.
 That retry is also how a Swarm device's Warden leases again after it gave its lease back when idle
-(roadmap step 11.6, `hivemind.wardens.ticks.lease.release_idle_lease`).
+(roadmap step 11.6, `hivemind.wardens.ticks.lease.release_idle_lease`). A device's Warden does not
+give the work up when the device refuses the lease again (a Propolis tunnel its operator has not
+yet brought up, step 11.8a; a device away): it tells the Queen once, keeps the assignment parked and
+asks for the lease every `DeviceDeps.lease_retry_s`, so the task starts the moment the device
+allows it and is neither failed nor stranded.
 `handle_grant` is the mirror image for the other arrival order: record the grant, then spawn
 whatever assignment was waiting for exactly this `grant_id`. `handle_revoke` is its undoing
 (roadmap step 10.6a: the Queen isolating this Warden's Cell revokes its grants): forget the grant,
@@ -35,7 +39,8 @@ Key invariants:
     - `handle_assign` never spawns twice for the same `task_id`: once a matching grant lets it
       through, the assignment is removed from `warden._pending` in the same call that spawns it.
     - A local-pool refusal parks the assignment exactly like a missing grant does; both are the
-      same "not yet, try again later" outcome, never an error.
+      same "not yet, try again later" outcome, never an error. A device's refused lease parks it
+      the same way, and the Queen hears of it once, however long the device refuses.
     - A refused binding never holds a pool slot: it is released before the task is reported.
     - One task never has two rows here: a new attempt retires the old row before it spawns.
 
@@ -48,6 +53,7 @@ See Also:
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from hivemind.common.errors import ConflictError
@@ -261,6 +267,7 @@ async def handle_revoke(warden: Warden, revoked: GrantRevoked) -> None:
     # An assignment parked for this grant can never start now; the Queen re-sends a paused task.
     for task_id in [t for t, a in warden._pending.items() if a.grant_id == revoked.grant_id]:
         del warden._pending[task_id]
+        warden._lease_retry.pop(task_id, None)
     # Shrink only: what the grants left still allow, never above what the pool (and so the
     # ceilings already applied to it) allows now.
     left = max((grant.max_sub_bees for grant in warden._grants.values()), default=0)
@@ -328,15 +335,31 @@ async def settle_after_tick(warden: Warden) -> None:
 
 
 async def _retry_lease_or_escalate(warden: Warden, assignment: TaskAssign) -> None:
-    """Retry this Warden's own lease once; escalate CELL_UNREACHABLE if it is refused again."""
+    """Retry this Warden's own lease once; escalate CELL_UNREACHABLE if it is refused again.
+
+    A device's Warden keeps the assignment when the lease is refused again, and asks for the lease
+    every `DeviceDeps.lease_retry_s` from then on (`spawn_parked` brings the assignment back each
+    tick); the Queen is told on the first refusal only. Any other Warden drops it, as it always did.
+    """
+    task_id, device = assignment.task_id, warden._deps.device
+    now = warden._deps.clock.now()
+    due = warden._lease_retry.get(task_id)
+    if due is not None and now < due:
+        warden._pending[task_id] = assignment  # Asked a moment ago: stay parked until it is time.
+        return
     await warden.start()
     if warden._lease is not None:
+        warden._lease_retry.pop(task_id, None)
         await handle_assign(warden, assignment)
         return
-    await send_alarm_to_queen(
-        warden,
-        kind=AlarmKind.CELL_UNREACHABLE,
-        detail=f"Cell lease refused twice while assigning task {assignment.task_id}.",
-        reason="This Warden's own Cell lease could not be re-established.",
-        task_id=assignment.task_id,
-    )
+    if device is not None:
+        warden._pending[task_id] = assignment
+        warden._lease_retry[task_id] = now + timedelta(seconds=device.lease_retry_s)
+    if due is None:  # The first refusal: the Queen hears of it once, not at every retry.
+        await send_alarm_to_queen(
+            warden,
+            kind=AlarmKind.CELL_UNREACHABLE,
+            detail=f"Cell lease refused twice while assigning task {assignment.task_id}.",
+            reason="This Warden's own Cell lease could not be re-established.",
+            task_id=assignment.task_id,
+        )
