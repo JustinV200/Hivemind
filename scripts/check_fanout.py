@@ -36,7 +36,11 @@ SOURCE_SUFFIXES = frozenset({".py", ".ts", ".tsx"})  # The languages codingrules
 EXCLUDED_NAMES = frozenset({"__init__.py"})  # The package face names the directory, not a module.
 # Never worth descending into: vendored or generated trees are not ours, and a tests/ tree under
 # src would mirror src rather than add modules of its own.
-SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git", "__pycache__", "tests"})
+# `.claude` holds agent documents and agent worktrees (git-ignored scratch checkouts of this
+# repository) whose half-written files are not this tree's to judge.
+SKIP_DIR_NAMES = frozenset(
+    {"node_modules", ".venv", "dist", ".git", ".claude", "__pycache__", "tests"}
+)
 DEFAULT_ROOTS = ("packages",)  # Every packages/<name>/src tree, found by _is_source_directory.
 
 __all__ = ["main"]

@@ -47,7 +47,9 @@ from pathlib import Path
 # awake episode.
 TARGET_NAMES = frozenset({"messages", "history"})
 
-SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git"})
+# `.claude` holds agent documents and agent worktrees (git-ignored scratch checkouts of this
+# repository) whose half-written files are not this tree's to judge.
+SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git", ".claude"})
 
 __all__ = ["main"]
 

@@ -48,7 +48,9 @@ PARAM_COUNT_LIMIT = 5  # codingrules 5.1: excludes self/cls, see _count_paramete
 
 # Directories never worth descending into: a virtualenv or node_modules can hold tens of thousands
 # of files that are not ours to lint, and walking into them would just be slow.
-SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git"})
+# `.claude` holds agent documents and agent worktrees (git-ignored scratch checkouts of this
+# repository) whose half-written files are not this tree's to judge.
+SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git", ".claude"})
 
 # codingrules section 3, rule 3: generated code is exempt from the rules that govern hand-written
 # code. This file is regenerated from docs/entrance/openapi.json by CI and never hand-edited.

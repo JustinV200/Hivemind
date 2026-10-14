@@ -66,7 +66,9 @@ _PREFIX_MATCHERS = {
 }
 
 # Directories never worth descending into (see scripts/check_sizes.py for the same rationale).
-SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git"})
+# `.claude` holds agent documents and agent worktrees (git-ignored scratch checkouts of this
+# repository) whose half-written files are not this tree's to judge.
+SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git", ".claude"})
 
 # This script's own path, resolved once, so `_iter_candidate_files` can exclude it (see the
 # "Key invariants" note above on why path-exclusion was chosen over disguising the literals).

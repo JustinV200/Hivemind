@@ -53,7 +53,9 @@ ALLOWED_PATH_FRAGMENTS = (
 # does not attempt to characterise; codingrules 8.7 calls out `is`/`==` specifically.
 _BRANCH_OPS = (ast.Eq, ast.NotEq, ast.Is, ast.IsNot)
 
-SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git"})
+# `.claude` holds agent documents and agent worktrees (git-ignored scratch checkouts of this
+# repository) whose half-written files are not this tree's to judge.
+SKIP_DIR_NAMES = frozenset({"node_modules", ".venv", "dist", ".git", ".claude"})
 
 __all__ = ["main"]
 
