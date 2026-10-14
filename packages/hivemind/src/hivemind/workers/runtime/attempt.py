@@ -50,6 +50,8 @@ Key invariants:
       then returns needs this second checkpoint or the Alarm is never sent at all.
     - A resume Handoff its loader refuses (tainted, roadmap 10.6d, or over-cleared) fails the
       attempt in `begin_attempt` before the role starts: the role never sees it.
+    - A resume Handoff the store does not hold starts the attempt fresh, with a log line naming
+      its ids: nothing refused it, so it is no Alarm, and it never ends the runtime.
 
 See Also:
     - .claude/codingrules.md section 5.2 for the module-split rule this class follows.
@@ -67,11 +69,13 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from hivemind.cell import HoneyClearance
+from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reap
 from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError
 from hivemind.memory import (
     ClearanceError,
     Handoff,
+    HandoffNotFoundError,
     TaintedMemoryError,
     read_handoff,
     write_checkpoint,
@@ -103,6 +107,8 @@ if TYPE_CHECKING:
     from hivemind.workers.runtime.loop import WorkerRuntime
 
 __all__ = ["AttemptManager", "begin_attempt"]
+
+log = get_logger(__name__)
 
 
 class AttemptManager:
@@ -335,13 +341,17 @@ async def begin_attempt(runtime: WorkerRuntime, assign: TaskAssign) -> None:
     (tainted, roadmap 10.6d, or above this attempt's clearance) is never resumed from: the attempt
     fails with a WORKER_CRASHED Alarm naming the refusal (ids only, never the Handoff's text)
     before the role starts, so the Warden's own escalation policy decides what follows, instead of
-    the refusal ending the runtime.
+    the refusal ending the runtime. A Handoff this Cell's store does not hold is no refusal: the
+    reference named a document that is not here (the Queen sends the reference alone when she has
+    no copy, and a Warden that was not the one to write it has none either), so the attempt starts
+    fresh, as ADR-0024 says of a Handoff that cannot be read, rather than end the runtime on it.
 
     Args:
         runtime: The WorkerRuntime starting this attempt, already RUNNING with `assign` set.
         assign: The TaskAssign being started.
     """
     resume_from: Handoff | None = None
+    summary = "Started."
     if assign.resume_from is not None:
         allowance = HoneyClearance.from_wire(assign.clearance)
         try:
@@ -353,7 +363,16 @@ async def begin_attempt(runtime: WorkerRuntime, assign: TaskAssign) -> None:
                 AlarmDetails(kind=AlarmKind.WORKER_CRASHED, detail=str(refusal), reason=reason),
             )
             return
-    await runtime._reporter.send_progress(TaskStage.STARTED, "Started.")
+        except HandoffNotFoundError:
+            # Ids only: which Handoff was asked for, never anything it said.
+            log.warning(
+                "workers.runtime.handoff_not_held",
+                worker_id=runtime._ctx.worker_id,
+                task_id=assign.task_id,
+                event_id=assign.resume_from.event_id,
+            )
+            summary = "Started fresh: the Handoff it was to resume from is not in this store."
+    await runtime._reporter.send_progress(TaskStage.STARTED, summary)
     runtime._attempt.start(resume_from)
 
 
