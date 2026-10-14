@@ -39,12 +39,17 @@ from __future__ import annotations
 
 import pytest
 from e2e.swarm.colony.trail import about, bees_of, named
-from e2e.swarm.diagnose import WRONG_ADDRESS, findings_of, for_device, run_case
+from e2e.swarm.diagnose import WRONG_ADDRESS, findings_of, for_device, outcome_of, run_case
 from e2e.swarm.diagnose import reversible as rev
+from e2e.swarm.diagnose import unplugged as stand
 from e2e.swarm.diagnose.reversible import Mended
+from e2e.swarm.diagnose.scripts import CHECKED
+from e2e.swarm.diagnose.unplugged import Unplugged
 from e2e.swarm.image import device_image_or_skip
 
+from hivemind.cell import RequestOrigin
 from hivemind.pheromone import PheromoneEvent
+from waggle.messages.swarm import RuntimeLevel
 
 pytestmark = pytest.mark.e2e
 
@@ -148,3 +153,84 @@ def test_the_findings_reach_the_hive_as_nectar_after_the_link_is_back(run: Mende
     assert back and finding.event.at >= back[0].at
     assert "FIXED" in run.findings and "CAUSE:" in run.findings
     assert run.gateway in run.findings or "hive.test" in run.findings
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The Hive Stand's end: a colonized device is unplugged
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def unplugged(tmp_path_factory: pytest.TempPathFactory) -> Unplugged:
+    """Tell the Hive Stand's case once; every test below asserts over what it left behind."""
+    directory = tmp_path_factory.mktemp("unplugged")
+    return run_case(device_image_or_skip(), directory, stand.unplugged_setup(), stand.unplugged)
+
+
+def _since_unplugged(run: Unplugged) -> list[PheromoneEvent]:
+    """Everything the Hive's trail recorded from the moment the cable was pulled.
+
+    The enrolment has a hold of its own (a device whose packet has not dialled yet is held a
+    moment, with no task), so a claim about *the* hold reads only what came after the cut.
+    """
+    return [event for event in run.trail if event.at >= run.cut_at]
+
+
+def _look_of(run: Unplugged) -> str:
+    """The id of the task the Queen made to look into the device from the Hive Stand's end."""
+    [look] = [t for t in run.tasks if t.spec.objective.startswith(f"{_LOOK} {run.node.cell_id}")]
+    return str(look.id)
+
+
+def test_the_hold_makes_the_hive_stands_look_for_a_device_that_holds_a_task(
+    unplugged: Unplugged,
+) -> None:
+    run = unplugged
+    [look] = [t for t in run.tasks if str(t.id) == _look_of(run)]
+    after = _since_unplugged(run)
+    [held] = [e for e in named(after, "swarm.node_held") if e.subject_id == run.node.device_id]
+    made = [
+        e
+        for e in named(after, "queen.decided")
+        if e.subject_id == run.node.device_id and e.payload.get("detail") == "task_created"
+    ]
+
+    # The device was colonized and holding a task; the hold made one task, the Queen's own, pinned
+    # to the Hive Stand and run by W0, a Warden other than the device's, on a Cell other than its.
+    assert held.payload["level"] == RuntimeLevel.COLONIZED.value and held.payload["tasks"] == 1
+    assert [e.payload["task_id"] for e in made] == [str(look.id)]
+    assert look.spec.origin is RequestOrigin.QUEEN and "cell:hive_stand" in (
+        look.spec.capabilities or ()
+    )
+    assert look.warden_id != run.node.warden_id and look.cell_id != run.node.cell_id
+
+
+def test_w0_runs_its_own_drone_and_the_look_succeeds(unplugged: Unplugged) -> None:
+    run = unplugged
+    mine = about(run.trail, _look_of(run))
+    [look] = [t for t in run.tasks if str(t.id) == _look_of(run)]
+    bees = [e for e in named(mine, "worker.spawned") if e.node_id != run.node.node_id]
+
+    # A Drone of the Hive Stand's own Warden did the looking, and said what it saw.
+    assert len(bees) == 1 and bees[0].payload["role"] == "DRONE"
+    assert len(named(mine, "task.succeeded")) == 1
+    assert look.outcome is not None and CHECKED in look.outcome.summary
+
+
+def test_the_finding_is_deposited_as_nectar_before_the_hold_decides(unplugged: Unplugged) -> None:
+    run = unplugged
+    look, after = _look_of(run), _since_unplugged(run)
+    [held] = [e for e in named(after, "swarm.node_held") if e.subject_id == run.node.device_id]
+    [deposit] = outcome_of(run.arrivals, look)
+    [decided] = [
+        e
+        for e in named(after, "queen.decided")
+        if e.subject_id == run.node.device_id and e.payload.get("reason") == "unreachable_decision"
+    ]
+    succeeded = named(about(run.trail, look), "task.succeeded")[0]
+
+    # The order the criterion states, on the trail: the look is done, its finding is stored, and
+    # only then does the grace end and the Queen decide (a colonized device's tasks are re-placed).
+    assert succeeded.at <= deposit.event.at < decided.at
+    assert (decided.at - held.at).total_seconds() >= stand.GRACE_S
+    assert decided.payload["detail"] == "replace"
