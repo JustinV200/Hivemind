@@ -102,6 +102,7 @@ from hivemind.memory.thresholds import (
 from hivemind.pheromone import WardenEvent
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.attendant import InboxItem, InboxKind
+from hivemind.wardens.deps import device_outage
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.ticks.alarms import resume_from_handoff, retire_sub_bee
@@ -253,10 +254,14 @@ def _takes_context_orders(warden: Warden, sub_bee: SubBee) -> bool:
     state still reads RUNNING until its next Heartbeat, and an order then would mark it for a
     successor this Warden must not start (`SubBee.awaits_successor`), the task being hers.
     """
+    outage = device_outage(warden._deps)
     return (
         sub_bee.state is WorkerState.RUNNING
         and not sub_bee.cancelled
         and sub_bee.task_id not in warden._clustered_tasks
+        # An outage paused it (roadmap 11.9): it stops at its own Handoff, and a second order
+        # from here would mark it for a successor started while the Warden is cut off.
+        and not (outage is not None and outage.is_holding(sub_bee.task_id))
     )
 
 
@@ -308,6 +313,10 @@ async def record_heartbeat(warden: Warden, worker_id: str, heartbeat: Heartbeat)
     elif sub_bee.has_ended:
         # Nothing else would ever end this row (no TaskResult or Alarm follows), so it goes now:
         # stopped, its link closed and its slot freed for a parked assignment (module docstring).
+        # A bee an outage paused leaves its Handoff with the outage first, which resumes from it.
+        outage = device_outage(warden._deps)
+        if outage is not None:
+            outage.note_handoff(sub_bee.task_id, sub_bee.last_handoff)
         await retire_sub_bee(warden, sub_bee)
 
 

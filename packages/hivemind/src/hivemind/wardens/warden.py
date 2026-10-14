@@ -87,6 +87,7 @@ from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.isolation import admit_resume, taint_own_memory
 from hivemind.wardens.local_pool import SubBeeSlots
 from hivemind.wardens.local_pool.hosting import HostedCell, ModelServerHost, RunningServer
+from hivemind.wardens.offline import is_link_down, reconcile, wake_future
 from hivemind.wardens.quarantine import QuarantineRecord, admit_respawn, carry_out, quarantine_child
 from hivemind.wardens.spawn import SubBee
 from hivemind.wardens.state import WardenState
@@ -312,16 +313,9 @@ async def _run_tick(warden: Warden) -> None:
     """Drain what is ready, order it, act on it, then heartbeat -- Warden's one tick."""
     receive_tasks = _receive_tasks_snapshot(warden)
     heartbeat_task = _heartbeat_deadline_task(warden)
-    # Throwaway: only wakes this wait early when stop() is called mid-tick.
-    stop_task: asyncio.Task[bool] = asyncio.ensure_future(warden._stop.wait())
-    waitables: set[asyncio.Future[Any]] = {*receive_tasks.values(), heartbeat_task, stop_task}
-    # reaping (not a bare reap after this line) so stop_task is never left pending even when this
-    # tick is cancelled from outside -- a sub-bee's own runtime_task, run_hive's TaskGroup tearing
-    # down, a test (codingrules section 11; this dispatch's own rule 1).
-    async with reaping(stop_task):
-        done, _pending = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
-    if stop_task in done:
-        return
+    done = await _wait_for_work(warden, {*receive_tasks.values(), heartbeat_task})
+    if done is None:
+        return  # stop() was called while this tick waited.
     items = _drain_items(warden, receive_tasks, done)
     if heartbeat_task in done:
         warden._heartbeat_task = None
@@ -346,8 +340,31 @@ async def _run_tick(warden: Warden) -> None:
         # this Warden STOPPED -- a terminal state `settle_after_tick`'s own `assert_transition`
         # would (correctly) refuse to move out of.
         return
+    # After the items, so what the Queen sent on a return (a cancel of a task she re-placed) is
+    # acted on before this Warden starts its own paused tasks again; before the settle, so the
+    # state it settles from already reflects the link (roadmap 11.9).
+    await reconcile(warden)
     await ticks.assign.settle_after_tick(warden)
     await watch_tick(warden)  # Roadmap step 11.10: only while idle in WATCH, once state settled.
+
+
+async def _wait_for_work(
+    warden: Warden, waitables: set[asyncio.Future[Any]]
+) -> set[asyncio.Future[Any]] | None:
+    """Wait until one of `waitables` is done; None if `stop()` ended the wait instead."""
+    # Throwaway: only wakes this wait early when stop() is called mid-tick.
+    stop_task: asyncio.Task[bool] = asyncio.ensure_future(warden._stop.wait())
+    # Throwaway too (roadmap 11.9): a link or Cell that was lost or came back ends the wait at once,
+    # where the heartbeat deadline would only notice it up to one interval later.
+    wake_task = wake_future(warden)
+    # reaping (not a bare reap after the wait) so both throwaways are never left pending even when
+    # this tick is cancelled from outside -- a sub-bee's own runtime_task, run_hive's TaskGroup
+    # tearing down, a test (codingrules section 11; this dispatch's own rule 1).
+    async with reaping(stop_task), reaping(wake_task):
+        done, _pending = await asyncio.wait(
+            {*waitables, stop_task, wake_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+    return None if stop_task in done else done
 
 
 def _drain_items(
@@ -364,7 +381,9 @@ def _drain_items(
             warden._receive_tasks.pop(link_id, None)
             envelope = task.result()
             if envelope is None:
-                continue  # The link ended; a later phase adds OFFLINE bookkeeping for this.
+                # The link ended for good: a reconnecting link (`hivemind.wardens.offline`) never
+                # ends before it is closed, and an in-process one only when its peer closes it.
+                continue
             items.append(to_inbox_item(envelope, link_id))
     return items
 
@@ -476,25 +495,6 @@ async def _host_models(warden: Warden) -> None:
     await warden._models.start_all()
 
 
-async def _sync_trail(warden: Warden) -> None:
-    """Ship this node's own trail segment to the Queen, if this Warden has a sync to ship it with.
-
-    Best-effort by design (codingrules section 12: the merge is idempotent by event id, so a send
-    lost to a closing link costs nothing but a repeat next time). A `WardenDeps.trail_sync` of
-    `None` -- every composition root but `hivemind.cli.in_cell` -- makes this a no-op.
-    """
-    if warden._deps.trail_sync is None:
-        return
-    if not await warden._deps.trail_sync.sync():
-        # The Queen link is gone; the segment stays local and the next successful sync (or the
-        # next Cell's own) re-sends it. Never a reason to end this Warden's tick loop or its stop.
-        await _record_event(warden, "warden.offline")
-
-
-async def _record_event(warden: Warden, kind: str, **payload: JsonValue) -> None:
-    """Build and record one warden.* WardenEvent, subject to this Warden's own id."""
-    event = WardenEvent(
-        id=new_event_id(warden._deps.clock),
 async def _release_lease(warden: Warden) -> dict[str, JsonValue]:
     """Give the lease back for `stop()`; a Cell that cannot confirm it is recorded, never raised.
 
@@ -512,6 +512,27 @@ async def _release_lease(warden: Warden) -> dict[str, JsonValue]:
     return {}
 
 
+async def _sync_trail(warden: Warden) -> None:
+    """Ship this node's own trail segment to the Queen, if this Warden has a sync to ship it with.
+
+    Best-effort by design (codingrules section 12: the merge is idempotent by event id, so a send
+    lost to a closing link costs nothing but a repeat next time). A `WardenDeps.trail_sync` of
+    `None` -- every composition root but `hivemind.cli.in_cell` -- makes this a no-op, and so is a
+    link its Warden knows is down: the reconnection ships the segment (roadmap 11.9), and trying
+    meanwhile would only record `warden.offline` again on every heartbeat.
+    """
+    if warden._deps.trail_sync is None or is_link_down(warden):
+        return
+    if not await warden._deps.trail_sync.sync():
+        # The Queen link is gone; the segment stays local and the next successful sync (or the
+        # next Cell's own) re-sends it. Never a reason to end this Warden's tick loop or its stop.
+        await _record_event(warden, "warden.offline")
+
+
+async def _record_event(warden: Warden, kind: str, **payload: JsonValue) -> None:
+    """Build and record one warden.* WardenEvent, subject to this Warden's own id."""
+    event = WardenEvent(
+        id=new_event_id(warden._deps.clock),
         hive_id=warden._deps.identity.hive_id,
         node_id=warden._deps.identity.node_id,
         at=warden._deps.clock.now(),

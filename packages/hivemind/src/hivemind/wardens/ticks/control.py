@@ -71,13 +71,14 @@ from hivemind.common.logging import get_logger
 from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
 from hivemind.supervision import Cancel, Handoff, Intervention, to_wire
 from hivemind.supervision.attendant import InboxItem
+from hivemind.wardens.deps import device_outage
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.state import clustering_update
 from hivemind.wardens.ticks.alarms import rebind_sub_bee, retire_sub_bee
 from waggle.envelope import Hop, wrap
-from waggle.ids import WorkerId
+from waggle.ids import TaskId, WorkerId
 from waggle.messages.cell import LeaseReleased, ReleaseCause
 from waggle.messages.cell.snapshot import CellRollbackReply, CellSnapshotReply
 from waggle.messages.forage import CeilingsSet, PlanWritten, SourceEvict, SourceRemovalCause
@@ -144,6 +145,7 @@ async def forward_control(
     # own ACTIVE <-> CLUSTERED move; `clustering_update`'s own docstring explains the decision.
     if item.principal == _QUEEN_LINK:
         clustering_update(item.task_id, payload, warden._clustered_tasks)
+        _drop_hold(warden, item.task_id, payload)
     if sub_bee is None:
         return
     if item.principal == _QUEEN_LINK and _is_pause(payload):
@@ -166,6 +168,20 @@ async def forward_control(
     # A sub-bee whose own link has already gone is one this control message no longer concerns:
     # it is ending or already ended, so there is nothing left to relay this to.
     await send_guarded(sub_bee.link, wrap(payload, hop, clock=warden._deps.clock))
+
+
+def _drop_hold(warden: Warden, task_id: TaskId | None, payload: _Control) -> None:
+    """Let go of a task an outage paused when the Queen pauses, resumes or cancels it herself.
+
+    Her word on a task wins over this Warden's own pause of it (roadmap 11.9): a task she
+    cancelled is not started again on return, and one she paused is hers to resume. A lever that
+    leaves the task where it is (compact, checkpoint, rebind) keeps the hold.
+    """
+    outage = device_outage(warden._deps)
+    if outage is None or task_id is None:
+        return
+    if _is_pause(payload) or _is_cancel(payload) or isinstance(payload, TaskResume):
+        outage.forget(task_id)
 
 
 def _is_pause(payload: _Control) -> bool:
@@ -288,6 +304,9 @@ async def handle_release_lease(warden: Warden, payload: Intervene) -> None:
         # (cancel-and-reap only as a bounded fallback), its receive task reaped before its link
         # closes (codingrules section 11), its row dropped and its slot freed.
         await retire_sub_bee(warden, sub_bee)
+    outage = device_outage(warden._deps)
+    if outage is not None:
+        outage.take()  # Tasks an outage paused had this lease to resume on: they are hers now.
     # Roadmap step 8.3: a model server dies with the lease that started it, so the Hive must stop
     # seeing its sources now, not when the dead process is next noticed.
     if warden._models is not None:

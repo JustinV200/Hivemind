@@ -1,4 +1,93 @@
 # hivemind.wardens.offline
 
-The offline package covers what a Warden does when its Cell loses its connection to the Queen:
-what continues, what pauses, and how it catches the Queen up when the connection returns.
+What a Warden does when it is cut off, and how it catches the Queen up. It applies to a Warden that
+dials the Queen from another machine (a colonized device's, ADR-0052) and, for the pause and the
+resume alone, to a device's Warden on the Hive Stand whose Cell went away (Level 0). The Hive
+Stand's own Warden and every Warden on an in-process link never go OFFLINE. The decisions are in
+`docs/adr/0053-nucs-warden-migration-and-offline-operation.md`; codingrules 8.8 and 15 are the
+principle (a disconnected Warden keeps working within what it owns, queues what must be reported,
+never grows, and is clustered past a limit).
+
+## The link
+
+`ReconnectingQueenLink` is a `Transport` the Warden holds instead of a bare client. While it is up,
+every send is forwarded. When it is lost the link reports OFFLINE to its watchers, redials with
+capped backoff (0.5 s doubling to 30 s), and catches the Queen up in a fixed order before it
+reports ONLINE again:
+
+```
+ link lost ──► OFFLINE ──► dial ──► announce ──► replay queue ──► record + ship trail ──► ONLINE
+                 ▲  (backoff)   cell.ready          (in order,        warden.reconnected     │
+                 │              capacity_report      one at a time)   + signed segment       │
+                 └───────────── a link that dies part-way is mended again from the dial ◄─────┘
+                                what was sent in the meantime is queued; the queue is drained a
+                                second time under the lock that flips the link, then the held
+                                questions go out, then ONLINE: nothing is left behind
+```
+
+`receive` never ends before `close`, so a Warden that reads the link waits through an outage
+instead of spinning on an exhausted iterator. The dial, the announcement and the after-reconnect
+step are injected (`QueenDialer`, `Announcer`, `AfterReconnect`), so one class serves any remote
+Warden and a test drives it with scripted ones.
+
+## What is sent while the link is down
+
+One pure table (`policy.decide_offline`), tested row by row:
+
+| Message | While cut off |
+|---|---|
+| `task.result`, `task.progress` at a checkpoint or a pause, `supervision.alarm_raised`, `forage.request`, `cell.lease_released` | QUEUE: durably, in order, sent after the reconnection |
+| `supervision.question` | HOLD: in memory, sent after the queue; its sub-bee stays blocked |
+| `cell.request` | REFUSE: `OfflineRefusedError` (a `ConnectionLostError`), because an offline Warden cannot grow |
+| `supervision.heartbeat`, `cell.heartbeat`, `task.progress` at any other stage | DROP: stale when the link returns |
+| anything the table does not name | REFUSE, as on a dead link |
+
+A queued *event* is replayed under the id it was queued with, so the Queen's replay window drops it
+if it had in fact arrived and only its acknowledgement was lost. A queued *request* (the Warden is
+owed an answer, and one to a request the window dropped would never come) goes out in a fresh
+envelope, a new id and time, and the Queen deduplicates it by the payload's own durable id.
+
+## The freeze and the way back
+
+`DeviceDeps.outage` (an `Outage`) and, for a Warden that dials the Queen, `DeviceDeps.remote` (the
+link and `max_offline_s`) switch this on. Each tick `reconcile` compares the Warden with its link and
+its Cell:
+
+- The link goes down: `enter_offline` moves the Warden to OFFLINE (`warden.offline`), leaves every
+  shared grant as it is (an expiry while cut off is not a revocation), and tells each sub-bee whose
+  model binding is not entirely local to stop at a Handoff. A Nuc's bees keep running.
+- Past `[supervision] max_offline_s`: `cluster_fully` pauses everything left and joins the existing
+  Clustering bookkeeping (CLUSTERED, `warden.clustered`). Those tasks are the Queen's to resume with
+  a fresh `task.assign`.
+- The link returns: `leave_offline` goes to WATCH if no sub-bee runs (Appendix C's `OFFLINE -> WATCH`)
+  or ACTIVE if some do. After `RESUME_SETTLE_S`, so that the Queen speaks first, each paused task
+  starts again through the ordinary `handle_assign` from the Handoff its bee wrote, on the same
+  attempt. A cancel, a pause or a new attempt from the Queen drops the Warden's own hold.
+- A Level 0 device Warden: the swarm gate's `cell_lost` pauses its bees the same way (no OFFLINE);
+  `cell_found` gives the old lease back, leases the device again (a refusal is asked again after
+  `RESUME_RETRY_S`) and resumes.
+
+## Public API (roadmap steps 11.6a, 11.9)
+
+- `ReconnectingQueenLink`, `LinkPhase`; `Reconnection`, `QueenDialer`, `Announcer`, `AfterReconnect`,
+  `TrailReconnect`, `WardenRecord`.
+- `OfflineAction`, `OfflineRefusedError`, `decide_offline`, `owes_reply`; `OfflineOutbox`,
+  `open_outbox`.
+- `Outage`, `HeldTask`, `RemoteDeps`, `QueenLinkView`; `is_link_down`, `outage_of`, `remote_of`,
+  `wake_future`.
+- `reconcile`, `enter_offline`, `cluster_fully`, `cut_cell`, `leave_offline`, `RESUME_SETTLE_S`,
+  `RESUME_RETRY_S`.
+
+The tick handlers in `hivemind.wardens.ticks` never import this package (it imports them); they
+reach an outage through `hivemind.wardens.deps.device_outage`. Active reconnection (diagnosing why
+the link went, wave 3D) will extend this package.
+
+## How to test this
+
+```bash
+uv run --frozen pytest packages/hivemind/tests/unit/wardens/offline -q
+```
+
+`test_link_socket.py` runs the link against a real `WebSocketServer` that goes away and comes
+back; the other link tests script the Queen in memory (`builders/offline.py`); the Warden-level
+tests run a real Warden on a device's deps (`builders/offline_warden.py`).

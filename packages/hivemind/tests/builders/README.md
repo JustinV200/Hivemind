@@ -144,3 +144,21 @@ that allows everything except what a test denies.
 
 A `DeviceScript` is a mutable dataclass that is read afresh on every request: a test that changes
 one builds its own rather than editing a module-level script other tests share.
+
+## `offline.py`, `offline_warden.py` (roadmap 11.9, a Warden cut off from the Queen)
+
+`offline.py` is the link's side. `Wire` (from `make_wire`) wraps each message a Warden sends the
+Queen (`result`, `progress`, `alarm`, `forage_request`, `question`, `cell_request`, `heartbeat`,
+`cell_heartbeat`, `lease_released`, `trail_segment`) in an envelope addressed the way the Warden
+addresses it. `AutoClock` is a FakeClock whose sleeps pass at once and are recorded, so a whole
+backoff schedule runs in no time and the test reads it back. `ScriptedQueen` is a `QueenDialer`: it
+hands out in-memory connections, keeps every frame the Warden puts on them, fails or holds back the
+next dials on cue (`fail_dials`, `block_dials`) and drops or closes the current connection.
+`LinkRig` puts a `ReconnectingQueenLink` over it with the reader a Warden's receive task is, and
+`until` waits for a phase, a dial or a frame without a timer.
+
+`offline_warden.py` is the Warden's side: `start_offline_scene` starts a real `Warden` on a device's
+deps (`DeviceDeps` with an `Outage`, and a `RemoteDeps` over a `SwitchLink` the test flips for a
+Warden that dials the Queen) with one task running `pausable`, a role that works until told to hand
+off, writes a Handoff and stops, and, started again from it, records what it resumed from.
+`OfflineScene.cut`, `restore` and `wait_paused` drive and observe the outage.

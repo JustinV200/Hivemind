@@ -61,6 +61,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from hivemind.basket import BasketStore, ResidentBasket
 from hivemind.cell import NoopSnapshotter, RealCellSource, Snapshotter
@@ -111,9 +112,13 @@ from waggle.messages.capping import CheckKind
 from waggle.messages.task import WorkerRole
 from waggle.transport.base import Transport
 
+if TYPE_CHECKING:
+    # Type-only: the offline package imports the tick handlers, which import this module.
+    from hivemind.wardens.offline.outage import Outage, RemoteDeps
+
 DEFAULT_DISK_RESERVE_MB = 1024  # Mirrors hivemind.manifest.schema.core.DEFAULT_DISK_RESERVE_MB.
 
-__all__ = ["DEFAULT_DISK_RESERVE_MB", "DeviceDeps", "WardenDeps"]
+__all__ = ["DEFAULT_DISK_RESERVE_MB", "DeviceDeps", "WardenDeps", "device_outage"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,9 +135,18 @@ class DeviceDeps:
         release_lease_when_idle: Whether the Warden gives its lease back the moment it settles to
             WATCH with no sub-bee and no assignment waiting, and leases again when the next
             `TaskAssign` arrives (ADR-0054: a borrowed device keeps no Hive scratch between tasks).
+        outage: What the Warden remembers while it is cut off (roadmap 11.9): the tasks it paused
+            at a Handoff, when the cut began, and the wake that makes its tick look at it. None
+            keeps today's behaviour: a Level 0 Warden then lets a lost Cell's commands fail.
+        remote: Set for a Warden that dials the Queen from the device itself (Level 1): its
+            reconnecting link, whose state decides OFFLINE, and the limit past which it clusters
+            fully. None for a Warden on the Hive Stand, whose Queen link is in process and never
+            goes down.
     """
 
     release_lease_when_idle: bool = True
+    outage: Outage | None = None
+    remote: RemoteDeps | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +350,21 @@ class WardenDeps:
     hive_verifier: Verifier | None = None
     # Roadmap step 11.6: set only by the Swarm's composition root (`hivemind.cli.compose.swarm`).
     device: DeviceDeps | None = None
+
+
+def device_outage(deps: WardenDeps) -> Outage | None:
+    """Return the outage a device Warden's deps carry, or None for every other Warden.
+
+    The one place a tick handler reads it from, so the handlers need not import the offline
+    package (which imports them).
+
+    Args:
+        deps: The Warden's collaborators.
+
+    Returns:
+        `deps.device.outage`, or None when there is no device or it keeps no outage.
+    """
+    return None if deps.device is None else deps.device.outage
 
 
 def _default_lane_for_grant(grant_id: str, goal_id: str, tempo: Tempo) -> CallGate:

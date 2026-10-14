@@ -143,7 +143,11 @@ Warden never provisions Cells itself.
   from a Handoff the store labels tainted is refused at the `isolation` point
   (`guard.scope.tainted_handoff`), its grant dropped, the refusal shipped and the task reported
   held. `WardenAction.TAINT_MEMORY` is the order's autopilot action.
-- `wardens.offline`: placeholder; populated in phase 11 (steps 11.9 and 11.9a).
+- `wardens.offline` (roadmap steps 11.6a, 11.9): what a Warden does when it is cut off, and how it
+  catches the Queen up: `ReconnectingQueenLink` (a `Transport` that redials, re-announces, replays a
+  durable outbox and ships the trail), the pure table that routes each send while the link is down,
+  `Outage` (the tasks paused at a Handoff) and the freeze and the way back (`reconcile`); see its
+  README.
 - `wardens.watch` (roadmap step 11.10, ADR-0054): Watch mode. A Warden with no bees working, no
   assignment parked for its grant and a Cell link that is up takes a read-only observation of its
   Cell every `[supervision.watch] interval_s` (`observer`, through a `WatchProbe`: the Hive Stand's
@@ -198,10 +202,19 @@ Cell's Warden leave it `None` and behave exactly as before.
 - A lost link (`Warden.cell_lost` / `Warden.cell_found`, `ticks.lease.report_cell_lost`): the
   swarm gate calls `cell_lost` when the device drops. The Warden raises one `CELL_UNREACHABLE`
   Alarm per loss through the ordinary Alarm path (it keeps heartbeating on the Hive Stand, so the
-  Queen's liveness would never notice) and holds off the idle release until `cell_found`. What
-  becomes of the tasks on the device is the Queen's, and a later step's.
+  Queen's liveness would never notice) and holds off the idle release until `cell_found`. With an
+  `Outage` in `DeviceDeps` (roadmap 11.9) it also pauses its running sub-bees at a Handoff, so their
+  commands stop failing against a Cell that is not there, and when the device is back it gives the
+  old lease back, leases again and resumes them from their Handoffs (`wardens.offline`). What else
+  becomes of the tasks on the device is the Queen's.
 - A session that cannot open right after the lease did (`open_lease`) gives the lease back and
   waits in WATCH, like a refused lease does, rather than ending the run loop.
+- A device error while the Warden checks a claim (`ticks.results`, `DEVICE_ERRORS`: a closed
+  session, a request the device refused, a link that dropped) never ends its loop: nothing was
+  verified, so the task is reported FAILED with the error's class, and the Warden carries on.
+  `Warden.stop()` records a lease the Cell cannot release on `warden.stopped` instead of raising.
+- A Warden that dials the Queen from the device itself (Level 1, `cli.in_cell` in borrowed mode)
+  carries `DeviceDeps.remote` too and goes OFFLINE when its reconnecting link is lost.
 
 ## How to test this
 

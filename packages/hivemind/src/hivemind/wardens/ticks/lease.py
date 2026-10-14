@@ -24,7 +24,11 @@ It gives its lease back when it settles to WATCH with nothing left to supervise
 scratch between tasks (ADR-0054). It tells the Queen once per loss when its Cell's link drops
 (`report_cell_lost`), and holds off that idle release while the link is down, since a release
 nothing can confirm only orphans the lease. And a session that cannot open right after the lease
-did (the device went away between the two) is a WATCH, not a crash (`open_lease`).
+did (the device went away between the two) is a WATCH, not a crash (`open_lease`). A device
+Warden with an `Outage` (`hivemind.wardens.offline`) also wakes its tick on each loss and each
+return, so that its running sub-bees are paused at a Handoff for the loss and started again on the
+return, and the idle release waits for any task it has paused. `release_lease` is the one way a
+lease is given back, shared with the offline return, which leases the device again.
 
 Key invariants:
     - The source's `lease` is never called unless the `lease_creation` check allowed it: a Warden
@@ -58,14 +62,15 @@ from hivemind.guard import (
     warden_set,
 )
 from hivemind.pheromone import WardenEvent
+from hivemind.wardens.deps import device_outage
 from hivemind.wardens.state import WardenState, assert_transition
 from hivemind.wardens.ticks.alarms import send_alarm_to_queen
+from waggle.errors import TransportError
 from waggle.ids import new_event_id
 from waggle.messages.forage import SourceRemovalCause
 from waggle.messages.supervision import AlarmKind
 
 if TYPE_CHECKING:
-from waggle.errors import TransportError
     from hivemind.wardens.warden import Warden
 
 log = get_logger(__name__)
@@ -133,11 +138,6 @@ async def open_lease(warden: Warden) -> None:
     await _record(warden, "warden.active")
 
 
-async def _give_back(warden: Warden, lease: RealCellLease) -> None:
-    """Release `lease` and forget it, or keep it for a retry when the Cell cannot confirm it."""
-    try:
-        await lease.release()
-    except RELEASE_FAILURES as error:
 async def release_lease(warden: Warden, lease: RealCellLease) -> None:
     """Stop what `lease` hosts, then give it back; it stays held, ORPHANED, if the Cell is silent.
 
@@ -151,6 +151,11 @@ async def release_lease(warden: Warden, lease: RealCellLease) -> None:
     await _give_back(warden, lease)
 
 
+async def _give_back(warden: Warden, lease: RealCellLease) -> None:
+    """Release `lease` and forget it, or keep it for a retry when the Cell cannot confirm it."""
+    try:
+        await lease.release()
+    except RELEASE_FAILURES as error:
         # ORPHANED (`RealCellLease.release`): `warden._lease` keeps it, so an idle release or
         # `stop()` tries again once the Cell can answer; forgetting it here would leave it for good.
         log.warning("warden.release_unconfirmed", lease_id=lease.id, error=type(error).__name__)
@@ -179,10 +184,11 @@ async def release_idle_lease(warden: Warden) -> None:
         return
     if warden._sub_bees or warden._pending:
         return
-    # A model server dies with the lease that started it, so the Hive stops seeing it now.
-    if warden._models is not None:
-        await warden._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
-    await _give_back(warden, lease)
+    # Tasks an outage paused resume on this very lease once the link is back (`offline.resume`).
+    outage = device_outage(warden._deps)
+    if outage is not None and outage.has_held:
+        return
+    await release_lease(warden, lease)
 
 
 async def report_cell_lost(warden: Warden, reason: str) -> None:
@@ -202,6 +208,7 @@ async def report_cell_lost(warden: Warden, reason: str) -> None:
         return  # Already told for this loss.
     # Set before the first await, so two reports of one loss can never both pass the check above.
     warden._cell_lost = True
+    _wake(warden)  # The tick, not this caller's task, pauses the sub-bees (`offline.reconcile`).
     await send_alarm_to_queen(
         warden,
         kind=AlarmKind.CELL_UNREACHABLE,
@@ -218,6 +225,14 @@ def clear_cell_lost(warden: Warden) -> None:
         warden: The owning Warden.
     """
     warden._cell_lost = False
+    _wake(warden)  # Tasks paused for the loss resume on the tick this wakes.
+
+
+def _wake(warden: Warden) -> None:
+    """Wake `warden`'s tick if it has an outage to look at; the call may come from any task."""
+    outage = device_outage(warden._deps)
+    if outage is not None:
+        outage.nudge()
 
 
 async def _may_lease(warden: Warden, cell: Cell) -> bool:

@@ -101,6 +101,7 @@ MAX_REASON_CHARS = 2_000  # Mirrors waggle.messages.task.reports.MAX_SUMMARY_CHA
 
 __all__ = [
     "MAX_REASON_CHARS",
+    "cell_context",
     "handle_alarm_action",
     "rebind_sub_bee",
     "report_refused",
@@ -148,7 +149,7 @@ async def _respawn(
     session, is no longer available to respawn onto; returns the fresh sub-bee, or None.
     """
     grant = warden._grants.get(sub_bee.assignment.grant_id)
-    ctx = _cell_context(warden)
+    ctx = cell_context(warden)
     if grant is None or ctx is None:
         await _escalate(warden, sub_bee, alarm)
         return None
@@ -165,7 +166,7 @@ async def _rebind(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, binding: 
     wired or finds nothing stronger than the binding that just failed.
     """
     grant = warden._grants.get(sub_bee.assignment.grant_id)
-    ctx = _cell_context(warden)
+    ctx = cell_context(warden)
     if grant is None or ctx is None:
         await _escalate(warden, sub_bee, alarm)
         return
@@ -219,7 +220,7 @@ async def rebind_sub_bee(warden: Warden, sub_bee: SubBee, target_binding: str) -
         target_binding: The `[llm.slots]` manifest key to respawn on.
     """
     grant = warden._grants.get(sub_bee.assignment.grant_id)
-    ctx = _cell_context(warden)
+    ctx = cell_context(warden)
     if grant is None or ctx is None:
         return  # Defensive: nothing to respawn onto; the next liveness sweep notices the gap.
     queen = queen_principal(warden._deps.identity.hive_id)
@@ -258,7 +259,7 @@ async def report_refused(warden: Warden, assignment: TaskAssign, reason: str) ->
     await send_guarded(warden._deps.queen_link, message)  # A gone link is logged, not raised.
 
 
-def _cell_context(warden: Warden) -> WardenCellContext | None:
+def cell_context(warden: Warden) -> WardenCellContext | None:
     """Return this Warden's own Cell context for a respawn, or None when it holds no lease."""
     if warden._cell is None or warden._lease is None or warden._session is None:
         return None
@@ -289,7 +290,7 @@ async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
         sub_bee: The stopped bee (`SubBee.awaits_successor`).
     """
     grant = warden._grants.get(sub_bee.assignment.grant_id)
-    ctx = _cell_context(warden)
+    ctx = cell_context(warden)
     if grant is None or ctx is None:
         # The Queen took the grant or the lease back: what happens to the task next is hers.
         await retire_sub_bee(warden, sub_bee)
@@ -473,9 +474,10 @@ async def retire_sub_bee(warden: Warden, sub_bee: SubBee, *, keep_slot: bool = F
 async def _send_to_queen(warden: Warden, alarm: AlarmRaised) -> None:
     """Wrap and send `alarm` to the Queen over this Warden's own queen link.
 
-    Codingrules 8.8 says Alarms queue while a Warden is disconnected; no outbox is wired for
-    that yet (this dispatch's own report), so an unreachable Queen simply never learns of this
-    Alarm from this hop -- `alarm.raised`/`alarm.handled` above are already durable on this
+    Codingrules 8.8: Alarms queue while a Warden is disconnected. A Warden that dials the Queen
+    holds a reconnecting link (`hivemind.wardens.offline`) that queues this one durably and sends
+    it, in order, once the link is back. On a link that is closed for good the Queen never learns
+    of it from this hop -- `alarm.raised`/`alarm.handled` above are already durable on this
     Warden's own trail segment regardless.
     """
     envelope = wrap(alarm, warden._deps.hop, clock=warden._deps.clock)
@@ -501,7 +503,7 @@ async def _send_result(
     # The Queen tears this Cell down the moment a FAILED result lands: ship the task's own trail
     # rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
     await ship_trail_before_result(warden)
-    # Codingrules 8.8 says results queue while disconnected; no outbox is wired for that yet
-    # (same gap as _send_to_queen above) -- this sub-bee is already retired either way.
+    # Codingrules 8.8: a result queues while disconnected, which a reconnecting link does
+    # (same as _send_to_queen above) -- this sub-bee is already retired either way.
     envelope = wrap(result, warden._deps.hop, clock=warden._deps.clock)
     await send_guarded(warden._deps.queen_link, envelope)

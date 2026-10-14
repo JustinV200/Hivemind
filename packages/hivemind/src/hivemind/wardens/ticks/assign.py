@@ -54,12 +54,17 @@ from hivemind.common.errors import ConflictError
 from hivemind.exoskeleton import AttachError
 from hivemind.memory import Handoff, HandoffNotFoundError
 from hivemind.pheromone import MemoryEvent, WardenEvent
+from hivemind.wardens.deps import device_outage
 from hivemind.wardens.errors import BindingRefusedError
-from hivemind.wardens.spawn import WardenCellContext, spawn_sub_bee
+from hivemind.wardens.spawn import spawn_sub_bee
 from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
-from hivemind.wardens.ticks.alarms import report_refused, retire_sub_bee, send_alarm_to_queen
+from hivemind.wardens.ticks.alarms import (
+    cell_context,
+    report_refused,
+    retire_sub_bee,
+    send_alarm_to_queen,
+)
 from hivemind.wardens.ticks.lease import release_idle_lease
-from hivemind.wardens.ticks.tools import comb_seams
 from waggle.ids import TaskId, new_event_id
 from waggle.messages.forage import GrantIssued, GrantRevoked
 from waggle.messages.supervision import AlarmKind
@@ -88,7 +93,8 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
     await _supersede(warden, assignment.task_id)
     # Before anything can spawn, so the resume path below finds the Handoff in this Warden's store.
     await store_inline_handoff(warden, assignment)
-    if warden._lease is None or warden._cell is None or warden._session is None:
+    ctx = cell_context(warden)  # None while this Warden holds no lease, Cell and session.
+    if ctx is None:
         await _retry_lease_or_escalate(warden, assignment)
         return
     grant = warden._grants.get(assignment.grant_id)
@@ -98,16 +104,6 @@ async def handle_assign(warden: Warden, assignment: TaskAssign) -> None:
     if not warden._sub_bee_slots.acquire():
         warden._pending[assignment.task_id] = assignment
         return
-    ctx = WardenCellContext(
-        warden_id=warden._warden_id,
-        deps=warden._deps,
-        ceiling=warden._ceiling,
-        cell=warden._cell,
-        lease=warden._lease,
-        session=warden._session,
-        hosting=warden._hosting_plan,
-        comb=comb_seams(warden),  # Roadmap 9.7: its Comb tools, their source and a retain sink.
-    )
     try:
         sub_bee = await spawn_sub_bee(ctx, assignment, grant)
     except AttachError as error:
@@ -143,6 +139,10 @@ async def _supersede(warden: Warden, task_id: TaskId) -> None:
         await retire_sub_bee(warden, sub_bee)
     warden._pending.pop(task_id, None)
     warden._clustered_tasks.discard(task_id)
+    outage = device_outage(warden._deps)
+    if outage is not None:
+        # A task this Warden paused for an outage (roadmap 11.9) is replaced by her new attempt too.
+        outage.forget(task_id)
 
 
 async def store_inline_handoff(warden: Warden, assignment: TaskAssign) -> None:

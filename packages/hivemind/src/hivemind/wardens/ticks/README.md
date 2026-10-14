@@ -22,7 +22,9 @@ every decided action to one of these; none of them is a general-purpose module o
   otherwise; retry a refused lease once before escalating `CELL_UNREACHABLE`. Every `TaskAssign`
   is a new attempt, so it first supersedes whatever the Warden still holds for the task (the FAILED
   row an escalated crash left, a bee the Queen retried or resumed): retired, its slot freed.
-- `results`: run acceptance on a sub-bee's claimed `TaskResult`, on the Warden's own session.
+- `results`: run acceptance on a sub-bee's claimed `TaskResult`, on the Warden's own session. A
+  device error while checking (`DEVICE_ERRORS`: a closed session, a refused request, a lost link)
+  reports the task FAILED with the error's class and never ends the Warden's loop.
 - `trail_ship`: ship this Warden's own trail segment right before a `TaskResult` goes to the
   Queen, so a Cell paused or destroyed on that result never takes the task's rows with it;
   called by `results` and `alarms`.
@@ -33,7 +35,9 @@ every decided action to one of these; none of them is a general-purpose module o
   (`keep_slot`). `resume_from_handoff`: a bee stopped at a Handoff its own Warden ordered is
   followed by a fresh bee resuming the same attempt from that Handoff, in the same slot.
 - `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
-  `lease_creation` point.
+  `lease_creation` point. `release_lease` is the one way a lease is given back (the idle release,
+  and the offline return that leases a device again); `report_cell_lost`/`clear_cell_lost` also
+  wake the tick of a Warden with an `Outage` (roadmap 11.9).
 - `questions`: forward a sub-bee's `Question` to the Queen and the Queen's `Answer` back; since
   roadmap step 10.3 only when the sub-bee holds `question:human` (the `question_routing` point).
 - `control`: forward `TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` from the Queen unchanged;
@@ -41,13 +45,15 @@ every decided action to one of these; none of them is a general-purpose module o
   that has already ended retires it at once, and `RELEASE_LEASE` retires every sub-bee. A Queen
   pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any Handoff the
   Warden had ordered itself; the Warden's own Handoff lever marks the bee for a successor.
-  `handle_source_evict` (roadmap step 8.3) gives back seats the Queen exported: it withdraws the
+  A Queen cancel, pause or resume of a task also drops any hold a device Warden's outage had on it
+  (her word wins, roadmap 11.9). `handle_source_evict` (roadmap step 8.3) gives back seats the Queen exported: it withdraws the
   named model source only when this Warden hosts it and its ceilings let it export seats, and
   ignores the order (logged) otherwise; `RELEASE_LEASE` also stops any model server the Warden
   started, since it would die with the lease.
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
-  Heartbeat says it has ended with nothing more to send, or starting its successor when the
-  Warden's own context check had ordered it to hand off), watch for a stall,
+  Heartbeat says it has ended with nothing more to send, leaving its Handoff with the outage if the
+  outage paused it, or starting its successor when the Warden's own context check had ordered it
+  to hand off), watch for a stall,
   and build the `HotStateSources` an awake episode reads -- including `wax(cells)` (roadmap step
   4.2a), WRITTEN Cell Wax for the given Cells, capped per Cell the same way
   `hivemind.queen.awake.episode.QueenSources.wax` is.

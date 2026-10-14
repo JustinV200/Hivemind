@@ -51,12 +51,13 @@ from hivemind.exoskeleton.surface import check_structural
 from hivemind.supervision import Alarm as MirroredAlarm
 from hivemind.supervision import record_alarm_event
 from hivemind.wardens.acceptance import AcceptanceReport, GuiCheck, run_acceptance
+from hivemind.wardens.deps import device_outage
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.ticks.alarms import retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
-from waggle.ids import new_alarm_id
 from waggle.errors import TransportError
+from waggle.ids import new_alarm_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
 from waggle.messages.task import TaskOutcome, TaskResult
@@ -66,10 +67,10 @@ if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
 
 MAX_DETAIL_CHARS = 2_000  # Mirrors waggle.messages.supervision.alarms.MAX_DETAIL_CHARS's own bound.
-
 # What asking a device to check a criterion can fail with: a Cell error (a closed session, a device
 # that refused the request or did not answer) or a link that went. Anything else is a real bug.
 DEVICE_ERRORS = (CellError, TransportError)
+
 __all__ = ["DEVICE_ERRORS", "MAX_DETAIL_CHARS", "handle_accept"]
 
 
@@ -83,6 +84,10 @@ async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> N
     """
     if warden._session is None:
         return  # Defensive: unreachable once a sub-bee has spawned on this Warden's own session.
+    outage = device_outage(warden._deps)
+    if outage is not None:
+        # The bee finished its work before it obeyed a pause: this claim, not a resume, is its end.
+        outage.forget(sub_bee.task_id)
     # Before retiring: retiring detaches the Exoskeleton, and a page criterion reads its browser.
     try:
         report = await run_acceptance(
@@ -100,11 +105,6 @@ async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> N
     await _send_acceptance_failed(warden, sub_bee, claim, report)
 
 
-def _gui_check(warden: Warden, sub_bee: SubBee) -> GuiCheck | None:
-    """Check GUI criteria on the Exoskeleton this Warden attached for `sub_bee`, if any."""
-    handle = sub_bee.exoskeleton
-    if handle is None:
-        return None
 async def _send_unchecked(
     warden: Warden, sub_bee: SubBee, claim: TaskResult, error: Exception
 ) -> None:
@@ -132,6 +132,11 @@ async def _send_unchecked(
     await _send_to_queen(warden, result)
 
 
+def _gui_check(warden: Warden, sub_bee: SubBee) -> GuiCheck | None:
+    """Check GUI criteria on the Exoskeleton this Warden attached for `sub_bee`, if any."""
+    handle = sub_bee.exoskeleton
+    if handle is None:
+        return None
     return partial(check_structural, handle.peripherals, warden._deps.clock)
 
 
@@ -153,8 +158,9 @@ async def _send_succeeded(warden: Warden, sub_bee: SubBee, claim: TaskResult) ->
     # The Queen may pause or destroy this Cell the moment the result lands: ship the task's own
     # trail rows first, over the same ordered link (hivemind.wardens.ticks.trail_ship).
     await ship_trail_before_result(warden)
-    # Codingrules 8.8 says results queue while disconnected; no outbox is wired yet (this
-    # dispatch's own report) -- this sub-bee is already retired either way.
+    # Codingrules 8.8: a result queues while the Warden is disconnected. A Warden that dials the
+    # Queen holds a reconnecting link that does so (`hivemind.wardens.offline`); on a link that is
+    # closed for good the send is logged and dropped. This sub-bee is already retired either way.
     await _send_to_queen(warden, result)
 
 
@@ -197,7 +203,7 @@ async def _send_acceptance_failed(
         MirroredAlarm.from_wire(alarm),
         "alarm.raised",
     )
-    # Same gap as _send_succeeded's own send: no outbox is wired yet, logged and dropped.
+    # Queued durably by a reconnecting link while cut off, like _send_succeeded's own send.
     await _send_to_queen(warden, alarm)
     result = TaskResult(
         task_id=claim.task_id,

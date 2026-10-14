@@ -81,9 +81,10 @@ async def forward_question(warden: Warden, envelope_id: MessageId, question: Que
         return
     warden._questions[question.question_id] = asker
     warden._question_envelope_ids[question.question_id] = envelope_id
-    # A Queen this Warden cannot reach never sees the question at all; codingrules 8.8's own
-    # outbox for a disconnected Warden is not wired for this yet (this dispatch's own report), so
-    # the asking sub-bee simply waits out its own timeout rather than this tick ever crashing.
+    # Codingrules 8.8: a human-bound question is held, not dropped, while the Warden is cut off. A
+    # reconnecting link (`hivemind.wardens.offline`) keeps it and sends it once the link is back,
+    # the asking sub-bee staying blocked meanwhile. On a link that is closed for good the Queen
+    # never sees it, and the sub-bee waits out its own timeout rather than this tick crashing.
     await send_guarded(
         warden._deps.queen_link, wrap(question, warden._deps.hop, clock=warden._deps.clock)
     )
