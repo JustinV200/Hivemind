@@ -64,6 +64,7 @@ from waggle.messages.labels import OsFamily as WireOsFamily
 
 DEFAULT_MAX_SUB_BEES = 4  # Conservative absent an override: don't overrun the operator's machine.
 _MAX_DISK_PROBE_ANCESTORS = 32  # A generous bound; a filesystem root always terminates the walk.
+_KIB = 1024  # /proc/meminfo reports its figures in kibibytes.
 _POSIX_BROWSERS = ("firefox", "google-chrome", "chromium", "chromium-browser")
 _POSIX_PACKAGE_MANAGERS = ("apt", "dnf", "yum", "pacman", "apk", "brew")
 # What the Exoskeleton's X11 display needs (roadmap step 6.3, ADR-0031): the virtual framebuffer,
@@ -367,7 +368,25 @@ def _memory_bytes() -> tuple[int, int]:
             # Unknown -> conservative: report nothing, rather than guess a figure that could be
             # wrong in either direction for a memory-allocation decision.
             return 0, 0
-        return page_size * total_pages, page_size * avail_pages
+        # SC_AVPHYS_PAGES is MemFree, which leaves out the page cache the kernel hands back on
+        # demand: a warm Linux host looked out of memory and its grants waited. MemAvailable is
+        # what an allocation can count on; elsewhere the sysconf figure is all there is.
+        available = _linux_mem_available()
+        free = available if available is not None else page_size * avail_pages
+        return page_size * total_pages, free
+
+
+def _linux_mem_available() -> int | None:
+    """Return Linux's MemAvailable in bytes from /proc/meminfo, or None where it cannot be read."""
+    try:
+        # An in-memory kernel table, read in microseconds like the sysconf calls beside it.
+        with open("/proc/meminfo", encoding="ascii") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * _KIB  # The kernel reports it in kB.
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
 
 
 def _disk_bytes(scratch_root: Path) -> tuple[int, int]:

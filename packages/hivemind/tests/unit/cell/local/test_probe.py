@@ -26,6 +26,7 @@ from hivemind.cell.local.probe import (
     AUDIO_PROGRAMS,
     WINDOW_MANAGERS,
     X11_DISPLAY_PROGRAMS,
+    _memory_bytes,
     probe_host,
     refresh_live,
 )
@@ -136,3 +137,19 @@ def test_refresh_live_keeps_static_totals_and_only_recomputes_live_figures(
     assert refreshed.host.memory_bytes == static.host.memory_bytes
     assert refreshed.max_sub_bees == static.max_sub_bees
     assert refreshed.host.memory_free_bytes <= refreshed.host.memory_bytes
+
+
+_MEMINFO = Path("/proc/meminfo")
+_MEMORY_DRIFT_BYTES = 64 * 1024 * 1024  # The two reads are a moment apart; memory moves meanwhile.
+
+
+@pytest.mark.skipif(not _MEMINFO.exists(), reason="Linux's /proc/meminfo only")
+def test_free_memory_is_what_the_kernel_can_give_not_what_it_has_left_idle() -> None:
+    # MemFree leaves out the page cache the kernel hands back on demand, so a warm host read as
+    # out of memory and every grant on it waited; the probe reports MemAvailable instead.
+    fields = dict(line.split(":", 1) for line in _MEMINFO.read_text().splitlines() if ":" in line)
+    available_bytes = int(fields["MemAvailable"].split()[0]) * 1024
+
+    _total, free = _memory_bytes()
+
+    assert abs(free - available_bytes) < _MEMORY_DRIFT_BYTES
