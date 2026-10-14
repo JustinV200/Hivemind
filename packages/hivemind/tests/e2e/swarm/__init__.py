@@ -30,12 +30,23 @@ Public API:
     - certificate_for: the Stand's certificate for a host name, with its pin (tls).
     - start_stand, enrol_container, ContainerDevice, DeviceStartError, HIVE_HOSTNAME, DATA_DIR: a
       Stand the containers dial and a packet enrolled in a container (enrolled).
+    - build_binary, binary_digest, CleanDevice, start_clean, DeviceDrone, bridge_hive: the
+      single-file packet built the way CI builds it, a bare Debian 12 device to run it on and a
+      whole Hive on the bridge for it to dial (binary, a package with its own face).
     - In-process scenarios import their own helpers by module, not from this face: `device`
       (a real `pollen` packet run in the test's own process) and `hive` (a Hive built from a
       manifest with `[swarm] enabled = true`, and reads of what it recorded), used by
       tests/e2e/test_swarm_level0.py.
 """
 
+from e2e.swarm.binary import (
+    CleanDevice,
+    DeviceDrone,
+    binary_digest,
+    bridge_hive,
+    build_binary,
+    start_clean,
+)
 from e2e.swarm.container import (
     BRIDGE,
     CommandError,
@@ -65,22 +76,28 @@ __all__ = [
     "DATA_DIR",
     "HIVE_HOSTNAME",
     "IMAGE_VARIABLE",
+    "CleanDevice",
     "CommandError",
     "CommandResult",
     "Container",
     "ContainerDevice",
     "ContainerSpec",
+    "DeviceDrone",
     "DeviceStartError",
     "FileEntry",
     "ImageUnavailableError",
     "Janitor",
     "Network",
+    "binary_digest",
+    "bridge_hive",
+    "build_binary",
     "certificate_for",
     "daemon_answers",
     "device_image",
     "docker",
     "enrol_container",
     "run",
+    "start_clean",
     "start_stand",
     "wheelhouse",
 ]

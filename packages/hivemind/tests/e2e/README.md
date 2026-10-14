@@ -381,3 +381,38 @@ are removed (each carries the label `hivemind.test=e2e-swarm`, so
 `docker image prune --all --filter label=hivemind.test=e2e-swarm` clears the unused ones). Pair a
 lease on the device with `builders.swarm.lease_device`. The proof that it all works is
 `tests/integration/test_pollen_in_container.py`.
+
+### The single-file packet on a clean Debian 12
+
+`test_phase11_exit_binary.py` is phase 11's "`pollen` installs on a clean Raspberry Pi OS" on the
+x86-64 stand-in (the workflow's ARM64 leg is the other half). `swarm/binary/` builds the packet the
+way `.github/workflows/pollen.yml` does (the workflow's three commands in `python:3.12-bookworm`,
+the checkout copied in) and keeps the file under `~/.cache/hivemind-tests/pollen-binary/<key>/`,
+the key being a hash of the sources of `waggle` and `pollen`, the lock, the build script and the
+recipe: a change to `hivemind` does not rebuild it, a change to the packet does, and a run after
+that finds the file (about a minute cold, a few seconds warm; `HIVEMIND_TEST_CACHE_DIR` moves the
+cache, and old keys are safe to delete). Behind a proxy that only the host can reach the build runs
+on the host network with the proxy and its certificate, as the device image does.
+
+```python
+from e2e.swarm import BRIDGE, Janitor, bridge_hive, build_binary, start_clean
+
+binary = build_binary()  # the cached file, built first if its inputs are new
+device = start_clean(Janitor(), {"hive.test": BRIDGE.gateway})  # debian:bookworm, no Python
+device.install(binary)  # copy, then `install -m 0755` onto /usr/local/bin/pollen, as root
+device.exec(["pollen", "version"])  # as `pi`, the account an operator works as; never root
+```
+
+The test enrols that device against a whole Hive on the bridge (`bridge_hive`: the real Queen, gate
+and Level 0 Warden, `wss://` with a pinned certificate, a scripted Drone), shows it ONLINE and
+reporting itself as Debian 12, places a goal on its Cell (a command, a file and a read back
+through the `PollenSession`, the command running the packet itself once more), then stops the
+packet, runs `pollen uninstall`, does the runbook's last two steps and compares every file on the
+device with a snapshot taken before the binary arrived. `CleanDevice` calls block, so a scenario
+that shares an event loop with the Stand calls them through `asyncio.to_thread`.
+
+A container reads the load of the whole machine, and a device's free cores are its cores less that
+load, so on a busy host the default half-core Drone found no room and its task waited (a deferred
+`forage.denied`) until the load fell. `bridge_manifest` gives the Drone a footprint of no cores,
+which leaves nothing for the load to decide; any scenario that puts a task on a device in a
+container wants the same, unless it is about scheduling.
