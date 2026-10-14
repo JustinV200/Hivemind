@@ -57,11 +57,13 @@ from waggle.codec import MAX_FRAME_BYTES
 from waggle.envelope import Envelope
 from waggle.ids import new_device_id
 from waggle.messages.base import MAX_CLOCK_SKEW_S, MAX_MESSAGE_AGE_S
-from waggle.messages.cell import LeaseReleased
+from waggle.messages.cell import CellRequest, CellTeardownRequest, LeaseOpened, LeaseReleased
 from waggle.messages.cell.status import ReleaseCause
 from waggle.messages.control import Ping, Pong, QueenMoved
 from waggle.messages.forage.capacity import CapacityTrigger
 from waggle.messages.forage.hosting import CapacityReport
+from waggle.messages.labels import AccessLevel as WireAccessLevel
+from waggle.messages.labels import Urgency
 from waggle.messages.session import SessionExit, SessionOutcome, SessionOutput
 from waggle.messages.swarm import DeviceHeartbeat
 from waggle.signing import Ed25519Signer
@@ -298,6 +300,56 @@ async def test_an_exit_the_link_could_not_carry_is_replayed_after_the_reconnecti
     chunks = [f for f in hive.log.frames if isinstance(f.payload, SessionOutput)]
     assert not [f for f in chunks if f.correlation_id == running.id]
     await driver.release(lease)
+
+
+async def test_what_was_sent_just_before_a_link_ended_without_a_close_frame_is_sent_again(
+    closing: Stand,
+) -> None:
+    raw, node = closing.raw, closing.gateway.node
+    assert raw is not None
+    lease = raw.signed(
+        CellRequest(
+            cell_id=node.cell_id,
+            needs=None,
+            holder=node.warden_id,
+            task_id=None,
+            access_level=WireAccessLevel.FULL,
+            lifetime_s=None,
+            scratch_quota_bytes=None,
+            reason="The conformance suite leases the device.",
+        )
+    )
+    await raw.send(lease.data)
+    opened = next(
+        e for e in await raw.until_answered(lease.id) if isinstance(e.payload, LeaseOpened)
+    )
+    assert isinstance(opened.payload, LeaseOpened)
+    teardown = raw.signed(
+        CellTeardownRequest(
+            cell_id=node.cell_id,
+            lease_id=opened.payload.lease_id,
+            urgency=Urgency.IMMEDIATE,
+            cause=ReleaseCause.COMPLETED,
+            reason="The conformance suite is done with the device.",
+        )
+    )
+    await raw.send(teardown.data)
+    released = next(
+        e for e in await raw.until_answered(teardown.id) if isinstance(e.payload, LeaseReleased)
+    )
+
+    # The Hive Stand never read it, for all the gateway can tell: the connection ends with no close
+    # frame, as a cable pulled out from under it ends one, forty seconds after the fact.
+    raw.drop()
+    await raw.next_connection()
+    again: list[Envelope] = []
+    while not any(e.id == released.id for e in again):
+        again.append(await raw.next_envelope())
+
+    # The same envelope, after the new connection's heartbeat and report (section 5) and not a new
+    # one: the Hive Stand's replay window drops it if it had in fact been heard (section 14).
+    order = [type(e.payload) for e in again]
+    assert order.index(DeviceHeartbeat) < order.index(CapacityReport) < order.index(LeaseReleased)
 
 
 async def test_a_gateway_that_lost_the_queen_past_its_limit_releases_and_says_so_on_return(

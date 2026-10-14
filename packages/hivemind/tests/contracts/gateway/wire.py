@@ -205,6 +205,15 @@ class RawHive:
             if envelope.correlation_id == marker:
                 return seen
 
+    def drop(self) -> None:
+        """End the current connection with no close frame, as a vanished Hive Stand ends it.
+
+        The gateway's reader sees a lost link, not a goodbye, which is the case where what it sent
+        in the last stretch may have gone nowhere.
+        """
+        assert self.connection is not None, "the gateway has not dialled in"
+        self.connection.transport.abort()
+
     async def closed_code(self) -> int | None:
         """Wait for the gateway to close the current connection and return its close code."""
         assert self.connection is not None, "the gateway has not dialled in"
