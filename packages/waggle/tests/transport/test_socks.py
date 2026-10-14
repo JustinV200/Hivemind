@@ -149,6 +149,27 @@ async def test_a_proxy_that_never_answers_times_out_as_a_proxy_failure() -> None
     assert proxy.requests == [(ONION, 80)]  # It asked; the proxy simply never answered.
 
 
+async def test_a_stopped_proxy_comes_back_on_the_port_its_clients_were_given() -> None:
+    # Tor dying and being started again: the URL a client holds cannot change under it.
+    first = await _proxy()
+    url, port = first.url(), first.port  # What a client was given, read before the proxy goes.
+    await first.close()
+    async with asyncio.timeout(WAIT_S):
+        with pytest.raises(ProxyFailedError, match="Could not reach the SOCKS proxy"):
+            await open_socks_connection(SocksProxy.parse(url), ONION, 80)
+
+    second = FakeSocksProxy()
+    await second.start(port=port)
+    try:
+        async with asyncio.timeout(WAIT_S):
+            with pytest.raises(ProxyFailedError, match="host unreachable"):  # Answering again.
+                await open_socks_connection(SocksProxy.parse(url), ONION, 80)
+    finally:
+        await second.close()
+
+    assert second.requests == [(ONION, 80)]  # The very URL the client held reached the new one.
+
+
 async def test_a_proxy_that_is_not_there_is_a_proxy_failure() -> None:
     with socket.socket() as probe:  # A loopback port nothing listens on.
         probe.bind(("127.0.0.1", 0))

@@ -16,7 +16,8 @@ Fits into the Hive:
     hivemind's in-Cell tests. Calls into the standard library only.
 
 Key invariants:
-    - It binds loopback only, on an OS-assigned port, and connects only to its routes.
+    - It binds loopback only, on an OS-assigned port unless `start` is told one, and connects only
+      to its routes.
     - Every connection handler it starts is tracked, and `close` cancels and awaits each one
       before it returns: no task outlives the proxy (codingrules 11).
 
@@ -93,9 +94,15 @@ class FakeSocksProxy:
         """Return this proxy's URL under `scheme` (`socks5h` or `socks4a`)."""
         return f"{scheme}://{_LOOPBACK}:{self.port}"
 
-    async def start(self) -> None:
-        """Listen on loopback, on an OS-assigned port."""
-        self._server = await asyncio.start_server(self._handle, _LOOPBACK, 0)
+    async def start(self, port: int = 0) -> None:
+        """Listen on loopback, on an OS-assigned port unless `port` names one.
+
+        Args:
+            port: The port to bind; 0 lets the operating system choose. A test that stops the proxy
+                and brings it back (Tor dying and being restarted) names the port it had, since a
+                client's proxy URL cannot change under it.
+        """
+        self._server = await asyncio.start_server(self._handle, _LOOPBACK, port)
 
     async def close(self) -> None:
         """Stop listening, and cancel and await every connection handler still running."""
