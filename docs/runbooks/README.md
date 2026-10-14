@@ -10,3 +10,7 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
   add the provider and its Forage map entry, bind the slot with the hosted binding as fallback, set
   `offline` when everything is local, check with `hive llm`, then replace the hand-set grade with a
   measured one.
+- [`enrolling-a-device.md`](enrolling-a-device.md): borrowing a machine for the Swarm: put the
+  Pollen binary on the device (a Raspberry Pi included), mint an invite with `hive swarm invite`,
+  `pollen enrol` and `pollen install`, see the device with `hive swarm list` and `hive cells list`,
+  run a goal on it with `hive swarm run`, change its access, tier and rung, and revoke it.
