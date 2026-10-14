@@ -11,18 +11,24 @@ this one machine), which is what the Guard's `lease_creation` point reads. It is
 machine keeps no scratch between tasks (ADR-0054), and it holds an `Outage` and a `RemoteDeps`
 because its link to the Queen can be lost, unlike the in-process one of a Level 0 Warden; the
 `RemoteDeps` carries the budget it may spend sending a Drone to find out why, and the host it is
-trying to reach (roadmap 11.9a). And it is
-given none of the Virtual Cell's extras: no Queen-relayed snapshotter (a device cannot be
-snapshotted), no resident Basket and no Exoskeleton wiring: none of those are the machine's to
-give to a Cell it only borrows. It does carry the model servers its manifest declares
-(`WardenDeps.servers`), none of which starts at Level 1: the Queen asks for one with a
-`swarm.nuc_promote` when she promotes the device to a Nuc (roadmap step 11.8), and the Warden starts
-it then through the same `ModelServerHost` every Warden has. `build_device_link` builds the
-`ReconnectingQueenLink` the Warden is handed.
+trying to reach (roadmap 11.9a). And it is given none of the Virtual Cell's extras that only a
+Cell the Hive owns can have: no Queen-relayed snapshotter (a device cannot be snapshotted) and no
+resident Basket, neither of which is the machine's to give to a Cell it only borrows. It is given
+the Exoskeleton wiring (roadmap step 11.11, `device_exoskeleton`), because attaching a display,
+input, audio or a browser to its lease is what a Warden does on any Cell it leases, and the X11
+backends reach the machine only through the Warden's own session: a Virtual Cell's defaults,
+except that Chromium keeps its own sandbox (a borrowed machine is none) and the flight recordings,
+which stay in the Warden's memory and never reach the device's disk, are forgotten a day after
+their last action (this Warden runs for months). It does carry the model servers its manifest
+declares (`WardenDeps.servers`), none of which starts at
+Level 1: the Queen asks for one with a `swarm.nuc_promote` when she promotes the device to a Nuc
+(roadmap step 11.8), and the Warden starts it then through the same `ModelServerHost` every Warden
+has. `build_device_link` builds the `ReconnectingQueenLink` the Warden is handed.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Called by
     `hivemind.cli.in_cell.borrowed.run`. Calls into `hivemind.cli.in_cell.deps` (`build_core_deps`),
+    `hivemind.cli.compose.exoskeleton` (`device_exoskeleton`),
     `hivemind.cli.in_cell.borrowed.dial`/`.stores`/`.config`, `hivemind.guard`, `hivemind.memory`,
     `hivemind.wardens` (WardenDeps, DeviceDeps, the offline package) and waggle only.
 
@@ -31,6 +37,9 @@ Key invariants:
       from the Hive Stand keeps the bee the Queen's grants, ceilings and trail are attributed to.
     - The lease capability is scoped to this one Cell by id; the Cell's kind is never consulted
       (codingrules 8.7).
+    - The Exoskeleton wiring is the same whatever the device is: whether a task gets a display is
+      `attach`'s decision from the Cell's probed capabilities and the sub-bee's capability set,
+      which the device's access level has already narrowed, never this module's.
     - The link is built unconnected and the Warden's own trail sync is bound into it afterwards,
       so the reconnection and the Warden ship the trail through one object and never export it at
       once.
@@ -39,6 +48,7 @@ See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the Warden keeping its id.
     - hivemind.cli.compose.swarm.device_warden for the Level 0 Warden this one takes over from.
     - hivemind.cli.in_cell.deps for `build_core_deps`, the shared part.
+    - hivemind.cli.compose.exoskeleton for `device_exoskeleton`, and ADR-0031 for what attach does.
 """
 
 from __future__ import annotations
@@ -47,6 +57,7 @@ import dataclasses
 from dataclasses import dataclass
 
 from hivemind.cell import RealCellSource
+from hivemind.cli.compose.exoskeleton import device_exoskeleton
 from hivemind.cli.in_cell.borrowed.config import BorrowedConfig
 from hivemind.cli.in_cell.borrowed.dial import (
     DeviceAnnouncer,
@@ -142,8 +153,8 @@ def build_borrowed_warden_deps(
         A WardenDeps ready for `Warden(config.runtime.warden_id, deps)`.
     """
     runtime = config.runtime
-    deps, _registry = build_core_deps(runtime, parts.source, parts.link, parts.stores.trail, clock)
-    return dataclasses.replace(
+    deps, registry = build_core_deps(runtime, parts.source, parts.link, parts.stores.trail, clock)
+    deps = dataclasses.replace(
         deps,
         memory=parts.stores.memory,
         servers=config.llm.hostable,  # Declared, not started: a Nuc promotion starts one.
@@ -162,3 +173,8 @@ def build_borrowed_warden_deps(
             ),
         ),
     )
+    # Roadmap step 11.11: the Warden that leases a machine attaches a display, input, audio or a
+    # browser to that lease through its own session, whatever the machine is. Whether a task gets
+    # one is for `attach` to decide from the Cell's probed capabilities and the sub-bee's set,
+    # which the device's access level has already narrowed; nothing here asks what kind of Cell.
+    return device_exoskeleton(registry, clock).apply(deps)

@@ -47,8 +47,11 @@ Fits into the Hive:
 Key invariants:
     - `build_core_deps` is everything a Warden that dials the Queen from a Cell shares, and
       `build_in_cell_warden_deps` adds only what is a Virtual Cell's alone (the Queen-relayed
-      snapshotter, the resident Basket, the Exoskeleton wiring); `hivemind.cli.in_cell.borrowed`
-      builds a colonized device's Warden from the same core, so the two cannot drift apart.
+      snapshotter and the resident Basket) and its own Exoskeleton wiring (`in_cell_exoskeleton`,
+      which a colonized device's `device_exoskeleton` differs from in Chromium's sandbox and in
+      how long a recording is kept);
+      `hivemind.cli.in_cell.borrowed` builds a colonized device's Warden from the same core, so
+      the two cannot drift apart.
     - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
       `hivemind.cli.compose.deps.build_warden_deps` wires for the Hive Stand.
     - The gate has a JUDGE rung, and the Warden a model-backed judge, exactly when the Cell's slot
@@ -153,8 +156,10 @@ def build_in_cell_warden_deps(
     """
     deps, registry = build_core_deps(config, source, queen_link, trail, clock)
     # What only a Virtual Cell's Warden has (a device's, `hivemind.cli.in_cell.borrowed`, borrows
-    # a machine that is not this process's to equip): the Hive's snapshotter, its resident Basket,
-    # and the Exoskeleton wiring of roadmap steps 6.4-6.6 (module docs).
+    # a machine that cannot be snapshotted and holds no Basket of the Hive's): the Hive's
+    # snapshotter and its resident Basket. The Exoskeleton wiring of roadmap steps 6.4-6.6
+    # (module docs) is this Cell's own: a device's differs in Chromium's sandbox and in how long
+    # it keeps a recording.
     deps = _with_cell_extras(deps, config, queen_link, clock)
     return in_cell_exoskeleton(registry, clock).apply(deps)
 

@@ -16,7 +16,7 @@ ever sees scrubbed text. Frames are PNG bytes; they never reach a log, the trail
 | `models.py` | `Evidence`, `RecordedAction`, `RecordedPostcondition`, `RecordingInfo`: what is kept. |
 | `redact.py` | `scrub_text`, `scrub_url`, `redact_step`, `MASK`: scrubbing at the source. |
 | `recorder.py` | `FlightRecorder` (`open`, `begin`, `end`) and `scrubbed_evidence`, driven by the gate's GUI surface. |
-| `store.py` | The `RecordingStore` protocol and `InMemoryRecordingStore` (tests, fakes, a Virtual Cell's own Warden). |
+| `store.py` | The `RecordingStore` protocol and `InMemoryRecordingStore` (tests, fakes, the Warden of a Virtual Cell or of a borrowed device), which may be given a `Retention` to forget stale recordings as a new one opens. |
 | `sqlite.py` | `SqliteRecordingStore`: two tables of the Hive's database, frames as BLOB columns, plus the `prune_before` retention sweep. |
 | `migrations/` | The numbered SQL series that creates those two tables. |
 | `playback.py` | `render_html` (a self-contained page: frames inline as `data:` URIs, no script, a CSP that forbids loading anything) and `summarize` (`RecordingSummary`, the pixel-free JSON the Observation Hive reuses, roadmap step 12.4). |
@@ -30,6 +30,15 @@ ever sees scrubbed text. Frames are PNG bytes; they never reach a log, the trail
 - **In-Cell Warden (a Virtual Cell):** `InMemoryRecordingStore`. The Cell has no database file of
   its own, so its recordings live with the Cell and go when it is torn down; shipping them to the
   Queen's store is a later step.
+- **Warden of a colonized device or a Nuc:** `InMemoryRecordingStore` too
+  (`hivemind.cli.compose.exoskeleton.device_exoskeleton`, roadmap step 11.11), by choice and not for
+  want of a file: it has the state directory's SQLite files, but they hold what must survive a
+  restart, nothing on the device can play a recording back, and frames on the disk of a machine the
+  Hive only borrows would be one more thing left there. A recording lives as long as the Warden's
+  process, or until a day after its last action (`DEVICE_RECORDING_KEEP`): the store is given a
+  `Retention` and forgets the stale ones as the next recording opens, so a Warden that runs for
+  months holds a day's frames and not every one it ever made. A Bee Bread `RECORDING` entry, in
+  the Warden's own memory store, outlives its recording and then names one that is gone.
 - **Night Veil:** the recording store is registered as a Night Veil side channel
   (`SideChannels.flight_recordings`, attached by `hivemind.cli.compose.night_veil.
   attach_side_channels`), so a Night Veil Cell's recordings are purged with the Cell

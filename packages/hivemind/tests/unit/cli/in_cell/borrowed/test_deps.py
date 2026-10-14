@@ -15,6 +15,7 @@ See Also:
 
 from __future__ import annotations
 
+import importlib.util
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from builders.borrowed import SERVER_ID, BorrowedKit, make_kit
 from hivemind.cell import NoopSnapshotter
 from hivemind.cell.local import HiveStandSource
 from hivemind.cell.source import CellIdentity
+from hivemind.cli.compose.exoskeleton import running_as_root
 from hivemind.cli.in_cell.borrowed import (
     BorrowedConfig,
     BorrowedParts,
@@ -34,7 +36,12 @@ from hivemind.cli.in_cell.borrowed import (
     open_device_stores,
 )
 from hivemind.cli.in_cell.deps import VIRTUAL_CELL_LEASE
+from hivemind.exoskeleton import ExoskeletonConfig
+from hivemind.exoskeleton.browser import ChromiumLauncher
+from hivemind.exoskeleton.recorder import InMemoryRecordingStore
+from hivemind.forage import ModelSlot
 from hivemind.guard import Capability, CapabilityFamily
+from hivemind.llm import DirectTranscriptionGate
 from hivemind.manifest import read_in_cell_env
 from hivemind.memory import SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
@@ -43,6 +50,7 @@ from hivemind.wardens.offline import LinkPhase, Outage, ReconnectBudget, Reconne
 from waggle.clock import SystemClock
 
 _CLOCK = SystemClock()
+_HAS_BROWSER_EXTRA = importlib.util.find_spec("playwright") is not None
 # What the device manifest says its Warden waits and spends, so the test can tell it from a default.
 _SUPERVISION = (
     "[supervision]\nmax_offline_s = 90\n"
@@ -123,19 +131,33 @@ async def test_the_warden_keeps_its_ids_and_signs_as_the_devices_node(
     assert deps.hop.recipient == kit.hive_id
 
 
-async def test_none_of_a_virtual_cells_extras_are_built_for_a_borrowed_machine(
+async def test_the_extras_that_need_a_cell_the_hive_owns_are_not_built_for_a_borrowed_machine(
     built: tuple[BorrowedKit, BorrowedConfig, WardenDeps],
 ) -> None:
     _kit, _config, deps = built
 
     assert isinstance(deps.snapshotter, NoopSnapshotter)  # A device cannot be snapshotted.
     assert deps.resident_basket is None and deps.basket_store is None
-    assert deps.browser_launcher is None and deps.recording_store is None  # No Exoskeleton wiring.
-    assert deps.ears is None
     # A model server is a promotion, never a Level 1 default: it is known so a promotion can start
     # it, and it is never started at the Warden's own start whatever the manifest says.
     assert set(deps.servers) == {SERVER_ID}
     assert deps.servers[SERVER_ID].load_on_start is False
+
+
+async def test_the_exoskeleton_is_wired_so_a_device_wardens_gui_work_is_recorded(
+    built: tuple[BorrowedKit, BorrowedConfig, WardenDeps],
+) -> None:
+    _kit, _config, deps = built
+
+    # The four fields `hivemind.wardens.spawn.equip` reads, all set: without the recording store
+    # a sub-bee's clicks on the device's display would be applied and never recorded (ADR-0032).
+    assert isinstance(deps.recording_store, InMemoryRecordingStore)
+    assert isinstance(deps.browser_launcher, ChromiumLauncher) is _HAS_BROWSER_EXTRA
+    # The machine is no sandbox: Chromium keeps its own unless it cannot start with one (root).
+    assert deps.exoskeleton_config == ExoskeletonConfig(browser_sandbox=not running_as_root())
+    # The kit binds every slot, the transcriber's included, so the device can hear.
+    assert deps.ears is not None and isinstance(deps.ears.gate, DirectTranscriptionGate)
+    assert deps.ears.bound.slot is ModelSlot.TRANSCRIBER
 
 
 async def test_the_models_are_the_device_manifests_and_the_judge_is_bound(

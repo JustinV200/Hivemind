@@ -25,9 +25,12 @@ Key invariants:
     - Nothing here reads `os.environ`; it is given the already-read `InCellEnv` (codingrules 13).
     - The Warden keeps its id, and signs as the device's node with the key the packet holds.
     - The device holds the MEADOW tier only; any other is refused at start.
-    - No Virtual Cell extra is built for a device: no snapshotter, resident Basket or Exoskeleton
-      wiring. A model server the manifest declares is known to the Warden but never started at
-      its start: only the Queen's promotion of the device to a Nuc starts one.
+    - No Virtual Cell extra that needs a Cell the Hive owns is built for a device: no snapshotter,
+      no resident Basket. The Exoskeleton wiring is (roadmap step 11.11): the device's Warden
+      attaches a display to its own lease through its own session, with Chromium sandboxed and
+      its flight recordings in memory for a day. A model server the manifest declares is known to
+      the Warden but never started at its start: only the Queen's promotion of the device to a Nuc
+      starts one.
 
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md and 0053 (offline operation).

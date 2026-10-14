@@ -2,10 +2,11 @@
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/cli/compose/exoskeleton.py
-    (codingrules section 3). Covers both composition roots' wiring (the Hive Stand's, through a
-    real `build_hive` on a real SQLite file, and the in-Cell one), the browser launcher with and
-    without the browser extra, ears with and without a transcriber that can hear, the retention
-    sweep, and the Night Veil purge of a torn-down Cell's recordings.
+    (codingrules section 3). Covers the three composition roots' wiring (the Hive Stand's, through
+    a real `build_hive` on a real SQLite file, a Virtual Cell's in-Cell one and a colonized
+    device's), the browser launcher with and without the browser extra, ears with and without a
+    transcriber that can hear, the retention sweep, and the Night Veil purge of a torn-down Cell's
+    recordings.
 
 Key invariants:
     - None: this module holds tests only.
@@ -17,6 +18,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib.util
 import os
 import sys
@@ -31,8 +33,10 @@ from builders.wardens import make_warden_deps
 import hivemind.cli.compose.exoskeleton as wiring_module
 from hivemind.cli.compose import build_hive
 from hivemind.cli.compose.exoskeleton import (
+    DEVICE_RECORDING_KEEP,
     ExoskeletonWiring,
     build_browser_launcher,
+    device_exoskeleton,
     exoskeleton_config,
     in_cell_exoskeleton,
     open_hive_recordings,
@@ -163,6 +167,79 @@ def test_the_in_cell_wiring_keeps_recordings_in_memory_and_drops_chromiums_sandb
     assert wiring.config == ExoskeletonConfig(browser_sandbox=False)
     assert wiring.ears is None
     assert isinstance(wiring.launcher, ChromiumLauncher) is _HAS_BROWSER_EXTRA
+
+
+def test_the_device_wiring_is_the_in_cell_one_but_for_chromiums_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock()
+    registry = _registry_without_a_transcriber(clock)
+    monkeypatch.setattr(wiring_module, "running_as_root", lambda: False)
+
+    device = device_exoskeleton(registry, clock)
+    in_cell = in_cell_exoskeleton(registry, clock)
+
+    # A Virtual Cell is its own sandbox; a machine the Hive borrows is not, so Chromium keeps its.
+    assert device.config.browser_sandbox is True and in_cell.config.browser_sandbox is False
+    assert dataclasses.replace(device.config, browser_sandbox=False) == in_cell.config
+    assert type(device.launcher) is type(in_cell.launcher)
+    assert device.ears is None and in_cell.ears is None  # Nothing bound to the transcriber hears.
+
+
+def test_a_device_whose_warden_runs_as_root_cannot_keep_chromiums_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeClock()
+    monkeypatch.setattr(wiring_module, "running_as_root", lambda: True)
+
+    wiring = device_exoskeleton(_registry_without_a_transcriber(clock), clock)
+
+    # Chromium cannot start with its sandbox as root, on the Hive Stand or on a device.
+    assert wiring.config.browser_sandbox is False
+
+
+def test_the_device_wiring_keeps_its_recordings_in_the_wardens_memory_and_hears_directly(
+    tmp_path: Path,
+) -> None:
+    clock = FakeClock()
+    registry = build_registry(load_manifest(fake_manifest(tmp_path), {}), {}, clock)
+
+    wiring = device_exoskeleton(registry, clock)
+
+    # No frame of a borrowed machine's display is written to its disk: the store is a process's own.
+    assert isinstance(wiring.recordings, InMemoryRecordingStore)
+    assert wiring.ears is not None and isinstance(wiring.ears.gate, DirectTranscriptionGate)
+    assert wiring.ears.bound.slot is ModelSlot.TRANSCRIBER
+    assert wiring.config.screen == DEFAULT_SCREEN
+    assert wiring.config.ready_timeout_s == DEFAULT_READY_TIMEOUT_S
+
+
+async def test_a_device_wardens_store_forgets_a_recording_a_day_after_its_last_action() -> None:
+    clock = FakeClock(RECORDING_START)
+    wiring = device_exoskeleton(_registry_without_a_transcriber(clock), clock)
+    store = wiring.recordings
+    assert store is not None
+    await store.open(make_recording_info("rec_old", started_at=clock.now()))
+    await store.add("rec_old", make_recorded_action(at=clock.now()))
+
+    clock.advance((DEVICE_RECORDING_KEEP + timedelta(hours=1)).total_seconds())
+    await store.open(make_recording_info("rec_new", started_at=clock.now()))
+
+    # A Warden that runs for months holds the last day's recordings, not every one it ever made.
+    assert [info.recording_id for info in await store.recordings()] == ["rec_new"]
+
+
+async def test_a_virtual_cells_store_forgets_nothing_because_it_lives_as_long_as_its_cell() -> None:
+    clock = FakeClock(RECORDING_START)
+    wiring = in_cell_exoskeleton(_registry_without_a_transcriber(clock), clock)
+    store = wiring.recordings
+    assert store is not None
+    await store.open(make_recording_info("rec_old", started_at=clock.now()))
+
+    clock.advance((DEVICE_RECORDING_KEEP + timedelta(hours=1)).total_seconds())
+    await store.open(make_recording_info("rec_new", started_at=clock.now()))
+
+    assert {info.recording_id for info in await store.recordings()} == {"rec_old", "rec_new"}
 
 
 def test_applying_the_wiring_sets_the_four_fields_and_nothing_else() -> None:

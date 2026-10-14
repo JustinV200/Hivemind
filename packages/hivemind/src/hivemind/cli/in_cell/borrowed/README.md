@@ -34,9 +34,12 @@ and a reconnection announces the Cell again.
   capability `cell:real:<cell id>`, and the `DeviceDeps` group (idle release, an `Outage`, a
   `RemoteDeps` with the offline limit, the budget for a diagnostic Drone when the link goes (both
   from the device manifest's `[supervision]`, the Hive's shipped defaults when it has none) and the
-  Queen's host the Drone is told to reach). None of a Virtual Cell's extras (snapshotter, resident
-  Basket, Exoskeleton wiring); the declared model servers are known to the Warden but never started
-  until a promotion.
+  Queen's host the Drone is told to reach). Of a Virtual Cell's extras, not the snapshotter or the
+  resident Basket, which need a Cell the Hive owns; the Exoskeleton wiring
+  (`hivemind.cli.compose.exoskeleton.device_exoskeleton`, roadmap step 11.11) is applied, so the
+  Warden attaches a display, input, audio or a browser to its own lease through its own session
+  (see "The Exoskeleton on a device" below); the declared model servers are known to the Warden but
+  never started until a promotion.
 - **Run** (`run`): `run_borrowed_warden(env, clock, *, on_deps_built, stop)` and `stop_on_signals`.
 
 ## The environment the packet gives the Warden
@@ -58,6 +61,25 @@ and a reconnection announces the Cell again.
 Provider API keys are read from the device's own environment, in the variable each provider's
 `api_key_env` names, and never from the wire. `tests/contracts/test_pollen_warden_env.py` checks
 that the environment `pollen.bootstrap` builds is the one this package reads.
+
+## The Exoskeleton on a device
+
+A task that needs a display, input, audio or a browser (`TaskAssign.exoskeleton`) is equipped by the
+Warden that supervises it, and on a colonized device or a Nuc that is the device's own Warden, so
+Xvfb, the window manager, `xdotool` and `import` start through its local session, in the lease's
+scratch, and are stopped again when the sub-bee ends. Which of them it may start is decided where
+it is for every Cell: by the device's probed capabilities (`can_start_display`, `has_browser`, from
+the programs on its `PATH`) and by the sub-bee's own capability set, which the device's access
+level has already narrowed, so `SCRATCH` grants the browser fast path and only `FULL` a display and
+sound (ADR-0054). The wiring is a Virtual Cell's with two differences, both because of what the
+Warden runs on. Chromium keeps its own sandbox unless the Warden runs as root (a borrowed machine is
+no sandbox); and the flight recorder's store forgets a recording a day after its last action, when
+the next one opens (`DEVICE_RECORDING_KEEP`), because this Warden runs for months. As a Virtual
+Cell's does, the store lives in the Warden's memory, so no frame of its display is written to the
+device's disk and the recordings are gone when the Warden stops; nothing on the device can play one
+back, and shipping them to the Queen is a later step. The browser launcher is there only where the
+runtime was installed with the `browser` extra, and the Warden never borrows the operator's own
+display: `real_display_allowed` is not something the packet tells it.
 
 ## What the Queen sees
 
@@ -95,4 +117,5 @@ uv run --frozen pytest packages/hivemind/tests/unit/cli/in_cell packages/hivemin
 
 `builders/borrowed.py` writes a device's key, manifest and environment under a temporary directory;
 `tests/unit/cli/in_cell/borrowed/test_run.py` runs the real Warden against a real `WebSocketServer`
-that signs as the Queen and verifies as the Queen's listener would.
+that signs as the Queen and verifies as the Queen's listener would. The Exoskeleton is proved on a
+container whose image carries an X server by `tests/e2e/test_phase11_exit_exoskeleton.py`.

@@ -7,26 +7,39 @@ WardenDeps` fields that default to "nothing" until a composition root wires them
 own sandbox), `browser_launcher` (a `ChromiumLauncher`, only where the `hivemind[browser]` extra
 that drives it is installed), `recording_store` (where the flight recorder keeps each recording)
 and `ears` (the transcriber slot's chain behind a transcription gate, for the `listen` tool). This
-module builds all four for both Wardens: the Hive Stand's, from the manifest's `[exoskeleton]`
-section, the Hive's database file and its Fanner (the seat meter every model call passes
-through); and the in-Cell Warden's (`hivemind.cli.in_cell.deps`), from defaults, since a Virtual
-Cell reads no manifest. It also opens the Hive Stand's recording store with the retention sweep
-applied; that store is a Night Veil side channel too, so a Night Veil Cell's recordings are purged
-with the Cell (`hivemind.cli.compose.night_veil.attach_side_channels`, codingrules section 12).
+module builds all four for the three Wardens that run where their Cell is: the Hive Stand's, from
+the manifest's `[exoskeleton]` section, the Hive's database file and its Fanner (the seat meter
+every model call passes through); the in-Cell Warden's of a Virtual Cell
+(`hivemind.cli.in_cell.deps`), from defaults, since a Virtual Cell reads no manifest; and the
+Warden of a colonized device (`hivemind.cli.in_cell.borrowed`, roadmap step 11.11), from the same
+defaults, because it too reads no Hive Manifest, except that the machine it borrows is no sandbox
+and its Warden runs for months, so it keeps Chromium's sandbox and forgets a recording after a day.
+Whether any of it is used is for `attach` to decide from the Cell's capabilities and the sub-bee's
+own set, so a device's access level bounds it exactly as it bounds a Virtual Cell's or the Hive
+Stand's, and a Cell's kind is never read. It also opens the Hive Stand's recording store with the
+retention sweep applied; that store is a Night Veil side channel too, so a Night Veil Cell's
+recordings are purged with the Cell (`hivemind.cli.compose.night_veil.attach_side_channels`,
+codingrules section 12).
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose`. Called by
-    `hivemind.cli.compose.deps` (`open_default_stores`, `build_warden_deps`) and by
-    `hivemind.cli.in_cell.deps`. Calls into `hivemind.cli.stores` (open_recordings),
-    `hivemind.common.logging`, `hivemind.exoskeleton` (config, geometry, browser launcher,
-    recorder stores), `hivemind.forage` (Tempo), `hivemind.llm` (Ears, the transcription gates),
-    `hivemind.manifest.schema` (ExoskeletonSection), `hivemind.wardens` (WardenDeps) and waggle.
+    `hivemind.cli.compose.deps` (`open_default_stores`, `build_warden_deps`), by
+    `hivemind.cli.in_cell.deps` and by `hivemind.cli.in_cell.borrowed.deps`. Calls into
+    `hivemind.cli.stores` (open_recordings), `hivemind.common.logging`, `hivemind.exoskeleton`
+    (config, geometry, browser launcher, recorder stores), `hivemind.forage` (Tempo),
+    `hivemind.llm` (Ears, the transcription gates), `hivemind.manifest.schema`
+    (ExoskeletonSection), `hivemind.wardens` (WardenDeps) and waggle.
 
 Key invariants:
     - A Hive without the browser extra still composes: no launcher is built, and attach refuses a
       browser need up front (EXOSKELETON_FAILED) instead of failing mid-launch.
-    - Chromium's own sandbox is off only inside a Virtual Cell (the Cell is the sandbox) or on a
-      Hive Stand running as root (Chromium cannot start sandboxed there); no setting turns it off.
+    - Chromium's own sandbox is off only inside a Virtual Cell (the Cell is the sandbox) or where
+      the Warden runs as root, on the Hive Stand or on a colonized device (Chromium cannot start
+      sandboxed there); a borrowed machine is no sandbox, and no setting turns it off.
+    - A Warden that runs on a borrowed device keeps its flight recordings in its own memory:
+      nothing on the device can play them back, and a borrowed machine is left with as little of
+      the Hive's as can be, so no frame of them is written to its disk. It forgets one a day after
+      its last action (`DEVICE_RECORDING_KEEP`), because it runs for months.
     - A transcriber binding that cannot hear leaves `ears` None, so the `listen` tool is simply
       not offered, rather than failing the whole composition.
 
@@ -56,6 +69,7 @@ from hivemind.exoskeleton.browser import BrowserLauncher
 from hivemind.exoskeleton.recorder import (
     InMemoryRecordingStore,
     RecordingStore,
+    Retention,
     SqliteRecordingStore,
 )
 from hivemind.forage import Tempo
@@ -77,13 +91,21 @@ if TYPE_CHECKING:
 
 # The module the `hivemind[browser]` extra installs; ChromiumLauncher drives the browser through it.
 BROWSER_EXTRA_MODULE = "playwright"
+# How long a colonized device's Warden keeps a recording after its last action. The reviews that
+# read one (a judge's before the next step of an irreversible task, a sampled audit after it)
+# happen within minutes of the task, and nothing on the device can play one back, so a day is
+# generous; past it the frames are freed as the next recording opens, so a Warden that runs for
+# months holds a day's, not every one it ever made.
+DEVICE_RECORDING_KEEP = timedelta(days=1)
 
 log = get_logger(__name__)
 
 __all__ = [
     "BROWSER_EXTRA_MODULE",
+    "DEVICE_RECORDING_KEEP",
     "ExoskeletonWiring",
     "build_browser_launcher",
+    "device_exoskeleton",
     "exoskeleton_config",
     "hive_stand_exoskeleton",
     "in_cell_exoskeleton",
@@ -99,7 +121,7 @@ class ExoskeletonWiring:
 
     config: ExoskeletonConfig  # The screen, the readiness budget and Chromium's sandbox.
     launcher: BrowserLauncher | None  # None: no browser extra here, so no browser fast path.
-    recordings: RecordingStore | None  # None would keep no recordings; both Wardens keep them.
+    recordings: RecordingStore | None  # None would keep no recordings; every root here keeps them.
     ears: Ears | None  # None: nothing bound can hear, so no `listen` tool.
 
     def apply(self, deps: WardenDeps) -> WardenDeps:
@@ -148,8 +170,9 @@ def in_cell_exoskeleton(registry: ProviderRegistry, clock: Clock) -> Exoskeleton
     Cell is itself the sandbox, and its container drops the capabilities that sandbox needs. The
     Cell has no database file of its own (its Warden's memory store and trail segment live in
     process), so recordings go to an `InMemoryRecordingStore`: a Virtual Cell's recordings live
-    with the Cell and go when it is torn down, until a later step ships them to the Queen. No
-    Fanner runs inside a Cell, so its ears are unmetered, like its chat calls (`DirectCallGate`).
+    with the Cell and go when it is torn down, until a later step ships them to the Queen. The
+    Cell's ears are unmetered (a `DirectTranscriptionGate`): its Fanner meters the chat calls, but
+    is built beside this wiring, not in reach of it.
 
     Args:
         registry: The Cell's own ProviderRegistry (`hivemind.cli.in_cell.providers`).
@@ -158,12 +181,39 @@ def in_cell_exoskeleton(registry: ProviderRegistry, clock: Clock) -> Exoskeleton
     Returns:
         The wiring `hivemind.cli.in_cell.deps.build_in_cell_warden_deps` applies.
     """
-    config = ExoskeletonConfig(browser_sandbox=False)
-    return ExoskeletonWiring(
-        config=config,
-        launcher=build_browser_launcher(clock, config.screen),
-        recordings=InMemoryRecordingStore(),
-        ears=resolve_ears(registry, DirectTranscriptionGate()),
+    return _cell_exoskeleton(registry, clock, browser_sandbox=False, retention=None)
+
+
+def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonWiring:
+    """Build a colonized device's Warden's wiring: the in-Cell defaults, with Chromium sandboxed.
+
+    The Warden of a device the Hive borrows (roadmap step 11.11) reads no Hive Manifest either, so
+    its screen and readiness budget are the same `ExoskeletonConfig` defaults. It keeps its
+    recordings in memory too. It has SQLite files in its state directory, but they hold what must
+    survive a restart (a Handoff, the trail, the outbox); a recording is evidence for the reviews
+    that follow its task and nothing on the device can play it back, and frames on the disk of a
+    machine the Hive only borrows would be one more thing left there. So a recording lives as long
+    as the Warden's process does, up to `DEVICE_RECORDING_KEEP` after its last action: unlike a
+    Virtual Cell's Warden, this one runs for months. It differs in the other place the machine
+    does: a Virtual Cell is its own sandbox and a device is not, so Chromium keeps its own sandbox
+    unless this process runs as root, where Chromium cannot start with one, exactly as on the Hive
+    Stand. Nothing here reads the Cell's kind or the device's access level: `attach` plans from
+    the Cell's reported capabilities and the sub-bee's own capability set, which the access level
+    has already narrowed, so a task that needs a display on a device that cannot start one, or
+    whose level grants none, is refused at attach with nothing started.
+
+    Args:
+        registry: The Warden's own ProviderRegistry (`hivemind.cli.in_cell.deps.build_core_deps`).
+        clock: Paces the browser launcher's waits and stamps its screenshots.
+
+    Returns:
+        The wiring `hivemind.cli.in_cell.borrowed.deps.build_borrowed_warden_deps` applies.
+    """
+    return _cell_exoskeleton(
+        registry,
+        clock,
+        browser_sandbox=not running_as_root(),
+        retention=Retention(clock, DEVICE_RECORDING_KEEP),
     )
 
 
@@ -263,3 +313,27 @@ def open_hive_recordings(
     if pruned:
         log.info("exoskeleton.recordings_pruned", pruned=pruned, cutoff=cutoff.isoformat())
     return store
+
+
+def _cell_exoskeleton(
+    registry: ProviderRegistry,
+    clock: Clock,
+    *,
+    browser_sandbox: bool,
+    retention: Retention | None,
+) -> ExoskeletonWiring:
+    """Build the wiring of a Warden that reads no manifest: defaults, recordings in memory.
+
+    Shared by `in_cell_exoskeleton` and `device_exoskeleton`, which differ only in whether
+    Chromium keeps its own sandbox and in whether the recordings are forgotten, so the two cannot
+    drift apart in anything else.
+    """
+    config = ExoskeletonConfig(browser_sandbox=browser_sandbox)
+    return ExoskeletonWiring(
+        config=config,
+        launcher=build_browser_launcher(clock, config.screen),
+        recordings=InMemoryRecordingStore(retention),
+        # NOTE: unmetered. The Cell's Fanner is built beside this wiring and is not in reach of
+        # it, so a transcription is neither counted against the provider's seats nor recorded.
+        ears=resolve_ears(registry, DirectTranscriptionGate()),
+    )
