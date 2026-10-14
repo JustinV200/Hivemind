@@ -31,6 +31,8 @@ Public API:
       in front of every command (guard).
     - DevicePathRule, DevicePaths: the device's path rules, as a lease's rule and for a session
       (paths).
+    - absolute_device_path: a path the operator typed for the device, checked and normalised
+      (paths).
     - ErrorContext, translate, exit_code_for: the device's codes as session errors (codes).
 """
 
@@ -41,7 +43,7 @@ from hivemind.swarm.session.guard import (
     DeviceCommand,
     EnforcedCommandGuard,
 )
-from hivemind.swarm.session.paths import DevicePathRule, DevicePaths
+from hivemind.swarm.session.paths import DevicePathRule, DevicePaths, absolute_device_path
 from hivemind.swarm.session.session import PollenSession
 
 __all__ = [
@@ -53,6 +55,7 @@ __all__ = [
     "EnforcedCommandGuard",
     "ErrorContext",
     "PollenSession",
+    "absolute_device_path",
     "exit_code_for",
     "translate",
 ]

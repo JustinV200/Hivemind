@@ -30,7 +30,13 @@ from hivemind.pheromone import TrailQuery
 from hivemind.swarm import watch
 from hivemind.swarm.errors import DeviceRequestError, DeviceTimeoutError, GatewayUnavailableError
 from hivemind.swarm.gateway import GatewayHub
-from hivemind.swarm.watch import MISMATCH_CODE, OBSERVE_REASON, PollenWatchProbe
+from hivemind.swarm.models import SwarmNode
+from hivemind.swarm.watch import (
+    MISMATCH_CODE,
+    OBSERVE_REASON,
+    PollenWatchProbe,
+    readable_roots,
+)
 from waggle.messages.swarm import Observation, ObservationKind, Observe
 from waggle.messages.swarm.watch import DEFAULT_OBSERVE_ITEMS, ProcessSample
 
@@ -178,3 +184,44 @@ async def test_nothing_the_device_reports_is_logged_or_recorded(rig: LinkRig) ->
 
     assert "secret-job" not in str(captured)
     assert await rig.trail.query(TrailQuery()) == ()
+
+
+def _watching(rig: LinkRig, **overrides: object) -> SwarmNode:
+    """The rig's device, as the registry would hold it with `overrides` applied."""
+    return rig.node.model_copy(update=overrides)
+
+
+def test_a_device_with_no_directory_named_has_none_to_ask_for(rig: LinkRig) -> None:
+    assert readable_roots(rig.node) == ()
+
+
+def test_the_directories_the_operator_named_are_asked_for_in_their_order(rig: LinkRig) -> None:
+    node = _watching(rig, watch_roots=("/srv/b", "/var/log/a"))
+
+    assert readable_roots(node) == ("/srv/b", "/var/log/a")
+
+
+def test_a_directory_the_nodes_capabilities_do_not_cover_is_left_out_and_the_rest_kept(
+    rig: LinkRig,
+) -> None:
+    node = _watching(
+        rig,
+        watch_roots=("/srv/ok/a", "/srv/not-ok", "/srv/ok/b"),
+        granted_capabilities=("fs:read:/srv/ok/**", f"watch:{rig.node.cell_id}"),
+    )
+
+    # The packet would refuse a whole look at the device for the middle one.
+    assert readable_roots(node) == ("/srv/ok/a", "/srv/ok/b")
+
+
+async def test_the_probe_carries_the_roots_it_is_given_and_the_packet_sees_exactly_them(
+    rig: LinkRig,
+) -> None:
+    node = _watching(rig, watch_roots=("/srv/ok", "/var/log/a"))
+
+    await PollenWatchProbe(node, rig.hub).observe(
+        [ObservationKind.LOGS, ObservationKind.FILE_CHANGES], readable_roots(node), None
+    )
+
+    (asked,) = _asked(rig)
+    assert asked.roots == ("/srv/ok", "/var/log/a")

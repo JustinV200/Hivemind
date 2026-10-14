@@ -13,6 +13,13 @@ anything beyond the four kinds and the roots, and it checks the Warden holds `wa
 it has checked that it describes this device. Everything in it describes the operator's machine and
 is the most sensitive label on arrival (`C2`); this module neither logs nor records any of it.
 
+The directories the probe is given come from the operator, per device (`hive swarm watch`, stored
+as `SwarmNode.watch_roots`), and `readable_roots` is the filter between that list and the probe:
+it keeps the directories the node's own granted capabilities let the Warden read. The packet
+refuses a whole `swarm.observe` when one directory in it is not covered, which would cost the
+Warden its process list and resource use too, so a directory the capabilities do not cover is
+never asked for. With none named the Warden watches processes and resource use only.
+
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm`. Built by the
     composition root for each Level 0 device Warden and used by its watch observer
@@ -24,6 +31,8 @@ Key invariants:
       reply; it never writes, runs a command or needs a lease.
     - A reply about another device, or anything but an `Observation`, is an error and not data.
     - Nothing in an observation is logged or put on the trail here.
+    - `readable_roots` never returns a directory the node's granted capabilities do not cover, and
+      never one the operator did not name.
 
 See Also:
     - docs/adr/0054-access-levels-watch-mode-and-the-patrol.md for watch mode.
@@ -37,6 +46,7 @@ import os
 from collections.abc import Sequence
 from datetime import datetime
 
+from hivemind.swarm.enrolment import grants_read
 from hivemind.swarm.errors import DeviceRequestError, GatewayUnavailableError
 from hivemind.swarm.gateway.hub import GatewayHub
 from hivemind.swarm.models import SwarmNode
@@ -49,7 +59,27 @@ OBSERVE_REPLY_TIMEOUT_S = 60.0
 OBSERVE_REASON = "A scheduled watch sample of an idle device."
 MISMATCH_CODE = "hive.swarm.observation_mismatch"
 
-__all__ = ["MISMATCH_CODE", "OBSERVE_REASON", "OBSERVE_REPLY_TIMEOUT_S", "PollenWatchProbe"]
+__all__ = [
+    "MISMATCH_CODE",
+    "OBSERVE_REASON",
+    "OBSERVE_REPLY_TIMEOUT_S",
+    "PollenWatchProbe",
+    "readable_roots",
+]
+
+
+def readable_roots(node: SwarmNode) -> tuple[str, ...]:
+    """Return the directories of `node` its Warden may ask the packet to read, in order.
+
+    Args:
+        node: The device, as the registry holds it now.
+
+    Returns:
+        The operator's `watch_roots` that the node's granted capabilities let the Hive read:
+        every one at any access level today, since each grants `fs:read:**`, but the rule is the
+        packet's own and a narrower grant would shorten the list instead of failing every look.
+    """
+    return tuple(root for root in node.watch_roots if grants_read(node.granted_capabilities, root))
 
 
 class PollenWatchProbe:

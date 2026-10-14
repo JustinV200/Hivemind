@@ -33,6 +33,7 @@ Public API:
       (invite).
     - granted_capabilities, PACKET_FAMILIES: the capability strings for an access level
       (capabilities).
+    - grants_read: whether those strings let a Warden read under a directory (capabilities).
 """
 
 from hivemind.swarm.enrolment.accept import (
@@ -43,7 +44,11 @@ from hivemind.swarm.enrolment.accept import (
     decide_enrolment,
     node_update_for,
 )
-from hivemind.swarm.enrolment.capabilities import PACKET_FAMILIES, granted_capabilities
+from hivemind.swarm.enrolment.capabilities import (
+    PACKET_FAMILIES,
+    granted_capabilities,
+    grants_read,
+)
 from hivemind.swarm.enrolment.door import EnrolmentDoor, MintedInvite
 from hivemind.swarm.enrolment.invite import (
     INVITE_CODE_PATTERN,
@@ -71,6 +76,7 @@ __all__ = [
     "check_request",
     "decide_enrolment",
     "granted_capabilities",
+    "grants_read",
     "new_invite_token",
     "node_update_for",
     "parse_invite_string",

@@ -29,7 +29,12 @@ from collections.abc import Sequence
 from enum import Enum
 from typing import ClassVar
 
-from hivemind.common.errors import ConflictError, NotFoundError, PermissionDeniedError
+from hivemind.common.errors import (
+    ConfigurationError,
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from hivemind.swarm.errors import SwarmError
 
 __all__ = [
@@ -38,6 +43,7 @@ __all__ = [
     "RungUnavailableError",
     "TierRefusedError",
     "UnknownNodeError",
+    "WatchRootRefusedError",
 ]
 
 
@@ -128,3 +134,28 @@ class TierRefusedError(SwarmError, PermissionDeniedError):
             "never torn down. Choose MEADOW or PROPOLIS."
         )
         self.device_id = device_id
+
+
+class WatchRootRefusedError(SwarmError, ConfigurationError):
+    """Raise when the directories the operator names for a device to watch cannot be accepted.
+
+    The reasons are all in what was typed: too many directories, one that is not an absolute path
+    on the device, or one the device's access level does not let the Hive read. The message names
+    the position of the directory, never the directory, since a path is the operator's own data.
+    """
+
+    code: ClassVar[str] = "hive.swarm.watch_root_refused"
+
+    def __init__(self, device_id: str, reason: str) -> None:
+        """Build the error for directories that cannot be watched.
+
+        Args:
+            device_id: The device the operator named.
+            reason: What is wrong, as a short clause that names no path.
+        """
+        super().__init__(
+            f"Device {device_id} cannot watch the directories named: {reason}. Name absolute "
+            "directories as the device spells them, such as /var/log/app or C:\\logs."
+        )
+        self.device_id = device_id
+        self.reason = reason

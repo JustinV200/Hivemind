@@ -21,7 +21,7 @@ import pytest
 
 from hivemind.cell import AccessLevel
 from hivemind.guard import SCRATCH_PLACEHOLDER, Capability, CapabilityFamily, ceiling_for
-from hivemind.swarm.enrolment import PACKET_FAMILIES, granted_capabilities
+from hivemind.swarm.enrolment import PACKET_FAMILIES, granted_capabilities, grants_read
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id
 
@@ -96,3 +96,27 @@ def test_the_scratch_placeholder_is_left_for_the_packet_to_fill_per_lease() -> N
     granted = granted_capabilities(AccessLevel.SCRATCH, _CELL)
 
     assert f"fs:write:{SCRATCH_PLACEHOLDER}/**" in granted
+
+
+@pytest.mark.parametrize("level", list(AccessLevel))
+@pytest.mark.parametrize("root", ["/var/log", "/srv/app/logs", "C:\\logs", "/"])
+def test_every_level_lets_the_hive_read_anywhere_so_any_root_is_readable(
+    level: AccessLevel, root: str
+) -> None:
+    assert grants_read(granted_capabilities(level, _CELL), root)
+
+
+def test_a_root_outside_every_read_string_is_not_readable() -> None:
+    narrow = ("fs:read:/srv/allowed/**", _WATCH)
+
+    assert grants_read(narrow, "/srv/allowed/logs")
+    assert not grants_read(narrow, "/srv/other")
+    assert not grants_read(narrow, "/srv/allowed")  # The directory itself is not under its own /**.
+
+
+def test_a_write_string_does_not_let_the_hive_read() -> None:
+    assert not grants_read(("fs:write:**", "exec:*", _WATCH), "/var/log")
+
+
+def test_a_root_the_guards_grammar_refuses_is_not_readable() -> None:
+    assert not grants_read(("fs:read:**",), "")

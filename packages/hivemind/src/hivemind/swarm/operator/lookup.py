@@ -13,8 +13,8 @@ already revoked device can still say so.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.operator`.
-    Called by `OperatorDesk.find`, which the `hive swarm` commands use. Pure: calls into
-    hivemind.swarm.models, .node_state and .operator.errors only.
+    Called by `NodeReader.find` (the base of `OperatorDesk`), which the `hive swarm` commands
+    use. Pure: calls into hivemind.swarm.models, .node_state and .operator.errors only.
 
 Key invariants:
     - An id match is exact and wins over any label: a device whose label is another device's id

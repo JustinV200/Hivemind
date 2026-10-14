@@ -49,7 +49,8 @@ Public API:
       reason to still holds (nuc).
     - SwarmRecorder: the trail, clock and identity the Swarm records with (events).
     - SwarmSource, SwarmLeaseReleaser: an enrolled device as a Real Cell source (source).
-    - PollenWatchProbe: read-only observation of an idle device (watch).
+    - PollenWatchProbe, readable_roots: read-only observation of an idle device, and the
+      directories the operator named that it may read (watch).
     - SwarmRegistry, SqliteSwarmRegistry, MemorySwarmRegistry: the node and invite store
       (registry).
     - EnrolmentDoor, EnrolmentRules, MintedInvite, InviteEndpoint, parse_invite_string: enrolment
@@ -131,7 +132,7 @@ from hivemind.swarm.session import (
 )
 from hivemind.swarm.shield import PropolisChecks, ShieldedSource, ShieldReport
 from hivemind.swarm.source import SwarmLeaseReleaser, SwarmSource
-from hivemind.swarm.watch import PollenWatchProbe
+from hivemind.swarm.watch import PollenWatchProbe, readable_roots
 
 __all__ = [
     "SWARM_SOURCE",
@@ -203,4 +204,5 @@ __all__ = [
     "is_promotion",
     "nuc_reason",
     "parse_invite_string",
+    "readable_roots",
 ]

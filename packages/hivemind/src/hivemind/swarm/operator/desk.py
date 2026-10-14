@@ -1,13 +1,15 @@
 """Provide OperatorDesk: the operator's acts on an enrolled device, each with its trail event.
 
-The operator (the human running the Hive) has four acts on a device that is already enrolled, and
+The operator (the human running the Hive) has five acts on a device that is already enrolled, and
 `hive swarm` is their terminal. They *revoke* it (its enrolment is final from then on and the
 Queen cuts it off), *change its access level* (how much of the device the Hive may touch), *change
 its Comb Shield tier* (the security tier the operator vouches for; only the operator ever sets a
-Real Cell's tier), and *ask for a rung on the runtime ladder* (`promote` or `demote`, which moves
-the device's Warden, its supervisor, onto the device or off it, or gives the device a model
-server of its own). The desk writes each act into the registry and, in the same transaction, the
-trail event that records it (`swarm.revoked`, `swarm.access_changed`, `swarm.shield_changed`).
+Real Cell's tier), *name the directories its Warden watches* (the places on the device whose log
+files and file changes the idle Warden may read, none by default), and *ask for a rung on the
+runtime ladder* (`promote` or `demote`, which moves the device's Warden, its supervisor, onto the
+device or off it, or gives the device a model server of its own). The desk writes each act into
+the registry and, in the same transaction, the trail event that records it (`swarm.revoked`,
+`swarm.access_changed`, `swarm.shield_changed`, `swarm.watch_changed`).
 It never talks to a device: the running Hive's swarm gate reads the registry on every beat and
 does the work (closing a revoked device's link, sending the device its new terms, moving its
 Warden), so the same commands work whether or not a Hive is running. A rung request is only a
@@ -22,13 +24,15 @@ Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.operator`.
     Called by the `hive swarm` commands (Layer 7) with the registry the running Hive also opens.
     Calls into the registry, the recorder, the ladder's table and the capability strings of
-    `hivemind.swarm.enrolment`.
+    `hivemind.swarm.enrolment`; finds and re-reads a device through its base, `NodeReader`.
 
 Key invariants:
     - Every act reads the node again before it writes, so a stale reference (the status moved, a
       colleague revoked it first) is judged on what is true now.
     - A change that is already true is not made: the result says `is_changed=False`, nothing is
       written and no event is recorded, so a repeated command leaves the trail alone.
+    - The directories a device's Warden watches are stored only after `checked_roots` has judged
+      them against the node's own granted capabilities, in the device's own spelling.
     - A revoked device accepts no change at all; `revoke` on one is the only act that returns.
     - A rung request is always one step from the rung the device is on, up or down, never a jump.
     - A `demote` sets the ceiling before it writes the wish, so a Queen reading between the two
@@ -43,16 +47,18 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from hivemind.cell import AccessLevel, CombShieldLevel
 from hivemind.swarm.enrolment import granted_capabilities
-from hivemind.swarm.errors import NodeNotFoundError, NodeRevokedError, NodeStatusConflictError
+from hivemind.swarm.errors import NodeStatusConflictError
 from hivemind.swarm.events import SwarmRecorder
 from hivemind.swarm.models import SwarmNode
 from hivemind.swarm.node_state import NodeStatus
 from hivemind.swarm.operator.errors import TierRefusedError
-from hivemind.swarm.operator.lookup import find_node
+from hivemind.swarm.operator.reader import NodeReader
+from hivemind.swarm.operator.roots import checked_roots
 from hivemind.swarm.operator.rung import ask_for_rung
 from hivemind.swarm.registry import SwarmRegistry
 from waggle.ids import DeviceId
@@ -80,8 +86,11 @@ class NodeChange:
     is_changed: bool
 
 
-class OperatorDesk:
-    """The operator's acts on enrolled devices, written to the registry with their trail events."""
+class OperatorDesk(NodeReader):
+    """The operator's acts on enrolled devices, written to the registry with their trail events.
+
+    It finds a device the way `NodeReader` does (`find`, `find_live`), then makes the acts below.
+    """
 
     def __init__(self, registry: SwarmRegistry, recorder: SwarmRecorder) -> None:
         """Build the desk over the registry and the recorder that stamps its events.
@@ -91,40 +100,8 @@ class OperatorDesk:
             recorder: The trail, clock and identity events are built with. The identity's actor
                 is who the trail says did it, so a command passes `human`.
         """
-        self._registry = registry
+        super().__init__(registry)
         self._recorder = recorder
-
-    async def find(self, reference: str) -> SwarmNode:
-        """Return the one enrolled device the operator's words name.
-
-        Args:
-            reference: A device id, a Cell id or a label.
-
-        Returns:
-            The device, whatever its status.
-
-        Raises:
-            UnknownNodeError: Nothing matches.
-            AmbiguousNodeError: A label matches several devices.
-        """
-        return find_node(await self._registry.nodes(), reference)
-
-    async def find_live(self, reference: str) -> SwarmNode:
-        """Return the one enrolled device the operator's words name, if it can still be used.
-
-        Args:
-            reference: A device id, a Cell id or a label.
-
-        Returns:
-            The device, as the registry holds it now, not revoked.
-
-        Raises:
-            UnknownNodeError: Nothing matches.
-            AmbiguousNodeError: A label matches several devices.
-            NodeRevokedError: The device is revoked, so no work can be given to it.
-        """
-        found = await self.find(reference)
-        return await self._live(found.device_id)
 
     async def revoke(self, node: SwarmNode) -> NodeChange:
         """Revoke a device: its enrolment becomes final and `swarm.revoked` is recorded.
@@ -217,6 +194,44 @@ class OperatorDesk:
         changed = await self._registry.set_shield(current.device_id, shield, event)
         return NodeChange(changed, is_changed=True)
 
+    async def set_watch_roots(self, node: SwarmNode, roots: Sequence[str]) -> NodeChange:
+        """Name the directories on a device whose logs and file changes its Warden may read.
+
+        The idle Warden always watches the process list and resource use; the logs and file
+        changes of the directories named here are the only files it reads (ADR-0054). The list
+        replaces the one before it, and an empty one stops watching files.
+
+        Args:
+            node: The device, as found by `find`.
+            roots: Absolute directories on the device, in its own spelling.
+
+        Returns:
+            The device carrying the directories in their normal form; `is_changed` is False when
+            it already had exactly these.
+
+        Raises:
+            NodeNotFoundError: The device is no longer in the registry.
+            NodeRevokedError: The device is revoked.
+            WatchRootRefusedError: A directory is not absolute, there are too many, or the
+                device's access level does not let the Hive read one.
+        """
+        current = await self._live(node.device_id)
+        wanted = checked_roots(current, roots)
+        if wanted == current.watch_roots:
+            return NodeChange(current, is_changed=False)
+        event = self._recorder.swarm_event(
+            "swarm.watch_changed",
+            current.device_id,
+            {
+                "device_id": current.device_id,
+                "cell_id": current.cell_id,
+                "from_roots": len(current.watch_roots),
+                "roots": list(wanted),
+            },
+        )
+        changed = await self._registry.set_watch_roots(current.device_id, wanted, event)
+        return NodeChange(changed, is_changed=True)
+
     async def move(self, node: SwarmNode, *, promote: bool) -> NodeChange:
         """Ask for the rung above (or below) the one the device is on, and set its ceiling.
 
@@ -262,18 +277,3 @@ class OperatorDesk:
             current.device_id, current.status, NodeStatus.REVOKED, self._recorder.clock.now(), event
         )
         return NodeChange(revoked, is_changed=True)
-
-    async def _current(self, device_id: DeviceId) -> SwarmNode:
-        """Read the device as the registry holds it now."""
-        found = await self._registry.node(device_id)
-        if found is None:
-            raise NodeNotFoundError(device_id)
-        return found
-
-    async def _live(self, device_id: DeviceId) -> SwarmNode:
-        """Read the device as the registry holds it now, refusing a revoked one."""
-        found = await self._current(device_id)
-        # A revoked enrolment is final: no change applies to it, whatever the operator typed.
-        if found.status is NodeStatus.REVOKED:
-            raise NodeRevokedError(device_id)
-        return found

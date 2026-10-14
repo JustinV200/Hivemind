@@ -16,7 +16,9 @@ its session exists.
 The same text rules are the lease's own `PathRule` (`DevicePathRule`): a `RealCellLease` judges the
 paths of the machine it leases through the rule its source gave it, and a lease on a device must
 never ask the Hive Stand's filesystem about them. `DevicePaths` is built on that rule, so the
-session and the lease agree on what a path is.
+session and the lease agree on what a path is. `absolute_device_path` is the same text rules
+applied to a path the operator names for the device with no lease in play, such as a directory its
+Warden is to watch.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.session`.
@@ -56,7 +58,33 @@ from hivemind.cell.lease import RealCellLease
 # the way the device does.
 _WINDOWS_ROOT = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
-__all__ = ["DevicePathRule", "DevicePaths"]
+__all__ = ["DevicePathRule", "DevicePaths", "absolute_device_path"]
+
+
+def absolute_device_path(text: str) -> str | None:
+    """Return `text` as an absolute, normalised device path, or None when it is not one.
+
+    The device's own spelling decides what "absolute" means, so the answer never depends on the
+    operating system the Hive Stand runs on: `/var/log` and a drive letter with a folder are
+    absolute everywhere, `logs` and a drive letter with a bare name nowhere. It is how a path the
+    operator types for another machine (a directory to watch) is checked before it is stored, with
+    no read of any file system.
+
+    Args:
+        text: A path as the operator wrote it for the device.
+
+    Returns:
+        The path with its separators and `.` and `..` segments in the device's normal form; None
+        when it is empty, holds a NUL byte, or is relative.
+    """
+    if not text or "\0" in text:
+        return None
+    # The same flavour choice a lease's scratch root makes: a drive letter or a UNC prefix is a
+    # Windows path, anything else is read as POSIX.
+    flavor: ModuleType = ntpath if _WINDOWS_ROOT.match(text) else posixpath
+    if not flavor.isabs(text):
+        return None
+    return str(flavor.normpath(text))
 
 
 class DevicePathRule:

@@ -23,7 +23,7 @@ from hivemind.cell.fake import FakeLeaseReleaser
 from hivemind.cell.lease import LeaseFacts, RealCellLease
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.swarm.session.paths import DevicePathRule, DevicePaths
+from hivemind.swarm.session.paths import DevicePathRule, DevicePaths, absolute_device_path
 from waggle.clock import FakeClock
 from waggle.ids import new_lease_id
 
@@ -216,3 +216,30 @@ def test_widening_a_device_lease_stores_the_devices_normal_form() -> None:
 
     assert [str(p) for p in lease.allowed_paths] == ["C:\\Users\\op\\project"]
     assert lease.is_path_allowed(Path("c:\\users\\OP\\project\\src\\main.py"))
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("/var/log/app", "/var/log/app"),
+        ("/var/log/app/", "/var/log/app"),
+        ("/var//log/./app/../app", "/var/log/app"),
+        ("/", "/"),
+        ("C:\\logs", "C:\\logs"),
+        ("C:/logs/", "C:\\logs"),
+        ("c:\\Users\\op\\.\\logs", "c:\\Users\\op\\logs"),
+        ("\\\\server\\share\\logs", "\\\\server\\share\\logs"),
+    ],
+)
+def test_a_device_path_that_is_absolute_in_the_devices_spelling_is_normalised(
+    text: str, expected: str
+) -> None:
+    # The answer is the same whatever system the test runs on: the device's spelling decides.
+    assert absolute_device_path(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text", ["", "logs", "./logs", "../logs", "C:logs", "C:", "var/log", "/var/\0log", "\0"]
+)
+def test_a_relative_empty_or_nul_holding_path_is_not_an_absolute_device_path(text: str) -> None:
+    assert absolute_device_path(text) is None
