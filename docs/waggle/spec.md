@@ -1356,10 +1356,11 @@ correlated `LeaseOpened` or a `control.error`.
 - `lifetime_s` (`float | None`): expected tenancy length; None means until released. Greater
   than 0 when set.
 - `scratch_quota_bytes` (`int | None`, `PROTOCOL_MINOR` 13): the lease's scratch quota in bytes,
-  taken from the holder's `Ceilings.scratch_disk_bytes_per_lease`, which the device's packet
-  enforces on the lease's scratch directory; None leaves the packet's own default. At least 0 when
-  set (0 allows no scratch bytes). Defaults to None, so an envelope from before this field existed
-  still validates.
+  taken from the holder's `Ceilings.scratch_disk_bytes_per_lease` (the Hive Stand fills in its
+  configured default, `[swarm] scratch_quota_mb`, for a Warden whose ceilings name no figure),
+  which the device's packet enforces on the lease's scratch directory; None leaves the packet's
+  own default. At least 0 when set (0 allows no scratch bytes). Defaults to None, so an envelope
+  from before this field existed still validates.
 - `reason` (`str`): why the Cell is needed.
 
 #### LeaseOpened

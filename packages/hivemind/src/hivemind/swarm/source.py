@@ -4,11 +4,15 @@ A `RealCellSource` hands out leases on Real Cells (existing devices the Hive bor
 exactly as found), and `SwarmSource` is the one for a single enrolled device. Its one Cell is the
 device itself (`SwarmNode.as_cell`, source `"swarm"`). Leasing asks the device's Pollen Packet over
 its link: a `cell.request` naming the Cell, the Warden that will hold the lease, the access level
-needed and the scratch quota the Warden's ceilings allow; the packet answers with a
+needed and the scratch quota the lease is held to; the packet answers with a
 `cell.lease_opened` carrying the lease id, the access it actually granted (never more than the node
-holds), the scratch root and the dead-man limit. The source builds a `RealCellLease` around that
-answer, and the lease's releaser, `SwarmLeaseReleaser`, is how it ends: a `cell.teardown_request`
-and the packet's `cell.lease_released`, which says whether the device was left exactly as found.
+holds), the scratch root and the dead-man limit. The quota is the Queen's: it is the scratch the
+holder's ceilings allow one lease (`LeaseRequest.scratch_quota_bytes`), and where she has set none
+it is the Hive's configured default for device leases (`[swarm] scratch_quota_mb`), so the packet's
+own built-in figure only ever applies to a lease made by something that names neither. The source
+builds a `RealCellLease` around the answer, and the lease's releaser, `SwarmLeaseReleaser`, is how
+it ends: a `cell.teardown_request` and the packet's `cell.lease_released`, which says whether the
+device was left exactly as found.
 Opening a session sends `session.open` and returns a `PollenSession`. The device may end a lease
 without being asked (its dead-man switch fires after the link has been down too long); the source
 is a `HubListener` so that, subscribed to the hub, it hears that unprompted `cell.lease_released`
@@ -185,7 +189,7 @@ class SwarmSource:
         hub: GatewayHub,
         recorder: SwarmRecorder,
         guard: CommandGuard,
-        scratch_quota_bytes: int | None = None,
+        default_scratch_quota_bytes: int | None = None,
     ) -> None:
         """Build the source for one device.
 
@@ -195,14 +199,15 @@ class SwarmSource:
             recorder: The trail, clock and identity its leases record `cell.leased` and
                 `cell.released` with.
             guard: Checks and records each command of every session it opens.
-            scratch_quota_bytes: The scratch quota each lease asks the device to enforce, from the
-                Warden's ceilings; None leaves the device's own default.
+            default_scratch_quota_bytes: The scratch quota a lease asks the device to enforce when
+                its request names none (`[swarm] scratch_quota_mb`, the Hive's figure for a lease
+                the Queen's ceilings do not size); None leaves the device's own default.
         """
         self._node = node
         self._hub = hub
         self._recorder = recorder
         self._guard = guard
-        self._quota = scratch_quota_bytes
+        self._default_quota = default_scratch_quota_bytes
         self._tenancy: _Tenancy | None = None
 
     @property
@@ -308,6 +313,14 @@ class SwarmSource:
             raise LeaseRefusedError(request.cell_id, "the device is not connected")
         return link
 
+    def _quota_for(self, request: LeaseRequest) -> int | None:
+        """Return the scratch quota to ask the device for: the Queen's figure, else the default."""
+        # The holder's ceilings are the Queen's decision and win; the configured default stands in
+        # only while she has set none, so the device's own built-in figure is never what decides.
+        if request.scratch_quota_bytes is not None:
+            return request.scratch_quota_bytes
+        return self._default_quota
+
     async def _open_on_device(
         self, link: DeviceLink, request: LeaseRequest, node: SwarmNode
     ) -> LeaseOpened:
@@ -319,7 +332,7 @@ class SwarmSource:
             task_id=request.task_id,
             access_level=request.access_level.to_wire(),
             lifetime_s=None,
-            scratch_quota_bytes=self._quota,
+            scratch_quota_bytes=self._quota_for(request),
             reason=f"Warden {request.holder} leases device {node.device_id}.",
         )
         try:

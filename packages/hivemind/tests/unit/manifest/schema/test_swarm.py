@@ -60,6 +60,12 @@ def test_the_liveness_and_invite_defaults_are_the_documented_ones() -> None:
     assert section.default_access is AccessLevel.FULL
 
 
+def test_a_device_lease_is_held_to_the_packets_own_figure_unless_the_manifest_says_more() -> None:
+    # 512 MiB is what the Pollen Packet falls back on, so a manifest that never mentions the key
+    # asks a device for exactly what it would have enforced on its own.
+    assert SwarmSection().scratch_quota_mb == 512
+
+
 def test_the_ladder_and_nuc_defaults_are_the_documented_thresholds() -> None:
     section = SwarmSection()
 
@@ -93,6 +99,7 @@ def test_the_section_round_trips_through_its_own_dump() -> None:
         listen_port=9000,
         advertise_url="wss://hive.example.org:9000/",
         default_access="SCRATCH",
+        scratch_quota_mb=64,
         ladder={
             "relief_pressure": 0.5,
             "min_free_memory_bytes": 0,
@@ -120,6 +127,7 @@ def test_the_section_round_trips_through_its_own_dump() -> None:
         ({"heartbeat_interval_s": 0}, "greater than 0"),
         ({"heartbeat_miss_limit": 0}, "greater than or equal to 1"),
         ({"dead_man_s": 0}, "greater than 0"),
+        ({"scratch_quota_mb": 0}, "greater than 0"),
         ({"unreachable_grace_s": -1}, "greater than or equal to 0"),
         ({"default_access": "ALL"}, "default_access"),
         ({"default_access": "full"}, "default_access"),

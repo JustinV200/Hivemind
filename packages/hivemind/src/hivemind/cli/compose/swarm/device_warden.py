@@ -20,7 +20,10 @@ counting a crash, and starts them again when the device is back (roadmap 11.9). 
 of its link reads the device's capacity from the hub, where the packet's reports land, so grants
 are sized from the device as it is now. While idle it watches the device by asking its packet
 (`PollenWatchProbe`, roadmap step 11.10), with no lease and no command: there is nothing of the
-Hive's on the device to look through.
+Hive's on the device to look through. The scratch a lease on the device may hold is the Queen's to
+size: the Warden puts the figure in her ceilings on each lease request, and this module hands the
+device's source the Hive's `[swarm] scratch_quota_mb` as the figure for a lease those ceilings
+do not size (roadmap step 11.4), so the packet's own built-in default never decides it.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.swarm`. Built once by
@@ -36,6 +39,8 @@ Key invariants:
       Exoskeleton: none of those are this machine's to give to a device's Cell.
     - The device's `SwarmSource` is returned as a hub listener, because it must hear the unprompted
       `cell.lease_released` a dead-man switch sends; the gate subscribes it for the Warden's life.
+    - Every lease the source asks the device for names a scratch quota: the Queen's ceilings' when
+      she set one, else the manifest's.
     - The Warden shares the Hive's one untrusted-content scanner with the Queen and the Hive
       Stand's Warden.
 
@@ -69,6 +74,8 @@ from hivemind.swarm import (
 )
 from hivemind.wardens import DeviceDeps, Warden
 from hivemind.wardens.offline import Outage
+
+_BYTES_PER_MB = 1024 * 1024  # `[swarm] scratch_quota_mb` is megabytes; the wire counts bytes.
 
 __all__ = ["SwarmWardenFactory"]
 
@@ -108,7 +115,13 @@ class SwarmWardenFactory:
             manifest.hive.id, manifest.hive.node_id, cell, parts.clock, warden_id=node.warden_id
         )
         guard = LeaseScopedGuard(parts.enforcer, self._recorder, node.warden_id, cell)
-        swarm_source = SwarmSource(node, self._hub, self._recorder, guard)
+        swarm_source = SwarmSource(
+            node,
+            self._hub,
+            self._recorder,
+            guard,
+            default_scratch_quota_bytes=manifest.swarm.scratch_quota_mb * _BYTES_PER_MB,
+        )
         # The cell's own id names the capability, never its kind: this package built the source.
         lease = Capability(family=CapabilityFamily.CELL_REAL, scope=cell.id)
         deps = build_cell_warden_deps(

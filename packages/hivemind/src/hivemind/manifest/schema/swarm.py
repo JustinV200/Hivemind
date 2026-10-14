@@ -8,18 +8,18 @@ the swarm listener, where those packets connect and are admitted by a one-time i
 certificate and key a non-loopback listener must serve), how long an invite lives, how a device's
 liveness is judged (the heartbeat cadence and the number of beats it may miss, the dead-man limit
 a device with no Warden on it enforces on itself, and how long the Queen holds a lost device's
-tasks before deciding), the access level an invite gets when the operator names none, and two
-sub-tables of thresholds: ``[swarm.ladder]`` (when moving a device's Warden onto it, colonizing it,
-is worth doing) and ``[swarm.nuc]`` (when giving it a model server of its own is). Each sub-table
-also holds the two times that keep the Queen from flapping a device between rungs when she moves
-it on her own: how long every reason for a move must have been gone before she undoes it
-(``lower_after_s``), and how long she leaves a device alone after an attempt on it failed
-(``retry_after_s``). The schema
-checks only what a value is, and the one rule that keeps a secret off the wire in the clear: a
-listener on any address other than loopback serves ``wss://``, so it needs both halves of a
-certificate. A device packet pins that certificate's fingerprint from the invite, so a self-signed
-one is fine. Everything here defaults to off or to loopback: a manifest that never mentions
-``[swarm]`` has no listener at all.
+tasks before deciding), the access level an invite gets when the operator names none, the most
+scratch one lease may hold on a device when the Queen's ceilings name no figure of their own
+(``scratch_quota_mb``), and two sub-tables of thresholds: ``[swarm.ladder]`` (when moving a
+device's Warden onto it, colonizing it, is worth doing) and ``[swarm.nuc]`` (when giving it a model
+server of its own is). Each sub-table also holds the two times that keep the Queen from flapping a
+device between rungs when she moves it on her own: how long every reason for a move must have been
+gone before she undoes it (``lower_after_s``), and how long she leaves a device alone after an
+attempt on it failed (``retry_after_s``). The schema checks only what a value is, and the one rule
+that keeps a secret off the wire in the clear: a listener on any address other than loopback serves
+``wss://``, so it needs both halves of a certificate. A device packet pins that certificate's
+fingerprint from the invite, so a self-signed one is fine. Everything here defaults to off or to
+loopback: a manifest that never mentions ``[swarm]`` has no listener at all.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -67,6 +67,8 @@ DEFAULT_UNREACHABLE_GRACE_S = 300.0  # Five minutes a lost device's tasks wait, 
 # nor re-placed, before the Queen decides what to do with them (ADR-0053).
 DEFAULT_SWARM_ACCESS = AccessLevel.FULL  # What an invite grants when the operator names no level
 # (the operator may always grant less; the cap rides on the invite, never on the wire).
+DEFAULT_SWARM_SCRATCH_QUOTA_MB = 512  # The figure the Pollen Packet itself falls back on (512 MiB:
+# roomy for a task, safe on a small SD card), so a manifest that never mentions it changes nothing.
 DEFAULT_RELIEF_PRESSURE = 0.75  # Share of the Hive Stand's cores or memory that Level 0
 # Wardens' running sub-bees take, past which colonizing a device to relieve it is worth doing.
 DEFAULT_MIN_FREE_MEMORY_BYTES = 1_073_741_824  # 1 GiB: room for a Warden, a sub-bee and headroom.
@@ -102,6 +104,7 @@ __all__ = [
     "DEFAULT_SWARM_HEARTBEAT_MISS_LIMIT",
     "DEFAULT_SWARM_LISTEN_HOST",
     "DEFAULT_SWARM_LISTEN_PORT",
+    "DEFAULT_SWARM_SCRATCH_QUOTA_MB",
     "DEFAULT_UNREACHABLE_GRACE_S",
     "MAX_RETRY_DOUBLINGS",
     "SwarmLadderSection",
@@ -261,6 +264,14 @@ class SwarmSection(BaseModel):
         description="The access level an invite grants when `hive swarm invite` names none: "
         "READ_ONLY, SCRATCH or FULL. It is a cap, never a promise: the operator may grant less "
         "at approval.",
+    )
+    scratch_quota_mb: int = Field(
+        default=DEFAULT_SWARM_SCRATCH_QUOTA_MB,
+        gt=0,
+        description="The most bytes, in megabytes, any one lease's scratch directory on a device "
+        "may grow to before the device's packet kills the running command. It is the figure a "
+        "device lease asks for when the Queen's ceilings for that device's Warden "
+        "(scratch_disk_bytes_per_lease) name none; a figure the Queen has set wins.",
     )
     ladder: SwarmLadderSection = Field(
         default_factory=SwarmLadderSection,

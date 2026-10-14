@@ -958,6 +958,12 @@ unreachable_grace_s = 300.0
 # The access level an invite grants when `hive swarm invite` names none: READ_ONLY, SCRATCH or
 # FULL. A cap, never a promise: the operator may grant less when approving.
 default_access = "FULL"
+# The most scratch, in megabytes, any one lease on a device may hold before the device's packet
+# kills the command that is filling it (the watchdog [hive_stand] scratch_quota_mb sets for the
+# lease on this machine). It is the figure a device lease asks for when the Queen's ceilings for
+# that device's Warden (scratch_disk_bytes_per_lease) name none; a figure she has set wins. 512 is
+# what the packet itself falls back on, so leaving this out changes nothing.
+scratch_quota_mb = 512
 
 [swarm.ladder]
 # When is moving a device's Warden onto the device (colonizing it) worth it? Only when the device

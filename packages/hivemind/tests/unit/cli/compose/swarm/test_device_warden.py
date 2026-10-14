@@ -33,6 +33,7 @@ from hivemind.queen.swarm_gate import DeviceWarden
 from hivemind.swarm import PollenWatchProbe, ShieldedSource, SwarmNode, SwarmSource
 from hivemind.wardens import DeviceDeps
 from hivemind.wardens.deps import device_outage
+from pollen.lease import quota as pollen_lease
 from waggle.clock import FakeClock, SystemClock
 
 
@@ -170,6 +171,30 @@ def test_a_meadow_devices_source_is_its_swarm_source_scoped_to_each_lease(tmp_pa
     assert isinstance(source, LeaseScopedSource)
     assert isinstance(source._inner, SwarmSource)
     assert built.hub_listeners == (source._inner,)  # It must hear a dead-man switch's release.
+
+
+def test_a_devices_source_asks_for_the_manifests_scratch_quota_where_the_queen_names_none(
+    tmp_path: Path,
+) -> None:
+    path = swarm_manifest(tmp_path, scratch_quota_mb=3)
+    hive = build_hive(load_manifest(path, {}), environ={}, clock=SystemClock())
+
+    built = _factory(hive).build(_node())
+
+    source = built.warden._deps.source
+    assert isinstance(source, LeaseScopedSource) and isinstance(source._inner, SwarmSource)
+    assert source._inner._default_quota == 3 * 1024 * 1024  # Megabytes in the manifest, bytes here.
+
+
+def test_a_manifest_that_says_nothing_asks_a_device_for_the_packets_own_figure(
+    tmp_path: Path,
+) -> None:
+    _, _, built = _built(tmp_path)
+
+    source = built.warden._deps.source
+
+    assert isinstance(source, LeaseScopedSource) and isinstance(source._inner, SwarmSource)
+    assert source._inner._default_quota == pollen_lease.DEFAULT_SCRATCH_QUOTA_BYTES
 
 
 def test_a_propolis_devices_lease_is_verified_before_it_is_returned(tmp_path: Path) -> None:

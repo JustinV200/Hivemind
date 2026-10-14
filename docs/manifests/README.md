@@ -242,7 +242,9 @@ fine, because an invite carries its fingerprint and the packet pins that). It se
 lifetime (`invite_ttl_minutes`), how a device's liveness is judged (`heartbeat_interval_s`,
 `heartbeat_miss_limit`, the dead-man switch's `dead_man_s` and the Queen's `unreachable_grace_s`)
 and the access level an invite gets when `hive swarm invite` names none (`default_access`:
-`READ_ONLY`, `SCRATCH` or `FULL`, spelled like `[hive_stand] access_level`). `[swarm.ladder]` and
+`READ_ONLY`, `SCRATCH` or `FULL`, spelled like `[hive_stand] access_level`). `scratch_quota_mb` is
+the most scratch one lease on a device may hold (default 512, the packet's own figure), used when
+the Queen's ceilings for that device's Warden name none; a figure she has set wins. `[swarm.ladder]` and
 `[swarm.nuc]` hold the thresholds that decide when moving a device's Warden onto it, or giving it
 a model server, is worth doing, and the two times that keep the Queen from flapping a device she
 moved on her own (`lower_after_s`, how long every reason must have been gone before she takes the

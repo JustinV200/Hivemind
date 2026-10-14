@@ -117,7 +117,9 @@ async def test_cells_reads_the_hubs_freshest_record_of_the_device(rig: LinkRig) 
 
 async def test_a_lease_asks_the_device_as_the_queen_for_its_warden(rig: LinkRig) -> None:
     task = new_task_id(rig.clock)
-    source = SwarmSource(rig.node, rig.hub, rig.recorder, RecordingGuard(), 4096)
+    source = SwarmSource(
+        rig.node, rig.hub, rig.recorder, RecordingGuard(), default_scratch_quota_bytes=4096
+    )
 
     lease = await source.lease(_request(rig, task_id=task))
 
@@ -137,6 +139,43 @@ async def test_a_lease_asks_the_device_as_the_queen_for_its_warden(rig: LinkRig)
     assert lease.id == device_lease.lease_id
     assert lease.scratch_root == Path(device_lease.scratch_root)
     assert (lease.state, lease.task_id) == (LeaseState.OPEN, task)
+
+
+def _asked_quota(rig: LinkRig) -> int | None:
+    """The scratch quota the device's one `cell.request` carried."""
+    (sent,) = [e for e in rig.device.state.received if isinstance(e.payload, CellRequest)]
+    assert isinstance(sent.payload, CellRequest)
+    return sent.payload.scratch_quota_bytes
+
+
+async def test_the_quota_the_queen_set_is_what_the_device_is_asked_for(rig: LinkRig) -> None:
+    # The holder's ceilings ride on the request; the source's own figure is only a default.
+    source = SwarmSource(
+        rig.node, rig.hub, rig.recorder, RecordingGuard(), default_scratch_quota_bytes=4096
+    )
+
+    lease = await source.lease(_request(rig, scratch_quota_bytes=1024))
+
+    assert _asked_quota(rig) == 1024
+    (device_lease,) = rig.device.state.leases.values()
+    assert device_lease.quota_bytes == 1024  # The device holds the lease to it.
+    assert lease.state is LeaseState.OPEN
+
+
+async def test_a_request_that_names_no_quota_gets_the_sources_default(rig: LinkRig) -> None:
+    source = SwarmSource(
+        rig.node, rig.hub, rig.recorder, RecordingGuard(), default_scratch_quota_bytes=4096
+    )
+
+    await source.lease(_request(rig))
+
+    assert _asked_quota(rig) == 4096
+
+
+async def test_with_no_figure_anywhere_the_device_is_left_to_its_own_default(rig: LinkRig) -> None:
+    await make_source(rig).lease(_request(rig))
+
+    assert _asked_quota(rig) is None
 
 
 async def test_the_access_level_is_what_the_device_granted(rigs: RigFactory) -> None:
