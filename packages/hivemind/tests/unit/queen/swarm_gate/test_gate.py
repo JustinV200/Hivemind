@@ -59,6 +59,16 @@ async def test_start_opens_the_listener_and_listens_to_the_hub(rig: GateRig) -> 
     assert rig.gate in rig.hive.hub._listeners
 
 
+async def test_the_gate_serves_the_queen_it_was_started_with_and_not_before(rig: GateRig) -> None:
+    before = rig.gate.context
+
+    await rig.gate.start(rig.queen, rig.queen_deps)
+
+    after = rig.gate.context
+    assert before is None
+    assert after is not None and (after.queen, after.deps) == (rig.queen, rig.queen_deps)
+
+
 async def test_a_device_that_comes_online_is_given_a_warden_at_once(rig: GateRig) -> None:
     async with rig.running():
         await _quiet()

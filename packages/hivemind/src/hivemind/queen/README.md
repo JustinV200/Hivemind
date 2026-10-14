@@ -382,8 +382,12 @@ according to its rung of the runtime ladder (ADR-0052).
 - `UnreachableDevices` (`unreachable/`) holds a lost device's tasks (`swarm.node_held`; the
   dispatcher neither fails nor moves them, `DispatchBook.held`), tells a Level 0 Warden its Cell
   was lost (one `CELL_UNREACHABLE` Alarm), marks a device whose own Warden is gone UNREACHABLE,
-  and asks the diagnosis seam for a reason (ADR-0056; none yet). When `[swarm] unreachable_grace_s`
-  ends it decides by the rung (`decide.py`): a Level 0 or Level 1 device's tasks are taken back
+  and asks the diagnosis seam for a reason: the Hive installs `HiveStandDiagnosis`
+  (`unreachable/hive_stand.py`, ADR-0056), which creates one task, without the planner, for the
+  Hive Stand's own Warden (a low-tempo Drone the Queen asked for, pinned to the Hive Stand) to
+  check the device's reachability from this end; its outcome is deposited as Nectar when it
+  completes, and a task nobody started is cancelled when the hold ends. When `[swarm]
+  unreachable_grace_s` ends it decides by the rung (`decide.py`): a Level 0 or Level 1 device's tasks are taken back
   (`takeback.py`: paused, their newest Handoff noted, unassigned, placed afresh) and its Warden let
   go; a Nuc's keep waiting, up to `[supervision] max_offline_s`. A device back inside the window
   cancels the hold. Every decision is a `queen.decided`.
@@ -394,7 +398,13 @@ according to its rung of the runtime ladder (ADR-0052).
   (`swarm.promoted`), record `warden.migrated` and resume each task from its Handoff, carried
   inline. Any failure sends WITHDRAW, rebuilds the Level 0 Warden, resumes the tasks there and
   records `swarm.demoted` with the reason. A withdrawal (`withdraw.py`) only while the device's
-  Warden is idle. The Nuc rungs are not built yet and are refused with a reason.
+  Warden is idle. The Nuc rungs are `colonize/nuc/`: `facts.py` decides (`swarm.nuc.decide_nuc`)
+  and sets the Warden's ceilings, `promote.py` orders the device's Warden to start its declared
+  model server (`swarm.nuc_promote`), waits for `swarm.nuc_promoted`, moves the rung and writes the
+  device's hosting plan with its own models first (undoing all of it on a failure), `demote.py`
+  stops the server and tidies the Hive's map, and `desk.py` keeps what device Wardens declared and
+  the orders waiting for their answers, which the gate's door consumes before the Queen's reader
+  sees them.
 
 A Level 0 Warden runs here, in the Queen's own process, over an in-memory link, with its hands on
 the device through `PollenSession`; it gives its lease back whenever it settles with nothing to do

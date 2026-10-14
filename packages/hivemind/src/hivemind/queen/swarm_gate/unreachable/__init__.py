@@ -7,9 +7,11 @@ device can do alone: a Level 0 or Level 1 device's tasks are taken back and plac
 their last Handoff, because its hands are cut off from their Warden or its Warden has clustered;
 a Nuc's tasks keep waiting, up to `[supervision] max_offline_s`, because it is still working on its
 own pool. A device that returns inside the window cancels the hold. `.devices` is the hold itself,
-`.decide` the pure rules of the grace and the verdicts, and `.diagnosis` the seam where the
-Hive Stand's diagnostic Drone plugs in (a later wave's work). A package, because the hold, its
-rules and the seam are three concepts and the first would outgrow one file (codingrules 5.2).
+`.decide` the pure rules of the grace and the verdicts, `.diagnosis` the seam where the Hive
+Stand's diagnostic Drone plugs in and `.hive_stand` what plugs in: one task for the Hive Stand's own
+Warden to check the device's reachability from this end (ADR-0056). A package, because the hold,
+its rules, the seam and the Drone's task are four concepts and the first would outgrow one file
+(codingrules 5.2).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.swarm_gate`.
@@ -31,6 +33,7 @@ Public API:
     - CANCEL_GRACE_S: what a returning Warden's bee gets to checkpoint (effects).
     - Verdict, verdict_for, grace_over, offline_over: the pure rules (decide).
     - Diagnosis, NoDiagnosis: the diagnosis seam (diagnosis).
+    - HiveStandDiagnosis, diagnosis_draft: the Hive Stand's Drone, as one task (hive_stand).
 """
 
 from hivemind.queen.swarm_gate.unreachable.decide import (
@@ -47,16 +50,19 @@ from hivemind.queen.swarm_gate.unreachable.devices import (
 )
 from hivemind.queen.swarm_gate.unreachable.diagnosis import Diagnosis, NoDiagnosis
 from hivemind.queen.swarm_gate.unreachable.effects import CANCEL_GRACE_S
+from hivemind.queen.swarm_gate.unreachable.hive_stand import HiveStandDiagnosis, diagnosis_draft
 
 __all__ = [
     "CANCEL_GRACE_S",
     "NO_LINK_REASON",
     "WARDEN_LINK_REASON",
     "Diagnosis",
+    "HiveStandDiagnosis",
     "HoldState",
     "NoDiagnosis",
     "UnreachableDevices",
     "Verdict",
+    "diagnosis_draft",
     "grace_over",
     "offline_over",
     "verdict_for",

@@ -110,7 +110,16 @@ exist to catch problems that only show up when every layer runs at once.
   The real-model counterparts of these cases are `local_llm`-gated, in `tests/evals/offline/`.
   `scripted_openai.py` grew for this suite (an embeddings route, a ripener script, `Scenario.steps`
   and `plan_json`, and `Switches`: an outage, one parked call, and a recorder of request shapes
-  only); its manifest template is `scripted_manifest.toml.tmpl`.
+  only); its manifest template is `scripted_manifest.toml.tmpl`. Roadmap 11.9a added
+  `Scenario.closing`, the message a Drone ends with (a diagnostic Drone's first line is
+  `CAUSE: <cause>`), and `steps` as JSON objects in a `--scenario` file.
+- `test_hive_stand_diagnosis.py` (`@pytest.mark.e2e`) -- roadmap step 11.9a (ADR-0056), the Hive
+  Stand's end of an active reconnection: `HiveStandDiagnosis.begin` creates its one task, a real
+  Queen dispatches it to a real Warden on a Cell the Queen knows as the Hive Stand, that Warden
+  spawns the real `Drone` role under the task's goal ceiling, a model scripted at the provider
+  runs a command that writes its output to a file, writes `findings.md` and closes, the Warden
+  accepts the file and the Queen completes the task with what the Drone said. Asserts the task
+  SUCCEEDED with the closing text as its outcome and that the Guard denied nothing along the way.
 - `test_zero_grant.py` (`@pytest.mark.e2e`) -- `.claude/phase-4-handoff.md` section 4.2 item 1: a
   manifest whose `[forage.reserve]` claims every seat `[forage.map]` offers (patched onto a
   `builders.cli.fake_manifest` manifest through `tests.e2e.kernel_helpers.

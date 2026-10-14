@@ -3,16 +3,17 @@
 While the Queen holds a lost device's tasks she asks for a diagnosis (ADR-0056, roadmap 11.9a): for
 a colonized device, the Hive Stand's own Warden spawns a short-lived Drone on its local pool to
 check reachability from this end (DNS and route to the device, whether other nodes are affected
-too, ruling out "my network" versus "that device"). That Drone is a later wave's work, and this is
-the place it attaches: the hold calls `begin` when it starts and `end` when it is over, whichever
-way it ended, and passes the node and the short stable reason the link was lost. Until the
-Drone exists the hold runs with `NoDiagnosis`, which does nothing, so the timeline the Queen
-follows (hold, grace, decide) is complete and testable without it.
+too, ruling out "my network" versus "that device"). This is the place it attaches: the hold calls
+`begin` when it starts and `end` when it is over, whichever way it ended, and passes the node and
+the short stable reason the link was lost. `hivemind.queen.swarm_gate.unreachable.hive_stand` is
+what the Hive installs; a hold with no diagnosis installed runs with `NoDiagnosis`, which does
+nothing, so the timeline the Queen follows (hold, grace, decide) is complete and testable without
+the Drone.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
     `hivemind.queen.swarm_gate.unreachable`. Called by `.devices` at the start and the end of a
-    hold; implemented later by the Hive Stand-side diagnosis (roadmap 11.9a). Calls into
+    hold; implemented by the Hive Stand-side diagnosis in `.hive_stand` (roadmap 11.9a). Calls into
     `hivemind.swarm` (the node type) only.
 
 Key invariants:

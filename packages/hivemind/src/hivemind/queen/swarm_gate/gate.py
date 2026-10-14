@@ -155,6 +155,7 @@ class SwarmGate:
         self._registry = registry
         self._wardens = wardens
         self._terms = terms
+        self._context: GateContext | None = None  # Bound by `start`; the diagnosis reads it.
         # Set from the start, so the first pass serves any device that connected before `run`.
         self._wake = asyncio.Event()
         self._wake.set()
@@ -171,6 +172,11 @@ class SwarmGate:
     def listener(self) -> SwarmListener:
         """The swarm listener this gate owns."""
         return self._listener
+
+    @property
+    def context(self) -> GateContext | None:
+        """The Queen the gate serves and her collaborators; None until `start` has bound them."""
+        return self._context
 
     @property
     def terms(self) -> GateTerms:
@@ -205,7 +211,7 @@ class SwarmGate:
             deps: Her collaborators: the chamber, the Forage ledger, the dispatcher's books, her
                 trail and the Guard's enforcer.
         """
-        context = GateContext(queen, deps)
+        context = self._context = GateContext(queen, deps)
         self._wardens.bind(queen)
         self._unreachable.bind(context)
         self._colonizer.bind(context)

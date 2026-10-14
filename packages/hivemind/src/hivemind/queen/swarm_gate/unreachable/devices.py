@@ -8,11 +8,11 @@ that runs here is told its Cell was lost (it raises one `CELL_UNREACHABLE` Alarm
 lease as lost until the device returns), a device whose Warden is on it and whose packet is still
 heard is marked UNREACHABLE (`swarm.unreachable`; its heartbeats would otherwise keep calling it
 online), the hold is on the trail (`swarm.node_held`), and the Hive Stand-side diagnosis is asked
-for (`Diagnosis`, a seam for wave 3D). It then waits `[swarm] unreachable_grace_s`. A device that
-returns inside it cancels the hold and nothing was lost. When the grace ends the Queen decides by
-the device's rung (`decide.verdict_for`): a Level 0 or Level 1 device's tasks are taken back and
-placed afresh from their last Handoff, its Warden let go; a Nuc's tasks keep waiting, up to
-`[supervision] max_offline_s`, because it is still working. Every decision is a `queen.decided`
+for (`Diagnosis`; the Hive installs `.hive_stand`). It then waits `[swarm] unreachable_grace_s`. A
+device that returns inside it cancels the hold and nothing was lost. When the grace ends the Queen
+decides by the device's rung (`decide.verdict_for`): a Level 0 or Level 1 device's tasks are taken
+back and placed afresh from their last Handoff, its Warden let go; a Nuc's tasks keep waiting, up
+to `[supervision] max_offline_s`, because it is still working. Every decision is a `queen.decided`
 event. A device that comes back after its tasks were taken has the Warden it still had told to
 cancel them, so nothing runs twice.
 

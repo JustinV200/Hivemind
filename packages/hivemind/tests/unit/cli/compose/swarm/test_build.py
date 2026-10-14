@@ -29,6 +29,7 @@ from hivemind.cli.stores import open_swarm_registry
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.queen.swarm_gate import SwarmGate
+from hivemind.queen.swarm_gate.unreachable import HiveStandDiagnosis
 from hivemind.swarm import SqliteSwarmRegistry, parse_invite_string
 from waggle.clock import SystemClock
 from waggle.signing import public_key_hex
@@ -292,3 +293,15 @@ def test_a_hive_that_declares_no_server_allows_a_device_none(tmp_path: Path) -> 
     hive = _hive(swarm_manifest(tmp_path))
 
     assert hive.swarm is not None and hive.swarm.gate.terms.servers == ()
+
+
+def test_a_lost_device_is_looked_into_from_the_hive_stand_by_the_diagnosis_the_build_installs(
+    tmp_path: Path,
+) -> None:
+    hive = _hive(swarm_manifest(tmp_path))
+
+    assert hive.swarm is not None
+    gate = hive.swarm.gate
+    assert isinstance(gate.unreachable._diagnosis, HiveStandDiagnosis)
+    # The Queen it asks for the check is the gate's, which exists only once the gate has started.
+    assert gate.context is None

@@ -10,7 +10,8 @@ device and whose public half every invite carries for the device to pin; the enr
 mints invites and admits the device that presents one; the hub of live links; the listener that
 binds `[swarm] listen_host`/`listen_port` (TLS when a certificate is configured, plaintext
 `ws://` on loopback otherwise, which the section's own validator enforces); the factory that makes
-each device's Warden; and the gate that owns the listener and keeps those Wardens.
+each device's Warden; and the gate that owns the listener and keeps those Wardens, with the
+diagnosis that asks the Hive Stand's own Warden to look into a lost device (roadmap 11.9a).
 
 Nothing it builds is started: `hivemind.cli.compose.hive.run_hive` starts the gate with the Queen,
 as it starts the Virtual side. `SwarmAccess` is what a caller needs a handle on: the gate to run,
@@ -55,6 +56,7 @@ from hivemind.cli.version import collect_version_info
 from hivemind.common.secrets import FileSecretStore, load_or_mint_hive_signer
 from hivemind.guard.scanner import ContentScanner
 from hivemind.queen.swarm_gate import DeviceWardens, GateTerms, SwarmGate
+from hivemind.queen.swarm_gate.unreachable import HiveStandDiagnosis
 from hivemind.swarm import (
     EnrolmentDoor,
     EnrolmentRules,
@@ -120,6 +122,9 @@ def build_swarm(parts: HiveParts, scanner: ContentScanner) -> SwarmAccess | None
     listener = SwarmListener(config, ListenerDeps(registry, door, hub, recorder, voice, signer))
     wardens = DeviceWardens(SwarmWardenFactory(parts, hub, recorder, scanner), hub)
     gate = SwarmGate(listener, registry, wardens, _gate_terms(parts), parts.clock)
+    # The Hive Stand's own Warden checks a lost device from this end (ADR-0056); the Queen she asks
+    # for it is the one the gate is started with, so it is read when a hold begins, not now.
+    gate.use_diagnosis(HiveStandDiagnosis(lambda: gate.context))
     return SwarmAccess(gate=gate, listener=listener, registry=registry, door=door)
 
 
