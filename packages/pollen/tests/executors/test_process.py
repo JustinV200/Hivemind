@@ -45,6 +45,10 @@ from waggle.messages.session import ProcessAction, SessionProcess, SessionProces
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="process groups")
 SLEEPER = python_argv("import time; time.sleep(60)")
+EOL = os.linesep.encode()  # How print() ends a line on this host.
+# A process that always exists and that no lease started: init on POSIX, the System process on
+# Windows (which has no pid 1).
+SYSTEM_PID = 4 if sys.platform == "win32" else 1
 
 
 def _request(live: Live, action: ProcessAction, **fields: object) -> SessionProcess:
@@ -137,13 +141,14 @@ async def test_a_process_a_frozen_packet_starts_gets_the_devices_loader_path_not
 
     assert state.log_path is not None
     log = Path(state.log_path)
-    await eventually(lambda: log.exists() and log.read_bytes() == b"/opt/lib\n")
+    await eventually(lambda: log.exists() and log.read_bytes() == b"/opt/lib" + EOL)
 
 
 async def test_a_pid_the_lease_did_not_start_is_not_found(live: Live) -> None:
     for action in (ProcessAction.QUERY, ProcessAction.STOP):
-        assert await _refused(live, _request(live, action, pid=1)) == "pollen.not_found"
-    assert psutil.pid_exists(1)
+        refused = await _refused(live, _request(live, action, pid=SYSTEM_PID))
+        assert refused == "pollen.not_found"
+    assert psutil.pid_exists(SYSTEM_PID)
 
 
 async def test_a_program_that_cannot_start_is_a_start_failure(live: Live) -> None:

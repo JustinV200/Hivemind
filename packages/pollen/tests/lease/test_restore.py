@@ -182,15 +182,24 @@ async def test_too_many_changed_paths_refuse_the_next_change(
         await rig.record(lease, rig.outside / "three.txt")
 
 
-async def test_a_path_whose_state_cannot_be_read_refuses_the_change(tmp_path: Path) -> None:
+async def test_a_path_whose_state_cannot_be_read_refuses_the_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     rig = Rig(tmp_path)
     lease = await rig.open()
-    plain = rig.outside / "plain.txt"
-    plain.write_text("x")
+    unreadable = rig.outside / "unreadable.txt"
+    real_stat = Path.stat
+
+    # A stat that fails for any reason but "absent", as a permission the packet lacks makes it fail
+    # on every host. (A path below a file is that failure on POSIX, but "absent" on Windows.)
+    def stat(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        if path == unreadable:
+            raise PermissionError(f"denied: {path}")
+        return real_stat(path, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "stat", stat)
     with pytest.raises(QuotaExceededError, match="could not be read"):
-        await rig.record(
-            lease, plain / "below-a-file"
-        )  # Not a directory: stat fails, not "absent".
+        await rig.record(lease, unreadable)
 
 
 async def test_a_file_whose_bytes_cannot_be_saved_refuses_the_change(

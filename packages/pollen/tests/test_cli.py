@@ -361,6 +361,10 @@ async def test_status_asks_the_platform_whether_the_recorded_warden_runs(
     assert f"Warden not running (pid {warden.pid}, hivemind 1.4.0)" in dead
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the stub Warden is started by a POSIX shim and asserted to end with -SIGTERM",
+)
 async def test_uninstall_stops_the_warden_it_ran_and_puts_the_device_back_on_level_zero(
     recorder: Recorder, tmp_path: Path, clock: Clock, capsys: pytest.CaptureFixture[str]
 ) -> None:

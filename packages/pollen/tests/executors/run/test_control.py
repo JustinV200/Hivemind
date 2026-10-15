@@ -39,6 +39,10 @@ from waggle.messages.session import ProcessSignal, SessionOutcome
 CLOCK = FastClock()
 LIMIT_S = 20.0  # A generous bound on a real child, so a hang fails instead of stalling the suite.
 SLEEPER = "import time; time.sleep(60)"
+# What a forced kill leaves as the return code: SIGKILL's -9 on POSIX, and on Windows the exit
+# code 1 that `taskkill /F` ends a process with (Windows has no signal 9, so -9 is named SIG9).
+KILLED_RETURNCODE = 1 if sys.platform == "win32" else -9
+NINE_NAME = "SIG9" if sys.platform == "win32" else "SIGKILL"
 
 
 class Rig:
@@ -111,7 +115,7 @@ def test_the_first_reason_to_end_a_run_is_the_one_reported(rig: Rig) -> None:
         (0, (SessionOutcome.EXITED, 0, None, "The program exited.")),
         (3, (SessionOutcome.EXITED, 3, None, "The program exited.")),
         (-15, (SessionOutcome.SIGNALED, None, "SIGTERM", "A signal ended it.")),
-        (-9, (SessionOutcome.SIGNALED, None, "SIGKILL", "A signal ended it.")),
+        (-9, (SessionOutcome.SIGNALED, None, NINE_NAME, "A signal ended it.")),
         (-250, (SessionOutcome.SIGNALED, None, "SIG250", "A signal ended it.")),  # No such signal.
     ],
 )
@@ -142,7 +146,7 @@ async def test_a_signal_after_the_program_started_reaches_it_and_is_the_reason(r
     process = await rig.start(control, SLEEPER)
     control.deliver(ProcessSignal.KILL)
     assert control.has_verdict
-    assert await _finish(process) == -9
+    assert await _finish(process) == KILLED_RETURNCODE
 
 
 async def test_hitting_the_output_cap_kills_the_group_and_says_so(rig: Rig) -> None:
@@ -151,7 +155,12 @@ async def test_hitting_the_output_cap_kills_the_group_and_says_so(rig: Rig) -> N
     control.on_output_cap()
     returncode = await _finish(process)
     outcome, code, name, reason = control.result(returncode)
-    assert (outcome, code, name, returncode) == (SessionOutcome.KILLED, None, None, -9)
+    assert (outcome, code, name, returncode) == (
+        SessionOutcome.KILLED,
+        None,
+        None,
+        KILLED_RETURNCODE,
+    )
     assert "cap" in reason
 
 
@@ -197,4 +206,5 @@ async def test_scratch_that_outgrows_its_quota_ends_the_run_as_killed(rig: Rig) 
         None,
         "Scratch passed its quota of 100 bytes.",
     )
-    assert returncode == -9  # A quota breach is forced at once, with no polite request first.
+    # A quota breach is forced at once, with no polite request first.
+    assert returncode == KILLED_RETURNCODE

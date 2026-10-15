@@ -22,6 +22,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from collections.abc import AsyncIterator
 from dataclasses import replace
@@ -50,6 +51,7 @@ from waggle.messages.session import (
 CLOCK = FastClock()
 LIMIT_S = 20.0  # A generous bound on a real program, so a hang fails instead of stalling the suite.
 UP_THEN_SLEEP = "print('up', flush=True); import time; time.sleep(60)"
+EOL = os.linesep.encode()  # How print() ends a line on this host; the packet streams it unchanged.
 
 
 class Rig:
@@ -139,7 +141,8 @@ def _stdin(rig: Rig, chunk: bytes, offset: int, *, final: bool = False) -> Sessi
 async def test_a_program_streams_its_output_and_ends_with_one_durable_exit(rig: Rig) -> None:
     run = rig.run("import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)")
     await rig.finish(run)
-    assert (rig.text(SessionStream.STDOUT), rig.text(SessionStream.STDERR)) == (b"out\n", b"err\n")
+    streams = (rig.text(SessionStream.STDOUT), rig.text(SessionStream.STDERR))
+    assert streams == (b"out" + EOL, b"err" + EOL)
     ended = rig.only_exit()
     assert (ended.outcome, ended.exit_code, ended.request_kind) == (
         SessionOutcome.EXITED,
@@ -166,7 +169,7 @@ async def test_a_program_a_frozen_packet_starts_gets_the_devices_loader_path_not
 
     await rig.finish(rig.run(SHOW_LOADER))
 
-    assert rig.text(SessionStream.STDOUT) == b"/opt/lib\n"
+    assert rig.text(SessionStream.STDOUT) == b"/opt/lib" + EOL
 
 
 async def test_a_program_a_frozen_packet_starts_has_no_loader_path_when_the_device_had_none(
@@ -178,7 +181,7 @@ async def test_a_program_a_frozen_packet_starts_has_no_loader_path_when_the_devi
 
     await rig.finish(rig.run(SHOW_LOADER))
 
-    assert rig.text(SessionStream.STDOUT) == b"None\n"
+    assert rig.text(SessionStream.STDOUT) == b"None" + EOL
 
 
 async def test_a_single_file_program_a_frozen_packet_starts_runs_as_an_instance_of_its_own(
@@ -190,7 +193,7 @@ async def test_a_single_file_program_a_frozen_packet_starts_runs_as_an_instance_
     await rig.finish(rig.run(code))
 
     # The packet itself, run by a command in a lease, would otherwise take itself for a worker.
-    assert rig.text(SessionStream.STDOUT) == b"1\n"
+    assert rig.text(SessionStream.STDOUT) == b"1" + EOL
 
 
 async def test_the_loader_path_a_request_names_still_reaches_its_program(
@@ -202,7 +205,7 @@ async def test_the_loader_path_a_request_names_still_reaches_its_program(
 
     await rig.finish(ExecRun(plan, rig.kit.deps))
 
-    assert rig.text(SessionStream.STDOUT) == b"/requested\n"  # The overlay is the request's own.
+    assert rig.text(SessionStream.STDOUT) == b"/requested" + EOL  # The request's own overlay.
 
 
 async def test_the_process_is_in_the_lease_table_before_its_first_output(rig: Rig) -> None:
@@ -312,6 +315,12 @@ async def test_output_past_the_cap_kills_the_group_and_is_reported(rig: Rig) -> 
     assert rig.text(SessionStream.STDOUT) == b"x" * 1000  # Cut exactly at the cap.
 
 
+@pytest.mark.xfail(
+    sys.platform == "win32",
+    reason="Windows follows an exec's tree through its leader (the shim has no Job Object yet, "
+    "gateway-contract section 3), so a child the leader leaves behind is not recorded",
+    strict=True,
+)
 async def test_a_child_that_outlives_the_program_stays_recorded_with_the_lease(rig: Rig) -> None:
     code = (
         "import subprocess, sys; subprocess.Popen([sys.executable, '-c', "
