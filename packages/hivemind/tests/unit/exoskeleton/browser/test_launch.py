@@ -33,6 +33,7 @@ from waggle.clock import FakeClock
 _CHROMIUM = "chromium"  # The one candidate the fake Cell has: the first PATH name.
 _PORT_DATA = b"9222\n/devtools/browser/0c58\n"  # What Chromium writes to DevToolsActivePort.
 _LAUNCH_TIMEOUT_S = 1.0  # Fake seconds; the clock only moves when a test advances it.
+_SHORT_TIMEOUT_S = 0.001  # A deadline far inside one poll, as the contract's unready launch has.
 _REAL_GUARD_S = 5.0  # Real seconds a test may spin before it is considered hung.
 _BACKEND = "hivemind.exoskeleton.browser.playwright"  # The package only a launch imports.
 _SPINS = 10_000  # Event-loop turns a launch may take to reach its start (a thread hop included).
@@ -52,6 +53,18 @@ class _Connector:
         if self._fails:
             raise AttachError("could not attach to the browser over CDP: refused")
         return FakeBrowser(login_site(), FakeClock(), file_roots=file_roots)
+
+
+class _RecordingClock(FakeClock):
+    """A FakeClock that remembers every sleep, so a test knows when the poll loop is waiting."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.sleeps: list[float] = []
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        await super().sleep(seconds)
 
 
 def _session(scratch: Path, *, browser: bool = True) -> FakeSession:
@@ -195,6 +208,37 @@ async def test_a_browser_that_never_opens_its_port_is_stopped_before_attach_fail
     with pytest.raises(AttachError, match=f"no DevTools port within {_LAUNCH_TIMEOUT_S}s"):
         await launch
     assert len(session.started) == 1
+    assert session.running_pids == ()
+
+
+async def test_a_port_opened_after_a_deadline_shorter_than_a_poll_is_not_taken_as_ready(
+    tmp_path: Path,
+) -> None:
+    # Arrange: the deadline passes before Chromium opens its port, which it then does well within
+    # one poll interval; a fast host's warm Chromium does exactly that against a 1 ms timeout.
+    clock, session = _RecordingClock(), _session(tmp_path)
+    locator = ChromiumLocator(HostPlatform(system="linux", environment={}, home=tmp_path))
+    settings = ChromiumSettings(launch_timeout_s=_SHORT_TIMEOUT_S)
+    launcher = ChromiumLauncher(clock, locator=locator, connector=_Connector(), settings=settings)
+    request = _request(tmp_path)
+    launch = asyncio.create_task(launcher.launch(session, request))
+    for _ in range(_SPINS):  # Until the loop has looked once and is waiting for the next look.
+        if clock.sleeps:
+            break
+        await asyncio.sleep(0)
+
+    clock.advance(_SHORT_TIMEOUT_S)
+    for _ in range(_SPINS):  # The look at the deadline.
+        if launch.done():
+            break
+        await asyncio.sleep(0)
+    await session.put_file(_port_file(request), _PORT_DATA)
+    clock.advance(PORT_POLL_S)
+
+    with pytest.raises(AttachError, match=f"no DevTools port within {_SHORT_TIMEOUT_S}s"):
+        async with asyncio.timeout(_REAL_GUARD_S):
+            await launch
+    assert clock.sleeps == [_SHORT_TIMEOUT_S]  # The wait never slept past its own deadline.
     assert session.running_pids == ()
 
 

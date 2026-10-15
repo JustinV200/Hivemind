@@ -202,10 +202,12 @@ class ChromiumLauncher:
             if not await _still_running(session, process):
                 reason = await _log_tail(session, process)
                 raise AttachError(f"Chromium exited before it was ready: {reason}")
-            if self._clock.monotonic() >= deadline:
+            remaining_s = deadline - self._clock.monotonic()
+            if remaining_s <= 0:
                 reason = await _log_tail(session, process)
                 raise AttachError(f"Chromium opened no DevTools port within {timeout_s}s: {reason}")
-            await self._clock.sleep(PORT_POLL_S)
+            # Never past the deadline: a port first seen a poll after it would count as in time.
+            await self._clock.sleep(min(PORT_POLL_S, remaining_s))
 
 
 def chromium_spec(
