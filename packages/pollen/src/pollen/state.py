@@ -92,6 +92,7 @@ __all__ = [
     "load_signer",
     "load_state",
     "save_state",
+    "when_free",
     "write_atomic",
 ]
 
@@ -333,19 +334,20 @@ def write_atomic(path: Path, data: bytes, mode: int = PRIVATE_FILE_MODE) -> None
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        _when_free(lambda: os.replace(temp, path))
+        when_free(lambda: os.replace(temp, path))
     except BaseException:
         temp.unlink(missing_ok=True)
         raise
     _sync_directory(path.parent)
 
 
-def _when_free[T](action: Callable[[], T]) -> T:
+def when_free[T](action: Callable[[], T]) -> T:
     """Run a file action, again a moment later while Windows says another handle has the file.
 
     On Windows a read, or a rename over the file, is refused with a PermissionError while another
     handle is replacing or reading it (an operator's `pollen status` beside the running packet),
     where POSIX refuses neither; a refusal that outlasts the attempts is a real one and is raised.
+    Every file `write_atomic` replaces is read through it: the state, the lease table, the status.
     """
     for _ in range(SHARED_FILE_ATTEMPTS - 1):
         try:
@@ -429,7 +431,7 @@ def load_state(path: Path) -> PacketState:
         StateError: The file cannot be read or fails validation.
     """
     try:
-        raw = _when_free(path.read_bytes)
+        raw = when_free(path.read_bytes)
     except FileNotFoundError as exc:
         raise NotEnrolledError("This device is not enrolled; run pollen enrol first.") from exc
     except OSError as exc:

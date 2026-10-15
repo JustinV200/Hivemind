@@ -40,7 +40,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from pollen.executors.info import runtime_version
-from pollen.state import write_atomic
+from pollen.state import when_free, write_atomic
 from waggle.clock import Clock
 from waggle.messages.base import UtcDatetime
 
@@ -186,6 +186,7 @@ def read_status(path: Path) -> StatusDocument | None:
         it was damaged; the file is diagnostics only, so neither is an error).
     """
     try:
-        return StatusDocument.model_validate_json(path.read_bytes())
+        # Through `when_free`: on Windows the read is refused while the packet replaces the file.
+        return StatusDocument.model_validate_json(when_free(path.read_bytes))
     except (OSError, ValidationError):
         return None

@@ -112,6 +112,27 @@ async def test_the_document_is_written_and_read_back(tmp_path: Path) -> None:
     assert read_status(tmp_path / "status.json") == document
 
 
+async def test_a_read_refused_while_the_packet_replaces_the_document_is_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As Windows answers `pollen status` while the running packet replaces the file: not None.
+    path = tmp_path / "status.json"
+    document = _snapshot(PacketStatus(FakeClock()))
+    await write_status(path, document)
+    real = Path.read_bytes
+    refusals = iter((True,))
+
+    def read_bytes(self: Path) -> bytes:
+        if self == path and next(refusals, False):
+            raise PermissionError("the file is in use by another handle")
+        return real(self)
+
+    monkeypatch.setattr("pollen.state.SHARED_FILE_RETRY_S", 0.0)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+
+    assert read_status(path) == document
+
+
 def test_a_missing_or_damaged_document_reads_as_none(tmp_path: Path) -> None:
     assert read_status(tmp_path / "absent.json") is None
     (tmp_path / "damaged.json").write_text("{not json")

@@ -36,7 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from pollen.errors import LeaseNotOpenError, StateError
 from pollen.lease.lease import DeviceLease, LeaseState
-from pollen.state import write_atomic
+from pollen.state import when_free, write_atomic
 from waggle.ids import LeaseId
 
 __all__ = ["LeaseTable"]
@@ -83,7 +83,8 @@ class LeaseTable:
             StateError: The file exists but cannot be read or parsed.
         """
         try:
-            raw = path.read_bytes()
+            # Through `when_free`: Windows refuses the read while the packet replaces the file.
+            raw = when_free(path.read_bytes)
         except FileNotFoundError:
             return cls(path)
         except OSError as exc:

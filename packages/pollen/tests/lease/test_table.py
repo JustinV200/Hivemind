@@ -73,6 +73,27 @@ async def test_a_missing_file_is_an_empty_table(tmp_path: Path) -> None:
     assert LeaseTable.load(tmp_path / "absent.json").all() == ()
 
 
+async def test_a_read_refused_while_the_packet_replaces_the_file_is_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two refusals and then the file, as Windows answers a read beside a running replace.
+    path = tmp_path / "leases.json"
+    lease = _lease()
+    await LeaseTable(path).put(lease)
+    real = Path.read_bytes
+    refusals = iter((True, True))
+
+    def read_bytes(self: Path) -> bytes:
+        if self == path and next(refusals, False):
+            raise PermissionError("the file is in use by another handle")
+        return real(self)
+
+    monkeypatch.setattr("pollen.state.SHARED_FILE_RETRY_S", 0.0)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+
+    assert LeaseTable.load(path).get(lease.lease_id) == lease
+
+
 async def test_modifying_a_lease_writes_the_result_and_returns_it(tmp_path: Path) -> None:
     table = LeaseTable(tmp_path / "leases.json")
     lease = _lease()
