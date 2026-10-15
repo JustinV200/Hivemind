@@ -16,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
-from builders.cells import make_identity, make_lease_request, make_real_cell_lease
+from builders.cells import make_identity, make_lease_request
 
 from hivemind.cell.errors import PathNotAllowedError
 from hivemind.cell.fake import FakeLeaseReleaser
@@ -39,8 +39,7 @@ _WINDOWS_SCRATCH = "C:\\Users\\op\\scratch\\lease_1"
 
 def _paths(scratch: str, *allowed: Path) -> tuple[DevicePaths, RealCellLease]:
     """Build the path rules for a lease whose scratch root is `scratch` on some device."""
-    # The lease holds it as a `Path` made from the device's text, as `swarm.source` builds it.
-    lease = make_real_cell_lease(Path(scratch), allowed_paths=allowed)
+    lease = _device_lease(scratch, allowed)
     return DevicePaths(lease), lease
 
 
@@ -133,8 +132,10 @@ def test_a_relative_allowed_path_never_matches() -> None:
     assert not paths.is_reachable("/relative/dir/file")
 
 
-def _device_lease(scratch: str) -> RealCellLease:
+def _device_lease(scratch: str, allowed: tuple[Path, ...] = ()) -> RealCellLease:
     """A lease on a device: scratch root `scratch`, paths judged by the device's own rule."""
+    # As `swarm.source` builds one: the device's text held as a `Path`, judged by the device's
+    # rule, so widening it never asks the Hive Stand's disk (which puts `/srv` on a drive).
     clock = FakeClock()
     request = make_lease_request(clock=clock)
     facts = LeaseFacts(
@@ -145,7 +146,7 @@ def _device_lease(scratch: str) -> RealCellLease:
         scratch_root=Path(scratch),
         access_level=AccessLevel.SCRATCH,
         comb_shield=CombShieldLevel.MEADOW,
-        allowed_paths=(),
+        allowed_paths=allowed,
         paths=DevicePathRule(scratch),
     )
     return RealCellLease(

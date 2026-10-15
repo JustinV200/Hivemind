@@ -88,7 +88,7 @@ def test_running_inside_scratch_needs_no_reach_but_running_outside_it_does(
     wired: tuple[SessionWire, RealCellLease, LinkRig],
 ) -> None:
     wire, lease, _rig = wired
-    inside = f"{lease.scratch_root}/work"
+    inside = f"{lease.scratch_root.as_posix()}/work"  # Resolved, in the device's spelling.
 
     assert _strings(exec_needs(wire, "ls", inside)) == ["exec:ls"]
     assert _strings(exec_needs(wire, "ls", "/etc")) == ["exec:ls", "cell:outside_scratch:/etc"]
@@ -106,7 +106,7 @@ def test_writing_outside_scratch_needs_reach_as_well_as_the_write(
     wired: tuple[SessionWire, RealCellLease, LinkRig],
 ) -> None:
     wire, lease, _rig = wired
-    inside = f"{lease.scratch_root}/out.txt"
+    inside = f"{lease.scratch_root.as_posix()}/out.txt"  # Resolved, in the device's spelling.
 
     assert _strings(write_needs(wire, inside)) == [f"fs:write:{inside}"]
     assert _strings(write_needs(wire, "/data/x")) == [
