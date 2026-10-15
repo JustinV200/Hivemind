@@ -742,11 +742,14 @@ async def _run_rolled_back_proposal(tmp_path: Path, hive: Hive) -> None:
     # the three real haiku files the script's own next round wrote (never a stray/partial file).
     assert set(during) == set(_DEFAULT_FILES)
     # The rollback's own Alarm chain: raised by the Worker (kind POSTCONDITION_FAILED, module
-    # docstring), then handled by the Warden's own policy (action RETRY, one hop later).
-    raised = [event for event in events if event.kind == "alarm.raised"]
+    # docstring), then handled by the Warden's own policy (action RETRY, one hop later). A runner
+    # that stalls for three of this suite's 0.05 s heartbeats also gets the Warden's WORKER_STALLED
+    # (Windows' did, in three runs of ten), which is no part of the chain, so it is not counted.
+    chain = [event for event in events if event.payload.get("kind") != "WORKER_STALLED"]
+    raised = [event for event in chain if event.kind == "alarm.raised"]
     assert len(raised) == 1, raised
     assert raised[0].payload.get("kind") == "POSTCONDITION_FAILED", raised[0].payload
-    handled = [event for event in events if event.kind == "alarm.handled"]
+    handled = [event for event in chain if event.kind == "alarm.handled"]
     assert len(handled) == 1, handled
     assert handled[0].payload.get("action") == "RETRY", handled[0].payload
 
