@@ -864,7 +864,10 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   `test_phase9_exit_criteria.py` (12bf1ee reads the Queen's own records). The module then ran 20 of
   20. Also: `test_watch_and_patrol.py`'s hog scenario took any Alarm in the chat for the Patrol's,
   and on a loaded host the liveness sweep's `CELL_UNREACHABLE` (a 50 ms test heartbeat) got there
-  first; it now waits for, and checks, the PATROL_ANOMALY the Queen escalated.
+  first; it now waits for, and checks, the PATROL_ANOMALY the Queen escalated. Old against new,
+  alternating: the old failed 3 of 16 runs on that assertion (2 of 8 under eight CPU burners, 1 of
+  8 with a liveness-style ALARM line put in the chat first), the new passed all 16; the boundary
+  module passed 6 of 6 more on the final tip.
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
   Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
   the one failure (fixed above). **Final** (12bf1ee with the watch test's change of f2df0b6; the
