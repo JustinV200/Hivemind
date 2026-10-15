@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -141,17 +142,22 @@ async def test_an_exec_streams_stdout_and_stderr_in_order_and_ends_in_one_exit(
     assert not late
 
 
-async def test_the_exit_code_is_the_programs_and_a_signal_is_reported_by_name(
-    gateway: Gateway,
-) -> None:
+async def test_the_exit_code_is_the_programs(gateway: Gateway) -> None:
     driver = gateway.driver
     async with driver.leased() as lease:
         seven = await driver.run_exec(lease, python_argv("import sys; sys.exit(7)"))
+
+    assert (seven.exit.outcome, seven.exit.exit_code) == (SessionOutcome.EXITED, 7)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no signal ends a program on Windows")
+async def test_a_signal_that_ends_a_program_is_reported_by_name(gateway: Gateway) -> None:
+    driver = gateway.driver
+    async with driver.leased() as lease:
         killed = await driver.run_exec(
             lease, python_argv("import os, signal; os.kill(os.getpid(), signal.SIGKILL)")
         )
 
-    assert (seven.exit.outcome, seven.exit.exit_code) == (SessionOutcome.EXITED, 7)
     assert killed.exit.outcome is SessionOutcome.SIGNALED
     assert killed.exit.signal_name == "SIGKILL"
 

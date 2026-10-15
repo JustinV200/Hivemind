@@ -17,7 +17,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import os
 import signal
 from collections.abc import Iterator
 from pathlib import Path
@@ -92,7 +91,9 @@ async def test_a_sigterm_to_the_process_stops_a_borrowed_warden_cleanly(
         task = asyncio.ensure_future(_run_process(kit.environ, read_in_cell_env(kit.environ)))
         await _first_frame_is_ready(server, kit)
 
-        os.kill(os.getpid(), signal.SIGTERM)  # What the packet's WITHDRAW sends.
+        # What the packet's WITHDRAW sends, raised rather than sent with os.kill: on Windows that
+        # is TerminateProcess and would end pytest itself, while raise() runs the handler.
+        signal.raise_signal(signal.SIGTERM)
 
         await asyncio.wait_for(task, timeout=WAIT_S)  # Stopped, device left as found, returned.
     finally:

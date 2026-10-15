@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import signal
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
@@ -253,7 +252,9 @@ async def test_a_sigterm_sets_the_stop_event_and_the_old_handler_comes_back(
 
     with stop_on_signals(asyncio.get_running_loop(), stop):
         assert signal.getsignal(signal.SIGTERM) is not before
-        os.kill(os.getpid(), signal.SIGTERM)  # What the packet's WITHDRAW sends.
+        # What the packet's WITHDRAW sends, raised rather than sent with os.kill: on Windows that
+        # is TerminateProcess and would end pytest itself, while raise() runs the handler.
+        signal.raise_signal(signal.SIGTERM)
         await asyncio.wait_for(stop.wait(), timeout=WAIT_S)
 
     assert signal.getsignal(signal.SIGTERM) is before
