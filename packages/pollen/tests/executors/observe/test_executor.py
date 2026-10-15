@@ -147,7 +147,10 @@ async def test_a_device_without_the_watch_grant_refuses(
 async def test_a_root_without_fs_read_refuses(
     queen: QueenDouble, tmp_path: Path, clock: Clock
 ) -> None:
-    grants = [f"watch:{queen.cell_id}", f"fs:read:{tmp_path}/allowed/**"]
+    # A read grant that does not cover the root asked for, named from the filesystem's root: a
+    # capability is at most MAX_CAPABILITY_CHARS (128), and macOS's temporary directory nearly is.
+    allowed = Path(tmp_path.anchor, "allowed")
+    grants = [f"watch:{queen.cell_id}", f"fs:read:{allowed}/**"]
     device = make_device(queen, tmp_path / "data", clock, Terms(capabilities=grants))
     (tmp_path / "forbidden").mkdir()
     async with running(device, clock):

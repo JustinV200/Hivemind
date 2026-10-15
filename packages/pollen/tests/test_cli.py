@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import runpy
 import signal
 import subprocess
@@ -215,7 +214,9 @@ async def test_a_signal_stops_the_packet_and_the_old_handlers_come_back(
     packet = build_packet(device.layout, select_shim(), clock)
     stopped = asyncio.create_task(_run_until_signalled(packet))
     await queen.next_session()
-    os.kill(os.getpid(), signal.SIGTERM)
+    # Raised, not sent with os.kill: on Windows that is TerminateProcess, which would end pytest
+    # itself, while raise() runs the handler the packet installed there as it does on POSIX.
+    signal.raise_signal(signal.SIGTERM)
     await asyncio.wait_for(stopped, timeout=20)
     assert signal.getsignal(signal.SIGTERM) == before
 
