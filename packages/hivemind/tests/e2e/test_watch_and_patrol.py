@@ -45,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -80,7 +81,12 @@ from hivemind.swarm import SwarmNode
 from hivemind.wardens import WardenState
 from waggle.ids import LeaseId
 
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    # The probe reads /proc through sh, find and tail, and the planted hog is a copy of the shell:
+    # anything but Linux has no collectors (hivemind.wardens.watch.probe.session) and sees nothing.
+    pytest.mark.skipif(sys.platform != "linux", reason="the watch probe's collectors are Linux's"),
+]
 
 _HAIKU_GOAL = "write three haiku about bees to separate files"
 _HOG_SHARE = 0.25 / (os.cpu_count() or 1)  # What the Hives of these tests call a hog's least.
