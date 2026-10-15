@@ -38,8 +38,10 @@
     regenerates it; then generate:check, format, lint, typecheck and test pass, and
     `pnpm audit --audit-level=high` finds nothing at that level.
   - CI's `tests` job as written (the unit suite with coverage, then
-    `scripts/check_coverage_floors.py`): still running when this was first written. `pip-audit`
-    over the exported lock: no known vulnerabilities.
+    `scripts/check_coverage_floors.py`), on the tree with both fixes, in four shards combined:
+    19,550 passed, 0 failed, 22 skipped (besides the modules that skip at collection), and every
+    coverage floor holds (total 96.5% against 85%). `pip-audit` over the exported lock: no known
+    vulnerabilities.
 - **`main`'s nightly is red on its own.** `integration.yml` failed its last three runs on `main`
   (2026-10-13 to 10-15). The latest failed the browser contract's
   `test_a_launch_that_never_gets_ready_stops_its_browser_and_raises[real]` (it did not raise) and
