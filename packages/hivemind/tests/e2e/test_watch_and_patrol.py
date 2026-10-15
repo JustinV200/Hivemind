@@ -123,6 +123,7 @@ async def _plant_a_hog_and_wait_for_the_alarm(tmp_path: Path, hive: Hive, watche
 
         events = list(await hive.stores.trail.query(TrailQuery()))
         chat = await hive.stores.chat.read(ChatQuery())
+        patrol_alarms = await _escalated_patrol_alarms(hive)
         kept = await kept_by(hive, stand)
         assert as_found(watched) == watched_before  # Nothing was written, renamed or touched.
         assert snapshot_tree(lease.scratch_root) == scratch_before
@@ -138,8 +139,8 @@ async def _plant_a_hog_and_wait_for_the_alarm(tmp_path: Path, hive: Hive, watche
     # trail or in the chat, only that a Patrol raised it.
     raised = [e for e in events if e.kind == "alarm.raised"]
     assert [e.payload["kind"] for e in raised].count("PATROL_ANOMALY") >= 1
-    assert any(e.kind == "alarm.escalated" for e in events)
-    assert any(line.kind is ChatKind.ALARM for line in chat)
+    assert patrol_alarms <= {e.subject_id for e in raised}  # Escalated is what a Patrol raised.
+    assert any(line.kind is ChatKind.ALARM and line.ref in patrol_alarms for line in chat)
     assert HOG_NAME not in everything_said(events)
     assert HOG_NAME not in json.dumps([line.model_dump(mode="json") for line in chat])
     patrols = [e for e in events if e.kind == "warden.patrol"]
@@ -152,9 +153,21 @@ async def _has_kept(hive: Hive, *wardens: str) -> bool:
 
 
 async def _human_was_alarmed(hive: Hive) -> bool:
-    """Whether the Queen has escalated an Alarm to the human's chat."""
+    """Whether the Queen has escalated a Patrol's Alarm to the human's chat."""
     lines = await hive.stores.chat.read(ChatQuery())
-    return any(line.kind is ChatKind.ALARM for line in lines)
+    patrol_alarms = await _escalated_patrol_alarms(hive)
+    return any(line.kind is ChatKind.ALARM and line.ref in patrol_alarms for line in lines)
+
+
+async def _escalated_patrol_alarms(hive: Hive) -> set[str]:
+    """The ids of every PATROL_ANOMALY Alarm the Queen escalated, from her `alarm.escalated` rows.
+
+    Any Alarm in the chat is not enough: on a loaded machine the Queen's liveness sweep can put a
+    `CELL_UNREACHABLE` there first (the test manifest's heartbeat is 50 ms), and that one is not
+    the Patrol's.
+    """
+    escalated = await events_of(hive, "alarm.escalated")
+    return {e.subject_id for e in escalated if e.payload["kind"] == "PATROL_ANOMALY"}
 
 
 async def _assert_every_entry_is_c2(hive: Hive) -> None:
