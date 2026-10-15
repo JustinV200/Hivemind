@@ -107,16 +107,22 @@ async def test_each_kind_a_warden_sends_again_reaches_the_queen_once(build: Buil
     cell, transport = await attach(scenario)
     envelope = build(_wire(scenario, cell))
 
-    await transport.send(envelope)
-    await transport.send(envelope)  # The very frame again: the Warden cannot tell it arrived.
-    await asyncio.wait_for(until_async(lambda: _refused_any(scenario)), WAIT_S)
+    try:
+        await transport.send(envelope)
+        await transport.send(envelope)  # The very frame again: the Warden cannot tell it arrived.
+        # The first copy still crosses a queue and the link's reader after the listener passes
+        # it, so the second can be refused before the first is there to read (on Windows, every
+        # time): wait for both, then take what came after, where a second copy would be.
+        heard: list[str] = []
+        await _hears(scenario, heard, envelope)
+        await asyncio.wait_for(until_async(lambda: _refused_any(scenario)), WAIT_S)
+        _arrived(scenario, heard)
 
-    heard: list[str] = []
-    _arrived(scenario, heard)
-    assert heard == [str(envelope.id)]  # The Queen's tick would read it once.
-    assert cell.warden_id in attached_ids(scenario.queen)  # A repeat costs the Cell nothing.
-    await transport.close()
-    await scenario.listener.stop()
+        assert heard == [str(envelope.id)]  # The Queen's tick would read it once.
+        assert cell.warden_id in attached_ids(scenario.queen)  # A repeat costs the Cell nothing.
+    finally:  # Closed even when an assertion fails: a socket left open fails a later test.
+        await transport.close()
+        await scenario.listener.stop()
 
 
 async def _refused_any(scenario: Scenario) -> bool:
