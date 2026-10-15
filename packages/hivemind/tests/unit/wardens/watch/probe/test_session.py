@@ -36,12 +36,13 @@ from waggle.messages.swarm import FileChangeKind, Observation, ObservationKind
 
 _ALL = list(ObservationKind)
 _ROOT = "/data/logs"
+_LINUX = "linux"  # What a ScriptedMachine answers as, whatever the host running the tests is.
 _NOW = FakeClock().now().timestamp()  # What the probe's clock reads, as the machine's epoch.
 _BOOT = _NOW - 1_000.0  # The machine is 1,000 s old, so its uptime of 1,000 s matches.
 
 
 def _rig(
-    machine: ScriptedMachine | None = None, *, platform: str = "linux", max_items: int = 200
+    machine: ScriptedMachine | None = None, *, platform: str = _LINUX, max_items: int = 200
 ) -> tuple[SessionWatchProbe, RecordingSession, ScriptedMachine]:
     """A probe over a recording session over a machine; the session is already lent."""
     machine = machine if machine is not None else ScriptedMachine(boot_epoch=_BOOT)
@@ -321,7 +322,7 @@ async def test_a_tail_that_times_out_costs_only_the_logs() -> None:
         return machine.respond(spec)
 
     clock = FakeClock()
-    probe = SessionWatchProbe(DEVICE_ID, clock)
+    probe = SessionWatchProbe(DEVICE_ID, clock, _LINUX)
     probe.use_session(RecordingSession(Path("/scratch"), clock, machine, respond))
 
     observation = await probe.observe(_ALL, [_ROOT], None)
@@ -338,7 +339,7 @@ async def test_the_first_command_timing_out_is_an_error_the_observer_catches() -
     def hang(spec: ExecSpec) -> CompletedCommand:
         raise CommandTimeoutError(spec.argv, spec.timeout_s)
 
-    probe = SessionWatchProbe(DEVICE_ID, clock)
+    probe = SessionWatchProbe(DEVICE_ID, clock, _LINUX)
     probe.use_session(RecordingSession(Path("/scratch"), clock, machine, hang))
 
     with pytest.raises(CommandTimeoutError) as caught:
@@ -354,7 +355,7 @@ async def test_a_session_that_closes_mid_observation_raises_session_closed() -> 
     def closed(spec: ExecSpec) -> CompletedCommand:
         raise SessionClosedError(Path("/scratch"))
 
-    probe = SessionWatchProbe(DEVICE_ID, clock)
+    probe = SessionWatchProbe(DEVICE_ID, clock, _LINUX)
     probe.use_session(RecordingSession(Path("/scratch"), clock, machine, closed))
 
     with pytest.raises(SessionClosedError):

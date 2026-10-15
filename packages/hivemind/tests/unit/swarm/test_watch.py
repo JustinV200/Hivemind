@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import timedelta
-from pathlib import Path
 
 import pytest
 import structlog.testing
@@ -80,7 +79,7 @@ async def test_the_request_is_made_as_the_devices_warden_and_names_only_what_was
     since = rig.clock.now() - timedelta(minutes=5)
 
     await PollenWatchProbe(rig.node, rig.hub, max_items=7).observe(
-        [ObservationKind.LOGS, ObservationKind.FILE_CHANGES], [Path("/var/log")], since
+        [ObservationKind.LOGS, ObservationKind.FILE_CHANGES], ["/var/log"], since
     )
 
     (asked,) = _asked(rig)

@@ -42,7 +42,6 @@ See Also:
 
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -103,7 +102,7 @@ class PollenWatchProbe:
     async def observe(
         self,
         kinds: Sequence[ObservationKind],
-        roots: Sequence[str | os.PathLike[str]],
+        roots: Sequence[str],
         since_at: datetime | None,
     ) -> Observation:
         """Ask the packet what the device looks like right now.
@@ -111,7 +110,8 @@ class PollenWatchProbe:
         Args:
             kinds: What to report; at least one, each at most once.
             roots: Directories to read logs from and watch for changes; non-empty exactly when
-                `kinds` includes logs or file changes.
+                `kinds` includes logs or file changes. They are the device's paths, so text: a
+                `Path` is the Hive Stand's, and a Windows one would send `/var/log` backslashed.
             since_at: The file-change cursor, only with file changes; None asks for the packet's
                 own recent window.
 
@@ -132,7 +132,7 @@ class PollenWatchProbe:
         request = Observe(
             device_id=node.device_id,
             kinds=tuple(kinds),
-            roots=tuple(os.fspath(root) for root in roots),
+            roots=tuple(roots),
             since_at=since_at,
             max_items=self._max_items,
             reason=OBSERVE_REASON,

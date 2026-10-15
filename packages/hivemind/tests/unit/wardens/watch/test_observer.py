@@ -311,7 +311,7 @@ async def test_sampling_through_a_session_never_calls_a_write_method_on_it() -> 
     machine.files = {_ROOT: [(f"{_ROOT}/app.log", clock.now().timestamp() - 5, 20)]}
     machine.logs = {f"{_ROOT}/app.log": "a secret line\n"}
     session = RecordingSession(Path("/scratch"), clock, machine)
-    probe = SessionWatchProbe(DEVICE_ID, clock)
+    probe = SessionWatchProbe(DEVICE_ID, clock, "linux")  # As the scripted machine is.
     probe.use_session(session)
     watch = make_watch_deps(probe, roots=(_ROOT,))
     observer = WatchObserver(watch, ctx, _OWNER)
