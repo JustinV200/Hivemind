@@ -230,7 +230,16 @@ def test_the_watched_directories_accept_absolute_paths_up_to_the_wire_limit() ->
     assert WatchSection(roots=most).roots == most
 
 
-@pytest.mark.parametrize("root", ["relative/dir", "", "./here", "~/notes", "/has\0nul"])
+def test_a_watched_directory_is_absolute_in_either_spelling_whatever_the_host() -> None:
+    # The Cell watched may be a Linux container on a Windows Hive Stand, or the other way round.
+    roots = ("/var/log", "C:\\logs", "\\\\server\\share\\logs")
+
+    assert WatchSection(roots=roots).roots == roots
+
+
+@pytest.mark.parametrize(
+    "root", ["relative/dir", "", "./here", "~/notes", "/has\0nul", "C:relative", "\\no\\drive"]
+)
 def test_a_watched_directory_must_be_absolute_and_free_of_nul(root: str) -> None:
     with pytest.raises(ValidationError, match="absolute"):
         WatchSection(roots=(root,))

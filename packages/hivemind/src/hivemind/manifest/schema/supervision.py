@@ -55,7 +55,7 @@ See Also:
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -255,8 +255,11 @@ class WatchSection(WatchTuning):
         """Reject a root that is relative or holds a NUL byte."""
         # The watcher hands each root to a command as an argument: a relative one would mean
         # whatever the command's working directory is, and a NUL cannot be an argument at all.
+        # The command runs in the Cell, which may be a Linux container on a Windows Hive Stand,
+        # so a root is absolute when it is in either spelling, never by the Hive Stand's alone.
         for root in value:
-            if not Path(root).is_absolute() or "\0" in root:
+            is_absolute = PurePosixPath(root).is_absolute() or PureWindowsPath(root).is_absolute()
+            if not is_absolute or "\0" in root:
                 raise ValueError(f"[supervision.watch] roots must be absolute paths, got {root!r}.")
         return value
 
