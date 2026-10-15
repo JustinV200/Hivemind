@@ -1,5 +1,61 @@
 # Phase 11 (the Swarm: Pollen Packet gateways, Wardens for devices, and Nucs): design, map, handoff
 
+## Start here (handover, 2026-10-15)
+
+- **Phase 11 is finished and nothing is in flight.** Every phase 11 box in the roadmap is ticked
+  with its as-built note, each exit criterion is proven as section 6's table says, ADR-0051 to
+  ADR-0057 are accepted, and Waggle is 1.13. Everything is pushed to `ccr-75a88a63-nwtvjo`;
+  `origin/main` (`5d02b91`) is an ancestor, so merging the branch into `main` is a fast-forward.
+  No pull request is open, and neither leftover worktree holds a commit the branch lacks.
+  Sections 1 to 5 are the design as planned; where they differ from section 6 or the ADRs, those
+  win.
+- **The branch has never been through GitHub CI.** `ci.yml` runs on pushes to `main` and on pull
+  requests, `pollen.yml` on tags and on pull requests that touch the packet (a manual dispatch
+  needs the file on `main`), `integration.yml` nightly on `main`; this branch has no workflow run
+  at all. Phases 8, 9 and 12 reached `main` the same way and took eight pushes (CI runs 26 to 33)
+  to go green, mostly for Windows. What the first run will meet:
+  - `e2e (ubuntu-latest)` has a 10-minute timeout, and phase 11's container scenarios run in it:
+    they skip only when no Docker daemon answers (`tests/e2e/swarm/container.py`,
+    `daemon_answers`), and the Ubuntu runners have one. Here a 22-test subset of them took 8 m 16 s
+    with warm caches, the diagnosis scenarios take about nine minutes more, and the whole e2e suite
+    took 25 minutes. Either give them a marker that `ci.yml` leaves out and `integration.yml`
+    (Docker, no 10-minute cap) runs, or give the job the time; the choice is the operator's.
+  - `e2e (windows-latest)`: none of them skips on Windows. If the runner's Docker engine, which
+    runs Windows containers, answers `docker version`, the fixtures try to build the Linux device
+    image there and error instead of skipping.
+  - `tests (windows-latest)`, the `arch` container job and `pollen.yml`'s Windows and macOS legs
+    run pollen's suite and phase 11's own tests on those hosts for the first time. The one Windows
+    failure visible from Linux is fixed (next bullet); anything else needs a Windows run. Section
+    6's "ARM64 only in CI" means the matrix is written, not that it has run.
+- **Checked at handover, and what it fixed.** In this container:
+  - `mypy --platform win32`, what CI's Windows `types` job amounts to, failed with 22 errors in 8
+    phase 11 files, and behind them was a real defect: `pollen.platform.posix` read
+    `signal.SIGKILL` at import, so on Windows `import pollen.cli` died before the Windows shim
+    could be chosen and the packet could not start at all. 8937b14 fixes both; mypy is clean for
+    Linux and win32.
+  - The `web` job's `pnpm generate:check` failed: be271e3 rewrote `last_patrol_at`'s description
+    in `docs/entrance/openapi.json` without regenerating `src/landing_board/types.ts`. f1388f2
+    regenerates it; then generate:check, format, lint, typecheck and test pass, and
+    `pnpm audit --audit-level=high` finds nothing at that level.
+  - CI's `tests` job as written (the unit suite with coverage, then
+    `scripts/check_coverage_floors.py`): still running when this was first written. `pip-audit`
+    over the exported lock: no known vulnerabilities.
+- **`main`'s nightly is red on its own.** `integration.yml` failed its last three runs on `main`
+  (2026-10-13 to 10-15). The latest failed the browser contract's
+  `test_a_launch_that_never_gets_ready_stops_its_browser_and_raises[real]` (it did not raise) and
+  `test_docker_backend.py`'s `test_provision_real_container_reaches_ready_then_destroy_removes_it`
+  (a subprocess left running, its transports unclosed), and its `local_llm` job failed too. None
+  of that is phase 11's code and none of it was investigated here, but a merge lands on it.
+- **Leftovers in this container only**, gone with it:
+  `refs/original/refs/heads/ccr-75a88a63-nwtvjo` from an old history rewrite (`git update-ref -d`
+  it); the worktrees under `.claude/worktrees/` (`agent-a2f93f65d043b31f2` is locked) with their
+  `worktree-agent-*` branches, and `wave-5f-reap`; a local `main` still at `4b66406`; cached
+  device images and wheels; `packages/observation-web/node_modules`. `0c48039` does not import on
+  its own (`b337d31` completes it), so skip it when bisecting.
+- **Next.** The known gaps are section 6's last bullet ("Open, for later phases"). On the roadmap,
+  phase 13 (Resilience) needed phases 5, 10 and 11, so it is unblocked; its step 13.2a sends the
+  `control.queen_moved` this phase only honours, and must add the TLS pin that message lacks.
+
 > Written 2026-10-13 on branch `ccr-75a88a63-nwtvjo` (the phase 8 + 9 + 12 tree at `a11deb3`,
 > ahead of `main` at `4b66406`) before any phase 11 code, as the design every implementer works
 > from. Section 1 holds the decisions (the six ADRs in brief), section 2 the module map and the
@@ -10,8 +66,8 @@
 > **Numbering.** Phase 11 takes ADR-0051 to ADR-0056 and Waggle minor **1.13**.
 
 Read first: `CLAUDE.md`, `.claude/codingrules.md` (sections 3, 4, 5, 6, 7, 8.1-8.3, 8.5, 8.7, 8.8,
-8.10, 8.15, 8.16, 11, 12, 14, 15, Appendix C), `.claude/roadmap.md` phase 11 (lines 1987-2184),
-`docs/waggle/spec.md` sections 2-6, 8.5, 8.6, 8.10, 8.11 (QueenMoved), 9, 10.
+8.10, 8.15, 8.16, 11, 12, 14, 15, Appendix C), `.claude/roadmap.md` phase 11 (lines 2016-2433 at
+handover), `docs/waggle/spec.md` sections 2-6, 8.5, 8.6, 8.10, 8.11 (QueenMoved), 9, 10.
 
 Baseline at `a11deb3` (2026-10-13, this container): ruff format/check, mypy (2796 files),
 lint-imports (12 contracts), the five hygiene scripts all clean; unit and contract suite
