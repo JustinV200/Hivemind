@@ -136,6 +136,15 @@ def test_a_signal_death_is_the_negative_signal_number() -> None:
     assert exit_code_for(_exit(SessionOutcome.SIGNALED, signal_name="SIGTERM")) == -15
 
 
+@pytest.mark.parametrize(("name", "code"), [("SIGKILL", -9), ("SIGABRT", -6), ("SIGQUIT", -3)])
+def test_a_signal_posix_numbers_alike_everywhere_gets_that_number_on_any_host(
+    name: str, code: int
+) -> None:
+    # A Windows Hive Stand's table has no SIGKILL or SIGQUIT and numbers SIGABRT 22, yet each is
+    # the device's signal, and the device is POSIX.
+    assert exit_code_for(_exit(SessionOutcome.SIGNALED, signal_name=name)) == code
+
+
 def test_a_signal_this_host_has_no_number_for_gets_the_unknown_code() -> None:
     exit_message = _exit(SessionOutcome.SIGNALED, signal_name="CTRL_BREAK_EVENT")
 

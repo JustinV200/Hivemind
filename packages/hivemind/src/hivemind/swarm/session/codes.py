@@ -21,8 +21,11 @@ Key invariants:
       `DeviceRequestError`, and a mapped one is raised `from` it by the caller.
     - No message here repeats a path the device did not name to us: the path in a
       `PathNotAllowedError` is the one the caller itself asked for.
-    - An exit with a signal name this host has no number for gets `UNKNOWN_SIGNAL_EXIT_CODE`,
-      never an exception: a Windows device's `CTRL_BREAK_EVENT` is a valid answer on a Linux Hive.
+    - A signal every POSIX system numbers alike (`SIGKILL`, `SIGTERM`, ...) gets that number on
+      any Hive Stand, a Windows one included, whose own table has no `SIGKILL` and puts `SIGABRT`
+      at 22. Any other name is looked up on this host, and one it has no number for gets
+      `UNKNOWN_SIGNAL_EXIT_CODE`, never an exception: a Windows device's `CTRL_BREAK_EVENT` is a
+      valid answer on a Linux Hive.
 
 See Also:
     - docs/waggle/gateway-contract.md sections 11 and 15 for the exit outcomes and the codes.
@@ -35,6 +38,7 @@ import signal
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 from hivemind.cell.errors import BackgroundStartError, PathNotAllowedError, SessionClosedError
 from hivemind.swarm.errors import CommandDeniedError, DeviceRequestError
@@ -49,6 +53,25 @@ LEASE_NOT_OPEN = "hive.session.lease_not_open"
 
 KILLED_EXIT_CODE = -9  # The device killed it: the SIGKILL convention a local session reports.
 UNKNOWN_SIGNAL_EXIT_CODE = -1  # A signal this host has no number for (a Windows control event).
+
+# The numbers Linux, macOS and the BSDs all give these signals. A device reports a signal by name,
+# and the number must be the device's, not the host's: these are, wherever the Hive Stand runs.
+_POSIX_SIGNALS = MappingProxyType(
+    {
+        "SIGHUP": 1,
+        "SIGINT": 2,
+        "SIGQUIT": 3,
+        "SIGILL": 4,
+        "SIGTRAP": 5,
+        "SIGABRT": 6,
+        "SIGFPE": 8,
+        "SIGKILL": 9,
+        "SIGSEGV": 11,
+        "SIGPIPE": 13,
+        "SIGALRM": 14,
+        "SIGTERM": 15,
+    }
+)
 
 __all__ = [
     "CAPABILITY_DENIED",
@@ -156,6 +179,12 @@ def exit_code_for(exit_message: SessionExit) -> int:
 
 
 def _signal_code(name: str | None) -> int:
-    """Return `-n` for the signal called `name` on this host, or `UNKNOWN_SIGNAL_EXIT_CODE`."""
+    """Return `-n` for the signal called `name`, or `UNKNOWN_SIGNAL_EXIT_CODE`.
+
+    The number is POSIX's own where every POSIX system agrees on it, else this host's.
+    """
+    portable = _POSIX_SIGNALS.get(name or "")
+    if portable is not None:
+        return -portable
     known = signal.Signals.__members__.get(name or "")
     return UNKNOWN_SIGNAL_EXIT_CODE if known is None else -int(known)
