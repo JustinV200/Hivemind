@@ -1946,7 +1946,7 @@ export interface components {
             hosting: components["schemas"]["HostingView"];
             /**
              * Last Patrol At
-             * @description When its last Patrol ran; always null until roadmap phase 11 builds Patrols.
+             * @description When its Warden's newest Patrol ran, whatever its outcome (the newest warden.patrol event); null before the first, or for a Cell whose Warden does not watch.
              */
             last_patrol_at: string | null;
             /**
