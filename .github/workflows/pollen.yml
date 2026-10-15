@@ -76,6 +76,15 @@ jobs:
         with:
           enable-cache: true
           python-version-file: ".python-version"
+      # cryptography publishes no wheel for Intel macOS, so uv builds it there from source, against
+      # Homebrew's OpenSSL. Linked dynamically, the binary carried two libssl.3.dylib files, kept the
+      # interpreter's older one and could not load cryptography ("Symbol not found:
+      # _SSL_get0_group_name"), so that build links OpenSSL into cryptography statically instead.
+      - name: Link OpenSSL statically into a cryptography built from source
+        if: matrix.target == 'macos-x86_64'
+        run: |
+          echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
       - run: uv sync --frozen --group pollen-build
       # The packet's own unit suite on this platform: the platform shims (systemd, launchd, the
       # Windows service) are the code most likely to differ between the five legs.
