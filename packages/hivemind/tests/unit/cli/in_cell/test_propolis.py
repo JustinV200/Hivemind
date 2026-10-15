@@ -107,7 +107,8 @@ def test_read_text_returns_a_files_text_and_nothing_for_one_that_is_not_there(
     tmp_path: Path,
 ) -> None:
     present = tmp_path / "resolv.conf"
-    present.write_text("nameserver 10.8.0.1\n", encoding="utf-8")
+    # Bytes, as Linux writes the file: text mode would add a carriage return on Windows.
+    present.write_bytes(b"nameserver 10.8.0.1\n")
 
     assert read_text(present) == "nameserver 10.8.0.1\n"
     assert read_text(tmp_path / "ipv6_route") == ""  # No IPv6 stack: the file is simply absent.

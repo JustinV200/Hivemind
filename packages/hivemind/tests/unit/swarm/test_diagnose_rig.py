@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import sys
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -175,6 +176,11 @@ def test_each_closing_line_names_a_cause_the_warden_reads(closing: str, word: st
     assert finding.cause is not None and word in finding.cause + closing
 
 
+# The scripts are written for the device container's `sh` and run there; a Windows host has no
+# POSIX shell of its own to run them on as the Drone does.
+_DEVICE_SH = pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX sh")
+
+
 def _run(script: str, directory: Path) -> None:
     """Run a scripted round for real, in `directory`, the way the Drone's `sh -c` does."""
     # SAFETY: the script is one this module's own rig built, run in a temporary directory against
@@ -182,6 +188,7 @@ def _run(script: str, directory: Path) -> None:
     subprocess.run(["sh", "-c", script], cwd=directory, check=True)  # noqa: S603, S607
 
 
+@_DEVICE_SH
 def test_the_planted_fault_replaces_the_hives_line_and_keeps_every_other(tmp_path: Path) -> None:
     hosts = tmp_path / "hosts"
     hosts.write_text(HOSTS, encoding="utf-8")
@@ -193,6 +200,7 @@ def test_the_planted_fault_replaces_the_hives_line_and_keeps_every_other(tmp_pat
     assert lines[2:] == [f"{WRONG_ADDRESS}\t{HIVE_HOSTNAME}"]
 
 
+@_DEVICE_SH
 def test_the_drones_fix_writes_the_right_line_back_through_the_same_file(tmp_path: Path) -> None:
     hosts = tmp_path / "hosts"
     hosts.write_text(HOSTS, encoding="utf-8")

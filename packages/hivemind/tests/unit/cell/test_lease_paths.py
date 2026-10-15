@@ -23,7 +23,7 @@ See Also:
 
 from __future__ import annotations
 
-import posixpath
+import os
 from pathlib import Path
 
 import pytest
@@ -46,7 +46,9 @@ class _LexicalRule:
 
     def resolve(self, path: Path) -> Path:
         self.asked.append(path)
-        return Path(posixpath.normpath(str(path)))
+        # Lexical in this host's own spelling: the scratch is a temporary directory spelled as
+        # this host spells it, and `posixpath` would leave a Windows path's `..` in place.
+        return Path(os.path.normpath(path))
 
     def is_within(self, path: Path, root: Path) -> bool:
         return path == root or root in path.parents
@@ -154,7 +156,8 @@ async def test_a_path_touched_outside_scratch_is_recorded_as_the_rule_resolved_i
 
     assert lease.touched_paths == (Path("/etc/hosts"), scratch / "link" / "inside.txt")
     [event] = await trail.query(TrailQuery(kind="cell.touched_outside_scratch"))
-    assert event.payload["path"] == "/etc/hosts"  # Only the one outside scratch is recorded.
+    # Only the one outside scratch is recorded, as the text of the path the rule resolved it to.
+    assert event.payload["path"] == str(Path("/etc/hosts"))
 
 
 def test_a_restore_record_for_a_path_outside_scratch_carries_the_resolved_path(

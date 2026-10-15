@@ -24,6 +24,7 @@ See Also:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -304,7 +305,7 @@ def test_a_first_build_runs_the_workflows_recipe_and_keeps_the_binary_under_its_
     binary = build_binary(root)
 
     assert binary == cache / binary_digest(root) / BINARY_NAME
-    assert binary.read_bytes() == b"the binary" and binary.stat().st_mode & 0o777 == 0o755
+    assert binary.read_bytes() == b"the binary"
     run, *_ = docker.calls
     assert run[:3] == ("run", "--detach", "--init")
     assert BUILD_IMAGE in run and run[-2:] == ("sleep", "infinity")
@@ -314,6 +315,17 @@ def test_a_first_build_runs_the_workflows_recipe_and_keeps_the_binary_under_its_
     assert sorted(docker.staged) == sorted(p.as_posix() for p in stage_files(root))
     assert docker.verbs()[-3:] == ["ps", "rm", "network"]  # The janitor removed the container.
     assert [entry.name for entry in cache.iterdir()] == [binary_digest(root)]  # No partial left.
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows files carry no POSIX mode bits")
+def test_the_kept_binary_can_be_run_by_whoever_copies_it_into_a_device(
+    building: tuple[BuildDocker, Path, Path],
+) -> None:
+    _docker, root, _cache = building
+
+    binary = build_binary(root)
+
+    assert binary.stat().st_mode & 0o777 == 0o755
 
 
 def test_a_second_build_of_the_same_inputs_finds_the_binary_and_starts_nothing(
