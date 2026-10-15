@@ -222,9 +222,13 @@ validates every message a newer one sends it, as long as the sender honours the 
     names, from the instant she names, caused by her `cell.isolated` event), which her own label
     on the Hive's tables cannot reach; the Warden then refuses to resume a bee from a Handoff so
     labelled.
-- **1.11** (reserved): phase 8's `forage.source_added`/`source_removed`/`source_evict`, on branch
-  `ccr-0235b6d7-okyhmn`. They are not registered in this tree; the number is held so the two
-  branches never claim the same minor.
+- **1.11** (roadmap step 8.3, ADR-0044): `forage.source_added` (`SourceAdded`),
+  `forage.source_removed` (`SourceRemoved`, with the new enum `SourceRemovalCause`) and
+  `forage.source_evict` (`SourceEvict`). A Warden that starts a model server on its own Cell and
+  loads a source within its ceilings tells the Queen with `source_added` (and with `source_removed`
+  when the source goes), so she enters it in her Forage map and seat ledger; the Queen may order
+  `source_evict` only to reclaim seats she exported. All three are new kinds, so a peer below
+  minor 11 must not be sent them (section 4's rule).
 - **1.12** (all additive, roadmap steps 9.2a and 9.5, ADR-0046 to ADR-0048):
   - The `basket` family (section 8.12): `basket.offer`, `basket.chunk`, `basket.ack` and
     `basket.refuse`. A Basket blob (a content-addressed, signed, inert byte string: an archive, a
@@ -236,14 +240,6 @@ validates every message a newer one sends it, as long as the sender honours the 
     report, back to whoever asked; and a version leaving the registry (a rollback stays a
     `tool.promoted` of the earlier version). A sender uses none of them toward a peer that has not
     advertised minor 12.
-
-- **1.11** (roadmap step 8.3, ADR-0044): `forage.source_added` (`SourceAdded`),
-  `forage.source_removed` (`SourceRemoved`, with the new enum `SourceRemovalCause`) and
-  `forage.source_evict` (`SourceEvict`). A Warden that starts a model server on its own Cell and
-  loads a source within its ceilings tells the Queen with `source_added` (and with `source_removed`
-  when the source goes), so she enters it in her Forage map and seat ledger; the Queen may order
-  `source_evict` only to reclaim seats she exported. All three are new kinds, so a peer below
-  minor 11 must not be sent them (section 4's rule).
 - **1.13** (all additive, roadmap phase 11, ADR-0051 to ADR-0056):
   - Device control (section 8.6): `session.delete_file`, with `SessionRequestKind.DELETE_FILE` for
     the `session.exit` that ends it, and `session.process` with its reply `session.process_state`,
