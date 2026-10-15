@@ -104,9 +104,14 @@ async def test_a_queen_that_closes_every_link_at_once_cannot_keep_the_switch_fro
         await live.session.close(1008)
         await eventually(lambda: not scratch.exists(), wait_s=15)
         queen.is_revoking = False
-        # The sessions opened while revoking were closed at once; wait for one that stays open.
+        # The sessions dialed while revoking were refused at their first frame, and each closes a
+        # moment after it, so one can still look open with a frame; wait for one that was let in.
         await eventually(
-            lambda: bool(queen.sessions[-1].frames) and not queen.sessions[-1].is_closed
+            lambda: (
+                bool(queen.sessions[-1].frames)
+                and queen.sessions[-1].refusal is None
+                and not queen.sessions[-1].is_closed
+            )
         )
         released = await queen.sessions[-1].expect(LeaseReleased)
         assert released.payload.cause is ReleaseCause.DEAD_MAN
