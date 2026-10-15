@@ -41,6 +41,16 @@ def test_a_missing_directory_weighs_nothing(tmp_path: Path) -> None:
     assert directory_size_bytes(tmp_path / "absent") == 0
 
 
+def test_a_file_still_being_written_weighs_what_it_holds_now(tmp_path: Path) -> None:
+    # A command filling scratch keeps its file open; Windows' directory listing would say 0 bytes
+    # until it closed it, and the watchdog would never see the quota crossed.
+    with (tmp_path / "growing.bin").open("wb") as growing:
+        growing.write(b"x" * 4096)
+        growing.flush()
+
+        assert directory_size_bytes(tmp_path) == 4096
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="symbolic links")
 def test_a_link_is_never_followed_so_it_can_neither_hide_nor_inflate_usage(tmp_path: Path) -> None:
     outside = tmp_path / "outside"

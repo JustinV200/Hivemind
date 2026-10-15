@@ -67,6 +67,16 @@ def test_directory_size_bytes_is_zero_for_an_empty_directory(tmp_path: Path) -> 
     assert directory_size_bytes(tmp_path) == 0
 
 
+def test_directory_size_bytes_counts_a_file_still_being_written(tmp_path: Path) -> None:
+    # A command filling scratch keeps its file open; Windows' directory listing would say 0 bytes
+    # until it closed it, and the watchdog would never see the quota crossed.
+    with (tmp_path / "growing.bin").open("wb") as growing:
+        growing.write(b"x" * 4096)
+        growing.flush()
+
+        assert directory_size_bytes(tmp_path) == 4096
+
+
 def test_directory_size_bytes_is_zero_for_a_directory_that_does_not_exist(tmp_path: Path) -> None:
     assert directory_size_bytes(tmp_path / "gone") == 0
 

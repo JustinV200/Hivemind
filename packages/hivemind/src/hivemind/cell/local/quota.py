@@ -9,13 +9,14 @@ scratch_root`) may hold before `LocalProcessSession`'s watchdog kills the runnin
 linking to something outside scratch. `DirectorySizer` is the callable shape that measurement
 takes; `ScratchQuota.sizer` carries one rather than the watchdog calling `directory_size_bytes`
 directly, so a test can substitute a controllable sizer instead of racing a real subprocess's
-write speed against the watchdog's own poll interval -- real cross-process file-size polling is
-not reliable everywhere while a write is in flight (Windows in particular can report a directory
-entry's cached, stale size for a file another process still holds open), so
+write speed against the watchdog's own poll interval -- how many bytes a command writes before a
+real poll happens to notice is a race, so
 `test_a_nested_archive_extraction_over_quota_is_stopped_and_cleaned_up` drives the crossing itself
-through an injected sizer rather than asserting on exactly how many bytes leaked through before a
-real poll happened to notice. `QUOTA_SAMPLE_INTERVAL_S` is the watchdog's tick cadence, named here
-because it is a quota concern even though `session.py` is the module that runs the loop.
+through an injected sizer rather than asserting on it. The walk asks each file for its size rather
+than taking the directory listing's: Windows' listing keeps a cached, stale size for a file a
+process still holds open, until it is closed. `QUOTA_SAMPLE_INTERVAL_S` is the watchdog's tick
+cadence, named here because it is a quota concern even though `session.py` is the module that runs
+the loop.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction), inside `hivemind.cell.local` (the Hive Stand). Read by
@@ -29,6 +30,8 @@ Key invariants:
     - `directory_size_bytes` treats a vanished directory (removed between the watchdog's tick and
       this call) as zero bytes rather than raising, since a command's own cleanup can race the
       watchdog harmlessly.
+    - A file counts what it holds now, still open or not: its size comes from the file, never from
+      the directory listing.
     - `ScratchQuota.sizer` defaults to `directory_size_bytes`; the watchdog always reads
       `quota.sizer`, never the module-level function by name, so every caller that does not
       override it gets the real measurement for free.
@@ -83,12 +86,24 @@ def directory_size_bytes(root: Path) -> int:
                 if entry.is_dir(follow_symlinks=False):
                     total += directory_size_bytes(Path(entry.path))
                 elif entry.is_file(follow_symlinks=False):
-                    total += entry.stat(follow_symlinks=False).st_size
+                    total += _size_now(entry)
     except FileNotFoundError:
         # The directory (or one of its children) was removed between the watchdog's previous
         # tick and this call; nothing left there weighs anything.
         return total
     return total
+
+
+def _size_now(entry: os.DirEntry[str]) -> int:
+    """Return what the regular file `entry` holds right now, or zero once it is gone."""
+    # Not `entry.stat()`: on Windows that answers from the directory listing, which NTFS updates
+    # only when the file is closed, so a command filling scratch through one open file would weigh
+    # nothing until it stopped. `os.lstat` asks the file itself; on POSIX it is the very call
+    # `entry.stat(follow_symlinks=False)` makes.
+    try:
+        return os.lstat(entry.path).st_size
+    except FileNotFoundError:
+        return 0  # Removed between the listing and this look: it weighs nothing now.
 
 
 @dataclass(frozen=True, slots=True)

@@ -17,6 +17,8 @@ Fits into the Hive:
 
 Key invariants:
     - The walk never follows a symlink, at any depth, and counts regular files only.
+    - A file counts what it holds now, still open or not: its size is asked of the file itself,
+      never of the directory listing, which Windows brings up to date only when it is closed.
     - A directory that vanishes mid-walk (a command's own clean-up) counts as zero, never raises.
     - A refusal names the lease and the figures, never a path.
 
@@ -68,10 +70,22 @@ def directory_size_bytes(root: Path) -> int:
                     if entry.is_dir(follow_symlinks=False):
                         pending.append(Path(entry.path))
                     elif entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_size
+                        total += _size_now(entry)
         except OSError:
             continue  # Removed or unreadable mid-walk: nothing there weighs anything.
     return total
+
+
+def _size_now(entry: os.DirEntry[str]) -> int:
+    """Return what the regular file ``entry`` holds right now, or zero once it is gone."""
+    # Not `entry.stat()`: on Windows that answers from the directory listing, which NTFS updates
+    # only when the file is closed, so a command filling scratch through one open file would weigh
+    # nothing until it stopped. `os.lstat` asks the file itself; on POSIX it is the very call
+    # `entry.stat(follow_symlinks=False)` makes.
+    try:
+        return os.lstat(entry.path).st_size
+    except OSError:
+        return 0  # Removed between the listing and this look: it weighs nothing now.
 
 
 def check_room(root: Path, quota_bytes: int, incoming: int, lease_id: str) -> None:
