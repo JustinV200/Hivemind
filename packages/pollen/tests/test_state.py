@@ -27,6 +27,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import os
 import stat
 import sys
 from datetime import timedelta
@@ -38,6 +39,7 @@ from states import sample_state
 
 from pollen.errors import NotEnrolledError, StateError
 from pollen.state import (
+    SHARED_FILE_ATTEMPTS,
     DataLayout,
     InstallSettings,
     PacketState,
@@ -278,6 +280,67 @@ def test_saving_and_loading_the_state_agree(tmp_path: Path) -> None:
     state = sample_state(CLOCK)
     save_state(tmp_path / "state.json", state)
     assert load_state(tmp_path / "state.json") == state
+
+
+def test_a_read_refused_while_another_handle_replaces_the_file_is_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: two refusals and then the file, as Windows answers a read beside a running replace.
+    path = tmp_path / "state.json"
+    state = sample_state(CLOCK)
+    save_state(path, state)
+    real = Path.read_bytes
+    refusals = iter((True, True))
+
+    def read_bytes(self: Path) -> bytes:
+        if self == path and next(refusals, False):
+            raise PermissionError("the file is in use by another handle")
+        return real(self)
+
+    monkeypatch.setattr("pollen.state.SHARED_FILE_RETRY_S", 0.0)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+
+    assert load_state(path) == state
+
+
+def test_a_refusal_that_outlasts_the_attempts_is_a_state_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "state.json"
+    save_state(path, sample_state(CLOCK))
+    tries: list[Path] = []
+
+    def read_bytes(self: Path) -> bytes:
+        tries.append(self)
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pollen.state.SHARED_FILE_RETRY_S", 0.0)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+
+    with pytest.raises(StateError, match="cannot be read"):
+        load_state(path)
+    assert len(tries) == SHARED_FILE_ATTEMPTS
+
+
+def test_a_rename_refused_while_a_reader_has_the_file_is_tried_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "file"
+    write_atomic(path, b"old")
+    real = os.replace
+    refusals = iter((True,))
+
+    def replace(source: Path, target: Path) -> None:
+        if next(refusals, False):
+            raise PermissionError("the file is open in another handle")
+        real(source, target)
+
+    monkeypatch.setattr("pollen.state.SHARED_FILE_RETRY_S", 0.0)
+    monkeypatch.setattr("pollen.state.os.replace", replace)
+    write_atomic(path, b"new")
+
+    assert path.read_bytes() == b"new"
+    assert not path.with_name(f".{path.name}.tmp").exists()
 
 
 def test_saving_to_an_unwritable_place_is_a_state_error(tmp_path: Path) -> None:

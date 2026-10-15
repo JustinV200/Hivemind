@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,11 +73,15 @@ from waggle.uris import check_waggle_uri
 STATE_SCHEMA_VERSION = 1  # Bumped when the document's shape changes incompatibly.
 PRIVATE_FILE_MODE = 0o600  # Key, state and tables: readable by the packet's own account only.
 PRIVATE_DIR_MODE = 0o700  # The data directory and every lease's scratch directory.
+SHARED_FILE_ATTEMPTS = 5  # Windows refuses a file for a moment while another handle replaces it.
+SHARED_FILE_RETRY_S = 0.02  # About as long as such a replace takes to finish.
 SHA256_HEX_PATTERN = r"^[0-9a-f]{64}$"  # A certificate pin: lowercase hex of a SHA-256 digest.
 
 __all__ = [
     "PRIVATE_DIR_MODE",
     "PRIVATE_FILE_MODE",
+    "SHARED_FILE_ATTEMPTS",
+    "SHARED_FILE_RETRY_S",
     "DataLayout",
     "InstallSettings",
     "PacketState",
@@ -328,11 +333,26 @@ def write_atomic(path: Path, data: bytes, mode: int = PRIVATE_FILE_MODE) -> None
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp, path)
+        _when_free(lambda: os.replace(temp, path))
     except BaseException:
         temp.unlink(missing_ok=True)
         raise
     _sync_directory(path.parent)
+
+
+def _when_free[T](action: Callable[[], T]) -> T:
+    """Run a file action, again a moment later while Windows says another handle has the file.
+
+    On Windows a read, or a rename over the file, is refused with a PermissionError while another
+    handle is replacing or reading it (an operator's `pollen status` beside the running packet),
+    where POSIX refuses neither; a refusal that outlasts the attempts is a real one and is raised.
+    """
+    for _ in range(SHARED_FILE_ATTEMPTS - 1):
+        try:
+            return action()
+        except PermissionError:
+            time.sleep(SHARED_FILE_RETRY_S)
+    return action()
 
 
 def _sync_directory(directory: Path) -> None:
@@ -409,7 +429,7 @@ def load_state(path: Path) -> PacketState:
         StateError: The file cannot be read or fails validation.
     """
     try:
-        raw = path.read_bytes()
+        raw = _when_free(path.read_bytes)
     except FileNotFoundError as exc:
         raise NotEnrolledError("This device is not enrolled; run pollen enrol first.") from exc
     except OSError as exc:
