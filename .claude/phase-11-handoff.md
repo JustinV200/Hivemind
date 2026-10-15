@@ -2,14 +2,16 @@
 
 ## Start here (merged into `main`, 2026-10-15)
 
-- **Phase 11 is on `main`, and `main` is the repository's only branch.** `ccr-75a88a63-nwtvjo`
+- **Phase 11 is on `main`, and every other branch is contained in it.** `ccr-75a88a63-nwtvjo`
   fast-forwarded `main` from `5d02b91` (the phase 8 + 9 + 12 merge) to `e704f76`, and the fixes
   its first CI runs called for landed on `main` after it (`e704f76..0be38f3`, each commit says why
-  in full). Every other branch was checked to hold nothing `main` lacks, then deleted: on GitHub
-  `ccr-0235b6d7-okyhmn`, `ccr-4e10bf6f-y9zk5g`, `ccr-c966d521-ldi3i9`, `ccr-fc6c1f6f-m6l12x` and
-  the phase branch itself; locally `wave-5f-reap`, the two `worktree-agent-*` branches with their
-  worktrees, and the old `refs/original`. Sections 1 to 5 are the design as planned; where they
-  differ from section 6 or the ADRs, those win.
+  in full). Every other branch was checked to hold nothing `main` lacks, so deleting one loses
+  nothing. Locally they are gone: `wave-5f-reap`, the two `worktree-agent-*` branches with their
+  worktrees, the phase branch and the old `refs/original`. The five on GitHub
+  (`ccr-0235b6d7-okyhmn`, `ccr-4e10bf6f-y9zk5g`, `ccr-c966d521-ldi3i9`, `ccr-fc6c1f6f-m6l12x` and
+  the phase branch) are the operator's to delete: GitHub answered the merging session's deletes
+  with HTTP 403. Sections 1 to 5 are the design as planned; where they differ from section 6 or
+  the ADRs, those win.
 - **CI on `main`.** CI run 38, on `7e6a51b`, passed 14 of its 15 jobs, the Windows unit suite among
   them for the first time (coverage 96.1% against the 85% floor) and the Arch container; the
   fifteenth, `e2e (windows-latest)`, met a timing flake in one rollback scenario, which a soak
