@@ -1,6 +1,6 @@
 """Test the one place the packet looks at the host: choosing the platform shim.
 
-Everything else in pollen holds a ``PlatformShim`` and never reads ``sys.platform``;
+Everything else in pollen holds a ``PlatformShim`` and never chooses by ``sys.platform``;
 ``select_shim`` is the single branch on the operating system (gateway-contract section 3). It
 takes the platform name as an argument so every choice can be tested on every host.
 

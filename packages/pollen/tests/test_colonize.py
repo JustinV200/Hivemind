@@ -23,14 +23,13 @@ See Also:
 from __future__ import annotations
 
 import os
-import signal
 import sys
 from pathlib import Path
 
 import pytest
 from device_kit import Device, make_device, running
 from queen_double import QueenDouble, QueenSession
-from runtime_kit import STUB_VERSION, build_wheelhouse, wait_for_file
+from runtime_kit import STUB_VERSION, build_wheelhouse, kill_group, wait_for_file
 
 from pollen.state import InstallSettings, load_state, save_state
 from waggle.clock import Clock
@@ -140,4 +139,4 @@ async def test_a_queen_colonizes_a_device_a_restart_adopts_the_warden_and_withdr
         assert load_state(device.layout.state).warden is None
     finally:
         if pid and _alive(pid):
-            os.killpg(pid, signal.SIGKILL)
+            kill_group(pid)

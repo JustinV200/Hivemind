@@ -9,7 +9,8 @@ it was started with, signals when it is ready, leaves a marker when it is told t
 told (by a variable the test sets) to die at once or to ignore the request to stop, and it says one
 line on its standard output so the log it is given has something in it. ``fake_runtime``
 writes the same two programs straight into a data directory as a finished environment, for the tests
-that are about the Warden's process rather than the installation.
+that are about the Warden's process rather than the installation, and ``kill_group`` ends a started
+Warden's whole process group at once.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Used by the bootstrap tests; depends on pollen's
@@ -29,6 +30,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import os
+import signal
 import stat
 import sys
 import zipfile
@@ -37,7 +40,14 @@ from pathlib import Path
 from pollen.platform import PlatformShim
 from pollen.state import DataLayout
 
-__all__ = ["STUB_VERSION", "build_wheelhouse", "fake_runtime", "stub_source", "wait_for_file"]
+__all__ = [
+    "STUB_VERSION",
+    "build_wheelhouse",
+    "fake_runtime",
+    "kill_group",
+    "stub_source",
+    "wait_for_file",
+]
 
 STUB_VERSION = "0.0.1"  # The version the dummy wheel and the fake runtime report.
 _POLL_S = 0.02  # How often wait_for_file looks.
@@ -163,3 +173,21 @@ async def wait_for_file(path: Path, *, wait_s: float = 10.0) -> None:
             return
         await asyncio.sleep(_POLL_S)
     raise AssertionError(f"{path.name} never appeared.")
+
+
+def kill_group(pid: int) -> None:
+    """Kill at once the process group a started Warden leads, as a test's blow or its cleanup.
+
+    Args:
+        pid: The group's leader; every program the packet starts leads a session of its own.
+
+    Raises:
+        ProcessLookupError: The group has no member left.
+    """
+    # Every caller is a POSIX-only module (the stub Warden is a POSIX script), but mypy checks
+    # them for Windows too, where killpg and SIGKILL do not exist. The else is load-bearing:
+    # mypy skips the branch a platform check rules out, and reports what follows a return.
+    if sys.platform == "win32":
+        raise ProcessLookupError(pid)
+    else:
+        os.killpg(pid, signal.SIGKILL)

@@ -17,8 +17,6 @@ See Also:
 
 from __future__ import annotations
 
-import os
-import signal
 import stat
 import sys
 from collections.abc import AsyncIterator
@@ -26,7 +24,7 @@ from pathlib import Path
 
 import pytest
 from executor_kit import Kit, make_kit
-from runtime_kit import STUB_VERSION, build_wheelhouse, fake_runtime, wait_for_file
+from runtime_kit import STUB_VERSION, build_wheelhouse, fake_runtime, kill_group, wait_for_file
 from states import frame_from
 
 from pollen.bootstrap import BootstrapTimings, ColonizeService, WardenKeeper, installed_version
@@ -77,7 +75,7 @@ async def served(tmp_path: Path, clock: Clock) -> AsyncIterator[tuple[ColonizeSe
         finally:
             record = kit.deps.state.current.warden
             if record is not None:
-                os.killpg(record.pid, signal.SIGKILL)
+                kill_group(record.pid)
 
 
 async def _ask(service: ColonizeService, kit: Kit, order: Colonize, clock: Clock) -> Colonized:

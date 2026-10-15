@@ -109,6 +109,18 @@ def _log_tail(packet: Packet) -> str:
         return "(no log)"
 
 
+def _kill_group(pid: int) -> None:
+    """Kill the group a Warden that outlived its test leads; nothing if it has gone already."""
+    # The module skips on Windows, but mypy checks it for Windows too, where killpg and SIGKILL
+    # do not exist. The else is load-bearing: mypy skips the branch a platform check rules out,
+    # and reports whatever follows an early return as unreachable.
+    if sys.platform == "win32":
+        return
+    else:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGKILL)
+
+
 async def test_the_warden_a_packet_starts_attaches_to_the_queen_and_leaves_the_device_as_found(
     tmp_path: Path,
 ) -> None:
@@ -136,8 +148,7 @@ async def test_the_warden_a_packet_starts_attaches_to_the_queen_and_leaves_the_d
     finally:
         left = deps.state.current.warden
         if left is not None:  # Only a test that failed gets here with the Warden still running.
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(left.pid, signal.SIGKILL)
+            _kill_group(left.pid)
             await asyncio.sleep(0.1)  # Let the loop's child watcher collect the process.
         await server.close()
 

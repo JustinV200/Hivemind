@@ -386,7 +386,9 @@ async def test_a_background_process_that_dies_on_its_own_is_reported_not_running
     driver = gateway.driver
     async with driver.leased() as lease:
         started = await driver.start_background(lease, python_argv(_SLEEP_FOREVER))
-        os.kill(started.pid, signal.SIGKILL)
+        # SIGTERM, which every host has: os.kill ends the process on Windows whatever the
+        # signal, and the program installs no handler, so it dies at once on POSIX too.
+        os.kill(started.pid, signal.SIGTERM)
 
         async def gone() -> bool:
             return not (

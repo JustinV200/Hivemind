@@ -21,6 +21,8 @@ Key invariants:
     - A signal reaches a process only if it is the recorded leader (same creation time) or a
       live descendant of it that was created at or after the leader; a zombie counts as gone.
     - Probing never raises for a process that vanished mid-scan.
+    - The module imports on Windows too, where the package's face and every host's tests load it;
+      nothing there ever calls it (``select_shim`` hands Windows its own shim).
 
 See Also:
     - docs/waggle/gateway-contract.md section 11 (process groups) and section 12 (after a restart).
@@ -34,6 +36,7 @@ import os
 import platform
 import shutil
 import signal
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import ClassVar
@@ -54,10 +57,12 @@ from waggle.messages.session import ProcessSignal
 CREATE_TIME_TOLERANCE_S = (
     1.0  # psutil's creation time is stable per process; this absorbs rounding.
 )
-_POSIX_SIGNALS = {
+_POSIX_SIGNALS: dict[ProcessSignal, int] = {
     ProcessSignal.INTERRUPT: signal.SIGINT,
     ProcessSignal.TERMINATE: signal.SIGTERM,
-    ProcessSignal.KILL: signal.SIGKILL,
+    # Read by name, as the Windows shim reads its own constants: Windows has no SIGKILL, and this
+    # table is built when the module is imported there. The fallback is never sent.
+    ProcessSignal.KILL: getattr(signal, "SIGKILL", signal.SIGTERM),
 }
 _X11_PROGRAMS = ("Xvfb", "xdotool", "import", "openbox")  # What the Exoskeleton's display needs.
 _AUDIO_PROGRAMS = ("pulseaudio", "pactl", "parec", "paplay")  # What its sound server needs.
@@ -136,7 +141,7 @@ class PosixShim:
         """
         # killpg(0) is a free "does this group exist": no member means nothing to check further.
         try:
-            os.killpg(ref.pid, 0)
+            _signal_group(ref.pid, 0)
         except (ProcessLookupError, PermissionError):
             return False  # Empty group, or one that is not ours to signal.
         return bool(self._members(ref))
@@ -154,7 +159,7 @@ class PosixShim:
         if not self.group_alive(ref):
             return False
         try:
-            os.killpg(ref.pid, _POSIX_SIGNALS[signal_])
+            _signal_group(ref.pid, _POSIX_SIGNALS[signal_])
         except (ProcessLookupError, PermissionError):
             return False  # It exited between the check and the signal: nothing left to do.
         return True
@@ -226,11 +231,40 @@ class PosixShim:
             if ref.created and created < ref.created - CREATE_TIME_TOLERANCE_S:
                 continue
             try:
-                if os.getpgid(pid) == ref.pid:
+                if _group_of(pid) == ref.pid:
                     members.append(pid)
             except OSError:
                 continue  # Vanished mid-scan.
         return members
+
+
+def _signal_group(group: int, number: int) -> None:
+    """Send signal ``number`` to the process group ``group``; 0 only asks whether it exists.
+
+    Raises:
+        ProcessLookupError: The group has no member left.
+        PermissionError: The group is not ours to signal.
+    """
+    # mypy checks this module for Windows as well, where killpg does not exist. The else is
+    # load-bearing (cell.local's rule): mypy skips the branch a platform check rules out, but
+    # reports whatever follows an early return as unreachable.
+    if sys.platform == "win32":
+        raise ProcessLookupError(group)  # pragma: no cover -- this shim never runs on Windows.
+    else:
+        os.killpg(group, number)
+
+
+def _group_of(pid: int) -> int:
+    """Return the process group ``pid`` belongs to.
+
+    Raises:
+        OSError: The process has gone.
+    """
+    # The same guard as _signal_group's, for getpgid.
+    if sys.platform == "win32":
+        raise ProcessLookupError(pid)  # pragma: no cover -- this shim never runs on Windows.
+    else:
+        return os.getpgid(pid)
 
 
 def _same_process(ref: ProcessRef, created: float) -> bool:

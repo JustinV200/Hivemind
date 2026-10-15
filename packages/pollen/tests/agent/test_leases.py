@@ -359,7 +359,11 @@ async def test_the_startup_sweep_kills_a_process_an_earlier_run_recorded(
             session = await queen.next_session()
             swept = (await session.expect(LeaseReleased)).payload
             assert (swept.cause, swept.killed_processes) == (ReleaseCause.ORPHAN_SWEEP, 1)
-            assert await asyncio.wait_for(leftover.wait(), timeout=10) == -signal.SIGKILL
+            code = await asyncio.wait_for(leftover.wait(), timeout=10)
+            # Always true here, since the test skips on Windows; it tells mypy, which checks the
+            # module for Windows too, that SIGKILL is POSIX's.
+            if sys.platform != "win32":
+                assert code == -signal.SIGKILL
     finally:
         if leftover.returncode is None:
             leftover.kill()

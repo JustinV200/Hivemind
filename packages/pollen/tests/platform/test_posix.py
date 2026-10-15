@@ -33,7 +33,7 @@ from pathlib import Path
 import psutil
 import pytest
 
-from pollen.platform import LinuxShim, MacOsShim, ProcessRef, SpawnSpec
+from pollen.platform import LinuxShim, MacOsShim, ProcessRef, SpawnSpec, posix
 from waggle.messages.session import ProcessSignal
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX process model")
@@ -65,7 +65,10 @@ async def test_a_spawned_program_leads_a_session_and_group_of_its_own(tmp_path: 
     shim = LinuxShim(tmp_path, {})
     process = await _spawn(shim, SLEEPER, tmp_path)
     try:
-        assert os.getpgid(process.pid) == process.pid != os.getpgid(0)
+        # Always true here, since the module skips on Windows; it tells mypy, which checks the
+        # module for Windows too, that getpgid is POSIX's.
+        if sys.platform != "win32":
+            assert os.getpgid(process.pid) == process.pid != os.getpgid(0)
         ref = shim.process_ref(process.pid)
         assert ref.created == pytest.approx(psutil.Process(process.pid).create_time())
         assert shim.group_alive(ref)
@@ -190,7 +193,7 @@ async def test_a_group_that_exits_between_the_look_and_the_signal_reports_nothin
     process = await _spawn(shim, SLEEPER, tmp_path)
     ref = shim.process_ref(process.pid)
 
-    probe = os.killpg
+    probe = posix._signal_group  # The real one, for the look.
 
     def too_late(group: int, number: int) -> None:
         if number == 0:
@@ -200,7 +203,7 @@ async def test_a_group_that_exits_between_the_look_and_the_signal_reports_nothin
 
     try:
         with monkeypatch.context() as patch:
-            patch.setattr("pollen.platform.posix.os.killpg", too_late)
+            patch.setattr("pollen.platform.posix._signal_group", too_late)
             assert shim.signal_group(ref, ProcessSignal.KILL) is False
     finally:
         process.kill()

@@ -24,7 +24,6 @@ import asyncio
 import dataclasses
 import json
 import os
-import signal
 import stat
 import sys
 from collections.abc import AsyncIterator
@@ -32,7 +31,7 @@ from pathlib import Path
 
 import pytest
 from executor_kit import Kit, make_kit
-from runtime_kit import STUB_VERSION, fake_runtime, wait_for_file
+from runtime_kit import STUB_VERSION, fake_runtime, kill_group, wait_for_file
 
 from pollen.bootstrap import BootstrapTimings, WardenKeeper, warden_environment
 from pollen.errors import ColonizeFailedError, StateError
@@ -92,7 +91,7 @@ async def keeper(tmp_path: Path, clock: Clock) -> AsyncIterator[tuple[WardenKeep
     finally:
         record = kit.deps.state.current.warden
         if record is not None:
-            os.killpg(record.pid, signal.SIGKILL)
+            kill_group(record.pid)
         await asyncio.sleep(0.1)  # Let the child watcher collect the process.
 
 
@@ -135,7 +134,7 @@ async def test_a_wss_listener_is_given_the_pin_the_packet_trusts(
         await wait_for_file(kit.layout.warden_state / "ready")
         assert _env(kit)["HIVEMIND_TLS_PIN"] == pin
     finally:
-        os.killpg(record.pid, signal.SIGKILL)
+        kill_group(record.pid)
         await asyncio.sleep(0.1)
 
 
@@ -319,7 +318,7 @@ async def test_reconcile_forgets_a_warden_that_died_so_the_dead_man_switch_resum
     held, kit = keeper
     record = await held.start(URL)
     await wait_for_file(kit.layout.warden_state / "ready")
-    os.killpg(record.pid, signal.SIGKILL)  # It dies on its own, not by WITHDRAW.
+    kill_group(record.pid)  # It dies on its own, not by WITHDRAW.
     await _wait_gone(kit, record)
 
     await held.reconcile()
@@ -349,7 +348,7 @@ async def test_the_watch_notices_a_death_while_the_packet_runs(
     record = await held.start(URL)
     watching = asyncio.ensure_future(held.watch())
     try:
-        os.killpg(record.pid, signal.SIGKILL)
+        kill_group(record.pid)
         for _ in range(200):
             if kit.deps.state.current.warden is None:
                 break

@@ -14,7 +14,9 @@ Fits into the Hive:
     composition root, once per command; calls into the three shims and the standard library only.
 
 Key invariants:
-    - The only reader of ``sys.platform`` in pollen's own code is this module.
+    - The only choice pollen's own code makes by operating system is this one; the other reader
+      of ``sys.platform``, pollen.platform.posix, reads it only so mypy, which checks that module
+      for Windows too, knows its process-group calls are POSIX's.
     - The returned shim satisfies PlatformShim; callers never learn which class they hold.
 
 See Also:
