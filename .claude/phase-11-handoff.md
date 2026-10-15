@@ -867,7 +867,13 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   first; it now waits for, and checks, the PATROL_ANOMALY the Queen escalated.
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
   Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
-  the one failure (fixed above).
+  the one failure (fixed above). **Final** (12bf1ee with the watch test's change of f2df0b6; the
+  commits after it are documents): unit 19,550 passed, 27 skipped, 0 failed (16 min); e2e 221
+  passed, 6 skipped, 0 failed (25 min); integration 19 passed, 34 skipped, 0 failed (3 min); ruff,
+  mypy (3,465 files), lint-imports and the five hygiene scripts clean. Every skip is this sandbox's
+  (no Playwright or Whisper extra, no X11 or PulseAudio tools, no QEMU, the desktop image and the
+  Observation Hive unbuilt) or a contract case its harness cannot play (a fake provider's DEGRADED,
+  a rate limit Whisper does not have).
 - **Docker here.** Start `dockerd` (the default socket works in this container); the device image
   is `ubuntu:24.04` (this sandbox blocks the Debian mirror, not Ubuntu's); cold build about 40 s,
   cached under `~/.cache/hivemind-tests`; `HIVEMIND_TEST_DEVICE_IMAGE` overrides.
