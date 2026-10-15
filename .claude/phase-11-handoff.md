@@ -792,18 +792,7 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   Windows instead of psutil (`cell/local` needs only the standard library), a Level 0 device's
   Warden records into the Hive's own recording store, and the Night Veil image's output chain
   accepted `iif lo`, which no outgoing packet matches, so nothing on the Cell could reach Tor
-  (now `oif lo`).
-- **Wave 5E (landed).** A colonized or Nuc device's Warden watches its Cell: a `SessionWatchProbe`
-  over a lease-free, read-only `ObserverSession` (the Warden gives its lease back when idle), Patrol
-  numbers from the device manifest's `[supervision.watch]`, and the operator's directories carried
-  as the other terms are (`NodeUpdate.watch_roots`, the packet's state, `HIVEMIND_WATCH_ROOTS` at
-  START, `CellReady.watch_roots` back, a terms restart when they drift; two additive Waggle 1.13
-  fields; ADR-0054's second amendment). Proved on a container
-  (`tests/e2e/test_phase11_exit_watch_colonized.py`). A colonized Warden's renewal and Clustering's
-  resume recall the Handoff its bee deposited, as the take-back does. Integrating it took
-  `manifest/env.py` past 300 lines, so it became the package `hivemind.manifest.env` (`hive`,
-  `in_cell`, `common`, the same public names); the first of its two commits (0c48039) is the bare
-  rename and does not import on its own, b337d31 completes it.
+  (now `oif lo`). Waves 5E and 5F have entries of their own below.
 - **Fixed after wave 4 reported.** Virtual placement took any spec for a PROPOLIS task, so one
   that found no PROPOLIS device got a MEADOW Virtual Cell (cb00160: a spec must serve the task's
   tier; NIGHT_VEIL specs only on Night Veil's path); a resumed Overwintered Cell was not attested
@@ -855,7 +844,27 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   with the same refusals (4862cee, ADR-0053's amendment). Left: `pause_on_warden` still waits for
   a checkpoint in the Queen's own Bee Bread that a device's Warden never writes there (its patience
   is `HANDOFF_PATIENCE_S`; it returns early when she holds an older one), and the Honey Store has
-  no taint ledger.
+  no taint ledger. Integrating it took `manifest/env.py` past 300 lines, so it became the package
+  `hivemind.manifest.env` (`hive`, `in_cell`, `common`, the same public names); the first of its
+  two commits (0c48039) is the bare rename and does not import on its own, b337d31 completes it.
+- **Wave 5F (landed).** `test_night_veil_boundary.py` failed about one run in three after 5D
+  (bisected to 316c536, the mending link for a Night Veil Cell), on an `unclosed transport`
+  ResourceWarning in the test after the one that leaked. A Cell the Queen destroys by cancelling it
+  (a failed attestation, an Absconding) never closed its Warden's link: `hivemind.common.tasks.reap`
+  re-raised a cancel the task had already received, so `warden.stop()` in `run_in_cell_warden`'s
+  `finally` ended at its first waiter and the `transport.close()` after it never ran. A bare link
+  left open had been harmless; a mending one read the Queen's hang-up as Tor dropping it and
+  redialed the test's fake Tor as it closed. Three fixes, each with tests that fail without it: a
+  closed `ReconnectingQueenLink` dials no more (`redial(abandoned=...)`, 9e660cc); an in-Cell
+  Warden closes its link in a `finally` on its own bound, whatever became of the stop (e5bcfac);
+  and `reap` re-raises only a cancel that arrives while it waits (14b075a), so any cleanup run after
+  a cancel, `hive run`'s Ctrl-C path included, now reaps every waiter instead of stopping at the
+  first. With that, a destroyed in-process Virtual Cell's Warden stops all the way and ships its
+  last trail segment, which put a sandbox Warden's own `tool.quarantined` ahead of the Queen's in
+  `test_phase9_exit_criteria.py` (12bf1ee reads the Queen's own records). The module then ran 20 of
+  20. Also: `test_watch_and_patrol.py`'s hog scenario took any Alarm in the chat for the Patrol's,
+  and on a loaded host the liveness sweep's `CELL_UNREACHABLE` (a 50 ms test heartbeat) got there
+  first; it now waits for, and checks, the PATROL_ANOMALY the Queen escalated.
 - **Gate numbers.** Wave 1 head: 15,362 unit passed; wave 2B head: 16,733 passed; both 0 failed.
   Wave 3 head (5a8a927): 18,044 unit passed, 27 skipped; e2e 160 passed, the quarantine scenario
   the one failure (fixed above).
@@ -897,4 +906,12 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   placement-failure record names `night_veil_initiation` for a task that does cite a request.
   `pause_on_warden` still waits on the Queen's own Bee Bread for a checkpoint a device Warden never
   writes there. Tool eligibility and the Nuc decision do not read the platform report yet.
+  `ReconnectingQueenLink.close()` does not wake a redial asleep between attempts: its receive task
+  ends after that wait (at most 30 s) without dialing again. The liveness sweep's
+  `CELL_UNREACHABLE` reaches the human's inbox and chat with no `alarm.raised` or `alarm.escalated`
+  row (so since phase 3; `escalate_alarm` would give it one), so the trail-rebuilt inbox
+  (`cli/readback/inbox.py`) never shows it. Destroying an in-process Virtual Cell (the test backend
+  cancels it) lets its Warden stop all the way and ship its last trail since 14b075a, while the
+  Docker backend's forced removal ships nothing: a scenario must not rely on a destroyed Cell's last
+  words.
 
