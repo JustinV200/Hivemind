@@ -307,7 +307,7 @@ Drone's grant without a free core.
   refused as `tool.load_refused`. `royal_jelly_runs.py` holds the scripts, the manifest and `run_lab`
   the two files share. (The fourth criterion, the `local_llm` scaffold run, is
   `tests/evals/scaffold`.)
-- `test_phase11_exit_*.py` (`@pytest.mark.e2e`; each skips without a Docker daemon) -- phase 11's
+- `test_phase11_exit_*.py` (`e2e`, `integration`; each skips with no Docker daemon) -- phase 11's
   exit criteria that need only a Level 0 device, each a whole Hive (`swarm/bridge.py`: the real
   Queen, Wardens and trail, a scripted model, the swarm listener on the container network over
   `wss://`) with a container enrolled on it (see "The swarm's second machine"). `level0`: the
@@ -322,7 +322,7 @@ Drone's grant without a free core.
   snapshots that show a device was left as found, `swarm/tunnel.py` plays the operator's VPN. A
   container reports the load of the machine under it, so `bridge_hive` gives the Drone a footprint
   of no cores and the Hive a slow beat; neither is the subject of these scenarios.
-- `test_phase11_exit_nuc.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- phase 11's
+- `test_phase11_exit_nuc.py` (`e2e`, `integration`; skips with no Docker daemon) -- phase 11's
   second exit criterion, the one that needs a device whose Warden moves onto it: one run of about
   six minutes on one container, asserted twelve ways. A long task runs at Level 0; the operator's
   `hive swarm promote` moves the Warden onto the device and the task goes on from its Handoff; a
@@ -334,7 +334,7 @@ Drone's grant without a free core.
   merged, the results arrive once each and nothing is recorded twice. Last, the Warden is ordered
   to load the Hive's second model (a new source and no request) and the device's own third one (a
   `guard.denied` at `slot_binding`). See "A device that is moved up the ladder".
-- `test_phase11_exit_diagnose.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- phase 11's
+- `test_phase11_exit_diagnose.py` (`e2e`, `integration`; skips with no Docker daemon) -- phase 11's
   last exit criterion, a Drone that looks into every lost link, in three cases that each have a
   container and a docker network of their own (`e2e.swarm.diagnose`, about two to four minutes each,
   the climb to a Nuc and the task that must outlive the cut being most of it). *Reversible:* a Nuc's
@@ -352,7 +352,7 @@ Drone's grant without a free core.
   its outcome is deposited as Nectar, and that precedes her decision about the device when the grace
   ends. A device manifest carries its own `[supervision]` (`max_offline_s` and the budget), which is
   what lets the cases run in seconds instead of the shipped ten minutes.
-- `test_phase11_exit_unnoticed.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- the same
+- `test_phase11_exit_unnoticed.py` (`e2e`, `integration`; skips with no Docker daemon) -- the same
   exit criterion for the result the cut hides: a result a Nuc sends in the seconds after the cable
   is pulled, while its connection still looks alive (the websocket keepalive takes twenty to forty
   seconds to give up, and a frame sent in that time returns as sent and is lost). One run of about
@@ -368,7 +368,7 @@ Drone's grant without a free core.
   result she did not hold was not; no frame id was heard twice and no event was recorded twice.
   Against the tree without the memory of what was sent the run fails at "the second task to end":
   the result is gone. See "A device that is moved up the ladder".
-- `test_phase11_exit_exoskeleton.py` (`@pytest.mark.e2e`; skips without a Docker daemon) -- roadmap
+- `test_phase11_exit_exoskeleton.py` (`e2e`, `integration`; skips with no Docker daemon) -- roadmap
   step 11.11's second half, the X11 backends under a colonized device's own Warden: one run of about
   a minute on one container whose image carries an X server (`device_image(X11_PACKAGES)`, built on
   first use and shared with `tests/integration/test_exoskeleton_on_device.py`, which proves the
@@ -384,7 +384,7 @@ Drone's grant without a free core.
   the lease's scratch is gone and the operator's directories are as they were. Against the tree
   that wired the device's Warden with nothing the display still worked, and the run fails at the
   recording. See "A device that is moved up the ladder".
-- `test_phase11_exit_watch_colonized.py` (`@pytest.mark.e2e`; skips without a Docker daemon) --
+- `test_phase11_exit_watch_colonized.py` (`e2e`, `integration`; skips with no Docker daemon) --
   roadmap step 11.10 on a device whose Warden has moved onto it (Level 1), the same night as
   `test_phase11_exit_watch.py` told of a Level 0 device: one run of about four minutes on one
   container. The operator's `hive swarm promote` moves the Warden onto the device; it watches its
@@ -496,6 +496,11 @@ are removed (each carries the label `hivemind.test=e2e-swarm`, so
 `docker image prune --all --filter label=hivemind.test=e2e-swarm` clears the unused ones). Pair a
 lease on the device with `builders.swarm.lease_device`. The proof that it all works is
 `tests/integration/test_pollen_in_container.py`.
+
+A scenario on this rig needs Docker, so it is marked `integration` as well as `e2e` (codingrules
+14.2): `ci.yml`'s ten-minute e2e job selects `e2e and not integration` and leaves it out, and
+`integration.yml` runs it nightly or by hand on a runner with a daemon and no such cap. Only a daemon
+that runs Linux containers counts (`daemon_answers`), so on a Windows engine these scenarios skip.
 
 ### The single-file packet on a clean Debian 12
 

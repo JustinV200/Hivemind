@@ -57,7 +57,9 @@ from e2e.swarm.image import device_image_or_skip
 from waggle.transport.limits import RefusalKind
 from waggle.transport.recent import UNNOTICED_S
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _UNMADE = frozenset({"task.failed", "task.cancelled", "task.unassigned"})  # A task that was lost.
 _GUARD = ("guard.replay_refused", "guard.frame_ceiling", "guard.segment_refused")

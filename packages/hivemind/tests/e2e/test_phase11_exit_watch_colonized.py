@@ -68,7 +68,9 @@ from e2e.watch_helpers import HOG_NAME
 from hivemind.cli.in_cell.config import DEFAULT_HEARTBEAT_INTERVAL_S
 from hivemind.pheromone import PheromoneEvent
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _BEAT_S = DEFAULT_HEARTBEAT_INTERVAL_S  # The beat a Warden on a device wakes and watches on.
 _MIN_ENTRIES = 100  # Fewer files than this under the operator's directories means the look failed.

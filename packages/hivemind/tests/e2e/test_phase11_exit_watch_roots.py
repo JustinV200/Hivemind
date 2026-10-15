@@ -55,7 +55,9 @@ from e2e.watch_helpers import PatrolModel, kept_by
 from hivemind.cli.compose import Hive, run_hive
 from hivemind.swarm import SwarmNode
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _WAIT_S = 90.0  # Each wait; a container enrols in seconds and the Hive rebuilds a Warden in two.
 _WATCHED = "/srv/watched"  # The directory the operator names first.

@@ -53,7 +53,9 @@ from e2e.watch_helpers import HOG_NAME, PatrolModel, patrolled, watch_table
 from hivemind.cli.compose import Hive, run_hive
 from hivemind.pheromone import PheromoneEvent
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _WAIT_S = 90.0  # Each wait; a Patrol is a second away, a device enrols in seconds.
 _PATROL_S = 1.0  # `watch_table`'s Patrol interval.

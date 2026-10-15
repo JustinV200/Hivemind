@@ -48,7 +48,9 @@ from e2e.swarm.enrolled import DATA_DIR
 from e2e.swarm.image import X11_PACKAGES, device_image_or_skip
 from e2e.swarm.snapshots import unexplained
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _DISPLAY_PROGRAMS = frozenset({"Xvfb", "openbox"})  # What a lease's own desktop is made of.
 

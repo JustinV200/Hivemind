@@ -147,17 +147,19 @@ def docker(*args: str, timeout_s: float = DOCKER_TIMEOUT_S, check: bool = True) 
 
 
 def daemon_answers() -> bool:
-    """Whether a docker daemon answers the command line; the swarm tests skip when it does not.
+    """Whether a docker daemon that runs Linux containers answers; the swarm tests skip if not.
 
     The skip probe of `integration.docker_helpers` asks the optional docker SDK, which a default
     environment does not install, so it would skip tests whose harness needs only the command
-    line; this asks the command line itself.
+    line; this asks the command line itself. Every image the swarm tests start is a Linux one, so
+    a daemon running Windows containers (a Windows CI runner's engine) answers but counts as none:
+    building the device image there would fail instead of skipping.
     """
     try:
-        shown = docker("version", "--format", "{{.Server.Version}}", timeout_s=15, check=False)
+        shown = docker("version", "--format", "{{.Server.Os}}", timeout_s=15, check=False)
     except CommandError:  # No docker program at all, or one that hangs.
         return False
-    return shown.exit_code == 0
+    return shown.exit_code == 0 and shown.stdout.strip() == "linux"
 
 
 class FileEntry(NamedTuple):

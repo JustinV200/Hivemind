@@ -69,7 +69,9 @@ from hivemind.manifest.device import load_device_manifest
 from hivemind.pheromone import PheromoneEvent
 from waggle.messages.swarm import NucAction, NucOutcome, RuntimeLevel
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _UNMADE = frozenset({"task.failed", "task.cancelled", "task.unassigned"})  # A task that was lost.
 _RESUME_S = 60.0  # How soon after the link is back a held task starts again (it takes about ten).

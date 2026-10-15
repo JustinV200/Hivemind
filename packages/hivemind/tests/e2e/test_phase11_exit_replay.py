@@ -53,7 +53,9 @@ from waggle.messages.labels import Urgency
 from waggle.messages.session import SessionExec, SessionExit, SessionOpen, SessionOutcome
 from waggle.messages.swarm import DeviceHeartbeat
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _HEARTBEAT_S = 0.5  # The beat the packet is told to keep.
 _POLICY_VIOLATION = 1008  # A missing or invalid signature (gateway contract section 5).

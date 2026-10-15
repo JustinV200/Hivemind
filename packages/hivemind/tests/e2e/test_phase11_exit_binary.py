@@ -81,7 +81,9 @@ from pollen.executors.info import runtime_version
 from waggle.envelope import PROTOCOL_VERSION
 from waggle.messages.labels import OsFamily
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _WAIT_S = 60.0  # Each wait for the Hive to see the device; a packet unpacks itself, then dials.
 _TASK_S = 90.0  # A goal placed on the device: a lease, two commands and the Warden's check.

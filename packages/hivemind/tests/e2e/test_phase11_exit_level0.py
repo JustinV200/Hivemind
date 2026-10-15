@@ -53,7 +53,9 @@ from e2e.swarm.snapshots import changes_outside, files_under, process_args, sett
 from hivemind.brood_chamber import TaskStatus
 from hivemind.cli.compose import Hive, run_hive
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _WAIT_S = 60.0  # Each wait; a container enrols and runs its task in seconds, a cold start in tens.
 # The Drone's command: a child that outlives it, as a careless command would, then a run in the

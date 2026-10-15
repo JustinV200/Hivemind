@@ -70,7 +70,9 @@ from waggle.messages.cell import LeaseReleased
 from waggle.messages.cell.status import ReleaseCause
 from waggle.transport.websocket import PING_INTERVAL_S
 
-pytestmark = pytest.mark.e2e
+# A whole Hive with a device container: e2e, and integration because it needs Docker (codingrules
+# 14.2), so integration.yml runs it and ci.yml's ten-minute e2e job leaves it out.
+pytestmark = [pytest.mark.e2e, pytest.mark.integration]
 
 _DEAD_MAN_S = 5.0  # The limit the device is enrolled with: short, so the switch trips in seconds.
 _GRACE_S = 900.0  # The Queen holds a lost device's tasks this long: past the whole scenario.

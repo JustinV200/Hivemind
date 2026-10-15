@@ -77,7 +77,10 @@ jobs:
       # success explicitly, rather than with `continue-on-error` (which would also swallow a real
       # collection error), so this step still fails loudly on anything else. GitHub runs `run:`
       # under `bash -e`, so the exit code is captured on the same line with `|| status=$?`;
-      # a bare `status=$?` on the next line is never reached when pytest exits non-zero.
+      # a bare `status=$?` on the next line is never reached when pytest exits non-zero. Since
+      # phase 11 this also runs the whole-Hive scenarios that start device containers
+      # (tests/e2e/test_phase11_exit_*.py, marked e2e and integration): ci.yml's ten-minute e2e
+      # job leaves them out, and they build their own device image (about half an hour together).
       - name: pytest -m integration
         run: |
           status=0
