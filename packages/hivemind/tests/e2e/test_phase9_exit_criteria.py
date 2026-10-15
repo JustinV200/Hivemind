@@ -173,13 +173,18 @@ def test_a_warden_promotes_a_cell_scope_tool_that_only_its_own_cell_can_see(
 
     # Assert: promoted at CELL scope by this Warden, after a sandbox Cell proved it.
     assert all(report.succeeded for report in run.reports)
+    # The sandbox's own Warden records its verdict on its Cell's trail too, and its final sync hands
+    # that over as the Cell is destroyed, ahead of the Queen's record of the release. The order
+    # (and the verdict read below) is of what the Queen recorded herself.
+    queen = [e for e in run.tool_events if e.node_id == hive.manifest.hive.node_id]
     order = ["tool.requested", "tool.scaffolded", "tool.quarantine_requested", *_SANDBOX_RELEASED]
-    assert_kinds_in_order(run.tool_kinds, [*order, "tool.quarantined", "tool.promoted"])
+    assert_kinds_in_order([e.kind for e in queen], [*order, "tool.quarantined", "tool.promoted"])
     (row,) = run.rows
     warden = str(hive.warden_link.warden_id)
     assert (row.scope, row.cell_id, row.promoted_by) == (ToolScope.CELL, stand, warden)
     sandbox = run.of_kind("tool.sandbox_provisioned")[0].payload["sandbox_cell_id"]
-    assert run.of_kind("tool.quarantined")[0].payload["sandbox_cell_id"] == sandbox != stand
+    verdict = next(e for e in queen if e.kind == "tool.quarantined")
+    assert verdict.payload["sandbox_cell_id"] == sandbox != stand
     # Only that Cell's bees see it: the later Worker's Cell is another and was not offered it.
     seen: _Seen = run.extra
     assert seen.other != stand
