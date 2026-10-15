@@ -155,23 +155,26 @@ class WindowsShim:
 
         Args:
             ref: A process the lease started; nothing else is ever signalled.
-            signal_: INTERRUPT (a break event), TERMINATE (a polite taskkill) or KILL (forced).
+            signal_: INTERRUPT (a break event), TERMINATE (a polite taskkill, then the break
+                event if that could not end it) or KILL (forced).
 
         Returns:
-            True if the signal was delivered; False if the tree was already gone.
+            True if the signal was delivered; False if the tree was already gone or no way of
+            asking reached it.
         """
         if not self.group_alive(ref):
             return False
         if signal_ is ProcessSignal.INTERRUPT:
-            try:
-                os.kill(ref.pid, _BREAK_EVENT)
-            except OSError:
-                return False
-            return True
+            return _send_break(ref.pid)
         flags = ["/F"] if signal_ is ProcessSignal.KILL else []
         # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
         result = self._runner(["taskkill", "/T", *flags, "/PID", str(ref.pid)])
-        return result.returncode == 0
+        if result.returncode == 0 or signal_ is ProcessSignal.KILL:
+            return result.returncode == 0
+        # A polite taskkill only closes windows, and a console program has none, so it refuses: the
+        # program is asked with the break event its process group was made for, which ends it
+        # unless it handles the event, as a SIGTERM would on POSIX.
+        return _send_break(ref.pid)
 
     def python_candidates(self) -> tuple[tuple[str, ...], ...]:
         """Return the launcher and interpreter names a Windows host usually has, then our own.
@@ -253,3 +256,16 @@ class WindowsShim:
             else "There was no Scheduled Task to remove."
         )
         return ServiceResult(unit_path=None, is_active=False, manual_command=None, detail=detail)
+
+
+def _send_break(pid: int) -> bool:
+    """Send the break event to the process group ``pid`` leads; False if it could not be sent.
+
+    Every program the shim spawns leads a process group of its own, so the event reaches that
+    group alone. It needs a console shared with the packet, and a packet with none cannot send it.
+    """
+    try:
+        os.kill(pid, _BREAK_EVENT)
+    except OSError:
+        return False
+    return True

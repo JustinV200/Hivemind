@@ -207,3 +207,59 @@ async def test_an_interrupt_with_nobody_to_receive_it_reports_nothing_sent(
     finally:
         process.kill()
         await _reap(process)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the break event is a signal on this host")
+async def test_a_terminate_taskkill_cannot_end_asks_with_the_break_event(tmp_path: Path) -> None:
+    # A console program has no window for a polite taskkill to close, so taskkill refuses it.
+    runner = Schtasks(failing=frozenset({"taskkill"}))
+    shim = WindowsShim(tmp_path, {}, runner)
+    process = await _spawn(
+        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
+    )
+
+    assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.TERMINATE) is True
+
+    await _reap(process)
+    assert runner.calls == [("taskkill", "/T", "/PID", str(process.pid))]
+    assert process.returncode != 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the break event is a signal on this host")
+async def test_a_terminate_neither_taskkill_nor_a_break_can_deliver_reports_nothing_sent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))
+    process = await _spawn(
+        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
+    )
+
+    def refuse(_pid: int, _signal: int) -> None:
+        raise ProcessLookupError
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr("pollen.platform.windows.os.kill", refuse)
+            ref = shim.process_ref(process.pid)
+            assert shim.signal_group(ref, ProcessSignal.TERMINATE) is False
+    finally:
+        process.kill()
+        await _reap(process)
+
+
+async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_break(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))
+    process = await _spawn(
+        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
+    )
+    sent: list[int] = []
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr("pollen.platform.windows.os.kill", lambda _pid, sig: sent.append(sig))
+            assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.KILL) is False
+        assert sent == []  # A forced stop that failed is reported, never turned into a request.
+    finally:
+        process.kill()
+        await _reap(process)
