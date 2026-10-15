@@ -185,7 +185,8 @@ async def test_a_relative_cwd_resolves_under_scratch(rigs: RigFactory) -> None:
     await run(session, ExecSpec(argv=("echo",), cwd=Path("sub/dir")))
 
     sent = [e.payload for e in rig.device.state.received if isinstance(e.payload, SessionExec)]
-    assert sent[0].cwd == f"{lease.scratch_root}/sub/dir"
+    # The rig's device is POSIX, so its paths are spelled with `/` whatever this host is.
+    assert sent[0].cwd == f"{lease.scratch_root.as_posix()}/sub/dir"
 
 
 async def test_a_cwd_outside_scratch_and_the_allowed_paths_is_refused_before_sending(

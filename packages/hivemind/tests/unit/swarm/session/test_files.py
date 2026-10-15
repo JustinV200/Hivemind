@@ -51,7 +51,10 @@ async def test_a_relative_path_resolves_under_the_scratch_dir(rig: LinkRig) -> N
 
     await session.put_file(Path("nested/dir/data.bin"), b"payload")
 
-    assert rig.device.state.files == {f"{lease.scratch_root}/nested/dir/data.bin": b"payload"}
+    # The rig's device is POSIX, so its paths are spelled with `/` whatever this host is.
+    assert rig.device.state.files == {
+        f"{lease.scratch_root.as_posix()}/nested/dir/data.bin": b"payload"
+    }
     assert await session.get_file(session.scratch_dir / "nested" / "dir" / "data.bin") == b"payload"
 
 
@@ -186,7 +189,7 @@ async def test_a_path_the_device_refuses_after_its_own_resolution_is_not_allowed
 async def test_a_denied_write_sends_no_chunk(rig: LinkRig) -> None:
     guard = RecordingGuard()
     session, lease, _ = await open_rig_session(rig, guard)
-    guard.deny.add(f"fs:write:{lease.scratch_root}/denied")
+    guard.deny.add(f"fs:write:{lease.scratch_root.as_posix()}/denied")
 
     with pytest.raises(CommandDeniedError):
         await session.put_file(Path("denied"), b"x")
@@ -205,9 +208,13 @@ async def test_a_read_needs_only_fs_read_and_a_delete_needs_the_write_capabiliti
     await session.delete_file(Path("a"))
 
     get_command, delete_command = guard.authorised[-2:]
-    assert [str(need) for need in get_command.needs] == [f"fs:read:{lease.scratch_root}/a"]
+    assert [str(need) for need in get_command.needs] == [
+        f"fs:read:{lease.scratch_root.as_posix()}/a"
+    ]
     assert (delete_command.operation, get_command.operation) == ("delete_file", "get_file")
-    assert [str(need) for need in delete_command.needs] == [f"fs:write:{lease.scratch_root}/a"]
+    assert [str(need) for need in delete_command.needs] == [
+        f"fs:write:{lease.scratch_root.as_posix()}/a"
+    ]
 
 
 async def test_the_trail_record_names_the_operation_and_never_the_path_or_the_bytes(

@@ -59,7 +59,8 @@ async def test_a_background_process_writes_its_log_inside_scratch(rigs: RigFacto
 
     process = await session.start(BackgroundSpec(argv=("logs",), log_path=Path("x/out.log")))
 
-    assert process.log_path == Path(f"{lease.scratch_root}/x/out.log")
+    # The rig's device is POSIX, so its paths are spelled with `/` whatever this host is.
+    assert process.log_path == Path(f"{lease.scratch_root.as_posix()}/x/out.log")
     assert await session.get_file(Path("x/out.log")) == b"ready 99\n"
 
 
@@ -138,7 +139,7 @@ async def test_the_start_is_authorised_and_recorded_with_the_program_only(rigs: 
     assert (command.operation, command.program, command.argument_count) == ("start", "runs", 2)
     assert [str(need) for need in command.needs] == [
         "exec:/usr/bin/runs",
-        f"fs:write:{lease.scratch_root}/l",
+        f"fs:write:{lease.scratch_root.as_posix()}/l",
     ]
 
 
@@ -185,7 +186,7 @@ async def test_the_environment_and_working_directory_go_to_the_device(rigs: RigF
         e.payload for e in rig.device.state.received if isinstance(e.payload, SessionProcess)
     ]
     assert sent.action is ProcessAction.START
-    assert sent.cwd == f"{lease.scratch_root}/w"
+    assert sent.cwd == f"{lease.scratch_root.as_posix()}/w"
     assert [(v.name, v.value) for v in sent.env] == [("A", "1")]
 
 

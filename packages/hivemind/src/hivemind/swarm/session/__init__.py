@@ -33,6 +33,7 @@ Public API:
       (paths).
     - absolute_device_path: a path the operator typed for the device, checked and normalised
       (paths).
+    - device_text: a device path held as a `Path`, in the device's own spelling (paths).
     - ErrorContext, translate, exit_code_for: the device's codes as session errors (codes).
 """
 
@@ -43,7 +44,12 @@ from hivemind.swarm.session.guard import (
     DeviceCommand,
     EnforcedCommandGuard,
 )
-from hivemind.swarm.session.paths import DevicePathRule, DevicePaths, absolute_device_path
+from hivemind.swarm.session.paths import (
+    DevicePathRule,
+    DevicePaths,
+    absolute_device_path,
+    device_text,
+)
 from hivemind.swarm.session.session import PollenSession
 
 __all__ = [
@@ -56,6 +62,7 @@ __all__ = [
     "ErrorContext",
     "PollenSession",
     "absolute_device_path",
+    "device_text",
     "exit_code_for",
     "translate",
 ]

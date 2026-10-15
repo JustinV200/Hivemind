@@ -13,7 +13,7 @@ See Also:
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 from builders.cells import make_identity, make_lease_request, make_real_cell_lease
@@ -23,17 +23,24 @@ from hivemind.cell.fake import FakeLeaseReleaser
 from hivemind.cell.lease import LeaseFacts, RealCellLease
 from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.swarm.session.paths import DevicePathRule, DevicePaths, absolute_device_path
+from hivemind.swarm.session.paths import (
+    DevicePathRule,
+    DevicePaths,
+    absolute_device_path,
+    device_text,
+)
 from waggle.clock import FakeClock
 from waggle.ids import new_lease_id
 
-_POSIX_SCRATCH = Path("/pollen/scratch/lease_1")
-_WINDOWS_SCRATCH = Path("C:\\Users\\op\\scratch\\lease_1")
+# Scratch roots as a device's `cell.lease_opened` spells them: text, which no host rewrites.
+_POSIX_SCRATCH = "/pollen/scratch/lease_1"
+_WINDOWS_SCRATCH = "C:\\Users\\op\\scratch\\lease_1"
 
 
-def _paths(scratch: Path, *allowed: Path) -> tuple[DevicePaths, RealCellLease]:
+def _paths(scratch: str, *allowed: Path) -> tuple[DevicePaths, RealCellLease]:
     """Build the path rules for a lease whose scratch root is `scratch` on some device."""
-    lease = make_real_cell_lease(scratch, allowed_paths=allowed)
+    # The lease holds it as a `Path` made from the device's text, as `swarm.source` builds it.
+    lease = make_real_cell_lease(Path(scratch), allowed_paths=allowed)
     return DevicePaths(lease), lease
 
 
@@ -107,7 +114,7 @@ def test_windows_paths_compare_case_insensitively_and_across_slashes() -> None:
 
 
 def test_a_unc_scratch_root_is_a_windows_path() -> None:
-    paths, _ = _paths(Path("\\\\server\\share\\scratch"))
+    paths, _ = _paths("\\\\server\\share\\scratch")
 
     assert paths.is_inside_scratch("\\\\server\\share\\scratch\\file")
 
@@ -126,7 +133,7 @@ def test_a_relative_allowed_path_never_matches() -> None:
     assert not paths.is_reachable("/relative/dir/file")
 
 
-def _device_lease(scratch: Path) -> RealCellLease:
+def _device_lease(scratch: str) -> RealCellLease:
     """A lease on a device: scratch root `scratch`, paths judged by the device's own rule."""
     clock = FakeClock()
     request = make_lease_request(clock=clock)
@@ -135,11 +142,11 @@ def _device_lease(scratch: Path) -> RealCellLease:
         cell_id=request.cell_id,
         holder=request.holder,
         task_id=None,
-        scratch_root=scratch,
+        scratch_root=Path(scratch),
         access_level=AccessLevel.SCRATCH,
         comb_shield=CombShieldLevel.MEADOW,
         allowed_paths=(),
-        paths=DevicePathRule(str(scratch)),
+        paths=DevicePathRule(scratch),
     )
     return RealCellLease(
         facts,
@@ -151,14 +158,14 @@ def _device_lease(scratch: Path) -> RealCellLease:
 
 
 def test_the_rule_reads_a_relative_path_under_the_devices_scratch_without_a_disk() -> None:
-    rule = DevicePathRule(str(_POSIX_SCRATCH))
+    rule = DevicePathRule(_POSIX_SCRATCH)
 
     assert rule.resolve(Path("a/../b.txt")) == Path("/pollen/scratch/lease_1/b.txt")
     assert rule.resolve(Path("/etc//hosts")) == Path("/etc/hosts")
 
 
 def test_the_rule_resolves_a_windows_path_in_the_devices_own_spelling() -> None:
-    rule = DevicePathRule(str(_WINDOWS_SCRATCH))
+    rule = DevicePathRule(_WINDOWS_SCRATCH)
 
     resolved = rule.resolve(Path("C:\\Users\\op\\scratch\\lease_1\\a\\..\\b.txt"))
 
@@ -167,7 +174,7 @@ def test_the_rule_resolves_a_windows_path_in_the_devices_own_spelling() -> None:
 
 
 def test_the_rule_says_within_by_the_devices_case_rules() -> None:
-    posix, windows = DevicePathRule(str(_POSIX_SCRATCH)), DevicePathRule(str(_WINDOWS_SCRATCH))
+    posix, windows = DevicePathRule(_POSIX_SCRATCH), DevicePathRule(_WINDOWS_SCRATCH)
 
     assert posix.is_within(Path("/srv/work/a"), Path("/srv/work"))
     assert not posix.is_within(Path("/srv/work2/a"), Path("/srv/work"))  # A shared prefix only.
@@ -181,7 +188,7 @@ def test_the_session_and_the_lease_agree_on_what_a_path_is() -> None:
     paths = DevicePaths(lease)
 
     for text in ("sub\\file.txt", "C:\\Windows\\..\\Temp", "a\\.\\b"):
-        assert paths.resolve(text) == str(DevicePathRule(str(_WINDOWS_SCRATCH)).resolve(Path(text)))
+        assert paths.resolve(text) == str(DevicePathRule(_WINDOWS_SCRATCH).resolve(Path(text)))
 
 
 def test_a_device_lease_judges_a_path_by_its_text_whatever_the_hive_stands_disk_holds(
@@ -191,7 +198,7 @@ def test_a_device_lease_judges_a_path_by_its_text_whatever_the_hive_stands_disk_
     scratch.mkdir()
     (tmp_path / "outside").mkdir()
     (scratch / "link").symlink_to(tmp_path / "outside")  # A link on the Hive Stand's own disk.
-    lease = _device_lease(scratch)
+    lease = _device_lease(str(scratch))  # A device that spells its scratch as this host does.
 
     # On the device the link is the packet's to judge: the Hive's wall is lexical.
     assert lease.is_path_allowed(scratch / "link" / "file")
@@ -243,3 +250,25 @@ def test_a_device_path_that_is_absolute_in_the_devices_spelling_is_normalised(
 )
 def test_a_relative_empty_or_nul_holding_path_is_not_an_absolute_device_path(text: str) -> None:
     assert absolute_device_path(text) is None
+
+
+@pytest.mark.parametrize(
+    ("held", "expected"),
+    [
+        # What `Path` makes of a POSIX device's text on a Windows Hive Stand: its own separators.
+        (PureWindowsPath("/pollen/scratch/lease_1"), "/pollen/scratch/lease_1"),
+        (PureWindowsPath("a/../b.txt"), "a/../b.txt"),
+        # A drive or a UNC share is a Windows device's path, and keeps the Windows spelling.
+        (PureWindowsPath("C:/Users/op"), "C:\\Users\\op"),
+        (PureWindowsPath("\\\\server\\share\\x"), "\\\\server\\share\\x"),
+        # A POSIX Hive Stand's `Path` never rewrites a separator, so a device's text survives it.
+        (PurePosixPath("C:\\Users\\op"), "C:\\Users\\op"),
+        (PurePosixPath("/pollen/scratch"), "/pollen/scratch"),
+        ("/already/text", "/already/text"),
+    ],
+)
+def test_a_device_path_held_as_a_path_reads_back_in_the_devices_spelling(
+    held: PurePosixPath | PureWindowsPath | str, expected: str
+) -> None:
+    # Pure paths of both flavours, so this holds on every system the suite runs on.
+    assert device_text(held) == expected

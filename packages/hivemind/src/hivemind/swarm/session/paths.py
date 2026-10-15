@@ -18,7 +18,9 @@ paths of the machine it leases through the rule its source gave it, and a lease 
 never ask the Hive Stand's filesystem about them. `DevicePaths` is built on that rule, so the
 session and the lease agree on what a path is. `absolute_device_path` is the same text rules
 applied to a path the operator names for the device with no lease in play, such as a directory its
-Warden is to watch.
+Warden is to watch. A lease holds the device's paths as `Path` objects, whose separators are the
+Hive Stand's (backslashes on Windows), so every one is read back through `device_text`, which
+gives the device's own spelling, and never through `str()`.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.session`.
@@ -35,6 +37,8 @@ Key invariants:
     - "Inside scratch" and "reachable" are lexical: a path reached only through a link on the
       device is judged by the device.
     - Windows paths compare case-insensitively, as the device's file system does.
+    - A `Path` reaches the text rules only through `device_text`, so a Windows Hive Stand judges a
+      POSIX device's path as the device spells it.
 
 See Also:
     - docs/waggle/gateway-contract.md section 12 for the device's own resolution rules.
@@ -47,7 +51,7 @@ from __future__ import annotations
 import ntpath
 import posixpath
 import re
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
 from types import ModuleType
 
 from hivemind.cell.errors import PathNotAllowedError
@@ -58,7 +62,7 @@ from hivemind.cell.lease import RealCellLease
 # the way the device does.
 _WINDOWS_ROOT = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
-__all__ = ["DevicePathRule", "DevicePaths", "absolute_device_path"]
+__all__ = ["DevicePathRule", "DevicePaths", "absolute_device_path", "device_text"]
 
 
 def absolute_device_path(text: str) -> str | None:
@@ -87,6 +91,29 @@ def absolute_device_path(text: str) -> str | None:
     return str(flavor.normpath(text))
 
 
+def device_text(path: PurePath | str) -> str:
+    """Return a device path the Hive holds as a `Path` in the device's own spelling.
+
+    A lease holds a device's scratch root and allowed paths as `Path` objects, and a `Path` is the
+    Hive Stand's: on Windows it spells a POSIX device's `/pollen/scratch` with backslashes, which
+    `posixpath` reads as one relative name. A Windows `Path` with no drive and no UNC share is
+    therefore a POSIX device's path and is given back with forward slashes. One with either is a
+    Windows device's path, and keeps its spelling, as every path does on a POSIX Hive Stand, whose
+    `Path` never rewrites a separator. Text is already the device's, and is returned as it is.
+
+    Args:
+        path: A device path as text, or as a `Path` built from the device's text.
+
+    Returns:
+        The path's text as the device spells it; not normalised.
+    """
+    if isinstance(path, str):
+        return path
+    if isinstance(path, PureWindowsPath) and not path.drive:
+        return path.as_posix()
+    return str(path)
+
+
 class DevicePathRule:
     """A device's text rules for paths: the `PathRule` of a lease on it."""
 
@@ -110,11 +137,11 @@ class DevicePathRule:
         The `PathRule` a lease asks: a relative path is read under scratch and `.` and `..` are
         collapsed, with no read of any filesystem.
         """
-        return Path(self.resolve_text(str(path)))
+        return Path(self.resolve_text(device_text(path)))
 
     def is_within(self, path: Path, root: Path) -> bool:
         """Whether `path` equals `root` or lies beneath it, in the device's case rules."""
-        return self.within(str(root), str(path))
+        return self.within(device_text(root), device_text(path))
 
     def resolve_text(self, text: str) -> str:
         """Return the absolute, normalised device path `text` names (relative: under scratch)."""
@@ -150,7 +177,7 @@ class DevicePaths:
             lease: The lease whose scratch root and (live) allowed paths bound every path.
         """
         self._lease = lease
-        self._rule = DevicePathRule(str(lease.scratch_root))
+        self._rule = DevicePathRule(device_text(lease.scratch_root))
 
     @property
     def scratch_root(self) -> str:
@@ -166,7 +193,7 @@ class DevicePaths:
         Returns:
             The path with a relative one joined under scratch and `.` and `..` collapsed.
         """
-        return self._rule.resolve_text(str(path))
+        return self._rule.resolve_text(device_text(path))
 
     def is_inside_scratch(self, resolved: str) -> bool:
         """Whether a resolved path is the scratch root or lies beneath it."""
@@ -179,7 +206,7 @@ class DevicePaths:
         # Read from the lease on every call: a lease widened after the session was built (a kept
         # root, a declared Leaving) must be honoured at once.
         return any(
-            self._rule.within(self._rule.normalise(str(allowed)), resolved)
+            self._rule.within(self._rule.normalise(device_text(allowed)), resolved)
             for allowed in self._lease.allowed_paths
         )
 
