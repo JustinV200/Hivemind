@@ -215,9 +215,13 @@ def bee_bread_visible(note: BeeBreadNote, reader: HoneyReader) -> bool:
         reader: Its `honey:read` capabilities and clearance ceiling.
 
     Returns:
-        True when the entry's scope is readable and its label is at or below the ceiling.
+        True when the entry is not tainted, its scope is readable and its label is at or below
+        the ceiling.
     """
-    return _allowed(bee_bread_scope(note), note.clearance, reader)
+    # A tainted entry is never returned, whatever its label, exactly as a tainted Honey row: the
+    # memory store refuses one looked up by id with an error that names the tainting event, and
+    # the browser must answer "not found" for it as for the rest, never that error.
+    return not note.tainted and _allowed(bee_bread_scope(note), note.clearance, reader)
 
 
 async def live_wax_notes(deps: BrowserDeps, scope: str, reader: HoneyReader) -> tuple[WaxNote, ...]:

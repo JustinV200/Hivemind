@@ -53,9 +53,31 @@ from waggle.messages.swarm import DeviceHeartbeat
 
 
 class _Racy(MemorySwarmRegistry):
-    """A registry where another writer moves a node just before this writer's compare-and-set."""
+    """A registry where another writer moves a node just before this writer's compare-and-set.
+
+    With `yielding` set, every read and write first gives the event loop a turn, as a real SQLite
+    registry's thread hop does, so two tasks' sequences of registry calls interleave.
+    """
 
     racing_to: NodeStatus | None = None
+    yielding: bool = False
+
+    async def _turn(self) -> None:
+        """Give another task the loop, when interleaving is wanted."""
+        if self.yielding:
+            await asyncio.sleep(0)
+
+    async def node(self, device_id: DeviceId) -> SwarmNode | None:
+        """Read the node, after a turn of the loop when `yielding`."""
+        await self._turn()
+        return await super().node(device_id)
+
+    async def touch(
+        self, device_id: DeviceId, at: datetime, runtime_version: str | None = None
+    ) -> None:
+        """Touch the node, after a turn of the loop when `yielding`."""
+        await self._turn()
+        await super().touch(device_id, at, runtime_version)
 
     async def set_status(
         self,
@@ -66,6 +88,7 @@ class _Racy(MemorySwarmRegistry):
         event: SwarmEvent | None = None,
     ) -> SwarmNode:
         """Let the rival win first, once, then apply the caller's own move."""
+        await self._turn()
         if self.racing_to is not None:
             rival, self.racing_to = self.racing_to, None
             await super().set_status(device_id, expected, rival, at)
@@ -219,6 +242,27 @@ async def test_an_old_link_ending_after_a_reconnect_takes_nothing_offline(rig: _
         assert rig.hub.link(rig.node.device_id) is second.link
     finally:
         await second.close()
+
+
+async def test_an_old_link_dying_while_its_replacement_is_admitted_leaves_the_device_online(
+    rig: _Rig,
+) -> None:
+    # The router admits a new connection before it attaches the link, so the old link's own end
+    # (a keepalive timeout) can detach and move ONLINE -> UNREACHABLE in another task while
+    # `admit` is between reading the status and acting on it. Interleaved call by call, the old
+    # link's move must be read by the admission, not lost under its stale read.
+    await rig.hub.attach(rig.node, rig.raw.link)
+    rig.registry.yielding = True
+
+    _down, admitted = await asyncio.gather(
+        rig.monitor.link_down(rig.node, rig.raw.link, "closed"),
+        rig.monitor.admit(rig.node),
+    )
+
+    assert admitted.status is NodeStatus.ONLINE
+    assert (await rig.stored()).status is NodeStatus.ONLINE
+    assert await rig.kinds() == ["swarm.unreachable", "swarm.online"]
+    assert [reason for _node, reason in rig.listener.offline] == ["closed"]
 
 
 async def test_a_link_ending_on_an_already_unreachable_device_still_announces_it(

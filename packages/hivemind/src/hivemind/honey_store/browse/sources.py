@@ -102,6 +102,10 @@ class BeeBreadNote(BaseModel):
     text: str | None = Field(description="A short preview, for an index-only entry.")
     payload: str | None = Field(description="The full content, for a payload entry.")
     ref_ids: tuple[str, ...] = Field(description="Ids of the records it indexes, if any.")
+    tainted: bool = Field(
+        description="Whether memory's taint label refuses it (roadmap step 10.6d); like a Honey "
+        "row's `tainted`, the browser never shows a refused entry, however the source came by it."
+    )
 
 
 class LiveWaxSource(Protocol):

@@ -28,7 +28,9 @@ Key invariants:
     - An UNREACHABLE node is restored by the next verified heartbeat or by a freshly verified
       connection, either of which is proof of life, and only the writer that wins the move
       announces it.
-    - A link that ends after its replacement connected takes nothing offline.
+    - A link that ends after its replacement connected takes nothing offline, and one that ends
+      while its replacement is being admitted cannot leave the device UNREACHABLE: a device's
+      `admit` and `link_down` run one at a time, so each reads the status the other left.
     - The pure judgement uses the node's own interval, so a device the operator slowed down is
       not marked unreachable at the default cadence.
 
@@ -40,6 +42,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -148,6 +151,11 @@ class HeartbeatMonitor:
         self._hub = hub
         self._recorder = recorder
         self._rules = rules
+        # One status decision per device at a time. `admit` (a new link) and `link_down` (the old
+        # link it replaces, dying on its own) run in two connection tasks and each reads the
+        # status before moving it; unserialised, the old link's move to UNREACHABLE can commit
+        # after the new link's read and leave a connected device unreachable until its next beat.
+        self._status_locks: dict[DeviceId, asyncio.Lock] = {}
         # Dispatch by payload type, never by a kind string, so a new report kind is a new entry.
         self._by_payload: dict[
             type[WaggleMessage], Callable[[SwarmNode, Envelope], Awaitable[None]]
@@ -168,19 +176,19 @@ class HeartbeatMonitor:
         Raises:
             NodeRevokedError: The node was revoked, so its connection is not admitted.
         """
-        current = await self._registry.node(node.device_id) or node
-        # `touch` refuses a revoked node, which is the last word on whether to admit it.
-        await self._registry.touch(node.device_id, self._recorder.clock.now())
-        if current.status is NodeStatus.UNREACHABLE:
-            moved = await self._move(current, NodeStatus.ONLINE, "link_connected")
-            current = moved or await self._registry.node(node.device_id) or current
-        else:
+        async with self._status_lock(node.device_id):
+            current = await self._registry.node(node.device_id) or node
+            # `touch` refuses a revoked node, which is the last word on whether to admit it.
+            await self._registry.touch(node.device_id, self._recorder.clock.now())
+            if current.status is NodeStatus.UNREACHABLE:
+                moved = await self._move(current, NodeStatus.ONLINE, "link_connected")
+                return moved or await self._registry.node(node.device_id) or current
             # Already ONLINE (its first connection after enrolment, a reconnect the sweep had
             # not yet noticed, or the Hive restarting under a node the registry still calls
             # online): no status moves, but a link was established and enrolment.md section 8
             # has every one on the trail.
             await self._record_online(current, "link_connected")
-        return current
+            return current
 
     async def link_down(self, node: SwarmNode, link: DeviceLink, reason: str) -> None:
         """Record that a device's link ended, unless a newer link has already replaced it.
@@ -190,11 +198,14 @@ class HeartbeatMonitor:
             link: The link that ended.
             reason: Why it ended, a stable code.
         """
-        if not self._hub.detach(node.device_id, link):
-            return  # A newer link is current: the device never went offline.
-        current = await self._registry.node(node.device_id) or node
-        if current.status is NodeStatus.ONLINE:
-            current = await self._move(current, NodeStatus.UNREACHABLE, reason) or current
+        async with self._status_lock(node.device_id):
+            if not self._hub.detach(node.device_id, link):
+                return  # A newer link is current: the device never went offline.
+            current = await self._registry.node(node.device_id) or node
+            if current.status is NodeStatus.ONLINE:
+                current = await self._move(current, NodeStatus.UNREACHABLE, reason) or current
+        # Announced outside the lock: a listener's reaction is its own and must not hold up the
+        # device's next admission.
         await self._hub.announce_offline(current, reason)
 
     async def frame(self, node: SwarmNode, envelope: Envelope) -> None:
@@ -230,6 +241,14 @@ class HeartbeatMonitor:
                 self._hub.update_node(updated)
                 await self._hub.announce_offline(updated, "missed_heartbeats")
         return tuple(marked)
+
+    def _status_lock(self, device_id: DeviceId) -> asyncio.Lock:
+        """Return the lock that serialises one device's admissions and link ends."""
+        lock = self._status_locks.get(device_id)
+        if lock is None:
+            # One per device that ever connected: bounded by the enrolled devices.
+            lock = self._status_locks[device_id] = asyncio.Lock()
+        return lock
 
     def _silence_verdict(self, node: SwarmNode) -> Liveness:
         """Judge a device's silence from its live link, or from `last_seen_at` when it has none."""

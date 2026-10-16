@@ -67,8 +67,12 @@ from waggle.transport.websocket_server import WebSocketServer
 
 log = get_logger(__name__)
 
-# The first certificate in a PEM file is the one the listener presents; a chain follows it.
-_PEM_CERTIFICATE = re.compile(r"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL)
+# The first certificate in a PEM file is the one the listener presents; a chain follows it. Matched
+# on bytes: what lies between certificates (a PKCS#12 export's "friendlyName" line, say) is the
+# owner's and may be in any encoding, and `load_cert_chain` takes such a file as it is.
+_PEM_CERTIFICATE = re.compile(
+    rb"-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----", re.DOTALL
+)
 
 __all__ = ["ListenerConfig", "ListenerDeps", "SwarmListener", "certificate_pin"]
 
@@ -83,13 +87,21 @@ def certificate_pin(cert_path: Path) -> str:
         64 lowercase hex characters: what an invite carries and a packet pins.
 
     Raises:
-        SwarmError: The file holds no certificate.
+        SwarmError: The file holds no certificate, or its first certificate is not valid PEM.
         FileNotFoundError: The file does not exist.
     """
-    match = _PEM_CERTIFICATE.search(cert_path.read_text(encoding="ascii"))
+    match = _PEM_CERTIFICATE.search(cert_path.read_bytes())
     if match is None:
         raise SwarmError(f"The TLS certificate file {cert_path} holds no PEM certificate.")
-    return certificate_sha256(ssl.PEM_cert_to_DER_cert(match.group(0)))
+    try:
+        # The block itself is base64 between two ASCII markers; anything else in it is damage.
+        der = ssl.PEM_cert_to_DER_cert(match.group(0).decode("ascii"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise SwarmError(
+            f"The TLS certificate file {cert_path} holds a first certificate that is not valid "
+            "PEM; it could not be pinned."
+        ) from exc
+    return certificate_sha256(der)
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,7 +305,7 @@ class SwarmListener:
         async for transport in self._server.connections():
             # Never awaited here: a slow or stuck peer must not delay the next accept, and `stop`
             # cancels and awaits every entry of `_handlers`, so no task is orphaned.
-            task = asyncio.ensure_future(self._router.serve(transport))
+            task = asyncio.ensure_future(self._router.serve(transport, transport.remote_address))
             self._handlers.add(task)
             task.add_done_callback(self._handler_done)
 

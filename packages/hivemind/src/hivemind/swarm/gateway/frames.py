@@ -124,10 +124,13 @@ class Connection:
         transport: The accepted WebSocket transport; sends and the final close go through it.
         frames: Every frame the peer sends, verified and decoded, ending when the connection does.
             The only reader of `transport.receive()`.
+        remote_address: The peer's address as the transport reported it (`host:port`), or None
+            when the transport names none; what the enrolment attempt bucket is keyed by.
     """
 
     transport: Transport
     frames: AsyncGenerator[Envelope, None]
+    remote_address: str | None = None
 
 
 class FrameSender:
@@ -198,18 +201,25 @@ class FrameSender:
         return message_id
 
 
-def open_connection(transport: Transport, voice: HiveVoice, clock: Clock) -> Connection:
+def open_connection(
+    transport: Transport, voice: HiveVoice, clock: Clock, remote_address: str | None = None
+) -> Connection:
     """Wrap an accepted transport so its frames have a single reader that survives bad payloads.
 
     Args:
         transport: The accepted connection.
         voice: The Hive's address, used to answer a frame that failed validation.
         clock: Mints the id and time of such an answer.
+        remote_address: The peer's address as the listener's transport reported it, if any.
 
     Returns:
         The connection, with its frames iterator not yet started.
     """
-    return Connection(transport=transport, frames=_read_frames(transport, voice, clock))
+    return Connection(
+        transport=transport,
+        frames=_read_frames(transport, voice, clock),
+        remote_address=remote_address,
+    )
 
 
 async def next_frame(connection: Connection, timeout_s: float) -> Envelope | None:
@@ -246,7 +256,9 @@ def pinned(connection: Connection, node_id: str) -> Connection:
         listener, so without the pin one enrolled device could speak on another's connection.
     """
     return Connection(
-        transport=connection.transport, frames=_pinned_frames(connection.frames, node_id)
+        transport=connection.transport,
+        frames=_pinned_frames(connection.frames, node_id),
+        remote_address=connection.remote_address,
     )
 
 

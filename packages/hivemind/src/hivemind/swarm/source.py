@@ -34,6 +34,9 @@ Key invariants:
       Guard and the floors read the operator's intent.
     - A lease is released only by a confirmed `cell.lease_released`; a device that cannot confirm
       leaves the lease ORPHANED for a retry, and `is_restored` is the device's own claim.
+    - A lease the device opened is never left unreferenced on the Hive Stand: the tenancy is
+      recorded before `cell.leased` is written, and a trail that refuses the write has the lease
+      given back to the device (or left ORPHANED under the tenancy for the dead-man report).
 
 See Also:
     - docs/waggle/gateway-contract.md sections 9.1 and 13 for the lease messages and dead-man.
@@ -43,6 +46,7 @@ See Also:
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +56,7 @@ from hivemind.cell.lease import LeaseFacts, LeaseReleaseReport, LeaseRequest, Re
 from hivemind.cell.lease_state import LeaseState
 from hivemind.cell.models import Cell
 from hivemind.cell.session import CellSession
+from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
 from hivemind.swarm.errors import (
     DeviceRequestError,
@@ -232,6 +237,8 @@ class SwarmSource:
         Raises:
             LeaseRefusedError: The request names another Cell, the device is already leased or
                 away or revoked, or the packet refused or did not answer.
+            HiveMindError, sqlite3.Error: The trail refused to record `cell.leased`; the device
+                has been asked to give the lease back first (see `_give_back_unrecorded`).
         """
         node = self._latest()
         link = self._check(request, node)
@@ -244,9 +251,34 @@ class SwarmSource:
             identity=self._recorder.identity,
             releaser=releaser,
         )
-        await lease.open()
+        # The tenancy is recorded before the trail write: from here the device holds an OPEN
+        # lease, and whatever `open()` does next, `_check` must refuse a second request and
+        # `on_frame` must recognise the device's own report about this lease.
         self._tenancy = _Tenancy(lease, releaser)
+        try:
+            await lease.open()
+        except (HiveMindError, sqlite3.Error):
+            await self._give_back_unrecorded(lease)
+            raise
         return lease
+
+    async def _give_back_unrecorded(self, lease: RealCellLease) -> None:
+        """Release, on the device, a lease whose `cell.leased` the trail refused to record."""
+        # `RealCellLease.open` moves to OPEN before it writes, so the device holds the lease and
+        # the lease object is releasable; but the Warden never receives it, so nothing else would
+        # ever give it back and the device would keep its scratch until its dead-man fired. A
+        # release that fails here leaves the lease ORPHANED under the tenancy, where the device's
+        # own dead-man report (`on_frame`) finishes it; either way the caller gets the write's
+        # original error, which is the one that matters.
+        try:
+            await lease.release()
+        except (HiveMindError, sqlite3.Error) as exc:
+            log.warning(
+                "swarm.unrecorded_lease_not_given_back",
+                lease_id=lease.id,
+                state=lease.state.value,
+                error=type(exc).__name__,
+            )
 
     async def open_session(self, lease: RealCellLease) -> CellSession:
         """Open a `PollenSession` on the device for `lease`.

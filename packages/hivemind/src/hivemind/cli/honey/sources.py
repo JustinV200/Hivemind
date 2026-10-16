@@ -17,7 +17,8 @@ Fits into the Hive:
 Key invariants:
     - `MemoryWaxSource` returns WRITTEN notes only: a PROPOSED note is not yet Cell Wax, and a
       CLEARED, EXPIRED or REJECTED one no longer is.
-    - A missing Bee Bread entry and one above the reader's allowance both come back as None.
+    - A missing Bee Bread entry, one above the reader's allowance and a tainted one all come back
+      as None: the browser must not be able to tell them apart, nor name the tainting event.
 
 See Also:
     - hivemind.honey_store.browse.sources for the Protocols implemented here.
@@ -36,6 +37,7 @@ from hivemind.memory import (
     CellWax,
     ClearanceError,
     MemoryStore,
+    TaintedMemoryError,
     WaxState,
 )
 from waggle.ids import CellId, EventId
@@ -112,13 +114,15 @@ class MemoryBeeBreadSource:
             allowance: The reader's clearance ceiling.
 
         Returns:
-            The entry in the browser's own shape, or None when absent or above `allowance`.
+            The entry in the browser's own shape, or None when absent, above `allowance` or
+            tainted.
         """
         try:
             # The memory store's own lookup by id: milliseconds.
             entry = await self._store.get_bee_bread_entry(EventId(entry_id), allowance)
-        except (BeeBreadEntryNotFoundError, ClearanceError):
-            # Missing and forbidden look alike to the browser, on purpose.
+        except (BeeBreadEntryNotFoundError, ClearanceError, TaintedMemoryError):
+            # Missing, forbidden and tainted look alike to the browser, on purpose: the taint
+            # error names the tainting trail event, which a reader must not be able to probe.
             return None
         return _bee_bread_note(entry)
 
@@ -152,4 +156,6 @@ def _bee_bread_note(entry: BeeBreadEntry) -> BeeBreadNote:
         text=entry.text,
         payload=entry.payload,
         ref_ids=entry.ref_ids,
+        # The store already refuses a refused entry; carried so the browser refuses it too.
+        tainted=entry.tainted is not None and entry.tainted.refuses,
     )

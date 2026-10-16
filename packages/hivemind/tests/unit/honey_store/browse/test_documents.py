@@ -156,6 +156,25 @@ async def test_honey_visible_refuses_a_tainted_row(hive: BrowseHive) -> None:
     assert not honey_visible(row.model_copy(update={"tainted": True}), reader())
 
 
+async def test_bee_bread_visible_refuses_a_tainted_entry_like_a_tainted_honey_row(
+    hive: BrowseHive,
+) -> None:
+    entry = hive.bee_bread_note()
+    tainted = hive.bee_bread_note(tainted=True)
+    browser = hive.browser(bee_bread=(entry, tainted))
+
+    assert bee_bread_visible(entry, reader())
+    assert not bee_bread_visible(tainted, reader())
+    # Missing and tainted look alike through `cat`, `find` and `ls`: the same not-found, and
+    # the tainted entry absent from its folder.
+    with pytest.raises(BrowseNotFoundError):
+        await browser.cat(f"/bee-bread/{tainted.id}", reader())
+    with pytest.raises(BrowseNotFoundError):
+        await browser.find(tainted.id, reader())
+    listed = await browser.ls("/bee-bread", reader())
+    assert [item.path for item in listed.entries] == [f"/bee-bread/{entry.id}"]
+
+
 async def test_wax_visible_needs_the_cells_scope_and_the_ceiling(hive: BrowseHive) -> None:
     cell = new_cell_id(hive.clock)
     note: WaxNote = hive.wax_note(cell, clearance=HoneyClearance.C2)

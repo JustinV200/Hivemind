@@ -6,14 +6,15 @@ frame the peer sends (docs/waggle/enrolment.md sections 5 and 8), looked up by t
 frame's payload in one table. A `swarm.enrol_request` is a new device presenting an invite: the
 router passes it to the enrolment door, answers with the correlated `swarm.enrol_accept` or a
 `control.error` `hive.swarm.enrol_denied`, trusts the new key from then on, and, if the device
-carries straight on with a heartbeat, serves it as a link. A `swarm.device_heartbeat` is an enrolled
-device's Pollen Packet connecting: the router checks the node it names, builds a `DeviceLink`,
-attaches it to the hub (replacing the device's older link, which it closes), brings the node
-ONLINE, tells the hub's listeners, sends the device its current terms (`swarm.node_update`) and
-then waits for the link to end. A `cell.ready` is the Warden that lives on a colonized device
-connecting; the router checks it speaks for the node it names and hands the connection to the
-Queen's swarm gate through a `WardenConnectionHandler`. Anything else, from anyone, closes the
-connection with no reply: nothing is trusted yet, so nothing is said.
+carries straight on with a heartbeat, serves it as a link; an address that has made more attempts
+in a minute than `EnrolmentAttempts` allows is closed without the door, a reply or a trail row. A
+`swarm.device_heartbeat` is an enrolled device's Pollen Packet connecting: the router checks the
+node it names, builds a `DeviceLink`, attaches it to the hub (replacing the device's older link,
+which it closes), brings the node ONLINE, tells the hub's listeners, sends the device its current
+terms (`swarm.node_update`) and then waits for the link to end. A `cell.ready` is the Warden that
+lives on a colonized device connecting; the router checks it speaks for the node it names and
+hands the connection to the Queen's swarm gate through a `WardenConnectionHandler`. Anything else,
+from anyone, closes the connection with no reply: nothing is trusted yet, so nothing is said.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.swarm.gateway`.
@@ -30,6 +31,8 @@ Key invariants:
     - `serve` always closes its transport before it returns, and never raises for what a peer
       did: a refused, silent or failing connection is simply closed.
     - A device reconnecting replaces its previous link; the old link's end takes nothing offline.
+    - An unauthenticated peer costs the Hive a bounded amount: past its address's enrolment
+      attempts a minute, nothing is read, written or sent for it.
 
 See Also:
     - hivemind.swarm.gateway.link for the link a device's connection becomes.
@@ -66,6 +69,7 @@ from hivemind.swarm.gateway.frames import (
 from hivemind.swarm.gateway.heartbeat import HeartbeatMonitor
 from hivemind.swarm.gateway.hub import GatewayHub
 from hivemind.swarm.gateway.link import DeviceLink, FrameHandler, LinkEnds
+from hivemind.swarm.gateway.refusals import EnrolmentAttempts
 from hivemind.swarm.gateway.verifier import ENROL_REQUEST_KIND, KeyRing
 from hivemind.swarm.models import SwarmNode
 from hivemind.swarm.node_state import NodeStatus
@@ -163,6 +167,9 @@ class ConnectionRouter:
         """
         self._deps = deps
         self._warden_handler: WardenConnectionHandler | None = None
+        # The router's own, not a collaborator: it is the one thing that meets unauthenticated
+        # peers, and a bucket per listener is exactly the bound wanted.
+        self._attempts = EnrolmentAttempts(deps.clock)
         # Dispatch by payload type, never by a kind string, so a first frame of any other type
         # has no entry and the connection is closed.
         self._by_payload: dict[type[WaggleMessage], Handler] = {
@@ -179,14 +186,16 @@ class ConnectionRouter:
         """
         self._warden_handler = handler
 
-    async def serve(self, transport: Transport) -> None:
+    async def serve(self, transport: Transport, remote_address: str | None = None) -> None:
         """Serve one accepted connection until it ends, then close it.
 
         Args:
             transport: The accepted transport; closed before this returns, whatever happened.
+            remote_address: The peer's address as the listener's transport reported it, which
+                bounds its enrolment attempts; None when the transport names none.
         """
         deps = self._deps
-        connection = open_connection(transport, deps.voice, deps.clock)
+        connection = open_connection(transport, deps.voice, deps.clock, remote_address)
         try:
             first = await next_frame(connection, FIRST_FRAME_TIMEOUT_S)
             handler = None if first is None else self._by_payload.get(type(first.payload))
@@ -202,6 +211,11 @@ class ConnectionRouter:
     async def _enrol(self, connection: Connection, first: Envelope) -> None:
         """Admit a new device, answer it, and serve it if it carries straight on."""
         deps = self._deps
+        if not self._attempts.allow(connection.remote_address):
+            # Over its address's attempts a minute: closed as any untrusted frame is, before the
+            # registry is read or a refusal recorded, so a loop of invites costs nothing more.
+            log.debug("swarm.enrol_attempts_exceeded", remote_address=connection.remote_address)
+            return
         try:
             accept = await deps.door.enrol(first)
         except EnrolmentDeniedError as denied:

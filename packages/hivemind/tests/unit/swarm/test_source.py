@@ -16,6 +16,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -37,8 +38,10 @@ from hivemind.cell import AccessLevel, CellKind, CombShieldLevel
 from hivemind.cell.errors import LeaseRefusedError
 from hivemind.cell.lease import LeaseRequest, RealCellLease
 from hivemind.cell.lease_state import LeaseState
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import PheromoneEvent, TrailQuery
+from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.swarm.errors import DeviceRequestError, GatewayUnavailableError
+from hivemind.swarm.events import SwarmRecorder
 from hivemind.swarm.models import SWARM_SOURCE
 from hivemind.swarm.node_state import NodeStatus
 from hivemind.swarm.source import SwarmSource
@@ -69,6 +72,36 @@ async def _lease(
 ) -> RealCellLease:
     """Lease the rig's device, through `source` or a fresh one."""
     return await (source or make_source(rig)).lease(_request(rig, **overrides))
+
+
+class _RefusingTrail(MemoryPheromoneTrail):
+    """A trail that refuses the next record of one kind, as a momentarily locked SQLite file."""
+
+    def __init__(self, rig: LinkRig, refused_kind: str) -> None:
+        super().__init__(rig.clock)
+        self._refused_kind: str | None = refused_kind
+
+    async def record(self, event: PheromoneEvent) -> None:
+        """Fail the first record of the refused kind like a busy database; record the rest."""
+        if event.kind == self._refused_kind:
+            self._refused_kind = None
+            raise sqlite3.OperationalError("database is locked")
+        await super().record(event)
+
+
+def _source_with_refusing_trail(rig: LinkRig, refused_kind: str) -> SwarmSource:
+    """A source whose recorder writes to a trail that refuses the next `refused_kind`."""
+    recorder = SwarmRecorder(_RefusingTrail(rig, refused_kind), rig.clock, rig.recorder.identity)
+    source = SwarmSource(rig.node, rig.hub, recorder, RecordingGuard())
+    rig.hub.subscribe(source)  # So it hears a dead-man release, as the composition root wires it.
+    return source
+
+
+def _teardowns_sent(rig: LinkRig) -> list[CellTeardownRequest]:
+    """Every teardown the device has been asked for, in order."""
+    return [
+        e.payload for e in rig.device.state.received if isinstance(e.payload, CellTeardownRequest)
+    ]
 
 
 def _released_frame(rig: LinkRig, lease_id: LeaseId) -> Envelope:
@@ -234,6 +267,43 @@ async def test_leasing_records_cell_leased_and_releasing_records_cell_released(
 
     events = await rig.trail.query(TrailQuery(subject_id=rig.node.cell_id))
     assert [event.kind for event in events] == ["cell.leased", "cell.released"]
+
+
+async def test_a_lease_whose_record_fails_is_given_back_to_the_device_and_the_error_raised(
+    rig: LinkRig,
+) -> None:
+    # The device opened the lease before `cell.leased` was written; a trail that refuses the
+    # write must not leave the device holding a lease nothing on the Hive Stand references.
+    source = _source_with_refusing_trail(rig, "cell.leased")
+
+    with pytest.raises(sqlite3.OperationalError):
+        await _lease(rig, source)
+
+    (teardown,) = _teardowns_sent(rig)
+    assert teardown.cell_id == rig.node.cell_id
+    assert rig.device.state.leases == {}  # Left exactly as found.
+    second = await _lease(rig, source)  # The source is free for the next request...
+    assert second.state is LeaseState.OPEN  # ...which the device opens afresh.
+
+
+async def test_a_lease_whose_record_fails_and_cannot_be_given_back_stays_held_as_orphaned(
+    rigs: RigFactory,
+) -> None:
+    rig = await rigs(DeviceScript(refusals={CellTeardownRequest: "pollen.unsupported"}))
+    source = _source_with_refusing_trail(rig, "cell.leased")
+
+    with pytest.raises(sqlite3.OperationalError):
+        await _lease(rig, source)
+
+    # The tenancy still names the lease, so a second request is refused rather than opening a
+    # second lease the device would refuse, and the device's own dead-man report can finish it.
+    with pytest.raises(LeaseRefusedError, match="already leased"):
+        await _lease(rig, source)
+    (held,) = rig.device.state.leases.values()
+    rig.heard.clear()
+    await rig.device.release_unprompted(held.lease_id)
+    await asyncio.wait_for(rig.heard.wait(), 5.0)
+    assert await _lease(rig, source)  # Released by the device's word; the source is free again.
 
 
 async def test_a_release_asks_the_device_gracefully_as_the_queen_and_reports_its_answer(

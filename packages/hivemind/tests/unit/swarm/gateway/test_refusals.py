@@ -30,11 +30,15 @@ from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
 from hivemind.swarm.events import SwarmRecorder
 from hivemind.swarm.gateway import GatewayHub, TransportRefusals
 from hivemind.swarm.gateway.refusals import (
+    ENROL_ATTEMPTS_PER_MINUTE,
     FRAME_CEILING_KIND,
     RECONNECT_GRACE_S,
     REPLAY_REFUSED_KIND,
+    UNNAMED_ADDRESS,
+    EnrolmentAttempts,
 )
 from hivemind.swarm.models import SwarmNode
+from waggle.clock import FakeClock
 from waggle.ids import NodeId, new_message_id
 from waggle.transport.limits import ConnectionRefusal, RefusalKind
 
@@ -175,3 +179,60 @@ async def test_a_trail_that_is_down_does_not_turn_a_refusal_into_a_crash() -> No
         assert failed["error"] == "OperationalError" and failed["kind"] == FRAME_CEILING_KIND
     finally:
         await raw.close()
+
+
+def _burst(attempts: EnrolmentAttempts, address: str | None, count: int) -> list[bool]:
+    """The answers to `count` attempts from `address` in a row."""
+    return [attempts.allow(address) for _ in range(count)]
+
+
+def test_an_address_gets_its_minute_of_enrolment_attempts_and_then_no_more() -> None:
+    clock = FakeClock()
+    attempts = EnrolmentAttempts(clock)
+
+    answers = _burst(attempts, "10.0.0.9:50001", ENROL_ATTEMPTS_PER_MINUTE + 2)
+
+    assert answers == [True] * ENROL_ATTEMPTS_PER_MINUTE + [False, False]
+    assert attempts.allow("10.0.0.10:50001")  # Another address has its own minute.
+
+
+def test_the_bucket_is_the_hosts_whatever_port_each_attempt_came_from() -> None:
+    attempts = EnrolmentAttempts(FakeClock(), per_minute=2)
+
+    assert attempts.allow("[fd00::9]:50001")
+    assert attempts.allow("[fd00::9]:50002")
+    assert not attempts.allow("[fd00::9]:50003")
+
+
+def test_attempts_refill_at_the_rate_of_a_minutes_worth() -> None:
+    clock = FakeClock()
+    attempts = EnrolmentAttempts(clock, per_minute=6)
+    assert _burst(attempts, "10.0.0.9:1", 6) == [True] * 6
+
+    clock.advance(10.0)  # A sixth of a minute: one attempt back.
+
+    assert _burst(attempts, "10.0.0.9:2", 2) == [True, False]
+
+
+def test_peers_whose_transport_names_no_address_share_one_bucket() -> None:
+    attempts = EnrolmentAttempts(FakeClock(), per_minute=1)
+
+    assert attempts.allow(None)
+    assert not attempts.allow("")
+    assert not attempts.allow(UNNAMED_ADDRESS)
+
+
+def test_only_so_many_addresses_are_remembered_and_the_oldest_is_forgotten_first() -> None:
+    attempts = EnrolmentAttempts(FakeClock(), per_minute=1, capacity=2)
+    assert attempts.allow("10.0.0.1:1") and attempts.allow("10.0.0.2:1")
+
+    attempts.allow("10.0.0.3:1")  # A third address pushes the first out.
+
+    assert attempts.allow("10.0.0.1:2")  # Forgotten, so it starts afresh.
+    assert not attempts.allow("10.0.0.3:2")  # Still remembered, and spent.
+
+
+@pytest.mark.parametrize("per_minute, capacity", [(0, 1), (1, 0)])
+def test_a_rate_or_capacity_below_one_is_refused(per_minute: int, capacity: int) -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        EnrolmentAttempts(FakeClock(), per_minute=per_minute, capacity=capacity)

@@ -171,6 +171,7 @@ class BrowseHive:
             "text": None,
             "payload": "make build\nok\n",
             "ref_ids": (),
+            "tainted": False,
         }
         fields.update(overrides)
         return BeeBreadNote(**fields)

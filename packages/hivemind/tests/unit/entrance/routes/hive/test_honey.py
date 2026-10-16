@@ -273,6 +273,23 @@ async def test_an_unknown_folder_or_item_is_a_404_with_its_own_code(seeded: Seed
     assert malformed.status_code == 422
 
 
+async def test_a_tainted_bee_bread_entry_is_a_404_like_a_missing_one(seeded: Seeded) -> None:
+    # A tainted Honey row answers 404; a tainted Bee Bread entry must answer the same, never a
+    # 403 naming the tainting trail event, or taint status could be probed through this route.
+    tainted = seeded.hive.bee_bread_note(task_id=seeded.task, tainted=True)
+    browser = seeded.hive.browser(wax=[seeded.wax], bee_bread=[seeded.bread, tainted])
+    async with serving(RigOptions(honey=browser)) as rig:
+        who = await viewer(rig, "observe:honey:*", C2)
+
+        refused = await get(who, f"items/{tainted.id}")
+        listed = await get(who, "tree", path="/bee-bread")
+
+    assert refused.status_code == 404
+    assert refused.json()["error"] == "hivemind.entrance.honey_item_not_found"
+    assert "tainted" not in refused.text
+    assert paths(listed, "items") == [f"/bee-bread/{seeded.bread.id}"]
+
+
 async def test_a_folder_pages_by_cursor_without_repeating_or_skipping(seeded: Seeded) -> None:
     for number in range(4):
         await seeded.hive.ripen(f"Extra {number}: the {WORDS} again.")

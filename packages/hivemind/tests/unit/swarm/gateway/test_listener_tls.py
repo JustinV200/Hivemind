@@ -68,6 +68,29 @@ def test_the_pin_of_a_chain_is_the_pin_of_the_first_certificate(tmp_path: Path) 
     assert certificate_pin(chain) == leaf.sha256
 
 
+def test_a_certificate_file_with_a_non_ascii_comment_is_pinned_like_a_bare_one(
+    tmp_path: Path,
+) -> None:
+    # A PEM exported from PKCS#12 carries "Bag Attributes" lines naming the owner, in whatever
+    # encoding the exporter used; `load_cert_chain` serves such a file, so the pin must read it.
+    material = make_tls_material(tmp_path, "listener")
+    annotated = tmp_path / "annotated.pem"
+    annotated.write_bytes(
+        "Bag Attributes\n    friendlyName: Jörg's Hive Stand\n".encode()
+        + material.cert_path.read_bytes()
+    )
+
+    assert certificate_pin(annotated) == material.sha256
+
+
+def test_a_certificate_block_that_is_not_valid_pem_is_a_swarm_error(tmp_path: Path) -> None:
+    damaged = tmp_path / "damaged.pem"
+    damaged.write_bytes(b"-----BEGIN CERTIFICATE-----\nJ\xc3\xb6rg\n-----END CERTIFICATE-----\n")
+
+    with pytest.raises(SwarmError, match="not valid PEM"):
+        certificate_pin(damaged)
+
+
 def test_a_file_that_holds_no_certificate_has_no_pin(tmp_path: Path) -> None:
     empty = tmp_path / "empty.pem"
     empty.write_text("this is not a certificate\n")

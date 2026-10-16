@@ -35,13 +35,17 @@ from builders.swarm import (
 )
 
 from hivemind.swarm.enrolment import new_invite_token
+from hivemind.swarm.gateway import SwarmVerifier
 from hivemind.swarm.gateway import routing as routing_module
+from hivemind.swarm.gateway.refusals import ENROL_ATTEMPTS_PER_MINUTE
 from hivemind.swarm.models import SwarmNode
 from hivemind.swarm.node_state import NodeStatus
+from waggle.codec import Codec
 from waggle.ids import new_lease_id
 from waggle.messages.control import ErrorMessage
 from waggle.messages.session.commands import SessionClose
 from waggle.messages.swarm import EnrolAccept, NodeUpdate
+from waggle.transport.memory import MemoryTransport
 
 
 @pytest.fixture
@@ -153,6 +157,55 @@ async def test_an_unknown_invite_is_answered_with_the_reason_and_the_connection_
     assert await rig.stand.registry.node(device.party.device_id) is None
     (refused,) = await rig.stand.events("swarm.enrol_refused")
     assert code not in str(refused.payload)
+
+
+def _dial_from(rig: RouterRig, remote_address: str) -> Dialled:
+    """Dial the router as a fresh device whose transport reports `remote_address`."""
+    party = make_device_party(rig.stand.clock)
+    hive_end, device_end = MemoryTransport.pair(
+        rig.stand.hive.codec(SwarmVerifier(rig.ring)), Codec(signer=party.signer)
+    )
+    served = asyncio.ensure_future(rig.router.serve(hive_end, remote_address))
+    dialled = Dialled(rig.stand, party, device_end, hive_end, served)
+    rig.connections.append(dialled)
+    return dialled
+
+
+async def test_an_address_looping_unknown_invites_is_cut_off_after_its_minutes_worth(
+    rig: RouterRig,
+) -> None:
+    # Each attempt before the bound is judged, answered and on the trail; past it the connection
+    # just ends, with no registry read, no reply and no row, so the loop costs nothing more.
+    for _ in range(ENROL_ATTEMPTS_PER_MINUTE):
+        device = _dial_from(rig, "10.0.0.9:50001")
+        await device.send_enrol(new_invite_token())
+        assert isinstance((await device.next_sent()).payload, ErrorMessage)
+    refused_before = len(await rig.stand.events("swarm.enrol_refused"))
+
+    over = _dial_from(rig, "10.0.0.9:50002")  # Same host, the next port a loop would open.
+    await over.send_enrol(new_invite_token())
+
+    assert await over.ended()  # No reply: the connection just ends.
+    assert len(await rig.stand.events("swarm.enrol_refused")) == refused_before
+    elsewhere = _dial_from(rig, "10.0.0.10:50001")
+    await elsewhere.send_enrol(new_invite_token())
+    assert isinstance((await elsewhere.next_sent()).payload, ErrorMessage)  # Judged as before.
+
+
+async def test_a_cut_off_address_enrols_again_once_its_attempts_have_refilled(
+    rig: RouterRig,
+) -> None:
+    for _ in range(ENROL_ATTEMPTS_PER_MINUTE):
+        device = _dial_from(rig, "10.0.0.9:50001")
+        await device.send_enrol(new_invite_token())
+        await device.next_sent()
+    _invite, code = await rig.stand.mint()
+    rig.stand.clock.advance(60.0)
+
+    device = _dial_from(rig, "10.0.0.9:50002")
+    await device.send_enrol(code)
+
+    assert isinstance((await device.next_sent()).payload, EnrolAccept)
 
 
 async def test_an_invite_admits_one_device_only(rig: RouterRig) -> None:
