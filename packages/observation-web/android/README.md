@@ -11,7 +11,7 @@ operator's password. It holds no privilege beyond the Landing Board's.
 | Piece | Where | What it does |
 |---|---|---|
 | `PasskeyPlugin` | `app/src/main/java/dev/hivemind/observation/passkey/` | Passkey create and get through `androidx.credentials`, against the Entrance's DNS name as relying party. |
-| `UnifiedPushPlugin`, `PushReceiver` | `.../push/` | Registers with a UnifiedPush distributor, hands JavaScript the Web Push endpoint and keys, and raises a content-free "Something is waiting." notification when a push arrives. |
+| `UnifiedPushPlugin`, `PushReceiver` | `.../push/` | Registers with a UnifiedPush distributor, hands JavaScript the Web Push endpoint and keys, raises `endpoint` and `unregistered` events when the distributor later rotates the endpoint or drops the app (retained, and carried over a cold start), and raises a content-free "Something is waiting." notification when a push arrives. |
 | `ShareIntakePlugin` | `.../share/` | Receives text, an image or audio from the share sheet; JavaScript asks the human before anything is sent. |
 | `AndroidManifest.xml` | `app/src/main/` | The App Link for `<Entrance>/enrol`, the share-target filters, the receiver and the permissions (internet, microphone, notifications). No location, storage, contacts, foreground service or Google services. |
 

@@ -216,6 +216,27 @@ describe('stepUp', () => {
     });
     expect((await loadSession(fake.store))?.needsStepUp).toBe(false);
   });
+
+  it('keeps the session when the password is wrong: a 401 there is the typo, not the end', async () => {
+    const { fake, board, lost } = scripted();
+    fake.respond('POST /v1/auth/login', 201, { ...OPENED, needs_step_up: true });
+    fake.respond('POST /v1/auth/step-up/challenge', 200, { ...CHALLENGE, nonce: 'step-nonce' });
+    fake.respond('POST /v1/auth/step-up', 401, {
+      error: 'hivemind.entrance.authentication_failed',
+      detail: 'no',
+    });
+    await board.session.login('dev_1', 'pw');
+    await expect(board.session.stepUp('typo')).rejects.toMatchObject({ status: 401 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The Entrance only counted the failure; the key, the token and the owner's view all stand.
+    expect(lost()).toBe(0);
+    expect(await loadSession(fake.store)).not.toBeNull();
+    expect((await loadSession(fake.store))?.needsStepUp).toBe(true);
+    // So the human can simply try again with the right password.
+    fake.respond('POST /v1/auth/step-up', 200, { stepped_up_until: '2030-01-01T00:05:00Z' });
+    await board.session.stepUp('pw');
+    expect((await loadSession(fake.store))?.needsStepUp).toBe(false);
+  });
 });
 
 const CREATION = { challenge: 'Y3JlYXRl', rp: { id: 'hive.test' }, user: { id: 'dXNlcg' } };

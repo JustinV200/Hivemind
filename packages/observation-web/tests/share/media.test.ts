@@ -17,7 +17,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { audioTypeFor, describeItem, imageTypeFor } from '../../src/share/intake/media';
-import { applyNotice, NOTHING_WAITING, seeded } from '../../src/share/waiting/waiting';
+import { applyNotice, NOTHING_WAITING, reseeded, seeded } from '../../src/share/waiting/waiting';
 import type { PushNotice } from '../../src/share/waiting/waiting';
 
 describe('audioTypeFor', () => {
@@ -85,5 +85,22 @@ describe('applyNotice', () => {
   it('starts from the questions already waiting', () => {
     const state = applyNotice(seeded(['q1']), notice('withdrawn', 'q1', 'e1'));
     expect(state.refs.size).toBe(0);
+  });
+});
+
+describe('reseeded', () => {
+  it('replaces the set with the inbox, keeping what it heard since the read started', () => {
+    // q1 was answered elsewhere while the stream was down: the inbox no longer lists it.
+    const stale = seeded(['q1']);
+    const since = [notice('question_waiting', 'q3', 'e1'), notice('withdrawn', 'q2', 'e2')];
+    const state = reseeded(stale, ['q2', 'q4'], since);
+    expect([...state.refs].sort()).toEqual(['q3', 'q4']);
+  });
+
+  it('keeps the event ids seen, so an old notice is still processed once', () => {
+    const before = applyNotice(NOTHING_WAITING, notice('question_waiting', 'q1', 'e1'));
+    const state = reseeded(before, [], []);
+    expect(state.refs.size).toBe(0);
+    expect(applyNotice(state, notice('question_waiting', 'q1', 'e1'))).toBe(state);
   });
 });

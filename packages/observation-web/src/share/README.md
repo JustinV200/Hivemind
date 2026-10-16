@@ -11,6 +11,7 @@ The phone host: the parts of the Observation Hive that exist only inside the And
   an image through `POST /v1/nectar/images`. `media.ts` maps media types; `clip_length.ts` reads a
   clip's length from the WebView.
 - `waiting/`: the ongoing "a question is waiting" notification. `use_waiting.ts` follows the push
-  stream; `waiting.ts` is its reducer.
+  stream and re-reads the inbox each time the stream comes back (the stream keeps no replay);
+  `waiting.ts` is its reducer.
 - `setup/`: `push_card.tsx` offers push notices through the UnifiedPush distributor, and
   `invite_paste.tsx` takes the invite link by hand when the App Link did not open the app.

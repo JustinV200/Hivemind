@@ -14,7 +14,8 @@
  * Key invariants:
  *   - Views never poll: the only reads here are the two one-time seeds.
  *   - A failed seed read is not an error; the strip then fills from the streams alone.
- *   - Closing is idempotent and leaves no socket or timer behind.
+ *   - Closing is idempotent and leaves no socket or timer behind, and a seed that answers after
+ *     the close is dropped, so a finished session never writes into the store.
  *
  * See Also:
  *   - docs/adr/0049-observation-hive-dashboard-stack.md (streams and reconnect policy).
@@ -37,13 +38,15 @@ export interface FeedDeps {
   nowMs: () => number;
 }
 
-async function seed(deps: FeedDeps): Promise<void> {
+async function seed(deps: FeedDeps, stillOpen: () => boolean): Promise<void> {
   const { client, store } = deps;
   // The two reads are independent, so they go out together; neither failing stops the feeds.
   const [counters, device] = await Promise.all([
     client.http.call('get', '/v1/summary').catch(() => null),
     client.http.call('get', '/v1/devices/me').catch(() => null),
   ]);
+  // The shell may have gone while the reads were out; a late answer must not land in the store.
+  if (!stillOpen()) return;
   if (counters) store.dispatch({ slice: 'summary', event: { type: 'seed', counters } });
   if (device) store.dispatch({ slice: 'session', event: { type: 'named', name: device.name } });
 }
@@ -71,7 +74,8 @@ function open<F>(
 export function startFeeds(deps: FeedDeps): () => void {
   const { store, nowMs } = deps;
   store.dispatch({ slice: 'connection', event: { type: 'reset', at: nowMs() } });
-  void seed(deps);
+  let running = true;
+  void seed(deps, () => running);
   const closers = [
     open<CellFrame>(deps, 'cells', '/v1/cells/stream', (frame) =>
       store.dispatch({ slice: 'summary', event: { type: 'cell', frame } }),
@@ -84,6 +88,7 @@ export function startFeeds(deps: FeedDeps): () => void {
     ),
   ];
   return () => {
+    running = false;
     for (const close of closers) close();
   };
 }

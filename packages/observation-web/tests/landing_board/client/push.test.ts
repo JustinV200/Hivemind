@@ -16,8 +16,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createLandingBoard } from '../../../src/landing_board/client';
+import type { PushChange } from '../../../src/landing_board/client';
 import { base64urlEncode } from '../../../src/landing_board/client/signing';
-import { createFakeBrowser } from '../../support/fake_browser';
+import { createFakeBrowser, flush } from '../../support/fake_browser';
 import { storeSession } from '../../support/session_fixture';
 
 describe('push registration', () => {
@@ -50,6 +51,49 @@ describe('push registration', () => {
       endpoint: 'https://push.test/abc',
       keys: { p256dh: 'P', auth: 'A' },
     });
+  });
+
+  it('serialises a rotation reported during a registration, so neither is lost', async () => {
+    const fake = createFakeBrowser();
+    await storeSession(fake.browser);
+    let report: ((change: PushChange) => void) | null = null;
+    fake.browser.pushChanges = {
+      onChange: (listener) => {
+        report = listener;
+        return () => undefined;
+      },
+    };
+    const board = createLandingBoard({ browser: fake.browser, onSessionLost: () => {} });
+    await board.session.restore();
+    fake.respond('GET /v1/push/vapid-key', 200, {
+      application_server_key: base64urlEncode(Uint8Array.from([1])),
+    });
+    let ids = 0;
+    fake.routes.set('POST /v1/push/subscriptions', () => ({
+      status: 201,
+      body: { id: `sub_${++ids}`, channel: 'web_push', created_at: 'x' },
+    }));
+    fake.respond('DELETE /v1/push/subscriptions/sub_1', 204);
+    // The distributor rotates while the first registration is still being posted.
+    const registering = board.push.register();
+    report!({
+      kind: 'endpoint',
+      subscription: { endpoint: 'https://push.test/new', keys: { p256dh: 'N', auth: 'N' } },
+    });
+    await registering;
+    await flush();
+    const sent = fake.requests.map((r) => `${r.method} ${r.target}`);
+    expect(sent.filter((line) => line.includes('/v1/push/subscriptions'))).toEqual([
+      'POST /v1/push/subscriptions',
+      'DELETE /v1/push/subscriptions/sub_1',
+      'POST /v1/push/subscriptions',
+    ]);
+    expect(JSON.parse(new TextDecoder().decode(fake.requests.at(-1)!.body!))).toMatchObject({
+      endpoint: 'https://push.test/new',
+    });
+    fake.respond('DELETE /v1/push/subscriptions/sub_2', 204);
+    await board.push.withdrawStored();
+    expect(fake.requests.at(-1)!.target).toBe('/v1/push/subscriptions/sub_2');
   });
 
   it('removes a subscription by id', async () => {

@@ -12,6 +12,8 @@
  *
  * Key invariants:
  *   - `onSessionLost` runs when a signed request is answered 401, after local state is cleared.
+ *     A stream refused with 4401 after it had been live asks the same question with one signed
+ *     `GET /v1/devices/me`, so a session that expired while the device was offline ends this way too.
  *   - The pieces share one `SessionHolder`, so a login is visible to requests and sockets alike.
  *
  * See Also:
@@ -41,6 +43,8 @@ export type {
   Browser,
   Bytes,
   InviteLinks,
+  PushChange,
+  PushChanges,
   ShareIntake,
   SharedFile,
   SharedItem,
@@ -74,6 +78,12 @@ export function createLandingBoard(options: LandingBoardOptions): LandingBoard {
   });
   const sessions = createSessionClient({ browser, http, holder });
   const push = createPush(browser, http);
+  // Several streams reconnect together after an outage, so one probe answers for all of them.
+  let probing: Promise<unknown> | null = null;
+  const probe = (): Promise<unknown> =>
+    (probing ??= http.call('get', '/v1/devices/me').finally(() => {
+      probing = null;
+    }));
   // Logout withdraws this device's push subscription first, while the session can still sign.
   const session: SessionClient = {
     ...sessions,
@@ -86,6 +96,6 @@ export function createLandingBoard(options: LandingBoardOptions): LandingBoard {
     session,
     http,
     push,
-    openStream: (streamOptions) => openStream({ browser, holder }, streamOptions),
+    openStream: (streamOptions) => openStream({ browser, holder, probe }, streamOptions),
   };
 }

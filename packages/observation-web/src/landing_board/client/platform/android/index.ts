@@ -3,9 +3,10 @@
  *
  * ADR-0050 keeps one build for the page, the PWA and the APK. In the APK the same `Browser` is built
  * from `realBrowser` with six differences: the origin is the Entrance's stored address (the page's
- * own origin is a pinned local one), passkeys and push go through native plugins, and the share
- * sheet, the waiting notification and invite links are offered as optional members that a browser
- * does not have. Recording stays the WebView's `MediaRecorder`. Nothing above the seam changes.
+ * own origin is a pinned local one), passkeys and push go through native plugins (push including
+ * the distributor's own changes), and the share sheet, the waiting notification and invite links
+ * are offered as optional members that a browser does not have. Recording stays the WebView's
+ * `MediaRecorder`. Nothing above the seam changes.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/landing_board/client/platform/android/`. Chosen at startup by
@@ -93,6 +94,7 @@ export async function androidBrowser(deps: AndroidDeps = realAndroidDeps()): Pro
     createPasskey: passkeys.createPasskey,
     subscribeWebPush: push.subscribeWebPush,
     unsubscribeWebPush: push.unsubscribeWebPush,
+    pushChanges: push.pushChanges,
     shareIntake: androidShareIntake(deps.plugins.share),
     waitingNotifier: androidWaitingNotifier(deps.notifications),
     inviteLinks: {

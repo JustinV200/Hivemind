@@ -40,6 +40,13 @@ export interface PushRegistration {
 export interface UnifiedPushPlugin {
   register(options: { vapidKey: string }): Promise<PushRegistration>;
   unregister(): Promise<void>;
+  // What the receiver raises on its own, retained until heard: the distributor rotated the
+  // endpoint (`endpoint`, with the new registration) or dropped the app (`unregistered`).
+  addListener(
+    event: 'endpoint',
+    listener: (registration: PushRegistration) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(event: 'unregistered', listener: () => void): Promise<PluginListenerHandle>;
 }
 
 // What the Kotlin side emits for a share; `base64` is present for an image or a clip.

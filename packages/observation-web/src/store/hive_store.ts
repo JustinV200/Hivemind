@@ -7,7 +7,8 @@
  * entry to the table, never by editing this file. `subscribe` and `getSnapshot` are arrow
  * properties so they can be passed straight to `useSyncExternalStore`; a slice keeps its identity
  * when a reducer returns it unchanged, so a component that reads one slice does not re-render for
- * another's events.
+ * another's events. `reset` returns every slice but the named ones to its `initial`: the app calls
+ * it once a session is over, so what one session streamed never shows under the next.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/store/`. Built once by `src/app.tsx`; written by `feed.ts`,
@@ -45,6 +46,21 @@ export class HiveStore<T extends SliceTable> {
   };
 
   getSnapshot = (): StateTable<T> => this.#state;
+
+  // Returns every slice not in `keep` to its `initial`, telling listeners once if anything moved.
+  reset = (keep: readonly (keyof T & string)[] = []): void => {
+    const next: Record<string, unknown> = { ...this.#state };
+    let changed = false;
+    for (const [name, slice] of Object.entries(this.slices)) {
+      if (keep.includes(name) || next[name] === slice.initial) continue;
+      next[name] = slice.initial;
+      changed = true;
+    }
+    // A store already at rest stays quiet, as a reducer returning its input does.
+    if (!changed) return;
+    this.#state = next as StateTable<T>;
+    for (const listener of this.#listeners) listener();
+  };
 
   dispatch = <K extends keyof T & string>(action: EventFor<T, K>): void => {
     const slice = this.slices[action.slice];

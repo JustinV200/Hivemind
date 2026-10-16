@@ -71,6 +71,21 @@ describe('createHiveStore', () => {
     expect(store.getSnapshot()).toEqual({ counter: { n: 0 }, log: [] });
   });
 
+  it('resets every slice but the kept ones to its initial, telling listeners once', () => {
+    const store = createHiveStore(table);
+    store.dispatch({ slice: 'counter', event: { type: 'add', by: 2 } });
+    store.dispatch({ slice: 'log', event: { type: 'line', text: 'a' } });
+    let calls = 0;
+    store.subscribe(() => (calls += 1));
+    store.reset(['log']);
+    expect(store.getSnapshot()).toEqual({ counter: { n: 0 }, log: ['a'] });
+    expect(store.getSnapshot().counter).toBe(counter.initial);
+    expect(calls).toBe(1);
+    // Nothing left to reset: listeners are not bothered.
+    store.reset(['log']);
+    expect(calls).toBe(1);
+  });
+
   it('takes the shell slices as a table another slice can be added to', () => {
     const store = createHiveStore({ ...SHELL_SLICES, counter });
     store.dispatch({ slice: 'counter', event: { type: 'add', by: 1 } });

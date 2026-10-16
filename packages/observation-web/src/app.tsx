@@ -15,6 +15,8 @@
  *   - The store and client are built once per mounted app, never per render.
  *   - The platform is chosen before this mounts (src/main.tsx); this file never asks which it is.
  *   - A client-side 401 ends the session through the store, so the shell and its sockets go away.
+ *   - Once a session is over, every slice but the session's goes back to its initial state, so a
+ *     later login in the same page (a PWA is rarely reloaded) starts from fresh seeds.
  *
  * See Also:
  *   - src/store/ for the state, src/shell/ for the screens after login, src/views/login/.
@@ -86,6 +88,12 @@ function Gate(): ReactElement {
       store.dispatch({ slice: 'session', event: { type: 'restored', session } });
     });
   }, [client, store]);
+
+  // With the session over, the shell and its views have unmounted (their cleanups ran before this
+  // effect), so what they streamed is forgotten here; the session slice keeps its notice for login.
+  useEffect(() => {
+    if (status === 'none' || status === 'ended') store.reset(['session']);
+  }, [status, store]);
 
   if (status === 'restoring') {
     return (

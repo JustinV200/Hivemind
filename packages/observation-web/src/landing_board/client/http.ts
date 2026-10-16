@@ -6,7 +6,9 @@
  * with the body's SHA-256), signing the exact bytes it then sends. A non-GET request is checked
  * against `write_guard.ts` first, so a path the UI may not write to is refused before anything
  * leaves the device. Non-2xx answers become a typed `LandingBoardError`; a 401 on a signed
- * request also tells the owner the session is gone, so the shell can drop to login.
+ * request also tells the owner the session is gone, so the shell can drop to login. The step-up
+ * routes are the one exception: the Entrance answers a wrong step-up password with 401 and keeps
+ * the session, so a 401 there is the human's typo and is only thrown.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/landing_board/client/`. Built by `index.ts`; used by
@@ -36,7 +38,7 @@ import { assertMethodAllowed } from './write_guard';
 export interface HttpDeps {
   browser: Browser;
   holder: SessionHolder;
-  // Called when a signed request is answered 401: the session is over.
+  // Called when a signed request outside the step-up routes is answered 401: the session is over.
   onUnauthorized: () => void;
 }
 
@@ -57,6 +59,12 @@ type AudioOp = OperationOf<typeof AUDIO_PATH, 'post'>;
 export type AudioIntent = QueryOf<AudioOp>['intent'];
 // A clip shorter than this is not worth a request; the document asks for a length above zero.
 const MIN_CLIP_SECONDS = 0.01;
+// The step-up routes answer a wrong password with 401 while the session lives on (the Entrance only
+// moves its failure counter), so a 401 from them must not be read as the session's end.
+const STEP_UP_PATHS: ReadonlySet<string> = new Set([
+  '/v1/auth/step-up',
+  '/v1/auth/step-up/challenge',
+]);
 
 // The image formats the Entrance takes are read off the operation, as `AudioMediaType` is, so the
 // client can never offer a format the document does not name.
@@ -143,7 +151,8 @@ async function signedHeaders(deps: HttpDeps, outgoing: Outgoing): Promise<Record
 
 async function send(deps: HttpDeps, outgoing: Outgoing): Promise<unknown> {
   // The write list is checked on the bare path, before any signing or network work.
-  assertMethodAllowed(outgoing.method, outgoing.target.split('?')[0] ?? outgoing.target);
+  const path = outgoing.target.split('?')[0] ?? outgoing.target;
+  assertMethodAllowed(outgoing.method, path);
   const headers = await signedHeaders(deps, outgoing);
   const hadSession = deps.holder.get() !== null;
   let response: Response;
@@ -157,7 +166,10 @@ async function send(deps: HttpDeps, outgoing: Outgoing): Promise<unknown> {
     throw clientError(CLIENT_CODES.network, 'The request could not be sent.');
   }
   if (!response.ok) {
-    if (response.status === 401 && hadSession) deps.onUnauthorized();
+    // A signed request refused as unauthenticated means the session is over, except at step-up,
+    // where the same 401 is a wrong password and the session stands (ADR-0041 says no more).
+    const lost = response.status === 401 && hadSession && !STEP_UP_PATHS.has(path);
+    if (lost) deps.onUnauthorized();
     throw await errorFrom(response);
   }
   return response.status === 204 ? undefined : response.json();

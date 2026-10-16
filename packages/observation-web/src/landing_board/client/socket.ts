@@ -7,7 +7,11 @@
  * to the caller and applies ADR-0049's fixed reconnect policy by close code: `4409` resumes from
  * the last cursor at once; `4410` and `4411` end the session; `4401` and `4403` are refusals that
  * are shown and not retried; `1001`, `1008` and network loss back off 1, 2, 4, 8, then 30 seconds,
- * and the backoff resets once a connection is accepted.
+ * and the backoff resets once a connection is accepted. One refusal is ambiguous: the Entrance
+ * also answers the hello of an expired or idled-out session with `4401`, and `4410` only reaches a
+ * socket that is still connected. So a `4401` on a stream that had been live (it had the
+ * capability) asks the injected `probe`, a signed request whose own 401 ends the session through
+ * the HTTP path, while its success leaves the refusal standing.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/landing_board/client/`. Built by `index.ts`; used by the
@@ -58,6 +62,9 @@ export interface StreamHandle {
 export interface SocketDeps {
   browser: Browser;
   holder: SessionHolder;
+  // A signed request that answers whether the session still stands (`GET /v1/devices/me`): its
+  // 401 ends the session through `http.ts`. Called on a 4401 after the stream had been live.
+  probe?: () => Promise<unknown>;
 }
 
 type Policy = 'resume' | 'session_ended' | 'reduced' | 'refused' | 'finished' | 'backoff';
@@ -97,6 +104,8 @@ class Stream<F> {
   private attempt = 0;
   private stopped = false;
   private accepted = false;
+  // Whether any connection of this stream was ever accepted: a later 4401 is then suspect.
+  private wasLive = false;
 
   constructor(
     private readonly deps: SocketDeps,
@@ -126,6 +135,7 @@ class Stream<F> {
   private markAccepted = (): void => {
     if (this.accepted) return;
     this.accepted = true;
+    this.wasLive = true;
     this.attempt = 0;
     // The deadline timer has done its job once the connection is known good.
     this.clearTimer();
@@ -205,6 +215,9 @@ class Stream<F> {
     if (policy === 'finished') return this.options.onState('closed');
     this.options.onState(policy === 'refused' ? 'refused' : 'closed');
     this.options.onEnd({ reason: policy, code });
+    // A stream that was live had the capability, so a 4401 now may be a session that expired or
+    // idled out while the device was offline; the probe's 401 ends it the way a request would.
+    if (code === 4401 && this.wasLive) void this.deps.probe?.().catch(() => undefined);
   }
 }
 

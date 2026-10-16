@@ -23,11 +23,18 @@ import { createFakeBrowser, flush } from '../support/fake_browser';
 import { cellFrame, SEED, SEED_STRIP, telemetryFrame } from '../support/frames';
 import { storeSession } from '../support/session_fixture';
 
+const UNAUTHENTICATED = { error: 'hivemind.entrance.authentication_failed', detail: 'no' };
+
 async function started(options: { seed?: boolean } = {}) {
   const fake = createFakeBrowser();
   await storeSession(fake.browser);
   const store = createHiveStore(APP_SLICES);
-  const board = createLandingBoard({ browser: fake.browser, onSessionLost: () => {} });
+  // A lost session ends through the store, as the app wires it.
+  const board = createLandingBoard({
+    browser: fake.browser,
+    onSessionLost: () =>
+      store.dispatch({ slice: 'session', event: { type: 'ended', notice: 'Your session ended.' } }),
+  });
   await board.session.restore();
   fake.respond('GET /v1/devices/me', 200, { name: 'Pixel' });
   if (options.seed !== false) fake.respond('GET /v1/summary', 200, SEED);
@@ -89,6 +96,66 @@ describe('startFeeds', () => {
       status: 'ended',
       notice: 'Your session ended. Log in again.',
     });
+  });
+
+  it('ends the session when a 4401 on a reconnect turns out to be an expired session', async () => {
+    const { fake, store } = await started();
+    store.dispatch({
+      slice: 'session',
+      event: {
+        type: 'opened',
+        session: { deviceId: 'd', listener: 'remote', expiresAt: 'x', needsStepUp: false },
+      },
+    });
+    // The device was offline (the session idled out meanwhile); the stream backs off and the
+    // Entrance refuses the next hello with 4401, not 4410.
+    fake.sockets[0]!.open();
+    fake.sockets[0]!.receive(cellFrame({ id: 'a' }));
+    fake.sockets[0]!.serverClose(1006);
+    fake.advance(1000);
+    fake.respond('GET /v1/devices/me', 401, UNAUTHENTICATED);
+    fake.sockets[3]!.open();
+    fake.sockets[3]!.serverClose(4401);
+    await flush();
+    expect(store.getSnapshot().session.status).toBe('ended');
+    expect(fake.requests.filter((r) => r.target === '/v1/devices/me')).toHaveLength(2);
+  });
+
+  it('keeps a 4401 as a refusal when the session still stands', async () => {
+    const { fake, store } = await started();
+    fake.sockets[0]!.open();
+    fake.sockets[0]!.receive(cellFrame({ id: 'a' }));
+    fake.sockets[0]!.serverClose(1006);
+    fake.advance(1000);
+    fake.sockets[3]!.open();
+    fake.sockets[3]!.serverClose(4401);
+    await flush();
+    expect(store.getSnapshot().connection.streams.cells.state).toBe('refused');
+    expect(store.getSnapshot().session.status).not.toBe('ended');
+  });
+
+  it('drops a seed that answers after the feeds were stopped', async () => {
+    const fake = createFakeBrowser();
+    await storeSession(fake.browser);
+    const store = createHiveStore(APP_SLICES);
+    const board = createLandingBoard({ browser: fake.browser, onSessionLost: () => {} });
+    await board.session.restore();
+    fake.respond('GET /v1/summary', 200, SEED);
+    // The reads are held until the test lets them go, as a slow Entrance would.
+    const original = fake.browser.fetch;
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    fake.browser.fetch = async (url, init) => {
+      await held;
+      return original(url, init);
+    };
+    const stop = startFeeds({ client: board, store, nowMs: () => fake.now() });
+    stop();
+    release();
+    await flush();
+    // The shell is gone; its late answer must not fill a store the next login will read.
+    expect(summaryCounters(store.getSnapshot().summary)).toBeNull();
+    expect(store.getSnapshot().session.deviceName).toBeNull();
   });
 
   it('closes every socket and leaves no timer when stopped', async () => {

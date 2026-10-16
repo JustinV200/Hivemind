@@ -160,6 +160,22 @@ describe('errors', () => {
     expect(lost()).toBe(1);
   });
 
+  it('does not report a lost session for a 401 from the step-up routes', async () => {
+    // The Entrance answers a wrong step-up password with 401 and keeps the session, so the
+    // step-up routes are the one place a signed 401 is not the session's end.
+    for (const path of ['/v1/auth/step-up', '/v1/auth/step-up/challenge'] as const) {
+      const { fake, http, lost } = await signedClient();
+      fake.respond(`POST ${path}`, 401, {
+        error: 'hivemind.entrance.authentication_failed',
+        detail: 'no',
+      });
+      await expect(http.call('post', path, { body: {} as never })).rejects.toMatchObject({
+        status: 401,
+      });
+      expect(lost()).toBe(0);
+    }
+  });
+
   it('does not report a lost session for a 401 on login (there is none)', async () => {
     const fake = createFakeBrowser();
     let lost = 0;

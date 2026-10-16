@@ -60,6 +60,18 @@ export interface WebPushSubscription {
   keys: { p256dh: string; auth: string };
 }
 
+// What a platform that owns the distributor registration (the Android shell) reports on its own:
+// the distributor rotated the endpoint, or dropped the app's registration. A browser's PushManager
+// never does either, so a page has no `PushChanges`.
+export type PushChange =
+  { kind: 'endpoint'; subscription: WebPushSubscription } | { kind: 'unregistered' };
+
+// `onChange` delivers each change (one that arrived before anyone listened is delivered first) and
+// returns the function that stops listening.
+export interface PushChanges {
+  onChange(listener: (change: PushChange) => void): () => void;
+}
+
 // The clip formats `POST /v1/chat/audio` takes, read off the generated request body so a format
 // the document drops stops compiling here.
 export type AudioMediaType = keyof OperationOf<'/v1/chat/audio', 'post'>['requestBody']['content'] &
@@ -137,6 +149,8 @@ export interface Browser {
   subscribeWebPush(applicationServerKey: Bytes): Promise<WebPushSubscription>;
   // Gives the push distributor's registration back; absent where the browser owns the subscription.
   unsubscribeWebPush?: () => Promise<void>;
+  // The distributor's own changes (a rotated endpoint, a dropped registration); absent on the web.
+  pushChanges?: PushChanges;
   // Present only in the Android shell (ADR-0050): the share sheet, the waiting notification and the
   // invite link intake. A browser carries none of them and the views that use them render nothing.
   shareIntake?: ShareIntake;

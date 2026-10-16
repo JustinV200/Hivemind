@@ -307,6 +307,41 @@ describe('leaving', () => {
     expect(fake.sockets.every((socket) => socket.closedWith === 1000)).toBe(true);
   });
 
+  it('forgets the counters at logout, so the next login shows the fresh seed', async () => {
+    const fake = await openShell();
+    await live(fake);
+    // The streams cover the seed, so the strip reads the streamed maps, not the seed.
+    act(() => {
+      for (const id of ['a', 'b', 'c', 'd', 'e']) {
+        fake.sockets[0]!.receive(cellFrame({ id, kind: 'REAL', mode: 'ACTIVE' }));
+        fake.sockets[1]!.receive(telemetryFrame({ worker_id: id, worker_state: 'RUNNING' }));
+      }
+    });
+    expect(screen.getByRole('group', { name: 'Cells: 5 active, 0 inactive' })).toBeTruthy();
+    fake.respond('POST /v1/auth/logout', 204);
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    await screen.findByRole('heading', { name: 'Log in to the Observation Hive' });
+    // Meanwhile the Hive moved on: the next login must show its summary, not the old maps.
+    fake.respond('GET /v1/summary', 200, { ...SEED, active_bees: 1, cells_active: 2 });
+    fake.respond('POST /v1/auth/challenge', 200, {
+      device_id: 'dev_test',
+      nonce: 'n',
+      expires_at: 'x',
+      passkey_options: { challenge: 'abc' },
+    });
+    fake.respond('POST /v1/auth/login', 201, {
+      device_id: 'dev_test',
+      token: 'tok-2',
+      listener: 'remote',
+      expires_at: '2030-01-01T00:00:00Z',
+      needs_step_up: false,
+    });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByRole('group', { name: 'Bees: 1 active' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Cells: 2 active, 2 inactive' })).toBeTruthy();
+  });
+
   it('drops to login with a notice when a stream says the session ended (4410)', async () => {
     const fake = await openShell();
     await live(fake);

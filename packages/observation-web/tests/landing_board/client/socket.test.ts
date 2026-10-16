@@ -42,8 +42,16 @@ async function harness() {
   const frames: Frame[] = [];
   const states: StreamState[] = [];
   const ends: StreamEnd[] = [];
+  let probes = 0;
   const handle = openStream<Frame>(
-    { browser: fake.browser, holder },
+    {
+      browser: fake.browser,
+      holder,
+      probe: () => {
+        probes += 1;
+        return Promise.resolve();
+      },
+    },
     {
       path: '/v1/chat/stream',
       onFrame: (frame) => frames.push(frame),
@@ -52,7 +60,7 @@ async function harness() {
       resume: { cursorOf: (frame) => String(frame.seq), query: (cursor) => `?after=${cursor}` },
     },
   );
-  return { fake, session, frames, states, ends, handle };
+  return { fake, session, frames, states, ends, handle, probes: () => probes };
 }
 
 describe('first frame', () => {
@@ -173,6 +181,40 @@ describe('close codes', () => {
       expect(states.at(-1)).toBe('refused');
       expect(fake.sockets).toHaveLength(1);
     }
+  });
+
+  it('probes the session on a 4401 only once the stream had been live', async () => {
+    // A first hello refused with 4401 is a device without the capability: no probe.
+    const fresh = await harness();
+    fresh.fake.sockets[0]!.open();
+    fresh.fake.sockets[0]!.serverClose(4401);
+    expect(fresh.probes()).toBe(0);
+    // A stream that was live had the capability, so a 4401 on its reconnect may be the session
+    // having expired or idled out while the device was offline: ask the Landing Board.
+    const { fake, ends, states, probes } = await harness();
+    fake.sockets[0]!.open();
+    fake.sockets[0]!.receive({ seq: 1 });
+    fake.sockets[0]!.serverClose(1006);
+    fake.advance(1000);
+    fake.sockets[1]!.open();
+    fake.sockets[1]!.serverClose(4401);
+    expect(probes()).toBe(1);
+    // The refusal itself still stands until the probe says otherwise.
+    expect(ends).toEqual([{ reason: 'refused', code: 4401 }]);
+    expect(states.at(-1)).toBe('refused');
+    fake.advance(120_000);
+    expect(fake.sockets).toHaveLength(2);
+  });
+
+  it('does not probe on a 4403, which is never a session question', async () => {
+    const { fake, probes } = await harness();
+    fake.sockets[0]!.open();
+    fake.sockets[0]!.receive({ seq: 1 });
+    fake.sockets[0]!.serverClose(1006);
+    fake.advance(1000);
+    fake.sockets[1]!.open();
+    fake.sockets[1]!.serverClose(4403);
+    expect(probes()).toBe(0);
   });
 
   it('does not retry a normal close (1000)', async () => {

@@ -64,6 +64,55 @@ describe('waiting notification', () => {
     await waitFor(() => expect(notifier.calls).toEqual(['show 1']));
   });
 
+  it('re-reads the inbox when the stream comes back, so a notice missed meanwhile is caught up', async () => {
+    const notifier = new FakeNotifier();
+    const phone = await openStream(notifier);
+    await waitFor(() => expect(phone.fake.sockets).toHaveLength(1));
+    const first = phone.fake.sockets[0]!;
+    await act(async () => {
+      first.open();
+      await flush();
+    });
+    await deliver(first, notice('question_waiting', 'q1', 'e1'));
+    expect(notifier.calls).toEqual(['show 1']);
+    // The phone loses the network; q1 is answered from the laptop meanwhile, and the push stream
+    // keeps no replay, so the `withdrawn` for this device is gone for good.
+    await act(async () => {
+      first.serverClose(1006);
+      phone.fake.advance(1000);
+      await flush();
+    });
+    const second = phone.fake.sockets[1]!;
+    await act(async () => {
+      second.open();
+      await flush();
+    });
+    // Back live: the inbox is the truth, and says nothing waits.
+    await deliver(second, notice('alarm_waiting', 'a1', 'e2'));
+    await waitFor(() => expect(notifier.calls).toEqual(['show 1', 'clear']));
+  });
+
+  it('does not re-add a question withdrawn while the inbox read was out', async () => {
+    const notifier = new FakeNotifier();
+    const phone = await openPhone({ notifier, inbox: inboxView({ questions: [questionView()] }) });
+    await waitFor(() => expect(notifier.calls).toEqual(['show 1']));
+    const socket = phone.fake.sockets[0]!;
+    // The stream goes live (which starts a fresh read) and the withdrawal arrives before the read
+    // has answered; the stale answer must not bring the question back.
+    const original = phone.fake.browser.fetch;
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    phone.fake.browser.fetch = async (url, init) => {
+      await held;
+      return original(url, init);
+    };
+    await deliver(socket, notice('withdrawn', questionView().id, 'e9'));
+    expect(notifier.calls).toEqual(['show 1', 'clear']);
+    release();
+    await act(flush);
+    expect(notifier.calls).toEqual(['show 1', 'clear']);
+  });
+
   it('clears the notification and closes the stream when the host goes away', async () => {
     const notifier = new FakeNotifier();
     const phone = await openStream(notifier);
