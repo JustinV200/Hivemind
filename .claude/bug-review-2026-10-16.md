@@ -134,10 +134,23 @@ tree needs before the next phase; the MEDIUM ones are worth the same pass where 
 ## Status: every finding fixed (2026-10-16, same day)
 
 Ten fixers, one per subsystem group, fixed all 44 findings on branch `ccr-1e7c6736-kar0up` in
-the eleven commits after this review's own, each with a test that failed before and passes
-after. Every whole-tree gate (`ruff`, `mypy` on Linux, the hygiene scripts, `lint-imports`, the
-Landing Board drift check, `pnpm lint/format/typecheck/generate:check`) and every unit suite
-pass on the final tree; the numbers are in the last section.
+the commits after this review's own, each with a test that failed before and passes after.
+On the final tree (`d7329e84`), as CI runs them on Linux:
+
+| Gate | Result |
+|---|---|
+| `ruff check` / `ruff format --check` | clean, 3730 files |
+| `mypy` | clean, 3478 files |
+| sizes, fan-out, kind-branch, transcript and model-id hygiene | clean |
+| `lint-imports` | 12 contracts kept |
+| Landing Board document drift | none |
+| `pytest -m "not integration and not e2e ..."` | 19726 passed, 27 skipped |
+| `pytest -m "e2e and not integration"` | 171 passed, 6 skipped (Playwright, xdotool, the UI bundle absent here) |
+| `pnpm lint`, `format`, `typecheck`, `generate:check` | clean |
+| `pnpm test` | 911 passed |
+
+Not run here: the Windows and macOS legs (no such host), the integration job's device
+containers (no Docker daemon), and the native Android build.
 
 | Findings | Commit |
 |---|---|
@@ -150,7 +163,7 @@ pass on the final tree; the numbers are in the last section.
 | 19, 42, 43, 44 | `79ad1f18` observation-web views |
 | 8, 9, 28, 29 | `02ae9e51` pollen |
 | 4, 11, 36, 37 | `e404d7ef` cli in-cell |
-| 14, 32, 33, 34, 35 | `4d143166` swarm, honey_store |
+| 14, 32, 33, 34, 35 | `4d143166` swarm, honey_store (14's label read moved through `is_refused` in `d7329e84`) |
 
 Where a fixer chose differently from the fix sketch above, and why:
 
@@ -173,9 +186,13 @@ Where a fixer chose differently from the fix sketch above, and why:
   touch only narrows the window.
 
 Also fixed on the way: the pathlib attribute scan in the Comb's static gate fired only for
-`import pathlib`, never `from pathlib import Path` (`7784cea3`); two silent-Warden Nuc tests
-failed on their own on a fast host and now wait in real time (`bf03f667`); build_fanner and
-the sandbox provider were brought back under the size limits they had crossed.
+`import pathlib`, never `from pathlib import Path` (`7784cea3`), and once widened it refused
+the scripted tool's own test module, so the static gate now holds only `tool.py` to the
+session for pathlib access while the audit hook keeps confining the test module to scratch
+(`c772dbdc`); two silent-Warden Nuc tests failed on their own on a fast host and now wait in
+real time (`bf03f667`); four test files the per-file checks passed failed whole-tree `mypy` or
+the model-id hygiene script (`c772dbdc`); build_fanner and the sandbox provider were brought
+back under the size limits they had crossed.
 
 Still open, none of them a finding above:
 
