@@ -48,6 +48,14 @@ def _messages(source: str) -> list[str]:
         ("from os import fork", "os.fork"),
         ("from os import *", "star-imports"),
         ("import os\nos.remove('x')", "os.remove"),
+        ("import os\nos.rename('x', 'y')", "os.rename"),
+        ("import os\nos.replace('x', 'y')", "os.replace"),
+        ("from os import link", "os.link"),
+        ("import os\nos.symlink('x', 'y')", "os.symlink"),
+        ("from pathlib import Path\nPath('x').rename('y')", "'.rename'"),
+        ("from pathlib import Path\nPath('x').replace('y')", "'.replace'"),
+        ("import pathlib\npathlib.Path('x').symlink_to('y')", "'.symlink_to'"),
+        ("import pathlib\npathlib.Path('x').hardlink_to('y')", "'.hardlink_to'"),
         ("import sys\nsys.modules['x']", "sys.modules"),
         ("import sys\nsys.settrace(None)", "sys.settrace"),
         ("import builtins\nbuiltins.open('x')", "builtins.open"),
@@ -118,6 +126,7 @@ def test_the_banned_lists_hold_what_the_design_names() -> None:
     ):
         assert module in BANNED_MODULES
     assert {"system", "popen", "fork", "kill", "remove", "unlink", "rmdir"} <= BANNED_NAMES["os"]
+    assert {"rename", "renames", "replace", "link", "symlink"} <= BANNED_NAMES["os"]
     assert {"modules", "settrace", "setprofile", "addaudithook"} == BANNED_NAMES["sys"]
     assert {"open", "eval", "exec", "compile", "__import__", "breakpoint"} == BANNED_NAMES[
         "builtins"

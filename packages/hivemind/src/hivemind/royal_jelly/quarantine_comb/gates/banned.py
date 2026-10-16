@@ -98,6 +98,11 @@ BANNED_NAMES: Mapping[str, frozenset[str]] = MappingProxyType(
                 "removedirs",  # Deletes outside the session's path checks.
                 "chmod",  # Changes permissions outside the session's path checks.
                 "chown",  # Changes ownership outside the session's path checks.
+                "rename",  # Moves a file anywhere, scratch to the host included.
+                "renames",  # The same, creating and removing directories on the way.
+                "replace",  # A rename that overwrites its destination.
+                "link",  # A hard link puts a file under a second, unchecked path.
+                "symlink",  # A link in scratch can point at any path on the host.
                 "open",  # Raw file access outside the session's path checks.
                 "fdopen",  # Raw file access outside the session's path checks.
             }
@@ -151,8 +156,23 @@ BANNED_ANY_ATTRIBUTES: frozenset[str] = frozenset(
 )
 
 # Methods of `pathlib.Path` that touch the filesystem; the module is allowed for path arithmetic.
+# The move-and-link ones are `os.rename`, `os.link` and `os.symlink` under other names.
 PATHLIB_IO_ATTRIBUTES: frozenset[str] = frozenset(
-    {"open", "read_text", "read_bytes", "write_text", "write_bytes", "touch", "unlink", "rmdir"}
+    {
+        "open",
+        "read_text",
+        "read_bytes",
+        "write_text",
+        "write_bytes",
+        "touch",
+        "unlink",
+        "rmdir",
+        "rename",
+        "replace",
+        "symlink_to",
+        "hardlink_to",
+        "link_to",
+    }
 )
 
 # The only non-standard-library module prefixes a tool may import: the session types.

@@ -2,9 +2,12 @@
 
 The static gate reads source; this module watches what the source actually does. Python's audit
 hook (`sys.addaudithook`) is called for security-relevant events: a socket created or connected, a
-process started, a program replaced, a file opened. The hook records the ones the sandbox forbids
-(network, new processes, native code loading, and file access outside the package, the sandbox
-root and the interpreter's own prefixes) and then raises, which stops the action. The subtle part
+process started, a program replaced, a file opened, a file renamed or linked. The hook records the
+ones the sandbox forbids (network, new processes, native code loading, and file access outside the
+package, the sandbox root and the interpreter's own prefixes) and then raises, which stops the
+action. An event that names two paths (a rename, a hard link, a symlink, a copy) is judged on every
+path it names: the source is what the tool reads, the destination is where the bytes end up, and
+a move from scratch to anywhere else is the escape the Comb exists to catch. The subtle part
 is attribution (ADR-0047): the tool calls `session.exec`, and the session's own implementation
 starts a process, so "a process started" is not by itself the tool's doing. An event counts
 against the tool only when the innermost frame that is not the standard library is inside the
@@ -37,10 +40,10 @@ import socket
 import sys
 import sysconfig
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import FrameType
+from types import FrameType, MappingProxyType
 
 from hivemind.royal_jelly.quarantine_comb.runner.report import MAX_LIST_ITEMS, Violation
 
@@ -59,23 +62,50 @@ _PROCESS_EVENTS = frozenset(
 _NATIVE_EVENTS = frozenset(
     {"ctypes.dlopen"}
 )  # Loading a shared library escapes every Python check.
-# Events whose first argument is a path the tool must keep inside the allowed roots.
-_PATH_EVENTS = frozenset(
+# Events that name paths the tool must keep inside the allowed roots, with the positions of
+# every path among the event's arguments (CPython's audit event table). An event with two is the
+# move-or-link family: its second path is a destination, and that is where a file escapes to.
+# `os.replace`, `shutil.move` and `pathlib.Path.rename` all end in the `os.rename` event;
+# `os.makedirs` is a run of `os.mkdir` events; `shutil` is banned statically but its own events
+# are listed too, so a run-time reach through it (a `getattr`, an alias) is still judged.
+_PATH_ARGUMENTS: Mapping[str, tuple[int, ...]] = MappingProxyType(
     {
-        "open",
-        "os.listdir",
-        "os.scandir",
-        "os.remove",
-        "os.rmdir",
-        "os.mkdir",
-        "os.rename",
-        "os.chmod",
-        "os.chown",
-        "os.truncate",
+        "open": (0,),
+        "os.listdir": (0,),
+        "os.scandir": (0,),
+        "os.remove": (0,),
+        "os.rmdir": (0,),
+        "os.mkdir": (0,),
+        "os.chmod": (0,),
+        "os.chown": (0,),
+        "os.chflags": (0,),
+        "os.truncate": (0,),
+        "os.utime": (0,),
+        "os.walk": (0,),
+        "os.fwalk": (0,),
+        "os.getxattr": (0,),
+        "os.listxattr": (0,),
+        "os.setxattr": (0,),
+        "os.removexattr": (0,),
+        "glob.glob": (0,),
+        "tempfile.mkstemp": (0,),
+        "tempfile.mkdtemp": (0,),
+        "shutil.rmtree": (0,),
+        "shutil.chown": (0,),
+        "os.rename": (0, 1),
+        "os.link": (0, 1),
+        "os.symlink": (0, 1),
+        "shutil.copyfile": (0, 1),
+        "shutil.copymode": (0, 1),
+        "shutil.copystat": (0, 1),
+        "shutil.copytree": (0, 1),
+        "shutil.move": (0, 1),
+        "shutil.unpack_archive": (0, 1),
+        "shutil.make_archive": (0, 2, 3),
     }
 )
 _INET_FAMILIES = (socket.AF_INET, socket.AF_INET6)  # A socket of these families is network access.
-# Paths every program may open, as `_resolved` renders them: reading the null device reveals
+# Paths every program may open, as `_event_paths` renders them: reading the null device reveals
 # nothing (`subprocess` opens it for DEVNULL); on Windows it resolves to `\\\\.\\NUL`.
 _ALWAYS_READABLE = frozenset({"/dev/null", os.path.realpath(os.devnull)})
 _MAX_PATH_CHARS = 200  # How much of an offending path the report keeps.
@@ -196,9 +226,10 @@ def _forbidden_what(
         if event == "socket.__new__" and (len(args) < 2 or args[1] not in _INET_FAMILIES):
             return None
         return "socket", f"used the network ({event})"
-    if event in _PATH_EVENTS and args:
-        path = _resolved(args[0])
-        if path is not None and not _is_allowed(path, policy):
+    # Every path the event names is judged, so a rename or link whose source is in scratch and
+    # whose destination is not is caught on the destination.
+    for path in _event_paths(event, args):
+        if not _is_allowed(path, policy):
             return (
                 "open",
                 f"touched {path[:_MAX_PATH_CHARS]} outside the package and scratch ({event})",
@@ -236,15 +267,28 @@ def _is_allowed(path: str, policy: AuditPolicy) -> bool:
     return any(path == root or path.startswith(root + os.sep) for root in policy.allowed_roots)
 
 
-def _resolved(raw: object) -> str | None:
-    """Turn an event's path argument into an absolute, symlink-free path, or None if not a path."""
+def _event_paths(event: str, args: tuple[object, ...]) -> Iterator[str]:
+    """Yield every path argument of a path event, resolved; one that is no path is skipped."""
+    for index in _PATH_ARGUMENTS.get(event, ()):
+        text = _as_text(args[index]) if index < len(args) else None
+        if text is None:
+            continue  # A file descriptor or None: nothing to judge.
+        # A symlink's target is a name the kernel resolves relative to the link's own directory,
+        # not the working directory, so it is anchored there before it is judged; otherwise a
+        # tool could point a link in scratch at anything with `../`.
+        if event == "os.symlink" and index == 0 and not os.path.isabs(text):
+            link = _as_text(args[1]) if len(args) > 1 else None
+            text = os.path.join(os.path.dirname(link), text) if link else text
+        yield os.path.realpath(text)
+
+
+def _as_text(raw: object) -> str | None:
+    """Return an event's path argument as text, or None when it is not a path at all."""
     if isinstance(raw, bytes):
         raw = os.fsdecode(raw)
     elif isinstance(raw, os.PathLike):
         raw = os.fspath(raw)
-    if not isinstance(raw, str) or not raw:
-        return None  # A file descriptor or None: nothing to judge.
-    return os.path.realpath(raw)
+    return raw if isinstance(raw, str) and raw else None
 
 
 def _first_word(args: tuple[object, ...]) -> str:

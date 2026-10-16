@@ -245,3 +245,47 @@ def test_build_policy_allows_the_package_the_sandbox_and_the_interpreter(tmp_pat
     assert str(tmp_path.resolve()) in policy.allowed_roots
     assert any(str(Path(sys.prefix).resolve()) == root for root in policy.allowed_roots)
     assert policy.stdlib_roots
+
+
+@pytest.mark.parametrize("event", ["os.rename", "os.link", "shutil.move", "shutil.copyfile"])
+def test_moving_a_scratch_file_to_an_outside_destination_is_caught_on_the_destination(
+    tmp_path: Path, event: str
+) -> None:
+    policy = _policy(tmp_path)
+    inside = str(tmp_path.resolve() / "scratch" / "staged.txt")
+    outside = str(tmp_path.resolve().parent / "escaped.txt")
+
+    hit = classify(event, (inside, outside), _frames(policy, _TOOL_FRAME), policy)
+
+    assert hit is not None
+    assert hit.kind == "open"
+    assert outside in hit.detail and event in hit.detail
+
+
+def test_a_rename_that_stays_inside_the_allowed_roots_is_fine(tmp_path: Path) -> None:
+    policy = _policy(tmp_path)
+    root = tmp_path.resolve()
+    args = (str(root / "scratch" / "a.txt"), str(root / "scratch" / "b.txt"))
+
+    assert classify("os.rename", args, _frames(policy, _TOOL_FRAME), policy) is None
+
+
+def test_a_symlink_is_judged_on_its_target_as_well_as_its_own_path(tmp_path: Path) -> None:
+    policy = _policy(tmp_path)
+    root = tmp_path.resolve()
+    link = str(root / "scratch" / "link")
+    frames = _frames(policy, _TOOL_FRAME)
+
+    assert classify("os.symlink", ("/etc/passwd", link), frames, policy) is not None
+    # A relative target is anchored at the link's directory, as the kernel will resolve it.
+    assert classify("os.symlink", (os.path.join("..", "..", "etc", "passwd"), link), frames, policy)
+    assert classify("os.symlink", ("sibling.txt", link), frames, policy) is None
+    assert classify("os.symlink", (link, str(root.parent / "out")), frames, policy) is not None
+
+
+@pytest.mark.parametrize("event", ["os.utime", "os.walk", "glob.glob", "shutil.rmtree"])
+def test_the_other_path_events_judge_their_path_too(tmp_path: Path, event: str) -> None:
+    policy = _policy(tmp_path)
+    outside = str(tmp_path.resolve().parent / "outside")
+
+    assert classify(event, (outside, None), _frames(policy, _TOOL_FRAME), policy) is not None

@@ -16,6 +16,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -270,3 +271,37 @@ async def test_evict_drops_residency_for_one_cell_only(tmp_path: Path) -> None:
 
     assert not await rig.basket.is_resident(blob.sha256)
     assert await rig.other_cell.is_resident(blob.sha256)
+
+
+async def test_two_admissions_at_once_cannot_push_the_total_over_the_ceiling(
+    tmp_path: Path,
+) -> None:
+    rig = await _rig(tmp_path, ceiling=10)
+    first, second = await _put(rig, b"aaaaaa"), await _put(rig, b"bbbbbb")
+
+    # Both start before either has written: each read-evict-mark must see the other's write.
+    decisions = await asyncio.gather(rig.basket.admit(first), rig.basket.admit(second))
+
+    assert all(decision.admit for decision in decisions)
+    assert await rig.store.resident_bytes(rig.basket.cell_id) <= 10
+    assert await rig.basket.is_resident(second.sha256)
+    assert not await rig.basket.is_resident(first.sha256)
+
+
+async def test_a_use_noted_during_an_eviction_cannot_resurrect_the_evicted_blob(
+    tmp_path: Path,
+) -> None:
+    rig = await _rig(tmp_path, ceiling=10)
+    old, new = await _put(rig, b"aaaaaa"), await _put(rig, b"bbbbbb")
+    await rig.basket.admit(old)
+    rig.clock.advance(1)
+
+    # The admission evicts `old`; the read of `old` either lands first (bytes back) or finds it
+    # gone (not found), and in neither order may it mark `old` resident again.
+    _, read = await asyncio.gather(
+        rig.basket.admit(new), rig.basket.bytes_for(old.sha256), return_exceptions=True
+    )
+
+    assert read == b"aaaaaa" or isinstance(read, BlobNotFoundError)
+    assert await rig.store.resident_bytes(rig.basket.cell_id) <= 10
+    assert not await rig.basket.is_resident(old.sha256)

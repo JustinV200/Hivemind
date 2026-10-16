@@ -16,12 +16,15 @@ from __future__ import annotations
 import pytest
 
 from hivemind.royal_jelly.quarantine_comb.limits import (
+    ADDRESS_SPACE_FACTOR,
     CPU_GRACE_S,
     FSIZE_BYTES,
     MAX_FUZZ_CALL_S,
     MIN_FUZZ_CALL_S,
     PROCESS_HEADROOM,
+    THREAD_STACK_BYTES,
     Baseline,
+    address_space_cap,
     fuzz_call_timeout,
     rlimit_plan,
 )
@@ -37,7 +40,10 @@ def test_rlimit_plan_adds_the_budget_to_the_baseline() -> None:
     plan = rlimit_plan(limits, baseline).limits
 
     assert plan["RLIMIT_CPU"] == (11 + CPU_GRACE_S, 11 + CPU_GRACE_S)
-    assert plan["RLIMIT_AS"] == (400 * _MIB, 400 * _MIB)
+    expected_as = (
+        300 * _MIB + 100 * _MIB * ADDRESS_SPACE_FACTOR + PROCESS_HEADROOM * THREAD_STACK_BYTES
+    )
+    assert plan["RLIMIT_AS"] == (expected_as, expected_as)
     assert plan["RLIMIT_FSIZE"] == (FSIZE_BYTES, FSIZE_BYTES)
     assert plan["RLIMIT_NPROC"] == (200 + PROCESS_HEADROOM, 200 + PROCESS_HEADROOM)
 
@@ -57,6 +63,26 @@ def test_rlimit_plan_never_caps_below_the_baseline() -> None:
 
     assert plan["RLIMIT_CPU"][0] > 5
     assert plan["RLIMIT_AS"][0] > 900 * _MIB
+
+
+def test_the_address_space_cap_leaves_room_for_reservations_the_rss_gate_never_sees() -> None:
+    limits = QuarantineLimits(memory_bytes=16 * _MIB)  # The smallest budget allowed.
+    baseline = Baseline(cpu_s=0.0, address_space_bytes=200 * _MIB, task_count=1)
+
+    cap = address_space_cap(limits, baseline)
+
+    # An honest tool at its full resident budget that also starts every thread the plan allows
+    # (each reserving a stack) and maps a scratch file still sits under the cap ...
+    honest_vsz = (
+        baseline.address_space_bytes
+        + limits.memory_bytes
+        + PROCESS_HEADROOM * THREAD_STACK_BYTES
+        + FSIZE_BYTES
+    )
+    assert honest_vsz <= cap
+    # ... while the cap stays a real backstop: nowhere near the whole machine's memory.
+    assert cap <= baseline.address_space_bytes + 1024 * _MIB
+    assert rlimit_plan(limits, baseline).limits["RLIMIT_AS"] == (cap, cap)
 
 
 @pytest.mark.parametrize(

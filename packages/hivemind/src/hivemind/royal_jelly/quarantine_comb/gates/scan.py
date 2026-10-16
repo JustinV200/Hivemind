@@ -151,7 +151,7 @@ class _Scanner(ast.NodeVisitor):
             self._add(node, f"uses the banned attribute '{node.attr}'")
         elif dotted is not None and is_banned_name(dotted, node.attr):
             self._add(node, f"uses banned '{dotted}.{node.attr}'")
-        elif node.attr in PATHLIB_IO_ATTRIBUTES and "pathlib" in self._targets.values():
+        elif node.attr in PATHLIB_IO_ATTRIBUTES and self._imports_pathlib():
             self._add(node, f"uses pathlib file access '.{node.attr}'; use the session instead")
         self.generic_visit(node)
 
@@ -166,6 +166,14 @@ class _Scanner(ast.NodeVisitor):
             ):
                 self._add(node, f"uses getattr to reach the banned name '{name.value}'")
         self.generic_visit(node)
+
+    def _imports_pathlib(self) -> bool:
+        """Return whether any import so far reaches pathlib (`import pathlib` or `from pathlib`)."""
+        # `from pathlib import Path` binds `Path` to `pathlib.Path`, so a prefix match is needed.
+        return any(
+            target == "pathlib" or target.startswith("pathlib.")
+            for target in self._targets.values()
+        )
 
     def _check_module(self, node: ast.AST, dotted: str) -> None:
         """Refuse a banned module, and any module that is neither stdlib nor an allowed one."""
