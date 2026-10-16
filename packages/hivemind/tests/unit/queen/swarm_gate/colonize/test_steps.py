@@ -287,3 +287,23 @@ async def test_the_cell_is_held_from_the_pause_and_opened_again_by_the_resume(
 
         await resume_all(context, move, "The Warden moved.")
         assert not held.is_held(placed.node.cell_id)
+
+
+async def test_the_resume_leaves_a_task_that_moved_on_while_the_warden_was_between_machines(
+    rig: GateRig,
+) -> None:
+    async with rig.serving():
+        placed = await place_on_device(rig, RuntimeLevel.COLONIZED)
+        move = Move(placed.node, placed.device.link)
+        context = GateContext(rig.queen, rig.queen_deps)
+        await pause_for_move(context, move, "Colonizing.")
+        assert move.paused == (placed.task.id,)
+        # The human cancels it while its Warden is between machines: PAUSED -> CANCELLED, so
+        # PAUSED -> RUNNING is no longer its edge, and the resume must not try (nor raise).
+        await rig.queen_deps.chamber.cancel(placed.task.id, "The human cancelled the goal.")
+
+        stranded = await resume_all(context, move, "The Warden moved.")
+
+        assert stranded == ()  # Not stranded: it ended, and is left where the human put it.
+        assert (await rig.queen_deps.chamber.get(placed.task.id)).status is TaskStatus.CANCELLED
+        assert not rig.queen_deps.dispatch.held.is_held(placed.node.cell_id)

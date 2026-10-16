@@ -21,9 +21,10 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from builders.isolation import place_running
 from builders.swarm import GateRig, PromotionScenario, make_promotion
 
-from hivemind.brood_chamber import TaskStatus
+from hivemind.brood_chamber import Task, TaskStatus
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.swarm_gate.colonize import promote as promote_module
 from hivemind.swarm import GatewayUnavailableError, LadderError, NodeStatus, RuntimeLevel
@@ -173,6 +174,39 @@ async def test_a_warden_that_dialled_in_is_let_go_when_the_rung_cannot_be_set(
         assert [link.node_id for link in rig.queen.wardens] == [None]  # Only the Level 0 link.
         [demoted] = await rig.hive.events("swarm.demoted")
         assert demoted.payload["reason"] == "level_not_set"
+        await scenario.close()
+
+
+async def test_a_task_placed_while_the_warden_was_on_its_device_is_taken_back_by_the_undo(
+    rig: GateRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with rig.serving():
+        scenario = await make_promotion(rig)
+        deps = rig.queen_deps
+        slipped: list[Task] = []
+
+        async def refuse(*_args: object, **_kwargs: object) -> object:
+            # Between the device Warden's arrival and the commit the Cell is closed to the
+            # dispatcher, whatever the attach did with it...
+            assert deps.dispatch.held.is_held(scenario.placed.node.cell_id)
+            # ...and a placement that reaches it all the same has no bee once the undo dismisses
+            # that Warden, so the undo must take it back rather than leave it RUNNING there.
+            device_warden = next(link for link in rig.queen.wardens if link.node_id is not None)
+            slipped.append(await place_running(deps, device_warden))
+            raise LadderError(RuntimeLevel.GATEWAY, RuntimeLevel.COLONIZED)
+
+        monkeypatch.setattr(rig.hive.registry, "set_level", refuse)
+
+        await scenario.start()
+        await scenario.finish()
+
+        await _undone(scenario)
+        [task] = slipped
+        row = await deps.chamber.get(task.id)
+        assert row.status is TaskStatus.PENDING and row.warden_id is None  # Placed afresh.
+        assert ("tasks_taken_back", "undone") in await _decisions(rig)
+        paused = await deps.chamber.get(scenario.placed.task.id)
+        assert paused.status is TaskStatus.RUNNING  # The paused one resumed on the Hive Stand.
         await scenario.close()
 
 

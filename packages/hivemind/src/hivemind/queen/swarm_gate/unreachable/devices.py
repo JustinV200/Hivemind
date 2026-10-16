@@ -17,7 +17,9 @@ nothing was lost. When the grace ends the Queen decides by the device's rung (`d
 a Level 0 or Level 1 device's tasks are taken back and placed afresh from their last Handoff, its
 Warden let go; a Nuc's tasks keep waiting, up to `[supervision] max_offline_s`, because it is still
 working. Every decision is a `queen.decided` event. A device that comes back after its tasks were
-taken has the Warden it still had told to cancel them, so nothing runs twice.
+taken has the Warden it still had told to cancel them, so nothing runs twice; its Cell stays held
+from the loss until those cancels went, so the Queen's tick cannot place one of those very tasks
+on the returning Warden a moment before the cancel for it arrives.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside
@@ -30,7 +32,8 @@ Key invariants:
     - `lost` and `found` are idempotent, so the level-triggered reconcile pass can call them on
       every pass: a hold begins once, is decided once, and ends once.
     - Nothing is failed or cancelled during the hold, and the dispatcher acts on a held Cell only
-      after it is released.
+      after it is released: when the device is found (after the cancels for its abandoned tasks
+      went) or forgotten, never at the decision and never at the Warden's attach.
     - A decision is made at most once per hold, from the device's rung when the grace ended.
     - A device with no hold, and no Warden here, is untouched by `found`.
     - Why a device went is a short stable word the hub gave; never an address, a key or a path.
@@ -204,13 +207,16 @@ class UnreachableDevices:
         hold, context = self._holds.pop(node.device_id, None), self._context
         if hold is None or context is None:
             return
-        context.deps.dispatch.held.release(node.cell_id)
         await self._conclude(node, hold)
+        # The cancels first, the Cell open second: the returning Warden must hear that the Queen
+        # placed its abandoned tasks elsewhere before her tick may place anything on it, or the
+        # cancel would reach the fresh bee of a task the tick had just put back on that Warden.
+        await cancel_abandoned(context, self._wardens, node, hold.abandoned)
+        context.deps.dispatch.held.release(node.cell_id)
         detail = "after_replacement" if hold.state is HoldState.REPLACED else "reconnected"
         await record_event(
             context.deps, "queen.decided", node.device_id, reason="hold_released", detail=detail
         )
-        await cancel_abandoned(context, self._wardens, node, hold.abandoned)
 
     async def forget(self, node: SwarmNode) -> None:
         """End a revoked device's hold without a decision: there is nothing left to wait for.
@@ -271,10 +277,11 @@ class UnreachableDevices:
     async def _replace(
         self, context: GateContext, node: SwarmNode, hold: _Hold, cause: str
     ) -> None:
-        """Take the device's tasks back, let its Warden go, and lift the hold on the Cell."""
+        """Take the device's tasks back and let its Warden go; the Cell stays held until found."""
         hold.abandoned = await take_back(context.deps, node, cause)
         await let_go(context, self._wardens, node)
-        context.deps.dispatch.held.release(node.cell_id)
+        # Not released here: no Warden is attached for the Cell, so nothing could be placed on it
+        # anyway, and `found` opens it once the returning Warden has been told what to cancel.
         hold.state = HoldState.REPLACED
         await self._conclude(node, hold)
 

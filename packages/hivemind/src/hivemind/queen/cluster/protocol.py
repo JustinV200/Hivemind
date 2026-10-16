@@ -71,6 +71,9 @@ Key invariants:
       caller gives `patience_s`: a move does, because the Warden it ends takes its bees with it
       and a bee inside a command writes its Handoff only when the command returns; Clustering
       gives none, so it never waits on a clock.
+    - A pause reads the task again after that wait, and pauses only a task that is still RUNNING:
+      the Queen's tick runs beside the wait, and a task it finished or cancelled meanwhile is left
+      as it is, never raised about (the swarm gate's flows and passes call this concurrently).
     - Every affected task id lands in exactly one of `ClusterOutcome.affected_task_ids`/
       `ResumeOutcome.resumed_task_ids`, and `queen.clustered`/`queen.resumed` is recorded exactly
       once per call, after every affected task's own wire messages and chamber transition, never
@@ -92,7 +95,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivemind.brood_chamber import Task, TaskFilter, TaskStatus
+from hivemind.brood_chamber import InvalidTransitionError, Task, TaskFilter, TaskStatus
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.cell import HoneyClearance
 from hivemind.forage import ForageGrant, ForageMap, UnknownSourceError
@@ -277,15 +280,33 @@ async def _pause_affected(
         # gone) is still paused regardless -- resume then falls back to no Handoff (docs/adr/0024:
         # "a bee whose Handoff cannot be read resumes from the task's last acceptance state").
         await _wait_for_checkpoint(deps, task_id, patience_s)
+        # Read again after the wait: it is thousands of turns, and real seconds for a move, and the
+        # Queen's tick runs beside it, so the bee may have finished its command and reported, or
+        # the human cancelled the task, meanwhile. The same rule as before the wait: a task that
+        # is not RUNNING any more is left exactly as it is, never paused, never raised about.
+        if (await deps.chamber.get(task_id)).status is not TaskStatus.RUNNING:
+            continue
         # Only now the pause: a Worker the runtime has paused sits at its pause wait and cannot
         # hand off (PAUSED has no edge to HANDING_OFF), so a pause sent beside the HANDOFF kept a
         # real Drone, one that was in a model call when both arrived, from ever checkpointing.
         # Found by the phase 8 offline e2e (a Drone on a real socket); a scripted Worker that
         # checkpoints before the pause is handled is unaffected.
         await _send_task_pause(deps, link, task_id, reason)
-        await deps.chamber.pause(task_id, reason)
-        task_ids.append(task_id)
+        if await _pause_in_chamber(deps, task_id, reason):
+            task_ids.append(task_id)
     return tuple(task_ids)
+
+
+async def _pause_in_chamber(deps: QueenDeps, task_id: TaskId, reason: str) -> bool:
+    """Move `task_id` RUNNING -> PAUSED; False when it moved elsewhere since the last read."""
+    try:
+        await deps.chamber.pause(task_id, reason)
+    except InvalidTransitionError:
+        # The one await between the re-read and this (the TaskPause send) was enough for the tick
+        # to land the bee's result. The task is where the tick put it; the pause order it was sent
+        # reaches a bee that is already gone, and nothing is lost.
+        return False
+    return True
 
 
 async def resume(

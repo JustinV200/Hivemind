@@ -51,7 +51,6 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 
-from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.queen.swarm_gate.colonize.env import FlowEnv
 from hivemind.queen.swarm_gate.colonize.errors import ColonizeStepError, word_for
@@ -63,6 +62,7 @@ from hivemind.queen.swarm_gate.colonize.events import (
 from hivemind.queen.swarm_gate.colonize.steps import (
     ATTACH_TIMEOUT_S,
     DEAD_LINK_WORDS,
+    MOVING_REASON,
     PREPARE_DEADLINE_S,
     START_DEADLINE_S,
     WITHDRAW_DEADLINE_S,
@@ -75,6 +75,7 @@ from hivemind.queen.swarm_gate.colonize.steps import (
     take_back_the_rest,
     tell_device,
 )
+from hivemind.queen.swarm_gate.errors import RECOVERABLE_ERRORS
 from hivemind.queen.swarm_gate.takeback import take_back
 from hivemind.queen.trail import record_event
 from hivemind.swarm import DeviceLink, NodeStatus, RuntimeLevel, SwarmError, SwarmNode
@@ -111,7 +112,7 @@ class Promotion:
         except asyncio.CancelledError:
             await self._abandon()  # The gate is stopping: leave nothing PAUSED.
             raise
-        except (SwarmError, CellError, sqlite3.Error) as error:
+        except RECOVERABLE_ERRORS as error:
             await self._undo(word_for(error))
         finally:
             # However it ended, the Cell is open to the dispatcher again (a no-op once resumed).
@@ -146,6 +147,11 @@ class Promotion:
         if reply.outcome is not ColonizeOutcome.STARTED:
             raise ColonizeStepError("start_failed")
         await env.arrivals.wait(node.device_id, ATTACH_TIMEOUT_S)
+        # Held again, as the renewal does: the Cell stays closed to the dispatcher until the move
+        # is committed and `resume_all` opens it. The flow's own guarantee, whatever the attach
+        # path does with a returning Warden's Cell, so nothing is placed on a Warden the undo may
+        # dismiss a moment later.
+        env.context.deps.dispatch.held.hold(node.cell_id, MOVING_REASON)
 
     async def _commit(self) -> None:
         """Move the rung, record the migration, tell the device, and resume the paused tasks."""
@@ -174,6 +180,10 @@ class Promotion:
             await self._withdraw()
         if move.moved:
             await dismiss_remote(env.context, env.wardens, move.node)
+            # Whatever reached the Cell since the pause (a placement that slipped in while the
+            # device's Warden was attached) has no bee now that Warden is dismissed: taken back
+            # to be placed afresh, the paused tasks left for `_restore` to resume.
+            await take_back_the_rest(env.context, move, "undone")
         node = await env.registry.node(move.node.device_id)
         if node is None or node.status is NodeStatus.REVOKED:
             # Nothing to rebuild for a device the operator removed meanwhile; its tasks move on.

@@ -347,6 +347,11 @@ async def resume_all(context: GateContext, move: Move, reason: str) -> tuple[Tas
     """
     context.deps.dispatch.held.release(move.node.cell_id)  # Open again: a resume may reach it.
     for task_id in move.paused:
+        if (await context.deps.chamber.get(task_id)).status is not TaskStatus.PAUSED:
+            # Cancelled by the human, or resumed by another path (Clustering's own resume, a
+            # judge), while the Warden was between machines: PAUSED -> RUNNING is no longer its
+            # edge, and the task is left where that path put it, as `cluster.resume` leaves it.
+            continue
         ref = move.refs.get(task_id)
         await resume_paused(context.deps, context.queen.wardens, task_id, ref, reason)
     stranded = [

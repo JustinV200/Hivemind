@@ -4,8 +4,9 @@ When a Swarm device is lost (its link dropped, or its Warden's did) the Queen do
 tasks on it and does not move them: she *holds* them for `[swarm] unreachable_grace_s`, because the
 device usually comes back, and a Nuc is still working on its own pool (ADR-0053). `HeldCells` is the
 whole of that hold as the dispatcher sees it: the Cells whose node is away, each with a short
-reason. The swarm gate fills it when a device is lost and empties it when the device returns or the
-grace ends; the dispatcher only reads it, and where it reads it, it acts on nothing that is held:
+reason. The swarm gate fills it when a device is lost and empties it when the device returns (or is
+revoked), after it has told the returning Warden which tasks were placed elsewhere meanwhile; the
+dispatcher only reads it, and where it reads it, it acts on nothing that is held:
 it does not retry or resume a held Cell's task, it does not place new work on a held Cell, and the
 Queen's result handling does not fail one. `ResumeHints` is the other half of a decision that does
 move tasks: when the grace ends on a device whose Warden cannot be waited for, its tasks go back to

@@ -53,21 +53,20 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, ClassVar
 
-from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reap_all
 from hivemind.queen.swarm_gate.attach import DeviceWardenDoor, GateDoorEvents
 from hivemind.queen.swarm_gate.colonize import Colonizer
+from hivemind.queen.swarm_gate.errors import RECOVERABLE_ERRORS
 from hivemind.queen.swarm_gate.reconcile import DeviceReconciler, ReconcileDeps
 from hivemind.queen.swarm_gate.rungs import RungEvaluator
 from hivemind.queen.swarm_gate.terms import GateContext, GateTerms
 from hivemind.queen.swarm_gate.unreachable import Diagnosis, UnreachableDevices
 from hivemind.queen.swarm_gate.wardens import DeviceWardens
-from hivemind.swarm import DeviceLink, SwarmError, SwarmListener, SwarmNode, SwarmRegistry
+from hivemind.swarm import DeviceLink, SwarmListener, SwarmNode, SwarmRegistry
 from waggle.clock import Clock
 from waggle.envelope import Envelope
 from waggle.loop import TickLoop
@@ -84,11 +83,9 @@ __all__ = ["SwarmGate"]
 class _GateLoop(TickLoop):
     """Run a reconcile pass every interval, and at once when the hub reports a change."""
 
-    _recoverable_errors: ClassVar[tuple[type[Exception], ...]] = (
-        SwarmError,
-        CellError,
-        sqlite3.Error,
-    )
+    # The one set every catch in the gate uses (`errors`): a chamber row the Queen's tick moved
+    # under a pass is as ordinary here as a device that went away, and must not end the loop.
+    _recoverable_errors: ClassVar[tuple[type[Exception], ...]] = RECOVERABLE_ERRORS
 
     def __init__(
         self,

@@ -22,12 +22,17 @@ same class-size reason, these are one file further out for the same file-size re
 the id it has always had, and the Queen must recognise it rather than meet a stranger. Attaching a
 `warden_id` she already knows (attached with a dead link, which the new link replaces; or attached
 earlier in this process's life and detached since) is a reconnection: the new link replaces the old
-one, `warden.reconnected` is recorded instead of `warden.spawned`, the dispatcher's hold on the
-Warden's Cell is lifted so it resumes what it was holding (`DispatchBook.held`), and, as for every
+one, `warden.reconnected` is recorded instead of `warden.spawned`, and, as for every
 attach whose Warden the Forage ledger already holds decisions for, the current ceilings, hosting
 plan and live grants are sent again (`hivemind.queen.forage.resend`), closing the gap that
 ceilings were only ever sent once per Queen life: a Warden that restarted, or that a restarted Queen
-meets for the first time, would otherwise run on whatever it last remembered.
+meets for the first time, would otherwise run on whatever it last remembered. A hold on the
+Warden's Cell (`DispatchBook.held`) is not touched by the attach: every hold is the swarm gate's
+(a lost device's, a Warden between machines), and the gate ends it on its own pass, once it has
+done what it does before the Cell may take work again -- told a returning Warden which of its tasks
+were placed elsewhere while it was away, resumed the tasks a move paused. A Cell opened here, in
+the listener's task, let the Queen's tick place a task on the returning Warden before the gate's
+cancel for the very same task went out.
 
 Attaching is also the first moment the Queen hears a Night Veil Cell's own word about its tier
 (the `CellReady` it announced, carried on the link's Cell), often before the lifecycle has seen the
@@ -137,8 +142,9 @@ async def attach_warden(queen: Queen, link: WardenLink) -> bool:
     # What the ledger holds for this Warden goes to it again, whichever way it arrived: a returning
     # Warden, a restarted one, or one a restarted Queen meets for the first time.
     resent = await resend_state(deps, link)
+    # The Cell is not opened here (module docstring): whoever holds it releases it, after its own
+    # orders to this Warden went, on the gate's next pass, which the door wakes.
     if returning:
-        deps.dispatch.held.release(link.cell.id)  # The dispatcher resumes what it was holding.
         await _record_reconnected(queen, link, resent)
     else:
         await _record_spawned(queen, link)

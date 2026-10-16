@@ -57,9 +57,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 
-from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.swarm_gate.colonize.env import FlowEnv
@@ -80,8 +78,9 @@ from hivemind.queen.swarm_gate.colonize.steps import (
     take_back_the_rest,
     tell_terms,
 )
+from hivemind.queen.swarm_gate.errors import RECOVERABLE_ERRORS
 from hivemind.queen.swarm_gate.takeback import take_back
-from hivemind.swarm import DeviceLink, RuntimeLevel, SwarmError, SwarmNode
+from hivemind.swarm import DeviceLink, RuntimeLevel, SwarmNode
 from waggle.messages.swarm import ColonizeAction, ColonizeOutcome
 
 # What the packet is told, and so what the operator sees if the device's own log is read.
@@ -126,7 +125,7 @@ class Renewal:
         except asyncio.CancelledError:
             await self._abandon()  # The gate is stopping: leave nothing PAUSED.
             raise
-        except (SwarmError, CellError, sqlite3.Error) as error:
+        except RECOVERABLE_ERRORS as error:
             await fall_back_to_level0(env, move, word_for(error))
         finally:
             # However it ended, the Cell is open to the dispatcher again (a no-op once resumed).

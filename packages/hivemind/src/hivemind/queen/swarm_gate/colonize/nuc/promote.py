@@ -50,7 +50,6 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 
-from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.forage import ModelSource
 from hivemind.queen.deps import WardenLink
@@ -65,6 +64,7 @@ from hivemind.queen.swarm_gate.colonize.errors import ColonizeStepError, word_fo
 from hivemind.queen.swarm_gate.colonize.events import level_event
 from hivemind.queen.swarm_gate.colonize.nuc.facts import nuc_ceilings
 from hivemind.queen.swarm_gate.colonize.steps import tell_device
+from hivemind.queen.swarm_gate.errors import RECOVERABLE_ERRORS
 from hivemind.queen.trail import record_event
 from hivemind.swarm import NucDecision, RuntimeLevel, SwarmError, SwarmNode
 from waggle.messages.swarm import NucAction, NucOutcome, NucPromote, NucPromoted
@@ -139,7 +139,7 @@ class NucPromotion:
         except asyncio.CancelledError:
             await self._undo("gate_stopping")
             raise
-        except (SwarmError, CellError, sqlite3.Error) as error:
+        except RECOVERABLE_ERRORS as error:
             await self._undo(word_for(error))
             return
         # The server answered: until this Warden connects again there is nothing to start afresh.

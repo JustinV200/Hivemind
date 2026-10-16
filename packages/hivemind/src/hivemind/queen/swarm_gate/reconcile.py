@@ -61,12 +61,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.queen.cluster import pause_on_warden
-from hivemind.queen.swarm_gate.colonize import Colonizer
+from hivemind.queen.swarm_gate.colonize import Colonizer, steps
 from hivemind.queen.swarm_gate.colonize.renew import TERMS_CHANGED_REASON
-from hivemind.queen.swarm_gate.colonize.steps import dismiss_remote, tell_terms
+from hivemind.queen.swarm_gate.errors import RECOVERABLE_ERRORS
 from hivemind.queen.swarm_gate.rungs import RungEvaluator
 from hivemind.queen.swarm_gate.takeback import take_back
 from hivemind.queen.swarm_gate.terms import GateContext
@@ -77,7 +76,6 @@ from hivemind.swarm import (
     GatewayUnavailableError,
     NodeStatus,
     RuntimeLevel,
-    SwarmError,
     SwarmListener,
     SwarmNode,
     SwarmRegistry,
@@ -142,7 +140,7 @@ class DeviceReconciler:
         for node in nodes:
             try:
                 await self.sync(node)
-            except (SwarmError, CellError) as error:
+            except RECOVERABLE_ERRORS as error:
                 # The type only: a repr of a device error can carry what the device wrote.
                 log.error("swarm.sync_failed", device_id=node.device_id, error=type(error).__name__)
 
@@ -205,7 +203,7 @@ class DeviceReconciler:
         link = hub.link(node.device_id)
         if link is not None:
             # The hub's record changes only once the frame went: a failing link is tried again.
-            await tell_terms(hub, link, node, TERMS_CHANGED_REASON)
+            await steps.tell_terms(hub, link, node, TERMS_CHANGED_REASON)
 
     async def _keep(self, node: SwarmNode) -> None:
         """Give a reachable Level 0 device a Warden, keep it, or rebuild it for changed terms."""
@@ -245,8 +243,15 @@ class DeviceReconciler:
         deps, context = self._deps, self._context
         if context is not None and polite:
             # Each bee writes a Handoff before its Warden goes, so the task resumes where it was.
+            # With a move's patience: the Warden that is stopped takes its bees with it, and a bee
+            # inside a command writes its Handoff only when the command returns (read at call
+            # time, so a test that gives moves no time to wait gives this none either).
             await pause_on_warden(
-                context.deps, context.queen.wardens, node.warden_id, REBUILD_PAUSE_REASON
+                context.deps,
+                context.queen.wardens,
+                node.warden_id,
+                REBUILD_PAUSE_REASON,
+                patience_s=steps.HANDOFF_PATIENCE_S,
             )
         await deps.wardens.stop(node.device_id)
         if context is not None:
@@ -269,7 +274,7 @@ class DeviceReconciler:
             return
         # Once per revocation: a Warden that dialled in from the device is dropped, the hold on
         # its tasks ends with no decision, and its tasks are placed afresh.
-        await dismiss_remote(context, deps.wardens, node)
+        await steps.dismiss_remote(context, deps.wardens, node)
         await deps.unreachable.forget(node)
         await take_back(context.deps, node, "revoked")
 

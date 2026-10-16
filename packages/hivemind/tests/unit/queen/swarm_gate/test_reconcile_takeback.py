@@ -28,6 +28,7 @@ from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import AccessLevel
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.cluster import pause_on_warden
+from hivemind.queen.swarm_gate.colonize import steps
 from hivemind.queen.swarm_gate.reconcile import REBUILD_PAUSE_REASON
 from hivemind.swarm import NodeStatus, RuntimeLevel, SwarmError, SwarmNode
 from hivemind.swarm.enrolment.capabilities import granted_capabilities
@@ -95,13 +96,20 @@ async def test_a_revocation_is_acted_on_once_however_often_the_pass_sees_it(rig:
 async def test_a_rebuilt_warden_has_its_bees_paused_first_and_its_tasks_taken_back(
     rig: GateRig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    paused: list[tuple[str, str]] = []
+    paused: list[tuple[str, str, float]] = []
 
-    async def spy(deps: object, wardens: object, warden_id: str, reason: str) -> object:
-        paused.append((warden_id, reason))
+    async def spy(
+        deps: object, wardens: object, warden_id: str, reason: str, patience_s: float = 0.0
+    ) -> object:
+        paused.append((warden_id, reason, patience_s))
+        # The real pause, with no patience: the scripted bee writes no Handoff, so a real wait
+        # would be the test doing nothing for as long as a move waits.
         return await pause_on_warden(deps, wardens, warden_id, reason)  # type: ignore[arg-type]
 
     monkeypatch.setattr("hivemind.queen.swarm_gate.reconcile.pause_on_warden", spy)
+    # A move's patience, as the conftest leaves it at zero: the rebuild must pass the same one,
+    # because the Warden it stops takes its bees with it, like a move does (ADR-0052).
+    monkeypatch.setattr(steps, "HANDOFF_PATIENCE_S", 7.5)
     async with rig.serving():
         placed = await place_on_device(rig)
         await rig.hive.registry.set_access(
@@ -114,7 +122,7 @@ async def test_a_rebuilt_warden_has_its_bees_paused_first_and_its_tasks_taken_ba
 
         await rig.reconciler.sync(changed)
 
-        assert paused == [(placed.node.warden_id, REBUILD_PAUSE_REASON)]
+        assert paused == [(placed.node.warden_id, REBUILD_PAUSE_REASON, 7.5)]
         task = await rig.queen_deps.chamber.get(placed.task.id)
         assert task.status is TaskStatus.PENDING  # Taken back, not left on a Warden that is gone.
         assert ("tasks_taken_back", "rebuilt") in await _decisions(rig)

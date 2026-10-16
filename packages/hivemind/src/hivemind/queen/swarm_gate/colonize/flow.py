@@ -56,7 +56,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Protocol
 
-from hivemind.cell import CellError
 from hivemind.common.logging import get_logger
 from hivemind.forage import RoleFootprint
 from hivemind.queen.deps import WardenLink
@@ -75,6 +74,7 @@ from hivemind.queen.swarm_gate.colonize.renew.flow import Renewal
 from hivemind.queen.swarm_gate.colonize.request import Ask, Step, decide_request
 from hivemind.queen.swarm_gate.colonize.steps import is_idle, live_node
 from hivemind.queen.swarm_gate.colonize.withdraw import Withdrawal
+from hivemind.queen.swarm_gate.errors import RECOVERABLE_ERRORS
 from hivemind.queen.swarm_gate.terms import GateContext, GateTerms
 from hivemind.queen.swarm_gate.wardens import DeviceWardens
 from hivemind.queen.trail import record_event
@@ -324,7 +324,7 @@ async def run_flow(env: FlowEnv, node: SwarmNode, flow: Flow, ended: Callable[[]
     """Run one flow; whatever it could not undo is recorded, and the device is released."""
     try:
         await flow.run()
-    except (SwarmError, CellError, sqlite3.Error) as error:
+    except RECOVERABLE_ERRORS as error:
         # The type only: a device error can carry text the device wrote.
         log.error("swarm.rung_flow_failed", device_id=node.device_id, error=type(error).__name__)
         await settle(env, node, word_for(error))

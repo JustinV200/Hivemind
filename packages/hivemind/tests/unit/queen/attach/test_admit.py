@@ -202,7 +202,7 @@ async def test_a_warden_dialling_again_after_it_was_detached_is_still_a_reconnec
     assert len(await deps.trail.query(TrailQuery(kind="warden.reconnected"))) == 1
 
 
-async def test_a_reconnection_lifts_the_dispatchers_hold_on_its_cell() -> None:
+async def test_a_reconnection_leaves_the_hold_on_its_cell_to_the_gate_that_holds_it() -> None:
     deps, link, _end = make_queen_deps()
     queen = Queen(deps)
     await queen.attach_warden(link)
@@ -211,7 +211,9 @@ async def test_a_reconnection_lifts_the_dispatchers_hold_on_its_cell() -> None:
 
     await queen.attach_warden(again)
 
-    assert not deps.dispatch.held.is_held(link.cell.id)
+    # The swarm gate ends it on its own pass, after telling the returning Warden which of its
+    # tasks were placed elsewhere; opened here, the tick could place one of those first.
+    assert deps.dispatch.held.is_held(link.cell.id)
 
 
 async def test_a_first_attach_does_not_touch_a_hold_on_a_cell() -> None:
