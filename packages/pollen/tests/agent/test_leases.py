@@ -36,6 +36,7 @@ from disk import exists, is_dir, permission_bits
 from queen_double import QueenDouble, QueenSession
 from scenarios import eventually, exec_message, open_lease, put_file, python_argv, teardown
 
+from pollen.errors import StateError
 from pollen.lease import DeviceLease, LeaseState, LeaseTable, ProcessKind, ProcessRecord
 from pollen.lease import restore as restore_module
 from pollen.platform import select_shim
@@ -304,6 +305,24 @@ async def test_a_lease_whose_scratch_cannot_be_made_is_refused_and_not_recorded(
         session = await queen.next_session()
         assert await _refusal(queen, session, _cell_request(queen)) == "pollen.lease_refused"
         assert LeaseTable.load(device.layout.lease_table).all() == ()
+
+
+async def test_a_lease_the_table_cannot_record_leaves_no_scratch_behind(
+    queen: QueenDouble, device: Device, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    taken = new_lease_id(clock)
+    monkeypatch.setattr("pollen.agent.leases.new_lease_id", lambda _clock: taken)
+
+    async def refuse(_self: LeaseTable, _lease: DeviceLease) -> None:
+        raise StateError("The lease table could not be written.")
+
+    monkeypatch.setattr(LeaseTable, "put", refuse)
+    async with running(device, clock):
+        session = await queen.next_session()
+        assert await _refusal(queen, session, _cell_request(queen)) == "pollen.internal_error"
+    # Nothing records the lease, so nothing would ever sweep its scratch: it must not be there.
+    assert not exists(device.layout.scratch(taken))
+    assert LeaseTable.load(device.layout.lease_table).all() == ()
 
 
 async def test_a_teardown_naming_another_cell_is_refused(

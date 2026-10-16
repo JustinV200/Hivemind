@@ -5,8 +5,9 @@ together by a ``transfer_id`` (the envelope id of the chunk at offset 0). The Po
 thin gateway program on a device the Hive borrows) checks the first chunk against the rules of
 gateway-contract section 7 (offset 0, a size under the family cap, room under the lease's scratch
 quota and the free disk, at most eight open transfers per sender), appends each following chunk
-only at the running length, and on the final chunk verifies the length and the SHA-256 of the
-whole before moving the file into place. The partial file lives in the lease's scratch directory,
+only at the running length, never past the declared total and never past the room scratch has at
+that moment, and on the final chunk verifies the length and the SHA-256 of the whole before
+moving the file into place. The partial file lives in the lease's scratch directory,
 never beside the target, so an abandoned or failed transfer leaves nothing outside scratch; a
 transfer idle for a minute is discarded with its partial file. The packet never runs what it
 wrote. Moving into place is the one step outside scratch for an outside target, and it happens
@@ -20,7 +21,8 @@ Fits into the Hive:
 
 Key invariants:
     - A chunk is appended only at the transfer's running length, from the sender that began it,
-      to the path it began with.
+      to the path it began with, and only while it keeps the file under its declared total and
+      scratch under its quota.
     - A failed or refused transfer deletes its partial file and forgets the transfer.
     - The final file is verified (length and digest) before it replaces anything.
     - A target outside scratch is recorded in the lease table before it is changed.
@@ -137,6 +139,16 @@ class TransferTable:
             transfer = await self._start(envelope, payload, lease, target)
         try:
             self._check_continuation(transfer, envelope, payload, target)
+            # Room is measured again for every chunk, against the bytes actually landing: the
+            # start only saw the declared total, and scratch may have filled since (a command of
+            # the lease writing there), so the quota holds whatever the sender declared.
+            await asyncio.to_thread(
+                check_room,
+                Path(lease.scratch_root),
+                lease.quota_bytes,
+                len(payload.chunk),
+                lease.lease_id,
+            )
             await asyncio.to_thread(_append, transfer.temp, payload.chunk)
             transfer.advance(payload.chunk, self._deps.clock.monotonic())
             if payload.final:
@@ -252,6 +264,14 @@ class TransferTable:
             raise TransferRefusedError(
                 f"A chunk of transfer {payload.transfer_id} starts at {payload.offset}, "
                 f"not at the {transfer.written} bytes received so far."
+            )
+        # The total the first chunk declared is a ceiling on every later one: the wire holds each
+        # chunk to its own total_bytes, so a sender who raised that figure chunk by chunk and never
+        # sent the final one (the only one _verify sees) could otherwise grow the file without end.
+        if payload.offset + len(payload.chunk) > transfer.total:
+            raise TransferRefusedError(
+                f"A chunk of transfer {payload.transfer_id} would take it to "
+                f"{payload.offset + len(payload.chunk)} bytes, past the declared {transfer.total}."
             )
 
     def _verify(self, transfer: Transfer, payload: SessionPutFile) -> None:

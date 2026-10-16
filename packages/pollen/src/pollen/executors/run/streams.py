@@ -95,8 +95,11 @@ class OutputSink:
         passed = len(data) > room
         data = data[: max(0, room)]
         if data:
-            await self._frame(kind, data, final=False)
+            # Reserved before the send, not after: the other stream's pump runs while this one
+            # awaits the reporter, and would otherwise measure its room against a stale count
+            # and overshoot the cap by a chunk of its own.
             self._sent += len(data)
+            await self._frame(kind, data, final=False)
         return passed
 
     async def end(self, kind: SessionStream) -> None:

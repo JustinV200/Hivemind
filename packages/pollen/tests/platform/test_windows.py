@@ -2,10 +2,12 @@
 
 On Windows the Pollen Packet (the thin gateway program on a device the Hive borrows) keeps its
 files in a ``pollen`` folder under LocalAppData, runs each program in a process group of its own
-and ends a tree with ``taskkill /T``, and starts at logon as a Scheduled Task. The shim is written
-so it imports and its pure parts run on every host, which is what lets CI check it without a
-Windows machine: a recorder stands in for ``schtasks`` and ``taskkill``, and the process-tree
-rules are exercised against real programs on the host's own process table.
+and, where the host offers no Job Object for it (test_windows_jobs.py covers the job), ends a
+tree with ``taskkill /T``, and starts at logon as a Scheduled Task. The shim is written so it
+imports and its pure parts run on every host, which is what lets CI check it without a Windows
+machine: a recorder stands in for ``schtasks`` and ``taskkill``, the shim is given a job table
+with no kernel32 behind it, and the process-tree rules are exercised against real programs on
+the host's own process table.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.platform.windows.
@@ -31,6 +33,7 @@ import pytest
 
 from pollen.platform import CommandResult, ProcessRef, ServicePlan, SpawnSpec, WindowsShim
 from pollen.platform.windows import TASK_NAME
+from pollen.platform.windows.jobs import JobObjects
 from waggle.messages.session import ProcessSignal
 
 
@@ -137,11 +140,16 @@ async def _spawn(shim: WindowsShim, code: str, tmp_path: Path) -> asyncio.subpro
     return process
 
 
+def _no_jobs(tmp_path: Path, runner: Schtasks) -> WindowsShim:
+    """A shim on a host that offers no Job Objects, so the taskkill path is the one exercised."""
+    return WindowsShim(tmp_path, {}, runner, JobObjects(None))
+
+
 async def test_a_tree_is_alive_while_its_leader_runs_and_signals_use_taskkill(
     tmp_path: Path,
 ) -> None:
     runner = Schtasks()
-    shim = WindowsShim(tmp_path, {}, runner)
+    shim = _no_jobs(tmp_path, runner)
     process = await _spawn(
         shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
     )
@@ -250,7 +258,7 @@ async def test_a_terminate_neither_taskkill_nor_a_break_can_deliver_reports_noth
 async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_break(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))
+    shim = _no_jobs(tmp_path, Schtasks(failing=frozenset({"taskkill"})))
     process = await _spawn(
         shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
     )

@@ -252,6 +252,7 @@ class WardenKeeper:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_file,
                     stderr=asyncio.subprocess.STDOUT,
+                    outlives_packet=True,  # A restarted packet adopts it (see the header).
                 )
             )
         except OSError:

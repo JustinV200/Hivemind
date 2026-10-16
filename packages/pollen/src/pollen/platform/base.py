@@ -114,6 +114,10 @@ class SpawnSpec:
         int | IO[bytes] | None
     )  # A pipe for an exec, a log file or DEVNULL for a background one.
     stderr: int | IO[bytes] | None  # As stdout.
+    # Whether the child may go on running after the packet itself ends: the device's Warden
+    # may (a restarted packet adopts it); a lease's program may not. Only Windows acts on it
+    # (its Job Object's kill-on-close limit); a POSIX group is never tied to the packet's life.
+    outlives_packet: bool = False
 
 
 @dataclass(frozen=True, slots=True)

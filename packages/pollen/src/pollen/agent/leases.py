@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -306,7 +307,13 @@ class LeaseService:
             quota_bytes=DEFAULT_SCRATCH_QUOTA_BYTES if quota is None else quota,
             opened_at=deps.clock.now(),
         )
-        await deps.leases.put(lease)  # Before the answer: a crash after it must find the lease.
+        try:
+            await deps.leases.put(lease)  # Before the answer: a crash after it must find the lease.
+        except Exception:
+            # A lease the table does not hold is one no release or startup sweep will ever reach,
+            # so its fresh scratch directory goes now, or it would stay on the device for good.
+            await asyncio.to_thread(shutil.rmtree, scratch, ignore_errors=True)
+            raise
         opened = LeaseOpened(
             lease_id=lease_id,
             cell_id=lease.cell_id,

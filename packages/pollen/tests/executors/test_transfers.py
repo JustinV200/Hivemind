@@ -308,3 +308,24 @@ async def test_a_refusal_while_recording_removes_the_partial_file(
     with pytest.raises(QuotaExceededError):
         await rig.table.commit(done, rig.lease, is_executable=False)
     assert rig.partials() == [] and target.read_bytes() == b"too heavy to back up"
+
+
+async def test_a_chunk_past_the_declared_total_ends_the_transfer(rig: Rig) -> None:
+    transfer_id = new_message_id(rig.clock)
+    await rig.feed(rig.chunk(transfer_id, Part(b"abc", total=4)))
+    # A later chunk raises the declared total (each chunk carries its own) and is never final, so
+    # the only check that knew the first total was the one on the last chunk.
+    with pytest.raises(TransferRefusedError, match="past the declared 4"):
+        await rig.feed(rig.chunk(transfer_id, Part(b"def", offset=3, total=4_000)))
+    assert rig.partials() == []
+
+
+async def test_room_is_measured_again_for_every_chunk(rig: Rig) -> None:
+    transfer_id = new_message_id(rig.clock)
+    await rig.feed(rig.chunk(transfer_id, Part(b"a" * 100, total=9_000)))  # Honest and roomy.
+    # Scratch fills up between two chunks (a command of the lease writing there): the next chunk
+    # would cross the quota the start measured against an empty directory.
+    (rig.scratch / "filled-meanwhile").write_bytes(b"x" * 9_900)
+    with pytest.raises(QuotaExceededError, match="past its quota"):
+        await rig.feed(rig.chunk(transfer_id, Part(b"b" * 100, offset=100, total=9_000)))
+    assert rig.partials() == []

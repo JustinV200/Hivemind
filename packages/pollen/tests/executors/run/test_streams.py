@@ -31,6 +31,7 @@ from executor_kit import Limits, RecordingReporter, make_kit, make_plan, open_le
 from pollen.executors.run.streams import OutputSink, StdinFeeder
 from waggle.clock import FakeClock
 from waggle.ids import new_lease_id, new_message_id
+from waggle.messages.base import WaggleMessage
 from waggle.messages.session import SessionOutput, SessionStdin, SessionStream
 
 CLOCK = FakeClock()
@@ -167,3 +168,29 @@ async def test_a_program_with_no_stdin_pipe_ignores_what_is_fed() -> None:
     await asyncio.sleep(0.05)  # Real time: let the feeder take the event off its queue.
     assert not task.done()
     await _stop(task)
+
+
+class YieldingReporter(RecordingReporter):
+    """A reporter whose send gives the loop a turn, as a real link send does."""
+
+    async def send(
+        self, payload: WaggleMessage, *, to: str, correlation_id: str | None = None
+    ) -> bool:
+        """Record the frame after letting the other pump run."""
+        await asyncio.sleep(0)
+        return await super().send(payload, to=to, correlation_id=correlation_id)
+
+
+async def test_two_streams_filling_the_cap_at_once_never_pass_it_together(tmp_path: Path) -> None:
+    kit = make_kit(tmp_path, CLOCK)
+    lease = await open_lease_for(kit, CLOCK)
+    plan = make_plan(kit, CLOCK, lease, ("true",), Limits(max_output_bytes=100))
+    reporter = YieldingReporter()
+    sink = OutputSink(plan, reporter)
+    # Each stream alone fits; both together are 20 bytes over, and each awaits the reporter
+    # while the other measures its room.
+    passed = await asyncio.gather(
+        sink.send(SessionStream.STDOUT, b"o" * 60), sink.send(SessionStream.STDERR, b"e" * 60)
+    )
+    sent = sum(len(c.chunk) for c in reporter.of(SessionOutput))
+    assert sent == 100 and list(passed) == [False, True]
