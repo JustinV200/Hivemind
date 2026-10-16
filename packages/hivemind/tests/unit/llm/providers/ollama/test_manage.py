@@ -82,6 +82,42 @@ async def test_detect_is_false_for_an_unreachable_server() -> None:
     assert await OllamaManager.detect(_BASE_URL, transport=httpx.MockTransport(handler)) is False
 
 
+async def test_detect_is_false_for_a_base_url_without_a_scheme() -> None:
+    # No transport is injected: httpx refuses the URL before any connection is attempted.
+    assert await OllamaManager.detect("localhost:11434/v1", timeout_s=0.5) is False
+
+
+async def test_open_closes_its_client_when_the_probe_fails_unexpectedly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[bool] = []
+
+    def _boom(request: httpx.Request) -> httpx.Response:
+        raise RuntimeError("not an httpx failure at all")
+
+    class _Tracked(httpx.AsyncClient):  # Bound here, before the patch below replaces the name.
+        """An AsyncClient that records its close."""
+
+        async def aclose(self) -> None:
+            closed.append(True)
+            await super().aclose()
+
+    def build(**kwargs: object) -> httpx.AsyncClient:
+        kwargs["transport"] = httpx.MockTransport(_boom)
+        return _Tracked(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx, "AsyncClient", build)
+
+    with pytest.raises(RuntimeError):
+        await OllamaManager.open(_PROVIDER, _BASE_URL, 5.0)
+
+    assert closed == [True]
+
+
+async def test_open_returns_none_and_closes_for_a_base_url_without_a_scheme() -> None:
+    assert await OllamaManager.open(_PROVIDER, "localhost:11434/v1", 0.5) is None
+
+
 async def test_list_models_returns_the_installed_models() -> None:
     manager = _manager(_ollama)
 

@@ -23,6 +23,12 @@ Key invariants:
       nothing for this binding's provider and model) has no grade, abundance or throttle to judge:
       `static_spill_reason` never returns anything but `None` for one -- an unknown source is
       still metered by the lane, just never spilled for any reason (roadmap step 3.12a).
+    - A grade spill is relative: the current source must be below the tempo's floor *and* the
+      next binding's source must be stronger (or unknown to the map, so it cannot be judged).
+      Routing caps its floor at the best grade the chain holds and orders the chain by it, so on
+      a Hive whose every model is below a CRITICAL floor the chosen (strongest) binding keeps the
+      call rather than spilling it down to the weakest link with an `llm.spill` that reads as
+      intended; a fallback the map rates higher is still worth the move.
     - "Loaded" is not a field `hivemind.forage.models.sources.ModelSourceSpec` carries (flagged in
       this dispatch's report): `static_spill_reason` reads a source offering zero seats
       (`spec.seats == 0`) as "not serving this model right now", the one meaning `seats` already
@@ -65,13 +71,18 @@ class SpillReason(Enum):
     THROTTLED = "THROTTLED"  # The source is masked at zero headroom (ForageMap.throttle, 4.7a).
 
 
-def static_spill_reason(source: ModelSource | None, tempo: Tempo) -> SpillReason | None:
+def static_spill_reason(
+    source: ModelSource | None, tempo: Tempo, fallback: ModelSource | None = None
+) -> SpillReason | None:
     """Return the spill reason `source`'s own static properties already justify, if any.
 
     Args:
         source: The current binding's Forage map entry, or None when the map has never heard of
             this (provider, model) pair.
         tempo: The calling lane's speed-against-accuracy setting.
+        fallback: The next binding's Forage map entry, or None when the map has never heard of
+            it (or when there is no next binding; the lane never acts on a reason then anyway).
+            Read only by the grade check, which spills only towards a stronger or unknown source.
 
     Returns:
         `THROTTLED`, `GRADE_BELOW_FLOOR` or `MODEL_NOT_LOADED` when `source` is known and fails
@@ -86,11 +97,20 @@ def static_spill_reason(source: ModelSource | None, tempo: Tempo) -> SpillReason
         # ForageMap already resolved an expired throttle before handing this source back
         # (ForageMap._effective), so a non-None value here means the mask is still in force.
         return SpillReason.THROTTLED
-    if source.effective_grade < grade_floor(tempo.accuracy):
+    if source.effective_grade < grade_floor(tempo.accuracy) and _stronger(fallback, source):
         return SpillReason.GRADE_BELOW_FLOOR
     if source.spec.seats == _UNLOADED_SEATS:
         return SpillReason.MODEL_NOT_LOADED
     return None
+
+
+def _stronger(fallback: ModelSource | None, source: ModelSource) -> bool:
+    """Return whether moving from `source` to `fallback` could raise the grade serving the call.
+
+    An unknown fallback cannot be judged, so it is given the benefit of the doubt (the rule that
+    held before the fallback's grade was read at all); a known one must actually be stronger.
+    """
+    return fallback is None or fallback.effective_grade > source.effective_grade
 
 
 def queue_wait_exceeded(waited_s: float, tempo: Tempo) -> bool:

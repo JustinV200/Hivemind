@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Literal
 
 import pytest
 from builders.forage import make_source
@@ -33,7 +34,7 @@ from hivemind.llm.fanner.recorder import TrailLlmEventRecorder
 from hivemind.llm.models import LLMChunk, LLMRequest, LLMResponse, Usage
 from hivemind.pheromone import LlmEvent, LlmUsage, MemoryPheromoneTrail, TrailQuery
 from waggle.clock import FakeClock
-from waggle.ids import new_hive_id, new_node_id
+from waggle.ids import new_cell_id, new_hive_id, new_node_id
 
 _PROVIDER = "local"
 _MODEL = "local-small"
@@ -75,18 +76,32 @@ async def _run_call(
     prices: tuple[float | None, float | None],
     usage: Usage,
     seconds: float = 1.0,
+    locality: Literal["hosted", "provider", "cell"] = "hosted",
 ) -> tuple[LlmUsage, LLMResponse]:
-    """Run one call over a one-source map and return the recorded event plus the response."""
+    """Run one call over a one-source map and return the recorded event plus the response.
+
+    `locality` places the source: "provider" lists it in the Fanner's `local_providers`, "cell"
+    puts the map source on a Cell (`host_cell_id`), "hosted" does neither.
+    """
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
     recorder = TrailLlmEventRecorder(trail, new_hive_id(clock), new_node_id(clock), "human", clock)
-    source = make_source(source_id="src_1", provider=_PROVIDER, model=_MODEL, grade=5, cost=cost)
+    host_cell_id = new_cell_id(clock) if locality == "cell" else None
+    source = make_source(
+        source_id="src_1",
+        provider=_PROVIDER,
+        model=_MODEL,
+        grade=5,
+        cost=cost,
+        host_cell_id=host_cell_id,
+    )
     deps = FannerDeps(
         map=ForageMap((source,), clock=clock),
         seats={_PROVIDER: 1},
         limits={},
         clock=clock,
         recorder=recorder,
+        local_providers=frozenset({_PROVIDER}) if locality == "provider" else frozenset(),
     )
     provider = _TimedProvider(clock, seconds, usage)
     bound = make_bound(
@@ -163,3 +178,36 @@ async def test_lane_carries_the_estimated_flag_onto_the_trail() -> None:
 
     assert usage.estimated is True
     assert usage.priced is True
+
+
+async def test_lane_records_a_call_on_a_local_provider_as_local() -> None:
+    usage, _ = await _run_call(
+        cost=ModelCost(cost_per_seat_hour_usd=3.6),
+        prices=(0.0, 0.0),
+        usage=Usage(input_tokens=100, output_tokens=50),
+        locality="provider",
+    )
+
+    assert usage.local is True
+    assert usage.cost_usd > 0  # Amortised seat time is a cost, yet not hosted spend.
+
+
+async def test_lane_records_a_call_on_a_source_hosted_by_a_cell_as_local() -> None:
+    usage, _ = await _run_call(
+        cost=ModelCost(),
+        prices=(0.0, 0.0),
+        usage=Usage(input_tokens=100, output_tokens=50),
+        locality="cell",
+    )
+
+    assert usage.local is True
+
+
+async def test_lane_records_a_call_on_a_hosted_provider_as_not_local() -> None:
+    usage, _ = await _run_call(
+        cost=ModelCost(),
+        prices=(3.0, 15.0),
+        usage=Usage(input_tokens=100, output_tokens=50),
+    )
+
+    assert usage.local is False

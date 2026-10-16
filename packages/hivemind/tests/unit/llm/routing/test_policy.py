@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from builders.forage import make_source
 from builders.llm import make_binding
 from builders.routing import make_chain_source, make_routing_inputs
 from hypothesis import given
@@ -308,21 +309,49 @@ def _plan(source_ids: list[str], slot: ModelSlot = ModelSlot.WORKER) -> HostingP
 
 
 def test_choose_binding_falls_back_to_the_manifest_primary_when_nothing_is_eligible() -> None:
-    # A grade-5 source outside the chain keeps the floor at 2 (it is capped at the map's best).
-    sources = [
-        make_chain_source("a", grade=1),
-        make_chain_source("b", grade=1),
-        make_chain_source("elsewhere", grade=5),
-    ]
+    # A grade floor is capped at what the chain holds, so it can never rule out every row; a
+    # capability the task needs and no row has can, and then the chain still answers.
+    sources = [make_chain_source("a"), make_chain_source("b")]
 
-    decision = choose_binding(make_routing_inputs(sources))
+    decision = choose_binding(
+        make_routing_inputs(sources, required_capabilities=frozenset({"vision"}))
+    )
 
     assert decision.key == "worker"
     assert decision.order == ("worker", "b")
     assert decision.reason.fell_back is True
     assert decision.reason.eligible == 0
-    assert [p.cause for p in decision.passed_over] == [PassOverCause.GRADE_BELOW_FLOOR] * 2
+    assert [p.cause for p in decision.passed_over] == [PassOverCause.CAPABILITY_MISSING] * 2
     assert decision.forage_shortfall is None
+
+
+def test_choose_binding_ignores_a_strong_source_outside_the_chain_when_capping_the_floor() -> None:
+    # The review's probe: a Worker chain of grade 3s, its primary with no seat. With only those
+    # on the map CRITICAL routes to `b`; the Queen's off-chain grade-5 model must not change that.
+    primary = make_chain_source("a", grade=3, abundance=_seats(0))
+    sources = [primary, make_chain_source("b", grade=3)]
+    queen = make_source(source_id="src_claude", provider="anthropic", model="opus", grade=5)
+    tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
+
+    alone = choose_binding(make_routing_inputs(sources, tempo=tempo))
+    with_queen = choose_binding(make_routing_inputs([*sources, queen], tempo=tempo))
+
+    assert (alone.key, alone.reason.fell_back, alone.reason.floor) == ("b", False, 3)
+    assert (with_queen.key, with_queen.reason.fell_back, with_queen.reason.floor) == ("b", False, 3)
+
+
+def test_choose_binding_ranks_the_ineligible_tail_by_the_same_key_when_falling_back() -> None:
+    # Both rows lack the capability; the primary also has no seat, so the fallback choice is the
+    # one that can actually take the call, with the primary behind it, not manifest order.
+    sources = [make_chain_source("a", abundance=_seats(0)), make_chain_source("b")]
+
+    decision = choose_binding(
+        make_routing_inputs(sources, required_capabilities=frozenset({"vision"}))
+    )
+
+    assert decision.reason.fell_back is True
+    assert decision.key == "b"
+    assert decision.order == ("b", "worker")
 
 
 def test_choose_binding_lets_a_measured_grade_override_the_hand_set_one() -> None:

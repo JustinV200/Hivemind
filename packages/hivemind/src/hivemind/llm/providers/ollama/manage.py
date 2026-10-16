@@ -127,10 +127,15 @@ class OllamaManager:
         This is the production `ManagerOpener`: the caller owns the result and must `aclose` it.
         """
         manager = cls.create(provider, base_url, timeout_s)
-        if await manager.is_ollama():
-            return manager
-        await manager.aclose()
-        return None
+        found = False
+        try:
+            found = await manager.is_ollama()
+        finally:
+            # Closed on "not Ollama" and on anything unexpected the probe let through (a
+            # cancellation, say): the caller only ever owns a manager this method returned.
+            if not found:
+                await manager.aclose()
+        return manager if found else None
 
     async def is_ollama(self) -> bool:
         """Probe the native version endpoint; False on any failure rather than raising."""

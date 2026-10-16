@@ -220,6 +220,13 @@ def test_usage_add_sums_token_counts_and_cost_when_both_known() -> None:
     assert total == Usage(input_tokens=13, output_tokens=6, cached_tokens=2, cost_usd=0.03)
 
 
+def test_usage_add_sums_cache_write_tokens() -> None:
+    first = Usage(input_tokens=10, output_tokens=5, cache_write_tokens=4)
+    second = Usage(input_tokens=3, output_tokens=1, cache_write_tokens=2)
+
+    assert (first + second).cache_write_tokens == 6
+
+
 def test_usage_add_is_none_aware_on_cost() -> None:
     priced = Usage(input_tokens=10, output_tokens=5, cost_usd=0.01)
     unpriced = Usage(input_tokens=3, output_tokens=1)

@@ -325,9 +325,11 @@ def test_from_message_maps_text_and_usage() -> None:
 
     assert response.text == "Hello there."
     assert response.stop_reason == StopReason.END_TURN
-    assert response.usage.input_tokens == 12
+    # The wire's 12 are the uncached tokens; `Usage.input_tokens` is the whole prompt (12 + 2).
+    assert response.usage.input_tokens == 14
     assert response.usage.output_tokens == 4
     assert response.usage.cached_tokens == 2
+    assert response.usage.cache_write_tokens == 0
     assert response.model == "test-model"
 
 
@@ -376,6 +378,31 @@ def test_from_message_tool_call_preserves_nested_argument_structure() -> None:
     response = mapping.from_message(message, provider="p")
 
     assert response.tool_calls[0].arguments == {"nested": {"a": [1, 2, 3]}}
+
+
+def test_from_message_counts_cache_reads_and_writes_inside_input_tokens() -> None:
+    message = at.Message(
+        id="m",
+        type="message",
+        role="assistant",
+        model="test-model",
+        content=[at.TextBlock(type="text", text="hi")],
+        stop_reason="end_turn",
+        usage=at.Usage(
+            input_tokens=500,
+            output_tokens=1,
+            cache_read_input_tokens=8_000,
+            cache_creation_input_tokens=1_000,
+        ),
+    )
+
+    response = mapping.from_message(message, provider="p")
+
+    # `Usage`'s contract: cached and cache-written tokens are subsets of `input_tokens`, so a
+    # cached Queen prompt is priced and shown as the 9,500 tokens it consumed, not as 500.
+    assert response.usage.input_tokens == 9_500
+    assert response.usage.cached_tokens == 8_000
+    assert response.usage.cache_write_tokens == 1_000
 
 
 def test_from_message_usage_defaults_cached_tokens_to_zero_when_absent() -> None:

@@ -4,7 +4,8 @@
  * The reducer is pure, so these drive it with events and look at the state: that a read replaces
  * the figures, that an `llm.call` frame with usage adds into its goal, slot and provider (and into
  * the totals and the local saving), that a call without a goal lands under the null goal, that a
- * frame without usage or of another kind changes nothing, and that a replayed call counts once.
+ * frame without usage or of another kind changes nothing, that a local call's amortised cost is
+ * spend but never hosted spend, and that a replayed call counts once.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/views/cost/slice/.
@@ -131,6 +132,47 @@ describe('an llm.call frame with usage', () => {
     expect(state.cost.if_local_saving_usd).toBeCloseTo(0.047, 6);
     expect(state.cost.providers.find((p) => p.provider === 'local')?.calls).toBe(4);
     expect(state.ticks).toBe(1);
+  });
+
+  it('counts an amortised local call as spend but never as hosted or as a saving', () => {
+    // A local source priced by the seat-hour: the trail says `local`, so its cost is not what
+    // going local would save. The flag is beyond the generated type until the trail view carries
+    // it, so the usage is built first and passed as a value.
+    const amortised = {
+      cached_tokens: 0,
+      cost_usd: 0.004,
+      input_tokens: 90,
+      output_tokens: 10,
+      local: true,
+    };
+    const state = reduceCost(
+      seeded(),
+      frame({
+        slot: 'worker',
+        provider: 'local',
+        payload: { goal_id: 'goal_1' },
+        usage: amortised,
+      }),
+    );
+    expect(state.cost.total_usd).toBeCloseTo(0.051, 6);
+    expect(state.cost.if_local_saving_usd).toBeCloseTo(0.047, 6);
+    const worker = state.cost.slots.find((s) => s.slot === 'worker')!;
+    expect(worker.cost_usd).toBeCloseTo(0.016, 6);
+    expect(worker.hosted_usd).toBeCloseTo(0.012, 6);
+    expect(worker.if_local_saving_usd).toBeCloseTo(0.012, 6);
+  });
+
+  it('reads a usage without the local flag by the older rule: its cost is hosted', () => {
+    const state = reduceCost(
+      seeded(),
+      frame({
+        slot: 'worker',
+        provider: 'local',
+        usage: { cached_tokens: 0, cost_usd: 0.004, input_tokens: 90, output_tokens: 10 },
+      }),
+    );
+    expect(state.cost.slots.find((s) => s.slot === 'worker')?.hosted_usd).toBeCloseTo(0.016, 6);
+    expect(state.cost.if_local_saving_usd).toBeCloseTo(0.051, 6);
   });
 
   it('agrees with the Entrance when the same call is in a read', () => {

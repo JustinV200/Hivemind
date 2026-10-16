@@ -118,6 +118,43 @@ def test_stream_state_estimates_from_streamed_characters_when_no_usage_arrives()
     assert trailing.usage.estimated is True
 
 
+def test_stream_state_keeps_usage_reported_on_the_finish_chunk_over_an_estimate() -> None:
+    # Older llama.cpp builds and some proxies put the final usage on the finish chunk itself,
+    # with no trailing usage-only chunk: the server's own counts must win over a guess.
+    state = mapping.StreamState("p", prompt_chars=16)
+    state.absorb({"choices": [{"index": 0, "delta": {"content": "abcdefgh"}}]})
+    state.absorb(
+        {
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 9, "completion_tokens": 3},
+        }
+    )
+
+    trailing = state.finalize()
+
+    assert trailing is not None
+    assert trailing.stop_reason == StopReason.END_TURN
+    assert trailing.usage is not None
+    assert (trailing.usage.input_tokens, trailing.usage.output_tokens) == (9, 3)
+    assert trailing.usage.estimated is False
+
+
+def test_stream_state_prefers_a_trailing_usage_chunk_over_the_finish_chunks_usage() -> None:
+    state = mapping.StreamState("p", prompt_chars=16)
+    state.absorb(
+        {
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+    )
+
+    final = state.absorb({"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 1}})
+
+    assert final[0].usage is not None
+    assert final[0].usage.input_tokens == 5
+    assert state.finalize() is None
+
+
 def test_stream_state_does_not_estimate_when_the_server_sent_usage() -> None:
     state = mapping.StreamState("p", prompt_chars=16)
     state.absorb({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})

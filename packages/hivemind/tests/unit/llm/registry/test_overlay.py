@@ -13,6 +13,8 @@ See Also:
 
 from __future__ import annotations
 
+from typing import Protocol, runtime_checkable
+
 import pytest
 from builders.llm import make_provider_config, make_registry_deps, make_request, text_response
 
@@ -97,6 +99,34 @@ async def test_count_tokens_counts_the_overlaid_request() -> None:
     assert wrapped_count is not None
     assert plain_count is not None
     assert wrapped_count > plain_count
+
+
+@runtime_checkable
+class _ModelListing(Protocol):
+    """The structural probe `hive llm models` makes for the generic `/models` listing."""
+
+    async def list_models(self) -> tuple[str, ...]: ...
+
+
+class _ListingFake(FakeLLMProvider):
+    """A fake that can also list its models, like `OpenAICompatProvider`."""
+
+    async def list_models(self) -> tuple[str, ...]:
+        return ("local-small", "local-big")
+
+
+async def test_an_optional_capability_method_of_the_inner_provider_is_forwarded() -> None:
+    provider = OverlayingProvider(_ListingFake(name="local-small"), load_overlay("small_local"))
+
+    assert isinstance(provider, _ModelListing)
+    assert await provider.list_models() == ("local-small", "local-big")
+
+
+def test_the_wrapper_never_claims_a_capability_the_inner_provider_lacks() -> None:
+    provider, _ = _wrapped()
+
+    assert not isinstance(provider, _ModelListing)
+    assert not hasattr(provider, "list_models")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

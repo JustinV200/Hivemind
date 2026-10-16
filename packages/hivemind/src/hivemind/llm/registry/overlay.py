@@ -6,7 +6,12 @@ provider whose manifest row names an overlay, and every Worker, Warden and ladde
 that provider through a ``BoundModel`` gets the rewritten system prompt without knowing. The
 wrapper is otherwise invisible: it forwards ``name``, ``capabilities``, ``count_tokens``,
 ``health`` and ``aclose`` untouched, so the registry's structural close and the Fanner's
-capability checks keep working.
+capability checks keep working, and it forwards the optional, request-free capability methods a
+provider may offer (``list_models``) exactly when the wrapped provider has them, so a caller that
+probes for one structurally (``isinstance(provider, SomeProtocol)``) sees what the wrapped
+provider offers. They are copied onto the instance rather than reached through ``__getattr__``
+because a ``runtime_checkable`` Protocol probe reads attributes statically and never calls
+``__getattr__``, so a lazy forward would hide the capability from the very probe it is for.
 
 Fits into the Hive:
     Layer 1 (foundational services), inside hivemind.llm. Built by ``ProviderRegistry.provider``
@@ -16,6 +21,9 @@ Key invariants:
     - Only ``request.system`` is ever rewritten; every other field and every response is passed
       through exactly as the wrapped provider produced it.
     - The wrapped provider is closed exactly when the wrapper is (``aclose`` forwards).
+    - The wrapper never claims a capability the wrapped provider lacks: an optional method the
+      wrapped provider does not have is missing on the wrapper too, so a structural probe
+      answers the same on both.
 
 See Also:
     - docs/adr/0044-local-model-serving-via-openai-compatible-api.md decision 6.
@@ -24,18 +32,27 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from hivemind.llm.capabilities import ProviderCapabilities, ProviderHealth
 from hivemind.llm.models import LLMChunk, LLMRequest, LLMResponse
 from hivemind.llm.prompts.overlay import Overlay, apply_overlay
 from hivemind.llm.provider import LLMProvider
 
-__all__ = ["OverlayingProvider"]
+__all__ = ["OPTIONAL_CAPABILITY_METHODS", "OverlayingProvider"]
+
+# The request-free methods a provider may offer beyond the `LLMProvider` protocol, which callers
+# probe for structurally (`hive llm models` for `list_models`). Each is forwarded untouched when
+# the wrapped provider has it: there is no request in it to overlay.
+OPTIONAL_CAPABILITY_METHODS: tuple[str, ...] = ("list_models",)
 
 
 class OverlayingProvider:
     """An LLMProvider that forwards to another one after applying a prompt overlay."""
+
+    # Present on an instance exactly when the wrapped provider has it (see `__init__`); the
+    # annotation alone adds nothing to the class, so a structural probe stays honest.
+    list_models: Callable[[], Awaitable[tuple[str, ...]]]
 
     def __init__(self, inner: LLMProvider, overlay: Overlay) -> None:
         """Wrap `inner`.
@@ -46,6 +63,12 @@ class OverlayingProvider:
         """
         self._inner = inner
         self._overlay = overlay
+        # Copy each optional capability the wrapped provider offers onto this instance, so a
+        # `runtime_checkable` probe (which reads attributes statically) finds it here too.
+        for name in OPTIONAL_CAPABILITY_METHODS:
+            method = getattr(inner, name, None)
+            if callable(method):
+                setattr(self, name, method)
 
     @property
     def name(self) -> str:

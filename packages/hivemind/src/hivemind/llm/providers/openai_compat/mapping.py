@@ -451,6 +451,10 @@ class StreamState:
     _pending_stop_reason: StopReason | None = field(default=None)
     _stop_reason_flushed: bool = field(default=False)
     _output_chars: int = field(default=0)  # Streamed characters so far, for the same estimate.
+    # Usage a server put on a chunk that also carried a choice (older llama.cpp builds and some
+    # proxies report it on the finish chunk, not on a trailing usage-only one); `finalize`
+    # prefers it to an estimate, since the server's own counts are never worse than a guess.
+    _pending_usage: Usage | None = field(default=None)
 
     def absorb(self, chunk: JsonObject) -> tuple[LLMChunk, ...]:
         """Fold one parsed SSE `data:` object in and return the LLMChunks it completes."""
@@ -472,6 +476,11 @@ class StreamState:
             out.append(LLMChunk(text=text))
         for piece in _as_list(delta.get("tool_calls")):
             self._absorb_tool_call_piece(piece)
+        # Usage beside a choice is kept, not emitted yet: the stop reason may still be pending
+        # and a trailing usage-only chunk (which flushes both) may still follow.
+        usage = _usage_from_wire(chunk.get("usage"))
+        if usage is not None:
+            self._pending_usage = usage
         finish_reason = choice.get("finish_reason")
         if isinstance(finish_reason, str):
             self._pending_stop_reason = _stop_reason_from_wire(finish_reason)
@@ -482,13 +491,13 @@ class StreamState:
     def finalize(self) -> LLMChunk | None:
         """Return a trailing final chunk if the stream ended with no usage-only chunk for it.
 
-        The chunk carries estimated usage (characters / `CHARS_PER_TOKEN_ESTIMATE`, flagged
-        `estimated=True`): a server that ignores `stream_options.include_usage` must not read as
-        zero tokens.
+        The chunk carries the usage a finish chunk reported, if one did; otherwise estimated
+        usage (characters / `CHARS_PER_TOKEN_ESTIMATE`, flagged `estimated=True`): a server that
+        ignores `stream_options.include_usage` must not read as zero tokens.
         """
         if self._pending_stop_reason is None or self._stop_reason_flushed:
             return None
-        usage = estimated_usage(self.prompt_chars, self._output_chars)
+        usage = self._pending_usage or estimated_usage(self.prompt_chars, self._output_chars)
         return LLMChunk(usage=usage, stop_reason=self._pending_stop_reason)
 
     def _absorb_tool_call_piece(self, piece: JsonValue) -> None:

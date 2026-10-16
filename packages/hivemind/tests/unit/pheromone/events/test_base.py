@@ -269,6 +269,16 @@ def test_llm_usage_round_trips_the_estimated_and_priced_flags() -> None:
     assert LlmUsage.model_validate_json(usage.model_dump_json()) == usage
 
 
+def test_llm_usage_reads_an_older_payload_as_not_local_and_round_trips_the_flag() -> None:
+    # A payload written before the flag existed is read by the rule that held then: a cost
+    # on it is hosted spend.
+    old = {"input_tokens": 1, "output_tokens": 1, "cached_tokens": 0, "cost_usd": 0.5}
+    local = LlmUsage(input_tokens=1, output_tokens=1, cached_tokens=0, cost_usd=0.5, local=True)
+
+    assert LlmUsage.model_validate(old).local is False
+    assert LlmUsage.model_validate_json(local.model_dump_json()) == local
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

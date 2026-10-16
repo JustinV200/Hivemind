@@ -87,11 +87,22 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 _Grade = Annotated[int, Field(ge=MIN_MODEL_GRADE, le=MAX_MODEL_GRADE)]
 
 
+# The documented defaults for how a prompt-cache read and write are priced relative to a fresh
+# input token. They follow the structure the major hosted providers publish (a read at a tenth, a
+# write at a quarter over) but are per-row knobs on `ModelCost`, never a vendor's rate hardcoded
+# into a vendor-neutral place: an operator overrides them on the row whose provider differs.
+DEFAULT_CACHE_READ_PRICE_RATIO = 0.1
+DEFAULT_CACHE_WRITE_PRICE_RATIO = 1.25
+
+
 class ModelCost(BaseModel):
     """What one source charges: per-token, per-seat-hour or per-audio-minute rates.
 
     Every rate defaults to 0.0, so a manifest entry that leaves a field unset costs nothing rather
-    than failing validation -- the common case for a local, self-hosted model.
+    than failing validation -- the common case for a local, self-hosted model. The two cache
+    ratios are the exception: they default to the published structure above, because a cached
+    input token on a hosted provider is never free and a manifest that forgot to say so must not
+    under-bill it.
     """
 
     model_config = _MODEL_CONFIG
@@ -119,6 +130,22 @@ class ModelCost(BaseModel):
         description="US dollars per minute of audio transcribed, for a TRANSCRIBER source "
         "(hosted speech-to-text is billed by audio length, not by token); 0.0 for a free or "
         "local source, or one that transcribes nothing.",
+    )
+    cache_read_price_ratio: float = Field(
+        default=DEFAULT_CACHE_READ_PRICE_RATIO,
+        ge=0,
+        description="What an input token served from the provider's prompt cache costs, as a "
+        "multiple of `cost_per_million_input_usd`. The default is the common published "
+        "structure (a cache read at a tenth of a fresh input token); set it per row for a "
+        "provider that discounts differently, or to 1.0 for one that does not discount at all.",
+    )
+    cache_write_price_ratio: float = Field(
+        default=DEFAULT_CACHE_WRITE_PRICE_RATIO,
+        ge=0,
+        description="What an input token written into the provider's prompt cache costs, as a "
+        "multiple of `cost_per_million_input_usd`. The default is the common published "
+        "structure (a cache write at a quarter over a fresh input token); only an adapter that "
+        "reports cache writes (`Usage.cache_write_tokens`) ever bills at this rate.",
     )
 
 

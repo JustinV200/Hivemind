@@ -14,8 +14,11 @@
  * Key invariants:
  *   - Pure: no clock, no I/O; the input snapshot is never mutated.
  *   - Only an `llm.call` with usage, a slot and a provider counts, as in the Entrance's builder.
- *   - Hosted spend is the spend of calls that cost money (`cost_usd` above zero); the local
- *     saving of a slot is that hosted spend, an upper bound, as the Entrance defines it.
+ *   - Hosted spend is the spend of calls whose usage says the provider was not local (`local`
+ *     false or absent): a local source priced by the seat-hour costs, yet that is amortised
+ *     hardware, not money going local would save. A usage without the flag (an older payload, or
+ *     a trail view that does not carry it yet) reads as not local, the rule that held before. The
+ *     local saving of a slot is that hosted spend, an upper bound, as the Entrance defines it.
  *   - Lists keep the Entrance's order: goals costliest first with the null goal after its equals,
  *     providers costliest first, slots and lines by name.
  *
@@ -39,6 +42,13 @@ const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 
 function goalOf(event: TrailEventView): string | null {
   const goal = event.payload['goal_id'];
   return typeof goal === 'string' ? goal : null;
+}
+
+// Whether the call's provider was inside the Hive. The flag is read structurally, since the
+// generated trail usage type may not carry it yet; absent, the call is hosted (the older rule).
+function isLocal(usage: TrailEventView['usage']): boolean {
+  const flag: unknown = usage && 'local' in usage ? usage.local : undefined;
+  return flag === true;
 }
 
 // Replaces the first item `same` accepts with `update(it)`, or appends `update(made)` when none is.
@@ -87,8 +97,9 @@ function foldGoal(goal: GoalCost, line: CostLine): GoalCost {
   };
 }
 
-function foldSlot(slot: SlotSaving, usd: number): SlotSaving {
-  const hosted = usd > 0 ? usd : 0;
+function foldSlot(slot: SlotSaving, usd: number, local: boolean): SlotSaving {
+  // A local call's cost is amortised hardware: spend, yet nothing going local would save.
+  const hosted = local ? 0 : usd;
   return {
     ...slot,
     cost_usd: slot.cost_usd + usd,
@@ -117,6 +128,7 @@ function lineOf(event: TrailEventView): CostLine | null {
 export function foldCall(cost: CostSnapshot, event: TrailEventView): CostSnapshot {
   const line = lineOf(event);
   if (!line) return cost;
+  const local = isLocal(event.usage);
   const goals = upsert(
     cost.goals,
     (g) => g.goal_id === line.goal_id,
@@ -127,7 +139,7 @@ export function foldCall(cost: CostSnapshot, event: TrailEventView): CostSnapsho
     cost.slots,
     (s) => s.slot === line.slot,
     { slot: line.slot, cost_usd: 0, hosted_usd: 0, if_local_saving_usd: 0 },
-    (s) => foldSlot(s, line.cost_usd),
+    (s) => foldSlot(s, line.cost_usd, local),
   );
   const providers = upsert<ProviderCost>(
     cost.providers,
@@ -138,7 +150,7 @@ export function foldCall(cost: CostSnapshot, event: TrailEventView): CostSnapsho
   return {
     ...cost,
     total_usd: cost.total_usd + line.cost_usd,
-    if_local_saving_usd: cost.if_local_saving_usd + (line.cost_usd > 0 ? line.cost_usd : 0),
+    if_local_saving_usd: cost.if_local_saving_usd + (local ? 0 : line.cost_usd),
     goals: goals.sort(byGoal),
     slots: slots.sort((a, b) => compareText(a.slot, b.slot)),
     providers: providers.sort(

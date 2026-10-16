@@ -261,6 +261,13 @@ class Usage(BaseModel):
     cached_tokens: int = Field(
         default=0, ge=0, description="Of input_tokens, how many were served from a prompt cache."
     )
+    cache_write_tokens: int = Field(
+        default=0,
+        ge=0,
+        description="Of input_tokens, how many were written into a prompt cache this call (a "
+        "provider that bills cache writes at a premium reports them; every other adapter leaves "
+        "0). Disjoint from cached_tokens: a token is read from the cache or written to it.",
+    )
     cost_usd: Annotated[float, Field(ge=0)] | None = Field(
         default=None,
         description="What this call cost in US dollars, or None when the manifest lists no "
@@ -307,6 +314,7 @@ class Usage(BaseModel):
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
             cached_tokens=self.cached_tokens + other.cached_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
             cost_usd=cost,
             estimated=self.estimated or other.estimated,
         )

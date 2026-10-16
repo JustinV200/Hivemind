@@ -76,6 +76,53 @@ async def test_a_connection_failure_becomes_provider_unavailable() -> None:
 
 
 @pytest.mark.parametrize(
+    "raised",
+    [
+        httpx.UnsupportedProtocol("Request URL has an unsupported protocol 'localhost://'."),
+        httpx.ProxyError("refused by proxy"),
+        httpx.PoolTimeout("no connection free"),
+        httpx.LocalProtocolError("bad request line"),
+    ],
+)
+async def test_every_transport_failure_becomes_provider_unavailable(
+    raised: httpx.TransportError,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise raised
+
+    with pytest.raises(ProviderUnavailableError):
+        await _client(handler).get_json("/api/version")
+
+
+async def test_a_scheme_less_base_url_becomes_provider_unavailable_not_a_raw_httpx_error() -> None:
+    # The review's probe: `base_url = "localhost:11434/v1"` in the manifest. httpx refuses to
+    # send ("unsupported protocol 'localhost://'"); nothing above the client may see that.
+    http = httpx.AsyncClient(base_url="localhost:11434")
+    client = OllamaClient(http, "local")
+
+    with pytest.raises(ProviderUnavailableError):
+        await client.get_json("/api/version")
+    await client.aclose()
+
+
+async def test_a_reply_httpx_cannot_handle_becomes_a_request_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.DecodingError("bad content-encoding")
+
+    with pytest.raises(ProviderRequestError):
+        await _client(handler).get_json("/api/version")
+
+
+async def test_stream_ndjson_maps_a_transport_failure_mid_stream() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.UnsupportedProtocol("unsupported protocol")
+
+    with pytest.raises(ProviderUnavailableError):
+        async for _ in _client(handler).stream_ndjson("/api/pull", {}, timeout_s=1.0):
+            pass
+
+
+@pytest.mark.parametrize(
     ("status", "error"),
     [(503, ProviderUnavailableError), (429, RateLimitedError), (404, ProviderRequestError)],
 )

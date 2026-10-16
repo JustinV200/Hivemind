@@ -4,8 +4,13 @@ Before routing ranks the bindings of a slot's chain it asks of each one: may thi
 ``effective_floor`` settles the grade bar (a source's grade runs 1 weakest to 5 strongest):
 the slot's standing floor from ``[llm.floors]``, raised by a HIGH or CRITICAL accuracy bar and by
 a rebind's ``raised_floor``, never lowered by tempo (how fast a task must be done and how right),
-and capped at the strongest grade the Forage map holds right now, so the Queen's default floor of 5
-still works on a Hive whose best model is a 4. ``ineligible_cause`` then checks one binding against
+and capped at the strongest grade among the sources the slot's own chain names, so the Queen's
+default floor of 5 still works on a Hive whose best model is a 4. The cap reads the chain, not the
+whole map, because routing can only ever choose a chain row: a grade-5 model bound to another
+slot would otherwise hold a Worker chain of grade 3s to a floor none of them can meet, and the
+task would fall back to the manifest primary instead of the best of what it can actually reach.
+Only when no chain row is on the map at all does the map-wide best stand in, and an empty map
+leaves the floor uncapped. ``ineligible_cause`` then checks one binding against
 that floor, the capabilities the task needs, the spend cap, the latency budget and ``offline``,
 and names the first check it fails. A binding the Forage map does not know (no source for its
 provider and model) has no grade, capability list or distance to judge, so it stays eligible
@@ -20,6 +25,8 @@ Fits into the Hive:
 Key invariants:
     - ``effective_floor`` is monotone: raising ``rules.raised_floor`` or the accuracy bar never
       lowers the result; it is always between 1 and 5 when the map is non-empty.
+    - ``effective_floor`` never reads a source outside the slot's chain while any chain row is on
+      the map, so adding a strong model to another slot never changes this slot's routing.
     - A LOW or NORMAL accuracy bar never changes the floor: NORMAL means "the role's own floor",
       so the Attendant's floor of 1 is not lifted to NORMAL's 2 by an ordinary task.
     - Every check reads ``ModelSource.effective_grade``, never ``spec.grade`` directly.
@@ -36,6 +43,7 @@ from __future__ import annotations
 from hivemind.forage import AccuracyBar, ModelSource, SlotBinding, grade_floor
 from hivemind.llm.routing.decision import PassOverCause
 from hivemind.llm.routing.inputs import RoutingInputs
+from hivemind.llm.slots import UnresolvableSlotError, walk_chain
 
 __all__ = ["effective_floor", "ineligible_cause", "is_free"]
 
@@ -51,7 +59,9 @@ def effective_floor(inputs: RoutingInputs) -> int:
 
     Returns:
         The larger of the slot's standing floor, the accuracy bar's floor (HIGH and CRITICAL
-        only) and the rebind's raised floor, capped at the strongest effective grade on the map.
+        only) and the rebind's raised floor, capped at the strongest effective grade among the
+        sources the slot's chain names (the whole map's when none of them is on it, or when
+        ``inputs.bindings`` holds no usable chain for the slot).
     """
     tempo_floor = (
         grade_floor(inputs.tempo.accuracy) if inputs.tempo.accuracy in _RAISING_BARS else 0
@@ -59,9 +69,22 @@ def effective_floor(inputs: RoutingInputs) -> int:
     wanted = max(inputs.rules.floor_for(inputs.slot), tempo_floor, inputs.rules.raised_floor)
     if not inputs.sources:
         return wanted  # An empty map has no top to cap at; every binding is unknown anyway.
-    # A floor above anything the map holds could never be met, which would turn "wants the best"
-    # into "wants the impossible"; capping it means the best available qualifies.
-    return min(wanted, max(source.effective_grade for source in inputs.sources))
+    # A floor above anything the chain can reach could never be met, which would turn "wants the
+    # best" into "wants the impossible"; capping it means the best the chain holds qualifies.
+    reachable = _chain_sources(inputs) or inputs.sources
+    return min(wanted, max(source.effective_grade for source in reachable))
+
+
+def _chain_sources(inputs: RoutingInputs) -> tuple[ModelSource, ...]:
+    """Return the map sources that some row of the slot's chain names; empty when none is on it."""
+    try:
+        chain = walk_chain(inputs.slot.manifest_key, inputs.bindings)
+    except UnresolvableSlotError:
+        # No row for the slot, or a cycle: the floor is still a pure function of the inputs, so
+        # it answers map-wide here and leaves refusing the chain to `choose_binding`'s own walk.
+        return ()
+    named = {(row.provider, row.model) for row in chain}
+    return tuple(s for s in inputs.sources if (s.spec.provider, s.spec.model) in named)
 
 
 def ineligible_cause(

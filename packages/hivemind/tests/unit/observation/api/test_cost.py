@@ -3,7 +3,7 @@
 An empty trail costs nothing. Calls sum into one line per goal, slot and provider; a call is
 attributed through its own goal id, else its grant's goal, else to a null goal; per-goal, per-slot
 and per-provider totals each equal the grand total; and the saving per slot is its hosted spend
-(calls that cost nothing save nothing).
+(a call a local provider served saves nothing, whatever its amortised cost).
 
 Fits into the Hive:
     Mirrors src/hivemind/observation/api/cost.py (codingrules section 3).
@@ -18,6 +18,7 @@ import pytest
 from builders.observation import T0, make_event, make_llm_call
 
 from hivemind.observation import cost_lines, cost_view
+from hivemind.pheromone import LlmUsage
 from waggle.clock import FakeClock
 from waggle.ids import new_grant_id, new_task_id
 
@@ -71,6 +72,33 @@ def test_the_local_saving_is_the_hosted_spend_per_slot() -> None:
     savings = {s.slot: (s.cost_usd, s.hosted_usd, s.if_local_saving_usd) for s in view.slots}
     assert savings == {"JUDGE": (0.0, 0.0, 0.0), "WORKER": (0.75, 0.75, 0.75)}
     assert view.if_local_saving_usd == 0.75
+
+
+def _local_call(slot: str, cost_usd: float) -> object:
+    """An ``llm.call`` a local provider served, priced by its amortised seat time."""
+    usage = LlmUsage(input_tokens=100, output_tokens=40, cached_tokens=0, cost_usd=cost_usd)
+    event = make_llm_call(slot=slot, provider="local", cost_usd=cost_usd)
+    return event.model_copy(update={"usage": usage.model_copy(update={"local": True})})
+
+
+def test_an_amortised_local_call_counts_as_spend_but_never_as_hosted() -> None:
+    # An offline Hive whose local source sets cost_per_seat_hour_usd: every call costs, none is
+    # hosted, so nothing would be saved by going local (it already is).
+    events = [_local_call("WORKER", 0.4), _local_call("WORKER", 0.1), _local_call("JUDGE", 0.2)]
+
+    view = cost_view(events, {}, T0)  # type: ignore[arg-type]
+
+    assert view.total_usd == pytest.approx(0.7)
+    savings = {s.slot: (s.cost_usd, s.hosted_usd, s.if_local_saving_usd) for s in view.slots}
+    assert savings == {"JUDGE": (0.2, 0.0, 0.0), "WORKER": (0.5, 0.0, 0.0)}
+    assert view.if_local_saving_usd == 0.0
+
+
+def test_a_payload_that_never_said_local_reads_its_cost_as_hosted() -> None:
+    # The builder's usage carries the default `local=False`: the rule that held before the flag.
+    view = cost_view([make_llm_call(slot="WORKER", provider="cloud", cost_usd=0.3)], {}, T0)
+
+    assert view.slots[0].hosted_usd == pytest.approx(0.3)
 
 
 def test_lines_are_sorted_with_unattributed_calls_last() -> None:

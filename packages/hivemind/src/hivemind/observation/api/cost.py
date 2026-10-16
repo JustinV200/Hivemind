@@ -5,10 +5,13 @@ the provider's manifest name and the normalised ``Usage`` (tokens in, out, cache
 dollars; codingrules 8.6). Summing those answers "where did the money go?" without any provider
 detail: per goal (when the call's lane carried a goal id, directly or through its grant), per slot
 and per provider, plus the ``if_local_saving_usd`` of each slot, the hosted spend that would be
-zero had the slot been bound to a local model. A call that cost nothing (a local model, or an
-unpriced one) is not hosted spend, so the saving is an upper bound: it assumes a local binding
-could have served every call the hosted one did. A call whose lane named neither goal nor grant is
-grouped under a null goal, never attributed by guesswork.
+zero had the slot been bound to a local model. Hosted spend is the cost of the calls whose usage
+says the provider was not local (``LlmUsage.local``): a local source priced by the seat-hour
+(roadmap 8.8) costs more than nothing, yet that cost is amortised hardware the Hive already owns,
+not money a local binding would save. An older payload that never said defaults to not local, so
+its cost reads as hosted spend, the rule that held when it was written. The saving is an upper
+bound: it assumes a local binding could have served every call the hosted one did. A call whose
+lane named neither goal nor grant is grouped under a null goal, never attributed by guesswork.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.observation.api``. Built from the
@@ -83,7 +86,7 @@ class SlotSaving(BaseModel):
 
     slot: str = Field(description="The model slot.")
     cost_usd: float = Field(description="Everything spent through it.")
-    hosted_usd: float = Field(description="Spend on calls that cost money (hosted).")
+    hosted_usd: float = Field(description="Spend on calls served by a provider outside the Hive.")
     if_local_saving_usd: float = Field(
         description="The hosted spend that would be zero if the slot were local: an upper bound."
     )
@@ -192,7 +195,8 @@ def _slots(lines: Sequence[CostLine], events: Sequence[PheromoneEvent]) -> list[
     spent: dict[str, float] = defaultdict(float)
     for line in lines:
         spent[line.slot] += line.cost_usd
-    # Hosted spend per slot: only calls that cost money could have been free had they been local.
+    # Hosted spend per slot: only a call served from outside the Hive would be free had it been
+    # local; a local call's own cost is amortised hardware and saves nothing.
     hosted = _hosted_by_slot(events)
     return [
         SlotSaving(
@@ -253,11 +257,13 @@ def _goal(event: LlmEvent, grant_goal: Mapping[str, str]) -> str | None:
 
 
 def _hosted_by_slot(events: Sequence[PheromoneEvent]) -> dict[str, float]:
-    """Sum, per slot, the cost of calls that cost money."""
+    """Sum, per slot, the cost of calls a provider outside the Hive served."""
     hosted: dict[str, float] = defaultdict(float)
     for event in events:
         if not isinstance(event, LlmEvent) or event.kind != CALL_KIND or event.usage is None:
             continue
-        if event.slot is not None and event.usage.cost_usd > 0:
+        # `local` decides, not the cost: an amortised local call costs, a free hosted one does
+        # not, and neither is what moving the slot local would save.
+        if event.slot is not None and not event.usage.local:
             hosted[event.slot] += event.usage.cost_usd
     return hosted

@@ -216,6 +216,27 @@ async def test_fanner_lane_spills_on_grade_below_floor() -> None:
     assert spill_event.payload["to_binding"] == "local_worker"
 
 
+async def test_fanner_lane_keeps_a_critical_call_on_the_strongest_link_of_a_weak_chain() -> None:
+    # An offline Hive: local_big (grade 3) -> local_small (grade 2), CRITICAL floor 4. Routing
+    # chose local_big with its floor capped at 3; the lane must not spill it down to the weakest.
+    big = make_source(source_id="src_big", provider="fake", model="local-big", grade=3, seats=1)
+    small = make_source(source_id="src_small", provider="local", model="local-small", grade=2)
+    fanner, trail = _build_fanner(sources=(big, small))
+    primary = FakeLLMProvider(name="fake")
+    primary.script(text_response("from-big"))
+    fallback_provider = FakeLLMProvider(name="local")
+    fallback = make_bound(binding="local_small", provider=fallback_provider, model="local-small")
+    bound = make_bound(binding="local_big", provider=primary, model="local-big", fallback=fallback)
+    lane = fanner.lane(_tempo(AccuracyBar.CRITICAL))
+
+    response = await lane.complete(bound, make_request())
+
+    assert response.text == "from-big"
+    assert fallback_provider.calls == []
+    events = await trail.query(TrailQuery())
+    assert [e.kind for e in events] == ["llm.call"]  # No llm.spill was recorded as intended.
+
+
 async def test_fanner_lane_spills_on_model_not_loaded() -> None:
     source = make_source(source_id="src_1", provider="fake", model="test-model", grade=5, seats=0)
     fanner, trail = _build_fanner(sources=(source,))

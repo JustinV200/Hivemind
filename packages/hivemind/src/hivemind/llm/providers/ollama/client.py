@@ -5,8 +5,10 @@ derived from the provider's configured `base_url` by dropping a trailing `/v1` (
 convention for the OpenAI-compatible door); the host and port are whatever the operator wrote,
 never a default (codingrules 8.6: provider URLs come from the manifest). This is the only module
 in the Ollama package that touches `httpx`, and the only place an `httpx` failure is mapped: a
-connection failure or 5xx becomes `ProviderUnavailableError`, a 429 `RateLimitedError`, any other
-4xx `ProviderRequestError`, so nothing above this module catches an `httpx.*` exception.
+transport failure (a connection refused, a timeout, a proxy error, a `base_url` written without a
+scheme) or a 5xx becomes `ProviderUnavailableError`, a 429 `RateLimitedError`, any other 4xx or a
+reply httpx itself could not handle `ProviderRequestError`, so nothing above this module catches
+an `httpx.*` exception.
 
 Fits into the Hive:
     Layer 1 (foundational services), inside `hivemind.llm.providers.ollama`. Called by
@@ -38,16 +40,15 @@ from hivemind.llm.errors import ProviderRequestError, ProviderUnavailableError, 
 from hivemind.llm.models import JsonObject
 
 OPENAI_PATH_SUFFIX = "/v1"  # The segment the OpenAI-compatible door adds to the server's root.
-# Connection-level httpx exceptions that mean "the server never answered" (or hung up mid-call).
-_CONNECTION_EXCEPTIONS: tuple[type[Exception], ...] = (
-    httpx.ConnectError,
-    httpx.ConnectTimeout,
-    httpx.ReadTimeout,
-    httpx.ReadError,
-    httpx.WriteError,
-    httpx.CloseError,
-    httpx.RemoteProtocolError,
-)
+# httpx exceptions that mean "the server never answered" (or hung up mid-call): every transport
+# error (connection, timeout, proxy, protocol, an unsupported or missing URL scheme) and a URL
+# httpx refuses to build at all. The base classes, not a list of leaves, so a class this list
+# never heard of (`UnsupportedProtocol` for `localhost:11434/v1`, once) cannot slip past.
+_CONNECTION_EXCEPTIONS: tuple[type[Exception], ...] = (httpx.TransportError, httpx.InvalidURL)
+# Every other httpx failure (a reply it could not decode, too many redirects): the server
+# answered, but not with anything usable, so it is a request error rather than an outage.
+_REPLY_EXCEPTIONS: tuple[type[Exception], ...] = (httpx.HTTPError,)
+_UNUSABLE_REPLY_STATUS = 0  # No HTTP status stands for a reply httpx itself rejected.
 
 __all__ = ["OPENAI_PATH_SUFFIX", "OllamaClient", "native_base_url"]
 
@@ -141,6 +142,8 @@ class OllamaClient:
                         yield parsed
         except _CONNECTION_EXCEPTIONS as exc:
             raise ProviderUnavailableError(self._provider, _describe(exc)) from exc
+        except _REPLY_EXCEPTIONS as exc:
+            raise self._unusable_reply(exc) from exc
 
     async def aclose(self) -> None:
         """Close the underlying client and its pooled connections."""
@@ -159,8 +162,14 @@ class OllamaClient:
                 response = await self._http.request(method, path, json=body, timeout=timeout_s)
         except _CONNECTION_EXCEPTIONS as exc:
             raise ProviderUnavailableError(self._provider, _describe(exc)) from exc
+        except _REPLY_EXCEPTIONS as exc:
+            raise self._unusable_reply(exc) from exc
         self._raise_for_status(response)
         return self._json_object(response)
+
+    def _unusable_reply(self, exc: Exception) -> ProviderRequestError:
+        """Build the error for a reply httpx itself could not handle (decoding, redirects)."""
+        return ProviderRequestError(self._provider, _UNUSABLE_REPLY_STATUS, detail=_describe(exc))
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         """Raise the typed error matching `response`'s status, or return for a 2xx."""

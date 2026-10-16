@@ -455,10 +455,20 @@ def _tool_call_from_block(block: at.ToolUseBlock) -> ToolCall:
 
 
 def _usage_from_wire(usage: at.Usage) -> Usage:
-    """Map the SDK's `Usage` to ours; a cache read becomes `cached_tokens`, cost stays unpriced."""
+    """Map the SDK's `Usage` to ours; cost stays unpriced.
+
+    The API's `input_tokens` counts only the tokens that were neither read from nor written to
+    the prompt cache, while `Usage.input_tokens` is everything the request consumed (its
+    `cached_tokens` and `cache_write_tokens` are subsets of it), so the three wire counts are
+    summed here: the Fanner prices each part at its own rate, and a trail reader summing
+    `input_tokens` sees the whole prompt rather than its uncached remainder.
+    """
+    cache_read = usage.cache_read_input_tokens or 0
+    cache_write = usage.cache_creation_input_tokens or 0
     return Usage(
-        input_tokens=usage.input_tokens,
+        input_tokens=usage.input_tokens + cache_read + cache_write,
         output_tokens=usage.output_tokens,
-        cached_tokens=usage.cache_read_input_tokens or 0,
+        cached_tokens=cache_read,
+        cache_write_tokens=cache_write,
         cost_usd=None,  # This adapter never prices a call; BoundModel's cost fields do that.
     )

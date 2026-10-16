@@ -233,6 +233,13 @@ class LlmUsage(BaseModel):
         "False when it was unpriced and cost_usd of 0.0 only means unknown. Defaults False so "
         "an older payload, which never said, is never read as free.",
     )
+    local: bool = Field(
+        default=False,
+        description="True when the provider that served the call runs inside the Hive (in "
+        "process, on the Warden's own machine, or on a Cell's server), so its cost_usd is "
+        "amortised hardware rather than hosted spend. Defaults False so an older payload, "
+        "which never said, is read by the rule that held then: a cost is hosted spend.",
+    )
 
 
 def _check_payload_node(node: object) -> None:

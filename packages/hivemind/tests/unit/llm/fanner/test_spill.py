@@ -54,6 +54,32 @@ def test_static_spill_reason_flags_grade_below_the_tempo_floor() -> None:
     assert static_spill_reason(source, tempo) is SpillReason.GRADE_BELOW_FLOOR
 
 
+def test_static_spill_reason_does_not_spill_a_below_floor_source_to_a_weaker_fallback() -> None:
+    # An offline Hive's whole chain is below CRITICAL's floor of 4: routing already chose the
+    # strongest link, so moving the call down to a grade-2 model would only make it worse.
+    tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
+    current = make_source(grade=3)
+    weaker = make_source(grade=2)
+    same = make_source(grade=3)
+
+    assert static_spill_reason(current, tempo, weaker) is None
+    assert static_spill_reason(current, tempo, same) is None
+
+
+def test_static_spill_reason_spills_a_below_floor_source_to_a_stronger_fallback() -> None:
+    tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
+
+    reason = static_spill_reason(make_source(grade=3), tempo, make_source(grade=5))
+
+    assert reason is SpillReason.GRADE_BELOW_FLOOR
+
+
+def test_static_spill_reason_gives_an_unknown_fallback_the_benefit_of_the_doubt() -> None:
+    tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
+
+    assert static_spill_reason(make_source(grade=3), tempo, None) is SpillReason.GRADE_BELOW_FLOOR
+
+
 def test_static_spill_reason_reads_the_measured_grade_over_the_hand_set_one() -> None:
     tempo = Tempo(accuracy=AccuracyBar.CRITICAL)  # grade_floor(CRITICAL) == 4
 

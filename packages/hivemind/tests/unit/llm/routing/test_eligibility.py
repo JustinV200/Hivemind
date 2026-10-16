@@ -65,6 +65,26 @@ def test_effective_floor_is_capped_at_the_best_effective_grade_on_the_map() -> N
     assert effective_floor(inputs) == 3  # Queen wants 5; the measured best is 3.
 
 
+def test_effective_floor_is_capped_at_the_chains_best_not_the_maps() -> None:
+    # The chain tops out at 3; a grade-5 model bound to some other slot is not reachable from it.
+    sources = [
+        make_chain_source("a", grade=3),
+        make_chain_source("b", grade=3),
+        make_chain_source("elsewhere", grade=5),
+    ]
+    inputs = make_routing_inputs(sources, tempo=Tempo(accuracy=AccuracyBar.CRITICAL))
+
+    assert effective_floor(inputs) == 3  # CRITICAL wants 4; the chain's best is 3.
+
+
+def test_effective_floor_falls_back_to_the_maps_best_when_no_chain_row_is_on_it() -> None:
+    inputs = make_routing_inputs(
+        [make_chain_source("elsewhere", grade=3)], tempo=Tempo(accuracy=AccuracyBar.CRITICAL)
+    )
+
+    assert effective_floor(inputs) == 3
+
+
 def test_effective_floor_is_uncapped_when_the_map_is_empty() -> None:
     assert effective_floor(make_routing_inputs([], slot=ModelSlot.QUEEN)) == 5
 

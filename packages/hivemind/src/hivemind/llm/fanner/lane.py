@@ -12,15 +12,15 @@ per-provider `hivemind.llm.fanner.seats.SeatMeter`s and
 
 `FannerLane.complete` walks `bound`'s fallback chain one binding at a time. For each binding it
 first checks whether the Forage map's live figures already justify a spill (the binding's grade is
-below the calling tempo's floor, or the model is not loaded there --
-`hivemind.llm.fanner.spill.static_spill_reason`); if not, it rate-limits per provider
+below the calling tempo's floor and the next binding's is higher, or the model is not loaded there
+-- `hivemind.llm.fanner.spill.static_spill_reason`); if not, it rate-limits per provider
 (`hivemind.llm.fanner.limiter`), then queues for a seat on the binding's provider
 (`hivemind.llm.fanner.seats.SeatMeter`, ordered by tempo); if that queueing itself ate too much of
 the tempo's latency budget (`hivemind.llm.fanner.spill.queue_wait_exceeded`), it also spills. Every
 spill is recorded as an `llm.spill` event; every completed call is recorded as an `llm.call` event,
 carrying the normalised `Usage` priced by `hivemind.llm.fanner.pricing` (tokens x per-million
-prices plus latency x the source's per-seat-hour rate, with `priced` and `estimated` flags) and the
-measured latency, and (when the source is known) updates
+prices plus latency x the source's per-seat-hour rate, with `priced`, `estimated` and `local`
+flags) and the measured latency, and (when the source is known) updates
 the Forage map's `distance` and `abundance` so the next call's routing sees fresh figures. With no
 fallback left, `FannerLane.complete` proceeds on the current binding regardless: the Fanner never
 refuses a call (codingrules section 8.10); a ladder's own retry and fallback logic, and the
@@ -124,6 +124,11 @@ class FannerDeps:
     limits: Mapping[str, RateLimit]  # Provider name -> its RateLimit; absent means unlimited.
     clock: Clock  # Drives every wait and every recorded event's timestamp.
     recorder: LlmEventRecorder  # Where a completed call or a spill is reported.
+    # The `[llm.providers]` names that serve from inside the Hive (the composition root's
+    # `local_providers`, the same set routing reads); a call on one is recorded `local`, so the
+    # Cost view never shows its amortised seat time as hosted spend. Empty means "none known":
+    # a source the map places on a Cell (`host_cell_id`) still counts as local without it.
+    local_providers: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,8 +278,7 @@ class FannerLane:
         """
         self._fanner = fanner
         self._tempo = tempo
-        self._grant_id = grant_id
-        self._goal_id = goal_id
+        self._lane_ids = (grant_id, goal_id)  # What an llm.call payload attributes the call by.
 
     async def complete(self, bound: BoundModel, request: LLMRequest) -> LLMResponse:
         """Run `request` through `bound`'s chain, metering and spilling as needed.
@@ -295,8 +299,9 @@ class FannerLane:
             source = self._fanner.deps.map.find(current.provider.name, current.model)
             # A source's grade, loaded state or throttle is known without metering anything, so
             # this check runs first and never touches a seat or the rate limiter for a binding it
-            # rejects (hivemind.llm.fanner.spill.static_spill_reason checks THROTTLED first).
-            static_reason = static_spill_reason(source, self._tempo)
+            # rejects (hivemind.llm.fanner.spill.static_spill_reason checks THROTTLED first). The
+            # grade check also reads where the spill would land, so it never moves a call down.
+            static_reason = _static_reason(self._fanner.deps.map, current, source, self._tempo)
             if static_reason is not None and current.fallback is not None:
                 await self._spill(current, current.fallback, static_reason)
                 current = current.fallback
@@ -399,7 +404,7 @@ class FannerLane:
                 requests_per_minute_left=snapshot.requests_remaining if snapshot else None,
                 tokens_per_minute_left=snapshot.tokens_remaining if snapshot else None,
             )
-        payload = _call_payload(attempt.bound, priced, latency_s, self._grant_id, self._goal_id)
+        payload = _call_payload(attempt, priced, latency_s, self._fanner.deps, self._lane_ids)
         await self._fanner.deps.recorder.record(
             kind=LLM_CALL_KIND, subject_id=new_event_id(self._fanner.deps.clock), payload=payload
         )
@@ -437,23 +442,47 @@ class FannerLane:
         )
 
 
+def _is_local(attempt: _Attempt, local_providers: frozenset[str]) -> bool:
+    """Return whether the call ran inside the Hive: a local provider, or a source on a Cell.
+
+    Neither is a branch on `provider.name`'s meaning: the first is membership in the set the
+    composition root built from provider kinds, the second the map's own placement.
+    """
+    source = attempt.source
+    return attempt.bound.provider.name in local_providers or (
+        source is not None and source.spec.host_cell_id is not None
+    )
+
+
+def _static_reason(
+    map: ForageMap, current: BoundModel, source: ModelSource | None, tempo: Tempo
+) -> SpillReason | None:
+    """Return the spill reason `current`'s own map figures justify, judged against its fallback."""
+    fallback = current.fallback
+    fallback_source = map.find(fallback.provider.name, fallback.model) if fallback else None
+    return static_spill_reason(source, tempo, fallback_source)
+
+
 def _call_payload(
-    current: BoundModel,
+    attempt: _Attempt,
     priced: PricedUsage,
     latency_s: float,
-    grant_id: str | None,
-    goal_id: str | None,
+    deps: FannerDeps,
+    lane_ids: tuple[str | None, str | None],
 ) -> JsonObject:
     """Build the llm.call payload: LlmEvent's required fields for that kind, plus latency.
 
-    `grant_id`/`goal_id` (roadmap step 4.8) are omitted from the payload entirely when the lane
-    that made this call carries neither (the common case today, since no composition-root caller
-    yet passes them to `Fanner.lane` -- see `FannerLane.__init__`'s own docstring), rather than
-    written as an explicit `None`: `hivemind.queen.forage.ledger.recorder.LedgerRecorder` treats a
-    missing key exactly like an explicit `None`, so this is purely about keeping an ordinary
-    trail payload free of two keys that never carry information.
+    `deps.local_providers` decides the usage's `local` flag together with the map's own placement
+    of the source (`_is_local`). `lane_ids` is the lane's `(grant_id, goal_id)` (roadmap step
+    4.8); each is omitted from the payload entirely when the lane that made this call does not
+    carry it (the common case today, since no composition-root caller yet passes them to
+    `Fanner.lane` -- see `FannerLane.__init__`'s own docstring), rather than written as an
+    explicit `None`: `hivemind.queen.forage.ledger.recorder.LedgerRecorder` treats a missing key
+    exactly like an explicit `None`, so this is purely about keeping an ordinary trail payload
+    free of two keys that never carry information.
     """
     usage = priced.usage
+    current = attempt.bound
     payload: JsonObject = {
         "slot": current.slot.value,
         "provider": current.provider.name,
@@ -467,9 +496,13 @@ def _call_payload(
             "cost_usd": usage.cost_usd if usage.cost_usd is not None else 0.0,
             "estimated": usage.estimated,
             "priced": priced.priced,
+            # Whether the cost is amortised Hive hardware rather than hosted spend (the Cost
+            # view's hosted rule); a cost alone cannot say, since a local seat-hour costs too.
+            "local": _is_local(attempt, deps.local_providers),
         },
         "latency_s": latency_s,
     }
+    grant_id, goal_id = lane_ids
     if grant_id is not None:
         payload["grant_id"] = grant_id
     if goal_id is not None:

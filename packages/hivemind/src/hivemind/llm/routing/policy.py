@@ -9,11 +9,13 @@ by ``hivemind.llm.routing.eligibility`` (grade at or over the floor, capabilitie
 within the latency budget and the spend cap, local when offline), then the eligible ones are
 ranked by a sort key: known to Forage before unknown, with a free seat before none, in the Cell's
 hosting plan chain (primary first) before outside it, running on the bee's own Cell before
-elsewhere, cheaper, closer, and finally manifest order so a tie is never random. When no binding
-is eligible routing still answers: it chooses the slot's own manifest primary and the reason says
-it fell back, because the Fanner (the seat meter every call passes through) never refuses a call
-and neither does routing. A chosen source with no free seat is reported as a ``ForageShortfall``
-so the caller can file a ``ForageRequest`` rather than queue unseen.
+elsewhere, cheaper, closer, and finally manifest order so a tie is never random. The ineligible
+bindings follow, ranked by the same key, so the chain's tail (what the Fanner spills along) is as
+well ordered as its head. When no binding is eligible routing still answers: it chooses the
+best-ranked of them (the manifest primary when they tie) and the reason says it fell back, because
+the Fanner (the seat meter every call passes through) never refuses a call and neither does
+routing. A chosen source with no free seat is reported as a ``ForageShortfall`` so the caller can
+file a ``ForageRequest`` rather than queue unseen.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside ``hivemind.llm.routing``. Called by
@@ -83,7 +85,8 @@ def choose_binding(inputs: RoutingInputs) -> RoutingDecision:
     Returns:
         The decision: chosen key, the chain reordered with it first, the effort, the reason as
         data, the bindings passed over and, when the chosen source has no free seat, the
-        shortfall. When no binding is eligible it chooses the slot's own primary (``fell_back``).
+        shortfall. When no binding is eligible it chooses the best-ranked ineligible one, the
+        slot's own primary when they tie (``fell_back``).
 
     Raises:
         UnresolvableSlotError: ``inputs.bindings`` has no row for the slot's own key, or the
@@ -93,12 +96,16 @@ def choose_binding(inputs: RoutingInputs) -> RoutingDecision:
     floor = effective_floor(inputs)
     candidates = [_judge(index, row, floor, inputs) for index, row in enumerate(chain)]
     plan = _plan_positions(inputs)
-    eligible = sorted(
-        (c for c in candidates if c.cause is None), key=lambda c: _rank_key(c, inputs, plan)
-    )
-    # Ineligible bindings follow in manifest order; with none eligible this is the whole chain,
-    # so the slot's own primary leads: routing never refuses.
-    ranked = eligible + [c for c in candidates if c.cause is not None]
+
+    def rank(candidate: _Candidate) -> _RankKey:
+        """Order candidates for these inputs; the one key both halves of the chain sort by."""
+        return _rank_key(candidate, inputs, plan)
+
+    eligible = sorted((c for c in candidates if c.cause is None), key=rank)
+    # Ineligible bindings follow, ranked by the same key rather than manifest order: with none
+    # eligible this is the whole chain and routing never refuses, so the one it falls back to
+    # should still be the one with a seat, in the plan, local and cheap, not merely the first row.
+    ranked = eligible + sorted((c for c in candidates if c.cause is not None), key=rank)
     chosen, fell_back = ranked[0], not eligible
     return RoutingDecision(
         key=chosen.row.key,

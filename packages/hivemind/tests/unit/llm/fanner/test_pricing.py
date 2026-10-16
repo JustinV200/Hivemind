@@ -91,3 +91,40 @@ def test_price_usage_keeps_the_estimated_flag() -> None:
     priced = price_usage(bound, None, guessed, latency_s=0.0)
 
     assert priced.usage.estimated is True
+
+
+def test_price_usage_bills_cache_reads_and_writes_at_the_rows_ratios() -> None:
+    # An Anthropic-shaped usage: 500 fresh input tokens, 8,000 read from the cache, 1,000 written
+    # to it (the adapter has already summed them into `input_tokens`), and 100 output tokens.
+    usage = Usage(
+        input_tokens=9_500, output_tokens=100, cached_tokens=8_000, cache_write_tokens=1_000
+    )
+    bound = make_bound(cost_per_million_input_usd=3.0, cost_per_million_output_usd=15.0)
+    source = make_source(cost=ModelCost(cost_per_million_input_usd=3.0))
+
+    priced = price_usage(bound, source, usage, latency_s=0.0)
+
+    # Fresh at the full rate, reads at the default tenth, writes at the default quarter over.
+    expected = (500 * 3.0 + 8_000 * 3.0 * 0.1 + 1_000 * 3.0 * 1.25 + 100 * 15.0) / 1_000_000
+    assert priced.usage.cost_usd == pytest.approx(expected)
+    assert priced.priced is True
+
+
+def test_price_usage_reads_the_cache_ratios_from_the_sources_row() -> None:
+    usage = Usage(input_tokens=1_000_000, output_tokens=0, cached_tokens=1_000_000)
+    bound = make_bound(cost_per_million_input_usd=2.0, cost_per_million_output_usd=0.0)
+    # A provider that halves a cache read rather than discounting it to a tenth.
+    source = make_source(cost=ModelCost(cost_per_million_input_usd=2.0, cache_read_price_ratio=0.5))
+
+    priced = price_usage(bound, source, usage, latency_s=0.0)
+
+    assert priced.usage.cost_usd == pytest.approx(1.0)
+
+
+def test_price_usage_uses_the_documented_cache_defaults_for_an_unknown_source() -> None:
+    usage = Usage(input_tokens=1_000_000, output_tokens=0, cached_tokens=1_000_000)
+    bound = make_bound(cost_per_million_input_usd=10.0, cost_per_million_output_usd=0.0)
+
+    priced = price_usage(bound, None, usage, latency_s=0.0)
+
+    assert priced.usage.cost_usd == pytest.approx(1.0)  # A tenth of the full input rate.
