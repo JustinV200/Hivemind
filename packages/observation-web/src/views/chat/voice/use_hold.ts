@@ -4,7 +4,8 @@
  * `begin` opens the microphone and starts the countdown; `end` (release, or the cap) stops the
  * recording and gives the clip to `onClip`. A hold too short to hold any speech is dropped with a
  * hint instead of being handed over. The microphone is released on every path: handed over, too
- * short, failed, cancelled or unmounted.
+ * short, failed, cancelled or unmounted, including a hold that opens the microphone only after
+ * the view has gone.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/chat/voice/`. Used by `use_voice.ts`; records through the
@@ -52,6 +53,8 @@ export function useHold(recorder: Recorder | null, onClip: (clip: Clip) => Promi
   const [error, setError] = useState<unknown>(null);
   const live = useRef({ phase: 'idle' as VoicePhase, released: false });
   const recording = useRef<Recording | null>(null);
+  // False once the view is gone: a microphone that opens after that is released, never recorded.
+  const alive = useRef(true);
   // The countdown ends the hold, and ending it stops the countdown, so each reaches the other
   // through a ref.
   const ending = useRef<() => void>(() => {});
@@ -91,28 +94,35 @@ export function useHold(recorder: Recorder | null, onClip: (clip: Clip) => Promi
     setError(null);
     setHint(null);
     go('starting');
+    let opened: Recording;
     try {
       // Latency: the browser's permission prompt the first time; a refusal rejects.
-      recording.current = await recorder.start();
+      opened = await recorder.start();
     } catch (failure) {
       setError(failure);
       go('idle');
       return;
     }
+    // The view left while the prompt was up: the cleanup found nothing to cancel, so the
+    // recording that opened late cancels itself rather than run (and send) with no one watching.
+    if (!alive.current) return opened.cancel();
+    recording.current = opened;
     // Let go before the microphone opened: stop at once instead of recording unheld.
     if (live.current.released) return void end();
     go('recording');
     countdown.start();
   }, [recorder, go, end, countdown]);
 
-  // Leaving the view mid-hold drops the audio and turns the microphone off.
-  useEffect(
-    () => () => {
+  // Leaving the view mid-hold drops the audio and turns the microphone off; a hold still opening
+  // the microphone sees `alive` false and does the same when it opens.
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
       recording.current?.cancel();
       recording.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
 
   return {
     available: recorder !== null,

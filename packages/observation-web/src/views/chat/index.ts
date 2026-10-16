@@ -22,4 +22,4 @@ export type { ChatEvent, ChatState } from './slice';
 export { useChatActions } from './writes/use_actions';
 export type { ChatActions } from './writes/use_actions';
 export { StepUpPrompt } from './writes/step_up_prompt';
-export type { StepUp } from './writes/use_step_up';
+export type { StepUp } from '../devices';

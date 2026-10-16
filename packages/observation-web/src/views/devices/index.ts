@@ -18,7 +18,7 @@
 export { DevicesScreen } from './devices_screen';
 export { devicesSlice } from './slice';
 export type { DevicesEvent, DevicesState } from './slice';
-export { StepUpPanel, StepUpPrompt, useStepUp } from './step_up';
-export type { StepUp } from './step_up';
+export { needsStepUp, StepUpPanel, StepUpPrompt, useStepUp } from './step_up';
+export type { StepUp, StepUpAsk } from './step_up';
 export { SECURITY_STREAM, useBurstRead } from './live';
 export { parseCapabilities } from './list/format';

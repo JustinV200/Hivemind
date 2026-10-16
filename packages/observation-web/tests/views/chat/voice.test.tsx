@@ -4,8 +4,9 @@
  * The recorder is a fake that counts what the view asks of it and returns a clip the test chose.
  * The rules under test: holding records and releasing posts the clip to `/v1/chat/audio` with the
  * clip's own `Content-Type`, a signature over the hash of those bytes and the intent in the query;
- * the countdown caps the hold at 60 seconds and sends; the transcript is shown, and a spoken goal
- * shows Confirm and Decline before anything runs; a device with no recorder shows no button.
+ * the countdown caps the hold at 60 seconds and sends; a microphone that opens after the view has
+ * gone is released and nothing is sent; the transcript is shown, and a spoken goal shows Confirm
+ * and Decline before anything runs; a device with no recorder shows no button.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/views/chat/voice/ through `ChatScreen`.
@@ -128,6 +129,32 @@ describe('holding the button', () => {
     });
     // The recording that opened late was ended, not left running.
     await waitFor(() => expect(chat.recorder!.stops).toBe(1));
+  });
+
+  it('releases a microphone that opens after the view has gone, and sends nothing', async () => {
+    const chat = await mountChat({ recorder: true });
+    chat.fake.respond('POST /v1/chat/audio', 202, voiceAccepted());
+    let open!: () => void;
+    chat.recorder!.gate = new Promise((resolve) => (open = resolve));
+    await screen.findByRole('button', { name: /Hold to talk/ });
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    await act(async () => {
+      fireEvent.pointerDown(hold());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // The human leaves the chat while the permission prompt is up, then allows the microphone.
+    chat.view.unmount();
+    await act(async () => {
+      open();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(chat.recorder!.cancels).toBe(1);
+    // Past the cap nothing is stopped or posted: the dead hold owns no countdown.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+    });
+    expect(chat.recorder!.stops).toBe(0);
+    expect(audioPosts(chat)).toHaveLength(0);
   });
 
   it('shows the refusal when the microphone cannot be used', async () => {

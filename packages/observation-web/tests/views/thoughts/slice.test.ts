@@ -3,7 +3,8 @@
  *
  * The slice is pure, so each rule is checked on the reducer alone: a seed lands newest first, a
  * frame for another bee is ignored, Follow off queues instead of moving the list, the list never
- * holds more than 500 episodes, and an older page appends without repeating an episode id.
+ * holds more than 500 episodes (and opening the same bee again after that cut starts clean, so
+ * paging is offered again), and an older page appends without repeating an episode id.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/views/thoughts/slice.ts.
@@ -131,6 +132,23 @@ describe('bound', () => {
     expect(state.episodes[0]!.id).toBe(`ep_${MAX_EPISODES + 1}`);
     expect(ids(state)).not.toContain('ep_1');
     expect(state).toMatchObject({ truncated: true, nextCursor: null });
+  });
+
+  it('starts clean when the same bee is opened again after the cut, so Older comes back', () => {
+    const page = thoughtsPage({ episodes: [ep(1)], next_cursor: 'c1' });
+    let state = run([{ type: 'seeded', principal: 'queen', page }], opened);
+    state = run(
+      Array.from({ length: MAX_EPISODES }, (_, i) => frame(i + 2)),
+      state,
+    );
+    expect(state).toMatchObject({ truncated: true, nextCursor: null });
+    // Leaving and coming back: the held list goes, the fresh seed's cursor is kept.
+    const reopened = run([{ type: 'open', principal: 'queen' }], state);
+    expect(reopened).toMatchObject({ principal: 'queen', seeded: false, truncated: false });
+    expect(reopened.episodes).toHaveLength(0);
+    const fresh = thoughtsPage({ episodes: [ep(600)], next_cursor: 'c2' });
+    const seeded = run([{ type: 'seeded', principal: 'queen', page: fresh }], reopened);
+    expect(seeded).toMatchObject({ nextCursor: 'c2', truncated: false });
   });
 
   it('bounds the queue too', () => {

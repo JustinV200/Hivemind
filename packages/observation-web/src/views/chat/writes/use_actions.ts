@@ -20,16 +20,16 @@
  *     and a one-line notice says so, rather than an error.
  *
  * See Also:
- *   - src/views/chat/writes/use_step_up.ts for the step-up flow.
+ *   - src/views/devices/step_up/use_step_up.ts for the step-up flow, shared with the Devices view.
  *   - docs/entrance/landing-board.md sections 8.1, 8.3 and 8.4.
  */
 import { useMemo, useRef } from 'react';
 import { LandingBoardError } from '../../../landing_board/client';
 import type { HttpClient } from '../../../landing_board/client';
 import { useHive } from '../../../store';
+import { useStepUp } from '../../devices';
+import type { StepUp } from '../../devices';
 import type { QuestionView } from '../slice';
-import { useStepUp } from './use_step_up';
-import type { StepUp } from './use_step_up';
 
 export type Clip = Parameters<HttpClient['postAudio']>[0];
 export type Intent = Parameters<HttpClient['postAudio']>[1];

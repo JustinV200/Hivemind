@@ -10,14 +10,16 @@
  * device no person types at, which this device cannot step up for, so it is passed back untouched.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/views/devices/step_up/`. Shared by the Devices and Enrol views
- *   (the chat keeps its own); the prompt it describes is drawn by `step_up_prompt.tsx`.
+ *   Layer 7 (observation-web), `src/views/devices/step_up/`. Shared by the Devices, Enrol and Chat
+ *   views; the prompt it describes is drawn by `step_up_prompt.tsx` (the chat draws its own above
+ *   the composer from the same state).
  *
  * Key invariants:
  *   - The password lives only in the prompt's input and in the one `stepUp` call; it is never kept.
  *   - At most one question is open; leaving the view answers an open one with a cancel.
  *   - An action is retried at most once per refusal.
- *   - A good step-up clears the session slice's `needsStepUp`, so the shell's banner goes away.
+ *   - A good step-up clears the session slice's `needsStepUp`, so the shell's banner goes away,
+ *     and is counted in `steppedUp`, so a view whose read was refused can read again.
  *
  * See Also:
  *   - src/landing_board/client/session.ts `stepUp`.
@@ -40,18 +42,20 @@ export interface StepUpAsk {
 export interface StepUp {
   guarded<T>(action: () => Promise<T>): Promise<T>;
   ask: StepUpAsk | null;
+  // How many step-ups this hook has completed; it moves once per accepted password.
+  steppedUp: number;
   submit(password: string): void;
   cancel(): void;
 }
 
+// The refusal that asks for both factors again, whoever is to answer it.
+export function needsStepUp(error: unknown): boolean {
+  return error instanceof LandingBoardError && error.status === 403 && error.code === STEP_UP_CODE;
+}
+
 // A refusal this interactive device can answer itself, as opposed to a held request.
 function canStepUp(error: unknown): boolean {
-  return (
-    error instanceof LandingBoardError &&
-    error.status === 403 &&
-    error.code === STEP_UP_CODE &&
-    error.pendingId === null
-  );
+  return needsStepUp(error) && error instanceof LandingBoardError && error.pendingId === null;
 }
 
 interface Question {
@@ -93,6 +97,7 @@ function useQuestion(): Question {
 export function useStepUp(): StepUp {
   const { client, store } = useHive();
   const { ask, request, settle, close } = useQuestion();
+  const [steppedUp, setSteppedUp] = useState(0);
 
   // Asks until a password is accepted; a cancel gives the original refusal back.
   const confirm = useCallback(
@@ -106,6 +111,7 @@ export function useStepUp(): StepUp {
             // Latency: a passkey prompt and one round trip; a wrong password rejects.
             await client.session.stepUp(typed);
             store.dispatch({ slice: 'session', event: { type: 'stepped_up' } });
+            setSteppedUp((n) => n + 1);
             return;
           } catch (error) {
             failure = error;
@@ -132,5 +138,5 @@ export function useStepUp(): StepUp {
     [confirm],
   );
 
-  return { guarded, ask, submit: settle, cancel: () => settle(null) };
+  return { guarded, ask, steppedUp, submit: settle, cancel: () => settle(null) };
 }

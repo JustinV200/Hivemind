@@ -7,7 +7,7 @@
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/chat/composer/`. Drawn by `chat_screen.tsx` unless the
- *   device may not submit.
+ *   device may not submit; a step-up refusal keeps it, because the prompt that answers it is here.
  *
  * Key invariants:
  *   - The prompt is keyed by its round, so a wrong password gives a clean field.
@@ -18,11 +18,11 @@
  */
 import type { ReactElement } from 'react';
 import { useHive } from '../../../store';
+import type { StepUp } from '../../devices';
 import type { ChatState } from '../slice';
 import { SpokenCard } from '../voice/spoken_card';
 import { StepUpPrompt } from '../writes/step_up_prompt';
 import type { ChatActions } from '../writes/use_actions';
-import type { StepUp } from '../writes/use_step_up';
 import { Composer } from './composer';
 
 export function Dock(props: {

@@ -11,6 +11,8 @@
  * reveals, so the list under their eyes never moves. The slice is bounded: past `MAX_EPISODES` the
  * oldest fall off the end, and the page cursor is dropped with them, because a cursor can only
  * continue from the last record it handed out and the trimmed ones would otherwise be skipped.
+ * Opening the same bee again after that cut starts clean, so the fresh seed brings a cursor and
+ * the view's "open this view again to read further back" holds.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/thoughts/`. Registered in `src/app.tsx`'s table, filled
@@ -187,8 +189,10 @@ function decided(state: ThoughtsState, event: TrailFrame['event']): ThoughtsStat
 export function reduceThoughts(state: ThoughtsState, event: ThoughtsEvent): ThoughtsState {
   switch (event.type) {
     case 'open':
-      // The same bee again keeps what is held (the reseed merges); another bee starts clean.
-      if (event.principal === state.principal)
+      // The same bee again keeps what is held (the reseed merges), unless the bound cut the list
+      // and took the cursor with it: then only a clean start can offer Older again. Another bee
+      // starts clean.
+      if (event.principal === state.principal && !state.truncated)
         return state.error ? { ...state, error: null } : state;
       return { ...initialThoughts, principal: event.principal, follow: state.follow };
     case 'seeded':

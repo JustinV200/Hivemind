@@ -15,7 +15,8 @@
  * Key invariants:
  *   - The only requests it makes are `GET /v1/chat`, `GET /v1/inbox`, and the writes in
  *     `writes/use_actions.ts`; a test lists them.
- *   - A 403 on the chat read hides the composer and shows the refusal's sentence.
+ *   - A 403 on the chat read hides the composer and shows the refusal's sentence, except a
+ *     `step_up_required`, which keeps the Dock: the prompt that answers it lives there.
  *   - A newly arrived question or Alarm is announced once, politely, to assistive technology.
  *
  * See Also:
@@ -25,6 +26,7 @@ import type { ReactElement } from 'react';
 import { ErrorNotice, ViewTitle } from '../../components';
 import { LandingBoardError } from '../../landing_board/client';
 import { useHive, useSlice, useViewStream } from '../../store';
+import { needsStepUp } from '../devices';
 import './chat.css';
 import { Dock } from './composer/dock';
 import { Conversation } from './conversation/conversation';
@@ -47,13 +49,17 @@ function Notice(props: { text: string; onDismiss: () => void }): ReactElement {
 export function ChatScreen(): ReactElement {
   const { store } = useHive();
   const state = useSlice('chat');
-  useChat();
-  useViewStream(CHAT_STREAM, 'chat', toChatEvent, CHAT_RESUME);
   const { actions, stepUp } = useChatActions();
+  useChat(stepUp);
+  useViewStream(CHAT_STREAM, 'chat', toChatEvent, CHAT_RESUME);
   const dispatch = store.dispatch;
 
-  // No `entrance:submit` (or no clearance): nothing can be sent, so no composer is offered.
-  const refused = state.error instanceof LandingBoardError && state.error.status === 403;
+  // No `entrance:submit` (or no clearance): nothing can be sent, so no composer is offered. A
+  // step-up refusal is the one 403 the human can answer, and only the Dock holds the prompt.
+  const refused =
+    state.error instanceof LandingBoardError &&
+    state.error.status === 403 &&
+    !needsStepUp(state.error);
   return (
     <section className="chat">
       <ViewTitle title="Chat" subject="Queen" />

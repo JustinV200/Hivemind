@@ -7,21 +7,22 @@
  * wrong password is shown as the refusal it was, with the field cleared for another try.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/views/chat/writes/`. Drawn by `chat_screen.tsx` from the
- *   state `use_step_up.ts` holds; it owns only the text being typed.
+ *   Layer 7 (observation-web), `src/views/chat/writes/`. Drawn by the composer's dock from the
+ *   state the shared `useStepUp` (the Devices view's `step_up/`) holds; it owns only the text
+ *   being typed.
  *
  * Key invariants:
  *   - The field is `type="password"` with autocomplete off, and is cleared on every new round.
  *   - It holds no logic about the write that is waiting; it only reports a password or a cancel.
  *
  * See Also:
- *   - src/views/chat/writes/use_step_up.ts for the flow around it.
+ *   - src/views/devices/step_up/use_step_up.ts for the flow around it.
  */
 import { useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 import { ErrorNotice } from '../../../components';
 import { describeError } from '../../../landing_board/client';
-import type { StepUpAsk } from './use_password_ask';
+import type { StepUpAsk } from '../../devices';
 
 export function StepUpPrompt(props: {
   ask: StepUpAsk;

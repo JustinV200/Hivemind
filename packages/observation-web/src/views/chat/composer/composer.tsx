@@ -33,7 +33,7 @@ import { useVoice } from '../voice/use_voice';
 import type { QuestionView } from '../slice';
 import type { ChatActions } from '../writes/use_actions';
 import { useGoal } from '../writes/use_goal';
-import type { StepUp } from '../writes/use_step_up';
+import type { StepUp } from '../../devices';
 
 // ChatPost.text maxLength in the published document.
 const MAX_MESSAGE = 16000;

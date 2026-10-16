@@ -18,8 +18,8 @@ security frames); `use_devices.ts` seeds it from `GET /v1/devices`, `/v1/entranc
 (`index.ts` exports it as `DevicesScreen`, and `devices.tsx` keeps the old `DevicesView` name for
 the shell's outlet); `list/` holds the table, its rows, the revoke form and the capability editor;
 `entrance/` the Entrance panel and the held list; `actions/` every write the view makes, as one
-hook; `step_up/` the step-up the Enrol view shares: a hook that asks again and retries once, the
-in-place prompt and the standing panel the shell's banner links to.
+hook; `step_up/` the step-up the Enrol and Chat views share: a hook that asks again and retries
+once, the in-place prompt and the standing panel the shell's banner links to.
 
 Not in the schema, so not shown: the network address a device last connected from (the Landing Board
 records `last_seen_at` and the self-description only), so the list says when and what platform, and

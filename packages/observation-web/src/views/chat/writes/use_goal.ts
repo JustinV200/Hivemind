@@ -11,7 +11,7 @@
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/chat/writes/`. Called by `composer/composer.tsx` with
- *   the chat's own `guarded` (from `use_step_up.ts`); the line is drawn by `conversation/goal_row`.
+ *   the chat's own `guarded` (from the Devices view's `step_up/`); the line is drawn by `conversation/goal_row`.
  *
  * Key invariants:
  *   - The only request here is `POST /v1/goals`; confirm and decline stay in `use_actions.ts`.
@@ -25,7 +25,7 @@
 import { useCallback, useState } from 'react';
 import type { components } from '../../../landing_board/types';
 import { useHive } from '../../../store';
-import type { StepUp } from './use_step_up';
+import type { StepUp } from '../../devices';
 
 type GoalView = components['schemas']['GoalView'];
 type Accepted = components['schemas']['GoalAccepted'];
