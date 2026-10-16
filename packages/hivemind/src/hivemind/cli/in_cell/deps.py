@@ -251,10 +251,11 @@ def _routed(
 ) -> WardenDeps:
     """Give `deps` this Cell's routing inputs (8.1) and its provider door (8.3).
 
-    A Virtual Cell carries no `[llm.floors]` of its own (`HIVEMIND_SLOTS` ships the rows, not the
-    floors), so its routing runs on the shipped floors with the Hive's own offline flag; its map
-    is the Fanner's, so routing and metering read the same live figures. It carries no
-    `[llm.servers]` either (`InCellRuntimeConfig` has no such field), so `servers` stays empty and
+    The floors are the config's (`llm_floors`): the shipped defaults for a Virtual Cell, whose
+    bootstrap ships no `[llm.floors]`, and the device manifest's for a colonized device's Warden,
+    which is composed from this same core; the offline flag is the Hive's own. The map is the
+    Fanner's, so routing and metering read the same live figures. A Cell carries no
+    `[llm.servers]` here (`InCellRuntimeConfig` has no such field), so `servers` stays empty and
     this Warden hosts nothing; the door is wired all the same, so a later config that ships a
     server table needs no change here.
     """
@@ -262,7 +263,7 @@ def _routed(
     return dataclasses.replace(
         deps,
         map=fanner.deps.map,
-        routing_rules=RoutingRules(offline=config.llm_offline),
+        routing_rules=RoutingRules(floors=config.llm_floors, offline=config.llm_offline),
         servers={},
         register_provider=register,
         unregister_provider=unregister,

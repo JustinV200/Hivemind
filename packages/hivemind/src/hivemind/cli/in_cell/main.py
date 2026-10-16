@@ -46,10 +46,12 @@ Key invariants:
       action, `hivemind.wardens.ticks.control.handle_stop`), so `run_in_cell_warden` only calls it
       again itself when `run()` ended some other way -- calling an already-stopped Warden's
       `stop()` a second time would re-release its lease and double-record `warden.stopped`.
-    - Once the link is built it is closed on every way out of `run_in_cell_warden`, whatever
+    - Once the link is connected it is closed on every way out of `run_in_cell_warden`, whatever
       became of the Warden's stop (it overran its grace, raised, or the Warden was cancelled
-      before it ran its first tick): a Night Veil Cell's link mends itself, so one left open
-      would go on redialing Tor for a Cell that no longer exists.
+      before it ran its first tick), and just as much when the announcement or the build of the
+      Warden's deps fails after the dial (`_connect_and_build` closes it itself then): a Night
+      Veil Cell's link mends itself, so one left open would go on redialing Tor for a Cell that
+      no longer exists, and a bare transport left open holds the Queen's end of its connection.
     - `on_deps_built`, when given, is called exactly once, with the freshly built `WardenDeps`,
       after `_connect_and_build` has already announced this Cell (`CellReady`/`CapacityReport`/
       `CellHeartbeat`) but strictly before `Warden.start()`/`.run()` -- so a caller can script
@@ -223,12 +225,22 @@ async def _connect_and_build(
     source = _spawn_source(config, trail, clock)
     if not redials(config):
         transport = await _connect_and_announce(config, source, clock)
-        return transport, build_in_cell_warden_deps(config, source, transport, trail, clock)
+        # From here the link is open and nobody else can close it yet (module docstring).
+        try:
+            deps = build_in_cell_warden_deps(config, source, transport, trail, clock)
+        except BaseException:
+            await _close_link(transport)
+            raise
+        return transport, deps
     # Roadmap step 10.3a: Tor can die under a Night Veil Cell's link, and the Warden must then go
     # cut off and cluster, never fall back to another route (`hivemind.cli.in_cell.redial`).
     redialing = await connect_redialing(config, source, trail, clock)
-    deps = build_in_cell_warden_deps(config, source, redialing.link, trail, clock)
-    return redialing.link, redialing.equip(deps)
+    try:
+        deps = build_in_cell_warden_deps(config, source, redialing.link, trail, clock)
+        return redialing.link, redialing.equip(deps)
+    except BaseException:
+        await _close_link(redialing.link)  # A mending link left open would redial Tor for ever.
+        raise
 
 
 async def _connect_and_announce(
@@ -265,10 +277,18 @@ async def _connect_and_announce(
         attestation=_attestation(cell.comb_shield, transport),
     )
     _LOG.info("cell.link.connecting", queen_waggle_url=config.queen_waggle_url, cell_id=cell.id)
-    await cell_link.announce(link_deps)
-    _LOG.info("cell.link.announced", cell_id=cell.id, warden_id=config.warden_id)
-    await cell_link.send_capacity_report(link_deps, config.spawn_config.capacity)
-    await cell_link.send_cell_heartbeat(link_deps)
+    try:
+        await cell_link.announce(link_deps)
+        _LOG.info("cell.link.announced", cell_id=cell.id, warden_id=config.warden_id)
+        await cell_link.send_capacity_report(link_deps, config.spawn_config.capacity)
+        await cell_link.send_cell_heartbeat(link_deps)
+    except BaseException:
+        # A frame that failed after the dial (the Queen closed the socket between CellReady and
+        # the CapacityReport, say), or a cancellation while announcing: the connection is this
+        # function's until it is handed back, so it is closed here. Closing a transport that
+        # never connected is a no-op.
+        await _close_link(transport)
+        raise
     _LOG.info("cell.link.ready", cell_id=cell.id)
     return transport
 

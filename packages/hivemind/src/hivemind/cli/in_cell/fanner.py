@@ -49,6 +49,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from hivemind.cli.in_cell.config import InCellRuntimeConfig
+from hivemind.cli.in_cell.providers import local_provider_names
 from hivemind.forage import ForageMap, Tempo
 from hivemind.llm import CallGate, Fanner, FannerDeps, TrailLlmEventRecorder
 from hivemind.pheromone import PheromoneTrail
@@ -81,6 +82,8 @@ def build_in_cell_fanner(
         limits=config.provider_limits,
         clock=clock,
         recorder=recorder,
+        # A call on a provider this Cell serves locally is recorded `local` (review finding 39).
+        local_providers=local_provider_names(config),
     )
     return Fanner(deps)
 

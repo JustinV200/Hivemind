@@ -13,6 +13,7 @@ See Also:
 
 from __future__ import annotations
 
+import sqlite3
 import stat
 import sys
 from pathlib import Path
@@ -75,3 +76,20 @@ async def test_the_state_directory_is_private_to_the_warden_user(tmp_path: Path)
     await open_device_stores(state_dir, FakeClock())
 
     assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+
+
+async def test_close_releases_the_file_and_a_second_close_is_nothing(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    stores = await open_device_stores(state_dir, FakeClock())
+    assert (state_dir / f"{DATABASE_FILE}-wal").exists()  # Open: the WAL has a writer.
+
+    await stores.close()
+    await stores.close()
+
+    # The WAL was checkpointed and removed with its last connection: nothing is left for the
+    # packet's restart of the process to recover, and no store can be reached any more.
+    assert [path.name for path in state_dir.iterdir()] == [DATABASE_FILE]
+    with pytest.raises(sqlite3.ProgrammingError):
+        await stores.trail.query(TrailQuery())
+    with pytest.raises(sqlite3.ProgrammingError):
+        await stores.leavings.list_all_leavings()

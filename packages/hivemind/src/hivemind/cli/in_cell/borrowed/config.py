@@ -27,8 +27,10 @@ Key invariants:
       `ConfigurationError` naming the variable, never a `KeyError` and never a message that
       carries key material.
     - The node key is read as the packet writes it (raw 32 bytes), and is never put in a message.
-    - A device holds the MEADOW tier only: PROPOLIS is verified from the Hive Stand, which a Warden
-      on the device cannot do, and NIGHT_VEIL is a Virtual Cell's.
+    - A device holds the MEADOW or the PROPOLIS tier, the two an operator may enrol it at
+      (ADR-0051); NIGHT_VEIL is a Virtual Cell's and is refused. The PROPOLIS tier is verified by
+      the device's own Warden before each lease and reported on its CellReady
+      (`hivemind.cli.in_cell.borrowed.shield`), wherever that Warden runs.
     - A `wss://` listener needs the certificate pin the packet holds and a `ws://` one has none, as
       the packet's own state requires; the URL is checked by the strict rule, not the Virtual
       Cell's gateway-host carve-out.
@@ -207,7 +209,11 @@ def build_borrowed_config(env: InCellEnv, clock: Clock) -> BorrowedConfig:
 def _device_runtime(
     base: InCellRuntimeConfig, env: InCellEnv, llm: DeviceLlm
 ) -> InCellRuntimeConfig:
-    """Replace what a bootstrap minted with what the device keeps: its ids and its model tables."""
+    """Replace what a bootstrap minted with what the device keeps: its ids and its model tables.
+
+    The model tables are the device manifest's whole `[llm]`: its providers, slots, floors and
+    offline flag, so the device routes by the floors the operator wrote for it.
+    """
     return dataclasses.replace(
         base,
         node_id=NodeId(_parse_id(env.node_id, IdKind.NODE, "HIVEMIND_NODE_ID")),
@@ -216,6 +222,7 @@ def _device_runtime(
         provider_seats=llm.seats,
         provider_limits=llm.limits,
         slots=llm.slots,
+        llm_floors=llm.floors,
         llm_offline=llm.offline,
     )
 
@@ -267,11 +274,14 @@ def _watch_roots(raw: str | None) -> tuple[str, ...]:
 
 
 def _check_tier(tier: CombShieldLevel) -> None:
-    """Refuse every tier but MEADOW (module docstring's Key invariants)."""
-    if tier is not CombShieldLevel.MEADOW:
+    """Refuse NIGHT_VEIL, the one tier a Real Cell never holds (module docstring's invariants)."""
+    # MEADOW and PROPOLIS are the tiers an invite may carry and `hive swarm shield` may set; the
+    # packet passes the node's current tier through, so refusing PROPOLIS here would make every
+    # colonization of a Propolis device fail at start and be retried for ever.
+    if tier is CombShieldLevel.NIGHT_VEIL:
         raise ConfigurationError(
-            f"A Swarm device's Warden holds the MEADOW tier only, not {tier.value}: PROPOLIS is "
-            "verified from the Hive Stand and NIGHT_VEIL is a Virtual Cell's."
+            f"A Swarm device's Warden never holds the {tier.value} tier: Night Veil is a Virtual "
+            "Cell's, and a Night Veil goal is placed on one."
         )
 
 

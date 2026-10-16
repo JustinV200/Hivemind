@@ -25,13 +25,15 @@ Level 1: the Queen asks for one with a `swarm.nuc_promote` when she promotes the
 (roadmap step 11.8), and the Warden starts it then through the same `ModelServerHost` every Warden
 has. It watches its own machine (`WardenDeps.watch`, roadmap step 11.10) like the Warden of every
 Real Cell, through `hivemind.cli.in_cell.borrowed.watch`. `build_device_link` builds the
-`ReconnectingQueenLink` the Warden is handed.
+`ReconnectingQueenLink` the Warden is handed, its announcer reporting the tier's checks
+(`hivemind.cli.in_cell.borrowed.shield`) and its durable outbox opened off the event loop, since
+opening one reads back every frame a long outage queued.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Called by
     `hivemind.cli.in_cell.borrowed.run`. Calls into `hivemind.cli.in_cell.deps` (`build_core_deps`),
     `hivemind.cli.compose.exoskeleton` (`device_exoskeleton`),
-    `hivemind.cli.in_cell.borrowed.dial`/`.stores`/`.config`/`.watch`, `hivemind.guard`,
+    `hivemind.cli.in_cell.borrowed.dial`/`.stores`/`.config`/`.watch`/`.shield`, `hivemind.guard`,
     `hivemind.memory`, `hivemind.wardens` (WardenDeps, DeviceDeps, the offline package) and waggle
     only.
 
@@ -56,6 +58,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from dataclasses import dataclass
 
@@ -63,11 +66,13 @@ from hivemind.cell import RealCellSource
 from hivemind.cli.compose.exoskeleton import device_exoskeleton
 from hivemind.cli.in_cell.borrowed.config import BorrowedConfig
 from hivemind.cli.in_cell.borrowed.dial import (
+    Announcement,
     DeviceAnnouncer,
     DeviceDialer,
     DeviceIdentity,
     LateTrailSync,
 )
+from hivemind.cli.in_cell.borrowed.shield import own_shield_report
 from hivemind.cli.in_cell.borrowed.stores import DeviceStores
 from hivemind.cli.in_cell.borrowed.watch import device_watch
 from hivemind.cli.in_cell.deps import build_core_deps
@@ -99,7 +104,7 @@ class BorrowedParts:
     stores: DeviceStores  # Memory, trail and Leavings under the state directory.
 
 
-def build_device_link(
+async def build_device_link(
     config: BorrowedConfig,
     source: RealCellSource,
     stores: DeviceStores,
@@ -118,6 +123,9 @@ def build_device_link(
     Returns:
         A ReconnectingQueenLink, OFFLINE until `connect`, over a durable outbox in the state
         directory (which must exist: open the stores first).
+
+    Raises:
+        hivemind.wardens.offline.OutboxError: The outbox file is there but cannot be read back.
     """
     runtime = config.runtime
     codec = Codec(signer=runtime.signer, verifier=runtime.verifier)
@@ -131,17 +139,30 @@ def build_device_link(
     )
     reconnection = Reconnection(
         dialer=DeviceDialer(runtime.queen_waggle_url, config.tls_pin, codec, clock),
-        announcer=DeviceAnnouncer(
-            DeviceIdentity(runtime.warden_id, runtime.hive_id, runtime.node_id),
-            source,
-            config.llm.servers,
-            clock,
-            config.watch_roots,
-        ),
+        announcer=_announcer(config, source, clock),
         after=TrailReconnect(record, trail_sync),
         clock=clock,
     )
-    return ReconnectingQueenLink(reconnection, open_outbox(config.state_dir, codec, clock))
+    # Off the loop, as the Night Veil link's twin (`hivemind.cli.in_cell.redial`) opens its own:
+    # opening the outbox reads back the whole file, and a device that queued through a long
+    # outage holds one the loop should not stall on.
+    outbox = await asyncio.to_thread(open_outbox, config.state_dir, codec, clock)
+    return ReconnectingQueenLink(reconnection, outbox)
+
+
+def _announcer(config: BorrowedConfig, source: RealCellSource, clock: Clock) -> DeviceAnnouncer:
+    """Build what says who the Cell is on each connection: ids, servers, the tier's report."""
+    runtime = config.runtime
+    return DeviceAnnouncer(
+        DeviceIdentity(runtime.warden_id, runtime.hive_id, runtime.node_id),
+        source,
+        Announcement(
+            servers=config.llm.servers,
+            watch_roots=config.watch_roots,
+            attest=own_shield_report(config, clock),  # A Propolis device's own tunnel checks.
+        ),
+        clock,
+    )
 
 
 def build_borrowed_warden_deps(

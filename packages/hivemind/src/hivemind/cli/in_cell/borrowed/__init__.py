@@ -25,7 +25,9 @@ Fits into the Hive:
 Key invariants:
     - Nothing here reads `os.environ`; it is given the already-read `InCellEnv` (codingrules 13).
     - The Warden keeps its id, and signs as the device's node with the key the packet holds.
-    - The device holds the MEADOW tier only; any other is refused at start.
+    - The device holds the MEADOW or the PROPOLIS tier the operator enrolled it at; NIGHT_VEIL is
+      refused at start. A Propolis device's Warden verifies its own tunnel before each lease and
+      reports the same checks on its CellReady (`shield`), exactly as the Hive Stand did for it.
     - No Virtual Cell extra that needs a Cell the Hive owns is built for a device: no snapshotter,
       no resident Basket. The Exoskeleton wiring is (roadmap step 11.11): the device's Warden
       attaches a display to its own lease through its own session, with Chromium sandboxed and
@@ -46,7 +48,9 @@ Public API:
     - DeviceStores, open_device_stores: the durable stores (stores).
     - build_device_link, build_borrowed_warden_deps, BorrowedParts: the composition (deps).
     - device_watch, readable_watch_roots: the watch mode of the device's own Warden (watch).
-    - DeviceDialer, DeviceAnnouncer, DeviceIdentity, LateTrailSync: the link's collaborators (dial).
+    - DeviceDialer, DeviceAnnouncer, Announcement, DeviceIdentity, LateTrailSync: the link's
+      collaborators (dial).
+    - own_shield_report, shielded_source, Attester: the Propolis tier on the device (shield).
 """
 
 from hivemind.cli.in_cell.borrowed.config import (
@@ -62,6 +66,7 @@ from hivemind.cli.in_cell.borrowed.deps import (
     build_device_link,
 )
 from hivemind.cli.in_cell.borrowed.dial import (
+    Announcement,
     DeviceAnnouncer,
     DeviceDialer,
     DeviceIdentity,
@@ -69,12 +74,15 @@ from hivemind.cli.in_cell.borrowed.dial import (
 )
 from hivemind.cli.in_cell.borrowed.llm import DeviceLlm, device_llm
 from hivemind.cli.in_cell.borrowed.run import run_borrowed_warden, stop_on_signals
+from hivemind.cli.in_cell.borrowed.shield import Attester, own_shield_report, shielded_source
 from hivemind.cli.in_cell.borrowed.stores import DeviceStores, open_device_stores
 from hivemind.cli.in_cell.borrowed.watch import device_watch, readable_watch_roots
 
 __all__ = [
     "BORROWED",
     "OWNED",
+    "Announcement",
+    "Attester",
     "BorrowedConfig",
     "BorrowedParts",
     "DeviceAnnouncer",
@@ -90,7 +98,9 @@ __all__ = [
     "device_watch",
     "is_borrowed",
     "open_device_stores",
+    "own_shield_report",
     "readable_watch_roots",
     "run_borrowed_warden",
+    "shielded_source",
     "stop_on_signals",
 ]

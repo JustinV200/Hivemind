@@ -7,7 +7,9 @@ the durable stores, builds the Warden's link to the Queen (unconnected) and its 
 (which announces the Cell: `cell.ready` with the level and tier the Queen granted the device, a
 capacity report that lists the model servers the device manifest declares, a heartbeat), and then
 starts and runs a real Warden. That Warden leases the machine itself, through the same machinery
-the Hive Stand uses, so a task's commands run on the device with nothing between. It runs until it
+the Hive Stand uses (held behind the Propolis tunnel checks when that is the device's tier, as
+the Hive Stand held it: `hivemind.cli.in_cell.borrowed.shield`), so a task's commands run on the
+device with nothing between. It runs until it
 is told to stop: a Queen-sent `Shutdown` stops it from inside its own tick, and a signal (the
 packet's WITHDRAW, `SIGTERM`) is turned into the same stop by `stop`, so the lease is given back,
 the device left as it was found, and the trail shipped, before the process exits.
@@ -16,7 +18,8 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.in_cell.borrowed`. Called by
     `hivemind.cli.in_cell.main.run_in_cell_warden` when `HIVEMIND_CELL_LEASE` is `borrowed`. Calls
     into `hivemind.cell` (HiveStandSource, CellIdentity), `hivemind.cli.in_cell` (the hive-stand
-    names, the borrowed modules), `hivemind.common`, `hivemind.wardens` (Warden) and waggle only.
+    names, the borrowed modules), `hivemind.common`, `hivemind.swarm` (SwarmRecorder),
+    `hivemind.wardens` (Warden) and waggle only.
 
 Key invariants:
     - `stop` is the only way this function is asked to end other than a Queen-sent Shutdown or an
@@ -27,8 +30,11 @@ Key invariants:
     - A stop while the Warden is still dialling the Queen for the first time ends the dial; no
       Warden has been started, so there is nothing to give back.
     - Everything on the way out is bounded by `BORROWED_SHUTDOWN_GRACE_S`: the packet that sent
-      the signal kills the process when its own, longer, grace runs out. The stores are left open
-      for the process to end with (`hivemind.cli.in_cell.borrowed.stores` says why).
+      the signal kills the process when its own, longer, grace runs out. The stores are closed
+      last, after the link, once the Warden is STOPPED or was never started, so no WAL writer is
+      left for the packet's restart of the process; under a Warden that overran its grace they
+      are left open for the packet's force to end with, since its bees may still be writing
+      (`hivemind.cli.in_cell.borrowed.stores` says why a close under a writer is a crash).
 
 See Also:
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the move this completes.
@@ -53,11 +59,13 @@ from hivemind.cli.in_cell.borrowed.deps import (
     build_device_link,
 )
 from hivemind.cli.in_cell.borrowed.dial import LateTrailSync
+from hivemind.cli.in_cell.borrowed.shield import shielded_source
 from hivemind.cli.in_cell.borrowed.stores import DeviceStores, open_device_stores
 from hivemind.cli.in_cell.hive_stand import hive_stand_addresses
 from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reap, reaping
 from hivemind.manifest import InCellEnv
+from hivemind.swarm import SwarmRecorder
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.offline import ReconnectingQueenLink
 from hivemind.wardens.state import WardenState
@@ -106,39 +114,63 @@ async def run_borrowed_warden(
     )
     stores = await open_device_stores(config.state_dir, clock)
     stopping = stop if stop is not None else asyncio.Event()
-    await _serve(config, stores, clock, (on_deps_built, stopping))
+    try:
+        parts, trail_sync = await _parts(config, stores, clock)
+    except BaseException:
+        await stores.close()  # Nothing was started: the file is left with no writer.
+        raise
+    await _serve(config, parts, trail_sync, clock, (on_deps_built, stopping))
 
 
-async def _serve(
-    config: BorrowedConfig,
-    stores: DeviceStores,
-    clock: Clock,
-    hooks: tuple[Callable[[WardenDeps], None] | None, asyncio.Event],
-) -> None:
-    """Build the link and the Warden, connect, and run until `stop` or the Queen ends it."""
-    on_deps_built, stop = hooks
+async def _parts(
+    config: BorrowedConfig, stores: DeviceStores, clock: Clock
+) -> tuple[BorrowedParts, LateTrailSync]:
+    """Build the source the Warden leases its machine through and its unconnected link."""
     runtime = config.runtime
     identity = CellIdentity(
         hive_id=runtime.hive_id, node_id=runtime.node_id, actor=str(runtime.warden_id)
     )
-    source = HiveStandSource(config.cell, identity, stores.trail, clock, stores.leavings)
+    machine = HiveStandSource(config.cell, identity, stores.trail, clock, stores.leavings)
+    # A Propolis device's lease is held back until its tunnel is verified, recorded on the
+    # Warden's own trail (shipped to the Queen); a Meadow device's source is the machine itself.
+    recorder = SwarmRecorder(trail=stores.trail, clock=clock, identity=identity)
+    source = shielded_source(config, machine, recorder)
     trail_sync = LateTrailSync()
-    link = build_device_link(config, source, stores, trail_sync, clock)
-    deps = build_borrowed_warden_deps(config, BorrowedParts(source, link, stores), clock)
-    # The link ships the trail after a reconnection through the Warden's own sync (dial.py).
-    trail_sync.bind(deps.trail_sync)
+    link = await build_device_link(config, source, stores, trail_sync, clock)
+    return BorrowedParts(source, link, stores), trail_sync
+
+
+async def _serve(
+    config: BorrowedConfig,
+    parts: BorrowedParts,
+    trail_sync: LateTrailSync,
+    clock: Clock,
+    hooks: tuple[Callable[[WardenDeps], None] | None, asyncio.Event],
+) -> None:
+    """Build the Warden, connect, run until `stop` or the Queen ends it, and close everything."""
+    on_deps_built, stop = hooks
+    warden_id = config.runtime.warden_id
+    warden: Warden | None = None
     try:
-        if not await _connected(link, stop):
+        deps = build_borrowed_warden_deps(config, parts, clock)
+        # The link ships the trail after a reconnection through the Warden's own sync (dial.py).
+        trail_sync.bind(deps.trail_sync)
+        if not await _connected(parts.link, stop):
             return
         if on_deps_built is not None:
             on_deps_built(deps)
-        warden = Warden(runtime.warden_id, deps)
+        warden = Warden(warden_id, deps)
         await warden.start()
-        _LOG.info("cell.warden.started", warden_id=runtime.warden_id, borrowed=True)
+        _LOG.info("cell.warden.started", warden_id=warden_id, borrowed=True)
         await _run_until_stopped(warden, stop)
-        _LOG.info("cell.warden.stopped", warden_id=runtime.warden_id, borrowed=True)
+        _LOG.info("cell.warden.stopped", warden_id=warden_id, borrowed=True)
     finally:
-        await _close(link)
+        await _close(parts.link)
+        # Last: with no Warden, or one that is STOPPED, nothing reaches the stores any more. One
+        # that overran its grace may still be writing, so its stores are left to the packet's
+        # force (stores.py's invariants).
+        if warden is None or warden.state is WardenState.STOPPED:
+            await parts.stores.close()
 
 
 async def _connected(link: ReconnectingQueenLink, stop: asyncio.Event) -> bool:

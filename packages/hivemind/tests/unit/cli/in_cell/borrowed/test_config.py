@@ -28,6 +28,8 @@ from hivemind.cli.in_cell.borrowed import (
 )
 from hivemind.cli.in_cell.borrowed.config import SCRATCH_DIR, SOURCE_NAME
 from hivemind.common.errors import ConfigurationError
+from hivemind.forage import ModelSlot
+from hivemind.llm.routing import default_floors
 from hivemind.manifest import ManifestError, read_in_cell_env
 from hivemind.wardens.offline import ReconnectBudget
 from waggle.clock import SystemClock
@@ -171,12 +173,33 @@ def test_a_missing_device_manifest_is_a_manifest_error(tmp_path: Path) -> None:
         _config(kit)
 
 
-@pytest.mark.parametrize("tier", ["PROPOLIS", "NIGHT_VEIL"])
-def test_a_device_holds_the_meadow_tier_only(tmp_path: Path, tier: str) -> None:
+def test_a_propolis_device_keeps_its_tier_when_its_warden_moves_onto_it(tmp_path: Path) -> None:
+    # The packet passes the node's own tier through (`hive swarm invite --shield propolis`,
+    # `hive swarm shield`), so a Warden that refused it could never colonize a Propolis device.
     kit = make_kit(tmp_path, _URL)
 
-    with pytest.raises(ConfigurationError):
-        _config(kit, HIVEMIND_COMB_SHIELD=tier)
+    config = _config(kit, HIVEMIND_COMB_SHIELD="PROPOLIS")
+
+    assert config.cell.comb_shield is CombShieldLevel.PROPOLIS  # The lease carries the tier ...
+    assert config.runtime.spawn_config.comb_shield is CombShieldLevel.PROPOLIS  # ... as does it.
+
+
+def test_night_veil_is_a_virtual_cells_tier_and_is_refused(tmp_path: Path) -> None:
+    kit = make_kit(tmp_path, _URL)
+
+    with pytest.raises(ConfigurationError, match="NIGHT_VEIL"):
+        _config(kit, HIVEMIND_COMB_SHIELD="NIGHT_VEIL")
+
+
+def test_the_manifests_floors_reach_the_runtime_the_warden_routes_by(tmp_path: Path) -> None:
+    kit = make_kit(tmp_path, _URL)
+    with kit.manifest_path.open("a", encoding="utf-8") as manifest:
+        manifest.write("\n[llm.floors]\nworker = 4\n")
+
+    floors = _config(kit).runtime.llm_floors
+
+    assert floors[ModelSlot.WORKER] == 4  # The operator's floor, not the shipped default.
+    assert floors[ModelSlot.QUEEN] == default_floors()[ModelSlot.QUEEN]  # The rest are shipped.
 
 
 def test_a_wss_listener_needs_the_pin_and_a_ws_listener_has_none(tmp_path: Path) -> None:

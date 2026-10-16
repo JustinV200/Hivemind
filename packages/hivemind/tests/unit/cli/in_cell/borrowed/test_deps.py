@@ -42,6 +42,7 @@ from hivemind.exoskeleton.recorder import InMemoryRecordingStore
 from hivemind.forage import ModelSlot
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.llm import DirectTranscriptionGate
+from hivemind.llm.routing import default_floors
 from hivemind.manifest import read_in_cell_env
 from hivemind.memory import SqliteMemoryStore
 from hivemind.pheromone import SqlitePheromoneTrail
@@ -80,9 +81,10 @@ async def built(tmp_path: Path) -> AsyncIterator[tuple[BorrowedKit, BorrowedConf
         _CLOCK,
         stores.leavings,
     )
-    link = build_device_link(config, source, stores, LateTrailSync(), _CLOCK)
+    link = await build_device_link(config, source, stores, LateTrailSync(), _CLOCK)
     deps = build_borrowed_warden_deps(config, BorrowedParts(source, link, stores), _CLOCK)
     yield kit, config, deps
+    await stores.close()
 
 
 async def test_the_lease_needs_this_one_cell_and_not_a_virtual_one(
@@ -192,3 +194,27 @@ async def test_it_watches_its_machine_by_the_manifests_numbers_and_the_directori
         120.0,
     )
     assert settings.roots == _ROOTS
+
+
+async def test_a_device_manifests_floors_reach_the_wardens_routing_rules(tmp_path: Path) -> None:
+    # Validated and then dropped would route a grant to a model the operator meant to exclude.
+    kit = make_kit(tmp_path, "ws://127.0.0.1:8720")
+    with kit.manifest_path.open("a", encoding="utf-8") as manifest:
+        manifest.write("\n[llm.floors]\nworker = 4\n")
+    config = build_borrowed_config(read_in_cell_env(kit.environ), _CLOCK)
+    stores = await open_device_stores(config.state_dir, _CLOCK)
+    runtime = config.runtime
+    identity = CellIdentity(
+        hive_id=runtime.hive_id, node_id=runtime.node_id, actor=str(runtime.warden_id)
+    )
+    source = HiveStandSource(config.cell, identity, stores.trail, _CLOCK, stores.leavings)
+    try:
+        link = await build_device_link(config, source, stores, LateTrailSync(), _CLOCK)
+        deps = build_borrowed_warden_deps(config, BorrowedParts(source, link, stores), _CLOCK)
+    finally:
+        await stores.close()
+
+    rules = deps.routing_rules
+    assert rules.floor_for(ModelSlot.WORKER) == 4  # The manifest's, as on the Hive Stand.
+    assert rules.floor_for(ModelSlot.QUEEN) == default_floors()[ModelSlot.QUEEN]
+    assert rules.offline is config.runtime.llm_offline

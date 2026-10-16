@@ -19,16 +19,24 @@ and a reconnection announces the Cell again.
 ## Public API
 
 - **Config** (`config`): `build_borrowed_config(env, clock) -> BorrowedConfig`, `is_borrowed(env)`,
-  `BORROWED`, `OWNED`. Validates the packet's environment (below) and the device manifest; refuses a
-  tier other than MEADOW, a `wss://` listener without a pin, and a `ws://` one with.
+  `BORROWED`, `OWNED`. Validates the packet's environment (below) and the device manifest; refuses
+  the NIGHT_VEIL tier (a device holds MEADOW or PROPOLIS, the tiers an invite carries), a `wss://`
+  listener without a pin, and a `ws://` one with.
 - **Models** (`llm`): `device_llm(section, forage_map) -> DeviceLlm`, the device manifest's
   `[llm]` (and the `[forage.map]` rows its servers load) as the provider, seat, rate-limit, slot
   and server tables, the same answer `hivemind.cli.stores` gives for a Hive Manifest's. A server
   is both reported (id only, nothing loaded) and kept as a `ServerConfig` the Warden can start
   when the Queen promotes the device; `load_on_start` is always false here.
 - **Stores** (`stores`): `open_device_stores(state_dir, clock) -> DeviceStores`, three SQLite stores
-  in `warden.sqlite`.
-- **Link** (`dial`): `DeviceDialer`, `DeviceAnnouncer`, `DeviceIdentity`, `LateTrailSync`.
+  in `warden.sqlite`, closed by `DeviceStores.close()` once the Warden is STOPPED.
+- **Link** (`dial`): `DeviceDialer`, `DeviceAnnouncer`, `Announcement`, `DeviceIdentity`,
+  `LateTrailSync`.
+- **Shield** (`shield`): `own_shield_report(config, clock) -> Attester`, the tunnel checks a
+  Propolis device's `cell.ready` carries (made through a lease-free `ObserverSession` with the
+  fixed commands of the device's operating system; a report, not a gate), and
+  `shielded_source(config, source, recorder)`, which wraps the machine's source in the same
+  `ShieldedSource` the Hive Stand used for the device at Level 0, so a Propolis lease is returned
+  only once the tunnel is verified and `swarm.shield_verified`/`swarm.shield_refused` recorded.
 - **Composition** (`deps`): `build_device_link`, `build_borrowed_warden_deps`, `BorrowedParts`. The
   deps are `hivemind.cli.in_cell.deps.build_core_deps` plus: the SQLite memory store, a lease
   capability `cell:real:<cell id>`, and the `DeviceDeps` group (idle release, an `Outage`, a
@@ -107,8 +115,8 @@ display: `real_display_allowed` is not something the packet tells it.
 
 On every connection, a fixed order, every frame sent by the Warden and signed as the device's node:
 
-1. `cell.ready` (with the level and tier the Queen granted, and the directories the Warden was
-   started to watch), `forage.capacity_report` (trigger
+1. `cell.ready` (with the level and tier the Queen granted, a Propolis device's own tunnel
+   checks, and the directories the Warden was started to watch), `forage.capacity_report` (trigger
    `RECONNECTED`: the Cell's live figures and the model servers the manifest declares, none
    started), `cell.heartbeat`;
 2. after a link that was lost, the frames of its last stretch that must arrive (a result, a

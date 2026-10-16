@@ -21,10 +21,14 @@ from pathlib import Path
 import pytest
 from builders.borrowed import SERVER_ID, make_kit, watch
 
+from hivemind.cell import Cell
+from hivemind.cell import CombShieldLevel as CellTier
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cell.local import HiveStandSource
 from hivemind.cell.source import CellIdentity
 from hivemind.cli.in_cell.borrowed import (
+    Announcement,
+    Attester,
     DeviceAnnouncer,
     DeviceDialer,
     DeviceIdentity,
@@ -36,7 +40,7 @@ from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock, SystemClock
 from waggle.codec import Codec
 from waggle.errors import ConnectFailedError
-from waggle.messages.cell.status import CellHeartbeat, CellReady
+from waggle.messages.cell.status import AttestationCheck, CellHeartbeat, CellReady
 from waggle.messages.forage import CapacityReport, CapacityTrigger, ModelServerReport
 from waggle.messages.labels import AccessLevel, CombShieldLevel
 from waggle.transport.memory import MemoryTransport
@@ -45,9 +49,16 @@ from waggle.transport.websocket_server import WebSocketServer
 WAIT_S = 5.0  # Bounds every await that could hang; in-memory and loopback answer in milliseconds.
 
 
-async def _announcer(tmp_path: Path, servers: bool, roots: tuple[str, ...] = ()) -> DeviceAnnouncer:
-    """A device announcer over the real lease source of a kit (FULL access, MEADOW tier)."""
+async def _announcer(
+    tmp_path: Path,
+    servers: bool,
+    roots: tuple[str, ...] = (),
+    tier: str = "MEADOW",
+    attest: Attester | None = None,
+) -> DeviceAnnouncer:
+    """A device announcer over the real lease source of a kit (FULL access, `tier`)."""
     kit = make_kit(tmp_path, "ws://127.0.0.1:8720", access_level="FULL", with_server=servers)
+    kit.environ["HIVEMIND_COMB_SHIELD"] = tier
     if roots:
         watch(kit, *roots)
     config = build_borrowed_config(read_in_cell_env(kit.environ), SystemClock())
@@ -65,15 +76,20 @@ async def _announcer(tmp_path: Path, servers: bool, roots: tuple[str, ...] = ())
     return DeviceAnnouncer(
         DeviceIdentity(runtime.warden_id, runtime.hive_id, runtime.node_id),
         source,
-        config.llm.servers,
+        Announcement(servers=config.llm.servers, watch_roots=config.watch_roots, attest=attest),
         clock,
-        config.watch_roots,
     )
 
 
-async def _announced(tmp_path: Path, servers: bool, roots: tuple[str, ...] = ()) -> list[object]:
+async def _announced(
+    tmp_path: Path,
+    servers: bool,
+    roots: tuple[str, ...] = (),
+    tier: str = "MEADOW",
+    attest: Attester | None = None,
+) -> list[object]:
     """Announce over an in-memory pair and return the payloads the Queen's end received."""
-    announcer = await _announcer(tmp_path, servers, roots)
+    announcer = await _announcer(tmp_path, servers, roots, tier, attest)
     warden_end, queen_end = MemoryTransport.pair(Codec(), Codec())
     await announcer.announce(warden_end)
     receive = queen_end.receive()
@@ -228,3 +244,31 @@ def test_a_late_trail_sync_hands_a_rewind_to_the_sync_it_is_bound_to_and_to_noth
     late.rewind(timedelta(seconds=80))
 
     assert target.rewound == [timedelta(seconds=80)]
+
+
+def _checks(passed: bool) -> Attester:
+    """An attester that reports one tunnel check, passed or failed, for whatever Cell it sees."""
+
+    async def attest(cell: Cell) -> tuple[AttestationCheck, ...]:
+        assert cell.comb_shield is CellTier.PROPOLIS  # The Cell as the lease source reports it.
+        return (AttestationCheck(name="default_route_via_tunnel", has_passed=passed, detail="x"),)
+
+    return attest
+
+
+@pytest.mark.parametrize("passed", [True, False])
+async def test_a_propolis_devices_ready_frame_carries_its_own_tunnel_checks(
+    tmp_path: Path, passed: bool
+) -> None:
+    ready, _capacity, heartbeat = await _announced(
+        tmp_path, servers=False, tier="PROPOLIS", attest=_checks(passed)
+    )
+
+    assert isinstance(ready, CellReady) and isinstance(heartbeat, CellHeartbeat)
+    assert ready.comb_shield is CombShieldLevel.PROPOLIS  # The tier the Queen granted, kept.
+    assert [(check.name, check.has_passed) for check in ready.attestation] == [
+        ("default_route_via_tunnel", passed)
+    ]
+    # The heartbeat says whether the shield holds by the checks the ready frame carried: a device
+    # with no tunnel still announces, with its heartbeat saying so (a report, not a gate).
+    assert heartbeat.is_shield_verified is passed

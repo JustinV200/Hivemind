@@ -22,7 +22,9 @@ from builders.borrowed import LOCAL_MODEL, SERVER_ID, SOURCE_ID, device_manifest
 from hivemind.cli.in_cell.borrowed.llm import DeviceLlm, device_llm
 from hivemind.cli.stores import provider_configs, server_configs, slot_bindings
 from hivemind.common.errors import ConfigurationError
+from hivemind.forage import ModelSlot
 from hivemind.llm import RateLimit
+from hivemind.llm.routing import default_floors
 from hivemind.manifest import load_device_manifest, load_manifest
 from waggle.messages.forage import ModelServerReport
 
@@ -149,3 +151,16 @@ def test_offline_forces_in_process_embedders_to_stay_off_the_network(tmp_path: P
 
     assert device.offline is True
     assert device.providers["shared"].embedding_local_files_only is True
+
+
+def test_the_floors_are_the_sections_grade_floors_and_not_dropped(tmp_path: Path) -> None:
+    text = device_manifest_text() + "\n[llm.floors]\nworker = 4\njudge = 5\n"
+
+    device = _device(tmp_path, text)
+
+    assert device.floors[ModelSlot.WORKER] == 4 and device.floors[ModelSlot.JUDGE] == 5
+    assert device.floors[ModelSlot.QUEEN] == default_floors()[ModelSlot.QUEEN]  # Completed.
+
+
+def test_a_manifest_with_no_floors_routes_on_the_shipped_ones(tmp_path: Path) -> None:
+    assert _device(tmp_path, device_manifest_text()).floors == default_floors()

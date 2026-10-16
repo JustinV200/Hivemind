@@ -31,9 +31,11 @@ from builders.borrowed import SERVER_ID, BorrowedKit, make_kit
 from builders.memory import make_handoff
 
 from hivemind.cli.in_cell.borrowed import open_device_stores, run_borrowed_warden, stop_on_signals
+from hivemind.cli.in_cell.borrowed.stores import DATABASE_FILE
 from hivemind.manifest import read_in_cell_env
 from hivemind.memory import Handoff, MemoryContext, MemoryIdentity, write_checkpoint
 from hivemind.pheromone import TrailQuery
+from hivemind.swarm import ShieldedSource
 from hivemind.wardens.deps import WardenDeps
 from waggle.clock import SystemClock
 from waggle.codec import Codec
@@ -154,11 +156,15 @@ async def test_a_signal_stops_the_warden_and_leaves_the_device_as_it_was_found(
         await _attached(server.connections())
         await _stopped(task, stop)  # What the packet's SIGTERM becomes.
 
+    # The stores were closed last, after the Warden stopped: no WAL writer is left behind for the
+    # packet's restart of the process to recover from.
+    assert not (kit.state_dir / f"{DATABASE_FILE}-wal").exists()
     stores = await open_device_stores(kit.state_dir, _CLOCK)
     kinds = [event.kind for event in await stores.trail.query(TrailQuery())]
     assert kinds.count("cell.leased") == kinds.count("cell.released") == 1
     assert "warden.stopped" in kinds
     assert not any((kit.state_dir / "scratch").iterdir())  # Its lease's scratch is gone.
+    await stores.close()
 
 
 async def test_a_queen_sent_shutdown_ends_the_warden_too(tmp_path: Path) -> None:
@@ -199,6 +205,34 @@ async def test_a_stop_while_the_queen_is_unreachable_ends_the_dial(tmp_path: Pat
     assert not task.done()
 
     await _stopped(task, stop)  # No Warden was started, so none needs stopping.
+
+    assert not (kit.state_dir / f"{DATABASE_FILE}-wal").exists()  # The stores are closed too.
+
+
+async def test_a_propolis_device_attaches_with_its_checks_and_verifies_its_own_leases(
+    tmp_path: Path,
+) -> None:
+    # The whole of colonizing a Propolis device from the device's side: the packet hands the
+    # Warden the node's tier, the Warden accepts it, announces with the tunnel checks it made of
+    # its own machine (the wire refuses a tiered CellReady without them), and leases the machine
+    # only through the source that verifies the tunnel first, as the Hive Stand did for it.
+    kit = make_kit(tmp_path, "ws://127.0.0.1:1", access_level="FULL")
+    kit.environ["HIVEMIND_COMB_SHIELD"] = "PROPOLIS"
+    built = _Built()
+    async with _queen(kit) as server:
+        stop = asyncio.Event()
+        task = _start(kit, stop, built)
+        _transport, frames = await _attached(server.connections())
+        await asyncio.wait_for(built.ready.wait(), timeout=WAIT_S)
+        await _stopped(task, stop)
+
+    ready, _capacity, heartbeat = (frame.payload for frame in frames[:3])
+    assert isinstance(ready, CellReady) and isinstance(heartbeat, CellHeartbeat)
+    assert ready.comb_shield is CombShieldLevel.PROPOLIS
+    assert ready.attestation  # Made of this machine's own routes: whatever they say, they are said.
+    assert heartbeat.is_shield_verified is all(check.has_passed for check in ready.attestation)
+    [deps] = built.deps
+    assert isinstance(deps.source, ShieldedSource)  # A lease waits for the tunnel checks.
 
 
 def _context(deps: WardenDeps, kit: BorrowedKit) -> MemoryContext:

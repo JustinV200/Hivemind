@@ -5,9 +5,11 @@ a provider registry built from provider rows, a slot table and a seat meter, but
 the device manifest rather than the Hive Manifest. `device_llm` is the one conversion, written to
 give the same answer `hivemind.cli.stores.provider_configs` and `slot_bindings` give for a Hive
 Manifest's `[llm]` (a test compares them), so a binding means the same on the device as on the Hive
-Stand. It also lists the model servers the manifest declares, as the Queen's capacity report names
-them: by id, with nothing loaded, because a Level 1 Warden starts no server (that is a promotion to
-Level 2, which the Queen asks for and the operator has allowed by declaring the server), and keeps
+Stand; the section's `[llm.floors]` come through as the grade floors its routing runs on, for the
+same reason. It also lists the model servers the manifest declares, as the Queen's capacity report
+names them: by id, with nothing loaded, because a Level 1 Warden starts no server (that is a
+promotion to Level 2, which the Queen asks for and the operator has allowed by declaring the
+server), and keeps
 each as a `ServerConfig`, the row the Warden's `ModelServerHost` starts it from when she does ask:
 the argv, the loopback port, the provider and the Forage map rows of the models it may load, which
 the device manifest carries beside `[llm]` (`DeviceManifest.forage`).
@@ -21,6 +23,9 @@ Key invariants:
     - A provider's `ProviderConfig`, seats and rate limits, and a slot's `SlotBinding`, are exactly
       what the Hive Stand's composition root builds from the same rows, including the rule that a
       slot with no `max_output_tokens` of its own takes `[llm] default_max_output_tokens`.
+    - The floors are `LlmSection.grade_floors()`, the table the Hive Stand's `RoutingRules` are
+      built from: a floor the operator wrote into the device manifest is never validated and then
+      dropped.
     - A declared server is reported with no sources: nothing is loaded on a device that has not
       been promoted, and a source it reported would read as a model the Queen could route to.
     - A `ServerConfig` is what `hivemind.cli.stores.server_configs` builds for the same row of a
@@ -43,7 +48,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from hivemind.common.errors import ConfigurationError
-from hivemind.forage import Abundance, ModelSource, ModelSourceSpec
+from hivemind.forage import Abundance, ModelSlot, ModelSource, ModelSourceSpec
 from hivemind.forage.map import SlotBinding
 from hivemind.llm import ProviderConfig, RateLimit
 from hivemind.manifest.schema import LlmSection
@@ -63,6 +68,8 @@ class DeviceLlm:
         seats: Each provider's concurrency budget, which the Warden's Fanner meters calls by.
         limits: Each provider's request and token rate limits.
         slots: Every slot binding, in manifest order.
+        floors: Every slot's grade floor: the manifest's `[llm.floors]` value, else the shipped
+            default, as the Warden's routing rules take them.
         servers: The declared model servers as the capacity report names them: id only.
         hostable: The same servers as the Warden starts them from, by server id.
         offline: Whether the manifest asks for offline mode.
@@ -72,6 +79,7 @@ class DeviceLlm:
     seats: Mapping[str, int]
     limits: Mapping[str, RateLimit]
     slots: tuple[SlotBinding, ...]
+    floors: Mapping[ModelSlot, int]
     servers: tuple[ModelServerReport, ...]
     hostable: Mapping[str, ServerConfig]
     offline: bool
@@ -86,7 +94,7 @@ def device_llm(section: LlmSection, forage_map: Mapping[str, ModelSourceSpec]) -
             name (`DeviceManifest` has already seen that every one of them has its row).
 
     Returns:
-        The provider, seat, rate-limit, slot and server tables.
+        The provider, seat, rate-limit, slot, floor and server tables.
 
     Raises:
         ConfigurationError: The manifest declares more model servers than one capacity report can
@@ -109,6 +117,7 @@ def device_llm(section: LlmSection, forage_map: Mapping[str, ModelSourceSpec]) -
             for name, spec in section.providers.items()
         },
         slots=_slot_bindings(section),
+        floors=section.grade_floors(),
         servers=tuple(ModelServerReport(server_id=name, sources=()) for name in section.servers),
         hostable=_server_configs(section, forage_map, providers),
         offline=section.offline,

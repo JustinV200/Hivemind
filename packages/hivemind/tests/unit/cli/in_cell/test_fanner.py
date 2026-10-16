@@ -22,7 +22,7 @@ from builders.llm import make_request
 
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.fanner import build_in_cell_fanner, lane_for_grant
-from hivemind.cli.in_cell.providers import build_in_cell_provider_registry
+from hivemind.cli.in_cell.providers import build_in_cell_provider_registry, local_provider_names
 from hivemind.forage import ModelSlot, Tempo
 from hivemind.llm import DEFAULT_SEATS, FakeLLMProvider, RateLimit, text_response
 from hivemind.manifest.env import read_in_cell_env
@@ -119,3 +119,24 @@ async def test_the_wardens_own_lane_records_its_calls_unattributed() -> None:
     [call] = await trail.query(TrailQuery(kind="llm.call"))
     assert "grant_id" not in call.payload
     assert call.node_id == config.node_id
+
+
+async def test_the_fanner_knows_which_shipped_providers_serve_from_this_cell() -> None:
+    clock = FakeClock()
+    config = _config(clock, HIVEMIND_PROVIDERS=_PROVIDERS_JSON)
+
+    fanner = build_in_cell_fanner(config, MemoryPheromoneTrail(clock), clock)
+
+    # A gateway-host base URL is the Hive Stand's machine, never this Cell's, so it is not local.
+    assert "local" not in fanner.deps.local_providers
+    assert fanner.deps.local_providers == local_provider_names(config)
+
+
+async def test_a_cell_sent_no_provider_table_calls_its_fake_a_local_one() -> None:
+    clock = FakeClock()
+    config = _config(clock)
+
+    fanner = build_in_cell_fanner(config, MemoryPheromoneTrail(clock), clock)
+
+    assert fanner.deps.local_providers == local_provider_names(config)
+    assert len(fanner.deps.local_providers) == 1

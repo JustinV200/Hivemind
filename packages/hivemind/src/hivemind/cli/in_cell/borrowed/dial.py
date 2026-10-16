@@ -7,8 +7,10 @@ who the Cell is again through an injected announcer. This module is those two, s
 the backoff between attempts), and `DeviceAnnouncer` sends the three frames the Queen's readiness
 gate and capacity books start from, `cell.ready`, `forage.capacity_report` and `cell.heartbeat`, in
 that order. `cell.ready` carries the level the Queen granted the device and its tier, as the Cell
-the lease source reports them, and the directories the Warden was started to watch, so the Queen can
-tell when the operator has since named others. The capacity report carries the Cell's live figures
+the lease source reports them, the checks a tiered Cell must announce with (a Propolis device's
+tunnel checks, made by the injected `Attester` of `hivemind.cli.in_cell.borrowed.shield`; none
+for Meadow), and the directories the Warden was started to watch, so the Queen can tell when the
+operator has since named others. The capacity report carries the Cell's live figures
 and the model servers the device manifest declares (none of them started), so the Queen can judge
 the device's eligibility to become a Nuc. `LateTrailSync` lets the link, which is built before the
 Warden's deps (the Warden is handed the link), ship the trail through the very `TrailSync` the
@@ -26,7 +28,8 @@ Key invariants:
     - The first frame on every connection is `cell.ready`, signed with the device's node key, as
       the Queen's listener requires of a Warden that attaches.
     - A re-announcement describes the Cell as it is now (`source.cells()`), not as it was at
-      start, because the Queen's copy of its capacity may be stale after an outage.
+      start, because the Queen's copy of its capacity may be stale after an outage; its checks
+      are run again for the same reason, so the heartbeat says whether the shield holds now.
     - The announcement's trigger is always RECONNECTED: it is the Warden saying again, to a Queen
       that may know it already, what the Cell is.
 
@@ -42,6 +45,7 @@ from datetime import timedelta
 
 from hivemind.cell import RealCellSource
 from hivemind.cli.in_cell import link as cell_link
+from hivemind.cli.in_cell.borrowed.shield import Attester
 from hivemind.cli.in_cell.config import DEFAULT_HEARTBEAT_INTERVAL_S
 from hivemind.cli.in_cell.link import CellLinkDeps
 from hivemind.cli.version import collect_version_info
@@ -53,7 +57,7 @@ from waggle.messages.forage import CapacityTrigger, ModelServerReport
 from waggle.transport.base import Transport
 from waggle.transport.websocket_client import DialOptions, WebSocketClientTransport
 
-__all__ = ["DeviceAnnouncer", "DeviceDialer", "DeviceIdentity", "LateTrailSync"]
+__all__ = ["Announcement", "DeviceAnnouncer", "DeviceDialer", "DeviceIdentity", "LateTrailSync"]
 
 
 class DeviceDialer:
@@ -102,6 +106,24 @@ class DeviceIdentity:
     node_id: NodeId  # The device's node, whose key signs.
 
 
+@dataclass(frozen=True, slots=True)
+class Announcement:
+    """What the announcement says of the device beyond the Cell the source reports.
+
+    Attributes:
+        servers: The model servers the device manifest declares, none of them started.
+        watch_roots: The directories the Warden was started to watch, as the packet handed them
+            over; they do not change while it runs.
+        attest: Makes the checks the Cell's `cell.ready` carries for its tier; None announces
+            none, which is only valid for a MEADOW Cell (the wire refuses a tiered CellReady with
+            no checks).
+    """
+
+    servers: tuple[ModelServerReport, ...] = ()
+    watch_roots: tuple[str, ...] = ()
+    attest: Attester | None = None
+
+
 class DeviceAnnouncer:
     """Say who this Cell is on a fresh connection (an `Announcer`)."""
 
@@ -109,25 +131,23 @@ class DeviceAnnouncer:
         self,
         identity: DeviceIdentity,
         source: RealCellSource,
-        servers: tuple[ModelServerReport, ...],
+        announcement: Announcement,
         clock: Clock,
-        watch_roots: tuple[str, ...] = (),
     ) -> None:
         """Remember what the announcement is made of.
 
         Args:
             identity: The Warden's ids.
             source: Where the Cell, with its live figures, is read from on each announcement.
-            servers: The model servers the device manifest declares, none of them started.
+            announcement: The declared servers, the watched directories and the tier's report.
             clock: Stamps every frame.
-            watch_roots: The directories the Warden was started to watch, as the packet handed
-                them over; they do not change while it runs.
         """
         self._identity = identity
         self._source = source
-        self._servers = servers
+        self._servers = announcement.servers
         self._clock = clock
-        self._watch_roots = watch_roots
+        self._watch_roots = announcement.watch_roots
+        self._attest = announcement.attest
         self._runtime_version = collect_version_info().hivemind_version
 
     async def announce(self, transport: Transport) -> None:
@@ -140,6 +160,9 @@ class DeviceAnnouncer:
             waggle.errors.TransportError: The connection failed mid-announcement.
         """
         (cell,) = await self._source.cells()
+        # The tier's own report, made now: a Propolis device's tunnel may have changed since the
+        # last connection, and the heartbeat that follows says whether the shield holds.
+        attestation = await self._attest(cell) if self._attest is not None else ()
         deps = CellLinkDeps(
             transport=transport,
             cell=cell,
@@ -149,6 +172,7 @@ class DeviceAnnouncer:
             clock=self._clock,
             heartbeat_interval_s=DEFAULT_HEARTBEAT_INTERVAL_S,  # What the Queen judges liveness by.
             runtime_version=self._runtime_version,
+            attestation=attestation,
             watch_roots=self._watch_roots,
         )
         await cell_link.send_cell_ready(deps)

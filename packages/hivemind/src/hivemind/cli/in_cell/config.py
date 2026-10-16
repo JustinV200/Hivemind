@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast, get_args
 from urllib.parse import urlsplit, urlunsplit
@@ -76,11 +76,12 @@ from hivemind.cell.tiers import AccessLevel, CombShieldLevel
 from hivemind.common.errors import ConfigurationError
 from hivemind.forage import ForageCapacity
 from hivemind.forage.map import SlotBinding
-from hivemind.forage.slots import Effort
+from hivemind.forage.slots import Effort, ModelSlot
 from hivemind.guard.net import IPAddress
 from hivemind.hive import CellReservation
 from hivemind.llm import RateLimit
 from hivemind.llm.registry import ProviderConfig, ProviderKind
+from hivemind.llm.routing import default_floors
 from hivemind.manifest.env import InCellEnv
 from hivemind.manifest.schema.supervision import DEFAULT_MAX_OFFLINE_S
 from hivemind.wardens.spawn import InCellSpawnConfig
@@ -157,6 +158,10 @@ class InCellRuntimeConfig:
         slots: This Hive's own `[llm.slots]` table, parsed from `HIVEMIND_SLOTS` the same way.
         llm_offline: This Hive's own `[llm] offline` flag, from `HIVEMIND_LLM_OFFLINE`; `False`
             when unset, matching `hivemind.manifest.schema.llm.LlmSection.offline`'s own default.
+        llm_floors: Each slot's grade floor for routing (`RoutingRules.floors`). A Virtual Cell's
+            bootstrap ships no `[llm.floors]`, so it keeps the shipped defaults; a colonized
+            device's Warden (`hivemind.cli.in_cell.borrowed`) replaces them with its own
+            manifest's, which would otherwise be validated and then dropped.
         environ: The full environment this process was started with, carried through only so
             `build_in_cell_provider_registry` can resolve each provider's own API key by the exact
             variable name `providers`' own `api_key_env` names (`hivemind.manifest.env.InCellEnv.
@@ -188,6 +193,7 @@ class InCellRuntimeConfig:
     environ: Mapping[str, str]
     hive_stand_addresses: tuple[IPAddress, ...] = ()
     max_offline_s: float = DEFAULT_MAX_OFFLINE_S
+    llm_floors: Mapping[ModelSlot, int] = field(default_factory=default_floors)
 
 
 def build_runtime_config(env: InCellEnv, clock: Clock) -> InCellRuntimeConfig:
