@@ -131,6 +131,70 @@ tree needs before the next phase; the MEDIUM ones are worth the same pass where 
 43. The Chat hides its only step-up prompt on a `step_up_required` read refusal (web views F3).
 44. The Thoughts view's "open this view again" cannot be followed (web views F4).
 
+## Status: every finding fixed (2026-10-16, same day)
+
+Ten fixers, one per subsystem group, fixed all 44 findings on branch `ccr-1e7c6736-kar0up` in
+the eleven commits after this review's own, each with a test that failed before and passes
+after. Every whole-tree gate (`ruff`, `mypy` on Linux, the hygiene scripts, `lint-imports`, the
+Landing Board drift check, `pnpm lint/format/typecheck/generate:check`) and every unit suite
+pass on the final tree; the numbers are in the last section.
+
+| Findings | Commit |
+|---|---|
+| 1, 30, 31 | `7784cea3` royal_jelly, basket |
+| 2, 7, 25, 27 | `7ee0021b` queen swarm gate |
+| 10, 20, 21, 22, 23, 24 | `ed600a42` wardens |
+| 6, 16, 17, 18, 41 | `0703da0f` observation-web shell |
+| 5, 12, 13, 15, 38, 39, 40 | `15760c20` llm, forage, observation (39's wiring in `14310b7a` and `e404d7ef`) |
+| 3, 26 | `14310b7a` queen transfer, sandbox catch-up |
+| 19, 42, 43, 44 | `79ad1f18` observation-web views |
+| 8, 9, 28, 29 | `02ae9e51` pollen |
+| 4, 11, 36, 37 | `e404d7ef` cli in-cell |
+| 14, 32, 33, 34, 35 | `4d143166` swarm, honey_store |
+
+Where a fixer chose differently from the fix sketch above, and why:
+
+- **4 (PROPOLIS colonization)**: the borrowed Warden now accepts PROPOLIS and verifies its own
+  tunnel before each lease, rather than the decision refusing the move. ADR-0057, ADR-0052 and
+  roadmap 11.8a say the tier belongs to the device wherever its Warden runs, and a Propolis Nuc
+  cut off from the Hive Stand could not have its leases verified from there.
+- **9 (Windows Job Object)**: the device's Warden is in a job without kill-on-close, because a
+  restarted packet must adopt a Warden still alive (`bootstrap/warden.py`'s contract); every
+  lease child dies with the packet. The kernel32 calls are unproven without a Windows host.
+- **10 (lost shipment)**: a chunk the *down* link refuses leaves the shipment standing for the
+  re-offer on reconnection, because neither caller retries; a chunk a *live* link will not take
+  fails at once.
+- **13 (spill floor)**: the spill is relative (only to a stronger fallback) rather than carrying
+  routing's capped floor through the Warden.
+- **24 (late refusal)**: a late `control.error` is a retraction (table and bundles put back)
+  rather than turning `tool.promoted` into an acknowledged request, which would change the
+  Waggle catalogue.
+- **33 (admit race)**: one lock per device around admit and link_down, since a re-read after
+  touch only narrows the window.
+
+Also fixed on the way: the pathlib attribute scan in the Comb's static gate fired only for
+`import pathlib`, never `from pathlib import Path` (`7784cea3`); two silent-Warden Nuc tests
+failed on their own on a fast host and now wait in real time (`bf03f667`); build_fanner and
+the sandbox provider were brought back under the size limits they had crossed.
+
+Still open, none of them a finding above:
+
+- The Warden's file-watch cursor hides a left-out change that shares the last reported
+  change's timestamp (wardens F5's edge; a cursor-semantics decision in `watch/observer.py`).
+- `llm/fanner/transcription.py` still spills a transcriber on the uncapped floor; the same
+  relative rule as finding 13 applies if wanted.
+- The chat's refused view stream (4403) is not reopened after a step-up succeeds; the lines
+  re-seed, the stream waits for the view to be re-entered (`store/view_stream.ts`).
+- A Guard Bee `enrol_refusal_burst` pattern was not added; the new per-host bucket bounds the
+  trail growth on its own.
+- A public `close()` on the SQLite trail, memory and leavings stores would let `DeviceStores`
+  close each on its own thread instead of draining through a read.
+- Kotlin changes to the push receiver and plugin are written against Capacitor 8's API and are
+  not compiled here, as the roadmap notes for the whole native side.
+- The `lint-imports` note in "Scope and method" above was wrong: the two unmatched `subprocess`
+  carve-outs warn by design (the config says so), because those modules use asyncio's
+  subprocess API rather than importing the module.
+
 ## Suggested order of work
 
 Fix 1 first (security boundary, reproduced, small). Then 2, 3 and 4 together, since all three sit
