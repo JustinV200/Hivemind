@@ -1,0 +1,30 @@
+import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { useHold } from '/home/user/Hivemind/packages/observation-web/src/views/chat/voice/use_hold';
+
+describe('useHold when the view unmounts while the microphone is still opening', () => {
+  it('leaks: the recording starts after unmount, the countdown runs and the clip is sent at the cap', async () => {
+    vi.useFakeTimers();
+    let resolveStart: (r: unknown) => void = () => {};
+    const stop = vi.fn(async () => ({ bytes: new Uint8Array([1]), mediaType: 'audio/webm', durationS: 60 }));
+    const cancel = vi.fn();
+    const recorder = { start: () => new Promise((resolve) => { resolveStart = resolve; }) };
+    const onClip = vi.fn(async () => {});
+    const hook = renderHook(() => useHold(recorder as never, onClip));
+    act(() => hook.result.current.begin());
+    // The human leaves the chat while the permission prompt is up.
+    hook.unmount();
+    expect(cancel).not.toHaveBeenCalled();
+    // The prompt is granted after the view is gone.
+    await act(async () => { resolveStart({ stop, cancel }); await Promise.resolve(); });
+    // Nothing released the microphone, and the countdown interval is now running unowned.
+    expect(cancel).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(61_000); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    // At the cap the dead hook stops the recorder and posts the clip.
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(onClip).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+});

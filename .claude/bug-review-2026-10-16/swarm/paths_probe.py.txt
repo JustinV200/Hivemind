@@ -1,0 +1,19 @@
+from pathlib import Path, PureWindowsPath
+from hivemind.swarm.session.paths import DevicePathRule, absolute_device_path, device_text
+from hivemind.swarm.operator.roots import _outermost
+
+r = DevicePathRule("C:\\pollen\\scratch")
+print("win within same:", r.within("C:\\pollen\\scratch", "c:/pollen/scratch/x"))
+print("win sibling:", r.within("C:\\pollen\\scratch", "C:\\pollen\\scratch2\\x"))
+print("win other drive:", r.within("C:\\pollen\\scratch", "D:\\x"))
+print("win resolve rel:", r.resolve_text("out/x.txt"))
+print("win resolve dotdot:", r.resolve_text("..\\..\\windows\\system32"))
+p = DevicePathRule("/pollen/scratch")
+print("posix sibling:", p.within("/pollen/scratch", "/pollen/scratch2/x"))
+print("posix resolve dotdot:", p.resolve_text("../../etc/passwd"))
+print("posix with backslash name:", p.resolve_text("a\\b"))
+print("abs:", absolute_device_path("/var/log/../log"), absolute_device_path("C:logs"), absolute_device_path("\\\\srv\\share\\x"), absolute_device_path("//srv/share"), absolute_device_path("logs"))
+print("device_text winpath no drive:", device_text(PureWindowsPath("/pollen/scratch")))
+print("device_text winpath drive:", device_text(PureWindowsPath("C:/pollen/scratch")))
+print("outermost:", _outermost(["/var/log/app", "/var/log", "C:\\Logs", "c:\\logs\\x", "/var/log"]))
+print("mixed within:", DevicePathRule("/var/log").within("/var/log", "C:\\x"))

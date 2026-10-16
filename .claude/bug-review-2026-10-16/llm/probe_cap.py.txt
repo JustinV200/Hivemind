@@ -1,0 +1,22 @@
+"""Probe: does an off-chain strong source change a Worker chain's routing under a HIGH bar?"""
+import sys
+sys.path.insert(0, "/home/user/Hivemind/packages/hivemind/tests")
+from builders.routing import make_chain_source, make_routing_inputs
+from builders.forage import make_source
+from hivemind.forage import AccuracyBar, Tempo
+from hivemind.forage.tempo import HIGH_GRADE_FLOOR
+from hivemind.forage.models import Abundance
+from hivemind.llm.routing import choose_binding
+
+print("HIGH floor", HIGH_GRADE_FLOOR)
+# Worker chain: a (grade 3, no free seat) -> b (grade 3, seats free, cheaper)
+a = make_chain_source("a", grade=3)
+a = a.model_copy(update={"abundance": a.abundance.model_copy(update={"seats_free": 0})})
+b = make_chain_source("b", grade=3)
+tempo = Tempo(accuracy=AccuracyBar.CRITICAL)
+d1 = choose_binding(make_routing_inputs([a, b], tempo=tempo))
+print("without off-chain source: key=%s fell_back=%s floor=%s shortfall=%s" % (d1.key, d1.reason.fell_back, d1.reason.floor, d1.forage_shortfall))
+# Same Hive, plus the Queen's grade-5 hosted model (not in the Worker chain)
+queen = make_source(source_id="src_claude", provider="anthropic", model="opus", grade=5)
+d2 = choose_binding(make_routing_inputs([a, b, queen], tempo=tempo))
+print("with off-chain grade-5:  key=%s fell_back=%s floor=%s shortfall=%s passed=%s" % (d2.key, d2.reason.fell_back, d2.reason.floor, d2.forage_shortfall, [(p.key, p.cause.value) for p in d2.passed_over]))

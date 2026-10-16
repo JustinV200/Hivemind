@@ -1,0 +1,29 @@
+"""Probe: a tainted Bee Bread entry read by id through the Honey browser's source."""
+import asyncio
+from datetime import UTC, datetime
+
+from hivemind.cell import HoneyClearance
+from hivemind.cli.honey.sources import MemoryBeeBreadSource
+from hivemind.memory.bee_bread.entry import BeeBreadEntry, BeeBreadEntryKind
+from hivemind.memory.store.memory import InMemoryMemoryStore
+from hivemind.memory.taint.marker import TaintMarker, TaintSource, TaintState
+from hivemind.pheromone import MemoryPheromoneTrail
+from waggle.clock import FakeClock
+
+now = datetime(2026, 10, 16, tzinfo=UTC)
+marker = TaintMarker(state=TaintState.TAINTED, source=TaintSource.QUARANTINE, reason="x",
+                     event_id="event_01ARZ3NDEKTSV4RRFFQ69G5FAV", at=now)
+entry = BeeBreadEntry(id="event_01ARZ3NDEKTSV4RRFFQ69G5FAW", kind=BeeBreadEntryKind.TOOL_RESULT,
+                      ref_ids=(), task_id=None, clearance=HoneyClearance.C1, created_at=now,
+                      text=None, payload="secret tool output", tainted=marker)
+
+async def main() -> None:
+    store = InMemoryMemoryStore(MemoryPheromoneTrail(FakeClock()))
+    store._bee_bread[entry.id] = entry  # bypass the deposit event for the probe
+    source = MemoryBeeBreadSource(store)
+    try:
+        print("entry ->", await source.entry(entry.id, HoneyClearance.C2))
+    except Exception as exc:  # noqa: BLE001
+        print("RAISED", type(exc).__name__, "->", exc)
+
+asyncio.run(main())

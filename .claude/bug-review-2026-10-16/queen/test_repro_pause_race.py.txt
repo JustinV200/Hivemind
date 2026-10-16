@@ -1,0 +1,46 @@
+"""Throwaway: a task that finishes while a rebuild's pause waits for its Handoff kills the sweep."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+import pytest
+from builders.swarm import GateRig, make_gate_rig
+from builders.swarm.colonizing import place_on_device
+
+from hivemind.brood_chamber import InvalidTransitionError, TaskOutcome, TaskStatus
+from hivemind.cell import AccessLevel
+from hivemind.queen.cluster import protocol
+from hivemind.swarm.enrolment.capabilities import granted_capabilities
+
+
+@pytest.fixture
+async def rig() -> AsyncIterator[GateRig]:
+    built = make_gate_rig()
+    yield built
+    await built.close()
+
+
+async def test_task_completing_during_pause_escapes_the_sweep(
+    rig: GateRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = protocol._send_handoff_intervene
+
+    async def complete_then_send(deps, link, task_id, reason):  # type: ignore[no-untyped-def]
+        # The Queen's tick lands the bee's result while the pause is waiting on the Handoff.
+        await deps.chamber.complete(
+            task_id,
+            TaskOutcome(status=TaskStatus.SUCCEEDED, summary="done", verified_by=link.warden_id),
+        )
+        await real(deps, link, task_id, reason)
+
+    monkeypatch.setattr(protocol, "_send_handoff_intervene", complete_then_send)
+    async with rig.serving():
+        placed = await place_on_device(rig)
+        await rig.hive.registry.set_access(
+            placed.node.device_id,
+            AccessLevel.READ_ONLY,
+            granted_capabilities(AccessLevel.READ_ONLY, placed.node.cell_id),
+        )
+        with pytest.raises(InvalidTransitionError):
+            await rig.reconciler.sweep()  # The gate loop's own pass; nothing catches it.

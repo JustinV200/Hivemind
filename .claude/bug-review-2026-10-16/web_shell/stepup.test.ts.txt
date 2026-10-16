@@ -1,0 +1,29 @@
+import { describe, expect, it } from 'vitest';
+import { createLandingBoard } from '/home/user/Hivemind/packages/observation-web/src/landing_board/client';
+import { loadSession } from '/home/user/Hivemind/packages/observation-web/src/landing_board/client/keys';
+import { createFakeBrowser } from '/home/user/Hivemind/packages/observation-web/tests/support/fake_browser';
+
+const CHALLENGE = { device_id: 'dev_1', nonce: 'n', expires_at: '2030-01-01T00:00:00Z',
+  passkey_options: { challenge: 'Y2hhbGxlbmdl', rpId: 'hive.test' } };
+const OPENED = { device_id: 'dev_1', token: 'tok-1', listener: 'loopback',
+  expires_at: '2030-01-01T00:00:00Z', needs_step_up: true };
+
+describe('step-up with a wrong password', () => {
+  it('ends the local session on a 401 from /v1/auth/step-up', async () => {
+    const fake = createFakeBrowser();
+    let lost = 0;
+    const board = createLandingBoard({ browser: fake.browser, onSessionLost: () => (lost += 1) });
+    fake.respond('POST /v1/auth/challenge', 200, CHALLENGE);
+    fake.respond('POST /v1/auth/login', 201, OPENED);
+    fake.respond('POST /v1/auth/step-up/challenge', 200, { ...CHALLENGE, nonce: 'step' });
+    fake.respond('POST /v1/auth/step-up', 401, { error: 'hivemind.entrance.authentication_failed', detail: 'no' });
+    await board.session.login('dev_1', 'pw');
+    await expect(board.session.stepUp('typo')).rejects.toMatchObject({ status: 401 });
+    await new Promise((r) => setTimeout(r, 0));
+    console.log('onSessionLost calls:', lost, 'stored session:', await loadSession(fake.store));
+    // A second attempt with the right password now has no session to confirm.
+    fake.respond('POST /v1/auth/step-up', 200, { stepped_up_until: '2030-01-01T00:05:00Z' });
+    await expect(board.session.stepUp('right')).rejects.toThrow(/no session/);
+    expect(lost).toBe(1);
+  });
+});

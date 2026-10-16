@@ -1,0 +1,9 @@
+import asyncio
+from hivemind.llm.providers.ollama import OllamaManager
+async def main() -> None:
+    for url in ("localhost:11434/v1", "http://127.0.0.1:1/v1"):
+        try:
+            print(url, "->", await OllamaManager.detect(url, timeout_s=0.5))
+        except Exception as exc:  # noqa: BLE001
+            print(url, "RAISED", type(exc).__module__, type(exc).__name__, exc)
+asyncio.run(main())
