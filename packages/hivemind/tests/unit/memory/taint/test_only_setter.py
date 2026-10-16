@@ -118,6 +118,21 @@ def test_only_the_setter_and_the_clearer_write_a_label(name: str) -> None:
     assert offenders == []
 
 
+def _reads_a_label(value: ast.expr) -> bool:
+    """Whether `value` is a label read off another item, directly or through `is_refused`."""
+    if isinstance(value, ast.Attribute):
+        return value.attr == "tainted"
+    # `is_refused(item.tainted)` (memory.taint.marker) decodes the label without deciding it; a
+    # read-only carrier such as the Honey browser's Bee Bread note passes the label through it.
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == "is_refused"
+        and len(value.args) == 1
+        and _reads_a_label(value.args[0])
+    )
+
+
 def test_a_tainted_argument_only_ever_carries_a_label_read_off_another_item() -> None:
     offenders = []
     for path, tree in _modules():
@@ -125,9 +140,7 @@ def test_a_tainted_argument_only_ever_carries_a_label_read_off_another_item() ->
             if not isinstance(node, ast.Call):
                 continue
             for keyword in node.keywords:
-                propagated = (
-                    isinstance(keyword.value, ast.Attribute) and keyword.value.attr == "tainted"
-                )
+                propagated = _reads_a_label(keyword.value)
                 # A label store decodes the label its own row holds: a label read off an item too.
                 exempt = (
                     path in _WRITERS or path in _BASKET_WRITERS or path.startswith(_LABEL_STORES)

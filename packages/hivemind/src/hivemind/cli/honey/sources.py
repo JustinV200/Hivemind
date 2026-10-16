@@ -39,6 +39,7 @@ from hivemind.memory import (
     MemoryStore,
     TaintedMemoryError,
     WaxState,
+    is_refused,
 )
 from waggle.ids import CellId, EventId
 from waggle.messages.cell.wax import WaxSeverity
@@ -157,5 +158,5 @@ def _bee_bread_note(entry: BeeBreadEntry) -> BeeBreadNote:
         payload=entry.payload,
         ref_ids=entry.ref_ids,
         # The store already refuses a refused entry; carried so the browser refuses it too.
-        tainted=entry.tainted is not None and entry.tainted.refuses,
+        tainted=is_refused(entry.tainted),
     )
