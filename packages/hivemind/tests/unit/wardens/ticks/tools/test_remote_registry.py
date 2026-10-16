@@ -19,8 +19,9 @@ import asyncio
 
 import pytest
 from builders.royal_jelly import make_failing_report, make_offer, make_tool_spec
-from builders.wardens_tools import ToolRig
+from builders.wardens_tools import ToolRig, add_sub_bee
 
+from hivemind.pheromone import TrailQuery
 from hivemind.royal_jelly import (
     ChangeKind,
     PromotionRefusedError,
@@ -37,7 +38,9 @@ from hivemind.royal_jelly import (
 from hivemind.wardens.inbox import to_inbox_item
 from hivemind.wardens.links import QUEEN_LINK
 from hivemind.wardens.ticks.tools import RemoteCombRegistry, handle_tool_item
+from hivemind.wardens.ticks.tools.install import RETRACTED, reattenuate
 from hivemind.wardens.ticks.tools.remote_registry import REFUSAL_WAIT_S
+from hivemind.workers.tools.comb import CombToolEntry
 from waggle.envelope import Envelope
 from waggle.messages.control import ErrorMessage
 from waggle.messages.tool import ToolPromoted
@@ -127,6 +130,66 @@ async def test_a_refusal_inside_the_wait_is_raised_and_nothing_is_kept(cell_rig:
     with pytest.raises(PromotionRefusedError, match=r"hive\.registry\.version_exists"):
         await job
     assert await registry.list_tools() == ()
+
+
+async def _installed_as_announced(rig: ToolRig, announced: Envelope) -> None:
+    """Do what the announcer does on the Queen's silence: the tool enters the table and bundles."""
+    message = announced.payload
+    assert isinstance(message, ToolPromoted)
+    rig.warden._comb_entries[message.name] = CombToolEntry.from_promoted(message)
+    reattenuate(rig.warden)
+
+
+async def test_a_refusal_after_the_wait_retracts_the_tool_from_the_table_and_the_bundles(
+    cell_rig: ToolRig,
+) -> None:
+    bee, _ = await add_sub_bee(cell_rig.warden, cell_rig.clock)
+    registry = RemoteCombRegistry(cell_rig.warden)
+    spec = _cell_spec(cell_rig)
+    announced, _change = await _promote_and_lapse(cell_rig, registry, spec)
+    await _installed_as_announced(cell_rig, announced)
+    assert bee.comb_tools is not None and [e.name for e in bee.comb_tools.entries()] == [spec.name]
+    late = ErrorMessage(
+        code="hive.registry.version_exists",
+        message="That version already exists for this Cell.",
+        failed_kind="tool.promoted",
+        is_retryable=False,
+    )
+    envelope = cell_rig.queen.envelope_for(late, correlation_id=announced.id)
+
+    await handle_tool_item(cell_rig.warden, to_inbox_item(envelope, QUEEN_LINK), None)
+
+    assert spec.name not in cell_rig.warden._comb_entries
+    assert bee.comb_tools.entries() == ()  # Un-installed from the bee that could call it.
+    [row] = await cell_rig.warden._deps.trail.query(TrailQuery(kind="tool.load_refused"))
+    assert row.payload["code"] == RETRACTED and "version_exists" in str(row.payload["reason"])
+    assert cell_rig.warden._tool_relay.take_announced(announced.id) is None  # Retracted once.
+
+
+async def test_a_late_refusal_puts_back_the_version_the_promotion_displaced(
+    cell_rig: ToolRig,
+) -> None:
+    bee, _ = await add_sub_bee(cell_rig.warden, cell_rig.clock)
+    registry = RemoteCombRegistry(cell_rig.warden)
+    first = _cell_spec(cell_rig, version="1.0.0")
+    second = _cell_spec(cell_rig, version="1.1.0", tool_id=first.tool_id)
+    first_announced, _ = await _promote_and_lapse(cell_rig, registry, first)
+    await _installed_as_announced(cell_rig, first_announced)
+    second_announced, _ = await _promote_and_lapse(cell_rig, registry, second)
+    await _installed_as_announced(cell_rig, second_announced)
+    late = ErrorMessage(
+        code="hive.registry.version_exists",
+        message="No.",
+        failed_kind="tool.promoted",
+        is_retryable=False,
+    )
+    envelope = cell_rig.queen.envelope_for(late, correlation_id=second_announced.id)
+
+    await handle_tool_item(cell_rig.warden, to_inbox_item(envelope, QUEEN_LINK), None)
+
+    assert cell_rig.warden._comb_entries[first.name].version == "1.0.0"
+    assert bee.comb_tools is not None
+    assert [e.version for e in bee.comb_tools.entries()] == ["1.0.0"]
 
 
 async def test_the_registrys_own_rules_stop_a_promotion_before_it_is_sent(

@@ -14,8 +14,11 @@ resume with a fresh TaskAssign. A Warden that holds a model of its own also sear
 link went (`hivemind.wardens.offline.diagnose`, roadmap 11.9a), driven from the same pass; the
 search never changes what the pass does about the link, the Cell or the tasks it paused. Having
 acted on what is due, the pass also says when it must run again with nothing having arrived
-(`Outage.wake_in`): the search's budget and the offline limit are deadlines of the clock, which no
-frame announces.
+(`Outage.wake_in`): the search's budget, the offline limit and the pause before a resume are
+deadlines of the clock, which no frame announces, for a Warden on the device and a Level 0 one
+alike. A link that is back also finds the Basket shipments the outage interrupted and offers each
+blob again (`hivemind.wardens.ticks.basket.redrive_shipments`): the Queen answers with the byte
+she holds, so a shipment the link cut resumes instead of waiting out its timeout.
 
 Resuming a paused task is the same act as any TaskAssign for it: the assignment, with
 `resume_from` set to the Handoff its bee wrote, goes back through `handle_assign` and the two gates
@@ -31,9 +34,9 @@ after `RESUME_RETRY_S`.
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     offline sub-package. Called once per tick by `hivemind.wardens.warden.Warden`. Calls into
-    `hivemind.wardens.offline.diagnose`, `.freeze`, `hivemind.wardens.ticks` (assign, lease),
-    `hivemind.wardens.isolation`, `hivemind.wardens.quarantine`, `hivemind.wardens.state` and
-    waggle only.
+    `hivemind.wardens.offline.diagnose`, `.freeze`, `hivemind.wardens.ticks` (assign, basket,
+    lease), `hivemind.wardens.isolation`, `hivemind.wardens.quarantine`, `hivemind.wardens.state`
+    and waggle only.
 
 Key invariants:
     - A task is resumed only when nothing is cut off: the link to the Queen is up (or the Warden
@@ -68,6 +71,7 @@ from hivemind.wardens.state import (
     settled_state,
 )
 from hivemind.wardens.ticks.assign import handle_assign
+from hivemind.wardens.ticks.basket import redrive_shipments
 from hivemind.wardens.ticks.lease import release_lease
 from hivemind.workers.state import WorkerState
 
@@ -94,15 +98,18 @@ async def reconcile(warden: Warden) -> None:
     # Cleared before the state is read, so a change that lands meanwhile wakes the next tick.
     outage.acknowledge()
     remote = remote_of(warden)
+    search_wait = limit_wait = None
     if remote is not None:
         await _follow_link(warden, outage, remote)
         # After the link is read, so a search for why it went begins in the tick that finds it down.
         search_wait = await investigate(warden, outage, remote)
-        # Nothing arrives when a budget runs out or the offline limit passes, so the tick is told
-        # to wake then, rather than at the heartbeat that happens to follow.
-        outage.wake_in(warden._deps.clock.now(), search_wait, _until_limit(warden, outage, remote))
+        limit_wait = _until_limit(warden, outage, remote)
     await _follow_cell(warden, outage)
     await _resume_held(warden, outage)
+    # Nothing arrives when a budget runs out, the offline limit passes or the pause before a
+    # resume ends, so the tick is told to wake then, rather than at the heartbeat that happens to
+    # follow. Last, after everything already due was acted on, so a wake always has work to find.
+    outage.wake_in(warden._deps.clock.now(), search_wait, limit_wait, _until_retry(warden, outage))
 
 
 async def leave_offline(warden: Warden, outage: Outage) -> None:
@@ -118,6 +125,9 @@ async def leave_offline(warden: Warden, outage: Outage) -> None:
         # TaskAssign like any clustered task, and their Handoffs stay in this store for it.
         outage.take()
     outage.end()
+    # A blob half-shipped when the link went is offered again now the link can carry it; the
+    # Queen's answer names the byte she holds, and the shipment carries on from there.
+    await redrive_shipments(warden)
     # Not the Cell's retry, but the same pause: paused tasks wait for the Queen to speak first.
     if outage.has_held:
         _pause_resume(warden, outage, RESUME_SETTLE_S)
@@ -163,6 +173,18 @@ def _until_limit(warden: Warden, outage: Outage, remote: RemoteDeps) -> float | 
     if outage.cut_since is None or outage.is_clustered_fully:
         return None
     return remote.max_offline_s - _outage_s(warden, outage)
+
+
+def _until_retry(warden: Warden, outage: Outage) -> float | None:
+    """Return the seconds until a held task may be resumed; None when no pause gates one."""
+    retry = outage.retry_after
+    if retry is None or not outage.has_held:
+        return None
+    # While something is cut off the pause is not what the held tasks wait for: the link's or
+    # the Cell's return wakes the tick itself.
+    if outage.cut_since is not None or outage.is_cell_cut or warden._cell_lost:
+        return None
+    return (retry - warden._deps.clock.now()).total_seconds()
 
 
 def _outage_s(warden: Warden, outage: Outage) -> float:

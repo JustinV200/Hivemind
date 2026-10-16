@@ -4,7 +4,8 @@ A shipment is several messages over several ticks (an offer, then chunks, each a
 something has to remember where each blob has got to between them. `BasketTransfers` is that
 memory for one Warden, keyed by the blob's sha256: one `TransferReceiver` per blob arriving (with
 the `Offer` it accepted, since the receiver keeps its own private), one `Outgoing` per blob being
-shipped up (the `TransferSender` plus the future the caller of `ship_up` awaits), and the deposit
+shipped up (the `TransferSender`, the offer it opened with, and the future the caller of
+`ship_up` awaits), and the deposit
 door a Cell's Warden builds lazily over its own store.
 
 Fits into the Hive:
@@ -39,6 +40,9 @@ class Outgoing:
     """One blob this Warden is shipping up: its sender and the answer `ship_up` waits on."""
 
     sender: TransferSender  # Offers, then cuts chunks from each ack the Queen sends.
+    # The offer as first sent: sent again once a lost link is back, so the Queen answers with the
+    # byte she holds and the shipment carries on from there (`send.redrive_shipments`).
+    offer: Offer
     done: asyncio.Future[bool]  # True once the Queen acknowledged the whole blob; False on refusal.
 
 

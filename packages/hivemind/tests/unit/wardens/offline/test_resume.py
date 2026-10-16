@@ -19,6 +19,9 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
+
+from builders.basket import make_manifest
 from builders.offline_warden import (
     WARDEN_BEAT_S,
     OfflineScene,
@@ -27,11 +30,14 @@ from builders.offline_warden import (
 )
 from builders.quarantine import drain, make_grant_issued, settle
 
+from hivemind.basket import TransferSender
+from hivemind.basket.transfer import BytesChunkSource
 from hivemind.memory import Handoff
 from hivemind.pheromone import TrailQuery
 from hivemind.wardens.offline import RESUME_SETTLE_S
 from hivemind.wardens.state import WardenState
-from waggle.ids import new_grant_id
+from hivemind.wardens.ticks.basket.state import Outgoing
+from waggle.ids import new_cell_id, new_grant_id
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.task import TaskCancel, TaskPause
 
@@ -198,4 +204,38 @@ async def test_a_warden_that_clustered_fully_leaves_its_tasks_to_the_queen() -> 
     await scene.queen.send(make_grant_issued(scene.clock, resume))
     await scene.queen.send(resume)
     await settle(lambda: bool(resumed) and scene.warden.state is WardenState.ACTIVE)
+    await scene.stop()
+
+
+async def test_the_settle_wakes_the_tick_by_the_clock_alone() -> None:
+    resumed: list[Handoff] = []
+    scene = await start_offline_scene(pausable(resumed))
+    await _paused_and_back(scene)
+    await settle(lambda: scene.outage.due_at is not None)  # The pass named its own wake.
+
+    scene.clock.advance(RESUME_SETTLE_S + 0.1)  # No nudge, and far short of the heartbeat.
+
+    await settle(lambda: bool(resumed))
+    assert not _holds(scene)
+    await scene.stop()
+
+
+async def test_a_returning_link_offers_a_half_shipped_blob_again() -> None:
+    scene = await start_offline_scene(pausable([]), assign=False)
+    manifest = make_manifest()
+    sender = TransferSender(BytesChunkSource(b"x" * manifest.blob.size_bytes))
+    offer = sender.offer(manifest, new_cell_id(scene.clock), "cut mid-way")
+    # Standing when the link went: its offer was answered and a chunk was in flight.
+    scene.warden._basket.outgoing[offer.sha256] = Outgoing(
+        sender, offer, asyncio.get_running_loop().create_future()
+    )
+    scene.cut()
+    await settle(lambda: scene.warden.state is WardenState.OFFLINE)
+
+    scene.restore()
+    await scene.queen.pump_until(lambda: bool(scene.queen.basket_offers))
+
+    [again] = scene.queen.basket_offers
+    assert again.sha256 == offer.sha256 and again.reason == "cut mid-way"
+    assert offer.sha256 in scene.warden._basket.outgoing  # Still standing for the Queen's ack.
     await scene.stop()

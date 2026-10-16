@@ -38,6 +38,8 @@ offline return, which leases the device again.
 Key invariants:
     - The source's `lease` is never called unless the `lease_creation` check allowed it: a Warden
       whose set does not hold its Cell's lease capability touches nothing on the Cell.
+    - The source's `lease` is never in flight twice for one Warden: `open_lease` serialises its
+      two callers (the tick and a promotion job) on `warden._lease_lock`.
     - A lease is dropped from `warden._lease` only once `release()` confirmed it; one that could
       not be released stays there (ORPHANED), so the next idle release or `stop()` retries it.
     - Every path records exactly the events the old `start()` did (`warden.watch`, or
@@ -102,23 +104,41 @@ __all__ = [
 ]
 
 
-async def open_lease(warden: Warden) -> None:
+async def open_lease(warden: Warden) -> bool:
     """Lease `warden`'s Cell and open its session, or move it to WATCH when it may not or cannot.
+
+    Two paths lease an idle device Warden's Cell again: its tick, for a TaskAssign that found no
+    lease (`hivemind.wardens.ticks.assign`), and a promotion job, for the model server it starts
+    (`hivemind.wardens.ticks.nuc.live_host`). Each waits for the other here, and one that finds
+    the lease held when its turn comes leases nothing: a second request would only be refused by
+    the device ("already leased") and read as the Cell being unreachable.
 
     Args:
         warden: The Warden starting up (read and written directly; see the module docstring).
+
+    Returns:
+        True when this call leased the Cell and opened its session; False when the lease was
+        refused (the Warden is in WATCH) or another path had leased it meanwhile.
     """
+    async with warden._lease_lock:
+        if warden._lease is not None:
+            return False  # Leased by the other path while this one waited: nothing to do.
+        return await _lease_and_open(warden)
+
+
+async def _lease_and_open(warden: Warden) -> bool:
+    """Do `open_lease`'s work under its lock: lease the one Cell, open the session, go ACTIVE."""
     cells = await warden._deps.source.cells()
     # No Cell to lease, or the Guard refused this Warden's lease capability: watch instead.
     if not cells or not await _may_lease(warden, cells[0]):
         await _watch(warden)
-        return
+        return False
     cell = cells[0]  # v0: one Warden, one Cell.
     try:
         lease = await warden._deps.source.lease(_lease_request(warden, cell))
     except LeaseRefusedError:
         await _watch(warden)
-        return
+        return False
     warden._lease = lease
     warden._cell = cell
     try:
@@ -130,7 +150,7 @@ async def open_lease(warden: Warden) -> None:
         log.warning("warden.session_unavailable", lease_id=lease.id, error=type(error).__name__)
         await _give_back(warden, lease)
         await _watch(warden)
-        return
+        return False
     # The operator's real-display opt-in rides on the Cell's own report (roadmap step 6.3).
     warden._ceiling = warden_set(
         warden._deps.guard,
@@ -142,6 +162,7 @@ async def open_lease(warden: Warden) -> None:
     warden._state = WardenState.ACTIVE
     await _record(warden, "warden.started")
     await _record(warden, "warden.active")
+    return True
 
 
 async def release_lease(warden: Warden, lease: RealCellLease) -> None:
@@ -269,7 +290,11 @@ async def wait_out_the_cell(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised)
         return False  # The Cell is there: this is the bee's own failure, for the policy to judge.
     if not outage.is_holding(sub_bee.task_id):
         # The word that the Cell is lost came after this failure did: hold the task now.
-        outage.hold(sub_bee.assignment, sub_bee.last_handoff, warden._deps.clock.now())
+        outage.hold(sub_bee.assignment, None, warden._deps.clock.now())
+    # Whichever came first, the hold carries the newest Handoff the bee reported: one it wrote
+    # after the pause took it (a checkpoint inside the command that then died) would otherwise be
+    # left behind, and the task would start again from the older one and redo that work.
+    outage.note_handoff(sub_bee.task_id, sub_bee.last_handoff)
     await record_handled(warden, alarm, HELD_FOR_CELL)
     await retire_sub_bee(warden, sub_bee)
     return True

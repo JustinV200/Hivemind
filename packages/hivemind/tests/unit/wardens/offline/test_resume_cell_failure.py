@@ -36,8 +36,8 @@ from hivemind.wardens.ticks.lease import HELD_FOR_CELL, wait_out_the_cell
 from hivemind.wardens.warden import Warden
 from hivemind.workers.base import WorkerOutcome
 from hivemind.workers.context import WorkerContext
-from waggle.ids import new_alarm_id
-from waggle.messages import AlarmSeverity
+from waggle.ids import new_alarm_id, new_event_id
+from waggle.messages import AlarmSeverity, HandoffRef
 from waggle.messages.labels import HoneyClearance
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
 from waggle.messages.task import TaskAssign
@@ -177,4 +177,25 @@ async def test_a_warden_without_an_outage_leaves_every_failure_to_the_policy() -
     failure = _failure(scene, bee, AlarmKind.WORKER_CRASHED)
     assert not await wait_out_the_cell(bare, bee, failure)
 
+    await scene.stop()
+
+
+async def test_a_handoff_written_after_the_pause_took_the_task_is_the_one_it_resumes_from() -> None:
+    scene = await start_offline_scene(pausable([]), remote=False)
+    [bee] = scene.rows()
+    scene.warden._cell_lost = True
+    scene.outage.hold(
+        bee.assignment, None, scene.clock.now()
+    )  # Held at the cut, as `cut_cell` does.
+    # Inside the command that then dies, the bee checkpoints: its runtime reports the Handoff.
+    bee.last_handoff = HandoffRef(
+        event_id=new_event_id(scene.clock),
+        written_at=scene.clock.now(),
+        clearance=HoneyClearance.C1,
+    )
+
+    assert await wait_out_the_cell(scene.warden, bee, _failure(scene, bee, AlarmKind.WORKER_FAILED))
+
+    [held] = scene.outage.held()
+    assert held.handoff == bee.last_handoff  # Not the older one the hold was taken with.
     await scene.stop()

@@ -5,8 +5,11 @@ answers a relayed `tool.request` with a `tool.promoted` carrying the tool id, or
 naming the forwarded envelope; a sandbox request or a promotion this Warden made for itself is
 answered by a message correlated to the envelope it sent. `ToolRelay` keeps the tables that map each
 back to what is waiting: a table of askers (the sub-bee and its own envelope id, by tool id and by
-forwarded envelope id) and a table of futures a background job awaits (by the envelope id it sent).
-The tick resolves a future when the answer arrives; nothing in a tick ever waits on one.
+forwarded envelope id), a table of futures a background job awaits (by the envelope id it sent),
+and a table of the CELL-scope promotions this Warden announced and took as accepted when no
+refusal came in time (by the announcement's envelope id), so a refusal that arrives late can still
+retract what was installed. The tick resolves a future when the answer arrives; nothing in a tick
+ever waits on one.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -15,8 +18,8 @@ Fits into the Hive:
 
 Key invariants:
     - Owns its mutable state in place (codingrules section 8.5); one event loop, no lock.
-    - It never holds more than `MAX_PENDING_TOOL_REQUESTS` askers: the oldest is dropped first,
-      because its Worker's own wait ended long before.
+    - It never holds more than `MAX_PENDING_TOOL_REQUESTS` askers, nor more announcements: the
+      oldest is dropped first, because its Worker's own wait ended long before.
     - A future is resolved at most once and removed when it is.
 
 See Also:
@@ -29,15 +32,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from hivemind.workers.tools.comb import CombToolEntry
 from waggle.ids import MessageId, ToolId, WorkerId
 from waggle.messages.control import ErrorMessage
-from waggle.messages.tool import ToolQuarantineReport
+from waggle.messages.tool import ToolPromoted, ToolQuarantineReport
 
 MAX_PENDING_TOOL_REQUESTS = 64  # A Worker has one request out at a time; more means lost answers.
 
 type Reply = ToolQuarantineReport | ErrorMessage
 
-__all__ = ["MAX_PENDING_TOOL_REQUESTS", "Asker", "Reply", "ToolRelay"]
+__all__ = ["MAX_PENDING_TOOL_REQUESTS", "Announced", "Asker", "Reply", "ToolRelay"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,14 +52,23 @@ class Asker:
     original_id: MessageId  # Its own envelope id: what an error answering it must correlate to.
 
 
+@dataclass(frozen=True, slots=True)
+class Announced:
+    """A promotion this Warden announced and installed, and what it displaced in its table."""
+
+    promoted: ToolPromoted  # The announcement, as sent to the Queen.
+    displaced: CombToolEntry | None  # The entry of that name before it; None if there was none.
+
+
 class ToolRelay:
     """Remember each relayed request's asker, and each reply a background job is waiting for."""
 
     def __init__(self) -> None:
-        """Start with nothing relayed and nothing awaited."""
+        """Start with nothing relayed, nothing awaited and nothing announced."""
         self._by_tool: dict[ToolId, Asker] = {}
         self._by_envelope: dict[MessageId, ToolId] = {}
         self._waits: dict[MessageId, asyncio.Future[Reply]] = {}
+        self._announced: dict[MessageId, Announced] = {}
 
     def remember(self, tool_id: ToolId, forwarded_id: MessageId | None, asker: Asker) -> None:
         """Record that `asker` wants `tool_id`, forwarded up as envelope `forwarded_id`.
@@ -110,6 +123,26 @@ class ToolRelay:
     def discard(self, envelope_id: MessageId) -> None:
         """Forget a future whose waiter gave up (a timeout, a send that failed)."""
         self._waits.pop(envelope_id, None)
+
+    def announced(
+        self, envelope_id: MessageId, promoted: ToolPromoted, displaced: CombToolEntry | None
+    ) -> None:
+        """Record that the promotion sent as `envelope_id` was taken as accepted.
+
+        Args:
+            envelope_id: The announcement's envelope id, which a late refusal correlates to.
+            promoted: The announcement itself; what `take_announced` hands back.
+            displaced: The entry of that name in the Warden's table before this promotion is
+                installed over it; None when there was none.
+        """
+        self._announced[envelope_id] = Announced(promoted, displaced)
+        # Bounded like the askers: a refusal of something announced that long ago is not coming.
+        while len(self._announced) > MAX_PENDING_TOOL_REQUESTS:
+            del self._announced[next(iter(self._announced))]
+
+    def take_announced(self, envelope_id: MessageId | None) -> Announced | None:
+        """Pop and return the announcement sent as `envelope_id`, or None if none is remembered."""
+        return self._announced.pop(envelope_id, None) if envelope_id is not None else None
 
     def __len__(self) -> int:
         """Return how many relayed requests still await their answer."""

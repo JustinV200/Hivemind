@@ -17,6 +17,8 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from builders.basket import make_blob, make_manifest
@@ -26,12 +28,60 @@ from hivemind.basket import CHUNK_BYTES, MediaKind
 from hivemind.pheromone import TrailQuery
 from hivemind.wardens.inbox import to_inbox_item
 from hivemind.wardens.links import QUEEN_LINK
-from hivemind.wardens.ticks.basket import handle_basket_item, ship_up
+from hivemind.wardens.offline import OfflineRefusedError
+from hivemind.wardens.ticks.basket import handle_basket_item, redrive_shipments, ship_up
+from waggle.envelope import Envelope
+from waggle.errors import ConnectionLostError
 from waggle.ids import new_message_id
 from waggle.messages.basket import BasketAck, BasketChunk, BasketOffer
 from waggle.signing import Ed25519Verifier
+from waggle.transport.base import Transport
 
 _BIG = bytes(range(256)) * ((CHUNK_BYTES * 5 // 2) // 256)  # Two and a half chunks.
+
+
+class _Link:
+    """The Warden's Queen link as a test flips it.
+
+    Down (refusing, as a reconnecting link does with Basket traffic), broken (a live link whose
+    sends fail) or forwarding to the real pair.
+    """
+
+    def __init__(self, inner: Transport) -> None:
+        self._inner = inner
+        self.down = False  # Refuse every send, as the offline table does for Basket traffic.
+        self.broken = False  # Connected, but every send is lost on the way.
+
+    @property
+    def is_connected(self) -> bool:
+        return not self.down and self._inner.is_connected
+
+    async def send(self, envelope: Envelope) -> None:
+        if self.down:
+            raise OfflineRefusedError("cut off from the Queen")
+        if self.broken:
+            raise ConnectionLostError("the frame did not go")
+        await self._inner.send(envelope)
+
+    def receive(self) -> AsyncGenerator[Envelope, None]:
+        return self._inner.receive()
+
+    async def close(self) -> None:
+        await self._inner.close()
+
+
+def _switchable(rig: ToolRig) -> _Link:
+    """Put a flippable link in front of the rig's real Queen link."""
+    link = _Link(rig.warden._deps.queen_link)
+    rig.warden._deps = dataclasses.replace(rig.warden._deps, queen_link=link)
+    return link
+
+
+async def _ack(rig: ToolRig, sha256: str, request: Envelope, received: int) -> None:
+    """Answer `request` as the Queen holding `received` bytes of the blob."""
+    ack = BasketAck(sha256=sha256, received_bytes=received, complete=False, reason="")
+    reply = rig.queen.envelope_for(ack, correlation_id=request.id)
+    await handle_basket_item(rig.warden, to_inbox_item(reply, QUEEN_LINK))
 
 
 async def _store(rig: ToolRig, content: bytes, **blob: object) -> str:
@@ -162,4 +212,51 @@ async def test_an_answer_for_a_shipment_that_is_not_standing_is_dropped(cell_rig
 
     await handle_basket_item(cell_rig.warden, to_inbox_item(envelope, QUEEN_LINK))  # must not raise
 
+    assert cell_rig.warden._basket.outgoing == {}
+
+
+async def test_a_chunk_the_down_link_refuses_leaves_the_shipment_standing_and_the_return_resumes_it(
+    cell_rig: ToolRig,
+) -> None:
+    sha256 = await _store(cell_rig, _BIG)
+    link = _switchable(cell_rig)
+    job = asyncio.ensure_future(ship_up(cell_rig.warden, sha256, "across a blip"))
+    offer_env = await cell_rig.queen.next()
+    first_ack = asyncio.ensure_future(_ack(cell_rig, sha256, offer_env, 0))
+    chunk_env = await cell_rig.queen.next()  # The first chunk goes while the link is up ...
+    await first_ack
+
+    link.down = True  # ... and the second is refused: the link went between the two.
+    await _ack(cell_rig, sha256, chunk_env, CHUNK_BYTES)
+    await asyncio.sleep(0)
+
+    assert not job.done() and sha256 in cell_rig.warden._basket.outgoing  # Not given up.
+    link.down = False
+    await redrive_shipments(cell_rig.warden)  # What the offline return does.
+    again = await cell_rig.queen.next()
+    assert isinstance(again.payload, BasketOffer) and again.payload.sha256 == sha256
+    assert again.id != offer_env.id  # A fresh envelope: the Queen handles it as a new offer.
+    resumed = asyncio.ensure_future(_ack(cell_rig, sha256, again, CHUNK_BYTES))
+    next_chunk = await cell_rig.queen.next()
+    await resumed
+    assert isinstance(next_chunk.payload, BasketChunk)
+    assert next_chunk.payload.offset == CHUNK_BYTES  # From the byte the Queen holds.
+    job.cancel()
+    await asyncio.gather(job, return_exceptions=True)
+
+
+async def test_a_chunk_a_live_link_will_not_take_ends_the_shipment_at_once(
+    cell_rig: ToolRig,
+) -> None:
+    sha256 = await _store(cell_rig, _BIG)
+    link = _switchable(cell_rig)
+    job = asyncio.ensure_future(ship_up(cell_rig.warden, sha256, "x"))
+    offer_env = await cell_rig.queen.next()
+
+    link.broken = True
+    await _ack(cell_rig, sha256, offer_env, 0)  # The first chunk is lost on a link that is up.
+
+    assert await job is False  # Not after the 600 s timeout: nothing will re-drive this.
+    [event] = await cell_rig.warden._deps.trail.query(TrailQuery(kind="basket.refused"))
+    assert event.payload["code"] == "link"
     assert cell_rig.warden._basket.outgoing == {}

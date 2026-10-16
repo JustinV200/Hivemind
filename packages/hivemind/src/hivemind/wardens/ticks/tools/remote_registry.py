@@ -8,7 +8,10 @@ case. `promote` runs the registry's own authority and evidence checks first (a W
 a promotion its own rules would refuse), then sends the Queen a `tool.promoted` naming this Warden
 and its Cell, and waits two seconds for a `control.error` (`failed_kind` `tool.promoted`) -- the
 announcement is an event, so silence means she accepted it. A refusal is raised as
-`PromotionRefusedError`; otherwise the change is built from the row it just announced. The reads
+`PromotionRefusedError`; otherwise the change is built from the row it just announced, and the
+announcement is remembered on the Warden's tool relay, so a refusal that arrives after the wait
+(a slow link, a busy Queen) still retracts the tool from the Warden's table and its bees' bundles
+(`hivemind.wardens.ticks.tools.relay`) instead of leaving the two registries disagreeing. The reads
 answer from the rows this adapter promoted; retiring and rolling back are operator commands that
 run on the Hive Stand, where the registry is.
 
@@ -21,6 +24,8 @@ Key invariants:
     - It writes nothing durable itself: the Queen's registry is the only store of a promotion.
     - A promotion refused by the registry's own rules is never sent.
     - It waits `REFUSAL_WAIT_S` for a refusal and no longer: the flow is never held up by silence.
+    - An announcement taken as accepted stays known to the relay, so a later refusal is a
+      retraction and never a stray.
 
 See Also:
     - docs/adr/0046-tool-spec-comb-registry-and-scopes.md for who may promote what.
@@ -55,7 +60,7 @@ from hivemind.wardens.ticks.tools.messages import promoted_from_row
 from waggle.envelope import wrap
 from waggle.ids import CellId
 from waggle.messages.control import ErrorMessage
-from waggle.messages.tool.authoring import ToolScope
+from waggle.messages.tool.authoring import ToolPromoted, ToolScope
 
 if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
@@ -149,15 +154,7 @@ class RemoteCombRegistry:
         displaced = self._current_version(spec)
         context = WriteContext(principal, reason, warden._deps.clock.now())
         row = build_promoted_row(spec, report, offer, context, displaced)
-        envelope = wrap(promoted_from_row(row, cell_id), warden._deps.hop, clock=warden._deps.clock)
-        refusal = warden._tool_relay.expect(envelope.id)
-        if not await send_guarded(warden._deps.queen_link, envelope):
-            warden._tool_relay.discard(envelope.id)
-            raise PromotionRefusedError("The Queen is unreachable; the promotion was not sent.")
-        try:
-            error = await self._refusal_within(refusal)
-        finally:
-            warden._tool_relay.discard(envelope.id)  # Answered, lapsed or cancelled: forget it.
+        error = await self._announce(promoted_from_row(row, cell_id))
         if error is not None:
             _refused(spec, error)
         self._store(row, displaced)
@@ -182,6 +179,30 @@ class RemoteCombRegistry:
             "A Cell's Warden cannot roll a tool back: the Comb Registry is the Queen's, and "
             "operator commands (`hive tools rollback`) run on the Hive Stand."
         )
+
+    async def _announce(self, announcement: ToolPromoted) -> ErrorMessage | None:
+        """Send `announcement` and wait out the refusal window; None when the Queen stayed silent.
+
+        Raises:
+            PromotionRefusedError: The Queen is unreachable, so nothing was announced.
+        """
+        warden = self._warden
+        envelope = wrap(announcement, warden._deps.hop, clock=warden._deps.clock)
+        refusal = warden._tool_relay.expect(envelope.id)
+        if not await send_guarded(warden._deps.queen_link, envelope):
+            warden._tool_relay.discard(envelope.id)
+            raise PromotionRefusedError("The Queen is unreachable; the promotion was not sent.")
+        try:
+            error = await self._refusal_within(refusal)
+        finally:
+            warden._tool_relay.discard(envelope.id)  # Answered, lapsed or cancelled: forget it.
+        if error is None:
+            # Silence is acceptance, but not proof of it: what the announcer is about to install
+            # over (the entry of this name, if any) is kept so a late refusal can put it back.
+            warden._tool_relay.announced(
+                envelope.id, announcement, warden._comb_entries.get(announcement.name)
+            )
+        return error
 
     async def _refusal_within(self, future: asyncio.Future[Any]) -> ErrorMessage | None:
         """Wait up to `REFUSAL_WAIT_S` for the Queen's refusal; None when she stayed silent."""

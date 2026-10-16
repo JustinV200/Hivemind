@@ -43,7 +43,7 @@ from hivemind.wardens.ticks.basket.door import (
 from hivemind.wardens.ticks.basket.handle import handle_basket_item
 from hivemind.wardens.ticks.basket.jobs import start_job
 from hivemind.wardens.ticks.basket.retain import WardenRetainSink, is_tainted
-from hivemind.wardens.ticks.basket.send import request_timeout_s, ship_up
+from hivemind.wardens.ticks.basket.send import redrive_shipments, request_timeout_s, ship_up
 from hivemind.wardens.ticks.basket.source import blob_verified, package_source, store_of
 from hivemind.wardens.ticks.basket.state import BasketTransfers
 
@@ -57,6 +57,7 @@ __all__ = [
     "is_tainted",
     "node_keys",
     "package_source",
+    "redrive_shipments",
     "request_timeout_s",
     "send_nectar",
     "ship_up",

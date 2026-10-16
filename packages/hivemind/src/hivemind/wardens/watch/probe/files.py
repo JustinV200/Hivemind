@@ -8,7 +8,9 @@ the signals and the Patrol never know which probe produced a snapshot. The parse
 total: a record that is malformed, or whose path the wire cannot hold, is skipped (a cut path would
 name another file) and the result says it is truncated. `ChangeTracker` is the one stateful part: it
 remembers each root's last listing so the next look can tell a created file from a modified one and
-can see deletions; the first look at a root can only say which files are recent.
+can see deletions; the first look at a root can only say which files are recent. What it remembers
+of a look is only what that look reported: a change the cap left out stays a difference, and comes
+out on the next look, so a burst of changes is delivered in full over several looks.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -19,7 +21,7 @@ Key invariants:
     - Nothing here raises for malformed input; it returns less.
     - Every list is cut at the bound the wire model allows, and the cut is reported.
     - Changes are returned oldest first, so the last one's time is the next cursor with nothing
-      missed.
+      missed; a change the cap left out is still a difference on the next look.
     - A listing that is absent is not an empty one: the tracker is only given the roots that were
       actually listed, so a failed sample can never read as every file deleted.
 
@@ -197,14 +199,22 @@ class ChangeTracker:
             The changes and whether anything was left out.
         """
         found: dict[str, FileChange] = {}
+        diffs: dict[str, list[FileChange]] = {}
         is_truncated = False
         for root, listing in listings.items():
             is_truncated = is_truncated or listing.is_truncated
-            for change in _diff(self._listings.get(root), listing.files, now, since_at):
+            diffs[root] = _diff(self._listings.get(root), listing.files, now, since_at)
+            for change in diffs[root]:
                 found.setdefault(change.path, change)  # Nested roots report a file once.
-            self._remember(root, listing.files)
         ordered = sorted(found.values(), key=lambda change: change.at)
-        return tuple(ordered[:cap]), is_truncated or len(ordered) > cap
+        kept = tuple(ordered[:cap])
+        # Remembered only as reported: a change the cap left out keeps the last look's view of
+        # its file, so it is a difference again next time instead of being lost for good.
+        reported = {change.path for change in kept}
+        for root, listing in listings.items():
+            left_out = [change for change in diffs[root] if change.path not in reported]
+            self._remember(root, _carried(self._listings.get(root), listing.files, left_out))
+        return kept, is_truncated or len(ordered) > cap
 
     def _remember(self, root: str, files: Listing) -> None:
         """Keep `files` as the root's last look, forgetting the oldest root past the bound."""
@@ -212,6 +222,22 @@ class ChangeTracker:
         self._listings[root] = files
         while len(self._listings) > MAX_SNAPSHOT_ROOTS:
             del self._listings[next(iter(self._listings))]
+
+
+def _carried(previous: Listing | None, current: Listing, left_out: Iterable[FileChange]) -> Listing:
+    """Return `current` with each change in `left_out` undone, as the last look still saw it.
+
+    A file created or modified but not reported keeps its old entry (none, or the old time and
+    size); one deleted but not reported keeps the entry it had. The next diff finds each again.
+    """
+    carried = dict(current)
+    for change in left_out:
+        before = previous.get(change.path) if previous is not None else None
+        if before is None:
+            carried.pop(change.path, None)
+        else:
+            carried[change.path] = before
+    return carried
 
 
 # ──────────────────────────────────────────────────────────────────────────────

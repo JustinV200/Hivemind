@@ -178,3 +178,17 @@ async def test_a_warden_stopped_while_it_gives_the_old_lease_back_does_not_lease
     assert scene.run_task.exception() is None
     assert (await _kinds(scene)).count("cell.leased") == before.count("cell.leased")
     assert resumed == []
+
+
+async def test_a_found_cells_settle_wakes_the_tick_by_the_clock_alone() -> None:
+    resumed: list[Handoff] = []
+    scene = await start_offline_scene(pausable(resumed), remote=False)
+    await _lost_and_idle(scene)
+
+    scene.warden.cell_found()
+    await settle(lambda: scene.outage.due_at is not None)  # A Level 0 Warden names its wake too.
+    scene.clock.advance(RESUME_SETTLE_S + 0.1)  # No nudge, and far short of the heartbeat.
+
+    await settle(lambda: bool(resumed))
+    assert scene.warden.lease is not None and not _holds(scene)
+    await scene.stop()

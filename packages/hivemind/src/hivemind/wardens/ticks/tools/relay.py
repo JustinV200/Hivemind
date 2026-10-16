@@ -13,7 +13,9 @@ promotion, and the answer to a request) or a `control.error` (`failed_kind` `too
 sub-bee's bundle re-attenuated) and only then forwards it to the asker, so a Worker is never told
 of a tool it cannot yet call; a promotion whose package is not resident is never forwarded as a
 success. A report or error answering this Warden's own sandbox request or promotion resolves the
-future its background job awaits.
+future its background job awaits; a refusal of a promotion that arrives after the job stopped
+waiting and installed the tool (`remote_registry` takes silence as acceptance) retracts it
+(`install.retract_tool`), so the Warden's table never keeps what the Queen's registry refused.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
@@ -45,10 +47,11 @@ from hivemind.common.logging import get_logger
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.links import QUEEN_LINK, send_guarded
 from hivemind.wardens.ticks.tools.cell_scope import start_cell_scope
-from hivemind.wardens.ticks.tools.install import install_tool
+from hivemind.wardens.ticks.tools.install import install_tool, retract_tool
 from hivemind.wardens.ticks.tools.messages import (
     LOAD_REFUSED,
     NOT_HANDED_REASON,
+    PROMOTED_KIND,
     REQUEST_KIND,
     REQUEST_REFUSED,
     answer_asker,
@@ -109,7 +112,21 @@ async def handle_tool_item(warden: Warden, item: InboxItem, sub_bee: SubBee | No
     elif isinstance(payload, ToolQuarantineReport | ErrorMessage):
         # An answer to this Warden's own sandbox request or promotion: wake the job awaiting it.
         if not warden._tool_relay.resolve(_correlation(item), payload):
-            log.warning("wardens.tool.unmatched_reply", correlation_id=item.correlation_id)
+            await _late_reply(warden, item, payload)
+
+
+async def _late_reply(
+    warden: Warden, item: InboxItem, reply: ToolQuarantineReport | ErrorMessage
+) -> None:
+    """Act on a reply no job waits for: a refusal of an installed promotion retracts it."""
+    if isinstance(reply, ErrorMessage) and reply.failed_kind == PROMOTED_KIND:
+        announced = warden._tool_relay.take_announced(_correlation(item))
+        if announced is not None:
+            # The job took the Queen's silence as acceptance and installed the tool; her word,
+            # however late, is the registry's, so the tool comes out again.
+            await retract_tool(warden, announced, reply)
+            return
+    log.warning("wardens.tool.unmatched_reply", correlation_id=item.correlation_id)
 
 
 async def _handle_request(

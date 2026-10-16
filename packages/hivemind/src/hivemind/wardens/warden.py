@@ -127,6 +127,7 @@ class Warden(TickLoop):
         self._warden_id, self._deps = warden_id, deps
         self._state = WardenState.STARTING
         self._lease: RealCellLease | None = None
+        self._lease_lock = asyncio.Lock()  # One lease path at a time (`ticks.lease.open_lease`).
         self._cell: Cell | None = None
         self._session: CellSession | None = None
         self._ceiling: CapabilitySet = CapabilitySet.empty()
@@ -138,15 +139,14 @@ class Warden(TickLoop):
         self._lease_retry: dict[str, datetime] = {}  # 11.8a: when to ask for a refused lease again.
         self._questions: dict[str, WorkerId] = {}
         self._question_envelope_ids: dict[str, MessageId] = {}
-        # Roadmap step 7.8: which sub-bee asked each Honey query this Warden forwarded, so the
-        # Queen's answer, which names only the forwarded envelope, reaches the right one.
+        # Step 7.8: who asked each forwarded Honey query, so the Queen's answer finds its asker.
         self._honey_relay = ticks.honey.HoneyRelay()
         self._attendant = warden_attendant(deps.clock)
         self._queen_iter: AsyncIterator[Envelope] = deps.queen_link.receive()
         self._receive_tasks: dict[str, asyncio.Task[Envelope | None]] = {}
         self._heartbeat_task: asyncio.Task[None] | None = None
-        # Roadmap step 4.9 (Clustering): tasks a Queen-sent Intervene(HANDOFF) paused, dropped on a
-        # TaskResume; ticks.assign.settle_after_tick reads it to decide ACTIVE <-> CLUSTERED.
+        # Step 4.9: tasks a Queen-sent Intervene(HANDOFF) paused, dropped on a TaskResume; read
+        # by ticks.assign.settle_after_tick to decide ACTIVE <-> CLUSTERED.
         self._clustered_tasks: set[TaskId] = set()
         # Roadmap 4.8: the Queen's own CeilingsSet/PlanWritten (ticks.control), None until sent.
         self._ceilings: Ceilings | None = None
@@ -195,9 +195,11 @@ class Warden(TickLoop):
         step 10.3: the lease is refused, too, when the Guard's `lease_creation` point does not
         allow this Warden's `lease_capability` (`hivemind.wardens.ticks.lease.open_lease`).
         """
-        await ticks.lease.open_lease(self)
         # Only once the lease is held (roadmap step 8.3): a server runs on the Cell it leased.
-        await _host_models(self)
+        # And only on the lease this call opened: one a promotion job opened meanwhile already
+        # has its host, which a second would displace from `_models` while its server starts.
+        if await ticks.lease.open_lease(self):
+            await _host_models(self)
 
     async def cell_lost(self, reason: str) -> None:
         """Alarm the Queen that this Warden's Cell link dropped, once per loss (step 11.6)."""

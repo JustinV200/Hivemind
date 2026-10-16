@@ -14,14 +14,24 @@ Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
     ticks.basket sub-package. `ship_up` is called by `retain` and by the tool handlers' sandbox
     runner (from background jobs, never a tick); `on_answer` by `handle_basket_item` for a
-    Queen-sent `basket.ack` or `basket.refuse`. Calls into `hivemind.basket` and waggle.
+    Queen-sent `basket.ack` or `basket.refuse`; `redrive_shipments` by the offline return
+    (`hivemind.wardens.offline.resume.leave_offline`) once a lost link is back. Calls into
+    `hivemind.basket` and waggle.
+
+A link that goes while a shipment is under way does not end it. A chunk the link refuses because
+it is down (the offline table has no row for Basket traffic, so a reconnecting link refuses it)
+leaves the shipment standing, and `redrive_shipments` sends its offer again once the link is back:
+the Queen answers a repeated offer with the byte she holds, so the chunks resume from there, and
+a chunk the dying link swallowed unnoticed is covered by the same re-offer. Only a chunk the link
+would not take while it is up ends the shipment at once, since nothing will re-drive it.
 
 Key invariants:
     - A tainted or retired blob is never offered.
     - The destination of an offer up is this Warden's own Cell: the Queen receives it as a
       deposit from that Cell (the convention 3G's receiver follows).
     - Every wait is bounded by `[royal_jelly] request_timeout_s` (600 s by default) and the
-      transfer is forgotten when it ends, whichever way it ends.
+      transfer is forgotten when it ends, whichever way it ends; an outage inside that bound
+      only delays it.
     - Chunks are cut from the receiver's own `received_bytes`, never from a local counter.
 
 See Also:
@@ -61,7 +71,7 @@ if TYPE_CHECKING:
 
 MAX_OFFER_REASON_CHARS = 200  # The Basket's own bound on an offer's reason.
 
-__all__ = ["on_answer", "request_timeout_s", "ship_up"]
+__all__ = ["on_answer", "redrive_shipments", "request_timeout_s", "ship_up"]
 
 log = get_logger(__name__)
 
@@ -132,7 +142,39 @@ async def on_answer(warden: Warden, message: BasketAck | BasketRefuse) -> None:
     for chunk in chunks:
         # A fresh request per chunk; the Queen answers each with a basket.ack.
         envelope = wrap(chunk_to_wire(chunk), warden._deps.hop, clock=warden._deps.clock)
-        await send_guarded(warden._deps.queen_link, envelope)
+        if not await send_guarded(warden._deps.queen_link, envelope):
+            await _chunk_not_sent(warden, message.sha256)
+            return
+
+
+async def redrive_shipments(warden: Warden) -> None:
+    """Send the offer of every standing shipment again: the link to the Queen is back.
+
+    The sender keeps no offset of its own, so nothing here rewinds it: the Queen answers the
+    repeated offer with the byte she holds, and the next chunk is cut from there. A re-offer the
+    link will not take leaves the shipment standing for the next return, inside its timeout.
+
+    Args:
+        warden: The Warden whose link has just come back.
+    """
+    deps = warden._deps
+    for sha256, outgoing in tuple(warden._basket.outgoing.items()):
+        log.info("wardens.basket.reoffered", sha256=sha256)
+        envelope = wrap(offer_to_wire(outgoing.offer), deps.hop, clock=deps.clock)
+        await send_guarded(deps.queen_link, envelope)
+
+
+async def _chunk_not_sent(warden: Warden, sha256: str) -> None:
+    """Decide what a chunk the link would not take means for its shipment."""
+    if not warden._deps.queen_link.is_connected:
+        # The link is down: the shipment waits for it, and the return re-offers the blob
+        # (`redrive_shipments`), so the Queen says where to carry on from. The request timeout
+        # still bounds the wait.
+        log.info("wardens.basket.shipment_waits_for_link", sha256=sha256)
+        return
+    # The link is up and still would not take the chunk: nothing will re-drive this, so the
+    # caller hears now rather than after the timeout.
+    await _finish(warden, sha256, success=False, why="link")
 
 
 async def _begin(warden: Warden, sha256: str, reason: str) -> Outgoing | None:
@@ -152,7 +194,7 @@ async def _begin(warden: Warden, sha256: str, reason: str) -> Outgoing | None:
         return None
     sender = TransferSender(BytesChunkSource(data))
     offer = sender.offer(manifest, cell_id, reason)
-    outgoing = Outgoing(sender, asyncio.get_running_loop().create_future())
+    outgoing = Outgoing(sender, offer, asyncio.get_running_loop().create_future())
     warden._basket.outgoing[sha256] = outgoing
     if not await send_guarded(
         deps.queen_link, wrap(offer_to_wire(offer), deps.hop, clock=deps.clock)

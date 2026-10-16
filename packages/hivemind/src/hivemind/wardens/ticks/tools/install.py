@@ -11,11 +11,16 @@ earlier), and finally replaces the Comb bundle of every sub-bee whose capability
 version on its next round and offers the tool; the Worker records its own `tool.loaded`, which is
 the trail row for the hand-over, so this module logs at info and records no event of its own.
 A package that is not resident is a `tool.load_refused` row and the tool is handed to nobody.
+`retract_tool` is the undoing, for a CELL-scope promotion this Warden announced and installed on
+the Queen's silence that she then refused after the wait: the table gets back what the promotion
+displaced (or loses the name), every bee is re-attenuated, and a `tool.load_refused` row with the
+Queen's code says why the tool went away.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's
-    ticks.tools sub-package. Called by `relay` for a Queen-sent promotion and by the cell-scope
-    announcer for this Warden's own. Calls into `hivemind.royal_jelly.promotion` (the trail row),
+    ticks.tools sub-package. Called by `relay` for a Queen-sent promotion (and her late refusal
+    of one this Warden announced) and by the cell-scope announcer for this Warden's own. Calls
+    into `hivemind.royal_jelly.promotion` (the trail row), `pending` (the announcement),
     `hivemind.wardens.spawn.comb` (the attenuation), `hivemind.workers.tools.comb` (the entry) and
     `hivemind.wardens.ticks.basket.source` (the residency check).
 
@@ -39,7 +44,9 @@ from hivemind.royal_jelly.promotion import tool_event
 from hivemind.wardens.spawn.comb import visible_entries
 from hivemind.wardens.ticks.basket.source import blob_verified
 from hivemind.wardens.ticks.tools.messages import tool_identity
+from hivemind.wardens.ticks.tools.pending import Announced
 from hivemind.workers.tools.comb import CombToolEntry
+from waggle.messages.control import ErrorMessage
 from waggle.messages.tool.authoring import ToolPromoted, ToolScope
 
 if TYPE_CHECKING:
@@ -47,8 +54,17 @@ if TYPE_CHECKING:
 
 NOT_RESIDENT = "not_resident"  # The code of a refusal because the package is not held here.
 WRONG_CELL = "wrong_cell"  # ...because a CELL-scope tool names another Cell.
+RETRACTED = "retracted"  # ...because the Queen refused the promotion after it was installed.
 
-__all__ = ["NOT_RESIDENT", "WRONG_CELL", "install_tool", "reattenuate", "record_load_refused"]
+__all__ = [
+    "NOT_RESIDENT",
+    "RETRACTED",
+    "WRONG_CELL",
+    "install_tool",
+    "reattenuate",
+    "record_load_refused",
+    "retract_tool",
+]
 
 log = get_logger(__name__)
 
@@ -81,6 +97,27 @@ async def install_tool(warden: Warden, message: ToolPromoted) -> bool:
         offered_to=handed,
     )
     return True
+
+
+async def retract_tool(warden: Warden, announced: Announced, error: ErrorMessage) -> None:
+    """Take back a promotion the Queen refused after this Warden had installed it.
+
+    Args:
+        warden: The Warden whose entries table and sub-bees' bundles are changed.
+        announced: The promotion as announced, and the entry it displaced in the table.
+        error: The Queen's late `control.error`; its code goes on the trail row.
+    """
+    entry = CombToolEntry.from_promoted(announced.promoted)
+    current = warden._comb_entries.get(entry.name)
+    # Only the version the Queen refused comes out: a later promotion of the name is its own.
+    if current is not None and current.version == entry.version:
+        if announced.displaced is None:
+            del warden._comb_entries[entry.name]
+        else:
+            warden._comb_entries[entry.name] = announced.displaced
+        reattenuate(warden)
+    reason = f"the Queen refused the promotion after it was installed ({error.code})."
+    await record_load_refused(warden, entry, RETRACTED, reason)
 
 
 def reattenuate(warden: Warden) -> int:

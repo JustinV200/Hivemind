@@ -72,6 +72,7 @@ from waggle.codec import Codec
 from waggle.envelope import Envelope, Hop, wrap
 from waggle.ids import HiveId, MessageId, NodeId, WardenId, new_hive_id, new_node_id, new_warden_id
 from waggle.messages.base import WaggleMessage
+from waggle.messages.basket import BasketOffer
 from waggle.messages.cell import CellWaxProposed
 from waggle.messages.cell.leases import LeaseReleased
 from waggle.messages.forage import ForageRequest, SourceAdded, SourceRemoved
@@ -297,8 +298,8 @@ class QueenEnd:
     """Wrap the Queen side of a Warden's own MemoryTransport pair: send orders, collect reports.
 
     Owns its own mutable state in place (codingrules section 8.5): `heartbeats`, `results`,
-    `alarms`, `questions`, `forage_requests`, `lease_released`, `progress`, `nectar` and
-    `wax_proposed` grow as envelopes are pumped off the transport.
+    `alarms`, `questions`, `forage_requests`, `lease_released`, `progress`, `nectar`,
+    `wax_proposed` and `basket_offers` grow as envelopes are pumped off the transport.
     """
 
     def __init__(self, transport: MemoryTransport, hop: Hop, clock: Clock) -> None:
@@ -325,6 +326,7 @@ class QueenEnd:
         self.nectar: list[NectarDeposit] = []  # Roadmap step 11.10: a Patrol's summary chunks.
         self.wax_proposed: list[CellWaxProposed] = []  # Roadmap step 11.10: a Patrol's note.
         self.nuc_replies: list[Envelope] = []  # Roadmap step 11.8: a promotion's reply, whole.
+        self.basket_offers: list[BasketOffer] = []  # Phase 9: a blob offered up (or again).
         # Which bucket each payload type lands in, so `_sort` is one lookup and not a branch each.
         self._buckets: tuple[tuple[type[WaggleMessage], list[Any]], ...] = (
             (Heartbeat, self.heartbeats),
@@ -338,6 +340,7 @@ class QueenEnd:
             (SourceRemoved, self.source_removed),
             (NectarDeposit, self.nectar),
             (CellWaxProposed, self.wax_proposed),
+            (BasketOffer, self.basket_offers),
         )
         # supervision.answer is a reply: its envelope must carry the correlation_id of the
         # Question envelope it answers, tracked here so `answer` can supply it.

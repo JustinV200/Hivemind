@@ -360,6 +360,40 @@ def test_a_cap_keeps_the_oldest_changes_so_the_cursor_loses_nothing() -> None:
     assert cut is True
 
 
+def test_what_the_cap_left_out_comes_out_on_the_next_look() -> None:
+    tracker = ChangeTracker()
+    _changes(tracker, {"/r": _listing(("/r/gone", 1.0, 1))})
+    after = _listing(*((f"/r/{n}", float(n + 1), 1) for n in range(5)))
+
+    first, _ = tracker.changes({"/r": after}, None, _NOW, 3)
+    second, cut = tracker.changes({"/r": after}, first[-1].at, _NOW, 3)
+    third, last = tracker.changes({"/r": after}, second[-1].at, _NOW, 3)
+
+    assert [c.path for c in first] == ["/r/0", "/r/1", "/r/2"]
+    assert [(c.path, c.change) for c in second] == [
+        ("/r/3", FileChangeKind.CREATED),
+        ("/r/4", FileChangeKind.CREATED),
+        ("/r/gone", FileChangeKind.DELETED),  # Stamped `now`, so last; left out twice, not lost.
+    ]
+    assert cut is False and third == () and last is False
+
+
+def test_a_change_left_out_under_one_root_is_not_absorbed_through_a_nested_one() -> None:
+    tracker = ChangeTracker()
+    both = {"/r": _listing(), "/r/sub": _listing()}
+    _changes(tracker, both)
+    after = {
+        "/r": _listing(("/r/a", 1.0, 1), ("/r/sub/f", 2.0, 1)),
+        "/r/sub": _listing(("/r/sub/f", 2.0, 1)),
+    }
+
+    first, _ = tracker.changes(after, None, _NOW, 1)
+    second, _ = tracker.changes(after, first[-1].at, _NOW, 5)
+
+    assert [c.path for c in first] == ["/r/a"]
+    assert [c.path for c in second] == ["/r/sub/f"]  # Once, from whichever root lists it first.
+
+
 def test_a_truncated_listing_makes_the_answer_a_lower_bound() -> None:
     _, cut = ChangeTracker().changes({"/r": _listing(truncated=True)}, None, _NOW, 500)
 

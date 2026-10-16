@@ -19,6 +19,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
@@ -34,6 +35,7 @@ from builders.nuc import (
     reply_of,
 )
 
+from hivemind.cell import LeaseRequest, RealCellLease
 from hivemind.pheromone import TrailQuery
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.ticks.lease import release_lease
@@ -238,6 +240,37 @@ async def test_a_promotion_leases_the_cell_again_when_the_idle_release_gave_it_b
     assert reply.outcome is NucOutcome.PROMOTED
     assert _holds_a_lease(rig)  # The server runs under a lease again.
     assert set(rig.warden.hosted_servers) == {SERVER_ID}
+
+
+async def test_a_promotion_and_a_task_arriving_together_lease_the_device_once(
+    rig: NucRig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    allow(rig.warden, "small")
+    lease = rig.warden.lease
+    assert lease is not None
+    rig.warden._state = WardenState.WATCH
+    await release_lease(rig.warden, lease)
+    source = rig.warden._deps.source
+    gate, original = asyncio.Event(), source.lease
+
+    async def slow_lease(request: LeaseRequest) -> RealCellLease:
+        await gate.wait()  # The device's round trip: the tick gets its turn meanwhile.
+        return await original(request)
+
+    monkeypatch.setattr(source, "lease", slow_lease)
+    job = asyncio.ensure_future(live_host(rig.warden))  # The promotion job leases first ...
+    await asyncio.sleep(0)
+    started = asyncio.ensure_future(rig.warden.start())  # ... and a TaskAssign's retry follows.
+    await asyncio.sleep(0)
+    gate.set()
+    host = await job
+    await started
+
+    assert host is not None and _holds_a_lease(rig)
+    assert rig.warden.state is WardenState.ACTIVE  # Never read as unreachable.
+    assert rig.warden._models is host  # The tick kept the job's host over the one lease.
+    kinds = [e.kind for e in await rig.deps.trail.query(TrailQuery())]
+    assert kinds.count("cell.leased") == 2 and "warden.watch" not in kinds[-3:]
 
 
 async def test_the_host_is_rebuilt_over_a_new_lease_only_when_nothing_runs(rig: NucRig) -> None:
