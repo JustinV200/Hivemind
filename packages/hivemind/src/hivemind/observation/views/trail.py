@@ -100,6 +100,10 @@ class TrailUsageView(BaseModel):
     output_tokens: int = Field(description="Tokens the response generated.")
     cached_tokens: int = Field(description="Tokens served from a provider's cache.")
     cost_usd: float = Field(description="What the call cost, in US dollars.")
+    local: bool = Field(
+        default=False,
+        description="The call ran on a local model (a Hive-hosted server or a local provider).",
+    )
 
 
 class TrailEventView(BaseModel):
@@ -173,6 +177,7 @@ def trail_event_view(event: PheromoneEvent) -> TrailEventView:
             output_tokens=usage.output_tokens,
             cached_tokens=usage.cached_tokens,
             cost_usd=usage.cost_usd,
+            local=usage.local,
         )
     )
     return view.model_copy(

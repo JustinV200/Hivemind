@@ -194,7 +194,13 @@ describe('live', () => {
           payload: { goal_id: 'goal_2' },
           slot: 'worker',
           provider: 'cloud',
-          usage: { cached_tokens: 0, cost_usd: 0.1, input_tokens: 40, output_tokens: 8 },
+          usage: {
+            cached_tokens: 0,
+            cost_usd: 0.1,
+            input_tokens: 40,
+            local: false,
+            output_tokens: 8,
+          },
         }),
       ),
     );

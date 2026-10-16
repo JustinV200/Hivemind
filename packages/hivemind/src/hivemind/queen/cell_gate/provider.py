@@ -123,6 +123,7 @@ See Also:
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 from typing import Protocol
 
 from hivemind.brood_chamber import Task
@@ -154,9 +155,8 @@ __all__ = ["LifecycleVirtualCellProvider"]
 class LifecycleVirtualCellProvider:
     """Drive a CellLifecycle to acquire a WardenLink for a Virtual Placement.
 
-    Holds a mutable `_queen` reference, set once by `bind_queen` (module docstring: the same
-    late-binding shape `CellListener.start(queen)` already uses, for the identical reason -- this
-    provider must exist before `QueenDeps`/`Queen` do).
+    Holds a mutable `_queen` reference, set once by `bind_queen` (the same late-binding shape as
+    `CellListener.start(queen)`: this provider must exist before `QueenDeps`/`Queen` do).
     """
 
     def __init__(
@@ -173,8 +173,7 @@ class LifecycleVirtualCellProvider:
             gate: Resolves once the Cell's own CellReady/CellHeartbeat handshake has verified;
                 the same instance the composition root also wires into every registered backend.
             attestation: Attests a freshly provisioned Cell at its own tier before it is ready
-                (module docstring: its probe factories are never a bare fake, they are injected
-                by the composition root).
+                (module docstring: its probe factories are injected by the composition root).
             night_veil: The Night Veil boundary's ephemeral segments a task is bound into once it
                 is handed a NIGHT_VEIL Cell; None (a Hive with no Virtual side) binds nothing.
         """
@@ -189,8 +188,7 @@ class LifecycleVirtualCellProvider:
 
         Args:
             queen: Anything with a `.wardens` property (`hivemind.queen.queen.Queen` in
-                production); typed structurally here so this module never has to import `Queen`
-                at type-check time beyond `TYPE_CHECKING` (see `_WardensView` below).
+                production); typed structurally so this module never imports `Queen`.
         """
         self._queen = queen
 
@@ -198,12 +196,8 @@ class LifecycleVirtualCellProvider:
     def queen(self) -> _WardensView | None:
         """The Queen `bind_queen` bound, or None before that has run.
 
-        Exposed so `hivemind.queen.cell_gate.quiesce.make_quiesce`'s own `queen_getter` can reuse
-        this provider's late-bound reference instead of the composition root adding a second
-        `bind_queen` call site (`hivemind.cli.compose.hive.build._assemble_hive`, not in this
-        dispatch's allowed-to-fix list): `hivemind.cli.compose.virtual_cells.build_virtual_cells`
-        closes over `lambda: provider.queen` before either `provider` or the real `Queen` it will
-        later be bound to exists.
+        Exposed so `hivemind.queen.cell_gate.quiesce.make_quiesce`'s `queen_getter` can reuse the
+        late-bound reference (`build_virtual_cells` closes over `lambda: provider.queen` early).
         """
         return self._queen
 
@@ -226,9 +220,13 @@ class LifecycleVirtualCellProvider:
             self._night_veil.bind(task.id, link.cell.id)
         return link
 
-    async def _acquire_provision(self, placement: ProvisionVirtual) -> WardenLink:
+    async def _acquire_provision(
+        self, placement: ProvisionVirtual, on_provisioned: Callable[[CellId], None] | None = None
+    ) -> WardenLink:
         """Provision a fresh Cell from `placement.spec`, wait for it, and return its link."""
         cell = await self._lifecycle.provision(placement.spec, placement.backend)
+        if on_provisioned is not None:
+            on_provisioned(cell.id)  # Before its Warden can attach: the caller's one window.
         try:
             await self._gate.wait_ready(cell.id, placement.spec.ready_timeout_s)
             link = self._require_link(cell.id)
@@ -246,18 +244,21 @@ class LifecycleVirtualCellProvider:
         await self._lifecycle.mark_ready(cell.id, link.warden_id)
         return link
 
-    async def acquire_sandbox(self, spec: VirtualCellSpec) -> WardenLink:
+    async def acquire_sandbox(
+        self, spec: VirtualCellSpec, on_provisioned: Callable[[CellId], None] | None = None
+    ) -> WardenLink:
         """Provision a Comb sandbox from `spec` on the one backend, like any fresh Cell."""
         backends = self._lifecycle.virtual_backend_candidates()
         if not backends:
             raise CellProvisionError("none", spec.image, "no Virtual backend is registered")
-        return await self._acquire_provision(ProvisionVirtual(spec, backends[0].name, SANDBOX))
+        placement = ProvisionVirtual(spec, backends[0].name, SANDBOX)
+        return await self._acquire_provision(placement, on_provisioned)
 
     async def release_sandbox(self, cell_id: CellId) -> None:
         """Tear a sandbox down; a failed teardown is swallowed like any best-effort one."""
         await self._teardown_best_effort(cell_id)
 
-    def uplink_key(self, link: WardenLink) -> bytes | None:
+    async def uplink_key(self, link: WardenLink) -> bytes | None:
         """Return the valid public key the gate holds for `link`'s Cell, or None (`UplinkKeys`)."""
         key_hex = self._gate.expected_key(link.cell.id)
         with contextlib.suppress(ValueError):  # A malformed key verifies nothing.

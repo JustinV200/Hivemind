@@ -47,6 +47,7 @@ from hivemind.cell import CellIdentity
 from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local import HiveStandConfig, HiveStandSource
 from hivemind.cli.compose.exoskeleton import open_hive_recordings
+from hivemind.cli.compose.night_veil import local_providers
 from hivemind.cli.stores import (
     open_basket_store,
     open_chamber,
@@ -67,6 +68,7 @@ from hivemind.llm import (
     CompositeLlmEventRecorder,
     Fanner,
     FannerDeps,
+    LlmEventRecorder,
     ProviderRegistry,
     RateLimit,
     TrailLlmEventRecorder,
@@ -264,6 +266,36 @@ def build_fanner(
     Returns:
         A Fanner ready to hand out `Fanner.lane(tempo)` `CallGate`s.
     """
+    seats, limits = _provider_capacity(manifest)
+    trail_recorder = TrailLlmEventRecorder(
+        trail, manifest.hive.id, manifest.hive.node_id, "system", clock
+    )
+    # A call on a provider that serves from this machine is recorded `local` (finding 39).
+    local = local_providers(manifest)
+    recorder = _with_ledger(trail_recorder, ledger)
+    return Fanner(
+        FannerDeps(
+            map=forage_map,
+            seats=seats,
+            limits=limits,
+            clock=clock,
+            recorder=recorder,
+            local_providers=local,
+        )
+    )
+
+
+def _with_ledger(
+    trail_recorder: TrailLlmEventRecorder, ledger: ForageLedger | None
+) -> LlmEventRecorder:
+    """Feed the ledger beside the trail when the Queen's live book exists (roadmap step 4.8)."""
+    if ledger is None:
+        return trail_recorder
+    return CompositeLlmEventRecorder(LedgerRecorder(ledger), trail_recorder)
+
+
+def _provider_capacity(manifest: HiveManifest) -> tuple[dict[str, int], dict[str, RateLimit]]:
+    """Read every provider's seats and rate limit from `[llm.providers]`, for the Fanner."""
     seats = {name: spec.seats for name, spec in manifest.llm.providers.items()}
     limits = {
         name: RateLimit(
@@ -271,16 +303,7 @@ def build_fanner(
         )
         for name, spec in manifest.llm.providers.items()
     }
-    trail_recorder = TrailLlmEventRecorder(
-        trail, manifest.hive.id, manifest.hive.node_id, "system", clock
-    )
-    recorder = (
-        CompositeLlmEventRecorder(LedgerRecorder(ledger), trail_recorder)
-        if ledger is not None
-        else trail_recorder
-    )
-    deps = FannerDeps(map=forage_map, seats=seats, limits=limits, clock=clock, recorder=recorder)
-    return Fanner(deps)
+    return seats, limits
 
 
 def build_ledger(manifest: HiveManifest, reserve: RoyalReserve) -> ForageLedger:

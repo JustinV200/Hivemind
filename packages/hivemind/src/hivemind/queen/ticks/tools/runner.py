@@ -216,8 +216,11 @@ class QueenSandboxRunner:
                 "no Virtual backend is configured ([virtual_cells] backend), so the sandbox "
                 "Cell cannot be provisioned."
             )
-        link = await self._acquire(provider, sandbox_cell_spec(self._deps, access.config))
         lane = self._deps.tool_lane
+        # The Cell is marked a sandbox the moment it exists, before its Warden attaches, so the
+        # attach's catch-up never ships it the hive's tools; the add after is for a provider that
+        # could not say so earlier.
+        link = await self._acquire(provider, sandbox_cell_spec(self._deps, access.config))
         lane.sandbox_cells.add(link.cell.id)
         try:
             await record_tool(
@@ -236,7 +239,8 @@ class QueenSandboxRunner:
         self, provider: SandboxCellProvider, sandbox_spec: VirtualCellSpec
     ) -> WardenLink:
         """Provision the sandbox; a cancellation lets the provision finish and releases its Cell."""
-        acquiring = asyncio.ensure_future(provider.acquire_sandbox(sandbox_spec))
+        marked = self._deps.tool_lane.sandbox_cells
+        acquiring = asyncio.ensure_future(provider.acquire_sandbox(sandbox_spec, marked.add))
         try:
             # Shielded: a provision cut short could leave a container its backend never cleans up.
             return await asyncio.shield(acquiring)

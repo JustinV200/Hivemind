@@ -114,6 +114,8 @@ async def _catch_up(deps: QueenDeps, link: WardenLink) -> None:
     """Ship and announce every current hive-scope tool `link`'s Cell can run, one at a time."""
     access = deps.royal_jelly
     assert access is not None  # noqa: S101 - `announce_current_tools` checked it.
+    if link.cell.id in deps.tool_lane.sandbox_cells:
+        return  # A sandbox holds only the package under test, never the hive's tools.
     try:
         rows = await access.registry.visible_tools(link.cell.id)
     except HiveMindError as exc:

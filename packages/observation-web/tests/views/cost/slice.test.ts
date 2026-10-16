@@ -61,7 +61,13 @@ describe('an llm.call frame with usage', () => {
         slot: 'queen',
         provider: 'cloud',
         payload: { goal_id: 'goal_1' },
-        usage: { cached_tokens: 7, cost_usd: 0.02, input_tokens: 500, output_tokens: 100 },
+        usage: {
+          cached_tokens: 7,
+          cost_usd: 0.02,
+          input_tokens: 500,
+          local: false,
+          output_tokens: 100,
+        },
       }),
     );
     const g1 = goal(state, 'goal_1')!;
@@ -91,7 +97,13 @@ describe('an llm.call frame with usage', () => {
         slot: 'scout',
         provider: 'edge',
         payload: { goal_id: 'goal_3' },
-        usage: { cached_tokens: 0, cost_usd: 0.9, input_tokens: 10, output_tokens: 5 },
+        usage: {
+          cached_tokens: 0,
+          cost_usd: 0.9,
+          input_tokens: 10,
+          local: false,
+          output_tokens: 5,
+        },
       }),
     );
     // goal_3 is the costliest now; the null goal still comes after goals that cost more.
@@ -125,7 +137,7 @@ describe('an llm.call frame with usage', () => {
         slot: 'worker',
         provider: 'local',
         payload: { goal_id: 'goal_1' },
-        usage: { cached_tokens: 0, cost_usd: 0, input_tokens: 90, output_tokens: 10 },
+        usage: { cached_tokens: 0, cost_usd: 0, input_tokens: 90, local: false, output_tokens: 10 },
       }),
     );
     expect(state.cost.total_usd).toBeCloseTo(0.047, 6);
@@ -168,7 +180,13 @@ describe('an llm.call frame with usage', () => {
       frame({
         slot: 'worker',
         provider: 'local',
-        usage: { cached_tokens: 0, cost_usd: 0.004, input_tokens: 90, output_tokens: 10 },
+        usage: {
+          cached_tokens: 0,
+          cost_usd: 0.004,
+          input_tokens: 90,
+          local: false,
+          output_tokens: 10,
+        },
       }),
     );
     expect(state.cost.slots.find((s) => s.slot === 'worker')?.hosted_usd).toBeCloseTo(0.016, 6);
@@ -182,7 +200,13 @@ describe('an llm.call frame with usage', () => {
       reduceCost(initialCost, { type: 'read', cost: costFrom(base) }),
       frame({
         payload: { goal_id: 'goal_1' },
-        usage: { cached_tokens: 0, cost_usd: 0.02, input_tokens: 1000, output_tokens: 200 },
+        usage: {
+          cached_tokens: 0,
+          cost_usd: 0.02,
+          input_tokens: 1000,
+          local: false,
+          output_tokens: 200,
+        },
       }),
     );
     expect(folded.cost.goals[0]?.cost_usd).toBeCloseTo(

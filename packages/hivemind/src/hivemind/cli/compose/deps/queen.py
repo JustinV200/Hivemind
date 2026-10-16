@@ -5,20 +5,30 @@ and the shared parts into the bag `hivemind.queen.Queen` takes; its helpers each
 slice (the goal budgets, the awake memory budget, the placement policy with its Night Veil tier
 profile, roadmap step 10.3a) or fold one later phase's seam in additively (the Virtual Cell parts,
 roadmap step 5.6, which phase 9's sandbox Cells and uplink keys ride on; the Honey Store, phase 7;
-the Royal Jelly Lab, phase 9).
+the Royal Jelly Lab, phase 9; the Swarm's registry, phase 11, whose enrolled devices sign the
+Basket blobs their Wardens ship up with their own node keys).
+
+The uplink keys are the one field two seams feed: a Virtual Cell's Warden signs with the key the
+Cell gate registered at provisioning, and a colonized device's Warden signs with the node key the
+swarm registry pinned at enrolment. `chain_uplink_keys` asks each holder in turn and answers with
+the first key found, so the Queen's Basket receiver never branches on what kind of Cell a link is:
+it asks who holds a key for this link, and verifies against it.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.deps`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cli.compose.deps.parts`,
     `hivemind.cli.compose.night_veil`, `hivemind.cli.compose.virtual_cells`, `hivemind.cli.stores`,
-    `hivemind.forage`, `hivemind.honey_store`, `hivemind.manifest`, `hivemind.queen` and
-    `hivemind.supervision` only.
+    `hivemind.forage`, `hivemind.honey_store`, `hivemind.manifest`, `hivemind.queen`,
+    `hivemind.queen.swarm_gate.keys`, `hivemind.supervision` and `hivemind.swarm` only.
 
 Key invariants:
-    - Every seam a later phase added is additive: `virtual_cells=None` keeps placement Real-only
-      and `honey=None` keeps the Queen answering queries empty, exactly as before those phases.
+    - Every seam a later phase added is additive: `virtual_cells=None` keeps placement Real-only,
+      `honey=None` keeps the Queen answering queries empty and a Hive with no Swarm never calls
+      `with_swarm_uplink_keys`, leaving the uplink keys to the Cell gate alone, as before.
     - The ledger is the one `build_hive` already built and restored (roadmap step 4.8); this module
       never opens a second.
+    - Each uplink-key lookup stays in its own layer (the Cell gate's in `hivemind.queen.cell_gate`,
+      the registry's in `hivemind.queen.swarm_gate.keys`); this module only chains them.
 
 See Also:
     - hivemind.queen.deps for QueenDeps, the bag this module returns.
@@ -37,10 +47,13 @@ from hivemind.forage import ForageMap, GoalBudgets, Tempo
 from hivemind.honey_store import HoneyAccess
 from hivemind.manifest import ForageSection, HiveManifest
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
+from hivemind.queen.deps import UplinkKeys, WardenLink
 from hivemind.queen.placement import PlacementPolicy
+from hivemind.queen.swarm_gate.keys import RegistryUplinkKeys
 from hivemind.supervision import load_policy
+from hivemind.swarm import SwarmRegistry
 
-__all__ = ["build_queen_deps"]
+__all__ = ["build_queen_deps", "chain_uplink_keys", "with_swarm_uplink_keys"]
 
 
 def build_queen_deps(
@@ -69,12 +82,56 @@ def build_queen_deps(
             the Queen answering queries empty and skipping every pre-check and deposit.
 
     Returns:
-        A QueenDeps ready for `hivemind.queen.Queen(deps)`.
+        A QueenDeps ready for `hivemind.queen.Queen(deps)`; `with_swarm_uplink_keys` adds the
+        Swarm's registry to its uplink keys once the Swarm is built.
     """
     base = dataclasses.replace(
         _base_queen_deps(parts, forage_map, ledger), honey=honey, royal_jelly=parts.royal_jelly
     )
     return _with_virtual_cells(base, virtual_cells)
+
+
+def with_swarm_uplink_keys(deps: QueenDeps, registry: SwarmRegistry) -> QueenDeps:
+    """Add the Swarm registry's pinned node keys to the keys `deps` verifies Basket uploads with.
+
+    Roadmap phase 11: a colonized device's Warden signs the manifest of every blob it ships up
+    with its own node key, which only the registry holds. The lookup is chained after whatever
+    `deps.uplink_keys` already holds (the Cell gate's, for Virtual Cells), so the receiver asks
+    each holder in turn and never branches on what kind of Cell a link is.
+
+    Args:
+        deps: The bag `build_queen_deps` returned.
+        registry: The Swarm's registry of enrolled devices (`hivemind.cli.compose.swarm.
+            build_swarm`'s `SwarmAccess.registry`).
+
+    Returns:
+        `deps` with the registry's lookup chained into `uplink_keys`.
+    """
+    holders: list[UplinkKeys] = []
+    if deps.uplink_keys is not None:
+        holders.append(deps.uplink_keys)  # Phase 9: the Cell gate's keys come first, as wired.
+    holders.append(RegistryUplinkKeys(registry))  # Phase 11: then the devices the Swarm enrolled.
+    return dataclasses.replace(deps, uplink_keys=chain_uplink_keys(*holders))
+
+
+def chain_uplink_keys(*lookups: UplinkKeys) -> UplinkKeys:
+    """Chain uplink-key lookups: the first holder that has a key for a link answers for it.
+
+    Args:
+        *lookups: The holders, asked in order; each answers None for a link it holds no key for.
+
+    Returns:
+        An `UplinkKeys` that asks each in turn and answers None once every holder has.
+    """
+
+    async def lookup(link: WardenLink) -> bytes | None:
+        for holder in lookups:
+            key = await holder(link)
+            if key is not None:
+                return key
+        return None
+
+    return lookup
 
 
 def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedger) -> QueenDeps:

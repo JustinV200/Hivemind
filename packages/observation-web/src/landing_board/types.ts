@@ -4416,7 +4416,7 @@ export interface components {
             cost_usd: number;
             /**
              * Hosted Usd
-             * @description Spend on calls that cost money (hosted).
+             * @description Spend on calls served by a provider outside the Hive.
              */
             hosted_usd: number;
             /**
@@ -5181,6 +5181,12 @@ export interface components {
              * @description Tokens the request consumed.
              */
             input_tokens: number;
+            /**
+             * Local
+             * @description The call ran on a local model (a Hive-hosted server or a local provider).
+             * @default false
+             */
+            local: boolean;
             /**
              * Output Tokens
              * @description Tokens the response generated.

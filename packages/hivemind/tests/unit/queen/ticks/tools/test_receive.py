@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from builders.basket import INJECTION, make_blob
 from builders.queen_tools import ToolRig, make_tool_rig
+from builders.swarm import DeviceParty, enrol_node, make_device_party, make_swarm_node
 
 from hivemind.basket import (
     BlobManifest,
@@ -35,7 +36,10 @@ from hivemind.basket import (
 from hivemind.basket.transfer import BytesChunkSource, Chunk
 from hivemind.cell import HoneyClearance, hive_stand_cell_id
 from hivemind.pheromone.trail import TrailQuery
+from hivemind.queen.deps import WardenLink
+from hivemind.queen.swarm_gate.keys import RegistryUplinkKeys
 from hivemind.queen.ticks.tools.transfer import receive
+from hivemind.swarm import MemorySwarmRegistry, NodeStatus
 from waggle.ids import new_node_id
 from waggle.messages.basket import BasketAck, BasketRefusal, BasketRefuse
 from waggle.messages.control.protocol import ErrorMessage
@@ -107,7 +111,11 @@ async def test_an_upload_signed_by_the_wardens_node_key_is_resigned_by_the_hive(
     node_id, key = new_node_id(rig.deps.clock), Ed25519Signer.generate()
     link = dataclasses.replace(rig.link, node_id=node_id)
     rig.wardens[link.warden_id] = link
-    rig.deps = dataclasses.replace(rig.deps, uplink_keys=lambda _link: key.public_key_bytes)
+
+    async def uplink_keys(_link: WardenLink) -> bytes:
+        return key.public_key_bytes
+
+    rig.deps = dataclasses.replace(rig.deps, uplink_keys=uplink_keys)
     content = b"an artefact a Worker kept on the Warden's machine"
     blob = make_blob(content, origin_cell_id=link.cell.id)
     manifest = BlobManifest.sign(blob, str(node_id), key)
@@ -117,6 +125,64 @@ async def test_an_upload_signed_by_the_wardens_node_key_is_resigned_by_the_hive(
     assert isinstance(last, BasketAck) and last.complete
     stored = await rig.kit.store.manifest(blob.sha256)
     assert stored.signer == rig.kit.signer_id  # The Hive's own signature, not the Warden's.
+    await rig.aclose()
+
+
+async def _device_link(rig: ToolRig) -> tuple[DeviceParty, WardenLink, MemorySwarmRegistry]:
+    """Attach a colonized device's Warden link to the rig's Queen, its node enrolled in a registry.
+
+    The link proves the device's node, as the swarm gate's door builds it, and the Queen's uplink
+    keys are the registry's, as the composition root chains them for a Hive with the Swarm on.
+    """
+    party = make_device_party(rig.deps.clock)
+    registry = MemorySwarmRegistry()
+    await enrol_node(registry, make_swarm_node(party, rig.deps.clock), rig.deps.clock)
+    link = dataclasses.replace(rig.link, node_id=party.node_id)
+    rig.wardens[link.warden_id] = link
+    rig.deps = dataclasses.replace(rig.deps, uplink_keys=RegistryUplinkKeys(registry))
+    return party, link, registry
+
+
+def _device_manifest(party: DeviceParty, link: WardenLink, content: bytes) -> BlobManifest:
+    """Sign a manifest of `content` with the device's node key, as a colonized Warden does."""
+    blob = make_blob(content, origin_cell_id=link.cell.id)
+    return BlobManifest.sign(blob, str(party.node_id), party.signer)
+
+
+async def test_an_upload_from_a_colonized_device_verifies_against_its_registry_pinned_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = await make_tool_rig(tmp_path, monkeypatch)
+    party, link, _registry = await _device_link(rig)
+    content = b"a retained artefact shipped up from a colonized device"
+    manifest = _device_manifest(party, link, content)
+
+    last = await _upload(rig, manifest, content)
+
+    assert isinstance(last, BasketAck) and last.complete
+    stored = await rig.kit.store.get(manifest.blob.sha256)
+    assert stored.origin_cell_id == link.cell.id and stored.origin_bee == link.warden_id
+    assert (await rig.kit.store.manifest(stored.sha256)).signer == rig.kit.signer_id
+    assert sorted(await _kinds(rig, "basket")) == ["basket.deposited", "basket.received"]
+    await rig.aclose()
+
+
+async def test_an_upload_from_a_device_revoked_since_it_attached_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = await make_tool_rig(tmp_path, monkeypatch)
+    party, link, registry = await _device_link(rig)
+    node = await registry.node_by_node_id(party.node_id)
+    assert node is not None
+    # Revoked after the Warden attached: the key is read per offer, never cached at attach.
+    await registry.set_status(node.device_id, node.status, NodeStatus.REVOKED, rig.deps.clock.now())
+    content = b"an artefact a revoked device still tries to ship"
+    manifest = _device_manifest(party, link, content)
+
+    last = await _upload(rig, manifest, content)
+
+    assert isinstance(last, BasketRefuse) and last.code is BasketRefusal.UNKNOWN_SIGNER
+    assert await _kinds(rig, "basket") == ["basket.refused"]
     await rig.aclose()
 
 

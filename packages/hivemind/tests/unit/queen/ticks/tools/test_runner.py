@@ -80,6 +80,8 @@ async def test_the_package_is_shipped_to_the_sandbox_then_the_comb_ordered_and_i
     assert spec.network_policy is NetworkPolicy.NONE and spec.comb_shield is CombShieldLevel.MEADOW
     assert spec.labels == {"hivemind.purpose": "comb-sandbox"}
     assert provider.released == [sandbox.link.cell.id] and rig.deps.tool_lane.sandbox_cells == set()
+    # Marked a sandbox the moment its Cell existed, so the attach's catch-up skipped it.
+    assert provider.marked_before_attach == [True]
     assert await _events(rig, "tool.sandbox_provisioned") == 1
     assert await _events(rig, "tool.sandbox_released") == 1
     # The sandbox's report was the verdict: the tool is promoted, and the Queen kept the run.

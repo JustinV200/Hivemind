@@ -49,7 +49,7 @@ from hivemind.queen.placement import ProvisionVirtual, ReuseDormant
 from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.envelope import Hop
-from waggle.ids import new_grant_id, new_hive_id, new_node_id, new_warden_id
+from waggle.ids import CellId, new_grant_id, new_hive_id, new_node_id, new_warden_id
 from waggle.signing import Ed25519Signer
 from waggle.transport.memory import MemoryTransport
 
@@ -380,6 +380,19 @@ async def test_acquire_sandbox_provisions_on_the_one_backend_and_release_tears_i
     await provider.release_sandbox(link.cell.id)  # A sandbox already gone is not an error.
 
 
+async def test_acquire_sandbox_names_the_cell_to_its_caller_as_soon_as_it_is_provisioned() -> None:
+    provider, lifecycle, _wardens, _gate, _trail = _build()
+    seen: list[tuple[CellId, VirtualCellStatus | None]] = []
+
+    def provisioned(cell_id: CellId) -> None:
+        seen.append((cell_id, lifecycle.status_of(cell_id)))
+
+    link = await provider.acquire_sandbox(_spec(), provisioned)
+
+    # Named once, while still PROVISIONING: before the readiness wait, so before mark_ready.
+    assert seen == [(link.cell.id, VirtualCellStatus.PROVISIONING)]
+
+
 async def test_acquire_sandbox_with_no_backend_registered_cannot_provision() -> None:
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
@@ -401,9 +414,9 @@ async def test_uplink_key_is_the_public_key_the_gate_holds_for_the_links_cell() 
     provider, _lifecycle, _wardens, gate, _trail = _build()
     link = await provider.acquire_sandbox(_spec())
     key = Ed25519Signer.generate().public_key_bytes
-    assert provider.uplink_key(link) is None  # The test backend registered a malformed key.
+    assert await provider.uplink_key(link) is None  # The test backend registered a malformed key.
     await gate.expect(link.cell.id, key.hex())
 
-    assert provider.uplink_key(link) == key
+    assert await provider.uplink_key(link) == key
     await gate.forget(link.cell.id)
-    assert provider.uplink_key(link) is None
+    assert await provider.uplink_key(link) is None

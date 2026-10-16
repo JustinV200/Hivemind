@@ -61,6 +61,7 @@ Public API:
     - RungEvaluator, RungKeeper, decide_rung: the Queen's own decisions to raise a device a rung or
       take one back, from the Hive's pressure and a task's need to outlive its link (rungs).
     - RegistrySegmentKeys: the key a device's trail segment must be signed with (keys).
+    - RegistryUplinkKeys: the key a device Warden's Basket uploads are signed with (keys).
     - take_back, tasks_on, open_tasks: taking a gone Warden's tasks back to be placed afresh,
       and reading the tasks that have not ended (takeback).
     - recall_handoff: the newest Handoff the Queen can hold for a task whose bee wrote it in a
@@ -76,7 +77,7 @@ from hivemind.queen.swarm_gate.attach import (
 )
 from hivemind.queen.swarm_gate.colonize import Colonizer, Promotion, Withdrawal, decide_request
 from hivemind.queen.swarm_gate.gate import SwarmGate
-from hivemind.queen.swarm_gate.keys import RegistrySegmentKeys
+from hivemind.queen.swarm_gate.keys import RegistrySegmentKeys, RegistryUplinkKeys
 from hivemind.queen.swarm_gate.recall import recall_handoff
 from hivemind.queen.swarm_gate.reconcile import DeviceReconciler, ReconcileDeps
 from hivemind.queen.swarm_gate.rungs import RungEvaluator, RungKeeper, decide_rung
@@ -114,6 +115,7 @@ __all__ = [
     "Promotion",
     "ReconcileDeps",
     "RegistrySegmentKeys",
+    "RegistryUplinkKeys",
     "RungEvaluator",
     "RungKeeper",
     "ServedDevice",

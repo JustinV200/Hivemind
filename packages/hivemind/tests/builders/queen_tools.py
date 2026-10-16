@@ -232,6 +232,8 @@ class FakeSandboxProvider:
         self.specs: list[VirtualCellSpec] = []
         self.released: list[CellId] = []
         self.sandbox_wardens: list[FakeWarden] = []
+        # Per acquire: whether the Cell was already marked a sandbox when its Warden attached.
+        self.marked_before_attach: list[bool] = []
         self.fail: str | None = None  # A reason: acquire raises CellProvisionError with it.
         self.gate: asyncio.Event | None = None  # When set, acquire waits for it.
         self.started = asyncio.Event()  # Set when an acquire begins.
@@ -243,7 +245,9 @@ class FakeSandboxProvider:
         """Give the provider the Queen's deps and live Warden table, and a spool directory."""
         self._queen, self._spool = queen, spool
 
-    async def acquire_sandbox(self, spec: VirtualCellSpec) -> WardenLink:
+    async def acquire_sandbox(
+        self, spec: VirtualCellSpec, on_provisioned: Callable[[CellId], None] | None = None
+    ) -> WardenLink:
         """Record `spec`, attach a fake sandbox Cell's link and start its Warden."""
         assert self._queen is not None and self._spool is not None
         self.specs.append(spec)
@@ -254,6 +258,9 @@ class FakeSandboxProvider:
             raise CellProvisionError("fake", spec.image, self.fail)
         deps, wardens = self._queen
         cell = make_cell(kind=CellKind.VIRTUAL, clock=deps.clock)
+        if on_provisioned is not None:
+            on_provisioned(cell.id)  # As the real provider does: before the Warden attaches.
+        self.marked_before_attach.append(cell.id in deps.tool_lane.sandbox_cells)
         link, end = make_honey_link(cell, deps.clock, deps.identity.hive_id, deps.identity.node_id)
         wardens[link.warden_id] = link
         warden = FakeWarden(

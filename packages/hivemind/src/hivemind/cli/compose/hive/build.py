@@ -64,6 +64,7 @@ from hivemind.cli.compose.deps import (
     build_queen_deps,
     build_warden_deps,
     open_default_stores,
+    with_swarm_uplink_keys,
 )
 from hivemind.cli.compose.guard import build_content_scanner, with_guard
 from hivemind.cli.compose.honey import build_honey_access
@@ -328,7 +329,10 @@ def _assemble_hive(
     scanner = build_content_scanner(parts.manifest)
     warden_deps = replace(build_warden_deps(parts, source, links), scanner=scanner)
     warden = Warden(links.warden_id, warden_deps)
-    side = _build_queen(parts, extras, warden_deps)
+    # Roadmap step 11.6: None unless `[swarm] enabled`. Built before the Queen, whose Basket
+    # receiver verifies a colonized device's uploads against the registry's pinned node keys.
+    swarm = build_swarm(parts, scanner)
+    side = _build_queen(parts, extras, warden_deps, swarm)
     queen = side.queen
     if extras.virtual_cells is not None:
         # Safe before run_hive/listener.start(): acquire() is only ever called from a tick, well
@@ -352,7 +356,7 @@ def _assemble_hive(
         honey=extras.honey,
         house_bee=_house_bee(extras.honey, links, parts.clock),
         royal_jelly=parts.royal_jelly,
-        swarm=build_swarm(parts, scanner),  # Roadmap step 11.6: None unless `[swarm] enabled`.
+        swarm=swarm,
     )
 
 
@@ -373,7 +377,9 @@ class _QueenSide:
     telemetry: TelemetryBoard
 
 
-def _build_queen(parts: HiveParts, extras: _AssemblyExtras, warden_deps: WardenDeps) -> _QueenSide:
+def _build_queen(
+    parts: HiveParts, extras: _AssemblyExtras, warden_deps: WardenDeps, swarm: SwarmAccess | None
+) -> _QueenSide:
     """Build the Queen on the Warden's own scanner, with her Honey handles and the Entrance's edges.
 
     Split out of `_assemble_hive` for its line budget (codingrules 5.1).
@@ -381,6 +387,10 @@ def _build_queen(parts: HiveParts, extras: _AssemblyExtras, warden_deps: WardenD
     queen_deps = build_queen_deps(
         parts, extras.forage_map, extras.ledger, extras.virtual_cells, extras.honey
     )
+    if swarm is not None:
+        # Roadmap phase 11: the Basket receiver verifies a colonized device's uploads against the
+        # node key the registry pinned at enrolment, beside the Cell gate's Virtual Cell keys.
+        queen_deps = with_swarm_uplink_keys(queen_deps, swarm.registry)
     # Roadmap step 10.5: the Queen tells devices through a relay `hive serve` binds to the
     # Entrance's push channel once that exists (the Entrance is built inside the event loop).
     relay = HumanChannelRelay()

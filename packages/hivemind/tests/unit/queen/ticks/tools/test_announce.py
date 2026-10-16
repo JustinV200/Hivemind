@@ -162,6 +162,24 @@ async def test_a_warden_attached_later_is_brought_up_to_date_blob_first(
     await rig.aclose()
 
 
+async def test_a_sandbox_cell_attached_later_gets_no_catch_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = await make_tool_rig(tmp_path, monkeypatch)
+    await _promote(rig)  # A hive tool every other newcomer would be brought up to date on.
+    sandbox = rig.add_peer(_cell(rig))
+    # Marked before the attach, as the runner marks a sandbox the moment its Cell exists.
+    rig.deps.tool_lane.sandbox_cells.add(sandbox.link.cell.id)
+    queen = Queen(rig.deps)
+
+    await queen.attach_warden(sandbox.link)
+    await rig.settle()
+
+    assert sandbox.seen == []  # Neither the package nor `tool.promoted`: it holds its own only.
+    await queen.stop()
+    await rig.aclose()
+
+
 async def test_attaching_a_warden_to_the_queen_starts_its_catch_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

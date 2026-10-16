@@ -139,7 +139,7 @@ async def _on_offer(deps: QueenDeps, link: WardenLink, item: InboxItem, wire: Ba
     # Local file work on the spool and SQLite reads; a signature check and a few rules, no model.
     result = await receiver.on_offer(
         offer,
-        _verifier(deps, access, link),
+        await _verifier(deps, access, link),
         receiver_ceiling(_STAND_TIER),
         _AnyRoom(),
         offer.manifest.blob.platform_tags[0]
@@ -246,10 +246,15 @@ def _request(link: WardenLink, offer: Offer, content: bytes) -> DepositRequest:
     )
 
 
-def _verifier(deps: QueenDeps, access: RoyalJellyAccess, link: WardenLink) -> Ed25519Verifier:
-    """Trust the Hive key, and the key the Cell gate holds for this link's node, nothing else."""
+async def _verifier(deps: QueenDeps, access: RoyalJellyAccess, link: WardenLink) -> Ed25519Verifier:
+    """Trust the Hive key, and the key the Queen holds for this link's node, nothing else.
+
+    The node's key comes from whoever holds one for the link (`QueenDeps.uplink_keys`: the Cell
+    gate for a Virtual Cell, the swarm registry for a colonized device), read afresh on every
+    offer so a key revoked since the Warden attached is refused on its next upload.
+    """
     keys = {access.signer_id: access.signer.public_key_bytes}
-    uplink = deps.uplink_keys(link) if deps.uplink_keys is not None else None
+    uplink = await deps.uplink_keys(link) if deps.uplink_keys is not None else None
     if uplink is not None and link.node_id is not None:
         keys[str(link.node_id)] = uplink
     return Ed25519Verifier(keys)

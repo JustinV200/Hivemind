@@ -5474,7 +5474,7 @@
             "type": "number"
           },
           "hosted_usd": {
-            "description": "Spend on calls that cost money (hosted).",
+            "description": "Spend on calls served by a provider outside the Hive.",
             "title": "Hosted Usd",
             "type": "number"
           },
@@ -6774,6 +6774,12 @@
             "description": "Tokens the request consumed.",
             "title": "Input Tokens",
             "type": "integer"
+          },
+          "local": {
+            "default": false,
+            "description": "The call ran on a local model (a Hive-hosted server or a local provider).",
+            "title": "Local",
+            "type": "boolean"
           },
           "output_tokens": {
             "description": "Tokens the response generated.",

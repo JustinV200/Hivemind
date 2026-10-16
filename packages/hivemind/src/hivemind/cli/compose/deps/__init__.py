@@ -33,7 +33,8 @@ Public API:
       build_ledger (parts): the shared stores and collaborators.
     - HIVE_STAND_LEASE, build_warden_deps, build_cell_warden_deps (warden): the Hive Stand's
       Warden's bag, and the part of it any Real Cell's Warden shares (a Swarm device's).
-    - build_queen_deps (queen): the Queen's bag.
+    - build_queen_deps, with_swarm_uplink_keys (queen): the Queen's bag, and the Swarm's node
+      keys folded into the keys it verifies Basket uploads with.
     - build_enforcer (hivemind.cli.compose.guard, re-exported): the one Guard Enforcer.
 """
 
@@ -46,7 +47,7 @@ from hivemind.cli.compose.deps.parts import (
     build_ledger,
     open_default_stores,
 )
-from hivemind.cli.compose.deps.queen import build_queen_deps
+from hivemind.cli.compose.deps.queen import build_queen_deps, with_swarm_uplink_keys
 from hivemind.cli.compose.deps.warden import (
     HIVE_STAND_LEASE,
     build_cell_warden_deps,
@@ -66,4 +67,5 @@ __all__ = [
     "build_queen_deps",
     "build_warden_deps",
     "open_default_stores",
+    "with_swarm_uplink_keys",
 ]

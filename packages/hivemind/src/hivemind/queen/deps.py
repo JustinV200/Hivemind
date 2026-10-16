@@ -248,8 +248,10 @@ OnHeartbeat = Callable[[WardenId, Heartbeat, datetime], None]
 # on the Cell's kind). The composition root sets it on the Hive Stand's own link.
 LiveCapacity = Callable[[], Awaitable[ForageCapacity]]
 # Phase 9 (ADR-0048): the raw Ed25519 public key a Warden's own node signs a Basket manifest with,
-# looked up from the key the Cell gate holds for that link's Cell; None when the link proves none.
-UplinkKeys = Callable[["WardenLink"], bytes | None]
+# looked up from whoever holds a key for that link (the Cell gate for a Virtual Cell it
+# provisioned, the swarm registry for an enrolled device); None when nobody does. Awaited, because
+# the registry is read on every offer so a revocation is honoured by the very next one.
+UplinkKeys = Callable[["WardenLink"], Awaitable[bytes | None]]
 
 
 async def send_guarded(transport: Transport, envelope: Envelope) -> bool:
@@ -376,8 +378,13 @@ class SandboxCellProvider(Protocol):
     implements this beside `VirtualCellProvider` over the same lifecycle.
     """
 
-    async def acquire_sandbox(self, spec: VirtualCellSpec) -> WardenLink:
+    async def acquire_sandbox(
+        self, spec: VirtualCellSpec, on_provisioned: Callable[[CellId], None] | None = None
+    ) -> WardenLink:
         """Provision a Cell from `spec`, wait for its Warden, and return that Warden's link.
+
+        `on_provisioned` is called with the Cell's id as soon as it exists, before its Warden
+        can attach, so the caller can mark it a sandbox before the attach's catch-up runs.
 
         Raises:
             hivemind.hive.CellProvisionError: The backend could not provision it or it never
@@ -791,7 +798,7 @@ class QueenDeps:
             `hivemind.cli.compose.royal_jelly`); None (the default) wires neither.
         sandboxes: Provisions the Comb's sandbox Cell; None leaves only the subprocess sandbox.
         tool_lane: Her tool jobs and Basket transfers beside the tick (`ToolLane`).
-        uplink_keys: The key a Warden's node signs a Basket manifest with; None trusts the Hive key.
+        uplink_keys: The awaited key a Warden's node signs a Basket manifest with; None: Hive only.
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.

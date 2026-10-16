@@ -120,7 +120,13 @@ export function callEvent(
     provider: 'cloud',
     slot: 'queen',
     subject_id: 'queen',
-    usage: { cached_tokens: 0, cost_usd: 0.02, input_tokens: 500, output_tokens: 100 },
+    usage: {
+      cached_tokens: 0,
+      cost_usd: 0.02,
+      input_tokens: 500,
+      local: false,
+      output_tokens: 100,
+    },
     ...over,
   };
 }
