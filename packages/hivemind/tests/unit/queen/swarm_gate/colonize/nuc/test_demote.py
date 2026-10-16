@@ -21,7 +21,7 @@ import sqlite3
 
 import pytest
 from builders.forage import make_source
-from builders.quarantine import settle
+from builders.quarantine import settle, settle_for
 from builders.swarm import GateRig, NucDevice, make_nuc_device
 from builders.swarm.nuc import GIB
 
@@ -185,7 +185,10 @@ async def test_a_warden_that_never_answers_leaves_the_device_a_nuc(
         device = await _a_nuc(rig)
         device.warden.silent.add(NucAction.DEMOTE)
 
-        await _requested(rig, device)
+        # A silent Warden is given up on after a real deadline, which a fast loop's yields can
+        # spend before it passes; wait in real time, not in scheduling turns.
+        assert await rig.colonizer.request(device.node)
+        await settle_for(lambda: not rig.colonizer.busy(device.node.device_id))
 
         row = await rig.hive.registry.node(device.node.device_id)
         assert row is not None and row.level is RuntimeLevel.NUC

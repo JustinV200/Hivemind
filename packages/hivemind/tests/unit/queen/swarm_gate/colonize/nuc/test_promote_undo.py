@@ -19,7 +19,7 @@ See Also:
 from __future__ import annotations
 
 import pytest
-from builders.quarantine import settle
+from builders.quarantine import settle, settle_for
 from builders.swarm import GateRig, NucDevice, make_nuc_device
 from builders.swarm.nuc import GIB
 
@@ -120,7 +120,10 @@ async def test_a_warden_that_never_answers_is_given_up_on_without_asking_it_anyt
         device = await make_nuc_device(rig, "box")
         device.warden.silent.add(NucAction.PROMOTE)
 
-        await _requested(rig, device)
+        # A silent Warden is given up on after a real deadline, which a fast loop's yields can
+        # spend before it passes; wait in real time, not in scheduling turns.
+        assert await rig.colonizer.request(device.node)
+        await settle_for(lambda: not rig.colonizer.busy(device.node.device_id))
 
         await _left_as_it_was(rig, device)
         assert await _decisions(rig) == [("nuc_failed", "warden_silent")]
