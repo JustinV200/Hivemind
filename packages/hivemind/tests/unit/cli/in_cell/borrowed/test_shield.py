@@ -168,4 +168,6 @@ async def test_a_propolis_devices_lease_is_held_back_until_its_tunnel_is_verifie
     kinds = [event.kind for event in await trail.query(TrailQuery())]
     assert kinds.count("cell.leased") == kinds.count("cell.released") == 1  # Given back at once.
     [refused] = [event for event in await trail.query(TrailQuery()) if event.kind == REFUSED_KIND]
-    assert [check["name"] for check in refused.payload["checks"]] == [CHECK_PLATFORM]
+    checks = refused.payload["checks"]
+    assert isinstance(checks, list)
+    assert [check["name"] for check in checks if isinstance(check, dict)] == [CHECK_PLATFORM]

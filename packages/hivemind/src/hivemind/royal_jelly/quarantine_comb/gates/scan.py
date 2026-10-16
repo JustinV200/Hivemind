@@ -38,6 +38,7 @@ from hivemind.royal_jelly.quarantine_comb.gates.banned import (
     is_banned_module,
     is_banned_name,
 )
+from hivemind.royal_jelly.spec import TESTS_MODULE
 
 OWN_MODULES = frozenset(
     {"tool", "test_tool"}
@@ -151,7 +152,11 @@ class _Scanner(ast.NodeVisitor):
             self._add(node, f"uses the banned attribute '{node.attr}'")
         elif dotted is not None and is_banned_name(dotted, node.attr):
             self._add(node, f"uses banned '{dotted}.{node.attr}'")
-        elif node.attr in PATHLIB_IO_ATTRIBUTES and self._imports_pathlib():
+        elif (
+            node.attr in PATHLIB_IO_ATTRIBUTES
+            and self._judges_pathlib_io()
+            and self._imports_pathlib()
+        ):
             self._add(node, f"uses pathlib file access '.{node.attr}'; use the session instead")
         self.generic_visit(node)
 
@@ -166,6 +171,16 @@ class _Scanner(ast.NodeVisitor):
             ):
                 self._add(node, f"uses getattr to reach the banned name '{name.value}'")
         self.generic_visit(node)
+
+    def _judges_pathlib_io(self) -> bool:
+        """Return whether this file is held to the session for every file access (the tool is)."""
+        # The tool reaches the machine only through its session, so the capabilities gate can judge
+        # every access it makes. Its tests run beside it in the same sandbox, where the audit hook
+        # confines every path they touch to the package and scratch; a test needs fixtures in
+        # scratch that are not the tool's own accesses, and a `put_file` through the session would
+        # make the tool declare a write it never makes. So the test module keeps pathlib for its
+        # fixtures, and only the tool module is held to the session.
+        return self._filename != TESTS_MODULE
 
     def _imports_pathlib(self) -> bool:
         """Return whether any import so far reaches pathlib (`import pathlib` or `from pathlib`)."""

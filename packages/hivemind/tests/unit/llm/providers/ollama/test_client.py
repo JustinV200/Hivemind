@@ -95,9 +95,9 @@ async def test_every_transport_failure_becomes_provider_unavailable(
 
 
 async def test_a_scheme_less_base_url_becomes_provider_unavailable_not_a_raw_httpx_error() -> None:
-    # The review's probe: `base_url = "localhost:11434/v1"` in the manifest. httpx refuses to
+    # The review's probe: `base_url = "localhost:4000/v1"` in the manifest. httpx refuses to
     # send ("unsupported protocol 'localhost://'"); nothing above the client may see that.
-    http = httpx.AsyncClient(base_url="localhost:11434")
+    http = httpx.AsyncClient(base_url="localhost:4000")
     client = OllamaClient(http, "local")
 
     with pytest.raises(ProviderUnavailableError):

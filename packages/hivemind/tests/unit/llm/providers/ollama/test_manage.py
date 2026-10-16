@@ -84,7 +84,7 @@ async def test_detect_is_false_for_an_unreachable_server() -> None:
 
 async def test_detect_is_false_for_a_base_url_without_a_scheme() -> None:
     # No transport is injected: httpx refuses the URL before any connection is attempted.
-    assert await OllamaManager.detect("localhost:11434/v1", timeout_s=0.5) is False
+    assert await OllamaManager.detect("localhost:4000/v1", timeout_s=0.5) is False
 
 
 async def test_open_closes_its_client_when_the_probe_fails_unexpectedly(
@@ -115,7 +115,7 @@ async def test_open_closes_its_client_when_the_probe_fails_unexpectedly(
 
 
 async def test_open_returns_none_and_closes_for_a_base_url_without_a_scheme() -> None:
-    assert await OllamaManager.open(_PROVIDER, "localhost:11434/v1", 0.5) is None
+    assert await OllamaManager.open(_PROVIDER, "localhost:4000/v1", 0.5) is None
 
 
 async def test_list_models_returns_the_installed_models() -> None:

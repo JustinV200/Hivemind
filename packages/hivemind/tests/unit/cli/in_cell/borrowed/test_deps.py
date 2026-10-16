@@ -215,6 +215,7 @@ async def test_a_device_manifests_floors_reach_the_wardens_routing_rules(tmp_pat
         await stores.close()
 
     rules = deps.routing_rules
+    assert rules is not None
     assert rules.floor_for(ModelSlot.WORKER) == 4  # The manifest's, as on the Hive Stand.
     assert rules.floor_for(ModelSlot.QUEEN) == default_floors()[ModelSlot.QUEEN]
     assert rules.offline is config.runtime.llm_offline

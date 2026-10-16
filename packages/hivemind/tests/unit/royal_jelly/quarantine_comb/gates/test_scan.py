@@ -148,3 +148,15 @@ def test_module_allowance_is_stdlib_session_types_and_own_modules() -> None:
     assert not module_is_allowed("hivemind.llm")
     assert not module_is_allowed("hivemind")
     assert not module_is_allowed("_thread")
+
+
+def test_the_test_module_keeps_pathlib_for_its_fixtures_while_the_tool_is_held_to_the_session() -> (
+    None
+):
+    fixture = "from pathlib import Path\nPath('data/notes.txt').write_text('a')"
+
+    # The runtime hook confines the test module to scratch; the tool's own accesses go by session.
+    assert scan_source("test_tool.py", fixture) == ()
+    assert any("'.write_text'" in f.message for f in scan_source("tool.py", fixture))
+    # A banned module or builtin is still refused in the test module.
+    assert any("socket" in f.message for f in scan_source("test_tool.py", "import socket"))

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from builders.basket import make_blob, make_manifest
@@ -63,7 +63,10 @@ class _Link:
             raise ConnectionLostError("the frame did not go")
         await self._inner.send(envelope)
 
-    def receive(self) -> AsyncGenerator[Envelope, None]:
+    async def connect(self) -> None:
+        await self._inner.connect()
+
+    def receive(self) -> AsyncIterator[Envelope]:
         return self._inner.receive()
 
     async def close(self) -> None:
