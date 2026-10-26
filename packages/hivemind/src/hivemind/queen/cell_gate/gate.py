@@ -14,7 +14,7 @@ the Cell exists, so it can only ever be keyed by `cell_id`. But `waggle.signing.
 (what actually checks a signature) is keyed by `node_id`, and a Virtual Cell mints a *fresh*
 `NodeId` at boot (`hivemind.cli.in_cell.config.build_runtime_config`: `node_id=new_node_id(clock)`,
 unrelated to `cell_id`) -- there is no way to know which `node_id` a given `cell_id` will announce
-itself as before it does. This class's own answer: `hivemind.queen.cell_gate.handshake.
+itself as before it does. This class's own answer: `hivemind.queen.cell_gate.trust.handshake.
 GateVerifier` (the `waggle.codec.Codec` `Verifier` this gate hands `CellListener` for every fresh
 connection) reads the Cell's claimed `cell_id` straight out of the *unverified* canonical bytes
 `Codec.decode` already hands its `Verifier.verify` (the raw wire dict, JSON-decodable again,

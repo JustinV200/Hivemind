@@ -22,7 +22,7 @@ docs/waggle/spec.md section 8.10), so it learns the export was not merged.
 Both events are the Queen's own records, about the Cell whose own link carried the frame, and name
 a reason, never the frame. A frame that fails before its link is attached proves no Cell (whoever
 dialled may have named any Cell's id), so nothing is recorded against a Cell for it; the Cell gate
-records the knock about the Hive instead (`hivemind.queen.cell_gate.handshake`).
+records the knock about the Hive instead (`hivemind.queen.cell_gate.trust.handshake`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.attach`.

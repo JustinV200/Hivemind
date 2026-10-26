@@ -184,8 +184,8 @@ every assignment goes to a Warden, over Waggle.
   binds a task to the Night Veil Cell it now runs on. `TrailSegmentReceiver` (`trail/sync.py`)
   offers every shipped segment to the ephemeral segments first, so a Night Veil Cell's own trail
   never merges into the durable one. It routes by the Cell a chunk names, so the Cell gate hands
-  it only chunks naming the Cell their link proved (`cell_gate.refusals`, reason `another_cell`):
-  a Night Veil Cell cannot ship its segment onto the durable trail under a MEADOW Cell's id, nor a
+  it only chunks naming the Cell their link proved (`cell_gate.trust.refusals`, reason
+  `another_cell`): a Night Veil Cell cannot ship its segment onto the durable trail under a MEADOW Cell's id, nor a
   MEADOW Cell bury its own in a Night Veil Cell's segment. Nothing the Queen keeps elsewhere may
   outlive the Cell either: she refuses Cell Wax about a Night Veil Cell (`ticks/wax.py`, recorded
   as `queen.decided` with the reason alone), placement never offers an attached Night Veil Cell to

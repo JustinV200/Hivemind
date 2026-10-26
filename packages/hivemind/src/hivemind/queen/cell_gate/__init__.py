@@ -57,24 +57,19 @@ Public API:
     - CellSnapshotHandler: answers a Warden's own CellSnapshotRequest/CellRollbackRequest, the
       snapshot relay's Queen-side half (hivemind.queen.cell_gate.snapshot).
     - GateSegmentKeys: the key a Virtual Cell's trail segment is checked against when it is signed
-      (hivemind.queen.cell_gate.segment_keys, roadmap 11.9).
+      (hivemind.queen.cell_gate.trust.segment_keys, roadmap 11.9).
     - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
       SEGMENT_REFUSED_CODE, refusal_error: what one Cell's link refused, recorded for the Guard
-      Bee and answered to the Cell (hivemind.queen.cell_gate.refusals, roadmap step 10.6).
+      Bee and answered to the Cell (hivemind.queen.cell_gate.trust.refusals, roadmap step 10.6).
     - HandshakeRefusals, HANDSHAKE_REFUSED_KIND, GateVerifier: a handshake that failed before
       attach, recorded about the Hive, and the verifier every frame is checked by
-      (hivemind.queen.cell_gate.handshake).
+      (hivemind.queen.cell_gate.trust.handshake).
     - transport_options, transport_refusals: the listener's frame ceiling and replay window, and
       the callback that records what they refuse as guard events
-      (hivemind.queen.cell_gate.refusals, roadmap steps 11.3a and 11.3b).
+      (hivemind.queen.cell_gate.trust.refusals, roadmap steps 11.3a and 11.3b).
 """
 
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.handshake import (
-    HANDSHAKE_REFUSED_KIND,
-    GateVerifier,
-    HandshakeRefusals,
-)
 from hivemind.queen.cell_gate.listener import (
     AnswerClaims,
     CellListener,
@@ -83,7 +78,16 @@ from hivemind.queen.cell_gate.listener import (
 )
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.cell_gate.quiesce import make_quiesce
-from hivemind.queen.cell_gate.refusals import (
+from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
+from hivemind.queen.cell_gate.scrub import SCRUB_FAILED_KIND, SCRUB_TIMEOUT_S, ScrubAcks, make_scrub
+from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
+from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
+from hivemind.queen.cell_gate.trust.handshake import (
+    HANDSHAKE_REFUSED_KIND,
+    GateVerifier,
+    HandshakeRefusals,
+)
+from hivemind.queen.cell_gate.trust.refusals import (
     ENVELOPE_REFUSED_KIND,
     SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
@@ -93,11 +97,7 @@ from hivemind.queen.cell_gate.refusals import (
     transport_options,
     transport_refusals,
 )
-from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
-from hivemind.queen.cell_gate.scrub import SCRUB_FAILED_KIND, SCRUB_TIMEOUT_S, ScrubAcks, make_scrub
-from hivemind.queen.cell_gate.segment_keys import GateSegmentKeys
-from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
-from hivemind.queen.cell_gate.snapshot import CellSnapshotHandler
+from hivemind.queen.cell_gate.trust.segment_keys import GateSegmentKeys
 
 __all__ = [
     "ENVELOPE_REFUSED_KIND",

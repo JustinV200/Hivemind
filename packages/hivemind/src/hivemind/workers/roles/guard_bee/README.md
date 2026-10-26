@@ -159,8 +159,8 @@ clock, node, Guard policy, slot resolver and call gate (the Royal Reserve), the 
 - **C2 deposits** (`GuardReportSink`): phase 7's Nectar intake. In memory until then.
 - **Node integrity**: the Cell gate records a frame that failed its signature on a Cell's own link
   (`guard.envelope_refused`) and a trail segment it would not merge (`guard.segment_refused`),
-  in `hivemind.queen.cell_gate.refusals`; three rules count them, and `subject_forgery` counts a
-  Cell's node recording what another Cell owns. The Hive Stand's listeners record a connection
+  in `hivemind.queen.cell_gate.trust.refusals`; three rules count them, and `subject_forgery`
+  counts a Cell's node recording what another Cell owns. The Hive Stand's listeners record a connection
   closed for flooding (`guard.frame_ceiling`, 11.3a) and a replayed envelope id
   (`guard.replay_refused`, 11.3b) against the peer's node (`hivemind.swarm.gateway.refusals`), and
   two rules count them per node (`frame_ceiling_repeats`, `replay_refusal_burst`). A merged

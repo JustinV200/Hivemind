@@ -1,4 +1,4 @@
-"""Tests for hivemind.queen.cell_gate.segment_keys: a Virtual Cell's segment key, optional.
+"""Tests for hivemind.queen.cell_gate.trust.segment_keys: a Virtual Cell's segment key, optional.
 
 The readiness gate registers each provisioned Cell's public key before the Cell dials. A Virtual
 Cell's trail segment need not be signed (its Warden never was required to), but one that arrives
@@ -7,13 +7,13 @@ look the key up for a Cell the gate holds and one it does not, and then run real
 unsigned exports through a receiver built on those keys.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/cell_gate/segment_keys.py (codingrules section 3).
+    Mirrors src/hivemind/queen/cell_gate/trust/segment_keys.py (codingrules section 3).
 
 Key invariants:
     - None: this module holds tests only.
 
 See Also:
-    - hivemind.queen.cell_gate.segment_keys for the module under test.
+    - hivemind.queen.cell_gate.trust.segment_keys for the module under test.
     - tests.unit.queen.trail.test_sync_signed for the receiver's check with a required key.
 """
 

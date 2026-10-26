@@ -44,7 +44,7 @@ Fits into the Hive:
     (ForageCapacity, HostCapacity), `hivemind.queen.attach` (the shared attach path),
     `hivemind.queen.deps` (WardenLink), `hivemind.queen.errors` (WardenSpawnRefusedError),
     `hivemind.queen.queen` (Queen), `hivemind.queen.cell_gate.gate` (QueenReadinessGate),
-    `hivemind.queen.cell_gate.refusals` (the transport options), `hivemind.queen.cell_gate.
+    `hivemind.queen.cell_gate.trust.refusals` (the transport options), `hivemind.queen.cell_gate.
     handshake` (GateVerifier, HandshakeRefusals), `hivemind.queen.trail`
     (TrailSegmentReceiver), `hivemind.pheromone` (TrailRecorder), waggle (codec, envelope, errors,
     ids, signing, transport) and the `waggle.messages.cell`/`waggle.messages.swarm` families only.
@@ -54,7 +54,7 @@ Key invariants:
       `cell_id` `QueenReadinessGate.expect` already knows about; anything else closes the
       connection with `UnknownSignerError` before it is ever attached, and a handshake frame
       whose signature failed is `guard.handshake_refused` about the Hive, never the Cell it
-      claimed (`.handshake`).
+      claimed (`.trust.handshake`).
     - `QueenReadinessGate.resolve` is called exactly once per Cell, only once both `CellReady` and
       a first `CellHeartbeat` on the same connection have arrived, and only after the Warden is in
       `queen.wardens`: a caller waking from `wait_ready` finds its link there.
@@ -69,7 +69,7 @@ Key invariants:
       new link.
     - The server runs with the transport's default limits (roadmap steps 11.3a and 11.3b): a
       connection over its frame ceiling is closed and a replayed envelope id is dropped, each
-      recorded as a guard event naming the node (`.refusals.transport_refusals`); a duplicate
+      recorded as a guard event naming the node (`.trust.refusals.transport_refusals`); a duplicate
       shortly after a Cell's Warden attached is the expected outbox replay of a reconnection and
       is dropped silently.
     - A frame a Queen-side wait registered for (`AnswerClaims`: an Overwintering scrub's
@@ -107,8 +107,8 @@ from hivemind.queen.attach import (
     serve_warden,
 )
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from hivemind.queen.cell_gate.handshake import GateVerifier, HandshakeRefusals
-from hivemind.queen.cell_gate.refusals import transport_options
+from hivemind.queen.cell_gate.trust.handshake import GateVerifier, HandshakeRefusals
+from hivemind.queen.cell_gate.trust.refusals import transport_options
 from hivemind.queen.deps import WardenLink
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.queen import Queen
@@ -345,7 +345,7 @@ async def _await_ready(
     `CapacityReport`, which a real in-Cell Warden sends between the two, is captured too (module
     docstring). A frame whose signature fails here proves no Cell, so it is recorded through
     `handshakes` about the Hive, with `address` and what it claimed kept apart
-    (`hivemind.queen.cell_gate.handshake`).
+    (`hivemind.queen.cell_gate.trust.handshake`).
 
     Returns:
         The binding once both frames arrived, or None if the connection ended (or a frame failed

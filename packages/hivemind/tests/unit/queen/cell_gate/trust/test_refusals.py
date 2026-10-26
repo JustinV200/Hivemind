@@ -1,4 +1,4 @@
-"""Tests for hivemind.queen.cell_gate.refusals: the Cell listener's transport limits and record.
+"""Tests for hivemind.queen.cell_gate.trust.refusals: the listener's transport limits and record.
 
 The listener's two transport defences (roadmap steps 11.3a and 11.3b, ADR-0055) are recorded as
 `guard.frame_ceiling` and `guard.replay_refused` with the node's id, and with no recorder the limits
@@ -8,7 +8,7 @@ while the same duplicate with no reconnection noted is the refusal it looks like
 refusals live with the attach path and are tested in tests/unit/queen/attach/test_refusals.py.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/cell_gate/refusals.py (codingrules section 3).
+    Mirrors src/hivemind/queen/cell_gate/trust/refusals.py (codingrules section 3).
 
 Key invariants:
     - None: this module holds tests only.

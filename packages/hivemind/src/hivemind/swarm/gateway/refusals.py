@@ -26,7 +26,7 @@ Key invariants:
 See Also:
     - docs/adr/0055-waggle-replay-window-and-frame-ceiling.md for the rules recorded here.
     - waggle.transport.limits for the ConnectionRefusal this receives.
-    - hivemind.queen.cell_gate.refusals for the same shape of record for a Virtual Cell's link.
+    - hivemind.queen.cell_gate.trust.refusals for the same shape of record on a Virtual Cell link.
 """
 
 from __future__ import annotations

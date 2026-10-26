@@ -1,4 +1,4 @@
-"""Tests for hivemind.queen.cell_gate.handshake: the gate's verifier and the knocks it records.
+"""Tests for hivemind.queen.cell_gate.trust.handshake: the verifier and the knocks it records.
 
 `GateVerifier` checks a fresh node's first frame against the key registered for the Cell it
 claims, refuses a frame naming no Cell, or a malformed one, as an unknown signer (never another
@@ -8,7 +8,7 @@ the Hive, and counts the ones it skipped on the next record. The same over a rea
 `test_listener`.
 
 Fits into the Hive:
-    Mirrors src/hivemind/queen/cell_gate/handshake.py (codingrules section 3).
+    Mirrors src/hivemind/queen/cell_gate/trust/handshake.py (codingrules section 3).
 
 Key invariants:
     - None: this module holds tests only.
@@ -28,7 +28,10 @@ from hivemind.queen.cell_gate import (
     HandshakeRefusals,
     QueenReadinessGate,
 )
-from hivemind.queen.cell_gate.handshake import HANDSHAKE_RECORDS_PER_WINDOW, HANDSHAKE_WINDOW_S
+from hivemind.queen.cell_gate.trust.handshake import (
+    HANDSHAKE_RECORDS_PER_WINDOW,
+    HANDSHAKE_WINDOW_S,
+)
 from waggle.clock import FakeClock
 from waggle.errors import InvalidSignatureError, UnknownSignerError
 from waggle.ids import new_cell_id, new_hive_id, new_node_id

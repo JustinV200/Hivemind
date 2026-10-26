@@ -11,7 +11,7 @@ looked up by the Cell the chunk names (a Virtual Cell's node is only learned at 
 its Cell's key is known from provisioning to teardown).
 
 Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.cell_gate`.
+    Layer 6 (the kernel; the only global view; divides Forage), in `hivemind.queen.cell_gate.trust`.
     Built by the composition root (`hivemind.cli.compose.virtual_cells`) over the same
     `QueenReadinessGate` the Cell listener verifies frames with, and handed to the
     `TrailSegmentReceiver` bound on that listener. Calls into `hivemind.queen.trail` and waggle

@@ -24,7 +24,8 @@ Key invariants:
     - Nothing here returns, logs or compares key material as text: the receiver gets raw bytes.
 
 See Also:
-    - hivemind.queen.cell_gate.segment_keys for the Virtual Cell counterpart, which is optional.
+    - hivemind.queen.cell_gate.trust.segment_keys for the Virtual Cell counterpart, an optional
+      one.
     - hivemind.queen.trail.signature for the check this feeds.
 """
 

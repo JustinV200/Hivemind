@@ -18,7 +18,7 @@ listener's `TransportRefusals` writes (and is reused for it here, so the two lis
 drift apart).
 
 Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.cell_gate`.
+    Layer 6 (the kernel; the only global view; divides Forage), in `hivemind.queen.cell_gate.trust`.
     Built by `.listener`: `transport_refusals` once per listener. Calls into `hivemind.cell`
     (CellIdentity), `hivemind.pheromone` (TrailRecorder), `hivemind.queen.attach` (the link
     refusals it re-exports), `hivemind.swarm` (the swarm listener's transport refusals) and waggle

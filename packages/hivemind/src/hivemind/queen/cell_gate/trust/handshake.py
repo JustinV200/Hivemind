@@ -18,7 +18,7 @@ connection's failure may land in between. A context variable set in the handler'
 task's alone.
 
 Fits into the Hive:
-    Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.cell_gate`.
+    Layer 6 (the kernel; the only global view; divides Forage), in `hivemind.queen.cell_gate.trust`.
     Built once per `CellListener`. Calls into `hivemind.common.logging`, `hivemind.pheromone`
     (GuardEvent, TrailRecorder), `hivemind.queen.cell_gate.gate` and waggle (errors, ids,
     signing) only.
@@ -33,7 +33,7 @@ Key invariants:
 
 See Also:
     - hivemind.queen.cell_gate.listener for the handshake this records about.
-    - hivemind.queen.cell_gate.refusals for what an attached link refused.
+    - hivemind.queen.cell_gate.trust.refusals for what an attached link refused.
 """
 
 from __future__ import annotations
