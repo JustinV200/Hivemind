@@ -299,14 +299,20 @@ are named by the roadmap step that owns them.
   TCP connect each) and logs `virtual_cells.provider_reachable_through_isolation` with the fix;
   `docs/guard/isolation.md` says how to bind a model server to docker0 instead.
 - The Guard Bee:
-  - An in-Cell Warden has no model-backed judge, so its audit samples are recorded as
-    inconclusive.
-  - A handshake signature failure before attach is not recorded.
-  - `control.error` is never sent in reply to a refused segment.
+  - ~~An in-Cell Warden has no model-backed judge.~~ Closed by the merge (see "Since this
+    handoff").
+  - ~~A handshake signature failure before attach is not recorded.~~ Fixed (`622b33de`): it is
+    `guard.handshake_refused`, about the Hive, never the Cell the frame claimed.
+  - ~~`control.error` is never sent in reply to a refused segment.~~ Fixed (`622b33de`): code
+    `hivemind.queen.segment_refused.<reason>`, correlated to the chunk.
 - Mutual TLS:
-  - There is no certificate renewal or re-issue route. Certificates last 90 days, and a device
-    approved while the Hive ran loopback only has none, so both mean enrolling again.
-  - Expiry-driven revocation-list rebuild has no unit test.
+  - ~~There is no certificate renewal or re-issue route.~~ Fixed (`46589054`, `557ee9e8`, ADR-0058):
+    `hive remote certificate renew` and `hive entrance reissue`.
+  - ~~Expiry-driven revocation-list rebuild has no unit test.~~ Fixed (`a451e65a`): `sweep_once`
+    over a real TLS handshake, in `tests/unit/entrance/runtime/test_tls.py`.
+- Still not done: the four patches in "In flight". Night Veil round 3's items 1, 2, 3 and 5 are
+  not on this branch (nor on `main` as of 2026-10-26); Supervision round 4's item 1 (the in-Cell
+  redial) is on `origin/main` as `cli/in_cell/redial/`, not here.
 
 **Later phases, recorded in the roadmap's notes:**
 - QEMU egress cut and QEMU Night Veil (design only, and fail-closed).

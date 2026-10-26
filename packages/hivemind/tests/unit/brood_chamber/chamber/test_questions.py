@@ -156,10 +156,17 @@ async def test_cancelling_a_blocked_task_withdraws_its_question_in_the_same_writ
 
     assert (cancelled.status, cancelled.pending_question_id) == (TaskStatus.CANCELLED, None)
     assert (await store.get_question(question.id)).status is QuestionStatus.WITHDRAWN
-    last = (await _events_for(trail, task.id))[-1]
-    assert last.kind == "task.cancelled"
-    assert last.payload["question_id"] == question.id
-    assert last.payload["from_status"] == TaskStatus.BLOCKED.value
+    # Trail order is (at, node_id) and the FakeClock never moves, so the seeded task.submitted
+    # row (its own random node_id) can land anywhere; the chamber's rows share one node_id and
+    # keep their write order.
+    events = await _events_for(trail, task.id)
+    assert [e.kind for e in events if e.kind != "task.submitted"] == [
+        "task.blocked",
+        "task.cancelled",
+    ]
+    cancelled_event = next(e for e in events if e.kind == "task.cancelled")
+    assert cancelled_event.payload["question_id"] == question.id
+    assert cancelled_event.payload["from_status"] == TaskStatus.BLOCKED.value
 
 
 async def test_a_late_answer_never_moves_a_cancelled_task_back_to_running() -> None:
