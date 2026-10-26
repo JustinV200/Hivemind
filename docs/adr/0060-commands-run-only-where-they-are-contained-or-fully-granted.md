@@ -65,7 +65,7 @@ back or the task's acceptance fails, never passes silently.
 itself for every task whose acceptance runs a command, since its Warden will run that command on
 the task's Cell. A task that still lands on a Cell that refuses its commands (its Worker ran one
 the plan never mentioned) is re-placed rather than retried there: the Worker's claim carries
-`ResultCause.CELL_RUNS_NO_COMMANDS` (a new optional `TaskResult.cause`, Waggle 1.11) when a
+`ResultCause.CELL_RUNS_NO_COMMANDS` (a new optional `TaskResult.cause`, Waggle 1.14) when a
 `run_command` came back as an access-level refusal, and the Warden carries it onto a failed
 result, adding it itself when one of its command criteria was refused. The Queen's table maps
 such a FAILED result to `REQUEUE_TASK` while the task does not yet need commands; the Brood
@@ -93,7 +93,7 @@ cancelled or failed for this reason.
 
 Known limits: the cause is read from the attempt that claims; a refusal in an attempt that then
 handed off is seen again only if the resumed attempt tries a command too. `TaskResult.cause` is a
-1.11 field, so a Worker or Warden older than that never sends it, and its tasks are retried as
+1.14 field, so a Worker or Warden older than that never sends it, and its tasks are retried as
 before.
 
 ## Alternatives considered
