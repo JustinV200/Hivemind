@@ -343,6 +343,8 @@ async def test_handle_release_lease_stops_the_model_servers_with_the_lease() -> 
     assert warden._models is not None and warden._models.running == {}
     await queen_end.pump_until(lambda: len(queen_end.source_removed) == 2)
     assert {m.cause for m in queen_end.source_removed} == {SourceRemovalCause.LEASE_RELEASED}
+
+
 async def test_a_snapshot_reply_drained_by_the_tick_reaches_the_ask_its_envelope_names() -> None:
     """Through the Warden's own dispatch (ticks.dispatch.act), not the handler alone."""
     clock = FakeClock()

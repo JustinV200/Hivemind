@@ -149,6 +149,8 @@ def test_cell_providers_carries_the_prompt_overlay_into_the_cell(tmp_path: Path)
 
     local = next(p for p in providers if p.name == "local")
     assert local.prompt_overlay == "small_local"
+
+
 async def test_a_host_side_provider_listening_on_the_address_is_reported_with_its_port(
     tmp_path: Path,
 ) -> None:
