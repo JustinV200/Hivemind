@@ -321,18 +321,7 @@ async def handle_release_lease(warden: Warden, item: InboxItem, payload: Interve
             answer names so the Queen can tell it apart from any other.
         payload: The Queen's own Intervene(RELEASE_LEASE); only `.reason` is read.
     """
-    for sub_bee in tuple(warden._sub_bees.values()):
-        # The one path every ending takes, as Warden.stop's own loop does: stopped cooperatively
-        # (cancel-and-reap only as a bounded fallback), its receive task reaped before its link
-        # closes (codingrules section 11), its row dropped and its slot freed.
-        await retire_sub_bee(warden, sub_bee)
-    outage = device_outage(warden._deps)
-    if outage is not None:
-        outage.take()  # Tasks an outage paused had this lease to resume on: they are hers now.
-    # Roadmap step 8.3: a model server dies with the lease that started it, so the Hive must stop
-    # seeing its sources now, not when the dead process is next noticed.
-    if warden._models is not None:
-        await warden._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
+    await _stop_what_the_lease_runs(warden)
     lease = warden._lease
     if lease is None:
         return  # Nothing held (already released, or never leased one): idempotent, nothing to
@@ -349,6 +338,22 @@ async def handle_release_lease(warden: Warden, item: InboxItem, payload: Interve
     # moment the Queen reads it would otherwise keep its cell.released inside (ticks.trail_ship).
     await ship_trail_before_result(warden)
     await _send_lease_released(warden, lease, report, payload.reason, MessageId(item.id))
+
+
+async def _stop_what_the_lease_runs(warden: Warden) -> None:
+    """Retire every sub-bee, hand back what an outage paused, stop the lease's model servers."""
+    for sub_bee in tuple(warden._sub_bees.values()):
+        # The one path every ending takes, as Warden.stop's own loop does: stopped cooperatively
+        # (cancel-and-reap only as a bounded fallback), its receive task reaped before its link
+        # closes (codingrules section 11), its row dropped and its slot freed.
+        await retire_sub_bee(warden, sub_bee)
+    outage = device_outage(warden._deps)
+    if outage is not None:
+        outage.take()  # Tasks an outage paused had this lease to resume on: they are hers now.
+    # Roadmap step 8.3: a model server dies with the lease that started it, so the Hive must stop
+    # seeing its sources now, not when the dead process is next noticed.
+    if warden._models is not None:
+        await warden._models.stop_all(SourceRemovalCause.LEASE_RELEASED)
 
 
 async def _send_lease_released(

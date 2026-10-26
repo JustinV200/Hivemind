@@ -171,7 +171,7 @@ def decide(
     reasons = real_eliminated + virtual_eliminated
     named = "; ".join(reasons) if reasons else "no candidates in inventory"
     denied = _capability_denials(needs, inventory, forage.goal_capabilities)
-    if _commands_need_a_virtual_cell(needs, inventory):
+    if rules.commands_need_a_virtual_cell(needs, inventory):
         # ADR-0060: no attached Cell may run its commands and this Hive has no Virtual Cell to
         # send it to, so no later pass could place it either; it fails now, saying why.
         raise PlacementError(
@@ -517,21 +517,6 @@ def _prefer_first(
         )
         return ReuseReal(top.cell_id, top.warden_id, reason)
     return None
-
-
-def _commands_need_a_virtual_cell(needs: TaskNeeds, inventory: Inventory) -> bool:
-    """Say whether only a Virtual Cell could run this task's commands, and the Hive has none.
-
-    True when the task runs commands, at least one Real Cell is attached and none of them may
-    run one (rule 4d), and there is no Virtual backend or dormant Cell at all. With no Cell
-    attached yet the wait is ordinary: a Warden may still attach.
-    """
-    if not needs.commands or inventory.virtual_backends or inventory.dormant:
-        return False
-    return bool(inventory.real) and all(
-        rules.command_shortfall(needs, candidate.capabilities, candidate.access_level) is not None
-        for candidate in inventory.real
-    )
 
 
 def _label(candidate: RealCandidate) -> str:

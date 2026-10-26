@@ -75,7 +75,7 @@ from hivemind.cell import (
 from hivemind.forage import RoleFootprint
 from hivemind.guard import Capability, CapabilityFamily, CapabilitySet, ceiling_for
 from hivemind.hive import NetworkPolicy, VirtualCellSpec
-from hivemind.queen.placement.inventory import RealCandidate, WaxMention
+from hivemind.queen.placement.inventory import Inventory, RealCandidate, WaxMention
 from hivemind.queen.placement.policy import PlacementPolicy
 from waggle.ids import CellId
 
@@ -104,6 +104,7 @@ __all__ = [
     "browser_shortfall",
     "caution_rank",
     "command_shortfall",
+    "commands_need_a_virtual_cell",
     "desktop_shortfall",
     "excluded_by_block_wax",
     "excluded_by_hive_stand_policy",
@@ -308,6 +309,21 @@ def command_shortfall(
     return (
         "running commands needs FULL access or a Cell that contains its processes "
         f"(access level {access_level.name}, processes_contained={contained})"
+    )
+
+
+def commands_need_a_virtual_cell(needs: TaskNeeds, inventory: Inventory) -> bool:
+    """Say whether only a Virtual Cell could run this task's commands, and the Hive has none.
+
+    True when the task runs commands, at least one Real Cell is attached and none of them may
+    run one (rule 4d), and there is no Virtual backend or dormant Cell at all. With no Cell
+    attached yet the wait is ordinary: a Warden may still attach.
+    """
+    if not needs.commands or inventory.virtual_backends or inventory.dormant:
+        return False
+    return bool(inventory.real) and all(
+        command_shortfall(needs, candidate.capabilities, candidate.access_level) is not None
+        for candidate in inventory.real
     )
 
 

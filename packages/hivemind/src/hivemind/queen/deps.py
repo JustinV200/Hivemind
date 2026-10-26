@@ -819,10 +819,9 @@ class QueenDeps:
             instead of the static tuple above, when set (`build_inventory` reads it first).
         dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for
             `dormant_cells`.
-        on_task_finished: Told, beside the tick (`hivemind.queen.dispatcher.releases`), of every
-            finished task's Cell (`CellId`, `TaskOutcome`) and of a Cell acquired for a task
-            cancelled before it ran there; `None` (the default) is a no-op, and
-            `queen.cell_gate.release.make_on_task_finished` builds the real one.
+        on_task_finished: Told, beside the tick (`dispatcher.releases`), of every finished task's
+            Cell (`CellId`, `TaskOutcome`) and of a Cell acquired for a task cancelled before it
+            ran there; `None` is a no-op, `cell_gate.release.make_on_task_finished` the real one.
         dispatch: The dispatcher's own lock, waits, provisions and releases (`DispatchBook`).
         keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
             None (the default) until the operator sets one. Read only by `hivemind.queen.

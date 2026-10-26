@@ -224,12 +224,8 @@ async def serve_warden(
     ready = proved.first.payload
     assert isinstance(ready, CellReady)  # noqa: S101 - the gate verified the handshake frame.
     refusals = LinkRefusals(services.recorder, proved.cell.id, proved.node_id)
-    answers = _Answers(services, proved, refusals)
     _expect_replay(queen, ready.warden_id, hooks)  # Before the fan-out: its pump starts reading.
-    # The Cell the handshake proved, never one a frame names: only its own answer counts.
-    fanout = FanoutTransport(
-        proved.transport, answers, proved.frames, partial(_claimed, services, proved.cell.id)
-    )
+    fanout = _fanout(proved, services, refusals)
     link = WardenLink(
         warden_id=ready.warden_id,
         cell=proved.cell,
@@ -340,6 +336,14 @@ class _Answers:
             reply, self._proved.hop, clock=self._services.clock, correlation_id=request.id
         )
         await send_guarded(self._proved.transport, envelope)
+
+
+def _fanout(proved: ProvedLink, services: LinkServices, refusals: LinkRefusals) -> FanoutTransport:
+    """Build the link's one reader: it answers the gate's kinds and hands over claimed frames."""
+    answers = _Answers(services, proved, refusals)
+    # The Cell the handshake proved, never one a frame names: only its own answer counts.
+    claim = partial(_claimed, services, proved.cell.id)
+    return FanoutTransport(proved.transport, answers, proved.frames, claim)
 
 
 def _claimed(services: LinkServices, cell_id: CellId, envelope: Envelope) -> bool:

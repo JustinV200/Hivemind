@@ -193,9 +193,8 @@ def in_cell_exoskeleton(
         The wiring `hivemind.cli.in_cell.deps.build_in_cell_warden_deps` applies.
     """
     gate = FannerTranscriptionGate(fanner, Tempo())
-    return _cell_exoskeleton(
-        registry, clock, gate, browser_sandbox=False, private_loopback=True, retention=None
-    )
+    config = ExoskeletonConfig(browser_sandbox=False, private_loopback=True)
+    return _cell_exoskeleton(registry, clock, gate, config, retention=None)
 
 
 def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonWiring:
@@ -229,8 +228,8 @@ def device_exoskeleton(registry: ProviderRegistry, clock: Clock) -> ExoskeletonW
         # NOTE: unmetered. The device's Fanner is built beside this wiring and not passed in, so
         # a transcription there is neither counted against the provider's seats nor recorded.
         DirectTranscriptionGate(),
-        browser_sandbox=not running_as_root(),
-        private_loopback=False,  # A borrowed machine's loopback is its owner's services.
+        # A borrowed machine's loopback is its owner's services, never the lease's own.
+        ExoskeletonConfig(browser_sandbox=not running_as_root(), private_loopback=False),
         retention=Retention(clock, DEVICE_RECORDING_KEEP),
     )
 
@@ -338,9 +337,8 @@ def _cell_exoskeleton(
     registry: ProviderRegistry,
     clock: Clock,
     gate: TranscriptionGate,
+    config: ExoskeletonConfig,
     *,
-    browser_sandbox: bool,
-    private_loopback: bool,
     retention: Retention | None,
 ) -> ExoskeletonWiring:
     """Build the wiring of a Warden that reads no manifest: defaults, recordings in memory.
@@ -350,7 +348,6 @@ def _cell_exoskeleton(
     metered and whether the recordings are forgotten, so the two cannot drift apart in anything
     else.
     """
-    config = ExoskeletonConfig(browser_sandbox=browser_sandbox, private_loopback=private_loopback)
     return ExoskeletonWiring(
         config=config,
         launcher=build_browser_launcher(clock, config.screen),
