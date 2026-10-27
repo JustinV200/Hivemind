@@ -104,6 +104,25 @@ function Ribbon(props: { ribbon: FlowRibbon }): ReactElement {
   );
 }
 
+// The three column headings: the pool's over its labels (right-aligned), the others over their boxes.
+function Headings(): ReactElement {
+  return (
+    <>
+      {COLUMN_HEADINGS.map((heading, i) => (
+        <text
+          key={heading}
+          className="forage-svg-heading"
+          x={i === 0 ? COLUMN_X[0] + 14 : COLUMN_X[i]}
+          y={HEAD_H - 6}
+          textAnchor={i === 0 ? 'end' : 'start'}
+        >
+          {heading}
+        </text>
+      ))}
+    </>
+  );
+}
+
 export function ForageFlow(props: { model: FlowModel }): ReactElement {
   const { model } = props;
   const layout = layoutFlow(model);
@@ -120,17 +139,7 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
           {`Forage flow: the shared pool, to ${model.wardens.length} Wardens, to their grants`}
         </title>
         <HatchDefs />
-        {COLUMN_HEADINGS.map((heading, i) => (
-          <text
-            key={heading}
-            className="forage-svg-heading"
-            x={i === 0 ? COLUMN_X[0] + 14 : COLUMN_X[i]}
-            y={HEAD_H - 6}
-            textAnchor={i === 0 ? 'end' : 'start'}
-          >
-            {heading}
-          </text>
-        ))}
+        <Headings />
         {layout.ribbons.map((ribbon) => (
           <Ribbon key={ribbon.id} ribbon={ribbon} />
         ))}
