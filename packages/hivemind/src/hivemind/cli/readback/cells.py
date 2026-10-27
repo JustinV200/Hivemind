@@ -57,8 +57,8 @@ from hivemind.pheromone import MemoryPheromoneTrail
 from waggle.clock import FakeClock, SystemClock
 
 app = typer.Typer(name="cells", help="List the Cells the Hive Stand (and the Swarm) can offer.")
-# Roadmap step 5.13: merges virtual_app's six commands (inspect/destroy/release/snapshot/
-# rollback/abscond) straight into this app with no name/prefix of its own (Typer's own add_typer,
+# Roadmap step 5.13: merges virtual_app's five commands (inspect/destroy/release/snapshot/
+# rollback) straight into this app with no name/prefix of its own (Typer's own add_typer,
 # given no name and a nameless sub-app, folds its commands in at this level -- verified empirically
 # while drafting hivemind.cli.readback.virtual's own module docstring), so `hive cells inspect ...`
 # is the command, never `hive cells virtual inspect ...`.

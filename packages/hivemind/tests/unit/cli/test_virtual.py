@@ -324,52 +324,6 @@ def test_rollback_on_a_non_snapshotting_backend_exits_1(
     assert result.exit_code == 1
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# abscond
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def test_abscond_refuses_without_confirmation(tmp_path: Path) -> None:
-    manifest_path = fake_manifest(tmp_path)
-
-    result = runner.invoke(app, ["cells", "abscond", "--manifest", str(manifest_path)], input="n\n")
-
-    assert result.exit_code == 1
-
-
-def test_abscond_leaves_zero_containers_and_zero_open_leases(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    manifest_path = fake_manifest(tmp_path)
-    manifest = _with_fake_backend(manifest_path)
-    parts, _cell_id = _seed_virtual_cell(manifest)
-    _patch(monkeypatch, parts)
-    db_path = _db_path(manifest_path)
-    lease_id = "lease-abscond-1"
-    _record_leased(db_path, lease_id=lease_id)
-    scratch_root = manifest.resolve_path(manifest.hive_stand.scratch_root) / lease_id
-    scratch_root.mkdir(parents=True, exist_ok=True)
-    (scratch_root / "marker.txt").write_text("left behind", encoding="utf-8")
-
-    result = runner.invoke(app, ["cells", "abscond", "--manifest", str(manifest_path), "--yes"])
-
-    assert result.exit_code == 0, result.output
-    assert "left_as_found:             True" in result.output
-    remaining_cells = asyncio.run(parts.registry.get("fake").list_cells(manifest.hive.id))
-    assert remaining_cells == ()
-    assert not scratch_root.exists()
-
-
-def test_abscond_with_nothing_to_clean_up_reports_left_as_found(tmp_path: Path) -> None:
-    manifest_path = fake_manifest(tmp_path)
-
-    result = runner.invoke(app, ["cells", "abscond", "--manifest", str(manifest_path), "--yes"])
-
-    assert result.exit_code == 0, result.output
-    assert "containers_destroyed:      0" in result.output
-    assert "left_as_found:             True" in result.output
-
-
 def test_open_real_leases_ignores_a_virtual_cells_own_lease(tmp_path: Path) -> None:
     """A Cell this Hive provisioned leases itself from inside; that lease dies with the Cell."""
     db_path = tmp_path / "hive.sqlite3"

@@ -2,10 +2,10 @@
 
 `@pytest.mark.integration` (codingrules 14.2). Skips cleanly when no Docker daemon answers or
 `images/base-ubuntu:dev` is not built (`integration.docker_helpers`). Two things the first
-integration module leaves unproven: that `DockerSnapshotter` really commits and recreates a
-running Cell (roadmap step 5.10) with the recreated container announcing itself again, and that
-the operator-facing `hive cells inspect/abscond` commands (5.13) work against a real daemon from
-backend labels alone, with no Queen running.
+integration module leaves unproven: that `DockerSnapshotter` really commits and recreates a running
+Cell (roadmap step 5.10) with the recreated container announcing itself again, and that the
+operator-facing `hive cells inspect` (5.13) and `hive abscond` (13.4) commands work against a real
+daemon from backend labels alone, with no Queen running.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Exercises hive/snapshot/docker.py and
@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from builders.cli import fake_manifest
+from builders.entrance.stand import PASSWORD, set_password
 from builders.forage import make_capacity
 from integration.docker_helpers import (
     ALL_INTERFACES,
@@ -87,7 +88,7 @@ async def test_snapshot_commits_and_rollback_recreates_a_live_container() -> Non
 
 
 def test_cli_inspect_and_abscond_work_from_labels_with_no_queen(tmp_path: Path) -> None:
-    """`hive cells inspect` sees a real container; `abscond --yes` leaves the daemon empty."""
+    """`hive cells inspect` sees a real container; `hive abscond` leaves the daemon empty."""
     _skip_unless_docker()
     manifest_path = _docker_manifest(tmp_path)
     hive_id = load_manifest(manifest_path, {}).hive.id
@@ -98,9 +99,13 @@ def test_cli_inspect_and_abscond_work_from_labels_with_no_queen(tmp_path: Path) 
         assert "docker" in result.output
         assert IMAGE in result.output
 
-        result = runner.invoke(app, ["cells", "abscond", "--manifest", str(manifest_path), "--yes"])
+        asyncio.run(set_password(manifest_path))
+        # The password, a yes to the review (nothing was left to tick) and the phrase.
+        answers = f"{PASSWORD}\ny\nabscond my hive\n"
+        args = ["abscond", "--reason", "test", "--manifest", str(manifest_path), "--password-stdin"]
+        result = runner.invoke(app, args, input=answers)
         assert result.exit_code == 0, result.output
-        assert "containers_destroyed:      1" in result.output
+        assert "containers destroyed: 1" in result.output
     finally:
         asyncio.run(_destroy_every(hive_id))
     assert asyncio.run(_list(hive_id)) == ()

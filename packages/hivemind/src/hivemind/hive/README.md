@@ -88,7 +88,7 @@ VPN-only one) and the Overwintering pool that keeps a dormant Cell around for fa
   `NightVeilTeardownPurge` runs
   every time one ends: in
   `teardown` (a finished task, a provision that failed after the Cell existed, a Hive shutdown),
-  in `hive cells abscond` (`adopt_night_veil` says which Cells), and in `reconcile`, whose
+  in `hive abscond` (`adopt_night_veil` says which Cells), and in `reconcile`, whose
   `sweep_night_veil` holds again the segment of a Night Veil Cell that outlived a Queen restart
   and records `cell.destroyed` (when missing) and purges every one the skeleton names that is gone
   unpurged. Every provisioned Cell carries its tier in its backend labels (`TIER_LABEL`), and

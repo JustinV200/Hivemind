@@ -267,6 +267,7 @@ class GuardEvent(PheromoneEvent):
             # listener wrapper (waggle itself writes no trail), each naming the node.
             "guard.frame_ceiling",  # A connection exceeded its frames-per-minute ceiling.
             "guard.replay_refused",  # A frame repeated an envelope id inside the replay window.
+            "guard.absconded",  # Roadmap 13.4: the human tore the whole Hive down, break-glass.
             "guard.handshake_refused",  # Before attach: about the Hive, never the claimed Cell.
         }
     )

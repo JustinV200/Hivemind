@@ -6,7 +6,7 @@ listener once it binds. `night_veil_hive` builds it, optionally holding each Cel
 has answered a number of model calls, so a Queen can stop (or an Absconding run) with the Cell
 still at work; `running` runs it with the onion routed; `watch_teardown` snapshots a held segment
 and the durable trail the moment its Cell's teardown starts, and runs a hook there first;
-`request` asks for the goal as a human would, and `abscond` runs `hive cells abscond --yes`'s own
+`request` asks for the goal as a human would, and `abscond` runs `hive abscond`'s own
 pass. Moved out of `tests.e2e.test_night_veil_boundary` once its scenarios outgrew one module.
 
 Fits into the Hive:
@@ -244,7 +244,7 @@ async def request(run: NightVeilRun, tier: CombShieldLevel = CombShieldLevel.NIG
 
 
 async def abscond(hive: Hive) -> AbscondSummary:
-    """Run `hive cells abscond --yes`'s own pass over `hive`, its stores opened as the CLI does."""
+    """Run `hive abscond`'s own pass over `hive`, its stores opened as the CLI does."""
     database = hive.manifest.resolve_path(hive.manifest.hive.db)
     # Off this loop: both open their store under their own asyncio.run, as the command does.
     ledger = await asyncio.to_thread(build_ledger, hive.manifest, hive.manifest.forage.reserve)

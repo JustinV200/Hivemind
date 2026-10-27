@@ -83,7 +83,7 @@ async def collect_releases(deps: QueenDeps) -> None:
     """Drop every release that has ended from the lane, logging one that failed.
 
     A release's own failure (a backend that refused to destroy or pause the Cell) is the
-    lifecycle's to record, and the next Queen's reconcile and `hive cells abscond` its backstops;
+    lifecycle's to record, and the next Queen's reconcile and `hive abscond` its backstops;
     it never ends the Queen's loop.
 
     Args:

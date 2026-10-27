@@ -354,10 +354,27 @@ own fresh Cell, since `make_leaving`'s default `cell_id` is minted per call), `r
 scoped or unscoped, and the refusals (`remove` with neither CELL nor `--path`; `--path` active on
 more than one Cell).
 
+## `hive abscond` (roadmap step 13.4)
+
+- `abscond/` -- `hive abscond --reason TEXT [--manifest] [--password-stdin]`, the human's
+  break-glass teardown of the whole Hive (docs/runbooks/absconding.md). `command.py` runs it in
+  order: the operator password re-opens the console key (`consent.reauthenticate`); the
+  `absconding` point passes as the operator (`consent.authorize_abscond`; the human-only floor
+  refuses every other principal); `scope.gather_scope` reads, from backend labels and the trail
+  alone, the Virtual Cells (live and dormant), the open leases on the Hive Stand and on devices,
+  the live grants, the unfinished Workers, the temp dirs and the resident Basket blobs, and lists
+  every Leaving; `review.py` prints that review and numbers the Leavings, the human types the
+  numbers to remove (blank keeps them all), confirms the review and types `abscond my hive`;
+  `execute.carry_out` runs 5.13's `run_abscond`, removes the temp dirs, evicts the residency rows,
+  replays the ticked Leavings away (`readback/leavings.remove_leaving`, shared with `hive cells
+  leavings remove`) and records `guard.absconded` as the human with the reason, the confirmation
+  evidence and every count. Persistent stores are kept. Under `--password-stdin` each prompt
+  reads the next line of stdin, in that order.
+
 ## Command groups (phase 5 step 5.13)
 
 - `readback/virtual.py` (plus `readback/virtual_offline.py` and `readback/virtual_abscond.py`,
-  split out to stay within codingrules section 5.1's 300-line budget) -- six commands merged
+  split out to stay within codingrules section 5.1's 300-line budget) -- five commands merged
   straight into `hive cells` with no `virtual`/prefix of their own (`readback/cells.py`'s own
   `app.add_typer(virtual_app)`, given no name, folds a nameless sub-app's commands in at the
   parent's own level -- verified empirically). Real/Virtual is always decided by "is it in a
@@ -373,7 +390,7 @@ more than one Cell).
       own contract), printing the `cell.destroyed` trail event id. A Night Veil Cell (by its tier
       label, or by the trail's skeleton once no backend lists it) is destroyed behind its
       boundary and purged once gone (`virtual_offline.destroy_virtual_cell`, shared with
-      `abscond`; codingrules 12): its grants' revocations never reach the durable trail.
+      `hive abscond`; codingrules 12): its grants' revocations never reach the durable trail.
     - `hive cells release LEASE_ID [--manifest]`: writes a durable
       `hivemind.queen.cluster.ClusterOrder(kind=RELEASE, lease_id=...)` row, exactly like `hive
       cluster`/`hive wake` (docs/adr/0024), for a running Queen's own tick
@@ -381,7 +398,7 @@ more than one Cell).
       Clustering order table) to drain -- which can revoke the lease's Cell's live grants but not
       itself kill the Warden's session, a documented gap (`run_release_tick`'s own module
       docstring) needing a new Queen -> Warden wire message this dispatch does not add. Reports
-      the lease orphaned and points at `abscond` when no Queen looks to be running, a heuristic
+      the lease orphaned and points at `hive abscond` when no Queen looks to be running, a heuristic
       read off the trail's own `warden.*` history (v0 has no live link into a running Queen).
     - `hive cells snapshot CELL_ID` / `rollback CELL_ID SNAPSHOT_ID [--manifest]`: through
       `hivemind.hive.snapshot.snapshotter_for` (roadmap step 5.10, a concurrent dispatch that
@@ -390,16 +407,14 @@ more than one Cell).
       dispatch: `DockerSnapshotter`/`QemuSnapshotter` each keep their own snapshot-id-to-image
       mapping in one process's memory, so a `rollback` invocation cannot see what a separate,
       earlier `snapshot` invocation recorded.
-    - `hive cells abscond [--yes] [--manifest]`: from backend labels and the trail alone (no
-      lifecycle table). Destroys every Virtual Cell every registered backend lists for this Hive's
-      id; for every Real Cell lease the trail shows still open, writes a RELEASE order when a
-      Queen looks to be running, or reconstructs and releases its `RealCellLease` directly when
-      its own scratch directory still exists (`virtual_offline.reconstruct_lease`) -- a lease
-      neither running Queen nor still-present scratch can help is left untouched and counted, the
-      "minimal safe thing" this dispatch's own report names. Revokes every grant the pass touched
-      (a before/after count on the restored ledger) and prints a summary: containers destroyed,
-      leases released/deferred/left untouched, grants revoked, and whether a fresh re-read now
-      finds everything gone (`left_as_found`). Confirms interactively unless `--yes`.
+    - Absconding was `hive cells abscond [--yes]` here; roadmap step 13.4 made it `hive abscond`
+      (below), human-only and break-glass. `readback/virtual_abscond.py`'s `run_abscond` is still
+      its Cells-and-leases pass: it destroys every Virtual Cell every registered backend lists for
+      this Hive's id; for every Real Cell lease the trail shows still open it writes a RELEASE
+      order when a Queen looks to be running or the lease is a device's, or reconstructs and
+      releases its `RealCellLease` directly when its own scratch directory still exists
+      (`virtual_offline.reconstruct_lease`), and counts one neither can help as left untouched;
+      and it revokes every grant the pass touched (a before/after count on the restored ledger).
   - `queen/cluster/orders.py` grew a third `OrderKind.RELEASE` (naming `lease_id`, never
     `provider`) on the same table CLUSTER/WAKE already use, plus its own
     `0002_add_release_lease_id.sql` migration -- the roadmap step's own "choose the smaller

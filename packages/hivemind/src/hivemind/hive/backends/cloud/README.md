@@ -29,7 +29,7 @@ provisioning, idempotent destroy):
 
 1. **Tag every instance with this Hive's id.** Exactly like Docker's container labels and QEMU's
    own `cell.json` (ADR-0026: "orphans are recoverable from labels alone"), so a startup orphan
-   sweep and `hive cells abscond` work the same way regardless of which backend made a Cell.
+   sweep and `hive abscond` work the same way regardless of which backend made a Cell.
 2. **No public IP, no inbound security-group rule.** ADR-0027: a Virtual Cell exposes no inbound
    port under any policy. Egress should be restricted to the Queen's own reachable endpoint
    wherever the provider's own networking primitives allow it, mirroring

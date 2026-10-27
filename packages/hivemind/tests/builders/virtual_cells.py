@@ -452,7 +452,7 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         # a Docker Cell's scratch volume (phase 5 open item 8's scrub).
         self.scratch_roots: dict[CellId, Path] = {}
         # Set on the first provision() call, from whatever event loop actually owns the running
-        # Hive (`_stop_container`'s own docstring: a *different* loop -- `hive cells abscond`
+        # Hive (`_stop_container`'s own docstring: a *different* loop -- `hive abscond`
         # through CliRunner, driven via `asyncio.to_thread` in a scenario that reuses this same
         # backend after `run_hive` already exited -- can never safely await one of this loop's own
         # Tasks directly, only ask it to cancel one).
@@ -549,7 +549,7 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         `hivemind.queen.cell_gate.listener.CellListener.stop`, having already torn the connection
         down first) is production code this dispatch does not own; a bound here is what keeps one
         stuck container from ever hanging a whole test run, whatever the cause. Called from a
-        *different* loop (`__init__`'s own docstring: `hive cells abscond`, through `CliRunner`'s
+        *different* loop (`__init__`'s own docstring: `hive abscond`, through `CliRunner`'s
         own `asyncio.to_thread`), this only asks the owning loop to cancel the task
         (`loop.call_soon_threadsafe`, the one thread-safe way to touch another loop's own Task) and
         returns at once without awaiting it -- awaiting a Task that belongs to a different running
@@ -604,7 +604,7 @@ def without_shutdown_retire(hive: Hive) -> Hive:
 
     `run_hive` retires every Virtual Cell it still tracks on a clean exit
     (`hivemind.queen.cell_gate.shutdown`), so a scenario that needs Cells left behind on the
-    backend -- what `hive cells abscond` exists for -- disables that one step and nothing else.
+    backend -- what `hive abscond` exists for -- disables that one step and nothing else.
     """
     assert hive.virtual_cells is not None
 
@@ -616,7 +616,7 @@ def without_shutdown_retire(hive: Hive) -> Hive:
 
 
 async def abscond_now(hive: Hive, ledger: ForageLedger, orders: OrderStore) -> AbscondSummary:
-    """Run the same pass `hive cells abscond --yes` runs, over `hive`'s own live parts.
+    """Run the same pass `hive abscond` runs, over `hive`'s own live parts.
 
     Driven in the caller's own event loop rather than through CliRunner: that swaps sys.stdout
     process-wide, which collides with pytest's capture when run from a worker thread, and its own

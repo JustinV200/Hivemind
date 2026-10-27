@@ -7,7 +7,7 @@ pause and destroy Virtual Cells on more than one kind of infrastructure: local c
 development, a local hypervisor, and cloud providers. This module defines the single interface all
 of those share so the Queen (the orchestrator) never depends on a specific backend, extending
 codingrules Appendix A.1's own `provision`/`destroy` pair with `list_cells` (what a backend's
-infrastructure actually holds, read by the Undertaker's orphan sweep and `hive cells abscond`),
+infrastructure actually holds, read by the Undertaker's orphan sweep and `hive abscond`),
 `pause`/`resume` (Overwintering, roadmap step 5.9), and a `name` plus `BackendCapabilities` so a
 caller branches on what a backend can do, never on which one it is (codingrules section 8.6's
 "capabilities are declared, not assumed" applied to Cell backends instead of LLM providers).
@@ -112,7 +112,7 @@ class VirtualCellRecord:
     """One Virtual Cell as a backend currently sees it: enough to reconcile without asking twice.
 
     Returned by `CellBackend.list_cells`, read by the Queen's startup orphan sweep (the
-    Undertaker, roadmap step 5.8) and `hive cells abscond` (roadmap step 5.13) -- both of which
+    Undertaker, roadmap step 5.8) and `hive abscond` (roadmap step 5.13) -- both of which
     find Cells "from backend labels alone" (codingrules Appendix C: "Backend labels are the
     source of truth; the table is reconciled against them").
 

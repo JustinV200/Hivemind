@@ -2855,7 +2855,7 @@ borrowed device and revoking every grant.
   `tests/e2e/test_swarming.py`, the exit criterion's first half: twenty independent tasks under
   `max_parallel = 8` reach eight Cells, never nine, all succeed, and the fleet is back to zero
   before the Hive stops.
-- [ ] **13.4 Absconding.** `hive abscond`: Virtual Cells, dormant Cells, every lease on the Hive
+- [x] **13.4 Absconding.** `hive abscond`: Virtual Cells, dormant Cells, every lease on the Hive
   Stand and on devices, every grant, Worker processes, temp dirs, resident Basket blobs on every
   Cell (9.2a); from labels and the trail alone. Leavings (5.0a) are listed in the scope review
   and removed only when the human ticks them: they were left on purpose, often at the human's
@@ -2864,6 +2864,22 @@ borrowed device and revoking every grant.
   autopilot rule, or tool. Execution requires password re-auth, an explicit typed confirmation
   phrase, and a final scope review prompt. Records actor, reason, and confirmation evidence in the
   trail. Persistent stores are not wiped by default.
+  **Built 2026-10-27.** `hive abscond --reason TEXT` (`cli/abscond/`; `hive cells abscond --yes`
+  is gone). The operator password must re-open the Hive Stand console's key before any store is
+  opened. The `absconding` enforcement point then passes as the operator: `abscond` is a flag only
+  `[roles.operator]` holds, and a new human-only floor (`guard.state_floor.human_only`) refuses
+  every other principal at that point whatever a role override grants (policy tests cover each
+  principal kind). `scope.gather_scope` reads, from backend labels, the trail and the small
+  tables only: Virtual Cells (dormant counted), open leases split by the node that recorded them
+  (Hive Stand or device), live grants, Workers spawned and never ended, temp dirs (scratch named
+  for a lease that is not open; none under `keep_scratch` or while a Queen runs) and resident
+  Basket rows on every Cell the labels or the trail name. Leavings are numbered in the review and removed only when ticked
+  (`remove_leaving`, shared with `hive cells leavings remove`). After a final yes to the review
+  and the typed `abscond my hive`, 5.13's `run_abscond` runs (a device's lease is now always a
+  RELEASE order for its own Warden, never left untouched), then the temp dirs, residency rows and
+  ticked Leavings go. `guard.absconded` records the human as actor, the reason, the confirmation
+  evidence (`reauth`, `phrase`, `scope_review`, `leavings_ticked`, never a secret), the scope's
+  counts and each result. `docs/runbooks/absconding.md`.
 - [x] **13.4a Sting Cut (per-Cell emergency disconnect).** `hive cells sting-cut <lease|cell>`:
   immediate lease revocation for one Cell, session key/token invalidation, termination of
   Hive-started processes for that lease, idempotent scratch cleanup, and deletion of lease-local

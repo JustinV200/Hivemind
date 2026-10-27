@@ -62,6 +62,7 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("cell.left", P.SESSION_OUTSIDE_SCRATCH),  # An outside-scratch write that stays.
     ("cell.leaving_removed", P.ENTRANCE_ROUTE),  # The operator's CLI, an Entrance client.
     ("cell.sting_cut", P.STING_CUT),
+    ("guard.absconded", P.ABSCONDING),  # The human's break-glass teardown (roadmap 13.4).
     ("task.submitted", P.ENTRANCE_ROUTE),  # A goal from a client (entrance:submit).
     ("task.assigned", P.PLACEMENT),
     ("task.blocked", P.QUESTION_ROUTING),  # A question routed up to the human.
@@ -301,7 +302,6 @@ PENDING_POINTS: Mapping[P, str] = MappingProxyType(
         P.HONEY_ACCESS: "a phase 7 follow-up (the store checks the set, not the Guard)",
         P.TACTIC_INVOCATION: "phase 6 (the Pheromone Mask tactics)",
         P.SUPERSEDURE: "phase 13 (Supersedure)",
-        P.ABSCONDING: "phase 13 (Absconding)",
         # Phase 9: the Basket's receiver decides clearance, taint and tier by rule from the start;
         # step 9.2a wires that check, and the deposit and shipment events, through this point.
         P.BASKET_TRANSFER: "step 9.2a (the Basket's transfer: the receiver's clearance check)",

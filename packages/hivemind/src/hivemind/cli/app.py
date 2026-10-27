@@ -61,6 +61,7 @@ from hivemind.cli import (
     tools,
     trail,
 )
+from hivemind.cli.abscond import abscond_command
 from hivemind.cli.entrance import app as entrance_app
 from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
@@ -150,6 +151,8 @@ app.add_typer(basket.app, name="basket")
 # promote|demote|run`. Every one but `run` only writes the Hive's database, which a running Hive
 # reads on its next beat; `hive cells list` shows the enrolled devices beside the Hive Stand.
 app.add_typer(swarm_app, name="swarm")
+# Roadmap step 13.4: Absconding, the human's break-glass teardown of the whole Hive.
+app.command("abscond")(abscond_command)
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:

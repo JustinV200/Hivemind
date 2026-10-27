@@ -10,7 +10,7 @@ the same way the Hive Stand's own real `Warden` already stands in for a Real Cel
 `tests.e2e.test_kernel_on_hive_stand`. Only the backend's own infrastructure call (starting an
 actual Docker container or QEMU VM) is faked; everything above and around it -- placement, the
 Queen<->Warden Waggle handshake over a real loopback WebSocket, the Capping-verified task result,
-Overwintering, the CLI's own `hive cells abscond` -- is the real code.
+Overwintering, the Cells-and-leases pass `hive abscond` runs -- is the real code.
 
 `independent_haiku_plan` (`builders.virtual_cells`) is this suite's own "haiku run": three
 independent subtasks, one per file, so `prefer = "virtual"` provisions three separate Virtual
@@ -613,7 +613,7 @@ def _assert_scenario_f_excluded_the_stand(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# (g) `hive cells abscond --yes` leaves zero containers and the left-as-found snapshot holds.
+# (g) Absconding's pass (`hive abscond`) leaves zero containers; left-as-found holds.
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -629,7 +629,7 @@ def test_g_abscond_after_a_haiku_run_leaves_zero_containers_and_is_left_as_found
     before = snapshot_tree(tmp_path, exclude=(data_dir,))
 
     # Opened here, outside the loop: both helpers run their own asyncio.run internally, exactly
-    # as the sync `hive cells abscond` command does before it enters `run_abscond`.
+    # as the sync `hive abscond` command does before it enters `run_abscond`.
     db_path = hive.manifest.resolve_path(hive.manifest.hive.db)
     abscond_stores = (
         build_ledger(hive.manifest, hive.manifest.forage.reserve),
@@ -661,7 +661,7 @@ async def _run_scenario_g(hive: Hive, abscond_stores: tuple[ForageLedger, OrderS
                 cell_id = _cell_id_for_task(events, task.id)
                 await _wait_for_trail_kind(hive, "cell.overwintered", subject_id=cell_id)
 
-        # The same pass `hive cells abscond --yes` runs, in this loop (builders.virtual_cells.
+        # The same pass `hive abscond` runs, in this loop (builders.virtual_cells.
         # abscond_now's own docstring says why not through CliRunner).
         summary = await abscond_now(hive, *abscond_stores)
         assert summary.left_as_found, summary

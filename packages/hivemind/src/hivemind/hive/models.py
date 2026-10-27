@@ -186,7 +186,7 @@ class VirtualCellSpec(BaseModel):
     )
     hive_id: HiveId = Field(
         description="Which Hive this Cell belongs to; every backend stamps it as a label so the "
-        "Undertaker's orphan sweep and `hive cells abscond` (roadmap steps 5.8, 5.13) can find "
+        "Undertaker's orphan sweep and `hive abscond` (roadmap steps 5.8, 5.13) can find "
         "Cells from backend labels alone."
     )
     labels: dict[str, str] = Field(

@@ -19,3 +19,6 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
   afresh from their Handoffs, Virtual Cells' Wardens waited for `requeening_grace_s` and taken back,
   one `queen.requeened` of counts; what to check when a Warden stays missing; the container and Nuc
   legs to run by hand.
+- [`absconding.md`](absconding.md): tearing the whole Hive down with `hive abscond` (roadmap step
+  13.4): the operator password, the scope review, ticking Leavings, the typed phrase; what goes,
+  what is kept, and what `left as found` means.

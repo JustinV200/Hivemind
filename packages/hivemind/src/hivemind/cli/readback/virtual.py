@@ -1,6 +1,6 @@
-"""Provide `hive cells inspect/destroy/release/snapshot/rollback/abscond` (roadmap step 5.13).
+"""Provide `hive cells inspect/destroy/release/snapshot/rollback` (roadmap step 5.13).
 
-Six commands merged directly into `hive cells` (`hivemind.cli.readback.cells`'s own Typer app, via
+Five commands merged directly into `hive cells` (`hivemind.cli.readback.cells`'s own Typer app, via
 one `add_typer(app)` nesting line with no name -- see this module's own `app` below), output
 formatting only, every real decision delegated to `hivemind.hive`, `hivemind.workers.roles.
 undertaker` and this package's own `hivemind.cli.readback.virtual_offline` helpers:
@@ -12,12 +12,12 @@ undertaker` and this package's own `hivemind.cli.readback.virtual_offline` helpe
   clean no-op (`hivemind.hive.backends.base.CellBackend.destroy`'s own idempotent contract, run
   through `Undertaker.destroy_virtual`), printing the `cell.destroyed` trail event id. A Night Veil
   Cell is destroyed behind its boundary and purged once gone (codingrules 12,
-  `virtual_offline.destroy_virtual_cell`, shared with `abscond`), so its grants' revocations never
-  reach the durable trail.
+  `virtual_offline.destroy_virtual_cell`, shared with `hive abscond`), so its grants' revocations
+  never reach the durable trail.
 - `release <lease-id>`: writes a durable `hivemind.queen.cluster.ClusterOrder(kind=RELEASE)` row,
   exactly like `hive cluster`/`hive wake` (docs/adr/0024), for a running Queen's own tick
   (`hivemind.queen.cluster.tick.run_release_tick`) to drain; reports the lease orphaned and points
-  at `abscond` when no Queen looks to be running (`virtual_offline.queen_likely_running`'s own
+  at `hive abscond` when no Queen looks to be running (`virtual_offline.queen_likely_running`'s own
   documented heuristic -- v0 has no live link into a running Queen, `hivemind.cli.readback.
   wardens`'s own module docstring).
 - `snapshot <cell-id>` / `rollback <cell-id> <snapshot-id>`: through a `Snapshotter` from
@@ -26,14 +26,9 @@ undertaker` and this package's own `hivemind.cli.readback.virtual_offline` helpe
   the one cross-process limitation this leaves: a `rollback` invocation cannot see what a separate,
   earlier `snapshot` invocation recorded, since that factory's own snapshotters keep their mapping
   in one process's memory).
-- `abscond [--yes]`: from backend labels and the trail alone (no lifecycle table, roadmap step
-  5.13's own wording): destroys every Virtual Cell this Hive's id labels across every registered
-  backend, releases every still-open Real Cell lease the trail shows (directly, by reconstructing
-  its `RealCellLease` from the trail plus its still-present scratch directory, when no Queen looks
-  to be running; through a durable release order otherwise -- module docstring's own two paths),
-  revokes every live grant the pass touched (read back as one before/after count on the restored
-  `ForageLedger`, since `destroy_virtual`/`release_real` do not hand their own count back), and
-  prints a summary.
+- Absconding moved to `hive abscond` (roadmap step 13.4, `hivemind.cli.abscond`): human-only and
+  break-glass, so it no longer answers to a `--yes` here; it runs 5.13's pass,
+  `hivemind.cli.readback.virtual_abscond.run_abscond`, after a re-auth, a review and a phrase.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by an operator's shell through the `hive`
@@ -49,7 +44,6 @@ Key invariants:
       `inspect`/`destroy` share `virtual_offline.virtual_cell_lookup`).
     - `destroy` on an id no backend recognises still calls `Undertaker.destroy_virtual` (its own
       idempotent contract), never raises for that case alone.
-    - `abscond` never destroys/releases anything without `--yes` or an interactive confirmation.
 
 See Also:
     - .claude/roadmap.md step 5.13 for this module's own deliverable, verbatim.
@@ -75,7 +69,6 @@ from hivemind.cell.leavings import InMemoryLeavingsStore, LeavingsStore
 from hivemind.cli.compose.deps import build_hive_stand_source, build_ledger, open_default_stores
 from hivemind.cli.compose.night_veil import attach_side_channels
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
-from hivemind.cli.readback.virtual_abscond import AbscondDeps, AbscondSummary, run_abscond
 from hivemind.cli.readback.virtual_offline import (
     LeaseOrphan,
     OfflineCellDeps,
@@ -105,8 +98,6 @@ from waggle.ids import CellId
 app = typer.Typer()  # No name: cells.py merges this in with no prefix (module docstring).
 
 __all__ = ["app"]
-
-_YesOption = Annotated[bool, typer.Option("--yes", help="Skip the confirmation prompt.")]
 
 
 @app.command("inspect")
@@ -265,7 +256,7 @@ async def _release(trail: PheromoneTrail, orders: OrderStore, lease_id: str) -> 
     if not await queen_likely_running(trail):
         typer.echo(
             f"No Queen appears to be running for this Hive (heuristic: the trail's own "
-            f"warden.* history); lease {lease_id!r} is orphaned. Run `hive cells abscond` to "
+            f"warden.* history); lease {lease_id!r} is orphaned. Run `hive abscond` to "
             "release it directly.",
             err=True,
         )
@@ -363,49 +354,6 @@ async def _require_virtual(
     return virtual_cells.registry.get(backend_name), record
 
 
-@app.command("abscond")
-def abscond_command(manifest: ManifestOption = DEFAULT_MANIFEST, yes: _YesOption = False) -> None:
-    """Destroy every Virtual Cell and release every lease this Hive's data shows; summarise."""
-    loaded = load_manifest_or_exit(manifest)
-    if not yes:
-        confirmed = typer.confirm(
-            f"Destroy every Virtual Cell and release every open lease tagged with Hive "
-            f"{loaded.hive.id!r}? This cannot be undone."
-        )
-        if not confirmed:
-            raise typer.Exit(code=1)
-    db_path = loaded.resolve_path(loaded.hive.db)
-    trail = open_trail(db_path)
-    ledger = build_ledger(loaded, loaded.forage.reserve)
-    orders = open_cluster_orders(db_path)
-    summary = asyncio.run(_abscond(loaded, trail, ledger, orders, open_leavings(db_path)))
-    _print_abscond_summary(summary)
-
-
-async def _abscond(
-    manifest: HiveManifest,
-    trail: PheromoneTrail,
-    ledger: ForageLedger,
-    orders: OrderStore,
-    leavings: LeavingsStore,
-) -> AbscondSummary:
-    """Build `virtual_cells` (or None) and run the whole abscond pass through it."""
-    clock = SystemClock()
-    virtual_cells = build_virtual_cells(manifest, trail, clock)
-    if virtual_cells is not None:
-        await _attach_side_channels(manifest, virtual_cells, ledger)
-    deps = AbscondDeps(
-        manifest=manifest,
-        trail=trail,
-        ledger=ledger,
-        orders=orders,
-        clock=clock,
-        virtual_cells=virtual_cells,
-        leavings=leavings,
-    )
-    return await run_abscond(deps)
-
-
 async def _attach_side_channels(
     manifest: HiveManifest, virtual_cells: VirtualCellsParts, ledger: ForageLedger
 ) -> None:
@@ -418,13 +366,3 @@ async def _attach_side_channels(
     # Off this loop: each store opens under its own asyncio.run (hivemind.cli.stores).
     stores = await asyncio.to_thread(open_default_stores, manifest)
     attach_side_channels(virtual_cells.night_veil, virtual_cells.registry, stores, ledger)
-
-
-def _print_abscond_summary(summary: AbscondSummary) -> None:
-    """Print the operator-facing receipt of one `hive cells abscond` pass."""
-    typer.echo(f"containers_destroyed:      {summary.containers_destroyed}")
-    typer.echo(f"leases_released:           {summary.leases_released}")
-    typer.echo(f"leases_deferred_to_queen:  {summary.leases_deferred_to_queen}")
-    typer.echo(f"leases_left_untouched:     {summary.leases_left_untouched}")
-    typer.echo(f"grants_revoked:            {summary.grants_revoked}")
-    typer.echo(f"left_as_found:             {summary.left_as_found}")

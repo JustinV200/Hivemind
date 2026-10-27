@@ -73,10 +73,10 @@ lease its own `cell.released`.
   Queen's address: a manifest that names `[virtual_cells] advertise_url` must still be right, and
   a `listen_port` the OS had to change (the remembered one was taken; the log says
   `cell_gate.port_taken`) is a port no surviving Cell knows. Its tasks were already placed afresh;
-  the Cell itself is left for the Undertaker or `hive cells abscond`.
+  the Cell itself is left for the Undertaker or `hive abscond`.
 - **A Cell from before this change never comes back.** A Cell provisioned before its key rode in a
   label (`hivemind.cell_key`) cannot prove itself to a restarted Queen; its tasks are placed
-  afresh after the grace. Retire it with `hive cells abscond`.
+  afresh after the grace. Retire it with `hive abscond`.
 - **`residual_paths` on a requeened `cell.released`.** The dead process had written outside the
   lease's scratch, and the records to undo that died with it. The paths are on the trail as
   `cell.touched_outside_scratch` with the lease's id: restore them by hand if they matter.

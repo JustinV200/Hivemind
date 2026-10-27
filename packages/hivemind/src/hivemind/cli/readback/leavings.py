@@ -64,12 +64,12 @@ from hivemind.cli.stores import (
 )
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import CellEvent
-from waggle.clock import SystemClock
+from waggle.clock import Clock, SystemClock
 from waggle.ids import CellId, new_event_id
 
 app = typer.Typer(name="leavings", help="List and remove Leavings ledger rows.")
 
-__all__ = ["app"]
+__all__ = ["app", "remove_leaving"]
 
 _IncludeRemovedOption = Annotated[
     bool, typer.Option("--include-removed", help="Also list rows already removed.")
@@ -179,14 +179,34 @@ async def _remove_all(
     leavings = await store.list_leavings(cell_id)
     removed: list[Path] = []
     for leaving in leavings:
-        # Blocking filesystem I/O (write or unlink); off the loop like every other Cell-touching
-        # write in this package (hivemind.cell.local.releaser's own to_thread calls).
-        await asyncio.to_thread(_replay_leaving, leaving)
-        await store.mark_removed(
-            cell_id, leaving.path, clock.now(), _removed_event(identity, leaving, clock)
-        )
+        await remove_leaving(store, leaving, identity, clock)
         removed.append(leaving.path)
     return tuple(removed)
+
+
+async def remove_leaving(
+    store: LeavingsStore, leaving: Leaving, identity: CellIdentity, clock: Clock
+) -> None:
+    """Replay `leaving`'s prior bytes (or unlink), then mark it removed with its event.
+
+    The one removal every caller takes: `hive cells leavings remove`, and the Leavings the human
+    ticked in an Absconding's scope review (roadmap step 13.4).
+
+    Args:
+        store: The Leavings ledger.
+        leaving: An active Leaving.
+        identity: Stamped on the `cell.leaving_removed` event.
+        clock: Stamps the removal and its event.
+
+    Raises:
+        OSError: The replay failed; the row stays active, so a retry is safe.
+    """
+    # Blocking filesystem I/O (write or unlink); off the loop like every other Cell-touching
+    # write in this package (hivemind.cell.local.releaser's own to_thread calls).
+    await asyncio.to_thread(_replay_leaving, leaving)
+    await store.mark_removed(
+        leaving.cell_id, leaving.path, clock.now(), _removed_event(identity, leaving, clock)
+    )
 
 
 async def _remove_by_path(
@@ -211,11 +231,7 @@ async def _remove_by_path(
     # ASYNC240: Path.resolve() lives in a plain, non-async helper, never inline here.
     resolved = _resolved(path)
     leaving = await _one_leaving_at_path(store, cell, resolved)
-    clock = SystemClock()
-    await asyncio.to_thread(_replay_leaving, leaving)
-    await store.mark_removed(
-        leaving.cell_id, leaving.path, clock.now(), _removed_event(identity, leaving, clock)
-    )
+    await remove_leaving(store, leaving, identity, SystemClock())
     return leaving
 
 
@@ -238,7 +254,7 @@ async def _one_leaving_at_path(store: LeavingsStore, cell: str | None, path: Pat
     return matches[0]
 
 
-def _removed_event(identity: CellIdentity, leaving: Leaving, clock: SystemClock) -> CellEvent:
+def _removed_event(identity: CellIdentity, leaving: Leaving, clock: Clock) -> CellEvent:
     """Build the `cell.leaving_removed` event `_remove_all`/`_remove_by_path` both record."""
     return CellEvent(
         id=new_event_id(clock),

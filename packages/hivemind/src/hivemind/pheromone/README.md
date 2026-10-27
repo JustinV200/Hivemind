@@ -100,7 +100,7 @@ rolled-back counts) and `cell.destroyed` (the Undertaker's cleanup counts).
 
 Every path a Night Veil Cell ends runs `NightVeilTeardownPurge.purge`: a lifecycle teardown (the
 task finished, a provision failed after the Cell existed, the Hive shut down), an Absconding
-(`hive cells abscond`), and a Queen restart whose reconcile finds the Cell gone. The purge:
+(`hive abscond`), and a Queen restart whose reconcile finds the Cell gone. The purge:
 
 1. Takes the Cell's ephemeral segment whole, first, so no later failure leaves it in memory, with
    its tally and its member ids (an earlier Queen's checkpoint recalled into both, and forgotten).

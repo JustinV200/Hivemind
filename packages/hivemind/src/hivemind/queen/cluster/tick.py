@@ -276,7 +276,7 @@ async def _handle_release_order(
     matching `OrderStore`'s own "consumed exactly once" contract for every other kind. Likewise, a
     Cell whose Warden is not currently attached (a crashed process, or one that has not reconnected
     yet) has its grants revoked but no Intervene to send -- there is nothing this tick can do about
-    that beyond what it already did; `hive cells abscond` is the operator's own fallback.
+    that beyond what it already did; `hive abscond` is the operator's own fallback.
     """
     if order.lease_id is not None:
         cell_id = await _cell_id_for_lease(deps, order.lease_id)

@@ -8,7 +8,7 @@ backend after `hive run` exits can never be resumed by the next Queen -- which f
 2026-09-23, left one paused container behind every run). Until the Queen's key and listener port
 are stable across processes (`.claude/phase-5-virtual-cells-handoff.md`, open item 5), the honest
 shutdown retires every live Cell here, so `docker ps` after `hive run` shows nothing this Hive
-left behind and `hive cells abscond` is a backstop rather than a chore.
+left behind and `hive abscond` is a backstop rather than a chore.
 
 Per Cell, by its status:
 
@@ -21,7 +21,7 @@ Per Cell, by its status:
   inside stops its sub-bees and ships its final segment; then `lifecycle.teardown`.
 
 Best-effort per Cell: one Cell's `hivemind.hive.errors.HiveError` never stops the others being
-retired. The next Queen's reconcile and `hive cells abscond` remain the backstops for whatever
+retired. The next Queen's reconcile and `hive abscond` remain the backstops for whatever
 a backend refused to destroy.
 
 Fits into the Hive:
@@ -87,7 +87,7 @@ def make_retire_all(lifecycle: CellLifecycle, quiesce: Quiesce) -> RetireAll:
                     await quiesce(live.cell_id)
                 await lifecycle.teardown(live.cell_id)
             except HiveError:
-                continue  # Best-effort: reconcile and `hive cells abscond` are the backstops.
+                continue  # Best-effort: reconcile and `hive abscond` are the backstops.
             retired.append(live.cell_id)
         return tuple(retired)
 
