@@ -51,7 +51,7 @@ function viewFor(route: Route): ReactElement {
     case 'chat':
       return <ChatScreen />;
     case 'honey':
-      return <HoneyScreen path={route.path} />;
+      return <HoneyScreen path={route.path} item={route.item} />;
     case 'cost':
       return <CostScreen />;
     case 'capping':

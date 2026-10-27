@@ -4,7 +4,8 @@
  * The schema's kind is an open enum (`honey|note|wax|bee_bread`, and it may grow), so a kind this
  * file does not know is shown as the schema gave it rather than hidden. Clearance names are the
  * README's: Wildflower (C0), Apiary (C1), Royal (C2). Paths are held with a leading slash; the
- * route table wants them without one.
+ * route table wants them without one. An item's address is its folder's with `?item=<id>`, so an
+ * open reading pane is a link that can be shared and comes back on reload.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/honey/`. Used by the badge, the rows, the breadcrumbs
@@ -13,7 +14,8 @@
  * Key invariants:
  *   - Pure: no state, no I/O.
  *   - `normalisePath` always returns a path that starts with `/` and has no trailing `/` (but `/`).
- *   - `folderHref` round-trips through the router: `#/honey` for the root, `#/honey/<path>` else.
+ *   - `folderHref` round-trips through the router: `#/honey` for the root, `#/honey/<path>` else;
+ *     `itemHref` adds the item to the same address.
  *
  * See Also:
  *   - README.md for the clearance vocabulary; src/router/routes.ts for the hash grammar.
@@ -48,7 +50,11 @@ export function normalisePath(route: string): string {
 }
 
 export function folderHref(path: string): string {
-  return hrefFor({ name: 'honey', path: path.replace(/^\/+/, '') });
+  return hrefFor({ name: 'honey', path: path.replace(/^\/+/, ''), item: null });
+}
+
+export function itemHref(path: string, item: string): string {
+  return hrefFor({ name: 'honey', path: path.replace(/^\/+/, ''), item });
 }
 
 export interface Crumb {

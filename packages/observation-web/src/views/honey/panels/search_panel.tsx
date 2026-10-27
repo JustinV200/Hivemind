@@ -3,8 +3,9 @@
  *
  * The box is drawn only for a folder the Entrance says can be searched. A search is explicit (a
  * button or Enter), never as-you-type, because it can cost an embedding call. Each hit shows its
- * clearance, title (the button that opens it), score, the passage that matched and provenance; the
- * page's own note (for example that the hits ran out) is shown as the Entrance wrote it.
+ * clearance, title (the link that opens it in the reading pane, at the folder's address with
+ * `?item=<id>`), score, the passage that matched and provenance; the page's own note (for example
+ * that the hits ran out) is shown as the Entrance wrote it.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/honey/panels/`. Drawn by the Honey screen; the reads are
@@ -23,21 +24,22 @@ import type { FormEvent, ReactElement } from 'react';
 import { ErrorNotice } from '../../../components';
 import { ClearanceBadge } from '../parts/clearance_badge';
 import { Provenance } from '../parts/provenance';
+import { itemHref } from '../parts/words';
 import type { SearchHit, SearchState } from '../slice';
 import type { Search } from '../hooks/use_search';
 
 // The route refuses a query longer than this many characters.
 const MAX_QUERY_CHARS = 2000;
 
-function Hit(props: { hit: SearchHit; onOpen: (id: string) => void }): ReactElement {
-  const { hit, onOpen } = props;
+function Hit(props: { hit: SearchHit; path: string }): ReactElement {
+  const { hit, path } = props;
   return (
     <li className="honey-item">
       <div className="honey-item-head">
         <ClearanceBadge label={hit.clearance} />
-        <button type="button" className="honey-open" onClick={() => onOpen(hit.id)}>
+        <a className="honey-open" href={itemHref(path, hit.id)}>
           {hit.title}
-        </button>
+        </a>
         <span className="honey-muted">{`Score ${hit.score.toFixed(2)}`}</span>
       </div>
       <p className="honey-snippet">{hit.snippet}</p>
@@ -46,12 +48,8 @@ function Hit(props: { hit: SearchHit; onOpen: (id: string) => void }): ReactElem
   );
 }
 
-function Results(props: {
-  search: SearchState;
-  controls: Search;
-  onOpen: (id: string) => void;
-}): ReactElement {
-  const { search, controls, onOpen } = props;
+function Results(props: { search: SearchState; controls: Search; path: string }): ReactElement {
+  const { search, controls, path } = props;
   return (
     <section aria-label="Search results">
       {search.error ? <ErrorNotice error={search.error} /> : null}
@@ -59,7 +57,7 @@ function Results(props: {
       {search.done && !search.error && search.hits.length === 0 ? <p>No matches.</p> : null}
       <ul className="honey-items">
         {search.hits.map((hit) => (
-          <Hit key={hit.id} hit={hit} onOpen={onOpen} />
+          <Hit key={hit.id} hit={hit} path={path} />
         ))}
       </ul>
       {search.note ? <p className="honey-note">{search.note}</p> : null}
@@ -83,9 +81,10 @@ function Results(props: {
 export function SearchPanel(props: {
   search: SearchState | null;
   controls: Search;
-  onOpen: (id: string) => void;
+  // The open folder's path, which every hit's address starts from.
+  path: string;
 }): ReactElement {
-  const { search, controls, onOpen } = props;
+  const { search, controls, path } = props;
   const [text, setText] = useState('');
   const submit = (event: FormEvent): void => {
     event.preventDefault();
@@ -111,7 +110,7 @@ export function SearchPanel(props: {
           </button>
         ) : null}
       </form>
-      {search ? <Results search={search} controls={controls} onOpen={onOpen} /> : null}
+      {search ? <Results search={search} controls={controls} path={path} /> : null}
     </section>
   );
 }

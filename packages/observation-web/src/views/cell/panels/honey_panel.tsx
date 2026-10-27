@@ -26,7 +26,9 @@ export function HoneyPanel(props: { page: CellPage }): ReactElement {
   return (
     <Panel id="honey" title="Honey">
       <p>
-        <a href={hrefFor({ name: 'honey', path })}>Browse the Honey this Cell can see</a>
+        <a href={hrefFor({ name: 'honey', path, item: null })}>
+          Browse the Honey this Cell can see
+        </a>
       </p>
     </Panel>
   );

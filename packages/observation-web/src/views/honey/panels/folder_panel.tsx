@@ -54,9 +54,8 @@ export function FolderPanel(props: {
   loadingMore: boolean;
   openId: string | null;
   onMore: () => void;
-  onOpen: (id: string) => void;
 }): ReactElement {
-  const { folder, truncated, loadingMore, openId, onMore, onOpen } = props;
+  const { folder, truncated, loadingMore, openId, onMore } = props;
   const empty = folder.folders.length === 0 && folder.items.length === 0;
   return (
     <>
@@ -72,7 +71,7 @@ export function FolderPanel(props: {
           </h2>
           <ul className="honey-items">
             {folder.items.map((item) => (
-              <ItemRow key={item.id} item={item} open={item.id === openId} onOpen={onOpen} />
+              <ItemRow key={item.id} item={item} open={item.id === openId} path={folder.path} />
             ))}
           </ul>
         </section>

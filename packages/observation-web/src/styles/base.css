@@ -108,6 +108,14 @@ select {
     color var(--motion);
 }
 
+/* A link drawn as a button (the Honey pane's Close, back to the folder's address) keeps the
+   button's box and loses the underline */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--text);

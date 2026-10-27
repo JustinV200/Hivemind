@@ -153,15 +153,12 @@
 }
 
 .honey-open {
+  display: inline-flex;
+  align-items: center;
   min-height: 44px;
-  padding: 0;
-  background: none;
-  border: 0;
   color: var(--accent);
   font-weight: 700;
   text-align: left;
-  text-decoration: underline;
-  cursor: pointer;
   overflow-wrap: anywhere;
 }
 

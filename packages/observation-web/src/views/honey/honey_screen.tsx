@@ -4,8 +4,9 @@
  * The screen reads one folder at a time (the root, `/hive`, `/cells/<id>` with its live Cell Wax
  * under `/wax`, `/bees/<id>`, `/tasks/<id>`, `/bee-bread`) exactly as the Entrance cut it for this
  * device: a folder the device may not see is absent from its parent, and opening it by address
- * shows the refusal sentence. Each item shows its clearance and provenance; clicking one opens it
- * in the reading pane; a searchable folder has a search box. The Honey Store has no stream, so the
+ * shows the refusal sentence. Each item shows its clearance and provenance; its title links to
+ * the folder's address with `?item=<id>`, which opens it in the reading pane, so an open item can
+ * be shared, comes back on reload and closes with Back; a searchable folder has a search box. The Honey Store has no stream, so the
  * folder is read on navigation and again, once per burst, when the trail shows a Honey event for it.
  *
  * Fits into the Hive:
@@ -35,10 +36,12 @@ import { SearchPanel } from './panels/search_panel';
 import { Breadcrumbs } from './parts/breadcrumbs';
 import { folderHref, normalisePath } from './parts/words';
 
-export function HoneyScreen(props: { path: string }): ReactElement {
+export function HoneyScreen(props: { path: string; item: string | null }): ReactElement {
   const path = normalisePath(props.path);
+  const { item } = props;
   const { state, loadingMore, loadMore } = useHoneyFolder(path);
-  const reading = useReading();
+  // The address says which item the reading pane holds.
+  useReading(path, item);
   // A render between a route change and the slice opening the new folder must not show the old one.
   const mine = state.path === path;
   const search = useSearch(path, mine ? state.search : null);
@@ -62,11 +65,7 @@ export function HoneyScreen(props: { path: string }): ReactElement {
         <div className={openId !== null ? 'honey honey--reading' : 'honey'}>
           <div className="honey-list">
             {folder.can_search ? (
-              <SearchPanel
-                search={mine ? state.search : null}
-                controls={search}
-                onOpen={reading.open}
-              />
+              <SearchPanel search={mine ? state.search : null} controls={search} path={path} />
             ) : null}
             <FolderPanel
               folder={folder}
@@ -74,11 +73,10 @@ export function HoneyScreen(props: { path: string }): ReactElement {
               loadingMore={loadingMore}
               openId={openId}
               onMore={loadMore}
-              onOpen={reading.open}
             />
           </div>
           {mine && state.reading ? (
-            <ReadingPane reading={state.reading} onClose={reading.close} />
+            <ReadingPane reading={state.reading} closeHref={folderHref(path)} />
           ) : null}
         </div>
       ) : null}
