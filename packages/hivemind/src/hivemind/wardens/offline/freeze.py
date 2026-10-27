@@ -158,7 +158,7 @@ async def pause_sub_bees(warden: Warden, outage: Outage, *, spare_local: bool) -
         outage.hold(sub_bee.assignment, sub_bee.last_handoff, now)
         # A Queen-style pause (`ticks.control.forward_control`): nothing but this package starts
         # the task again, so the Warden's own successor logic must not.
-        sub_bee.handoff_ordered = False
+        sub_bee.successor = None
         await _order_handoff(warden, sub_bee)
         paused.append(sub_bee)
     return paused

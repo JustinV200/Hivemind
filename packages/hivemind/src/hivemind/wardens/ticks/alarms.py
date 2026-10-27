@@ -18,8 +18,9 @@ rebind that lands records `llm.rebound`, the declared-but-never-recorded kind. A
 predecessor's slot straight to the fresh bee (`retire_sub_bee(keep_slot=True)`): giving it back to
 the pool first let a parked assignment start beside the respawned bee, one over the cap.
 `resume_from_handoff` is the same hand-over for a bee that stopped at a Handoff its own Warden
-ordered for its context size: the fresh bee resumes the same attempt from that Handoff, where
-before nothing started it and the task stayed RUNNING with no bee. Every one of these respawns
+ordered (its context size, or its own Handoff, Rebind or Takeover lever): the fresh bee resumes
+from that Handoff on the binding and attempt the order names (`SubBee.successor`), where before
+nothing started it and the task stayed RUNNING with no bee. Every one of these respawns
 resumes from a Handoff, so each passes the isolation resume gate first (`hivemind.wardens.
 isolation.admit_resume`, ADR-0043), exactly as a Queen-sent `TaskAssign` does: before, a Warden's
 own RETRY or REBIND was covered only because an isolation revokes the grant and a Worker refuses a
@@ -94,6 +95,7 @@ from hivemind.wardens.spawn import (
     spawn_sub_bee,
     stop_sub_bee,
 )
+from hivemind.wardens.spawn.sub_bee import SuccessorOrder
 from hivemind.wardens.ticks.tools import comb_seams
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
@@ -295,27 +297,34 @@ def cell_context(warden: Warden) -> WardenCellContext | None:
 async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
     """Retire a bee stopped at its own Warden's Handoff, and start the fresh bee resuming it.
 
-    The Handoff lever's own meaning (`hivemind.supervision.intervention.Handoff`: "a fresh bee
-    resumes the task from it"): the same attempt carries on, on the same binding and in the slot
-    the stopped bee kept, from the Handoff its last checkpoint reported. A grant or lease the
-    Queen has taken back (an isolation revokes the grant before it pauses anything) leaves the
-    task to her, so the bee is retired and nothing starts; a binding the Guard now refuses reports
-    the task FAILED.
+    Each lever's own meaning (`hivemind.supervision.intervention`): a Handoff's fresh bee carries
+    the same attempt on the same binding; a Rebind's binds the lever's slot and a Takeover's the
+    Warden's own, each as attempt+1 -- all in the slot the stopped bee kept, from the Handoff its
+    last checkpoint reported (`SubBee.successor` names which). A grant or lease the Queen has
+    taken back (an isolation revokes the grant before it pauses anything) leaves the task to her,
+    so the bee is retired and nothing starts; a binding the Guard refuses reports the task FAILED.
 
     Args:
         warden: The owning Warden (read and written directly; see the module docstring).
         sub_bee: The stopped bee (`SubBee.awaits_successor`).
     """
+    order = sub_bee.successor or SuccessorOrder()
     grant = warden._grants.get(sub_bee.assignment.grant_id)
     ctx = cell_context(warden)
     if grant is None or ctx is None:
         # The Queen took the grant or the lease back: what happens to the task next is hers.
         await retire_sub_bee(warden, sub_bee)
         return
-    # The same attempt, not a retry: a context handoff is the work carrying on, not failing.
-    successor = sub_bee.assignment.model_copy(update={"resume_from": sub_bee.last_handoff})
+    # A Handoff is the work carrying on (the same attempt); a Rebind or Takeover recovers it.
+    attempt = sub_bee.attempt + 1 if order.new_attempt else sub_bee.attempt
+    successor = sub_bee.assignment.model_copy(
+        update={"attempt": attempt, "resume_from": sub_bee.last_handoff}
+    )
     await retire_sub_bee(warden, sub_bee, keep_slot=True)
-    await _spawn_into_slot(warden, ctx, successor, sub_bee.binding, None)
+    fresh = await _spawn_into_slot(warden, ctx, successor, order.binding or sub_bee.binding, None)
+    if fresh is not None and fresh.binding != sub_bee.binding:
+        # A rebind that landed, the one fact `llm.rebound` exists to record.
+        await _record_rebound(warden, sub_bee, fresh, warden_principal(warden._warden_id))
 
 
 async def _retire_and_spawn(

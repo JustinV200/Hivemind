@@ -107,6 +107,7 @@ from hivemind.supervision.attendant import InboxItem, InboxKind
 from hivemind.wardens.deps import device_outage
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
+from hivemind.wardens.spawn.sub_bee import SuccessorOrder
 from hivemind.wardens.ticks.alarms import resume_from_handoff, retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from hivemind.workers.state import WorkerState
@@ -253,14 +254,16 @@ async def check_sub_bee_context(warden: Warden) -> None:
 def _takes_context_orders(warden: Warden, sub_bee: SubBee) -> bool:
     """Whether `sub_bee` runs work this Warden may order compacted or handed off, and follow up.
 
-    Not a bee already stopping or cancelled, nor one on a task the Queen has paused: its mirrored
-    state still reads RUNNING until its next Heartbeat, and an order then would mark it for a
-    successor this Warden must not start (`SubBee.awaits_successor`), the task being hers.
+    Not a bee already stopping or cancelled, nor one already told to stop at a Handoff (its
+    successor is promised), nor one on a task the Queen has paused: its mirrored state still reads
+    RUNNING until its next Heartbeat, and an order then would mark it for a successor this Warden
+    must not start (`SubBee.awaits_successor`), the task being hers.
     """
     outage = device_outage(warden._deps)
     return (
         sub_bee.state is WorkerState.RUNNING
         and not sub_bee.cancelled
+        and sub_bee.successor is None
         and sub_bee.task_id not in warden._clustered_tasks
         # An outage paused it (roadmap 11.9): it stops at its own Handoff, and a second order
         # from here would mark it for a successor started while the Warden is cut off.
@@ -287,7 +290,7 @@ async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: Interve
     )
     if action is InterventionAction.HANDOFF:
         # The bee stops once its Handoff is written; this Warden starts the bee that resumes it.
-        sub_bee.handoff_ordered = True
+        sub_bee.successor = SuccessorOrder()
     hop = Hop(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
     )

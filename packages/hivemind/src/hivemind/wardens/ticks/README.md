@@ -47,10 +47,12 @@ every decided action to one of these; none of them is a general-purpose module o
 - `control`: forward `TaskCancel`/`TaskPause`/`TaskResume`/`Intervene` from the Queen unchanged;
   a cancel marks the bee's row so any terminal state it reports next ends it, a cancel for a bee
   that has already ended retires it at once, and `RELEASE_LEASE` retires every sub-bee. A Queen
-  pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any Handoff the
-  Warden had ordered itself; the Warden's own Handoff lever marks the bee for a successor.
-  A Queen cancel, pause or resume of a task also drops any hold a device Warden's outage had on it
-  (her word wins, roadmap 11.9). `handle_source_evict` (roadmap step 8.3) gives back seats the Queen exported: it withdraws the
+  pause (`TaskPause`, `Intervene(HANDOFF)`) is hers to resume, so it withdraws any successor the
+  Warden had promised itself; the Warden's own Handoff, Rebind and Takeover levers each promise one
+  (the same binding and attempt, the lever's slot, the Warden's own slot; the last two as a new
+  attempt). A Queen cancel, pause or resume of a task also drops any hold a device Warden's outage
+  had on it (her word wins, roadmap 11.9). `handle_source_evict` (roadmap step 8.3) gives back
+  seats the Queen exported: it withdraws the
   named model source only when this Warden hosts it and its ceilings let it export seats, and
   ignores the order (logged) otherwise; `RELEASE_LEASE` also stops any model server the Warden
   started, since it would die with the lease.

@@ -21,7 +21,7 @@ from builders.wardens import make_warden_deps
 from builders.workers import ScriptedWorker, make_assignment, make_context, make_outcome, yield_then
 
 from hivemind.memory.thresholds import MAX_COMPACT_VIEW_CHARS
-from hivemind.wardens.spawn.sub_bee import SubBee
+from hivemind.wardens.spawn.sub_bee import SubBee, SuccessorOrder
 from hivemind.wardens.ticks.heartbeat import check_sub_bee_context, compact_view, record_heartbeat
 from hivemind.wardens.warden import Warden
 from hivemind.workers.runtime import RuntimeDeps, WorkerRuntime
@@ -136,10 +136,12 @@ async def test_check_sub_bee_context_marks_its_own_handoff_order_for_a_successor
 
     await check_sub_bee_context(warden)
 
-    assert sub_bee.handoff_ordered
+    assert sub_bee.successor == SuccessorOrder()  # The same binding, the same attempt.
 
 
-@pytest.mark.parametrize("why", ["paused_by_the_queen", "already_stopping", "cancelled"])
+@pytest.mark.parametrize(
+    "why", ["paused_by_the_queen", "already_stopping", "cancelled", "already_ordered"]
+)
 async def test_check_sub_bee_context_orders_no_bee_it_may_not_follow_up(why: str) -> None:
     # A bee the Queen paused still mirrors RUNNING until its next Heartbeat: an order then would
     # mark it for a successor the Warden must not start, the paused task being hers to resume.
@@ -151,12 +153,16 @@ async def test_check_sub_bee_context_orders_no_bee_it_may_not_follow_up(why: str
         warden._clustered_tasks.add(sub_bee.task_id)
     elif why == "already_stopping":
         sub_bee.state = WorkerState.HANDING_OFF
+    elif why == "already_ordered":
+        # A lever already promised a successor (a Rebind's, say): the check must not replace it.
+        sub_bee.successor = SuccessorOrder(binding="worker_fallback", new_attempt=True)
     else:
         sub_bee.cancelled = True
+    before = sub_bee.successor
 
     await check_sub_bee_context(warden)
 
-    assert not sub_bee.handoff_ordered
+    assert sub_bee.successor == before
     task = asyncio.ensure_future(anext(sub_bee_end.receive()))
     await asyncio.sleep(0)
     assert not task.done()  # Nothing was sent to it either.

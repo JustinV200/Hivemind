@@ -25,9 +25,12 @@ already ended (a FAILED bee an escalation left waiting on the Queen) is retired 
 sub-bee is when the Queen takes the lease back: through `hivemind.wardens.ticks.alarms.
 retire_sub_bee`, the one path that frees a bee's slot for the next assignment. A Queen-sent pause
 (`TaskPause`, or the `Intervene(HANDOFF)` Clustering and isolation pull with it) makes the bee's
-next stop hers to resume, so it withdraws any Handoff this Warden had ordered itself
-(`SubBee.handoff_ordered`); the Warden's own Handoff lever (`send_intervention`) sets that mark,
-the same one its context check sets, so a fresh bee resumes the task once the bee stops.
+next stop hers to resume, so it withdraws any successor this Warden had promised itself
+(`SubBee.successor`). The Warden's own levers (`send_intervention`) each promise one, as its
+context check does: a Handoff's fresh bee carries the same attempt on the same binding; a Rebind's
+binds the lever's slot, and a Takeover's the Warden's own slot (ADR-0021: a Warden takes over
+through a fresh sub-bee), both as a new attempt; the Guard's `slot_binding` point decides either
+binding when the fresh bee spawns, and a refused one reports the task FAILED with the reason.
 `handle_release_lease` is also the Overwintering scrub (phase 5 open item 8): before the pool
 pauses a Virtual Cell for reuse, the Queen orders the Cell's own Warden to release its lease
 (`hivemind.queen.cell_gate.scrub`) and pauses the Cell only once this Warden's `LeaseReleased`,
@@ -75,13 +78,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivemind.common.logging import get_logger
-from hivemind.forage import Ceilings, HostingPlan, SlotPlan, SourceChain
-from hivemind.supervision import Cancel, Handoff, Intervention, to_wire
+from hivemind.forage import Ceilings, HostingPlan, ModelSlot, SlotPlan, SourceChain
+from hivemind.supervision import Cancel, Handoff, Intervention, Rebind, Takeover, to_wire
 from hivemind.supervision.attendant import InboxItem
 from hivemind.wardens.deps import device_outage
 from hivemind.wardens.errors import UnknownSubBeeError
 from hivemind.wardens.links import send_guarded
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
+from hivemind.wardens.spawn.sub_bee import SuccessorOrder
 from hivemind.wardens.state import clustering_update
 from hivemind.wardens.ticks.alarms import rebind_sub_bee, retire_sub_bee
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
@@ -158,7 +162,7 @@ async def forward_control(
         return
     if item.principal == _QUEEN_LINK and _is_pause(payload):
         # The Queen resumes what she paused, with a fresh TaskAssign: this Warden starts nothing.
-        sub_bee.handoff_ordered = False
+        sub_bee.successor = None
     if isinstance(payload, Intervene) and payload.action is InterventionAction.REBIND:
         await _handle_queen_rebind(warden, sub_bee, payload)
         return
@@ -257,8 +261,8 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
         raise UnknownSubBeeError(child)
     if isinstance(intervention, Cancel):
         sub_bee.cancelled = True  # It ends for good: any terminal state it reports ends its row.
-    elif isinstance(intervention, Handoff):
-        sub_bee.handoff_ordered = True  # It stops at its Handoff; a fresh bee resumes from it.
+    elif (order := _successor_for(intervention)) is not None:
+        sub_bee.successor = order  # It stops at its Handoff; the promised fresh bee resumes it.
     action, slot = to_wire(intervention)
     message = Intervene(
         action=action,
@@ -274,6 +278,18 @@ async def send_intervention(warden: Warden, child: str, intervention: Interventi
     # Same rule as forward_control's own relay: a sub-bee whose link is already gone has nothing
     # left to receive this order.
     await send_guarded(sub_bee.link, wrap(message, hop, clock=warden._deps.clock))
+
+
+def _successor_for(lever: Intervention) -> SuccessorOrder | None:
+    """The fresh bee `lever` promises once the bee stops at its Handoff, or None for no stop."""
+    if isinstance(lever, Handoff):
+        return SuccessorOrder()
+    if isinstance(lever, Rebind):
+        return SuccessorOrder(binding=lever.slot.manifest_key, new_attempt=True)
+    if isinstance(lever, Takeover):
+        # The supervisor's own slot (the lever's meaning); for a Warden that is WARDEN.
+        return SuccessorOrder(binding=ModelSlot.WARDEN.manifest_key, new_attempt=True)
+    return None  # Compact and Checkpoint carry on in place; Cancel and Quarantine end it.
 
 
 def handle_plan_written(warden: Warden, payload: PlanWritten) -> None:

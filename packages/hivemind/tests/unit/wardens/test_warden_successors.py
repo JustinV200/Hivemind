@@ -38,9 +38,11 @@ from builders.quarantine import make_grant_issued, settle
 from builders.wardens import QueenEnd, make_warden_deps
 from builders.workers import RunScript, ScriptedWorker, make_assignment, make_outcome
 
+from hivemind.forage import ModelSlot
 from hivemind.memory import Handoff
 from hivemind.pheromone import TrailQuery
 from hivemind.supervision import Handoff as HandoffLever
+from hivemind.supervision import Rebind, Takeover
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
@@ -50,12 +52,13 @@ from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.ids import TaskId, new_grant_id
 from waggle.messages.supervision import Intervene, InterventionAction
-from waggle.messages.task import TaskAssign, TaskCancel, TaskPause
+from waggle.messages.task import TaskAssign, TaskCancel, TaskOutcome, TaskPause
 
 _WORKER_BEAT_S = 1.0  # Each sub-bee's own cadence.
 _WARDEN_BEAT_S = 10.0  # The Warden's own: its context check rides this one.
 _HUNG_S = 1_000_000.0  # A role that never finishes on its own within any test here.
 _WINDOW = 1_000  # The context window every scripted bee reports against.
+_FALLBACK = "worker_fallback"  # The test deps' second [llm.slots] row, serving the WORKER slot.
 _FULL = 950  # Tokens used: past the 0.66 handoff threshold the test deps carry.
 
 
@@ -185,6 +188,60 @@ async def _paused_by_the_queen(scene: _Scene, first: TaskAssign) -> SubBee:
     return bee
 
 
+async def test_a_rebind_its_warden_orders_resumes_on_the_levers_slot_as_a_new_attempt() -> None:
+    # The Queen's fallback moved the bee to `worker_fallback`; the Warden's own Rebind(WORKER)
+    # lever moves the task back to the slot's own binding: the bee writes its Handoff and stops,
+    # and a fresh bee resumes from it on `worker`, one attempt on, the move on the trail.
+    resumed: list[Handoff] = []
+    first = make_assignment()
+    scene = await _start(_handoff_then_resume(resumed), first)
+    await _running_bee(scene, first.task_id)
+    await scene.queen.send(_queen_rebind(first.task_id, "worker_fallback"))
+    await settle(lambda: [r.binding for r in _rows(scene.warden, first.task_id)] == [_FALLBACK])
+    bee = await _running_bee(scene, first.task_id)
+    lever = Rebind(reason="Back to the slot's own binding.", slot=ModelSlot.WORKER)
+
+    await scene.warden.intervene(str(bee.worker_id), lever)
+    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
+    checkpoint = bee.last_handoff
+    scene.clock.advance(_WORKER_BEAT_S)
+    await settle(lambda: bool(resumed))
+
+    [successor] = _rows(scene.warden, first.task_id)
+    assert (successor.binding, successor.attempt) == ("worker", bee.attempt + 1)
+    assert successor.assignment.resume_from == checkpoint
+    rebound = await scene.warden._deps.trail.query(TrailQuery(kind="llm.rebound"))
+    last = rebound[-1].payload
+    assert (last["from_binding"], last["to_binding"], last["ordered_by"]) == (
+        _FALLBACK,
+        "worker",
+        "warden",
+    )
+    await _stop(scene)
+
+
+async def test_a_takeover_the_guard_refuses_is_reported_failed_never_orphaned() -> None:
+    # A Takeover's fresh bee binds the supervisor's own slot, the Warden's, which a Drone's set
+    # never holds (ADR-0031): the Guard refuses it at spawn, so the task goes back to the Queen
+    # FAILED, with the reason and the Handoff, rather than sitting RUNNING with no bee.
+    resumed: list[Handoff] = []
+    first = make_assignment()
+    scene = await _start(_handoff_then_resume(resumed), first)
+    bee = await _running_bee(scene, first.task_id)
+
+    await scene.warden.intervene(str(bee.worker_id), Takeover(reason="Stuck; taking it over."))
+    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
+    scene.clock.advance(_WORKER_BEAT_S)
+    result = await asyncio.wait_for(scene.queen.wait_for_result(), timeout=5.0)
+
+    assert (result.outcome, result.attempt) == (TaskOutcome.FAILED, first.attempt + 1)
+    assert result.handoff == bee.last_handoff
+    assert (_rows(scene.warden, first.task_id), resumed) == ([], [])
+    assert scene.warden._sub_bee_slots.in_use == 0
+    assert await scene.warden._deps.trail.query(TrailQuery(kind="guard.denied"))
+    await _stop(scene)
+
+
 async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
     # Clustering and isolation pause a task with Intervene(HANDOFF) then TaskPause and resume it
     # themselves with a fresh TaskAssign: the Warden starts no bee of its own meanwhile, and stays
@@ -232,6 +289,19 @@ async def test_a_clustered_task_the_queen_then_ends_leaves_the_warden_watching(o
     kinds = [e.kind for e in await scene.warden._deps.trail.query(TrailQuery(family="warden"))]
     assert kinds[-3:] == ["warden.clustered", "warden.active", "warden.watch"], kinds
     await _stop(scene)
+
+
+def _queen_rebind(task_id: TaskId, binding: str) -> Intervene:
+    """The Queen's Intervene(REBIND) naming `binding`, as her fallback chain resolves it."""
+    return Intervene(
+        action=InterventionAction.REBIND,
+        subject=None,
+        task_id=task_id,
+        slot="WORKER",
+        binding=binding,
+        alarm_id=None,
+        reason="The bound provider is unavailable.",
+    )
 
 
 def _queen_handoff(task_id: TaskId) -> Intervene:

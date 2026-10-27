@@ -17,9 +17,11 @@ Warden never provisions Cells itself.
   Queen's next attempt of the same task superseding it, and a Heartbeat saying the bee has ended
   with nothing more to send (`SubBee.has_ended`: KILLED by a cancel or kill, DONE after a
   stop-handoff, or FAILED once a cancel has reached it). A bee that stopped at a Handoff its own
-  Warden ordered (its context past the handoff threshold, or the Warden's Handoff lever) is the one
-  ending that is not the task's: a fresh bee resumes the same attempt from that Handoff in its slot
-  (`SubBee.awaits_successor`, `wardens.ticks.alarms.resume_from_handoff`). One tick drains the queen link
+  Warden ordered (its context past the handoff threshold, or the Warden's Handoff, Rebind or
+  Takeover lever) is the one ending that is not the task's: a fresh bee resumes from that Handoff in
+  its slot, on the binding and attempt the order names (`SubBee.successor`,
+  `wardens.ticks.alarms.resume_from_handoff`); the Guard decides a Rebind's or Takeover's binding,
+  and a refusal reports the task FAILED. One tick drains the queen link
   and every sub-bee link into `InboxItem`s, orders them with this Warden's own `Attendant`, dispatches each
   through `wardens.autopilot.decide` (falling back to `wardens.awake.decide_awake` for
   `NEEDS_JUDGEMENT`), and sends a `Heartbeat` once the interval elapses -- a send that finds the

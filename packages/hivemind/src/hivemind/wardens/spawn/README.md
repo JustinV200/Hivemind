@@ -8,7 +8,8 @@ it needs.
 - `SubBee` (`sub_bee.py`): the Warden's own bookkeeping row for one spawned Worker -- its
   mirrored `WorkerState`, its current binding, its last Handoff and its owned runtime task/link;
   `has_ended` says the row can go, and `awaits_successor` that it stopped at a Handoff its own
-  Warden ordered, so a fresh bee resumes the task from it.
+  Warden ordered, so a fresh bee resumes the task from it; `SuccessorOrder` is what that bee binds
+  and whether it is a new attempt.
 - `WardenCellContext`, `spawn_sub_bee` (`spawn.py`): attenuate capabilities, carve a grant slice,
   resolve the assignment's slot to a live model, build the sub-bee's own `CappingGate` and
   `WorkerContext`, start its `WorkerRuntime`, and send it its first `TaskAssign`.

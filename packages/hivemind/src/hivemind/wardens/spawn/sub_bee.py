@@ -16,14 +16,16 @@ heard, reset the moment a fresh `Heartbeat` arrives; crossing
 reports KILLED, or DONE without a claim, has nothing more to send (no TaskResult, no Alarm), and
 neither has a FAILED one once a cancel has reached it (`cancelled`); its Warden retires it the
 moment it hears so, freeing its slot for the next assignment. `awaits_successor` is the one ending
-that is not the task's end: a bee its own Warden ordered to hand off (`handoff_ordered`, for its
-context size) writes its Handoff and stops DONE, and the Handoff lever means "a fresh bee resumes
-the task from it", so its Warden starts that bee in the same slot rather than leaving the task
-RUNNING with no bee at all. `LocalRun` marks the one kind of row whose task the Warden asked for
-itself, with no Queen in it (a cut-off Warden's diagnostic Drone, ADR-0056): the bee's ending is
-kept on the row for the Warden to read, and is never accepted, retried or sent up as a task of
-hers. `reap_runtime` is how the Warden awaits a row's runtime task on its way out: the one thing
-a runtime that died by itself leaves there, a `WorkerRuntimeError`, is read, logged and let go.
+that is not the task's end: a bee its own Warden ordered to stop at a Handoff (its context size,
+or the Warden's own Handoff, Rebind or Takeover lever) writes its Handoff and stops DONE, and each
+of those levers promises a fresh bee resuming the task from it, so its Warden starts that bee in
+the same slot (`successor`, a `SuccessorOrder` naming the binding and whether it is a new attempt)
+rather than leaving the task RUNNING with no bee at all. `LocalRun` marks the one kind of row whose
+task the Warden asked for itself, with no Queen in it (a cut-off Warden's diagnostic Drone,
+ADR-0056): the bee's ending is kept on the row for the Warden to read, and is never accepted,
+retried or sent up as a task of hers. `reap_runtime` is how the Warden awaits a row's runtime task
+on its way out: the one thing a runtime that died by itself leaves there, a `WorkerRuntimeError`,
+is read, logged and let go.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package. Built
@@ -81,7 +83,7 @@ from waggle.messages.supervision import AlarmRaised, ContextTelemetry
 from waggle.messages.task import TaskAssign, TaskResult
 from waggle.transport.memory import MemoryTransport
 
-__all__ = ["LocalRun", "SubBee", "reap_runtime"]
+__all__ = ["LocalRun", "SubBee", "SuccessorOrder", "reap_runtime"]
 
 log = get_logger(__name__)
 
@@ -89,6 +91,21 @@ log = get_logger(__name__)
 # no TaskResult or Alarm, and neither does DONE after a stop-handoff (a claimed DONE's TaskResult
 # travels ahead of any later Heartbeat on the same ordered link, so acceptance retires it first).
 _ENDED_QUIETLY = frozenset({WorkerState.KILLED, WorkerState.DONE})
+
+
+@dataclass(frozen=True, slots=True)
+class SuccessorOrder:
+    """The fresh bee a Warden promised when it ordered a sub-bee to stop at a Handoff.
+
+    Attributes:
+        binding: The `[llm.slots]` key the fresh bee binds: a Rebind's slot, a Takeover's own
+            (the Warden's); None keeps the stopped bee's binding, as a Handoff does.
+        new_attempt: True for a Rebind or a Takeover, which recover the task at attempt+1; False
+            for a Handoff, whose fresh bee carries the same attempt on.
+    """
+
+    binding: str | None = None
+    new_attempt: bool = False
 
 
 @dataclass(slots=True)
@@ -149,9 +166,9 @@ class SubBee:
             built outside `spawn_sub_bee`.
         cancelled: True once a cancel has been sent to this bee (`hivemind.wardens.ticks.
             control.forward_control`): whatever terminal state it reports next ends it.
-        handoff_ordered: True once this Warden itself ordered the bee to hand off and stop (its
-            context check, or its own Handoff lever); cleared when the Queen pauses the task.
-            Read by `awaits_successor`.
+        successor: What starts once the bee stops, when this Warden itself ordered it to stop at a
+            Handoff (its context check, or its own Handoff, Rebind or Takeover lever); cleared
+            when the Queen pauses the task. None otherwise. Read by `awaits_successor`.
         comb_tools: The bundle of Comb tools this sub-bee's `WorkerContext` reads (roadmap 9.7),
             the one thing its Warden may change under it: `hivemind.wardens.ticks.tools.install`
             replaces its entries when a tool is promoted. None for a Warden with no Basket.
@@ -175,7 +192,7 @@ class SubBee:
     capabilities: CapabilitySet = field(default_factory=CapabilitySet.empty)
     spawned_event_id: EventId | None = field(default=None)
     cancelled: bool = field(default=False)
-    handoff_ordered: bool = field(default=False)
+    successor: SuccessorOrder | None = field(default=None)
     comb_tools: CombToolBundle | None = field(default=None)
     local: LocalRun | None = field(default=None)
 
@@ -189,7 +206,7 @@ class SubBee:
     def awaits_successor(self) -> bool:
         """Whether this bee stopped after a handoff its own Warden ordered (module docstring)."""
         # DONE only: a KILLED bee was stopped for good, and a FAILED one is its Alarm's to handle.
-        return self.handoff_ordered and self.state is WorkerState.DONE and not self.cancelled
+        return self.successor is not None and self.state is WorkerState.DONE and not self.cancelled
 
 
 async def reap_runtime(sub_bee: SubBee) -> None:

@@ -126,7 +126,7 @@ async def test_the_wardens_own_context_check_does_not_order_a_second_handoff() -
     await drain()
 
     # Its context check would have marked the bee for a successor started while cut off.
-    assert bee.handoff_ordered is False
+    assert bee.successor is None
     await scene.wait_paused(bee)
     assert resumed == [] and scene.rows() == []
     await scene.stop()
