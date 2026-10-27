@@ -7,8 +7,10 @@
  * chosen tiers and its state among the chosen states). Each chip shows how many rows of the queue
  * it would keep, so an empty choice is never a surprise. On a phone the two groups would wrap to
  * six rows before any content, so there each group is one select naming one tier or state (or
- * All) with the same counts; it drives the same sets, one member at a time. Filters change what
- * is drawn and nothing else; they never change what is read.
+ * All) with the same counts; it drives the same sets, one member at a time, and a set of several
+ * (chosen by chips before the window narrowed) collapses to its first member when the select
+ * takes over, so the control always says what the table shows. Filters change what is drawn and
+ * nothing else; they never change what is read.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/queue/`. Drawn by `capping_screen.tsx`; the
@@ -23,7 +25,7 @@
  * See Also:
  *   - docs/observation/design.md section 5.9.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { RAIL_MIN, useMinWidth } from '../../../components';
 import { STATES, tierRank, wordsOf } from '../slice';
@@ -94,9 +96,14 @@ interface GroupProps<T extends string> {
 }
 
 // The phone's form of a group: one select. Several members chosen by chips before the window
-// narrowed show as "All", since a select names one; choosing again replaces them.
+// narrowed collapse to the first of them in the options' order, since a select names one and
+// must name what the table is filtered to.
 function SelectGroup<T extends string>(props: GroupProps<T>): ReactElement {
-  const chosen = [...props.chosen];
+  const { chosen: set, options, onChoose } = props;
+  useEffect(() => {
+    if (set.size > 1) onChoose(options.find((option) => set.has(option)) ?? null);
+  }, [set, options, onChoose]);
+  const chosen = [...set];
   // The value is one of the options or the empty "All": the select itself guarantees it.
   const choose = (value: string): void => props.onChoose(value === '' ? null : (value as T));
   return (

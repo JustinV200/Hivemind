@@ -37,17 +37,34 @@ const rowOf = (id: string) => queue().getByLabelText(id).closest('tr') as HTMLEl
 const chip = (group: string, name: RegExp) =>
   within(screen.getByRole('group', { name: group })).getByRole('button', { name });
 
-// A phone's width, as the page hears it: no min-width query matches.
-function narrow(): void {
+// The page's width as it hears it: every min-width query matches until `phone` is set, and the
+// listeners a hook registered are told when it changes.
+let phone = false;
+const widthListeners = new Set<() => void>();
+function fakeWidth(): void {
   window.matchMedia = ((query: string) => ({
-    matches: !/min-width/.test(query),
+    get matches() {
+      return !(phone && /min-width/.test(query));
+    },
     media: query,
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (_: string, listener: () => void) => widthListeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) => widthListeners.delete(listener),
   })) as unknown as typeof window.matchMedia;
+}
+// A phone's width from the start: no min-width query matches.
+function narrow(): void {
+  phone = true;
+  fakeWidth();
+}
+// The window narrowing to a phone after the page was drawn wide.
+function shrink(): void {
+  phone = true;
+  widthListeners.forEach((listener) => listener());
 }
 afterEach(() => {
   // The width must not leak into the next test, which expects jsdom's none (every width reached).
+  phone = false;
+  widthListeners.clear();
   delete (window as { matchMedia?: unknown }).matchMedia;
 });
 
@@ -166,6 +183,20 @@ describe('the filter selects on a phone', () => {
     fireEvent.change(tier, { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Show state'), { target: { value: '' } });
     expect(order(table())).toEqual(['prop_roll', 'prop_rej', 'prop_wait']);
+  });
+
+  // Two tiers chosen by chips, then the window narrows: the select can name one, so the group
+  // becomes the first of them and the table is filtered to exactly what the select says.
+  it('collapse several chips to the first when the window narrows', async () => {
+    fakeWidth();
+    await mount();
+    fireEvent.click(chip('Show tier', /^NETWORK EGRESS/));
+    fireEvent.click(chip('Show tier', /^IRREVERSIBLE/));
+    expect(order(queue().getByRole('table'))).toEqual(['prop_roll', 'prop_rej']);
+    act(() => shrink());
+    const tier = screen.getByLabelText('Show tier') as HTMLSelectElement;
+    expect(tier.value).toBe('NETWORK_EGRESS');
+    expect(order(queue().getByRole('table'))).toEqual(['prop_rej']);
   });
 });
 
