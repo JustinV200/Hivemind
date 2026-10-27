@@ -30,8 +30,10 @@ From top to bottom, on every screen after login:
    `remote`) and a log out button, which on a phone move into the nav's More panel. A session
    that `needs_step_up` shows a banner under the bar until the step-up prompt is done.
 2. **Summary strip** (64 px, never scrolls away, never hidden by navigation). Four groups, each
-   drawn as a shallow comb cell (3.4) with its label above and its number below in 20 px bold; a
-   number that just moved carries a 2 px accent underline for five seconds:
+   drawn as a shallow comb cell (3.4) with its label above and its number below in 20 px bold,
+   sharing the band equally up to where the content stops (the rail plus the 1440 px cap), with
+   the stale note at the band's right edge; a number that just moved carries a 2 px accent
+   underline for five seconds:
    - `Bees` active bees (total).
    - `Cells` active / inactive.
    - `Kind` Real / Virtual.
@@ -168,10 +170,13 @@ Nothing is cartoon: no mascot, no stripes.
    a comb cell (`.comb-cell`): the same four-corner 10 px cut as the strip's groups, with a 1 px
    stroke that follows the cut. The stroke is a ring drawn under the clip (`--hex-ring`), never a
    CSS border, which would stop at each chamfer and leave the corners open; a panel is stroked in
-   `--border-soft`, a form in `--border` like its fields (`comb-cell--strong`). A row card (a
-   Fleet card, a chat line, a Honey item, a table row folded into a card) keeps the 12 px radius,
-   so a comb cell always means a panel and a rounded card a row; nothing mixes a chamfer with a
-   radius.
+   `--border-soft`, a form in `--border` like its fields (`comb-cell--strong`). The Fleet's table
+   box (from 1280 px, where its rows are a table) and the empty state (`EmptyState`, the words on
+   the faint comb) are panel-sized containers, so they are comb cells too. A row card (a Fleet
+   card, a chat line, a Honey item, a table row folded into a card) keeps the 12 px radius, so a
+   comb cell always means a panel and a rounded card a row; nothing mixes a chamfer with a
+   radius. The Fleet's legend is a control-sized strip and keeps the 6 px control radius, like
+   the chips and buttons beside it.
 
 Every view title is led by a 10 px hexagon in `--accent`, the one recurring glyph; everywhere else
 the comb is implied by the warm palette and the 2 px radius on tags.
@@ -214,9 +219,10 @@ cut to their kind and the last five characters of their ULID (`cell_…2C3D4`), 
 differs between ids minted the same day (a ULID starts with its timestamp, so the head reads
 `cell_01H…` on every row); an id of twelve characters or fewer is shown whole, and the full id is
 always in `title` and the accessible name. Times are relative with the ISO time in `<time>`. In a
-table an enum, an id, a badge or a name never splits mid-word: cells are `nowrap` except the few
-that hold free text (a reason, a platform, the links), which wrap between words. Only a card may
-break inside a word. Below the width at which a table is a table, the one `SortSelect` control
+table an enum, an id, a badge, a name or a platform never splits mid-word: cells are `nowrap`
+except the few that hold free text (a reason, a capability list, the links) or a row of
+buttons (the Devices list's door controls), which wrap between words or buttons so most rows
+stay one line. Only a card may break inside a word. Below the width at which a table is a table, the one `SortSelect` control
 stands in for its header row on every sortable table (the Fleet, the Forage map, the Cost tables,
 the Capping queue): a select naming the column and a button saying the direction in words, both
 driving the same sort state as the headers. A table whose columns would not fit the pane (the
@@ -305,8 +311,10 @@ Read: `/v1/cells`, `/v1/fleet` (added in 12.1). Streams: cells, tasks, telemetry
 
 ### 5.2 Cell page (`#/cells/<id>`)
 
-The header holds the Cell id, kind, status, the tier badge and the mask badge, large and always
-visible (the header sticks under the summary strip). Below it: the `CellDiagram`; then the Cell's
+The header leads with the Cell's name (`CellView.name`, the word the Fleet rows and the Forage's
+host cards lead with too), the full id beside it as the subject, then kind, source and status,
+then the tier badge and the mask badge, large and always visible (the header sticks under the
+summary strip). Until the page is read the title is the plain word `Cell` over the id. Below it: the `CellDiagram`; then the Cell's
 tasks and goals; the Forage its Warden holds (grant used against issued, pending requests); the
 Honey the Warden can see, as a link into `#/honey/cells/<id>`; access level and mode (`ACTIVE` or
 `WATCH`, with the last Patrol's report); Cell Wax with severity, proposer and expiry; open
@@ -353,7 +361,11 @@ A question shows its options as buttons (or a text field for a free answer); an 
 to record, and a spoken goal shows its transcript with `Confirm` and `Decline` before anything
 runs. The page opens on the newest line (the conversation is scrolled to its end once the seed
 lands) and follows a new line there unless the reader has scrolled up to read; a question's
-answer buttons sit under its own line, above the composer. The composer's send button is the
+answer buttons sit under its own line, above the composer: a question or Alarm line names its
+inbox item in `ref` (the Entrance writes the question's id there), which joins the line to its
+form, and a `Waiting for you` section below the conversation lists only the inbox items whose
+line is not on the page (a question older than the newest lines read), so nothing is drawn
+twice. The composer's send button is the
 only filled accent button in the app. Break-glass Absconding needs the
 password again, a typed phrase and a scope review; there is no one-click path. Read: `/v1/chat`, `/v1/inbox`. Streams: chat, push (to show a waiting
 question while another view is open). Writes: `POST /v1/chat`, `/v1/chat/audio`, the answer and
@@ -408,7 +420,11 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   under `public/fonts/` with `@font-face` rules in `base.css` (not yet done).
 - **Mono (ids, code, numbers in logs):** `"IBM Plex Mono", ui-monospace, "SF Mono", Menlo,
   Consolas, "DejaVu Sans Mono", monospace`.
-- **Headings:** weight 600 with 0.01 em tracking; a panel's heading carries a hairline under it.
+- **Headings:** weight 600 with 0.01 em tracking. One rhythm in every view: a panel's heading
+  and every top-level section heading (the Forage's, the Cost's and the Capping's sections, the
+  Devices' Entrance panel, the Enrol's two sections, the Queen's inbox on the Thoughts view, the
+  Honey lists, the chat's waiting section) is `.section-heading`, 18 px with a hairline under it;
+  a sub-heading inside a panel (an `h3`) carries none.
 - **Sizes (token, px):** `--fs-xs` 12 (badges, captions), `--fs-sm` 13 (tables), `--fs-md` 15
   (body), `--fs-lg` 18 (section titles), `--fs-xl` 22 (view titles). Line height 1.4 for text, 1.2
   for headings.
@@ -426,7 +442,12 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
 - **Colour is never alone.** Status has a word, tier and mask have text and a fixed shape, a chart
   series has a label or a pattern.
 - **Keyboard.** Every control and every diagram node is reachable by Tab in reading order, with a
-  visible 2 px `--accent` focus ring offset by 2 px. Tables sort and expand by Enter and Space.
+  visible 2 px `--accent` focus ring offset by 2 px. On the chrome (the bar and the nav) the ring
+  is `--chrome-accent`, since `--accent` is about 2:1 on the propolis in the light theme; a nav
+  item fills its rail or bar edge to edge, so there the ring is inset 2 px, where the rail's
+  scroll box cannot clip its sides. The ring is a non-text indicator and holds 3:1 on what it
+  is drawn on in both themes; the contrast test checks both pairings. Tables sort and expand by
+  Enter and Space.
   The nav is a landmark (`<nav>`), the main area a `<main>`, with a skip link to it as the first
   focusable element.
 - **Motion.** One duration, `--motion` (150 ms ease), on hover, on a row's insert and on a new
@@ -456,5 +477,7 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   as one sentence and never fills with a credential. A `401` takes the human to login with "Your
   session ended. Log in again." (the Entrance never says why, and neither does the UI).
 - **Empty states** say what would fill the view (`No Cells yet. A Cell appears here when the Queen
-  provisions or borrows one.`). A slice not yet seeded shows a labelled skeleton, and a stream
-  that is behind says `catching up`.
+  provisions or borrows one.`), always as `EmptyState` (the sentence on the faint comb, in a comb
+  cell) wherever a view or a section has nothing to list; a sentence inside a panel (`No open
+  Alarms on this Cell.`) stays a plain line, since a panel is a comb cell already. A slice not
+  yet seeded shows a labelled skeleton, and a stream that is behind says `catching up`.

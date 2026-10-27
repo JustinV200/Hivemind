@@ -2526,7 +2526,15 @@ in this phase adds a new write path.
   from 1280 px with its controls a wrapping row; the Forage's Wardens, requests and map tables
   back from 720 px with only the Grants table waiting for 1080, and the host cards named from a
   fleet read the view makes itself; `shell.css` split into `head.css` and the login view's own
-  stylesheet (design.md sections 2, 3.4, 4.3, 5.3 and 5.10).
+  stylesheet (design.md sections 2, 3.4, 4.3, 5.3 and 5.10). **Round 4 (2026-10-27):** the
+  focus ring on the chrome in `--chrome-accent` (the page's `--accent` was about 2:1 on the
+  propolis), inset on the nav items so the rail never clips it, with both ring pairings in the
+  contrast test; the Cell page leading with the Cell's name; the strip's four groups sharing the
+  band up to the content's cap with the stale note at its right edge; one heading rhythm
+  (`.section-heading`, the panel hairline) on every top-level section heading; the Fleet's
+  table box and `EmptyState` comb cells, `EmptyState` wherever a view or section has nothing to
+  list; the Devices list's platform on one line with its door controls the column that wraps
+  (design.md sections 2, 3.4, 4.3, 5.2, 5.6, 6, 7 and 8).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
