@@ -1,12 +1,14 @@
 /*
- * Component styles for the Observation Hive: badges, status dot, gauge, notices, mark and comb.
+ * Component styles for the Observation Hive: badges, status dot, gauge, notices, sort control,
+ * mark and comb.
  *
  * Tier and mask badges are told apart by shape as well as colour (design.md section 3.3): a tier
  * is a fully rounded pill, bold; a mask is a square tag with a small square glyph, regular weight.
  * Each is drawn with a 2px border in its own text colour, which separates a pale badge from a
  * pale surface. The gauge fill and status dot take their colour from the status tokens; the
  * gauge's end is cut like a comb cell. The hex cut (`--hex-cut`) is the one clip every
- * hex-cornered card shares, so the chamfer is the same size everywhere it appears.
+ * hex-cornered card shares, and `--hex-cut-top` its two-corner form for panels, so the chamfer is
+ * the same everywhere it appears.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
@@ -32,6 +34,10 @@
     0 calc(100% - 10px),
     0 10px
   );
+
+  /* The same cut on the two top corners only: every panel and card of the working views, so the
+     comb is felt in daily use while the bottom edge stays square against what follows. */
+  --hex-cut-top: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%, 0 12px);
 }
 
 .badge {
@@ -209,6 +215,35 @@
   height: 100%;
   opacity: 0.08;
   pointer-events: none;
+}
+
+/* On the chrome the comb is fainter still: structure behind the rail's empty half and the bar's
+   empty middle, never behind an item */
+.hex-pattern--chrome {
+  opacity: 0.06;
+}
+
+/* The one "Sort by" control a sortable table draws while its rows are cards */
+.sort-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.sort-select select {
+  min-height: 36px;
+  margin-left: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.sort-select .button {
+  min-height: 36px;
 }
 
 /* Section headings carry a hairline, so a page of panels has a rhythm */

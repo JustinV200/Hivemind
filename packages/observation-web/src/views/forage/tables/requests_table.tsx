@@ -4,7 +4,7 @@
  * A Warden that needs shared Forage beyond its standing grant sends a request; the Queen grants it
  * (in full or in part) or denies it with a reason code. A request with no answer yet is "pending".
  * The list is built from the trail events the stream carries, so it holds the requests since this
- * view opened (the read routes do not list open requests). Under 720 px each request is a card.
+ * view opened (the read routes do not list open requests). Under 1080 px each request is a card.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/tables/`. Drawn by `forage_screen.tsx` from the

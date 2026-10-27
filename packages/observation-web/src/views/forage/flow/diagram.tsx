@@ -128,7 +128,7 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
   const layout = layoutFlow(model);
   const empty = layout.boxes.length === 0;
   return (
-    <figure className="forage-figure">
+    <figure className="forage-figure forage-figure--flow">
       <svg
         className="forage-svg forage-svg--flow"
         viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}

@@ -2,9 +2,10 @@
  * `MapTable`: the Forage map as a table, every source with what the Hive knows of it, sortable.
  *
  * A column sorts when its header is clicked or activated by Enter or Space; the sorted column shows
- * an arrow and `aria-sort`. Clicking the sorted column again flips its direction. Under 720 px the
- * table becomes stacked cards (one source, one card) by stylesheet alone, each cell keeping its
- * label. Health is a word with a dot, never a colour alone.
+ * an arrow and `aria-sort`. Clicking the sorted column again flips its direction. Under 1080 px the
+ * table becomes stacked cards (one source, one card), each cell keeping its label, and the shared
+ * "Sort by" control stands in for the hidden header row. Health is a word with a dot, never a
+ * colour alone.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/tables/`. Drawn by `forage_screen.tsx` from the
@@ -19,6 +20,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
+import { SortSelect, TABLE_MIN, useMinWidth } from '../../../components';
 import type { LlmView } from '../slice';
 import { MAP_COLUMNS, mapRows, sortMapRows } from './map_rows';
 import type { MapColumn, MapRow } from './map_rows';
@@ -50,34 +52,46 @@ export function MapTable(props: { llm: LlmView }): ReactElement {
   // Choosing the sorted column again reverses it; choosing another starts ascending.
   const choose = (column: MapColumn): void =>
     setSort((now) => ({ column, descending: now.column === column && !now.descending }));
+  const wide = useMinWidth(TABLE_MIN);
   return (
-    <table className="forage-table">
-      <caption>Forage map: the model sources the Hive can reach</caption>
-      <thead>
-        <tr>
-          {MAP_COLUMNS.map(({ column, label }) => (
-            <SortHeader
-              key={column}
-              label={label}
-              sorted={
-                sort.column === column ? (sort.descending ? 'descending' : 'ascending') : null
-              }
-              onSort={() => choose(column)}
-            />
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.key}>
+    <>
+      {wide ? null : (
+        <SortSelect
+          options={MAP_COLUMNS.map(({ column, label }) => ({ key: column, label }))}
+          sort={{ key: sort.column, direction: sort.descending ? 'descending' : 'ascending' }}
+          onChange={(next) => {
+            if (next) setSort({ column: next.key, descending: next.direction === 'descending' });
+          }}
+        />
+      )}
+      <table className="forage-table">
+        <caption>Forage map: the model sources the Hive can reach</caption>
+        <thead>
+          <tr>
             {MAP_COLUMNS.map(({ column, label }) => (
-              <td key={column} data-label={label}>
-                {cell(row, column)}
-              </td>
+              <SortHeader
+                key={column}
+                label={label}
+                sorted={
+                  sort.column === column ? (sort.descending ? 'descending' : 'ascending') : null
+                }
+                onSort={() => choose(column)}
+              />
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              {MAP_COLUMNS.map(({ column, label }) => (
+                <td key={column} data-label={label}>
+                  {cell(row, column)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }

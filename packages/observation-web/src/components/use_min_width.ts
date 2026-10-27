@@ -3,7 +3,7 @@
  *
  * Most width rules are stylesheet alone, but a few things move between elements rather than
  * restyle: the device name and the log out button sit in the top bar on a rail and in the nav's
- * More panel on a phone, and the fleet's "Sort by" control stands in for the header row only
+ * More panel on a phone, and a table's "Sort by" control stands in for the header row only
  * while the rows are cards. Rendering both and hiding one would leave two controls with the same
  * name in the page for a screen reader, so a view asks this hook which one to draw.
  *
@@ -16,12 +16,14 @@
  *   - The breakpoints passed in are the stylesheet's (design.md section 2) and must stay in step.
  *
  * See Also:
- *   - src/styles/shell.css and src/views/fleet/fleet.css for the rules that move with it.
+ *   - src/styles/shell.css and the views' stylesheets for the rules that move with it.
  */
 import { useCallback, useSyncExternalStore } from 'react';
 
 export const RAIL_MIN = 720; // The nav becomes a rail and the bar gains room (design.md 2).
-export const TABLE_MIN = 1080; // The fleet's cards become a table with a header row.
+export const NARROW_TABLE_MIN = 720; // The Cost tables, with few columns, from the rail width.
+export const TABLE_MIN = 1080; // The Forage tables (and the Devices list) from the wide rail.
+export const WIDE_TABLE_MIN = 1280; // The Fleet and the Capping queue, with the most columns.
 
 const query = (px: number): MediaQueryList | null =>
   typeof window.matchMedia === 'function' ? window.matchMedia(`(min-width: ${px}px)`) : null;

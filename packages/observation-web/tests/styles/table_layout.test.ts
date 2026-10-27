@@ -1,8 +1,8 @@
 /**
  * Tests for the cards-to-table breakpoints: a table is a table where the design says it is.
  *
- * The Fleet, Capping and Devices views are stacked cards on a phone and real tables from 1080 px;
- * the Forage and Cost tables are real tables from 720 px. Phase 12's exit run found the Fleet's
+ * The Forage and Devices views are stacked cards on a phone and real tables from 1080 px, the
+ * Fleet and the Capping queue (with the most columns) from 1280 px, the Cost tables from 720 px. Phase 12's exit run found the Fleet's
  * row still laid out as a card at 1280 px under a table header, because its desktop rule was a
  * specificity step weaker than the card rule it meant to undo. These tests resolve the winning
  * `display` of each part of each table at both widths from the stylesheet, so that mistake fails
@@ -23,10 +23,10 @@ import { describe, expect, it } from 'vitest';
 import { readCss, rulesAt, winning } from '../support/cascade';
 
 const TABLES = [
-  { view: 'fleet', desktop: 1080 },
-  { view: 'capping', desktop: 1080 },
+  { view: 'fleet', desktop: 1280 },
+  { view: 'capping', desktop: 1280 },
   { view: 'devices', desktop: 1080 },
-  { view: 'forage', desktop: 720 },
+  { view: 'forage', desktop: 1080 },
   { view: 'cost', desktop: 720 },
 ] as const;
 
@@ -40,6 +40,7 @@ function tableOf(view: string): HTMLTableElement {
 
 const PARTS = {
   table: 'display: table',
+  caption: 'display: table-caption',
   tbody: 'display: table-row-group',
   'tbody tr': 'display: table-row',
   'tbody td': 'display: table-cell',
@@ -47,6 +48,7 @@ const PARTS = {
 
 const SELECT: Record<keyof typeof PARTS, (t: HTMLTableElement) => Element> = {
   table: (t) => t,
+  caption: (t) => t.querySelector('caption')!,
   tbody: (t) => t.querySelector('tbody')!,
   'tbody tr': (t) => t.querySelector('tbody tr')!,
   'tbody td': (t) => t.querySelector('tbody td')!,
@@ -55,7 +57,7 @@ const SELECT: Record<keyof typeof PARTS, (t: HTMLTableElement) => Element> = {
 describe.each(TABLES)('$view table', ({ view, desktop }) => {
   it(`is a real table from ${desktop} px up, with no part left as a card`, async () => {
     const css = await readCss(`src/views/${view}/${view}.css`);
-    const rules = rulesAt(css, 1280);
+    const rules = rulesAt(css, desktop);
     const table = tableOf(view);
     for (const part of Object.keys(PARTS) as (keyof typeof PARTS)[]) {
       const shown = winning(SELECT[part](table), rules, 'display');
@@ -71,6 +73,10 @@ describe.each(TABLES)('$view table', ({ view, desktop }) => {
       const shown = winning(SELECT[part](table), rules, 'display');
       expect(shown, part).not.toMatch(/^table/);
     }
+    // A caption left as `table-caption` in a block table shrinks to one word per line.
+    expect(winning(table.querySelector('caption')!, rules, 'display') ?? 'block').not.toMatch(
+      /^table/,
+    );
     // A card row is a box of its own, so a cell inside it is not a bare table cell either.
     expect(winning(table.querySelector('tbody tr')!, rules, 'display')).not.toBeNull();
   });

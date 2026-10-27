@@ -5,7 +5,7 @@
  * the judge (codingrules 8.12). Each row is one audit: the proposal, its tier, the finding
  * (`APPROVE`, `REQUEST CHANGES`, `REJECT`, or "not scored" when the judge never answered), the bee
  * that proposed it (a link to its thoughts), its task and when the audit was recorded. A rejected
- * finding is marked with the alarm token and the word. Under 1080 px each audit is a stacked card.
+ * finding is marked with the alarm token and the word. Under 1280 px each audit is a stacked card.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/audits/`. Drawn by `capping_screen.tsx` from the

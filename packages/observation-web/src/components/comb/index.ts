@@ -15,4 +15,4 @@
  */
 export { EmptyState } from './empty_state';
 export { HexPattern } from './hex_pattern';
-export { Mark } from './mark';
+export { HEXAGON, Mark } from './mark';

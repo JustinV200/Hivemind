@@ -2,10 +2,10 @@
  * Capping view styles: the filter chips, the rates strip, the tables and their phone-width cards.
  *
  * Mobile first (design.md section 2): everything is one column at 360 px. The rate cards wrap into
- * as many columns as fit. Under 1080 px a table row becomes a stacked card whose cells keep their
- * labels (from `data-label`) and the sort headers become a wrapped row of buttons above the cards,
- * so nothing needs width and the page never scrolls sideways. A state, a verdict and a finding are
- * a word in a tag; the tag's colour only adds to the word.
+ * as many columns as fit. Under 1280 px a table row becomes a stacked card whose cells keep their
+ * labels (from `data-label`) and the header row is hidden behind the shared "Sort by" control, so
+ * nothing needs width and the page never scrolls sideways. A state, a verdict and a finding are a
+ * word in a tag; the tag's colour only adds to the word.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/`. Imported by `capping_screen.tsx`. Class names
@@ -79,6 +79,7 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
+  clip-path: var(--hex-cut-top);
 }
 
 .capping-rate h3 {
@@ -157,22 +158,9 @@
   padding-bottom: var(--sp-2);
 }
 
-/* The sort buttons sit in a wrapped row above the cards; plain headers have nothing to press. */
-.capping-table thead,
-.capping-table thead tr {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-3);
-}
-
-.capping-table th {
-  display: block;
-  font-weight: 700;
-}
-
-.capping-table th.capping-plain,
-.capping-table--plain thead {
+/* The cards carry each cell's label and the shared "Sort by" control sorts them, so the header row
+   is for assistive technology only until the table is a table */
+.capping-table thead {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -181,13 +169,12 @@
 }
 
 .capping-sort {
-  min-height: 36px;
-  padding: 0 var(--sp-3);
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
   font-weight: 700;
+  color: inherit;
   cursor: pointer;
 }
 
@@ -197,13 +184,6 @@
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
   background: var(--surface);
-}
-
-.capping-table thead tr {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
 }
 
 .capping-table td {
@@ -218,7 +198,8 @@
   color: var(--text-muted);
 }
 
-@media (min-width: 1080px) {
+/* The queue's eleven columns need 1280px; below that its rows stay cards (design.md section 2) */
+@media (min-width: 1280px) {
   .capping-table {
     display: table;
     width: 100%;
@@ -230,11 +211,14 @@
   }
 
   .capping-table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
     display: table-header-group;
-    margin: 0;
   }
 
-  .capping-table thead tr,
   .capping-table tr {
     display: table-row;
     margin: 0;
@@ -258,8 +242,9 @@
     white-space: nowrap;
   }
 
-  /* The reason and the recording note are sentences, the one place a cell may wrap */
+  /* The reason, the rollback and the recording note are sentences, the cells that may wrap */
   .capping-table td[data-label='Reason'],
+  .capping-table td[data-label='Rollback'],
   .capping-table td[data-label='Recording'] {
     white-space: normal;
   }
@@ -270,27 +255,7 @@
     background: var(--surface-2);
   }
 
-  .capping-table th.capping-plain,
-  .capping-table--plain thead {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip-path: none;
-  }
-
   .capping-table td::before {
     content: none;
-  }
-
-  .capping-sort {
-    min-height: 0;
-    padding: 0;
-    background: none;
-    border: 0;
-    border-radius: 0;
-    font: inherit;
-    font-weight: 700;
-    color: inherit;
   }
 }

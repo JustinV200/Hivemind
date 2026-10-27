@@ -2,8 +2,10 @@
  * The Fleet table: sortable headers over one row per Cell, held still while the reader is in it.
  *
  * A header is a button inside a column header cell; Enter and Space activate it like a click. The
- * sorted column shows an arrow and carries `aria-sort`, the others say `none`. From 1080 px it is
- * a table in a box that scrolls on its own with a sticky header; below that the stylesheet turns
+ * sorted column shows an arrow and carries `aria-sort`, the others say `none`. A folded column (kind,
+ * source, lease age, Cell Wax) has no header, since its value sits on another cell's second line;
+ * the "Sort by" control still offers it. From 1280 px, where its columns fit the pane, it is a
+ * table in a box that scrolls down on its own with a sticky header; below that the stylesheet turns
  * it into stacked cards and hides the header row, and the one "Sort by" control is drawn in its
  * place, so the page never scrolls sideways. While the pointer or focus is inside the box, rows that
  * arrive wait behind a "N new rows, re-sort" button (design.md 4.3).
@@ -21,11 +23,10 @@
  *   - docs/observation/design.md sections 4.3 and 7.
  */
 import type { ReactElement } from 'react';
-import { TABLE_MIN, useMinWidth } from '../../../components';
+import { SortSelect, useMinWidth, WIDE_TABLE_MIN } from '../../../components';
 import type { FleetRow } from '../slice';
 import type { Hold } from '../use_hold';
 import { FleetRowView } from './fleet_row';
-import { SortSelect } from './sort_select';
 import { COLUMNS } from './sorting';
 import type { SortKey, SortState } from './sorting';
 
@@ -44,6 +45,7 @@ function Header(props: {
           {active ? (active.direction === 'ascending' ? ' ▲' : ' ▼') : ''}
         </span>
       </button>
+      {column.pair ? <span className="fleet-pair"> / {column.pair}</span> : null}
     </th>
   );
 }
@@ -58,10 +60,17 @@ export function FleetTable(props: {
   hold: Hold;
 }): ReactElement {
   const { hold } = props;
-  const table = useMinWidth(TABLE_MIN);
+  const table = useMinWidth(WIDE_TABLE_MIN);
   return (
     <>
-      {table ? null : <SortSelect sort={props.sort} onChange={props.onSortChange} />}
+      {table ? null : (
+        <SortSelect
+          options={COLUMNS}
+          sort={props.sort}
+          onChange={props.onSortChange}
+          none="Hive order"
+        />
+      )}
       {hold.fresh > 0 ? (
         <button type="button" className="button fleet-fresh" onClick={hold.refresh}>
           {`${plural(hold.fresh)}, re-sort`}
@@ -81,7 +90,7 @@ export function FleetTable(props: {
           <caption className="sr-only">Cells in the Hive</caption>
           <thead>
             <tr>
-              {COLUMNS.map((column) => (
+              {COLUMNS.filter((column) => !column.folded).map((column) => (
                 <Header key={column.key} column={column} sort={props.sort} onSort={props.onSort} />
               ))}
               <th scope="col" className="fleet-plain">
@@ -91,7 +100,7 @@ export function FleetTable(props: {
           </thead>
           <tbody>
             {props.rows.map((row) => (
-              <FleetRowView key={row.id} row={row} />
+              <FleetRowView key={row.id} row={row} cards={!table} />
             ))}
           </tbody>
         </table>

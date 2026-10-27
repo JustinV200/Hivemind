@@ -11,6 +11,5 @@
  *   - docs/observation/design.md section 4.3.
  */
 export { FleetTable } from './fleet_table';
-export { SortSelect } from './sort_select';
 export { nextSort, sortRows } from './sorting';
 export type { SortKey, SortState } from './sorting';
