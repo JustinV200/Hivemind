@@ -2,11 +2,11 @@
 
 Roadmap step 13.3 (ADR-0063) through a whole Hive: the Queen, `CellListener`, the lifecycle and a
 real in-Cell Warden per Virtual Cell over `builders.virtual_cells.ContainerSpawningFakeCellBackend`,
-as `tests.e2e.test_virtual_cells` builds it. Six independent tasks, `prefer = "virtual"`, the Hive
-Stand excluded and `[virtual_cells.swarming] max_parallel = 2`. The fleet must reach two Cells and
-never pass them; a task with no Cell to take waits with `queen.decided` naming the cap; every task
-finishes, sharing the two Cells as their sub-bee room allows, and with Overwintering off the fleet
-is back to zero before the Hive stops.
+as `tests.e2e.test_virtual_cells` builds it. Phase 13's exit criterion: twenty independent tasks,
+`prefer = "virtual"`, the Hive Stand excluded and `[virtual_cells.swarming] max_parallel = 8`. The
+fleet must reach eight Cells and never pass them; a task with no Cell to take waits with
+`queen.decided` naming the cap; every task finishes, sharing the eight Cells as their sub-bee room
+allows, and with Overwintering off the fleet is back to zero before the Hive stops.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -43,26 +43,32 @@ from waggle.clock import SystemClock
 
 pytestmark = pytest.mark.e2e
 
-_MAX_PARALLEL = 2
-_TASKS = 6  # Three times the cap: the goal must queue behind it.
-_TIMEOUT_S = 30.0
+# Phase 13's exit criterion: a 20-subtask goal with max_parallel = 8 swarms to 8 Cells.
+_MAX_PARALLEL = 8
+_TASKS = 20
+_TIMEOUT_S = 60.0
 _SAMPLE_S = 0.005  # Fast enough to see a Cell that lives for one short task.
 
 
 def test_a_goal_swarms_up_to_max_parallel_and_back_to_zero(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Six tasks under max_parallel 2: two Cells at peak, never three, none at the end."""
+    """Twenty tasks under max_parallel 8: eight Cells at peak, never nine, none at the end."""
     monkeypatch.setattr(
         "hivemind.cli.compose.virtual_cell_backends.FakeCellBackend",
         ContainerSpawningFakeCellBackend,
     )
     tuning = VirtualCellsTuning(prefer="virtual", allow_hive_stand=False, overwinter_enabled=False)
     manifest_path = virtual_cells_manifest(tmp_path, tuning=tuning)
+    # The goal may run every task at once, so only Swarming bounds the fleet.
     with manifest_path.open("a", encoding="utf-8") as handle:
         handle.write(f"\n[virtual_cells.swarming]\nmax_parallel = {_MAX_PARALLEL}\n")
+        handle.write(f"\n[forage]\nmax_sub_bees_per_goal = {_TASKS}\n")
+    # A Cell may serve many of the tasks in turn: script enough rounds for all of them.
+    monkeypatch.setattr("builders.virtual_cells._CONTAINER_SCRIPT_CYCLES", _TASKS)
     # Every container writes every default file, so each task's FILE_EXISTS holds wherever it runs.
-    plan = independent_haiku_plan(filenames=DEFAULT_HAIKU_FILES * (_TASKS // 3))
+    names = [DEFAULT_HAIKU_FILES[index % len(DEFAULT_HAIKU_FILES)] for index in range(_TASKS)]
+    plan = independent_haiku_plan(filenames=names)
     script = HaikuScript(default_worker_turn, plan=plan)
     hive = build_hive(
         load_manifest(manifest_path, {}),
@@ -85,7 +91,7 @@ async def _run_swarm(hive: Hive) -> None:
         async with run_hive(hive):
             report = await run_goal(
                 hive,
-                "write six haiku about bees",
+                "write twenty haiku about bees",
                 clearance=HoneyClearance.C1,
                 timeout_s=_TIMEOUT_S,
             )
