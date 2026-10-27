@@ -820,10 +820,8 @@ class QueenDeps:
         virtual_provider: The seam `hivemind.queen.dispatcher` calls to turn a `ProvisionVirtual`/
             `ReuseDormant` Placement into a `WardenLink` (`VirtualCellProvider`, defined above).
             `None` (the default) means a Virtual Placement is a `PlacementError`.
-        virtual_backend_source: Feeds `virtual_backends` live from a running `CellLifecycle`
-            instead of the static tuple above, when set (`build_inventory` reads it first).
-        dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for
-            `dormant_cells`.
+        virtual_backend_source: Feeds `virtual_backends` live from a `CellLifecycle`, when set.
+        dormant_cell_source: The same live-feed seam as `virtual_backend_source`, for dormant ones.
         on_task_finished: Told, beside the tick (`dispatcher.releases`), of every finished task's
             Cell (`CellId`, `TaskOutcome`) and of a Cell acquired for a task cancelled before it
             ran there; `None` is a no-op, `cell_gate.release.make_on_task_finished` the real one.
@@ -841,8 +839,7 @@ class QueenDeps:
         sandboxes: Provisions the Comb's sandbox Cell; None leaves only the subprocess sandbox.
         tool_lane: Her tool jobs and Basket transfers beside the tick (`ToolLane`).
         uplink_keys: The key a Warden's node signs a Basket manifest with; None trusts the Hive key.
-        nurse_max_rounds: `[nurse] max_rounds` (ADR-0061): how many Nurse Bee rejections send a
-            task back to fix forward before the next one escalates it to the human.
+        nurse_max_rounds: `[nurse] max_rounds`: Nurse rejections sent back before one escalates.
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.
