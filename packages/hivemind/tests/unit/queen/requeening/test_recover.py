@@ -31,7 +31,7 @@ from hivemind.hive import VirtualCellRecord, VirtualCellStatus
 from hivemind.pheromone import CellEvent, TrailQuery
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
-from hivemind.queen.requeening import RequeeningStart, begin_requeening, settle_requeening
+from hivemind.queen.requeening import RequeeningStart, begin_requeening, recover, settle_requeening
 from hivemind.queen.state import QueenMode
 from waggle.clock import FakeClock
 from waggle.ids import (
@@ -157,13 +157,19 @@ async def test_a_virtual_cells_task_waits_for_its_warden_until_the_grace_is_over
     assert len(await _requeened(deps)) == 1
 
 
-async def test_a_grant_whose_task_ended_is_released_and_one_for_an_unknown_task_is_left() -> None:
+async def test_a_grant_whose_task_ended_is_released_and_one_for_an_unknown_task_is_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Regression: the ended tasks were found by a capped, oldest-first list of the whole chamber,
-    # which on an old Hive missed the newest ones; now each live grant's own task is read.
+    # which on an old Hive missed the newest ones; now each live grant's own task is read. A cap
+    # of 1 with an older open task ahead puts the ended one past the cap, as on an old Hive.
+    monkeypatch.setattr(recover, "MAX_TASK_FILTER_LIMIT", 1)
     clock = FakeClock()
     deps, link, _end = make_queen_deps(clock)
     queen = Queen(deps)
     await queen.attach_warden(link)
+    await deps.chamber.submit(make_graph_draft({"older": ()}))
+    clock.advance(1.0)
     (task,) = await deps.chamber.submit(make_graph_draft({"poem": ()}))
     await deps.chamber.cancel(task.id, "Dropped before the crash.")
     ended = make_grant(clock=clock, state=GrantState.ACTIVE, task_id=task.id)
