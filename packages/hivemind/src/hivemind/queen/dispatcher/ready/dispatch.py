@@ -16,28 +16,28 @@ never assigns a Worker directly (codingrules section 8.8): every assignment goes
 which is what actually spawns.
 
 `redispatch` is the sibling `hivemind.queen.ticks.results.retry_task` and an alarm-driven REBIND
-call for: a RUNNING task's own `hivemind.brood_chamber.task.state.TRANSITIONS` has no edge back to
-PENDING or ASSIGNED (only `ASSIGNED -> PENDING`, for a Warden lost before its Worker ever started),
-so a retry can never go through `chamber.unassign` the way a fresh dispatch goes through
-`chamber.assign`. It resends a fresh grant and assignment straight to the Cell and Warden the task
-is already placed on (no placement decision at all), leaving the chamber's own `Task.status` at
-RUNNING throughout -- the same way a Warden's own internal RETRY/REBIND never tells the Brood
-Chamber anything happened at all.
+call for: a retry stays where the task is placed. A RUNNING task's edge back to PENDING
+(`chamber.unassign` or `requeue_for_commands`) is a fresh placement, for a task whose Cell refused
+its commands, whose device was lost or whose Hive stopped, never a retry, so a retry does not go
+through it the way a fresh dispatch goes through `chamber.assign`. It resends a fresh grant and
+assignment straight to the Cell and Warden the task is already placed on (no placement decision at
+all), leaving the chamber's own `Task.status` at RUNNING throughout -- the same way a Warden's own
+internal RETRY/REBIND never tells the Brood Chamber anything happened at all.
 
-A grant that runs no bee is never sent (`hivemind.queen.dispatcher.ready.assign`'s own docstring
-has the rule); what this half decides is when: the Hive Stand's own capacity is re-read on every
+A grant that runs no bee is never sent (`hivemind.queen.dispatcher.ready.assign`'s own docstring has
+the rule); what this half decides is when: the Hive Stand's own capacity is re-read on every
 dispatch pass (`WardenLink.live_capacity`), so a fresh dispatch sizes its grant before the chamber
 moves: a grant a passing shortfall zeroes (the Hive Stand's free cores or free memory right now)
 leaves the task PENDING to be tried again on later passes, one `forage.denied` with `deferred =
 true` saying so, and fails it with the figures only once `[forage] zero_grant_patience_s` has
 passed; a goal whose other running tasks hold its whole allowance waits, before any Cell is chosen,
 until one of them finishes; a lasting shortfall still fails the task at once
-(`hivemind.queen.dispatcher.zero_grant`'s docstring has the rule). `redispatch` and
-`resume_paused` (a RUNNING retry and a resumed PAUSED task) still fail at once on any zero: a
-RUNNING task has no edge back to PENDING, so it has no queue to wait in, and for the same reason
-they size their grants from the link's own Cell as probed, never the live reading. A placement no
-Cell can bear at all never reaches this point: `hivemind.queen.placement`'s own fit rule refuses
-the Cell first (roadmap step 5.7).
+(`hivemind.queen.dispatcher.zero_grant`'s docstring has the rule). `redispatch` and `resume_paused`
+(a RUNNING retry and a resumed PAUSED task) still fail at once on any zero: a retried or resumed
+task stays placed rather than going back to PENDING, so it has no queue to wait in, and for the same
+reason they size their grants from the link's own Cell as probed, never the live reading. A
+placement no Cell can bear at all never reaches this point: `hivemind.queen.placement`'s own fit
+rule refuses the Cell first (roadmap step 5.7).
 
 A Cell the Queen is holding (`DispatchBook.held`: its Swarm device is unreachable and she waits
 for it, ADR-0053) is neither a candidate for a fresh placement nor the target of a retry or a
@@ -246,9 +246,9 @@ async def redispatch(
 ) -> None:
     """Resend a fresh grant and assignment to a RUNNING task's own Cell and Warden (a retry).
 
-    Never touches the task's own chamber status (module docstring): RUNNING has no edge back to
-    PENDING or ASSIGNED, so a retry is a wire-level re-send to wherever the task is already
-    placed, not a fresh placement decision.
+    Never touches the task's own chamber status (module docstring): a retry is a wire-level
+    re-send to wherever the task is already placed, not a fresh placement decision, which is
+    what RUNNING's edge back to PENDING is for.
 
     Args:
         deps: The Queen's collaborators.

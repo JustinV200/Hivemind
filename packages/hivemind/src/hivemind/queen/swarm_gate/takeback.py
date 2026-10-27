@@ -2,16 +2,16 @@
 
 Four things end a device Warden's hold on its tasks for good, and none of them may leave a task
 RUNNING on a Warden that is no longer there: the Queen gave up on a device that stayed away
-(ADR-0053), the operator revoked it, the operator changed its terms so its Warden is rebuilt, or
-the Warden's own loop died. In each the answer is the same, and it is the same mechanism a
-Warden migration uses (codingrules 8.9, "one mechanism, many names"): a task that is running is
-paused (RUNNING has no edge back to PENDING), its newest Handoff is noted so its next placement
-resumes from it (`DispatchBook.resumes`; the dispatcher carries the document inline when the new
-Warden is on another node), and it is unassigned, which puts it back to PENDING with a new attempt
-for the ordinary dispatcher to place on whatever Cell fits. The newest Handoff is the newest the
-Queen can hold (`recall`): a colonized device's own store is lost with it, so what she has of it is
-the HANDOFF Nectar its bees deposited, recalled into her memory if it may be used. A task blocked on
-a Question has the Question withdrawn first, since a Warden that is gone will never be given the
+(ADR-0053), the operator revoked it, the operator changed its terms so its Warden is rebuilt, or the
+Warden's own loop died. In each the answer is the same, and it is the same mechanism a Warden
+migration uses (codingrules 8.9, "one mechanism, many names"): a task that is running is paused
+first (so the hold is on the trail, as for any device loss), its newest Handoff is noted so its next
+placement resumes from it (`DispatchBook.resumes`; the dispatcher carries the document inline when
+the new Warden is on another node), and it is unassigned, which puts it back to PENDING with a new
+attempt for the ordinary dispatcher to place on whatever Cell fits. The newest Handoff is the newest
+the Queen can hold (`recall`): a colonized device's own store is lost with it, so what she has of it
+is the HANDOFF Nectar its bees deposited, recalled into her memory if it may be used. A task blocked
+on a Question has the Question withdrawn first, since a Warden that is gone will never be given the
 Answer. The Warden's grants go back to the pool: it draws on them no more.
 
 Fits into the Hive:
@@ -150,7 +150,7 @@ async def _take_one(deps: QueenDeps, node: SwarmNode, task: Task, cause: str) ->
         if task.pending_question_id is not None:
             await deps.chamber.withdraw(task.pending_question_id, reason)  # BLOCKED -> RUNNING.
         if task.status in (TaskStatus.RUNNING, TaskStatus.BLOCKED):
-            await deps.chamber.pause(task.id, reason)  # RUNNING has no edge back to PENDING.
+            await deps.chamber.pause(task.id, reason)  # The hold first, then the give-back.
         await deps.chamber.unassign(task.id, reason)
     except InvalidTransitionError:
         log.info("swarm.take_back_skipped", task_id=task.id, status=task.status.value)

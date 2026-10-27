@@ -168,8 +168,9 @@ class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, TickLoop):
         # cell_id), so a leave Question for the same goal and Cell answers herself, once, instead
         # of asking the human again for every later file (hivemind.queen.leave_memory).
         self._leave_memory: dict[tuple[TaskId, CellId], leave_memory.LeaveMemoryEntry] = {}
-        # A task's own retry count: TRANSITIONS has no edge back from RUNNING for `Task.attempt` to
-        # track it (see hivemind.queen.dispatcher.redispatch); absent means its first attempt (1).
+        # A task's own retry count: a retry stays placed, so `Task.attempt`, which only a fresh
+        # placement advances, does not track it (hivemind.queen.dispatcher.redispatch); absent
+        # means its first attempt (1).
         self._attempts: dict[TaskId, int] = {}
         # The Alarm behind a still-outstanding REBIND/RETRY_TASK, so a later COMPLETE_TASK for the
         # same task can record alarm.resolved (this dispatch's own fix 3d); populated by
