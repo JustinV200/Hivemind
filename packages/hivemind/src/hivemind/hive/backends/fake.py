@@ -312,12 +312,7 @@ class FakeCellBackend(_FakeEgress):
             raise CellProvisionError(self.name, spec.image, f"at its headroom of {headroom} cells")
         cell_id = await self._mint_cell_id(spec)
         cell = _build_cell(spec, self.name, cell_id)
-        # hive_id first so a caller's own spec.labels can never shadow the id the sweep relies on.
-        labels = {**spec.labels, "hive_id": spec.hive_id}
-        bootstrap = self.bootstraps.get(cell_id)
-        if bootstrap is not None:
-            # Its public key, as every real backend stamps it, for a restarted Queen (ADR-0062).
-            labels.update(bootstrap.key_labels())
+        labels = _labels(spec, self.bootstraps.get(cell_id))
         self._cells[cell.id] = _TrackedCell(
             cell=cell, status=VirtualCellStatus.READY, labels=labels, created_at=self._clock.now()
         )
@@ -542,3 +537,13 @@ class FakeReadinessGate:
         self.forget_calls.append(cell_id)
         self._never_ready.discard(cell_id)
         self._ready_info.pop(cell_id, None)
+
+
+def _labels(spec: VirtualCellSpec, bootstrap: CellBootstrap | None) -> dict[str, str]:
+    """Return a fake Cell's labels: the caller's own, its Hive's id, and its key once minted."""
+    # hive_id after the caller's own, so spec.labels can never shadow the id the sweep relies on.
+    labels = {**spec.labels, "hive_id": spec.hive_id}
+    if bootstrap is not None:
+        # Its public key, as every real backend stamps it, for a restarted Queen (ADR-0062).
+        labels.update(bootstrap.key_labels())
+    return labels

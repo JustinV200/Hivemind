@@ -380,20 +380,11 @@ def _build_container_spec(
     spec: VirtualCellSpec, bootstrap: CellBootstrap, network_plan: NetworkPlan, volume_name: str
 ) -> ContainerSpec:
     """Map VirtualCellSpec onto ContainerSpec: resource limits, labels and least-privilege flags."""
-    labels = {
-        **spec.labels,
-        _LABEL_HIVE_ID: str(spec.hive_id),
-        _LABEL_CELL_ID: bootstrap.cell_id,
-        _LABEL_IMAGE: spec.image,
-        _LABEL_COMB_SHIELD: spec.comb_shield.value,
-        # Its public key, so a restarted Queen can verify it again when it redials (ADR-0062).
-        **bootstrap.key_labels(),
-    }
     return ContainerSpec(
         name=container_name(bootstrap.cell_id),
         image=spec.image,
         environment=bootstrap.environment(),
-        labels=labels,
+        labels=_container_labels(spec, bootstrap),
         # Dual-homed: created on the control network; its own is attached before it starts.
         network_name=network_plan.control or network_plan.spec.name,
         extra_hosts=network_plan.extra_hosts,
@@ -428,6 +419,19 @@ def _build_container_spec(
         if spec.comb_shield is CombShieldLevel.NIGHT_VEIL
         else None,
     )
+
+
+def _container_labels(spec: VirtualCellSpec, bootstrap: CellBootstrap) -> dict[str, str]:
+    """Return a Cell container's labels: the caller's own, then every `hivemind.*` one over them."""
+    return {
+        **spec.labels,
+        _LABEL_HIVE_ID: str(spec.hive_id),
+        _LABEL_CELL_ID: bootstrap.cell_id,
+        _LABEL_IMAGE: spec.image,
+        _LABEL_COMB_SHIELD: spec.comb_shield.value,
+        # Its public key, so a restarted Queen can verify it again when it redials (ADR-0062).
+        **bootstrap.key_labels(),
+    }
 
 
 def _plan(
