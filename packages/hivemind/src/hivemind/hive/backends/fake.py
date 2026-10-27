@@ -314,6 +314,10 @@ class FakeCellBackend(_FakeEgress):
         cell = _build_cell(spec, self.name, cell_id)
         # hive_id first so a caller's own spec.labels can never shadow the id the sweep relies on.
         labels = {**spec.labels, "hive_id": spec.hive_id}
+        bootstrap = self.bootstraps.get(cell_id)
+        if bootstrap is not None:
+            # Its public key, as every real backend stamps it, for a restarted Queen (ADR-0062).
+            labels.update(bootstrap.key_labels())
         self._cells[cell.id] = _TrackedCell(
             cell=cell, status=VirtualCellStatus.READY, labels=labels, created_at=self._clock.now()
         )

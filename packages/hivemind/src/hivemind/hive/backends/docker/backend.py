@@ -386,6 +386,8 @@ def _build_container_spec(
         _LABEL_CELL_ID: bootstrap.cell_id,
         _LABEL_IMAGE: spec.image,
         _LABEL_COMB_SHIELD: spec.comb_shield.value,
+        # Its public key, so a restarted Queen can verify it again when it redials (ADR-0062).
+        **bootstrap.key_labels(),
     }
     return ContainerSpec(
         name=container_name(bootstrap.cell_id),

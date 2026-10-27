@@ -523,9 +523,12 @@ async def test_reconcile_never_overwrites_an_already_tracked_record() -> None:
     # backend.list_cells would report this same cell as READY too (FakeCellBackend's own default
     # status on provision), so this only proves the already-known branch is a genuine no-op: a
     # bug that instead re-inserted a fresh record here would silently lose the warden_id below.
-    await lifecycle.reconcile(hive_id)
+    listed = await lifecycle.reconcile(hive_id)
 
     assert lifecycle.status_of(cell.id) is VirtualCellStatus.READY
+    # Listed all the same: a Cell this process knew is still one a restarted Queen re-arms her
+    # gate for (ADR-0062).
+    assert [record.cell_id for record in listed] == [cell.id]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

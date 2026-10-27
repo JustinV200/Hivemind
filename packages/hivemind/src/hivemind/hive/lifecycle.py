@@ -350,9 +350,14 @@ class CellLifecycle:
         """Return every Cell this lifecycle currently tracks, in no particular order."""
         return tuple(self._cells.values())
 
-    async def reconcile(self, hive_id: HiveId) -> None:
-        """Rebuild the live table from every backend's own `list_cells`. See `_reconcile`."""
-        await _reconcile(self, hive_id)
+    async def reconcile(self, hive_id: HiveId) -> tuple[VirtualCellRecord, ...]:
+        """Rebuild the live table from every backend's own `list_cells`. See `_reconcile`.
+
+        Returns:
+            Every Cell the backends hold for `hive_id` now, labels included: what a restarted
+            Queen re-arms her readiness gate from (ADR-0062).
+        """
+        return await _reconcile(self, hive_id)
 
     async def provision(self, spec: VirtualCellSpec, backend_name: str) -> Cell:
         """Provision a fresh Virtual Cell from `spec` on `backend_name`. See `_provision`."""
@@ -426,21 +431,26 @@ class CellLifecycle:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-async def _reconcile(lifecycle: CellLifecycle, hive_id: HiveId) -> None:
+async def _reconcile(lifecycle: CellLifecycle, hive_id: HiveId) -> tuple[VirtualCellRecord, ...]:
     """Rebuild `lifecycle`'s table from every registered backend's own `list_cells(hive_id)`.
 
     Codingrules Appendix C: "Backend labels are the source of truth; the table is reconciled
-    against them." Called once, at Queen startup, before any other method on this class.
+    against them." Called once, at Queen startup, before any other method on this class. Every
+    record listed is returned, a Cell this process already knew included, because each one's
+    labels are what its Warden is verified by after a restart (ADR-0062).
     """
+    listed: list[VirtualCellRecord] = []
     for name in lifecycle._registry.names():
         backend = lifecycle._registry.get(name)
         for record in await backend.list_cells(hive_id):
+            listed.append(record)
             if record.cell_id in lifecycle._cells:
                 continue  # Already known: this process provisioned it before reconciling.
             lifecycle._cells[record.cell_id] = _from_backend_record(record, name)
     # A Night Veil Cell that outlived the restart is veiled again; one gone unpurged is purged.
     tiers = {cell_id: live.comb_shield for cell_id, live in lifecycle._cells.items()}
     await boundary.sweep_night_veil(lifecycle._night_veil, tiers)
+    return tuple(listed)
 
 
 async def _provision(lifecycle: CellLifecycle, spec: VirtualCellSpec, backend_name: str) -> Cell:

@@ -35,6 +35,8 @@ Fits into the Hive:
     and waggle.signing only.
 
 Key invariants:
+    - Only the public half of a Cell's key ever leaves as a label (`CELL_KEY_LABEL`,
+      `CellBootstrap.key_labels`); the private half reaches the Cell's environment alone.
     - `CellBootstrap.private_key_hex` is a pydantic `SecretStr`: its own `repr` redacts the value,
       so the default dataclass repr (and any log line, per codingrules 13/15) never shows key
       material; only `environment()` calls `get_secret_value()`, and only to hand the key to the
@@ -125,7 +127,13 @@ _ENV_LLM_OFFLINE = "HIVEMIND_LLM_OFFLINE"
 _WEBSOCKET_SCHEME = "ws://"  # Tor authenticates and encrypts an onion service end to end.
 _SCHEME_SEPARATOR = "://"  # A hidden-service address written as a whole URL keeps its scheme.
 
+# The label every backend stamps on a Cell with its public key (never the private half), so a
+# restarted Queen re-arms her readiness gate from backend labels alone and the Cell's Warden can
+# prove itself again when it redials (ADR-0062). A public key is no secret.
+CELL_KEY_LABEL = "hivemind.cell_key"
+
 __all__ = [
+    "CELL_KEY_LABEL",
     "CellBootstrap",
     "CellReadyInfo",
     "NightVeilLink",
@@ -266,6 +274,15 @@ class CellBootstrap:
     endpoint: QueenEndpoint
     private_key_hex: SecretStr
     public_key_hex: str
+
+    def key_labels(self) -> dict[str, str]:
+        """Return the label that carries this Cell's public key, for its backend to stamp.
+
+        Returns:
+            `{CELL_KEY_LABEL: public_key_hex}`: the one fact about the Cell's identity a backend
+            keeps beside it, so a restarted Queen can verify the Cell again (ADR-0062).
+        """
+        return {CELL_KEY_LABEL: self.public_key_hex}
 
     def environment(self) -> Mapping[str, str]:
         """Render exactly the HIVEMIND_* variables images/base-ubuntu's entry point reads.

@@ -34,6 +34,8 @@ Public API:
     - FakeCellBackend: the in-memory reference implementation (hivemind.hive.backends.fake).
     - CellBootstrap, QueenEndpoint, ReadinessGate, CellReadyInfo, mint_cell_bootstrap: the
       backend-independent provisioning seam (hivemind.hive.backends.bootstrap).
+    - CELL_KEY_LABEL: the label carrying a Cell's public key, which a restarted Queen re-arms
+      her readiness gate from (ADR-0062).
     - FakeReadinessGate: the in-memory ReadinessGate (hivemind.hive.backends.fake).
     - DockerCellBackend, build_docker_backend: the Docker backend and its registry factory
       (hivemind.hive.backends.docker).
@@ -50,6 +52,7 @@ from hivemind.hive.backends.base import (
     VirtualCellRecord,
 )
 from hivemind.hive.backends.bootstrap import (
+    CELL_KEY_LABEL,
     CellBootstrap,
     CellReadyInfo,
     QueenEndpoint,
@@ -61,6 +64,7 @@ from hivemind.hive.backends.fake import FakeCellBackend, FakeReadinessGate
 from hivemind.hive.backends.qemu import QemuCellBackend, build_qemu_backend
 
 __all__ = [
+    "CELL_KEY_LABEL",
     "BackendCapabilities",
     "CellBackend",
     "CellBootstrap",

@@ -25,7 +25,7 @@ import pytest
 from builders.forage import make_capacity
 
 from hivemind.cell import CombShieldLevel
-from hivemind.hive.backends.bootstrap import NightVeilLink, QueenEndpoint
+from hivemind.hive.backends.bootstrap import CELL_KEY_LABEL, NightVeilLink, QueenEndpoint
 from hivemind.hive.backends.docker.backend import (
     _DEFAULT_PIDS_LIMIT,
     DockerBackendConfig,
@@ -40,6 +40,7 @@ from hivemind.hive.night_veil import CheckStatus
 from hivemind.hive.night_veil.judges import judge_hostname
 from waggle.clock import FakeClock
 from waggle.ids import new_hive_id, new_node_id
+from waggle.signing import Ed25519Signer, public_key_hex
 
 
 def _make_spec(**overrides: object) -> VirtualCellSpec:
@@ -136,6 +137,10 @@ async def test_provision_stamps_required_labels_over_a_callers_own() -> None:
     assert labels["hivemind.image"] == spec.image  # hivemind.* always wins over a caller's own.
     assert labels["hivemind.comb_shield"] == spec.comb_shield.value
     assert labels["team"] == "hive"  # A caller's own, non-colliding label survives.
+    # ADR-0062: the Cell's public key (the half of the key it signs with), never the private one.
+    environment = client.create_container_calls[0].environment
+    signer = Ed25519Signer(bytes.fromhex(environment["HIVEMIND_CELL_SIGNING_KEY"]))
+    assert labels[CELL_KEY_LABEL] == public_key_hex(signer.public_key_bytes)
 
 
 @pytest.mark.parametrize(

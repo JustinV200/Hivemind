@@ -253,7 +253,8 @@ class QemuCellBackend:
             memory_bytes=spec.memory_bytes,
             accelerator=await self._runner.accelerator(),
             netdev_arg=plan.netdev_arg,
-            labels={**spec.labels, "hive_id": str(spec.hive_id)},
+            # The Cell's public key rides with it, for a restarted Queen's gate (ADR-0062).
+            labels={**spec.labels, "hive_id": str(spec.hive_id), **bootstrap.key_labels()},
         )
         await self._runner.start_vm(vm_spec)
         await self._wait_for_serial_marker(cell_id, spec.ready_timeout_s)

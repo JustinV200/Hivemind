@@ -43,6 +43,8 @@ Public API:
     - CellBootstrap, QueenEndpoint, ReadinessGate, CellReadyInfo, mint_cell_bootstrap,
       FakeReadinessGate: the backend-independent identity and readiness seam every CellBackend
       provisions through, and its in-memory implementation (hivemind.hive.backends).
+    - CELL_KEY_LABEL: the label carrying a Cell's public key, read back by a restarted Queen
+      (hivemind.hive.backends, ADR-0062).
     - DockerCellBackend, build_docker_backend: the first working CellBackend, over a Docker
       daemon, and the factory a composition root hands to BackendRegistry.register
       (hivemind.hive.backends).
@@ -85,6 +87,7 @@ from hivemind.hive.attestation import (
     PropolisProbeFactory,
 )
 from hivemind.hive.backends import (
+    CELL_KEY_LABEL,
     BackendCapabilities,
     CellBackend,
     CellBootstrap,
@@ -174,6 +177,7 @@ from hivemind.hive.snapshot import (
 )
 
 __all__ = [
+    "CELL_KEY_LABEL",
     "CHECK_NAMES",
     "EGRESS_TIMEOUT_S",
     "PROPOLIS_CHECK_NAMES",
