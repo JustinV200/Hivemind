@@ -7,7 +7,9 @@ her, and their Wardens, now redialing her (ADR-0062), were refused at the handsh
 now stamps the public key on the Cell as a label (`hivemind.hive.CELL_KEY_LABEL`), and
 `rearm_gate` reads every backend's live Cells at her start and registers each key the gate does not
 already hold. It returns what it listed: the Virtual Cells that outlived her, which Requeening
-waits for (`hivemind.queen.requeening.RequeeningStart.virtual_cells`).
+waits for (`hivemind.queen.requeening.RequeeningStart.virtual_cells`). A Cell the trail shows Sting
+Cut (roadmap step 13.4a) is neither armed nor listed: its key was forgotten on purpose, so its
+Warden must never prove itself again, and nothing waits for it to come back.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.cell_gate`. Called
@@ -21,6 +23,7 @@ Key invariants:
       process provisioned keeps the readiness wait its provisioning registered.
     - A label that is not a well-formed Ed25519 public key registers nothing: such a Cell's Warden
       can never prove itself, and is left to the Undertaker.
+    - A Cell named in `cut` is never armed, whatever its labels say.
     - Nothing but the public key is read from a label, and only backend labels (infrastructure the
       Hive stamps itself) are read: a Cell cannot name its own key.
 
@@ -34,7 +37,7 @@ from __future__ import annotations
 from hivemind.common.logging import get_logger
 from hivemind.hive import CELL_KEY_LABEL, BackendRegistry, VirtualCellRecord
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
-from waggle.ids import HiveId
+from waggle.ids import CellId, HiveId
 from waggle.signing import public_key_from_hex
 
 log = get_logger(__name__)
@@ -43,7 +46,10 @@ __all__ = ["rearm_gate"]
 
 
 async def rearm_gate(
-    gate: QueenReadinessGate, registry: BackendRegistry, hive_id: HiveId
+    gate: QueenReadinessGate,
+    registry: BackendRegistry,
+    hive_id: HiveId,
+    cut: frozenset[CellId] = frozenset(),
 ) -> tuple[VirtualCellRecord, ...]:
     """Register the key of every live Virtual Cell the gate does not already expect.
 
@@ -51,15 +57,18 @@ async def rearm_gate(
         gate: The Queen's readiness gate, which her Cell listener verifies handshakes against.
         registry: Every Virtual Cell backend this Hive wires.
         hive_id: This Hive; each backend lists only its Cells.
+        cut: The Cells the trail shows Sting Cut; skipped, never armed.
 
     Returns:
-        Every Cell the backends list for this Hive now, in backend order.
+        Every Cell the backends list for this Hive now, but the cut ones, in backend order.
     """
     listed: list[VirtualCellRecord] = []
     for name in registry.names():
         # External await: one backend's own listing (a Docker or QEMU query), bounded by its
         # client's timeout; a failure propagates, as reconcile's own listing would.
         for record in await registry.get(name).list_cells(hive_id):
+            if record.cell_id in cut:
+                continue  # Cut off for good (roadmap 13.4a): its key stays forgotten.
             listed.append(record)
             await _expect(gate, record)
     return tuple(listed)

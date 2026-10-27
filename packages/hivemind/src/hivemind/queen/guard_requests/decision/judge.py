@@ -5,9 +5,9 @@ durable state plus the triggering event. For a Guard request (roadmap step 10.6a
 event is the report's facts: its id, rule, confidence, recommendation, the Cell, bees, tasks and
 grants it names, how many trail events it cites and the rule's own sentence built from ids and
 counts. No content reaches the episode, because the trail the report was built from carries none.
-The episode may answer ISOLATE_CELL, QUARANTINE_BEE or DISMISS only (`AWAKE_ACTIONS`). When her
-awake mode is unavailable (her model's provider is clustered), when the episode fails on every
-rung, or when it answers anything else, the decision is the autopilot fallback, ISOLATE_CELL
+The episode may answer ISOLATE_CELL, STING_CUT, QUARANTINE_BEE or DISMISS only (`AWAKE_ACTIONS`).
+When her awake mode is unavailable (her model's provider is clustered), when the episode fails on
+every rung, or when it answers anything else, the decision is the autopilot fallback, ISOLATE_CELL
 (QUARANTINE_BEE with no Cell to isolate), because isolation only removes access.
 
 Fits into the Hive:
@@ -33,7 +33,13 @@ from hivemind.cell import HoneyClearance
 from hivemind.guard import GuardReport
 from hivemind.llm.errors import LLMError
 from hivemind.memory import ContextOverflowError, TriggerEvent
-from hivemind.queen.autopilot import AWAKE_ACTIONS, QueenAction, effort_for, fallback_action
+from hivemind.queen.autopilot import (
+    AWAKE_ACTIONS,
+    CELL_ACTIONS,
+    QueenAction,
+    effort_for,
+    fallback_action,
+)
 from hivemind.queen.awake import EpisodeExtras, QueenSources, decide_awake
 from hivemind.queen.cluster import awake_available
 from hivemind.queen.guard_requests.model import GuardBasis
@@ -48,8 +54,11 @@ DECISION_HINT = (
     "A Guard request is a security finding the Guard Bee cannot act on alone. Decide exactly one "
     "action: ISOLATE_CELL cuts the Cell off (its grant revoked, its bees paused, nothing placed "
     "there, its egress cut, its memory tainted from the first cited event; only the human can "
-    "lift it), QUARANTINE_BEE holds only the implicated bees' tasks and taints their memory, "
-    "DISMISS leaves everything as it is (the report stays on the trail and the human sees it). "
+    "lift it), STING_CUT isolates it and then cuts it off entirely (its lease released, its "
+    "processes killed, its scratch removed, its key forgotten, a snapshot kept first; only when "
+    "nothing short of that would contain it), QUARANTINE_BEE holds only the implicated bees' "
+    "tasks and taints their memory, DISMISS leaves everything as it is (the report stays on the "
+    "trail and the human sees it). "
     "Put why in `reason`, naming ids only."
 )
 _EPISODE_FAILURES: tuple[type[Exception], ...] = (LLMError, ContextOverflowError)
@@ -94,7 +103,7 @@ async def judge_guard_request(
         return fallback  # Every rung and binding failed: never a crashed tick over a request.
     await record_event(deps, "queen.awake", deps.identity.hive_id, event_kind=TRIGGER_KIND)
     usable = decision.action in AWAKE_ACTIONS and not (
-        decision.action is QueenAction.ISOLATE_CELL and target is None
+        decision.action in CELL_ACTIONS and target is None
     )
     return (decision.action, GuardBasis.AWAKE) if usable else fallback
 

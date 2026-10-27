@@ -300,7 +300,6 @@ PENDING_POINTS: Mapping[P, str] = MappingProxyType(
         # set itself; what is left is refusing through this point, on the trail.
         P.HONEY_ACCESS: "a phase 7 follow-up (the store checks the set, not the Guard)",
         P.TACTIC_INVOCATION: "phase 6 (the Pheromone Mask tactics)",
-        P.STING_CUT: "phase 13 (Sting Cut)",
         P.SUPERSEDURE: "phase 13 (Supersedure)",
         P.ABSCONDING: "phase 13 (Absconding)",
         # Phase 9: the Basket's receiver decides clearance, taint and tier by rule from the start;

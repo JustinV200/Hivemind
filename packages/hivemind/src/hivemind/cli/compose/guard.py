@@ -11,7 +11,8 @@ shared by the Queen and the Hive Stand's Warden) decides against. Roadmap step 1
 `build_guard_deps` builds the Queen's side of a Guard request (`QueenDeps.guard`): her durable
 request table (`HiveStores.guard_requests`, on the `[hive] db` file), `[guard] dire_patterns`, and
 the egress seam isolation cuts a Virtual Cell's network through (the Hive's own `CellLifecycle`,
-when it has a Virtual side).
+when it has a Virtual side); roadmap step 13.4a adds `[guard.sting_cut]` and the Virtual side's
+Sting Cut seam (`VirtualCellsParts.cut`).
 Roadmap step 10.6: `with_guard` gives the Queen that side and the Guard Bee (the Hive's security
 watcher, run on her tick) together. The Guard Bee files through her own door, and she is built
 after it (it rides on her deps), so it is handed a `GuardDoorRelay` the composition root binds to
@@ -26,7 +27,8 @@ Fits into the Hive:
     `hivemind.cli.compose.hive.build_hive` (through `hivemind.cli.compose.deps`, which re-exports
     `build_enforcer`). Calls into `hivemind.cell` (CellIdentity), `hivemind.guard` (the policy
     loader, `Enforcer`, `HiveState`, the address helpers), `hivemind.manifest`,
-    `hivemind.pheromone`, `hivemind.hive` (CellLifecycle, LifecycleEgress), `hivemind.queen.
+    `hivemind.pheromone`, `hivemind.hive` (LifecycleEgress), `hivemind.cli.compose.virtual_cells`
+    (VirtualCellsParts), `hivemind.queen.
     guard_requests` (GuardDeps, GuardRequestStore), `hivemind.queen` (QueenDeps),
     `hivemind.supervision.capping` (TierTable), `hivemind.workers.roles.guard_bee`
     (build_guard_bee), `hivemind.common.secrets` (FileSecretStore, the scanner's key),
@@ -56,6 +58,7 @@ from pathlib import Path
 import psutil
 
 from hivemind.cell import CellIdentity
+from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.common.secrets import FileSecretStore
 from hivemind.guard import (
     Enforcer,
@@ -68,7 +71,6 @@ from hivemind.guard.net import IPAddress, ip_literal
 from hivemind.guard.policy import HiveState
 from hivemind.guard.scanner import ContentHasher, ContentScanner, load_scan_patterns
 from hivemind.hive import LifecycleEgress
-from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import QueenDeps
@@ -109,26 +111,30 @@ def build_enforcer(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) 
 
 
 def build_guard_deps(
-    manifest: HiveManifest, lifecycle: CellLifecycle | None, requests: GuardRequestStore
+    manifest: HiveManifest, virtual: VirtualCellsParts | None, requests: GuardRequestStore
 ) -> GuardDeps:
-    """Build the Queen's side of a Guard request from the manifest (roadmap step 10.6a).
+    """Build the Queen's side of a Guard request from the manifest (roadmap steps 10.6a, 13.4a).
 
     Args:
         manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[guard]
-            dire_patterns` is read.
-        lifecycle: The Hive's Virtual Cell lifecycle, when `[virtual_cells] backend` is set; None
-            leaves isolation with no egress to cut (every Cell is then Real, left as found).
+            dire_patterns` and `[guard.sting_cut]` are read.
+        virtual: The Hive's Virtual side, when `[virtual_cells] backend` is set; None leaves
+            isolation no egress to cut and a Sting Cut no Virtual side (every Cell is then Real).
         requests: The Hive's Guard request table (`HiveStores.guard_requests`): the SQLite one on
             the Hive's own file, durable across a restart, which a Night Veil teardown clears too.
 
     Returns:
         GuardDeps over `requests`.
     """
-    egress = LifecycleEgress(lifecycle) if lifecycle is not None else None
+    egress = LifecycleEgress(virtual.lifecycle) if virtual is not None else None
+    sting_cut = manifest.guard.sting_cut
     return GuardDeps(
         requests=requests,
         dire_patterns=frozenset(manifest.guard.dire_patterns),
         egress=egress,
+        sting_cut_patterns=frozenset(sting_cut.dire_patterns),
+        max_sting_cuts_per_hour=sting_cut.max_autonomous_sting_cuts_per_hour,
+        cut=virtual.cut if virtual is not None else None,
     )
 
 
@@ -161,7 +167,7 @@ class GuardDoorRelay:
 def with_guard(
     manifest: HiveManifest,
     queen_deps: QueenDeps,
-    lifecycle: CellLifecycle | None,
+    virtual: VirtualCellsParts | None,
     tiers: TierTable,
     requests: GuardRequestStore,
 ) -> tuple[QueenDeps, GuardDoorRelay]:
@@ -171,7 +177,7 @@ def with_guard(
         manifest: The loaded manifest; `[hive]` and `[guard]` are read.
         queen_deps: The Queen's collaborators, all but these two: the Guard Bee reads her trail,
             clock, Guard policy, slot resolver and call gate (the Royal Reserve's seats).
-        lifecycle: The Hive's Virtual Cell lifecycle, when it has a Virtual side.
+        virtual: The Hive's Virtual side, when it has one.
         tiers: The Hive Stand Warden's Capping tier table, the rates a raise starts from.
         requests: The Hive's Guard request table (`build_guard_deps`).
 
@@ -191,7 +197,7 @@ def with_guard(
         bound_for=queen_deps.bound_for,
         call_gate=queen_deps.call_gate,
     )
-    guard = build_guard_deps(manifest, lifecycle, requests)
+    guard = build_guard_deps(manifest, virtual, requests)
     deps = dataclasses.replace(queen_deps, guard=guard, guard_bee=build_guard_bee(inputs))
     return deps, door
 

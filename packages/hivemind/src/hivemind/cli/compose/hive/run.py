@@ -27,7 +27,8 @@ Fits into the Hive:
     `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive),
     `hivemind.cli.entrance.serving` (hold_queen_lock), `hivemind.queen`
     (requeue_unfinished), `hivemind.queen.attach` (detach_warden, to unwind a failed start),
-    `hivemind.queen.cell_gate` (rearm_gate), `hivemind.queen.requeening` (begin_requeening) and the
+    `hivemind.queen.cell_gate` (rearm_gate), `hivemind.queen.sting_cut` (cut_cell_ids),
+    `hivemind.queen.requeening` (begin_requeening) and the
     Queen, Warden, House Bee and Swarm gate a Hive holds only.
 
 Key invariants:
@@ -76,6 +77,7 @@ from hivemind.queen import requeue_unfinished
 from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate import rearm_gate
 from hivemind.queen.requeening import RequeeningStart, begin_requeening
+from hivemind.queen.sting_cut import cut_cell_ids
 from waggle.ids import CellId
 
 _QUEEN_HOLDER = "a running Queen"  # What the Queen lock's file says while this process holds it.
@@ -219,7 +221,9 @@ async def _open(hive: Hive) -> None:
         # ADR-0062: a Cell that outlived the last Queen proves itself with the key its labels
         # carry; without this, its redialing Warden would be refused at the handshake.
         gate, registry = hive.virtual_cells.gate, hive.virtual_cells.registry
-        listed = await rearm_gate(gate, registry, hive.manifest.hive.id)
+        # Roadmap 13.4a: a Cell the trail shows Sting Cut stays forgotten. Latency: one local read.
+        cut = await cut_cell_ids(hive.queen_deps.trail)
+        listed = await rearm_gate(gate, registry, hive.manifest.hive.id, cut)
     if hive.swarm is not None:
         # Roadmap step 11.6: after the Hive Stand's Warden is attached and the Virtual side is open,
         # so the Queen has her own Cell to place on before a device's Warden joins her; devices

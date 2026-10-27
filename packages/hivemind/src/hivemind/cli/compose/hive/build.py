@@ -397,10 +397,9 @@ def _build_queen(parts: HiveParts, extras: _AssemblyExtras, warden_deps: WardenD
         dispatch=DispatchBook(waits=waits),
     )
     # Roadmap steps 10.6a and 10.6: her Guard request side, and the Guard Bee filing through her.
-    lifecycle = extras.virtual_cells.lifecycle if extras.virtual_cells is not None else None
     requests = parts.stores.guard_requests
     queen_deps, door = with_guard(
-        parts.manifest, queen_deps, lifecycle, warden_deps.tiers, requests
+        parts.manifest, queen_deps, extras.virtual_cells, warden_deps.tiers, requests
     )
     queen = Queen(queen_deps)
     door.bind(queen)  # Before anything ticks: she is the Guard Bee's door (Hive.guard_door).

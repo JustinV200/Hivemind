@@ -291,7 +291,8 @@ class CellLifecycle:
         # parameter -- __init__ is already at codingrules 5.1's five-parameter limit with
         # registry/trail/clock/identity/overwinter, and this field is optional for every Hive
         # that has no SnapshotLedger yet (every pre-5.10 caller keeps building unchanged).
-        self._snapshot_ledger: SnapshotLedgerPort | None = None
+        # Read, never assigned, outside this class: a Sting Cut keeps its evidence through it.
+        self.snapshot_ledger: SnapshotLedgerPort | None = None
         # Set post-construction too (attach_night_veil), for the same five-parameter reason; a
         # lifecycle with none never purges, which only a Hive with no Night Veil tier can afford.
         self._night_veil: boundary.NightVeilBoundary | None = None
@@ -306,7 +307,7 @@ class CellLifecycle:
                 shares (roadmap step 5.10). Optional: a `CellLifecycle` no one ever calls this on
                 simply skips the cleanup step in `teardown()`, matching pre-5.10 behaviour.
         """
-        self._snapshot_ledger = ledger
+        self.snapshot_ledger = ledger
 
     def attach_night_veil(self, night_veil: boundary.NightVeilBoundary) -> None:
         """Attach the Night Veil boundary, so every Night Veil Cell is veiled and purged.
@@ -616,7 +617,7 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
 
     Removes the record from `lifecycle`'s table once destroyed, mirroring `CellBackend.
     list_cells`'s own contract: a destroyed Cell is gone, not archived. Also deletes this Cell's
-    own snapshots from `lifecycle._snapshot_ledger`, when one is configured (roadmap step 5.10):
+    own snapshots from `lifecycle.snapshot_ledger`, when one is configured (roadmap step 5.10):
     a snapshot's own image/qcow2 state dies with the Cell's backend resources, so its ledger
     record should not outlive it either.
 
@@ -630,8 +631,8 @@ async def _teardown(lifecycle: CellLifecycle, cell_id: CellId) -> None:
     await lifecycle._record(cell_id, "cell.destroying")
     backend = lifecycle._registry.get(record.backend)
     await backend.destroy(cell_id)  # CellDestroyError propagates; record stays DESTROYING.
-    if lifecycle._snapshot_ledger is not None:
-        lifecycle._snapshot_ledger.delete_for_cell(cell_id)  # Roadmap 5.10: snapshots die with it.
+    if lifecycle.snapshot_ledger is not None:
+        lifecycle.snapshot_ledger.delete_for_cell(cell_id)  # Roadmap 5.10: snapshots die with it.
     assert_transition(record.status, VirtualCellStatus.DESTROYED, cell_id=cell_id)
     await lifecycle._record(cell_id, "cell.destroyed")
     del lifecycle._cells[cell_id]

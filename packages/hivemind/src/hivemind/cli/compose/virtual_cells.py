@@ -202,6 +202,7 @@ from hivemind.queen.cell_gate import (
     make_quiesce,
     make_scrub,
 )
+from hivemind.queen.cell_gate.scrub import ScrubTerms
 from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
 from hivemind.queen.deps import (
     DormantCellSource,
@@ -214,12 +215,19 @@ from hivemind.queen.dispatcher.snapshot import (
     virtual_backend_candidate_from_lifecycle,
 )
 from hivemind.queen.placement import DormantCandidate, VirtualBackendCandidate
+from hivemind.queen.sting_cut import CellCut
+from hivemind.queen.sting_cut.virtual import LifecycleCellCut
 from hivemind.queen.trail import TrailSegmentReceiver
 from waggle.clock import Clock
 from waggle.ids import HiveId
 from waggle.messages import OsFamily as WireOsFamily
 from waggle.signing import Ed25519Signer
 
+# What a Sting Cut's scrub order tells the Cell's Warden, which records it (roadmap 13.4a).
+_CUT_SCRUB_REASON = (
+    "Sting Cut: stop every sub-bee, kill what the lease started and remove its scratch; this Cell "
+    "is cut off."
+)
 _VIRTUAL_CELL_ARCH = "x86_64"  # images/ is Ubuntu-based (codingrules section 2).
 
 __all__ = ["VirtualCellsParts", "build_virtual_cells", "docker_gateway_url"]
@@ -246,6 +254,7 @@ class VirtualCellsParts:
         night_veil: The Night Veil boundary every Virtual Cell's records pass through; its
             segments sit behind the `VeiledTrail` every Queen-side writer records through, and
             an Absconding purges through it.
+        cut: The Sting Cut's Virtual side (roadmap 13.4a): evidence, scrub, key, teardown.
         prepare: Awaited by `run_hive` before the listener starts: makes or reuses the Docker
             control network whose gateway the listener binds (roadmap step 10.6a); a no-op for a
             Hive with no control subnet.
@@ -263,6 +272,7 @@ class VirtualCellsParts:
     retire_all: RetireAll
     night_veil: NightVeilBoundary
     prepare: Callable[[], Awaitable[None]]
+    cut: CellCut
 
 
 def build_virtual_cells(
@@ -285,8 +295,7 @@ def build_virtual_cells(
             Cell outliving her restart verifies the next Queen; `None` (offline) mints a throwaway.
 
     Returns:
-        A VirtualCellsParts ready for `hivemind.cli.compose.hive.build_hive` to fold into
-        `QueenDeps` and `run_hive` to start/stop, or `None` when no Virtual side is configured.
+        The parts `build_hive` folds into `QueenDeps` and `run_hive` starts, or None (no backend).
     """
     section = manifest.virtual_cells
     if section.backend is None:
@@ -300,7 +309,7 @@ def build_virtual_cells(
     provider = _build_provider(manifest, lifecycle, gate, night_veil.veiled, clock)
     # No Queen yet: only a getter over the provider's late-bound one reaches her at teardown.
     quiesce = make_quiesce(lambda: provider.queen, clock)
-    scrub = _build_scrub(manifest, listener, provider, night_veil.veiled, clock)
+    scrub, cut_scrub = _build_scrub(manifest, listener, provider, night_veil.veiled, clock)
     return VirtualCellsParts(
         registry=registry,
         gate=gate,
@@ -314,6 +323,7 @@ def build_virtual_cells(
         retire_all=make_retire_all(lifecycle, quiesce),
         night_veil=night_veil,
         prepare=lambda: prepare_backend(ctx),
+        cut=LifecycleCellCut(lifecycle, gate, cut_scrub, clock),
     )
 
 
@@ -408,12 +418,13 @@ def _build_scrub(
     provider: LifecycleVirtualCellProvider,
     trail: VeiledTrail,
     clock: Clock,
-) -> Scrubber:
-    """Build the Overwintering scrub: an order to the Cell's own Warden, its answer awaited.
+) -> tuple[Scrubber, Scrubber]:
+    """Build the Overwintering scrub and the Sting Cut's: an order to the Cell's Warden, awaited.
 
     Split out of `build_virtual_cells` for its own line budget (codingrules 5.1). The listener
-    hands each answer to its wait on the Cell's own pump, so the `ScrubAcks` both share is bound
-    here; the Queen is read late through `provider.queen`, as `make_quiesce`'s getter does.
+    hands each answer to its wait on the Cell's own pump, so the `ScrubAcks` every scrub shares is
+    bound here; the Queen is read late through `provider.queen`, as `make_quiesce`'s getter does.
+    The two differ only in what the order tells the Warden (roadmap 13.4a).
     """
     acks = ScrubAcks()
     listener.bind_answer_claims(acks)
@@ -421,7 +432,11 @@ def _build_scrub(
     recorder = TrailRecorder(
         trail=trail, clock=clock, hive_id=manifest.hive.id, node_id=manifest.hive.node_id
     )
-    return make_scrub(lambda: provider.queen, acks, clock, recorder)
+    pool = make_scrub(lambda: provider.queen, acks, clock, recorder)
+    cut = make_scrub(
+        lambda: provider.queen, acks, clock, recorder, ScrubTerms(reason=_CUT_SCRUB_REASON)
+    )
+    return pool, cut
 
 
 def _attach_snapshot(

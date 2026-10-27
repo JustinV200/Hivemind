@@ -83,7 +83,7 @@ _SCRUB_REASON = (
     "is paused for reuse."
 )
 
-__all__ = ["SCRUB_FAILED_KIND", "SCRUB_TIMEOUT_S", "ScrubAcks", "make_scrub"]
+__all__ = ["SCRUB_FAILED_KIND", "SCRUB_TIMEOUT_S", "ScrubAcks", "ScrubTerms", "make_scrub"]
 
 log = get_logger(__name__)
 
@@ -176,13 +176,25 @@ class ScrubAcks:
         return True
 
 
+@dataclass(frozen=True, slots=True)
+class ScrubTerms:
+    """How one kind of scrub runs: how long it waits, and what its order tells the Warden.
+
+    Attributes:
+        timeout_s: The longest a scrub waits for its answer; must be > 0.
+        reason: The order's own reason, which the Warden records.
+    """
+
+    timeout_s: float = SCRUB_TIMEOUT_S
+    reason: str = _SCRUB_REASON
+
+
 def make_scrub(
     queen_getter: Callable[[], _WardensView | None],
     acks: ScrubAcks,
     clock: Clock,
     recorder: TrailRecorder,
-    *,
-    timeout_s: float = SCRUB_TIMEOUT_S,
+    terms: ScrubTerms | None = None,
 ) -> Scrubber:
     """Build the `Scrubber` the Overwintering pool runs before a Virtual Cell is paused.
 
@@ -192,11 +204,14 @@ def make_scrub(
         acks: Where each scrub registers its wait; the same one the `CellListener` claims into.
         clock: Stamps the order and bounds the wait, so a test drives it with a `FakeClock`.
         recorder: The Queen's trail and identity, for `cell.scrub_failed`.
-        timeout_s: The longest a scrub waits for its answer. Must be > 0; `SCRUB_TIMEOUT_S`.
+        terms: The wait's bound and what the order tells the Warden; the Overwintering scrub's
+            own by default (`SCRUB_TIMEOUT_S`), a Sting Cut's naming the cut (roadmap 13.4a).
 
     Returns:
         An async callable taking the released Cell; it returns once the Cell is scrubbed.
     """
+    chosen = terms if terms is not None else ScrubTerms()
+    timeout_s, why = chosen.timeout_s, chosen.reason  # Apart from the failure `reason` below.
 
     async def _scrub(cell: Cell) -> None:
         """Order `cell`'s own Warden to scrub it and wait for its answer (module docstring).
@@ -208,7 +223,7 @@ def make_scrub(
         if link is None:
             reason: str | None = "its Warden is not attached to the Queen"
         else:
-            reason = await _order_and_wait(link, acks, clock, timeout_s)
+            reason = await _order_and_wait(link, acks, clock, timeout_s, why)
         if reason is None:
             return  # Confirmed by its own Warden: every bee stopped and its scratch gone.
         await _record_failure(recorder, cell.id, reason)
@@ -225,10 +240,10 @@ def _find_link(queen: _WardensView | None, cell_id: CellId) -> WardenLink | None
 
 
 async def _order_and_wait(
-    link: WardenLink, acks: ScrubAcks, clock: Clock, timeout_s: float
+    link: WardenLink, acks: ScrubAcks, clock: Clock, timeout_s: float, why: str
 ) -> str | None:
     """Send the scrub order over `link` and wait for its answer; return why it failed, or None."""
-    order = wrap(_scrub_order(), link.hop, clock=clock)
+    order = wrap(_scrub_order(why), link.hop, clock=clock)
     # Registered before the send, so an answer can never arrive ahead of its own wait.
     answer = acks.expect(order.id, link.cell.id)
     try:
@@ -260,7 +275,7 @@ async def _answer_within(
     return answer.result() if answer.done() else None
 
 
-def _scrub_order() -> Intervene:
+def _scrub_order(why: str) -> Intervene:
     """Build the order: release your lease, stopping every sub-bee first (module docstring)."""
     return Intervene(
         action=InterventionAction.RELEASE_LEASE,
@@ -269,7 +284,7 @@ def _scrub_order() -> Intervene:
         slot=None,
         binding=None,
         alarm_id=None,
-        reason=_SCRUB_REASON,
+        reason=why,
     )
 
 

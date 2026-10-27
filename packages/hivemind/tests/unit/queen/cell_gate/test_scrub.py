@@ -27,7 +27,7 @@ from hivemind.cell import Cell, CellKind
 from hivemind.hive import CellScrubError
 from hivemind.pheromone import TrailQuery, TrailRecorder
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
-from hivemind.queen.cell_gate.scrub import SCRUB_FAILED_KIND, ScrubAcks, make_scrub
+from hivemind.queen.cell_gate.scrub import SCRUB_FAILED_KIND, ScrubAcks, ScrubTerms, make_scrub
 from hivemind.queen.deps import WardenLink
 from waggle.clock import FakeClock
 from waggle.codec import Codec
@@ -80,7 +80,9 @@ def _scrub_of(scene: _Scene, queen: _StubQueen | None) -> asyncio.Task[None]:
         hive_id=new_hive_id(scene.clock),
         node_id=new_node_id(scene.clock),
     )
-    scrub = make_scrub(lambda: queen, scene.acks, scene.clock, recorder, timeout_s=_TIMEOUT_S)
+    scrub = make_scrub(
+        lambda: queen, scene.acks, scene.clock, recorder, ScrubTerms(timeout_s=_TIMEOUT_S)
+    )
     return asyncio.ensure_future(scrub(scene.cell))
 
 

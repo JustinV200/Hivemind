@@ -23,7 +23,8 @@ every awake episode through `hivemind.queen.ticks.awake` (a `REPLY` decision's w
 chat), and plans durable goal requests (`hivemind.queen.ticks.human.intake`); her human-facing
 methods (`request_goal`, `post_human_message`, ...) are the `hivemind.queen.chat.ChatDoor` mixin.
 Roadmap step 10.6a (ADR-0043): she is the Guard Bee's `GuardRequestDoor` (`GuardDoor`) and the
-human's isolate and lift levers (`hivemind.queen.isolation.IsolationDoor`).
+human's isolate and lift levers (`hivemind.queen.isolation.IsolationDoor`), and the human's Sting
+Cut (`hivemind.queen.sting_cut.StingCutDoor`, roadmap step 13.4a).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Constructed by whichever
@@ -100,6 +101,7 @@ from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import LinkReaders, TaskClaims, queen_attendant
 from hivemind.queen.isolation import IsolationDoor
+from hivemind.queen.sting_cut import StingCutDoor
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.ticks.results import AttemptBook
@@ -130,7 +132,7 @@ from waggle.messages.task import TaskProgress, TaskResult
 __all__ = ["Queen"]
 
 
-class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, TickLoop):
+class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, StingCutDoor, TickLoop):
     """The Hive's single orchestrator: her own inbox, autopilot, awake mode, and Supervisor face.
 
     Owns her own mutable state in place (codingrules section 8.5), documented here: `_wardens`,

@@ -75,6 +75,16 @@ async def test_a_restarted_queens_gate_expects_the_key_each_live_cell_carries(
     assert gate.expected_key(cell_id) == (minted if expects == "minted" else expects)
 
 
+async def test_a_sting_cut_cell_is_never_re_armed_nor_waited_for() -> None:
+    hive_id = new_hive_id(_CLOCK)
+    registry, cell_id, _minted = await _provisioned(hive_id, bad_label=False)
+    gate = QueenReadinessGate()
+
+    listed = await rearm_gate(gate, registry, hive_id, frozenset({cell_id}))
+
+    assert listed == () and gate.expected_key(cell_id) is None  # Roadmap 13.4a: stays forgotten.
+
+
 def _spec(hive_id: HiveId, labels: dict[str, str]) -> VirtualCellSpec:
     """A small Meadow Cell's spec for `hive_id`, with `labels`."""
     return VirtualCellSpec(

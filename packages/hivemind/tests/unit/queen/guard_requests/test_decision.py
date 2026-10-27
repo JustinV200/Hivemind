@@ -22,15 +22,20 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from builders.cells import make_cell
 from builders.isolation import (
     DIRE_RULE,
     JUDGED_RULE,
+    hive_stand_cell,
     isolation_site,
     make_guard_report,
     place_running,
 )
 from builders.queen import make_queen_deps
+from builders.sting_cut import FakeCellCut
 
+from hivemind.cell import CellKind
 from hivemind.guard import GuardAction, GuardConfidence, GuardReport
 from hivemind.llm import FakeLLMProvider, LLMRequest, LLMResponse, text_response
 from hivemind.pheromone import TrailQuery
@@ -38,6 +43,7 @@ from hivemind.queen.autopilot import QueenAction, decide_guard_request, fallback
 from hivemind.queen.guard_requests import GuardBasis, GuardDeps, guard_door, guard_items
 from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.isolation import ISOLATED_KIND, IsolationSite
+from hivemind.queen.sting_cut import STING_CUT_KIND
 from hivemind.supervision import AlarmKind, AlarmSeverity
 from waggle.clock import FakeClock
 
@@ -241,4 +247,32 @@ def test_the_rule_never_dismisses_and_needs_judgement_off_its_patterns() -> None
     assert decide_guard_request(dire, patterns, True) is QueenAction.ISOLATE_CELL
     assert decide_guard_request(dire, patterns, False) is QueenAction.QUARANTINE_BEE
     assert decide_guard_request(judged, patterns, True) is QueenAction.NEEDS_JUDGEMENT
+    # Roadmap 13.4a: a Sting Cut pattern cuts a known Cell; with none it falls back.
+    cutting = frozenset({JUDGED_RULE})
+    assert decide_guard_request(judged, patterns, True, cutting) is QueenAction.STING_CUT
+    assert decide_guard_request(judged, patterns, False, cutting) is QueenAction.QUARANTINE_BEE
     assert fallback_action(True) is QueenAction.ISOLATE_CELL
+
+
+@pytest.mark.parametrize(
+    ("hive_stand", "outcome"), [(False, "sting_cut"), (True, "hive_stand_fallback")]
+)
+async def test_a_sting_cut_pattern_isolates_then_cuts_but_never_the_hive_stand(
+    hive_stand: bool, outcome: str
+) -> None:
+    clock = FakeClock()
+    cell = hive_stand_cell(clock) if hive_stand else make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    guard = GuardDeps(
+        pause_timeout_s=0.0, sting_cut_patterns=frozenset({DIRE_RULE}), cut=FakeCellCut(cell.id)
+    )
+    deps, link, warden_end = make_queen_deps(clock, cell=cell, guard=guard)
+    report = make_guard_report(clock, cell_id=cell.id)
+
+    await _decide(isolation_site(deps, link), report)
+
+    stamped = await deps.guard.requests.get(report.id)
+    assert stamped is not None and stamped.decision is not None
+    assert (stamped.decision.action, stamped.decision.outcome) == (QueenAction.STING_CUT, outcome)
+    cuts = await deps.trail.query(TrailQuery(kind=STING_CUT_KIND))
+    assert [event.payload["cut_by"] for event in cuts] == ([] if hive_stand else ["queen"])
+    await warden_end.close()

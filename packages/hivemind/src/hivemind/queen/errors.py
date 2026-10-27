@@ -8,7 +8,8 @@ step 10.3; the refusal is already on the trail as `guard.denied` when this is ra
 step 10.6a adds the human's isolation levers' four refusals: a Cell she has no Warden attached for
 (`UnknownCellError`), a Guard report she was never sent (`UnknownGuardReportError`), a lift of a
 Cell that is not isolated (`CellNotIsolatedError`), and an isolation the `isolation` enforcement
-point refused (`IsolationRefusedError`). Every
+point refused (`IsolationRefusedError`). Roadmap step 13.4a adds a Sting Cut the human asked for
+that its point or its preconditions refused (`StingCutRefusedError`). Every
 subsystem roots its own error tree at `hivemind.common.errors.HiveMindError` (codingrules section
 10); this module is `hivemind.queen`'s own root plus its specific subclasses. `PlacementError` is a
 sibling of this tree but lives in `hivemind.queen.placement.decide` instead, next to the one
@@ -47,6 +48,7 @@ __all__ = [
     "IsolationRefusedError",
     "QueenError",
     "SandboxUnavailableError",
+    "StingCutRefusedError",
     "UnknownCellError",
     "UnknownGuardReportError",
     "UnknownWardenError",
@@ -179,6 +181,26 @@ class IsolationRefusedError(PermissionDeniedError):
             reason: The Guard's reason sentence.
         """
         super().__init__(f"Cell {cell_id} was not isolated: {reason}")
+        self.cell_id = cell_id
+
+
+class StingCutRefusedError(PermissionDeniedError):
+    """Raise when a Sting Cut the human asked for was refused (roadmap step 13.4a).
+
+    The `sting_cut` point refused it (already on the trail as `guard.denied`), or a precondition
+    did; the Hive Entrance answers 403.
+    """
+
+    code: ClassVar[str] = "hivemind.queen.sting_cut_refused"
+
+    def __init__(self, cell_id: str, reason: str) -> None:
+        """Build the error for a refused Sting Cut.
+
+        Args:
+            cell_id: The Cell the caller named.
+            reason: Why, as a short phrase.
+        """
+        super().__init__(f"Cell {cell_id} was not cut: {reason}")
         self.cell_id = cell_id
 
 

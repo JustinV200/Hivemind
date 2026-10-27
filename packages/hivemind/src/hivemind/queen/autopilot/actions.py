@@ -82,5 +82,8 @@ class QueenAction(Enum):
     QUARANTINE_BEE = "QUARANTINE_BEE"  # Intervene(QUARANTINE) to the Warden of the Alarm's task.
     PAUSE_TASK = "PAUSE_TASK"  # chamber.pause: a Warden reported its task held (a quarantine).
     ISOLATE_CELL = "ISOLATE_CELL"  # The one isolation path: cut one Cell off, keep its evidence.
+    STING_CUT = (
+        "STING_CUT"  # Roadmap 13.4a: isolate, then the one Sting Cut path (a Guard request).
+    )
     DISMISS = "DISMISS"  # A Guard request judged to need nothing: the report stays on the trail.
     NEEDS_JUDGEMENT = "NEEDS_JUDGEMENT"  # Autopilot has no rule; hand off to queen.awake.

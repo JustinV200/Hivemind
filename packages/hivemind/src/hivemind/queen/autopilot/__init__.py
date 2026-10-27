@@ -46,8 +46,8 @@ Public API (roadmap steps 3.20, 4.7, 4.2a):
       (forage).
     - WaxAutopilotOutcome, WaxProposalSignal, decide_wax_proposal: the Cell Wax proposal rule
       (wax).
-    - decide_guard_request, fallback_action, AWAKE_ACTIONS: the Guard request rule, roadmap step
-      10.6a (guard).
+    - decide_guard_request, fallback_action, AWAKE_ACTIONS, CELL_ACTIONS: the Guard request rule,
+      roadmap steps 10.6a and 13.4a (guard).
 """
 
 from hivemind.queen.autopilot.actions import QueenAction
@@ -57,12 +57,18 @@ from hivemind.queen.autopilot.forage import (
     ForageRequestSignal,
     decide_forage_request,
 )
-from hivemind.queen.autopilot.guard import AWAKE_ACTIONS, decide_guard_request, fallback_action
+from hivemind.queen.autopilot.guard import (
+    AWAKE_ACTIONS,
+    CELL_ACTIONS,
+    decide_guard_request,
+    fallback_action,
+)
 from hivemind.queen.autopilot.table import AttemptTally, decide, nurse_rejected
 from hivemind.queen.autopilot.wax import WaxAutopilotOutcome, WaxProposalSignal, decide_wax_proposal
 
 __all__ = [
     "AWAKE_ACTIONS",
+    "CELL_ACTIONS",
     "AttemptTally",
     "ForageAutopilotOutcome",
     "ForageRequestSignal",

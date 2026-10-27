@@ -3,7 +3,8 @@
 Roadmap step 10.6a (ADR-0043). Every undecided request is a GUARD_REQUEST item in the Queen's
 inbox, ordered above every Alarm and every human message; her tick hands each one here. The
 decision rests on one of three bases: the autopilot rule (a report whose rule is one of
-`[guard] dire_patterns` isolates without a model), one awake episode with the report's facts
+`[guard] dire_patterns` isolates without a model, and one of `[guard.sting_cut] dire_patterns`
+isolates and then Sting Cuts, roadmap step 13.4a), one awake episode with the report's facts
 attached, or the fallback when no episode can decide (isolate, which only removes access). Then:
 
 1. `queen.decided` is recorded with the report id, the action and its basis, before anything is
@@ -66,8 +67,7 @@ async def decide_guard_item(site: IsolationSite, item: InboxItem) -> GuardReques
         item: One GUARD_REQUEST inbox item; its id is the report's.
 
     Returns:
-        The request as stamped; the stored row unchanged when it was already decided; None when
-        no request carries that id.
+        The request as stamped (unchanged when decided already); None when no request has that id.
     """
     deps = site.deps
     request = await deps.guard.requests.get(item.id)
@@ -75,7 +75,9 @@ async def decide_guard_item(site: IsolationSite, item: InboxItem) -> GuardReques
         return request  # Decided already (a second item for it in one tick): never twice.
     report = request.report
     target = await target_cell(deps, report)
-    action = decide_guard_request(report, deps.guard.dire_patterns, target is not None)
+    action = decide_guard_request(
+        report, deps.guard.dire_patterns, target is not None, deps.guard.sting_cut_patterns
+    )
     basis = GuardBasis.RULE
     if action is QueenAction.NEEDS_JUDGEMENT:
         action, basis = await judge_guard_request(site, report, target)

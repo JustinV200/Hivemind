@@ -323,7 +323,16 @@ every assignment goes to a Warden, over Waggle.
   (`queen.autopilot.guard`, no model), one awake episode with the report's facts, or the fallback
   (isolate); records `queen.decided` before any effect; carries it out (`act`: the one isolation
   path, the Hive Stand's fallback of quarantine orders plus a `PlacementHold` placement reads as a
-  block for the held goals, a quarantine order, or nothing); stamps the row.
+  block for the held goals, a quarantine order, or nothing); stamps the row. A
+  `[guard.sting_cut] dire_patterns` report (or an awake `STING_CUT`) isolates and then Sting Cuts.
+- `queen.sting_cut` (roadmap step 13.4a, `docs/guard/sting-cut.md`): the one Sting Cut path.
+  `sting_cut_cell(site, order)` checks `EnforcementPoint.STING_CUT` (`authority`: the Queen is
+  refused the Hive Stand's own lease and past `max_autonomous_sting_cuts_per_hour`), makes the cut
+  follow an isolation, keeps a snapshot as evidence (the Queen never scrubs without one), revokes
+  the grants, has the Warden release the lease, forgets a Virtual Cell's key and closes its link
+  (`steps`), records `cell.sting_cut` (`record`), tears a Night Veil Cell down, and raises a
+  CRITICAL SECURITY Alarm. `StingCutDoor` is the human's lever; `CellCut` the Virtual side's seam,
+  `LifecycleCellCut` (`virtual`) its one implementation.
 - `queen.isolation` (roadmap step 10.6a): the one Cell isolation path. `isolate_cell(site, order)`
   checks `EnforcementPoint.ISOLATION` (`authority`: the Queen is refused the Hive Stand's own
   lease), writes the `BLOCK` Cell Wax, revokes the Warden's grants (`access`), checkpoints and
