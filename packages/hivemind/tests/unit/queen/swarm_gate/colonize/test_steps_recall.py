@@ -31,7 +31,9 @@ from builders.recall import Refusal, Site, make_deposits
 from builders.swarm import GateRig, place_on_device
 
 from hivemind.brood_chamber import TaskStatus
+from hivemind.queen.cluster import protocol
 from hivemind.queen.swarm_gate import GateContext
+from hivemind.queen.swarm_gate.colonize import steps
 from hivemind.queen.swarm_gate.colonize.steps import Move, pause_for_move
 from hivemind.swarm import RuntimeLevel
 
@@ -127,3 +129,36 @@ async def test_a_queen_with_no_honey_store_notes_what_she_holds(rig: GateRig) ->
         await pause_for_move(GateContext(rig.queen, deps), move, "Renewing.")
 
         assert move.refs == {placed.task.id: None}
+
+
+@pytest.mark.parametrize("holds_older", [False, True], ids=["holds_none", "holds_older"])
+async def test_a_move_waits_for_the_deposit_of_a_bee_inside_a_command(
+    rig: GateRig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, holds_older: bool
+) -> None:
+    # The bee hands off when its command returns, and its checkpoint lands in the device's store,
+    # never in her Bee Bread: the wait ends on the deposit, neither at once on an older Handoff she
+    # holds nor only once its patience has run out.
+    deposits = await make_deposits(rig.queen_deps, rig.clock, tmp_path)
+    rig.queen_deps = deposits.deps
+    async with rig.serving():
+        placed = await place_on_device(rig, RuntimeLevel.COLONIZED)
+        site = Site(placed.node.warden_id, placed.node.cell_id, placed.task.id)
+        if holds_older:
+            await deposits.hold(placed.task.id, make_handoff(rig.clock, progress="Moved."))
+            rig.clock.advance(60)
+        looks: list[float] = []
+
+        async def command_returns(seconds: float) -> None:
+            looks.append(seconds)
+            if len(looks) == 3:
+                await deposits.deposit(site, make_handoff(rig.clock, progress="On the device."))
+
+        monkeypatch.setattr(protocol, "_pause", command_returns)
+        monkeypatch.setattr(steps, "HANDOFF_PATIENCE_S", 5.0)  # The conftest gives it none.
+        move = Move(placed.node, placed.device.link)
+
+        await pause_for_move(GateContext(rig.queen, deposits.deps), move, "Renewing.")
+
+        assert len(looks) == 3
+        ref = move.refs[placed.task.id]
+        assert ref is not None and (await deposits.held(ref)).progress == "On the device."

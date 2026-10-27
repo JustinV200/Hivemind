@@ -40,7 +40,10 @@ device's) keeps its bees' Handoffs in a store of its own, so `resume` asks the r
 `hivemind.queen.swarm_gate.recall` instead (`_newest_handoff`): it starts from that same entry,
 prefers a newer HANDOFF Nectar the bee deposited, and refuses what a recall refuses everywhere (a
 Night Veil Cell's, a tainted one, one written under a standing isolation, one above the task's
-clearance). `latest_handoff` itself stays the pause's own check that a checkpoint has landed.
+clearance). The pause's own check that a checkpoint has landed reads both places too
+(`_checkpoint_mark`): a remote Warden's bee never writes in her Bee Bread, so waiting there alone
+waited out its whole patience for a checkpoint that had long landed (and ended at once when she held
+an older one), so it waits for her newest checkpoint or the bee's newest HANDOFF deposit to change.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's cluster
@@ -122,6 +125,9 @@ _PATIENCE_STEP_S = 0.1  # How often a patient wait looks again for the Handoff, 
 # The pause between those looks. It is the real one, and a name of its own so that a test can stand
 # in for the time a bee inside a command takes without spending any of it.
 _pause = asyncio.sleep
+# What the Queen can see of a task's Handoffs: her newest checkpoint's event id and the newest
+# HANDOFF Nectar id its bee deposited (`_checkpoint_mark`); a pause waits for it to change.
+type _Mark = tuple[str | None, str | None]
 
 __all__ = [
     "ClusterOutcome",
@@ -269,6 +275,9 @@ async def _pause_affected(
             # grants); RUNNING -> PAUSED is the only legal edge (Appendix C's "Task" row), so
             # anything else is left exactly as it is rather than raising.
             continue
+        # What she can see of the task's Handoffs before the order: the pause waits for that to
+        # change, not merely for one to exist, since an older one is not the checkpoint it asks for.
+        before = await _checkpoint_mark(deps, task)
         await _send_handoff_intervene(deps, link, task_id, reason)
         # The trail must read checkpoint -> PAUSED (docs/adr/0024's own exit criterion): give the
         # affected bee's own cooperative tool loop a bounded number of scheduling turns to notice
@@ -276,7 +285,7 @@ async def _pause_affected(
         # racing ahead of it. A bee that never checkpoints within the budget (stuck, or already
         # gone) is still paused regardless -- resume then falls back to no Handoff (docs/adr/0024:
         # "a bee whose Handoff cannot be read resumes from the task's last acceptance state").
-        await _wait_for_checkpoint(deps, task_id, patience_s)
+        await _wait_for_checkpoint(deps, task, before, patience_s)
         # Only now the pause: a Worker the runtime has paused sits at its pause wait and cannot
         # hand off (PAUSED has no edge to HANDING_OFF), so a pause sent beside the HANDOFF kept a
         # real Drone, one that was in a model call when both arrived, from ever checkpointing.
@@ -373,8 +382,10 @@ async def _newest_handoff(deps: QueenDeps, task: Task) -> HandoffRef | None:
     return await recall_handoff(deps, task.cell_id, task)
 
 
-async def _wait_for_checkpoint(deps: QueenDeps, task_id: TaskId, patience_s: float = 0.0) -> None:
-    """Wait until `task_id` has a Bee Bread Handoff entry, or the budget (and patience) runs out.
+async def _wait_for_checkpoint(
+    deps: QueenDeps, task: Task, before: _Mark, patience_s: float = 0.0
+) -> None:
+    """Wait until `task` has a Handoff newer than `before`, or the budget (and patience) runs out.
 
     First a bounded number of plain scheduling yields (`asyncio.sleep(0)`), never a call into
     `deps.clock` -- this is not a timed wait, just giving whatever already-scheduled coroutine is
@@ -385,15 +396,31 @@ async def _wait_for_checkpoint(deps: QueenDeps, task_id: TaskId, patience_s: flo
     short steps, up to `patience_s`, and ends the moment the Handoff lands.
     """
     for _ in range(_CHECKPOINT_POLL_ATTEMPTS):
-        if await latest_handoff(deps, task_id) is not None:
+        if await _checkpoint_mark(deps, task) != before:
             return
         await asyncio.sleep(0)
     waited = 0.0
     while waited < patience_s:
         await _pause(_PATIENCE_STEP_S)
         waited += _PATIENCE_STEP_S
-        if await latest_handoff(deps, task_id) is not None:
+        if await _checkpoint_mark(deps, task) != before:
             return
+
+
+async def _checkpoint_mark(deps: QueenDeps, task: Task) -> _Mark:
+    """Return the newest Handoff the Queen can see for `task`: hers, and its bee's deposit.
+
+    A remote Warden (a colonized device's, a Virtual Cell's) writes its bees' checkpoints in a
+    store of its own, never in her Bee Bread, so the one sign that reaches her of a checkpoint
+    landing there is the HANDOFF Nectar its bee deposits (ADR-0053). Either changing means the
+    bee has handed off; which one is used to resume is the recall's to decide, not this wait's.
+    """
+    held = await latest_handoff(deps, task.id)
+    deposit = None
+    if deps.honey is not None and task.cell_id is not None:
+        newest = await deps.honey.store.handoff_nectars(task.id, task.cell_id, 1)
+        deposit = newest[0].id if newest else None
+    return (held.event_id if held is not None else None, deposit)
 
 
 async def latest_handoff(deps: QueenDeps, task_id: TaskId) -> HandoffRef | None:
