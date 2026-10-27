@@ -147,7 +147,7 @@ async def test_every_tracked_cell_is_retired_whatever_its_status() -> None:
 
 
 async def test_one_cell_the_backend_refuses_to_destroy_does_not_stop_the_others() -> None:
-    """Best-effort per Cell: reconcile and `hive cells abscond` remain the backstops."""
+    """Best-effort per Cell: reconcile and `hive abscond` remain the backstops."""
     lifecycle, backend, _trail = _build_lifecycle()
     first = await _granted_cell(lifecycle)
     second = await _granted_cell(lifecycle)

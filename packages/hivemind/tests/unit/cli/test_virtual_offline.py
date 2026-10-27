@@ -1,6 +1,6 @@
 """Tests for hivemind.cli.readback.virtual_offline: destroying a Virtual Cell from outside a Queen.
 
-`destroy_virtual_cell` is what `hive cells destroy` and `hive cells abscond` share. Run from a
+`destroy_virtual_cell` is what `hive cells destroy` and `hive abscond` share. Run from a
 fresh process over the Hive's stores, as either command runs: a Night Veil Cell (known by its tier
 label, or by the trail's skeleton alone once no backend lists it) is destroyed behind its boundary,
 so its grant's revocation reaches only its segment and the durable trail keeps its skeleton, then

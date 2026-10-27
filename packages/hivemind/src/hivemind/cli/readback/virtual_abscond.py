@@ -45,8 +45,9 @@ Key invariants:
     - Every Night Veil Cell this pass destroys is purged right after, at most once.
 
 See Also:
-    - .claude/roadmap.md step 5.13's own exit criterion: "`hive cells abscond` leaves zero
-      containers, zero open leases, zero live grants, and the left-as-found snapshot holds."
+    - .claude/roadmap.md step 5.13's own exit criterion, historical (the command is now `hive
+      abscond`, step 13.4): "`hive cells abscond` leaves zero containers, zero open leases, zero
+      live grants, and the left-as-found snapshot holds."
     - hivemind.cli.readback.virtual_offline for every read/write this module composes.
     - hivemind.workers.roles.undertaker for Undertaker, destroy_virtual and release_real.
 

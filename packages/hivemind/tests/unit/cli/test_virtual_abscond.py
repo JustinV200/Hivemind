@@ -1,7 +1,7 @@
 """Tests for hivemind.cli.readback.virtual_abscond: a separate Absconding and the Night Veil.
 
-A `hive cells abscond` process starts from the Hive's stores alone: the Queen that provisioned the
-Cell is gone, so the process holds no segment of it and never saw its grant issued. Its pass still
+A `hive abscond` process starts from the Hive's stores alone: the Queen that provisioned the Cell
+is gone, so the process holds no segment of it and never saw its grant issued. Its pass still
 leaves only a Night Veil Cell's skeleton on the trail: the Cell is known by its tier label, its
 grant is filed under it before the Undertaker revokes it, and the purge runs once it is gone. A
 MEADOW Cell's Absconding records exactly what it did before.
