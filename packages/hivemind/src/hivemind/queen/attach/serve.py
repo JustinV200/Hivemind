@@ -168,6 +168,8 @@ class ProvedLink:
         live_capacity: Reads the Cell's capacity as it stands now, for a Cell whose capacity is
             refreshed live (a device's, from its capacity reports); None for one fixed for its
             life (a Virtual Cell's).
+        outlives_the_hive: The Warden runs on a colonized device, so a Hive stop leaves it
+            working (`WardenLink.outlives_the_hive`); False for a Virtual Cell's.
     """
 
     cell: Cell
@@ -177,6 +179,7 @@ class ProvedLink:
     frames: AsyncIterator[Envelope]
     hop: Hop
     live_capacity: LiveCapacity | None = None
+    outlives_the_hive: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +236,7 @@ async def serve_warden(
         hop=proved.hop,
         live_capacity=proved.live_capacity,
         node_id=proved.node_id,  # Proved by the handshake: the node that speaks for the Cell.
+        outlives_the_hive=proved.outlives_the_hive,
     )
     try:
         reconnected = await queen.attach_warden(link)

@@ -128,6 +128,10 @@ async def attach_warden(queen: Queen, link: WardenLink) -> bool:
     queen._seen.add(link.warden_id)
     # Bookkeeping first, then the trail row: the event records a Warden that is really attached.
     queen._wardens[link.warden_id] = link
+    if link.outlives_the_hive:
+        # Moved onto its device (ADR-0052), it now outlives a stop: what it was given on the Hive
+        # Stand, it keeps working on, so a stop no longer gives it back (ready.unfinished).
+        deps.dispatch.placed_on.discard(link.warden_id)
     queen._liveness[link.warden_id] = WardenLiveness(
         last_heartbeat_at=None, missed_heartbeats=0, is_offline=False
     )

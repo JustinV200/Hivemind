@@ -397,8 +397,10 @@ async def _unassign_stranded(deps: QueenDeps, tasks: tuple[Task, ...]) -> tuple[
 async def _start_on(deps: QueenDeps, task: Task, link: WardenLink) -> None:
     """Move `task` PENDING -> ASSIGNED -> RUNNING on `link`'s Cell, and record `queen.assigned`."""
     # Hers from before the first write: a stop gives back whatever is still placed on it, even a
-    # task this very pass leaves stranded between the two writes (ready.unfinished).
-    deps.dispatch.placed_on.add(link.warden_id)
+    # task this very pass leaves stranded between the two writes (ready.unfinished). A Warden on a
+    # colonized device keeps working through a stop (ADR-0053), so its tasks are never given back.
+    if not link.outlives_the_hive:
+        deps.dispatch.placed_on.add(link.warden_id)
     # Roadmap step 10.3b: the task is bound to its Cell's tier with the assignment, so every later
     # check for it (a rebind, a grant revision, an egress change) reads the tier it runs under.
     await deps.chamber.assign(

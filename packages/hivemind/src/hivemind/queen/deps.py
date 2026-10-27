@@ -317,6 +317,9 @@ class WardenLink:
             Cell's handshake, the Hive Stand's own process); `warden.spawned` records it, so the
             Guard Bee knows which node speaks for which Cell (roadmap step 10.6). None when the
             link proves none (a test's in-memory pair).
+        outlives_the_hive: The Warden runs on a colonized device and keeps working when the Hive
+            Stand stops (ADR-0053); False (the default) for one that stops with the Hive (the
+            Hive Stand's own, a Virtual Cell's), whose tasks a stop gives back.
     """
 
     warden_id: WardenId
@@ -325,6 +328,7 @@ class WardenLink:
     hop: Hop
     live_capacity: LiveCapacity | None = None
     node_id: NodeId | None = None
+    outlives_the_hive: bool = False
 
     async def send(self, envelope: Envelope) -> bool:
         """Send `envelope` on this Warden's own link; see `send_guarded`.

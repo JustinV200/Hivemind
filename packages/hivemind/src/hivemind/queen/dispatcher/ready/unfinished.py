@@ -27,7 +27,9 @@ Fits into the Hive:
 
 Key invariants:
     - Only a task placed on a Warden this Queen placed work on (`DispatchBook.placed_on`) is
-      touched: another Queen's work on the same Brood Chamber is never moved.
+      touched: another Queen's work on the same Brood Chamber is never moved, and a Warden on a
+      colonized device (`WardenLink.outlives_the_hive`) is never recorded there, because it keeps
+      working through the stop and reconnects to the next Queen with its tasks (ADR-0053).
     - No task it reaches is left ASSIGNED, RUNNING or BLOCKED: each ends PENDING (unplaced, its
       attempt advanced) or, on a Night Veil Cell, CANCELLED; a BLOCKED one's question WITHDRAWN.
     - A task another process moved meanwhile is read again and given back as it now stands (a

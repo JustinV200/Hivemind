@@ -221,6 +221,7 @@ class DeviceWardenDoor:
             frames=through_the_gate(connection.frames, node, self._events),
             hop=Hop(sender=voice.hive_id, recipient=node.warden_id, node_id=voice.hive_node_id),
             live_capacity=self._live_capacity(node),
+            outlives_the_hive=True,  # It runs on the device and keeps working through a stop.
         )
 
     def _live_capacity(self, node: SwarmNode) -> LiveCapacity:

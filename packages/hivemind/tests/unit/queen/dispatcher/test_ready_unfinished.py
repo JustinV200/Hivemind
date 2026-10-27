@@ -3,8 +3,9 @@
 A Hive that stops (an interrupted or timed-out `hive run`, a `hive serve` shut down) takes its
 Cells and Wardens along. A task it leaves ASSIGNED, RUNNING or BLOCKED on one of them is given
 back to PENDING (a BLOCKED one's question withdrawn first), so the next start places it afresh;
-a task on a Night Veil Cell is ended with it instead, a PAUSED task keeps its hold, and a task
-placed by another Queen on the same Brood Chamber is never moved.
+a task on a Night Veil Cell is ended with it instead, a PAUSED task keeps its hold, a task on a
+colonized device's Warden keeps running there (ADR-0053), and a task placed by another Queen on
+the same Brood Chamber is never moved.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/dispatcher/ready/unfinished.py (codingrules section 3).
@@ -144,6 +145,19 @@ async def test_another_queens_task_on_the_same_chamber_is_never_moved() -> None:
     assert await requeue_unfinished(deps) == (ours.id,)
 
     assert (await deps.chamber.get(theirs.id)).status is TaskStatus.RUNNING
+
+
+async def test_a_task_on_a_colonized_devices_warden_keeps_running_through_the_stop() -> None:
+    # ADR-0053: a Warden on a colonized device keeps working when the Hive Stand stops, so its
+    # task is still its own when it reconnects; giving it back would run the work twice.
+    deps, link, _end = make_queen_deps(FakeClock())
+    device = dataclasses.replace(link, outlives_the_hive=True)
+    task = await _running(deps, device)
+
+    requeued = await requeue_unfinished(deps)
+
+    assert requeued == ()
+    assert (await deps.chamber.get(task.id)).status is TaskStatus.RUNNING
 
 
 async def test_a_queen_that_placed_nothing_gives_nothing_back() -> None:
