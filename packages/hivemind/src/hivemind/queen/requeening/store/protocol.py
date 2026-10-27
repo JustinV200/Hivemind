@@ -18,6 +18,8 @@ Key invariants:
     - Only the newest snapshot is kept: `put_snapshot` replaces the one before.
     - `note_handled` never loses a question's wiring: a plain row for an envelope already noted
       with its wiring changes nothing, and a row with wiring replaces a plain one.
+    - A row with a question's wiring is never pruned by age: a human may answer days later. Only
+      `forget_handled` removes it, once its question is closed.
     - Every method is safe to call concurrently from one event loop.
 
 See Also:
@@ -27,6 +29,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
@@ -66,11 +69,28 @@ class RequeeningStore(Protocol):
         """
         ...
 
+    async def wired_questions(self) -> tuple[HandledEnvelope, ...]:
+        """Return every row that carries a question's wiring, whatever its age, oldest first."""
+        ...
+
     async def prune_handled(self, before: datetime) -> int:
-        """Forget every row handled before `before`; nothing older is ever sent again.
+        """Forget every plain row handled before `before`; nothing older is ever sent again.
+
+        A row with a question's wiring is kept (module invariant).
 
         Args:
             before: The start of the replay window.
+
+        Returns:
+            How many rows were forgotten.
+        """
+        ...
+
+    async def forget_handled(self, keys: Sequence[tuple[str, str]]) -> int:
+        """Forget the rows keyed by `keys`, wired or not (a question that has been closed).
+
+        Args:
+            keys: Each row's (principal, envelope id).
 
         Returns:
             How many rows were forgotten.

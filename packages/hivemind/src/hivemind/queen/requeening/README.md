@@ -35,7 +35,8 @@ Queen tick - _handle_item - is_replay (drop) ... act ... note_handled
 - **State** (`book`): `RequeeningBook` (on `QueenDeps.requeening`), `PendingRecovery`,
   `RequeenCounts`, the two cadence defaults.
 - **Handled envelopes** (`handled`): `is_replay`, `note_handled`, `note_question`,
-  `restore_handled`.
+  `restore_handled` (and `prune_handled`, which each snapshot calls: a question's wiring is kept
+  until the question closes, however long that takes).
 - **Snapshot** (`snapshot`): `take_snapshot_when_due`, `take_snapshot`, `current_leases`.
 - **Leases** (`leases`): `HiveStandLeases`, `fold_leases`, `release_orphans`.
 - **Orphans** (`orphans`): `take_back`, `clustering_paused`, `revoke_held_by`, `newest_handoff`.

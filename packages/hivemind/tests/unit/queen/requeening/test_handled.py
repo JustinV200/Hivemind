@@ -5,7 +5,8 @@ sent again (the unnoticed-loss resend keeps the envelope's id) was handled a sec
 Queen handles an Alarm, a second Queen over the same stores comes up, and the very same envelope
 arriving again is dropped while a fresh Alarm still reaches the human. And a question asked
 before the restart still has its answer forwarded to the Warden that asked, under the wire id
-that Warden matches it by: the wiring the first Queen held only in memory is read back.
+that Warden matches it by: the wiring the first Queen held only in memory is read back, even
+when the restart comes long after the question, and is forgotten once the question closes.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/requeening/handled.py (codingrules section 3), through the
@@ -24,6 +25,7 @@ import asyncio
 import dataclasses
 from collections.abc import Callable
 
+import pytest
 from builders.queen import WardenEnd, make_queen_deps, make_warden_link, plan_responder
 
 from hivemind.brood_chamber import TaskStatus
@@ -31,12 +33,13 @@ from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.queen import Queen
-from hivemind.queen.requeening import RequeeningBook, restore_handled
-from waggle.clock import Clock
+from hivemind.queen.requeening import RequeeningBook, restore_handled, take_snapshot
+from waggle.clock import Clock, FakeClock
 from waggle.ids import AlarmId, HiveId, TaskId, new_alarm_id, new_message_id, new_worker_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised, Question
+from waggle.transport import REPLAY_WINDOW_S
 
 _WAIT_S = 5.0  # Every await here is local and in memory; this only bounds a hang.
 
@@ -144,9 +147,15 @@ async def test_an_alarm_she_handled_before_her_restart_is_dropped_when_sent_agai
     assert [alarm.id for alarm in second.human_inbox.alarms] == [AlarmId(fresh.alarm_id)]
 
 
-async def test_a_question_asked_before_her_restart_has_its_answer_forwarded_after_it() -> None:
+@pytest.mark.parametrize("late", [False, True], ids=["inside_window", "after_window"])
+async def test_a_question_asked_before_her_restart_has_its_answer_forwarded_after_it(
+    late: bool,
+) -> None:
+    # A human may answer long after the question: a restart past the replay window, after a
+    # snapshot pruned by age, still restores the wiring of a question that is still open.
     first, link, warden_end, goal_id = await _started()
     clock = first._deps.clock
+    assert isinstance(clock, FakeClock)
     question = Question(
         question_id=new_message_id(clock),
         task_id=goal_id,
@@ -165,10 +174,15 @@ async def test_a_question_asked_before_her_restart_has_its_answer_forwarded_afte
             await asyncio.sleep(0)
 
     await _running(first, ask)
+    if late:
+        clock.advance(REPLAY_WINDOW_S + 60.0)
+        await take_snapshot(first._deps, first.wardens)
     second, second_end = await _restarted(first._deps, link)
     [asked] = await first._deps.chamber.pending_questions()
 
     await second.answer_question(asked.id, "spring")
     answer = await asyncio.wait_for(second_end.wait_for_answer(), _WAIT_S)
+    await take_snapshot(second._deps, second.wardens)  # The question is closed now.
 
     assert answer.question_id == question.question_id  # The id the asking Warden matches.
+    assert await second._deps.requeening.store.wired_questions() == ()

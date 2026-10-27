@@ -16,7 +16,8 @@ Fits into the Hive:
 
 Key invariants:
     - The snapshot table never holds more than one row (its CHECK says so too).
-    - A plain handled note never replaces a row that carries a question's wiring.
+    - A plain handled note never replaces a row that carries a question's wiring, and a prune by
+      age never removes one.
     - Every method runs under `self._lock` on `self._thread`, so a cancelled await never leaves a
       statement half-run under the next caller.
 
@@ -30,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import importlib.resources
 import sqlite3
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from hivemind.common.migrations import apply_migrations, load_migrations
@@ -58,7 +60,12 @@ _NOTE_WIRED_SQL = (
     "(principal, envelope_id, handled_us, body, has_question) VALUES (?, ?, ?, ?, 1)"
 )
 _SINCE_SQL = "SELECT body FROM queen_handled WHERE handled_us >= ? ORDER BY handled_us, envelope_id"
-_PRUNE_SQL = "DELETE FROM queen_handled WHERE handled_us < ?"
+_WIRED_SQL = (
+    "SELECT body FROM queen_handled WHERE has_question = 1 ORDER BY handled_us, envelope_id"
+)
+# A wired row outlives the window: its question may be answered long after it was asked.
+_PRUNE_SQL = "DELETE FROM queen_handled WHERE handled_us < ? AND has_question = 0"
+_FORGET_SQL = "DELETE FROM queen_handled WHERE principal = ? AND envelope_id = ?"
 _GET_PORT_SQL = "SELECT port FROM queen_listener_ports WHERE name = ?"
 _PUT_PORT_SQL = (
     "INSERT INTO queen_listener_ports (name, port) VALUES (?, ?) "
@@ -115,11 +122,25 @@ class SqliteRequeeningStore:
         rows = await self._run(_SINCE_SQL, (_us(since),))
         return tuple(HandledEnvelope.model_validate_json(str(row[0])) for row in rows)
 
+    async def wired_questions(self) -> tuple[HandledEnvelope, ...]:
+        """Return every wired row; see `RequeeningStore.wired_questions`."""
+        rows = await self._run(_WIRED_SQL, ())
+        return tuple(HandledEnvelope.model_validate_json(str(row[0])) for row in rows)
+
     async def prune_handled(self, before: datetime) -> int:
-        """Forget rows handled before `before`; see `RequeeningStore.prune_handled`."""
+        """Forget plain rows handled before `before`; see `RequeeningStore.prune_handled`."""
         async with self._lock:
             # Latency: one indexed local delete; the row count comes back with it.
             cursor = await self._thread.run(self._connection.execute, _PRUNE_SQL, (_us(before),))
+        return int(cursor.rowcount)
+
+    async def forget_handled(self, keys: Sequence[tuple[str, str]]) -> int:
+        """Forget the rows keyed by `keys`; see `RequeeningStore.forget_handled`."""
+        if not keys:
+            return 0  # Nothing closed since the last snapshot: no statement at all.
+        async with self._lock:
+            # Latency: one local delete per key (a few closed questions), in one call.
+            cursor = await self._thread.run(self._connection.executemany, _FORGET_SQL, list(keys))
         return int(cursor.rowcount)
 
     async def recall_port(self, name: str) -> int | None:

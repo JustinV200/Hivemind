@@ -20,6 +20,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from hivemind.queen.requeening.models import HandledEnvelope, QueenSnapshot
@@ -59,12 +60,26 @@ class MemoryRequeeningStore:
         young = (row for row in self._handled.values() if row.handled_at >= since)
         return tuple(sorted(young, key=lambda row: (row.handled_at, row.envelope_id)))
 
+    async def wired_questions(self) -> tuple[HandledEnvelope, ...]:
+        """Return every wired row; see `RequeeningStore.wired_questions`."""
+        wired = (row for row in self._handled.values() if row.question is not None)
+        return tuple(sorted(wired, key=lambda row: (row.handled_at, row.envelope_id)))
+
     async def prune_handled(self, before: datetime) -> int:
-        """Forget rows handled before `before`; see `RequeeningStore.prune_handled`."""
-        old = [key for key, row in self._handled.items() if row.handled_at < before]
-        for key in old:
+        """Forget plain rows handled before `before`; see `RequeeningStore.prune_handled`."""
+        old = [
+            key
+            for key, row in self._handled.items()
+            if row.handled_at < before and row.question is None
+        ]
+        return await self.forget_handled(old)
+
+    async def forget_handled(self, keys: Sequence[tuple[str, str]]) -> int:
+        """Forget the rows keyed by `keys`; see `RequeeningStore.forget_handled`."""
+        known = [key for key in keys if key in self._handled]
+        for key in known:
             del self._handled[key]
-        return len(old)
+        return len(known)
 
     async def recall_port(self, name: str) -> int | None:
         """Return the port `name` bound last; see `RequeeningStore.recall_port`."""

@@ -1,10 +1,10 @@
 """Tests for hivemind.queen.requeening.store: both RequeeningStores keep the same contract.
 
 The snapshot is replaced, never accumulated; a handled row that carries a question's wiring is
-never lost to a later plain note for the same envelope, and a window query and a prune cut at the
-right instant; a listener's port is remembered by name. Each case runs against the in-process
-store and the SQLite one, so the Queen's tests (on the first) prove what production (the second)
-does.
+never lost to a later plain note for the same envelope nor to a prune by age (only forgetting it
+removes it), and a window query and a prune cut at the right instant; a listener's port is
+remembered by name. Each case runs against the in-process store and the SQLite one, so the
+Queen's tests (on the first) prove what production (the second) does.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/requeening/store/ (codingrules section 3): protocol, memory and
@@ -73,7 +73,7 @@ async def test_only_the_newest_snapshot_is_kept(store: RequeeningStore) -> None:
     assert [lease.lease_id for lease in latest.open_leases] == ["lease_b"]
 
 
-async def test_a_questions_wiring_survives_a_later_plain_note_and_the_window_cuts_cleanly(
+async def test_a_questions_wiring_survives_a_later_note_and_the_window_until_it_is_forgotten(
     store: RequeeningStore,
 ) -> None:
     now = _CLOCK.now()
@@ -89,12 +89,16 @@ async def test_a_questions_wiring_survives_a_later_plain_note_and_the_window_cut
     # The tick notes every item it handled, after the question path wrote its wiring.
     await store.note_handled(wired.model_copy(update={"question": None, "handled_at": now + later}))
     kept = {row.envelope_id: row for row in await store.handled_since(now)}
-    pruned = await store.prune_handled(now + later)  # Strictly before the instant: both go.
+    # Strictly before the instant: the plain row goes, the wired one outlives the window.
+    pruned = await store.prune_handled(now + later)
+    [still_wired] = await store.wired_questions()
+    forgotten = await store.forget_handled([("warden_a", "msg_q"), ("warden_a", "msg_gone")])
 
     assert kept["msg_q"].question == wiring
     assert set(kept) == {"msg_old", "msg_q"}
-    assert pruned == 2
+    assert (pruned, still_wired.question, forgotten) == (1, wiring, 1)
     assert await store.handled_since(now) == ()
+    assert await store.wired_questions() == ()
 
 
 async def test_a_listeners_port_is_remembered_by_name(store: RequeeningStore) -> None:

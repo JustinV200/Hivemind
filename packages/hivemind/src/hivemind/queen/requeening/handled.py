@@ -10,22 +10,27 @@ noted on receipt and lost in a crash before her tick reached it would be dropped
 never handled at all. A question the human must answer also keeps the wire ids its answer is
 forwarded with (`note_question`), which the Queen otherwise holds only in memory.
 `restore_handled` reads the rows still inside the replay window back at her start: their pairs
-become the book's `replayed` set, which `is_replay` checks before an item is decided, and a still
-open question's wiring is put back so its answer reaches the Warden that asked.
+become the book's `replayed` set, which `is_replay` checks before an item is decided. It also puts
+back the wiring of every question still open, however long ago it was asked (a human may answer
+days later), so its answer reaches the Warden that asked. `prune_handled`, on each snapshot,
+forgets the plain rows older than the window and the wiring of every question since closed.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
     requeening sub-package. Called by `hivemind.queen.queen`'s tick (`is_replay`,
     `note_handled`), `hivemind.queen.questions.block_on_question` (`note_question`) and
-    `.recover` (`restore_handled`). Calls into `hivemind.brood_chamber` (through the deps),
-    `hivemind.queen.requeening.models`, `hivemind.supervision.attendant` and waggle only; reaches
-    into the Queen's own question bookkeeping, as `hivemind.queen.questions` does.
+    `.recover` (`restore_handled`) and `.snapshot` (`prune_handled`). Calls into
+    `hivemind.brood_chamber` (through the deps), `hivemind.queen.requeening.models`,
+    `hivemind.supervision.attendant` and waggle only; reaches into the Queen's own question
+    bookkeeping, as `hivemind.queen.questions` does.
 
 Key invariants:
     - Only an ALARM or QUESTION item whose principal is a Warden is ever noted or dropped.
     - A pair handled in this process is never in `replayed`: only `restore_handled` fills it.
-    - Rows older than the transport's replay window are never read back: nothing older is sent
-      again (the Warden re-sends only what it sent less than nine minutes before its redial).
+    - Rows older than the transport's replay window are never read back as replays: nothing
+      older is sent again (the Warden re-sends only what it sent less than nine minutes before
+      its redial).
+    - A question's wiring is kept, and restored, for as long as the question is still ASKED.
 
 See Also:
     - docs/adr/0062-requeening-recovery-sources-of-truth.md, "The replay window survives".
@@ -52,7 +57,7 @@ if TYPE_CHECKING:
 
 _NOTED_KINDS = (InboxKind.ALARM, InboxKind.QUESTION)  # The two kinds a resend would repeat.
 
-__all__ = ["is_replay", "note_handled", "note_question", "restore_handled"]
+__all__ = ["is_replay", "note_handled", "note_question", "prune_handled", "restore_handled"]
 
 
 def is_replay(deps: QueenDeps, item: InboxItem) -> bool:
@@ -118,19 +123,49 @@ async def restore_handled(queen: Queen) -> int:
     since = deps.clock.now() - timedelta(seconds=REPLAY_WINDOW_S)
     rows = await deps.requeening.store.handled_since(since)
     deps.requeening.replayed = frozenset((row.principal, row.envelope_id) for row in rows)
-    open_ids = {question.id for question in await deps.chamber.pending_questions()}
-    restored = 0
-    # Only a question still ASKED: an answered or withdrawn one has nothing left to forward.
-    for row in rows:
-        wiring = row.question
-        if wiring is None or wiring.chamber_question_id not in open_ids:
-            continue
+    still_open, _closed = await _sort_wired(deps)
+    for row, wiring in still_open:
         chamber_id = MessageId(wiring.chamber_question_id)
         queen._open_questions[MessageId(wiring.wire_question_id)] = TaskId(wiring.task_id)
         queen._question_wire_ids[chamber_id] = MessageId(wiring.wire_question_id)
         queen._question_envelope_ids[chamber_id] = MessageId(row.envelope_id)
-        restored += 1
-    return restored
+    return len(still_open)
+
+
+async def prune_handled(deps: QueenDeps) -> int:
+    """Forget the plain rows older than the replay window and the wiring of closed questions.
+
+    Args:
+        deps: The Queen's collaborators; `requeening.store` is written.
+
+    Returns:
+        How many rows were forgotten.
+    """
+    store = deps.requeening.store
+    pruned = await store.prune_handled(deps.clock.now() - timedelta(seconds=REPLAY_WINDOW_S))
+    _open, closed = await _sort_wired(deps)
+    return pruned + await store.forget_handled([(r.principal, r.envelope_id) for r in closed])
+
+
+async def _sort_wired(
+    deps: QueenDeps,
+) -> tuple[list[tuple[HandledEnvelope, QuestionWiring]], list[HandledEnvelope]]:
+    """Split the wired rows into the still ASKED (with their wiring) and the since closed.
+
+    A closed question is one answered or withdrawn since it was noted.
+    """
+    # The wired rows first: a question noted after this read is simply not in it, while one
+    # read after the open ids could look closed and lose its wiring.
+    wired = await deps.requeening.store.wired_questions()
+    open_ids = {question.id for question in await deps.chamber.pending_questions()}
+    still_open: list[tuple[HandledEnvelope, QuestionWiring]] = []
+    closed: list[HandledEnvelope] = []
+    for row in wired:
+        if row.question is not None and row.question.chamber_question_id in open_ids:
+            still_open.append((row, row.question))
+        else:
+            closed.append(row)
+    return still_open, closed
 
 
 def _is_warden(principal: str) -> bool:

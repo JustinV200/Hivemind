@@ -4,17 +4,18 @@ Roadmap 13.2 (ADR-0062): a bee writes a Handoff so the next episode resumes with
 history; the Queen's is a `QueenSnapshot`. Every `[queen] snapshot_interval_s` her tick folds the
 Hive Stand's lease events since the last snapshot's cursor into the leases still open
 (`hivemind.queen.requeening.leases.fold_leases`) and writes the result with a new cursor, and
-prunes the handled-envelope rows the replay window no longer needs. Recovery then folds only the
-events since the newest cursor (`current_leases`), however old the Hive is. The cursor trails the
-snapshot by `CURSOR_MARGIN_S`: a lease event whose write lands a moment late is still folded next
-time, and folding an event twice changes nothing.
+prunes the handled-envelope rows nothing needs any more (`.handled.prune_handled`: the plain ones
+older than the replay window, and the wiring of every question since closed). Recovery then folds
+only the events since the newest cursor (`current_leases`), however old the Hive is. The cursor
+trails the snapshot by `CURSOR_MARGIN_S`: a lease event whose write lands a moment late is still
+folded next time, and folding an event twice changes nothing.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
     requeening sub-package. `take_snapshot_when_due` is called once per tick by
     `hivemind.queen.ticks.housekeeping`; `take_snapshot` and `current_leases` by `.recover`.
-    Calls into `hivemind.cell` (hive_stand_cell_id), `.leases`, `.models`, `.store` and waggle
-    only.
+    Calls into `hivemind.cell` (hive_stand_cell_id), `.handled`, `.leases`, `.models`, `.store`
+    and waggle only.
 
 Key invariants:
     - No snapshot is written while recovery is still settling: the first one of a Queen's life
@@ -34,9 +35,9 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from hivemind.cell import hive_stand_cell_id
+from hivemind.queen.requeening.handled import prune_handled
 from hivemind.queen.requeening.leases import fold_leases, lease_events
 from hivemind.queen.requeening.models import MAX_SNAPSHOT_WARDENS, OpenLease, QueenSnapshot
-from waggle.transport import REPLAY_WINDOW_S
 
 if TYPE_CHECKING:
     # Types only: `hivemind.queen.deps` imports this sub-package (`QueenDeps.requeening`).
@@ -88,9 +89,9 @@ async def take_snapshot(deps: QueenDeps, wardens: Sequence[WardenLink]) -> Queen
         open_leases=await current_leases(deps, previous),
         wardens=tuple(sorted(link.warden_id for link in wardens))[:MAX_SNAPSHOT_WARDENS],
     )
-    # Latency: two local SQLite writes; the trail reads above were bounded by the old cursor.
+    # Latency: a few local SQLite statements; the trail reads above were bounded by the old cursor.
     await book.store.put_snapshot(snapshot)
-    await book.store.prune_handled(now - timedelta(seconds=REPLAY_WINDOW_S))
+    await prune_handled(deps)
     book.last_snapshot_at = now
     return snapshot
 
