@@ -794,7 +794,7 @@ Cell, which re-issues it to the Worker it spawns.
   from, and a receiver whose store lacks the one named starts the bee fresh (ADR-0024). Defaults
   to None, so an envelope from before this field existed still validates.
 - `review_round` (`int`, `PROTOCOL_MINOR` 15): Nurse Bee reviews this task has already had, as
-  the Queen counts them; 0 to 8, default 0. The Warden stamps its own review one higher.
+  the Queen counts them; 0 to 7, default 0. The Warden stamps its own review one higher.
 - `review_findings` (`tuple[NurseFinding, ...]`, `PROTOCOL_MINOR` 15): what the last Nurse review
   asked to change, for the fresh Worker that fixes forward on the same Cell; untrusted model
   prose. Max 8; set only when `review_round` is at least 1 (validator); default empty.

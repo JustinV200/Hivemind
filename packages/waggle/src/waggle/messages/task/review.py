@@ -58,6 +58,9 @@ MIN_NURSE_ROUND = 1  # The first review of a task is round 1, so 0 never passes 
 # A wire ceiling on rounds, well above the manifest's default of 2: the Queen escalates at her
 # configured cap, so this only stops a corrupt count from travelling.
 MAX_NURSE_ROUND = 8
+# TaskAssign.review_round counts reviews already had; the Warden stamps one higher, so it stops one
+# short of MAX_NURSE_ROUND or the review it implies could never validate.
+MAX_REVIEW_ROUND = MAX_NURSE_ROUND - 1
 
 __all__ = [
     "MAX_CRITERION_INDEX",
@@ -65,6 +68,7 @@ __all__ = [
     "MAX_NURSE_FINDINGS",
     "MAX_NURSE_NOTES_CHARS",
     "MAX_NURSE_ROUND",
+    "MAX_REVIEW_ROUND",
     "MAX_RUBRIC_ID_CHARS",
     "MIN_CRITERION_INDEX",
     "MIN_FINDING_LINE",

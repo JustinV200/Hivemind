@@ -179,7 +179,7 @@ def test_task_result_carries_a_review_only_where_it_can_be_true(
         ({}, True),  # An older peer's assign: both fields default.
         ({"review_round": 1, "review_findings": [_FINDING]}, True),
         ({"review_findings": [_FINDING]}, False),  # Findings no Nurse wrote.
-        ({"review_round": MAX_NURSE_ROUND + 1}, False),
+        ({"review_round": MAX_NURSE_ROUND}, False),  # Its review would be past the ceiling.
     ],
 )
 def test_task_assign_carries_findings_only_after_a_review(

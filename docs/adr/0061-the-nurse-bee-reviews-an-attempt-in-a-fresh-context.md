@@ -82,7 +82,7 @@ Both are classified as observations in the Guard's event catalogue.
 
 ### Deviations from the design pass, made in step 1 (the schema)
 
-- **`TaskAssign.review_round` is added** beside `review_findings` (0 to 8, default 0). The design
+- **`TaskAssign.review_round` is added** beside `review_findings` (0 to 7, default 0). The design
   puts `round` on `NurseReview` but gave the Warden no way to know it: findings alone cannot tell
   round 2 from round 3. The Queen owns the count (`nurse_rounds`) and sends it down; the Warden
   stamps its review one higher. Findings are refused when `review_round` is 0.

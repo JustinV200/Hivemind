@@ -79,7 +79,7 @@ from waggle.messages.labels import HandoffRef, HoneyClearance, PlannedLeaving, P
 from waggle.messages.task.handoff import HandoffDocument
 from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES, ExoskeletonNeed, NetworkScope
 from waggle.messages.task.recon import MAX_RECON_REPORTS, ScoutReport
-from waggle.messages.task.review import MAX_NURSE_FINDINGS, MAX_NURSE_ROUND, NurseFinding
+from waggle.messages.task.review import MAX_NURSE_FINDINGS, MAX_REVIEW_ROUND, NurseFinding
 
 MIN_OBJECTIVE_CHARS = 1  # A task with no objective asks for nothing.
 MAX_OBJECTIVE_CHARS = 8_000  # A planner's brief: a page or two; anything longer belongs in Honey.
@@ -245,7 +245,7 @@ class TaskAssign(WaggleMessage):
         "Handoff. None by default, so an older peer's task.assign still validates "
         "(PROTOCOL_MINOR 13).",
     )
-    review_round: Annotated[int, Field(ge=MIN_REVIEW_ROUND, le=MAX_NURSE_ROUND)] = Field(
+    review_round: Annotated[int, Field(ge=MIN_REVIEW_ROUND, le=MAX_REVIEW_ROUND)] = Field(
         default=0,
         description="Nurse Bee reviews this task has already had (ADR-0061), as the Queen counts "
         "them; the Warden stamps its own review round one higher. 0 by default, so an older "
