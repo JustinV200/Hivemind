@@ -313,7 +313,7 @@ ADRs that exist today, in numeric order:
   Clustering pauses resumed from Handoffs; handled Alarms and questions survive in a durable table,
   so the replay window no longer starts empty; `queen.requeened` carries counts only.
 - `0063-swarming-policy-and-cost-caps.md`: a pure policy caps fresh Virtual Cells before every
-  placement: queue depth, per-backend `max_cells`, a Hive-wide `max_parallel`, the Hive Stand's
+  placement: per-backend `max_cells`, a Hive-wide `max_parallel`, the Hive Stand's
   live room for a backend that draws on it, and an hourly cost cap from stated prices; a backend it
   allows nothing is held back with the bound's name, and the fleet shrinks through the usual
   release.
