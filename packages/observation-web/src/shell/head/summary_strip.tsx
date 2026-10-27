@@ -87,7 +87,7 @@ function Cell(props: { group: Group; denied: boolean; loaded: boolean }): ReactE
       aria-label={`${group.label}: ${denied ? 'no access' : loaded ? group.spoken : 'loading'}`}
     >
       <span className="strip-label">
-        {group.label} <span>{group.hint}</span>
+        {group.label} <span className="strip-hint">{group.hint}</span>
       </span>
       <span className={changed ? 'strip-value strip-value--changed' : 'strip-value'}>{value}</span>
     </div>

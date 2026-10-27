@@ -10,6 +10,7 @@
  *
  * Key invariants:
  *   - Runs after every test in every file, in the jsdom environment.
+ *   - `window.scrollTo` is a no-op, so a view that follows its newest line can mount here.
  *
  * See Also:
  *   - vite.config.ts for where it is registered.
@@ -18,3 +19,6 @@ import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
 afterEach(() => cleanup());
+
+// jsdom has no layout, so a scroll is a no-op here rather than a "not implemented" error.
+window.scrollTo = () => undefined;

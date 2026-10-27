@@ -130,7 +130,7 @@ function Drawing(props: { model: DiagramModel; layout: Layout }): ReactElement {
   const heading = safeId(model.cellId);
   return (
     <svg
-      className="dg"
+      className={`dg dg--${layout.mode}`}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       role="img"
       aria-labelledby={heading}
