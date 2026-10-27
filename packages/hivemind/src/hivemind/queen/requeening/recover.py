@@ -42,7 +42,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal
+from hivemind.brood_chamber import Task, TaskFilter, TaskNotFoundError, TaskStatus, is_terminal
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.common.logging import get_logger
 from hivemind.hive import VirtualCellRecord
@@ -58,7 +58,7 @@ from hivemind.queen.requeening.orphans import (
 )
 from hivemind.queen.requeening.snapshot import current_leases, take_snapshot
 from hivemind.queen.trail import record_event
-from waggle.ids import CellId, WardenId
+from waggle.ids import CellId, TaskId, WardenId
 
 if TYPE_CHECKING:
     # Types only: `hivemind.queen.deps` imports this sub-package (`QueenDeps.requeening`), and
@@ -211,9 +211,21 @@ async def _take_back(deps: QueenDeps, tasks: Sequence[Task]) -> RequeenCounts:
 
 
 async def _release_ended(deps: QueenDeps) -> RequeenCounts:
-    """Return to the pool every live grant whose task has ended (the ledger outlived them)."""
-    tasks = await deps.chamber.list(TaskFilter(limit=MAX_TASK_FILTER_LIMIT))
-    ended = {task.id for task in tasks if is_terminal(task.status)}
+    """Return to the pool every live grant whose task has ended (the ledger outlived them).
+
+    Reads the task of each live grant (there are few), not the whole chamber: a list is capped
+    and oldest first, so on an old Hive it would miss the newest tasks, the likeliest to hold one.
+    """
+    ended: set[TaskId] = set()
+    for task_id in {g.task_id for g in deps.ledger.live_grants() if g.task_id is not None}:
+        try:
+            # Latency: one local indexed read of the Brood Chamber per granted task.
+            task = await deps.chamber.get(task_id)
+        except TaskNotFoundError:
+            log.warning("requeening.grant_task_unknown")  # Left for the human; no id logged.
+            continue
+        if is_terminal(task.status):
+            ended.add(task_id)
     released = await release_finished(deps.ledger, deps, ended)
     return RequeenCounts(grants_released=len(released))
 

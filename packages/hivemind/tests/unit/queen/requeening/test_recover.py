@@ -20,11 +20,13 @@ See Also:
 from __future__ import annotations
 
 import pytest
+from builders.forage import make_grant
 from builders.queen import make_queen_deps, make_warden_link
 from builders.tasks import make_graph_draft
 
 from hivemind.brood_chamber import Task, TaskStatus
 from hivemind.cell import CombShieldLevel, OrphanedLease, hive_stand_cell_id
+from hivemind.forage.grant_state import GrantState
 from hivemind.hive import VirtualCellRecord, VirtualCellStatus
 from hivemind.pheromone import CellEvent, TrailQuery
 from hivemind.queen.deps import QueenDeps
@@ -32,7 +34,15 @@ from hivemind.queen.queen import Queen
 from hivemind.queen.requeening import RequeeningStart, begin_requeening, settle_requeening
 from hivemind.queen.state import QueenMode
 from waggle.clock import FakeClock
-from waggle.ids import CellId, HiveId, WardenId, new_cell_id, new_event_id, new_warden_id
+from waggle.ids import (
+    CellId,
+    HiveId,
+    WardenId,
+    new_cell_id,
+    new_event_id,
+    new_task_id,
+    new_warden_id,
+)
 
 
 class _Releaser:
@@ -145,3 +155,24 @@ async def test_a_virtual_cells_task_waits_for_its_warden_until_the_grace_is_over
     after = await deps.chamber.get(task.id)
     assert after.status is (TaskStatus.RUNNING if comes_back else TaskStatus.PENDING)
     assert len(await _requeened(deps)) == 1
+
+
+async def test_a_grant_whose_task_ended_is_released_and_one_for_an_unknown_task_is_left() -> None:
+    # Regression: the ended tasks were found by a capped, oldest-first list of the whole chamber,
+    # which on an old Hive missed the newest ones; now each live grant's own task is read.
+    clock = FakeClock()
+    deps, link, _end = make_queen_deps(clock)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    (task,) = await deps.chamber.submit(make_graph_draft({"poem": ()}))
+    await deps.chamber.cancel(task.id, "Dropped before the crash.")
+    ended = make_grant(clock=clock, state=GrantState.ACTIVE, task_id=task.id)
+    unknown = make_grant(clock=clock, state=GrantState.ACTIVE, task_id=new_task_id(clock))
+    for grant in (ended, unknown):
+        await deps.ledger.record_grant(grant)
+
+    await begin_requeening(queen, RequeeningStart())
+
+    [payload] = await _requeened(deps)
+    assert payload["grants_released"] == 1
+    assert [grant.id for grant in deps.ledger.live_grants()] == [unknown.id]
