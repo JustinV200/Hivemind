@@ -18,7 +18,8 @@ Fits into the Hive:
     Its own layer (used by every layer in hivemind and by pollen, the lightweight device connector),
     inside the waggle package. Registered by waggle.messages.registry, which maps each class to its
     kind; built by every Worker and Warden and read by every Warden and the Queen; calls into
-    waggle.messages.base, waggle.messages.labels and waggle.messages.task.assignment only.
+    waggle.messages.base, waggle.messages.labels, waggle.messages.task.assignment and
+    waggle.messages.task.review (the Nurse Bee's review a verified result carries) only.
 
 Key invariants:
     - No class here carries its kind string; the registry is the only place kinds live.
@@ -27,6 +28,8 @@ Key invariants:
       marks (receiver rule) is deliberately absent, because the receiver enforces it.
     - A TaskResult names the Warden that checked it exactly when its outcome is terminal, so a
       Worker's claim can never read as a verified result (validator).
+    - A Nurse review rides only on a verified result, and one asking for changes only on a
+      FAILED one, so a rejected attempt can never reach SUCCEEDED (validator, ADR-0061).
 
 See Also:
     - docs/waggle/spec.md section 8.2 for the normative fields, bounds and validators.
@@ -55,6 +58,7 @@ from waggle.messages.base import (
 from waggle.messages.labels import HandoffRef, HoneyClearance
 from waggle.messages.task.assignment import MIN_ATTEMPT
 from waggle.messages.task.recon import ScoutReport
+from waggle.messages.task.review import NurseOutcome, NurseReview
 
 MIN_SUMMARY_CHARS = 1  # A report always says something; an empty summary reports nothing.
 MAX_SUMMARY_CHARS = 2_000  # One paragraph of what changed or what was done; never a transcript.
@@ -217,6 +221,12 @@ class TaskResult(WaggleMessage):
         description="A typed cause the attempt ended as it did, carried from the Worker's claim "
         "onto the Warden's result; None when the reason alone says it. Protocol 1.14.",
     )
+    review: NurseReview | None = Field(
+        default=None,
+        description="The Nurse Bee's review of this attempt (ADR-0061), set by the Warden on its "
+        "verified result and never on a Worker's claim; a CHANGES_REQUESTED verdict comes only "
+        "with a FAILED outcome (validators). None when no review ran. Protocol 1.15.",
+    )
 
     @model_validator(mode="after")
     def _checked_by_matches_outcome(self) -> TaskResult:
@@ -228,5 +238,23 @@ class TaskResult(WaggleMessage):
             raise ValueError(
                 f"TaskResult checked_by is set exactly when outcome is not CLAIMED, got outcome "
                 f"{self.outcome.value} with checked_by {self.checked_by}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _review_matches_outcome(self) -> TaskResult:
+        """Keep a review off a Worker's claim and a rejection off a success."""
+        # A Worker cannot review its own work, so a claim never carries one; and an attempt the
+        # Nurse sent back must not reach SUCCEEDED, so a CHANGES_REQUESTED verdict means FAILED.
+        if self.review is None:
+            return self
+        if self.outcome is TaskOutcome.CLAIMED:
+            raise ValueError("TaskResult review is set only on the Warden's verified result.")
+        verdict = self.review.verdict
+        rejected = verdict is not None and verdict.outcome is NurseOutcome.CHANGES_REQUESTED
+        if rejected and self.outcome is not TaskOutcome.FAILED:
+            raise ValueError(
+                f"TaskResult with a CHANGES_REQUESTED review must be FAILED, got "
+                f"{self.outcome.value}."
             )
         return self

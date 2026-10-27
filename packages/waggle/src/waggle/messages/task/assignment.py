@@ -16,7 +16,9 @@ it, so the Warden can attenuate its Worker's set to it and to the network scopes
 name) and an optional Handoff (the document a bee writes before its context is reset) to resume
 from, referenced by ``resume_from`` and, when the receiving Warden cannot read the sender's memory
 store (a Warden migrating onto a colonized device, PROTOCOL_MINOR 13, roadmap phase 11), carried
-inline as a ``HandoffDocument``; ``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders
+inline as a ``HandoffDocument``; and, once a Nurse Bee (ADR-0061: a fresh-context reviewer) has
+sent the task back, the review round so far and the findings to fix (PROTOCOL_MINOR 15).
+``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders
 on a task in flight. The
 reports that travel back up (``TaskProgress``, ``TaskResult``) live in
 ``waggle.messages.task.reports``, split out by responsibility so each file stays under the
@@ -30,7 +32,8 @@ Fits into the Hive:
     each class to its kind; built by the Queen and every Warden and read by every Warden and
     Worker; calls into waggle.messages.base, waggle.messages.labels, waggle.messages.task.needs
     and waggle.messages.task.recon (a task's Exoskeleton need, network scopes and Scout reports),
-    waggle.messages.task.handoff (the Handoff that can travel inline) and
+    waggle.messages.task.handoff (the Handoff that can travel inline),
+    waggle.messages.task.review (the Nurse Bee's findings a fix-forward attempt carries) and
     waggle.messages.honey.hit (HoneyHit, the retrieval result the pre-check attaches) only.
 
 Key invariants:
@@ -76,6 +79,7 @@ from waggle.messages.labels import HandoffRef, HoneyClearance, PlannedLeaving, P
 from waggle.messages.task.handoff import HandoffDocument
 from waggle.messages.task.needs import MAX_TASK_NETWORK_SCOPES, ExoskeletonNeed, NetworkScope
 from waggle.messages.task.recon import MAX_RECON_REPORTS, ScoutReport
+from waggle.messages.task.review import MAX_NURSE_FINDINGS, MAX_NURSE_ROUND, NurseFinding
 
 MIN_OBJECTIVE_CHARS = 1  # A task with no objective asks for nothing.
 MAX_OBJECTIVE_CHARS = 8_000  # A planner's brief: a page or two; anything longer belongs in Honey.
@@ -91,6 +95,7 @@ MAX_CAPABILITIES = 64  # A goal's capability set (PROTOCOL_MINOR 8): the device 
 MAX_CAPABILITY_CHARS = 1_024  # One capability string: a family and a scope, a path glob at most.
 MIN_ATTEMPT = 1  # The first try is attempt 1, so 0 can never pass for a real attempt.
 MIN_GRACE_S = 0.0  # A grace period is never negative; exactly 0 kills at once (Sting Cut).
+MIN_REVIEW_ROUND = 0  # Nurse rounds already spent: 0 until the first review sends the task back.
 
 __all__ = [
     "MAX_ACCEPTANCE_CHARS",
@@ -104,6 +109,7 @@ __all__ = [
     "MIN_ATTEMPT",
     "MIN_GRACE_S",
     "MIN_OBJECTIVE_CHARS",
+    "MIN_REVIEW_ROUND",
     "TaskAssign",
     "TaskCancel",
     "TaskPause",
@@ -239,6 +245,19 @@ class TaskAssign(WaggleMessage):
         "Handoff. None by default, so an older peer's task.assign still validates "
         "(PROTOCOL_MINOR 13).",
     )
+    review_round: Annotated[int, Field(ge=MIN_REVIEW_ROUND, le=MAX_NURSE_ROUND)] = Field(
+        default=0,
+        description="Nurse Bee reviews this task has already had (ADR-0061), as the Queen counts "
+        "them; the Warden stamps its own review round one higher. 0 by default, so an older "
+        "peer's task.assign still validates (PROTOCOL_MINOR 15).",
+    )
+    review_findings: tuple[NurseFinding, ...] = Field(
+        default=(),
+        max_length=MAX_NURSE_FINDINGS,
+        description="What the last Nurse review asked to change, for the fresh Worker that fixes "
+        "forward on the same Cell; untrusted model prose. Set only when review_round is at least 1 "
+        "(validator). Empty by default (PROTOCOL_MINOR 15).",
+    )
     reason: _Reason = Field(
         description="Why this task was placed here, on this role and slot, now."
     )
@@ -302,6 +321,15 @@ class TaskAssign(WaggleMessage):
                     f"TaskAssign honey hit {hit.honey_ref!r} is labelled {hit.clearance.value}, "
                     f"above the task's clearance {self.clearance.value}."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _findings_follow_a_review(self) -> TaskAssign:
+        """Reject Nurse findings on a task no Nurse has reviewed yet."""
+        # Findings only ever come from a finished review, so a first round with findings would
+        # be text from nowhere put in front of a Worker as if a Nurse had written it.
+        if self.review_findings and self.review_round == MIN_REVIEW_ROUND:
+            raise ValueError("TaskAssign review_findings are set only when review_round is >= 1.")
         return self
 
 

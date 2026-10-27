@@ -6,8 +6,9 @@ always-on supervisor of one Cell, a unit of compute) and the Warden to a Worker 
 the work). The family is split by direction: ``assignment`` carries the downward orders (assign,
 then cancel, pause or resume) and ``reports`` the upward events (progress on an attempt and the
 result that closes it); ``needs`` (the Exoskeleton a task needs, protocol 1.6), ``recon`` (a
-Scout's report, protocol 1.6) and ``handoff`` (a Handoff carried inline, protocol 1.13) are the
-value models both directions carry. This package is the
+Scout's report, protocol 1.6), ``handoff`` (a Handoff carried inline, protocol 1.13) and
+``review`` (the Nurse Bee's review and findings, protocol 1.15, ADR-0061) are the value models
+both directions carry. This package is the
 family's face: a caller imports any of its messages, enums or value models from here without
 knowing which module defines them. The bounds each module names stay in that module, because the
 spec makes the number normative, not the name.
@@ -26,7 +27,8 @@ Key invariants:
 See Also:
     - docs/waggle/spec.md section 8.2 for the family's normative fields and rules.
     - waggle.messages.task.assignment, waggle.messages.task.reports, waggle.messages.task.needs,
-      waggle.messages.task.recon and waggle.messages.task.handoff for the definitions.
+      waggle.messages.task.recon, waggle.messages.task.handoff and waggle.messages.task.review
+      for the definitions.
 
 Public API:
     - Assignment (assignment): TaskAssign, TaskCancel, TaskPause, TaskResume, WorkerRole.
@@ -35,6 +37,7 @@ Public API:
     - Needs (needs): ExoskeletonNeed, NetworkScope.
     - Recon (recon): ScoutReport, SCOUT_REPORT_FILE.
     - Handoff (handoff): HandoffDecision, HandoffDocument.
+    - Review (review): NurseFinding, NurseOutcome, NurseReview, NurseReviewStatus, NurseVerdict.
 """
 
 from waggle.messages.task.assignment import (
@@ -55,6 +58,13 @@ from waggle.messages.task.reports import (
     TaskResult,
     TaskStage,
 )
+from waggle.messages.task.review import (
+    NurseFinding,
+    NurseOutcome,
+    NurseReview,
+    NurseReviewStatus,
+    NurseVerdict,
+)
 
 __all__ = [
     "SCOUT_REPORT_FILE",
@@ -63,6 +73,11 @@ __all__ = [
     "HandoffDecision",
     "HandoffDocument",
     "NetworkScope",
+    "NurseFinding",
+    "NurseOutcome",
+    "NurseReview",
+    "NurseReviewStatus",
+    "NurseVerdict",
     "ResultCause",
     "ScoutReport",
     "TaskAssign",
