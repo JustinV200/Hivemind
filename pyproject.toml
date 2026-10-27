@@ -445,10 +445,15 @@ forbidden_modules = ["hivemind"]
 
 [[tool.importlinter.contracts]]
 # codingrules section 4: "Autopilot never awaits a model... `lint-imports` enforces it. This is
-# what keeps the Hive alive when every provider is down (section 8.8)."
+# what keeps the Hive alive when every provider is down (section 8.8)." The Swarming policy
+# (ADR-0063) is held to the same rule: scaling must work with every provider down.
 name = "autopilot never imports llm"
 type = "forbidden"
-source_modules = ["hivemind.queen.autopilot", "hivemind.wardens.autopilot"]
+source_modules = [
+    "hivemind.queen.autopilot",
+    "hivemind.queen.scheduler",
+    "hivemind.wardens.autopilot",
+]
 forbidden_modules = ["hivemind.llm"]
 # allow_indirect_imports left at its default (false): a transitive path into hivemind.llm would
 # defeat the guarantee just as completely as a direct import.

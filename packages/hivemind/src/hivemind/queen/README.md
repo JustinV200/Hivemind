@@ -151,7 +151,11 @@ every assignment goes to a Warden, over Waggle.
   `cell.provisioning`/`cell.provision_failed` rows, not a pair on every pass. A grant or assignment
   that never reaches its Warden's link (a closed or dropped transport, `WardenLink.send` returning
   False) revokes the grant (`HOLDER_OFFLINE`) and fails the task at once, rather than leaving it
-  RUNNING with no Worker.
+  RUNNING with no Worker. Swarming (roadmap step 13.3, ADR-0063) caps fresh Virtual Cells
+  before every placement: `queen.scheduler.plan_swarm` reads queue depth, each backend's Cells
+  held and being made, and the Hive Stand's room against `[virtual_cells.swarming]`, and a backend
+  it allows nothing is marked held back with its reason, so the task waits PENDING.
+- `queen.scheduler` (roadmap step 13.3): the pure Swarming policy; see `queen/scheduler/README.md`.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules
