@@ -5,9 +5,10 @@ beat; a real Docker run showed a Cell that heartbeated just before its pause dra
 `CELL_UNREACHABLE` about 40 s into it, for silence the Hive had caused itself. The Queen now
 reads the Cells she holds paused from the lifecycle's own dormant list, never judges their
 Wardens while the hold lasts, and gives a resumed one a whole window from the moment it
-resumed. A Warden that falls silent for any other reason is judged exactly as before. Every test
-runs on a FakeClock (builders' defaults: a 5 s manifest interval and a miss limit of 3, so a 15 s
-window).
+resumed. A relayed snapshot freezes its Cell the same way, for however long the backend works:
+the Queen holds that Warden while she freezes it, whatever interval it announced beforehand. A
+Warden that falls silent for any other reason is judged exactly as before. Every test runs on a
+FakeClock (builders' defaults: a 5 s manifest interval and a miss limit of 3, so a 15 s window).
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/ticks/liveness.py (codingrules section 3); split by feature (14.2)
@@ -35,13 +36,19 @@ from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import Pulse
 from hivemind.queen.placement import DormantCandidate
-from hivemind.queen.ticks.liveness import WardenLiveness, check_liveness, record_heartbeat
+from hivemind.queen.ticks.liveness import (
+    WardenLiveness,
+    check_liveness,
+    frozen_by_the_hive,
+    record_heartbeat,
+)
 from hivemind.supervision import AlarmKind
 from waggle.clock import FakeClock
 from waggle.ids import CellId, WardenId, new_warden_id
 
 _WINDOW_S = 15.0  # The builders' 5 s manifest interval times their miss limit of 3.
 _PAUSE_S = 600.0  # Ten minutes Overwintered: forty windows of silence.
+_ANNOUNCED_S = 30.0  # What a Warden declares before a relayed snapshot: its relay's own wait.
 
 
 def _dormant(cell_id: CellId) -> DormantCandidate:
@@ -140,3 +147,27 @@ async def test_a_heartbeat_while_held_keeps_the_hold() -> None:
 
     assert liveness[link.warden_id].held
     assert _unreachable(inbox) == []
+
+
+async def test_a_cell_frozen_for_a_snapshot_is_never_judged_however_long_the_backend_takes() -> (
+    None
+):
+    clock = FakeClock()
+    deps, link, _end = make_queen_deps(clock)
+    liveness: dict[WardenId, WardenLiveness] = {}
+    inbox = HumanInbox()
+    # It announced the freeze as its relay's own wait, and the backend then took ten minutes.
+    record_heartbeat(deps, liveness, link.warden_id, Pulse(clock.now(), _ANNOUNCED_S))
+    with frozen_by_the_hive(liveness, link.warden_id, clock):
+        clock.advance(_PAUSE_S)
+        await check_liveness(deps, (link,), liveness, inbox)
+        await check_liveness(deps, (link,), liveness, inbox)
+        assert _unreachable(inbox) == []
+
+    # Thawed: a whole window of its declared interval from the thaw, then judged as ever.
+    clock.advance(3 * _ANNOUNCED_S - 1.0)
+    await check_liveness(deps, (link,), liveness, inbox)
+    assert _unreachable(inbox) == []
+    clock.advance(1.0)
+    await check_liveness(deps, (link,), liveness, inbox)
+    assert _unreachable(inbox) == [link.warden_id]

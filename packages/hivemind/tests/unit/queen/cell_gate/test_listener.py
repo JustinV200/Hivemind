@@ -13,6 +13,8 @@ running Queen's own door, and she isolates the Cell by rule. A handshake frame t
 signature before attach is `guard.handshake_refused` about the Hive, with what it claimed kept
 apart, never about the Cell it named. A snapshot relay request naming another attached Cell is
 answered with an error and never reaches the relay, either way round (`guard.relay_refused`).
+While a relayed snapshot or rollback runs, the backend freezes the whole Cell, so the Queen holds
+that Warden's liveness for exactly as long, and counts its misses afresh once it is done.
 Roadmap steps 11.3a and 11.3b: the transport's own limits are on, so a frame flood closes the link
 (code 4029) and a replayed envelope id is dropped, each recorded as a guard event naming the Cell's
 node.
@@ -49,6 +51,7 @@ from builders.guard_bee import guard_bee_for_queen
 from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.events import CellEvent
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
+from hivemind.queen import Queen
 from hivemind.queen.trail import TrailSegmentReceiver
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from hivemind.workers.roles.guard_bee import Disposition
@@ -57,6 +60,7 @@ from waggle.codec import Codec
 from waggle.envelope import wrap
 from waggle.ids import (
     HiveId,
+    WardenId,
     new_event_id,
     new_node_id,
 )
@@ -149,6 +153,40 @@ async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelop
     assert reply_envelope.correlation_id == envelope.id
     assert reply_envelope.payload.snapshot_id == "snap_test"
 
+    await transport.close()
+    await scenario.listener.stop()
+
+
+class _FreezingSnapshotHandler(_FakeSnapshotHandler):
+    """Notes whether the Queen held the Warden's liveness while its Cell was being frozen."""
+
+    def __init__(self, queen: Queen, warden_id: WardenId) -> None:
+        super().__init__()
+        self._queen = queen
+        self._warden_id = warden_id
+        self.held_while_frozen: list[bool] = []
+
+    async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
+        self.held_while_frozen.append(self._queen.liveness[self._warden_id].frozen)
+        return await super().rollback(request)
+
+
+async def test_the_queen_holds_a_wardens_liveness_while_its_cell_is_frozen_for_a_rollback() -> None:
+    # Regression (Supervision round 4): a freeze longer than the Warden's announced interval drew
+    # a false CELL_UNREACHABLE about a silence the Hive itself had caused.
+    scenario = await build_scenario()
+    cell, transport = await attach(scenario)
+    handler = _FreezingSnapshotHandler(scenario.queen, cell.warden_id)
+    scenario.listener.bind_snapshot_handler(handler)
+
+    request = CellRollbackRequest(cell_id=cell.cell_id, snapshot_id="snap_test")
+    await transport.send(wrap(request, cell.hop(scenario.hive_id), clock=FakeClock()))
+    await asyncio.wait_for(anext(transport.receive()), WAIT_S)
+
+    # Held for exactly the backend's own call; afterwards its misses count from the thaw.
+    assert handler.held_while_frozen == [True]
+    thawed = scenario.queen.liveness[cell.warden_id]
+    assert not thawed.frozen and thawed.hold_ended_at is not None
     await transport.close()
     await scenario.listener.stop()
 

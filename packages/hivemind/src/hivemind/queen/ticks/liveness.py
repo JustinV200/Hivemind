@@ -48,10 +48,14 @@ that heartbeated just before its pause drawing `CELL_UNREACHABLE` about 40 s int
 link's own keepalive dropped the paused Cell at about 47 s. `check_liveness` reads the
 held Cells from the lifecycle's own dormant list (`QueenDeps.dormant_cell_source`, or the static
 `dormant_cells`), marks each such Warden `held` and skips it, and when the hold ends (the Cell
-resumed) counts its misses from that moment, never from its last pre-pause beat. A snapshot's
-freeze is announced by the Warden itself instead, as a longer declared interval
-(`hivemind.wardens.ticks.heartbeat.announce_freeze`); a Cell that falls silent for any other
-reason is judged exactly as before.
+resumed) counts its misses from that moment, never from its last pre-pause beat. A relayed
+snapshot or rollback freezes its Cell the same way, for as long as the backend works: 27 s a GiB
+on the development host, bounded by nothing the Warden can declare beforehand (its announced
+interval, `hivemind.wardens.ticks.heartbeat.announce_freeze`, covers only its own relay's wait).
+So the Queen, who is the one freezing it, holds that Warden too while she works
+(`frozen_by_the_hive`, around the listener's own call into the backend), and counts its misses
+afresh from the moment the freeze ends; a Cell that falls silent for any other reason is judged
+exactly as before.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's ticks
@@ -83,8 +87,9 @@ Key invariants:
       never start another; it only moves `last_heartbeat_at` forward.
     - `last_heartbeat_at` never moves backwards: an older Heartbeat heard after a newer one adds
       nothing.
-    - A held Warden (its Cell Overwintered) is never marked offline and raises no Alarm while the
-      hold lasts; once it ends, its misses count from the end of the hold, not from before it.
+    - A held Warden (its Cell Overwintered, or frozen for a snapshot the Queen is taking) is never
+      marked offline and raises no Alarm while the hold lasts; once it ends, its misses count from
+      the end of the hold, not from before it.
     - `check_liveness`'s own expiry sweep runs every call, regardless of whether any Warden's own
       liveness changed this tick: a grant's `expires_at` is a wall-clock deadline independent of
       the Warden-by-Warden loop above it.
@@ -100,7 +105,8 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Iterator, Mapping, MutableMapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
@@ -120,6 +126,7 @@ from hivemind.queen.ticks import tools as tools_tick
 from hivemind.queen.ticks import wax as wax_tick
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState, to_wire
 from hivemind.supervision.attendant import InboxItem
+from waggle.clock import Clock
 from waggle.envelope import wrap
 from waggle.ids import CellId, WardenId, new_alarm_id
 from waggle.messages.forage import ForageRequest as WireForageRequest
@@ -128,6 +135,7 @@ from waggle.messages.supervision import AlarmContext, Heartbeat, Intervene
 __all__ = [
     "WardenLiveness",
     "check_liveness",
+    "frozen_by_the_hive",
     "handle_heartbeat_item",
     "handle_infrastructure_item",
     "record_heartbeat",
@@ -145,6 +153,7 @@ class WardenLiveness:
     interval_s: float | None = None  # What its newest Heartbeat declared; None before the first.
     held: bool = False  # Its Cell is paused by the Hive itself: its silence is never judged.
     hold_ended_at: datetime | None = None  # When its latest hold ended; misses count from here.
+    frozen: bool = False  # Its Cell is frozen for a snapshot the Queen is taking right now.
 
 
 # What a Warden with no liveness row yet looks like to `record_heartbeat` (attach adds one first).
@@ -359,7 +368,8 @@ async def check_liveness(
         pulse = heard.get(link.warden_id) if heard is not None else None
         if pulse is not None:
             record_heartbeat(deps, liveness, link.warden_id, pulse)
-        if _hold(liveness, link.warden_id, link.cell.id in held, now):
+        held_now = link.cell.id in held or _is_frozen(liveness, link.warden_id)
+        if _hold(liveness, link.warden_id, held_now, now):
             continue  # Paused by the Hive itself: its silence is her own doing, never an Alarm.
         if _crossed_miss_limit(deps, liveness, link.warden_id, now):
             # The transition only: one Alarm per Warden per outage, not one per later check;
@@ -372,6 +382,55 @@ async def check_liveness(
     # wall-clock deadline independent of any one Warden's liveness state, so this runs every tick
     # regardless of whether any Warden just went offline this time.
     await forage_grants.sweep_expired(deps.ledger, deps)
+
+
+@contextmanager
+def frozen_by_the_hive(
+    liveness: MutableMapping[WardenId, WardenLiveness], warden_id: WardenId, clock: Clock
+) -> Iterator[None]:
+    """Hold `warden_id` unjudged while the Queen herself freezes its Cell (module docstring).
+
+    Args:
+        liveness: The Queen's own warden_id -> WardenLiveness table; mutated in place.
+        warden_id: The Warden whose Cell a snapshot or rollback is about to freeze.
+        clock: Stamps the moment the freeze ends, from which its misses count afresh.
+
+    Yields:
+        None, for as long as the freeze lasts (the caller's own call into the backend).
+    """
+    _set_frozen(liveness, warden_id, frozen=True, ended_at=None)
+    try:
+        yield
+    finally:
+        # However the backend's call ended: a full window from here, never from before it.
+        _set_frozen(liveness, warden_id, frozen=False, ended_at=clock.now())
+
+
+def _set_frozen(
+    liveness: MutableMapping[WardenId, WardenLiveness],
+    warden_id: WardenId,
+    *,
+    frozen: bool,
+    ended_at: datetime | None,
+) -> None:
+    """Mark `warden_id` frozen or thawed; a thaw restarts its misses from `ended_at`."""
+    current = liveness.get(warden_id)
+    if current is None:
+        return  # Detached meanwhile (its link dropped): nothing left to hold or to judge.
+    if frozen:
+        liveness[warden_id] = dataclasses.replace(current, frozen=True)
+        return
+    # The hold a check took during the freeze ends with it (one still dormant is held again on
+    # the next check), so its window starts at the thaw, never at whichever check came next.
+    liveness[warden_id] = dataclasses.replace(
+        current, frozen=False, held=False, hold_ended_at=ended_at, missed_heartbeats=0
+    )
+
+
+def _is_frozen(liveness: Mapping[WardenId, WardenLiveness], warden_id: WardenId) -> bool:
+    """Whether `warden_id`'s Cell is frozen for a snapshot the Queen is taking right now."""
+    current = liveness.get(warden_id)
+    return current is not None and current.frozen
 
 
 async def _held_cells(deps: QueenDeps) -> frozenset[CellId]:

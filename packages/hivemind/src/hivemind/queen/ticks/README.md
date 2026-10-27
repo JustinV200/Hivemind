@@ -18,8 +18,10 @@ class stay within codingrules 5.1's size limits.
   `QueenDeps.on_heartbeat` when one is set (the Hive Entrance's telemetry board). A Warden whose
   Cell the Hive itself holds paused -- Overwintered, read from the lifecycle's own dormant list
   (`QueenDeps.dormant_cell_source`, or the static `dormant_cells`) -- is never judged while the
-  hold lasts, and gets a whole window from the moment it resumes; a snapshot's shorter freeze is
-  announced by the Warden itself, as a longer declared interval. `.renew_grants_on_heartbeat` extends every live grant a
+  hold lasts, and gets a whole window from the moment it resumes. A relayed snapshot or rollback
+  freezes its Cell for as long as the backend works, however long that is: `.frozen_by_the_hive`
+  holds that Warden for exactly as long (the Cell listener wraps its call into the backend in it),
+  and its window starts again at the thaw. `.renew_grants_on_heartbeat` extends every live grant a
   Heartbeat's own Warden holds; `.check_liveness`'s own sweep also calls
   `hivemind.queen.forage.grants.sweep_expired` every tick, unconditionally, so a grant whose lease
   lapses returns to the pool the same tick it expires. `.handle_infrastructure_item` is the one

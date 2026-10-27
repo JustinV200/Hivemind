@@ -37,7 +37,9 @@ Key invariants:
       proves no Cell and is the gate's to close, not recorded here.
     - A snapshot relay request is answered on the connection it arrived on, correlated to its own
       envelope, and only about the Cell the link proved: one naming another Cell is answered with
-      an error and recorded as `guard.relay_refused`; a trail segment chunk is handed to the
+      an error and recorded as `guard.relay_refused`. The Warden's liveness is held for as long as
+      the backend works on one (`.admit.frozen_cell`: the backend freezes the whole Cell, so no
+      silence the Hive caused is ever judged); a trail segment chunk is handed to the
       receiver and answered only when refused, with a `control.error` naming the reason. Both are
       no-ops when the services name no handler or receiver.
     - A returning Warden's gate hears of it (`LinkHooks.on_returning`) before the fan-out's pump
@@ -54,13 +56,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from hivemind.cell import Cell
 from hivemind.pheromone import TrailRecorder
-from hivemind.queen.attach.admit import current_link, detach_if_current, knows_warden
+from hivemind.queen.attach.admit import current_link, detach_if_current, frozen_cell, knows_warden
 from hivemind.queen.attach.fanout import FanoutTransport
 from hivemind.queen.attach.refusals import LinkRefusals, refusal_error, relay_refused_reply
 from hivemind.queen.deps import LiveCapacity, WardenLink, send_guarded
@@ -229,7 +232,7 @@ async def serve_warden(
     assert isinstance(ready, CellReady)  # noqa: S101 - the gate verified the handshake frame.
     refusals = LinkRefusals(services.recorder, proved.cell.id, proved.node_id)
     _expect_replay(queen, ready.warden_id, hooks)  # Before the fan-out: its pump starts reading.
-    fanout = _fanout(proved, services, refusals)
+    fanout = _fanout(queen, proved, services, refusals)
     link = WardenLink(
         warden_id=ready.warden_id,
         cell=proved.cell,
@@ -293,11 +296,18 @@ async def _reap(fanout: FanoutTransport) -> None:
 class _Answers:
     """Answer the frames of one link that are the gate's, not the Queen's: relays and segments."""
 
-    def __init__(self, services: LinkServices, proved: ProvedLink, refusals: LinkRefusals) -> None:
-        """Bind the answers to one link's services, proof and refusals."""
+    def __init__(
+        self,
+        services: LinkServices,
+        proved: ProvedLink,
+        refusals: LinkRefusals,
+        freeze: Callable[[], AbstractContextManager[None]],
+    ) -> None:
+        """Bind the answers to one link's services, proof, refusals and liveness hold."""
         self._services = services
         self._proved = proved
         self._refusals = refusals
+        self._freeze = freeze
         # By payload type, never a kind string: a frame of any other type has no entry and is the
         # Queen's, which the fan-out never hands here.
         self._by_payload: dict[type[WaggleMessage], Callable[[Envelope], Awaitable[None]]] = {
@@ -320,7 +330,11 @@ class _Answers:
             and isinstance(request, CellSnapshotRequest)
             and await self._own_cell(envelope, request)
         ):
-            await self._reply(envelope, await handler.snapshot(request))
+            # The backend freezes the whole Cell, its Warden too, for as long as it works: the
+            # Queen, who is freezing it, holds her judgement of its silence until it is done.
+            with self._freeze():
+                reply = await handler.snapshot(request)
+            await self._reply(envelope, reply)
 
     async def _rollback(self, envelope: Envelope) -> None:
         """Answer a rollback request through the bound handler, if there is one."""
@@ -330,7 +344,9 @@ class _Answers:
             and isinstance(request, CellRollbackRequest)
             and await self._own_cell(envelope, request)
         ):
-            await self._reply(envelope, await handler.rollback(request))
+            with self._freeze():  # As for a snapshot: the Cell freezes while it rolls back.
+                rollback = await handler.rollback(request)
+            await self._reply(envelope, rollback)
 
     async def _own_cell(
         self, envelope: Envelope, request: CellSnapshotRequest | CellRollbackRequest
@@ -362,9 +378,14 @@ class _Answers:
         await send_guarded(self._proved.transport, envelope)
 
 
-def _fanout(proved: ProvedLink, services: LinkServices, refusals: LinkRefusals) -> FanoutTransport:
+def _fanout(
+    queen: Queen, proved: ProvedLink, services: LinkServices, refusals: LinkRefusals
+) -> FanoutTransport:
     """Build the link's one reader: it answers the gate's kinds and hands over claimed frames."""
-    answers = _Answers(services, proved, refusals)
+    ready = proved.first.payload
+    assert isinstance(ready, CellReady)  # noqa: S101 - the gate verified the handshake frame.
+    # The Queen holds the Warden's liveness while her backend freezes its Cell for a relay.
+    answers = _Answers(services, proved, refusals, partial(frozen_cell, queen, ready.warden_id))
     # The Cell the handshake proved, never one a frame names: only its own answer counts.
     claim = partial(_claimed, services, proved.cell.id)
     return FanoutTransport(proved.transport, answers, proved.frames, claim)

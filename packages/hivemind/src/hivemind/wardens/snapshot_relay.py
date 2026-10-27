@@ -30,7 +30,10 @@ so its Heartbeats stop for as long as that takes -- 27 s for a 1 GiB change on t
 host, more than half a Virtual Cell's 45 s window. Before each request the relay therefore calls
 the announcer its Warden bound (`announce_freezes`), which sends one Heartbeat declaring the
 relay's own timeout as its interval, and the Queen judges the frozen Warden by that longer window
-rather than raising a false `CELL_UNREACHABLE` for silence the Hive caused itself.
+rather than raising a false `CELL_UNREACHABLE` for silence the Hive caused itself. The backend may
+take longer than any interval declared beforehand (a large change, a slow disk), so the Queen, who
+runs it, also holds this Warden's liveness for exactly as long as it takes (`hivemind.queen.attach.
+frozen_cell`); the announcement covers the moments before her listener reads the request.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built by

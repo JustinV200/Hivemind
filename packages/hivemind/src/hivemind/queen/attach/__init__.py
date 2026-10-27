@@ -29,9 +29,10 @@ See Also:
     - hivemind.queen.cell_gate and hivemind.queen.swarm_gate for the two callers.
 
 Public API:
-    - attach_warden, detach_warden, detach_if_current, current_link, knows_warden, warden_state:
-      admit a Warden, remove it, remove it only while a given link is still its own, read its
-      link, whether the Queen has had it before, and the state it last reported (admit).
+    - attach_warden, detach_warden, detach_if_current, current_link, knows_warden, warden_state,
+      frozen_cell: admit a Warden, remove it, remove it only while a given link is still its own,
+      read its link, whether the Queen has had it before, the state it last reported, and hold
+      its liveness while the Queen freezes its Cell (admit).
     - serve_warden, ProvedLink, LinkHooks, LinkServices, SnapshotRequestHandler, AnswerClaims:
       serve a gate's
       proved connection after its handshake (serve).
@@ -46,6 +47,7 @@ from hivemind.queen.attach.admit import (
     current_link,
     detach_if_current,
     detach_warden,
+    frozen_cell,
     knows_warden,
     warden_state,
 )
@@ -86,6 +88,7 @@ __all__ = [
     "current_link",
     "detach_if_current",
     "detach_warden",
+    "frozen_cell",
     "knows_warden",
     "refusal_error",
     "serve_warden",

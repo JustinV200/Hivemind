@@ -16,7 +16,10 @@ ends, so a dead link is never drained again on the next tick. Both are free func
 near codingrules 5.1's 300-line file cap, and neither body fits there without pushing it over;
 `queen.py`'s own `_stop_queen`/`_send_intervene` already live as module-level delegates for the
 same class-size reason, these are one file further out for the same file-size reason.
-`Queen.attach_warden` is a one-line delegator to `attach_warden`.
+`Queen.attach_warden` is a one-line delegator to `attach_warden`. `frozen_cell` holds one attached
+Warden's liveness while the Queen's own backend freezes its Cell for a relayed snapshot or rollback
+(`hivemind.queen.ticks.liveness.frozen_by_the_hive`), so a freeze the Hive started is never judged
+as the Warden going silent.
 
 **Reconnection** (roadmap 11.9, ADR-0053). A remote Warden that loses its link dials again with
 the id it has always had, and the Queen must recognise it rather than meet a stranger. Attaching a
@@ -69,6 +72,7 @@ See Also:
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
 from pydantic import JsonValue
@@ -80,7 +84,7 @@ from hivemind.queen.authority import queen_held, request_for
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.forage import Resent, resend_state
 from hivemind.queen.isolation import resend_taint_order
-from hivemind.queen.ticks.liveness import WardenLiveness
+from hivemind.queen.ticks.liveness import WardenLiveness, frozen_by_the_hive
 from hivemind.queen.ticks.tools import announce_current_tools, forget_warden
 from waggle.ids import WardenId, new_event_id
 from waggle.messages.supervision import WardenState
@@ -97,6 +101,7 @@ __all__ = [
     "current_link",
     "detach_if_current",
     "detach_warden",
+    "frozen_cell",
     "knows_warden",
     "warden_state",
 ]
@@ -190,6 +195,19 @@ async def detach_warden(queen: Queen, warden_id: WardenId) -> None:
     await queen._links.remove(warden_id)
     # Phase 9: a shipment or a Comb order waiting on this Warden fails now, not after its timeout.
     forget_warden(queen._deps, warden_id)
+
+
+def frozen_cell(queen: Queen, warden_id: WardenId) -> AbstractContextManager[None]:
+    """Hold `warden_id`'s liveness for as long as the Queen's own backend freezes its Cell.
+
+    Args:
+        queen: The Queen whose judgement of `warden_id` is held.
+        warden_id: The attached Warden whose Cell a relayed snapshot or rollback freezes.
+
+    Returns:
+        A context manager: held on entry; on exit, its misses count afresh from that moment.
+    """
+    return frozen_by_the_hive(queen._liveness, warden_id, queen._deps.clock)
 
 
 def knows_warden(queen: Queen, warden_id: WardenId) -> bool:
