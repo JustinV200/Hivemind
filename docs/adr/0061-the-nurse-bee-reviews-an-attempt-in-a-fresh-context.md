@@ -160,7 +160,10 @@ Both are classified as observations in the Guard's event catalogue.
   walks the binding's own fallback chain, which the Worker's grade already covers link by link. An
   `llm.call` event names its slot and provider but never its model (the trail keeps model ids off
   it), so an event whose (slot, provider) matches a link of the Worker's bindings adds nothing.
-  Only an event matching no link (a rebind) counts, as the strongest model the map lists on its
+  So the caller must pass every binding the attempt ran on, rebind targets included (the old and
+  new sub-bee bindings, or `llm.rebound`'s to_binding): a rebind that stays on the same (slot,
+  provider) is invisible in the calls. Only an event matching no link (a rebind onto another
+  slot or provider that the bindings missed) counts, as the strongest model the map lists on its
   provider. Grading every event that way would overstate the Worker, and overstating is not safe:
   a higher Worker grade leaves fewer eligible Nurses and more attempts accepted "not nursed",
   with no review at all. Non-chat calls (EMBEDDER, TRANSCRIBER) are ignored. Putting the binding

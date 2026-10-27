@@ -16,11 +16,15 @@ Fits into the Hive:
 Key invariants:
     - The grade never understates the Worker: a model the Forage map cannot grade makes it
       MAX_MODEL_GRADE, so only a top-grade Nurse can review work no grade can be proved for.
+    - `bindings` holds every binding the attempt ran on, rebind targets included (the caller
+      reads them off the sub-bee bindings, or off `llm.rebound`'s to_binding). Calls cannot
+      stand in for that: a rebind that stays on the same (slot, provider) looks identical to
+      the original binding in the trail.
     - An `llm.call` event names a slot and provider, never a model id (the trail keeps model ids
       off it). An event whose (slot, provider) matches a link of the bindings is already graded
       by that link and adds nothing, so a stronger model elsewhere on the same provider never
-      raises the grade. Only an event matching no link counts, as the strongest model the map
-      lists on its provider.
+      raises the grade. Only an event matching no link (a rebind onto another slot or provider
+      that `bindings` missed) counts, as the strongest model the map lists on its provider.
     - Non-chat calls (EMBEDDER, TRANSCRIBER) are ignored: they never write the Worker's output.
     - Providers come out de-duplicated, in first-seen order, at most MAX_NURSE_PROVIDERS.
 
@@ -61,7 +65,8 @@ def worker_strength(
     """Return the Worker's strength from its bindings and the llm.call events it made.
 
     Args:
-        bindings: The Worker's bound models; each one's whole fallback chain counts.
+        bindings: Every model the attempt was bound to, rebind targets included; each one's
+            whole fallback chain counts.
         calls: Trail events from the Worker's calls; kinds other than llm.call are ignored.
         forage: The Forage map that grades each model.
 
@@ -81,7 +86,8 @@ def worker_strength(
             providers.append(link.provider.name)
             linked.add((link.slot.value, link.provider.name))
 
-    # A chat call the chains above cannot explain is a rebind: grade it by its provider's best.
+    # A chat call the chains above cannot explain is a rebind `bindings` missed: grade it by its
+    # provider's best.
     for event in calls:
         if event.kind != LLM_CALL_KIND or event.provider is None or event.slot in NON_CHAT_SLOTS:
             continue
