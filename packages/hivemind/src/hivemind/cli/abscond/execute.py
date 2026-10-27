@@ -8,7 +8,9 @@ scratch); then every temp dir is removed, every resident Basket row evicted, and
 human ticked replayed away. Persistent stores are not wiped: the trail, the Brood Chamber, Honey
 and the ledger stay. `guard.absconded` is recorded last, as the human, with the reason, the
 confirmation evidence (how the human proved themselves, never the password or the phrase), what
-the scope held and what each step did.
+the scope held and what each step did. It is recorded even when a step fails partway (Docker down,
+a locked Leaving): then it holds what was done before the failure and the failure's type, and the
+failure is raised on to the caller.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.abscond`. Called by
@@ -20,8 +22,8 @@ Fits into the Hive:
 
 Key invariants:
     - Only Leavings the human ticked are removed; every other one stays where it was left.
-    - `guard.absconded` is recorded once per Absconding, after every effect, carrying ids and
-      counts only.
+    - `guard.absconded` is recorded once per Absconding, after every effect or at the failure that
+      stopped them, carrying ids, counts and an exception type only.
 
 See Also:
     - hivemind.cli.readback.virtual_abscond for the Cells-and-leases pass this builds on.
@@ -88,37 +90,77 @@ async def carry_out(
 
     Returns:
         What it did.
+
+    Raises:
+        Exception: Whatever stopped a step, after `guard.absconded` recorded what came before it.
     """
-    summary = await run_abscond(deps)
-    # Blocking rmtree, off the loop; a lingering handle leaves one behind, counted, not raised.
-    removed = [await asyncio.to_thread(remove_scratch, path) for path in scope.temp_dirs]
-    for cell_id, sha256 in scope.resident:
-        await basket.evict(cell_id, sha256)
-    human = CellIdentity(
+    human = _human(deps)
+    done = _Progress(event_id=new_event_id(deps.clock))
+    try:
+        summary = await _tear_down(deps, basket, scope, ticked, done)
+    except BaseException as exc:
+        done.failure = type(exc).__name__  # The type only: a message may quote a path or a host.
+        raise
+    finally:
+        # The consent is on the trail whatever happened: who asked, why, and what was done.
+        await deps.trail.record(_event(deps, human, scope, done, evidence))
+    return AbscondReceipt(
+        summary=summary,
+        temp_dirs_removed=done.temp_dirs_removed,
+        resident_evicted=done.resident_evicted,
+        leavings_removed=done.leavings_removed,
+        event_id=done.event_id,
+    )
+
+
+def _human(deps: AbscondDeps) -> CellIdentity:
+    """The operator, as this Hive Stand stamps the human on the trail."""
+    return CellIdentity(
         hive_id=deps.manifest.hive.id, node_id=deps.manifest.hive.node_id, actor=OPERATOR_ID
     )
+
+
+@dataclass(slots=True)
+class _Progress:
+    """What an Absconding has done so far, filled in step by step for `guard.absconded`."""
+
+    event_id: EventId
+    summary: AbscondSummary | None = None
+    temp_dirs_removed: int = 0
+    resident_evicted: int = 0
+    leavings_removed: int = 0
+    failure: str | None = None
+
+
+async def _tear_down(
+    deps: AbscondDeps,
+    basket: BasketStore,
+    scope: AbscondScope,
+    ticked: tuple[Leaving, ...],
+    done: _Progress,
+) -> AbscondSummary:
+    """Run every step in order, counting each into `done` as it lands; return the pass's summary."""
+    summary = done.summary = await run_abscond(deps)
+    for path in scope.temp_dirs:
+        # Blocking rmtree, off the loop; a lingering handle leaves one behind, counted, not raised.
+        done.temp_dirs_removed += await asyncio.to_thread(remove_scratch, path)
+    for cell_id, sha256 in scope.resident:
+        await basket.evict(cell_id, sha256)
+        done.resident_evicted += 1
     for leaving in ticked:
-        await remove_leaving(deps.leavings, leaving, human, deps.clock)
-    receipt = AbscondReceipt(
-        summary=summary,
-        temp_dirs_removed=sum(removed),
-        resident_evicted=len(scope.resident),
-        leavings_removed=len(ticked),
-        event_id=new_event_id(deps.clock),
-    )
-    await deps.trail.record(_event(deps, human, scope, receipt, evidence))
-    return receipt
+        await remove_leaving(deps.leavings, leaving, _human(deps), deps.clock)
+        done.leavings_removed += 1
+    return summary
 
 
 def _event(
     deps: AbscondDeps,
     human: CellIdentity,
     scope: AbscondScope,
-    receipt: AbscondReceipt,
+    done: _Progress,
     evidence: Evidence,
 ) -> GuardEvent:
     """Build `guard.absconded`: the human, the reason, the confirmation, the scope, the results."""
-    summary = receipt.summary
     payload: dict[str, JsonValue] = {
         "reason": evidence.reason,
         "confirmation": evidence.payload(),
@@ -133,18 +175,14 @@ def _event(
             "resident_blobs": len(scope.resident),
             "leavings": len(scope.leavings),
         },
-        "containers_destroyed": summary.containers_destroyed,
-        "leases_released": summary.leases_released,
-        "leases_deferred": summary.leases_deferred_to_queen,
-        "leases_left": summary.leases_left_untouched,
-        "grants_revoked": summary.grants_revoked,
-        "temp_dirs_removed": receipt.temp_dirs_removed,
-        "resident_evicted": receipt.resident_evicted,
-        "leavings_removed": receipt.leavings_removed,
-        "left_as_found": summary.left_as_found,
+        **_pass_counts(done.summary),
+        "temp_dirs_removed": done.temp_dirs_removed,
+        "resident_evicted": done.resident_evicted,
+        "leavings_removed": done.leavings_removed,
+        "failed": done.failure,
     }
     return GuardEvent(
-        id=receipt.event_id,
+        id=done.event_id,
         hive_id=human.hive_id,
         node_id=human.node_id,
         at=deps.clock.now(),
@@ -153,3 +191,18 @@ def _event(
         subject_id=human.hive_id,
         payload=payload,
     )
+
+
+def _pass_counts(summary: AbscondSummary | None) -> dict[str, JsonValue]:
+    """The Cells-and-leases pass's counts; each None when that pass itself failed."""
+    if summary is None:
+        keys = ("containers_destroyed", "leases_released", "leases_deferred", "leases_left")
+        return dict.fromkeys((*keys, "grants_revoked", "left_as_found"))
+    return {
+        "containers_destroyed": summary.containers_destroyed,
+        "leases_released": summary.leases_released,
+        "leases_deferred": summary.leases_deferred_to_queen,
+        "leases_left": summary.leases_left_untouched,
+        "grants_revoked": summary.grants_revoked,
+        "left_as_found": summary.left_as_found,
+    }

@@ -11,11 +11,13 @@ or tool calls it; it is this command, typed at the Hive Stand. In order:
 3. The scope review (`scope.gather_scope`, `review.review_lines`) shows what goes and numbers
    every Leaving; the human types the numbers of those to remove (blank keeps them all).
 4. A final yes to the review, then the typed phrase `abscond my hive`.
-5. `execute.carry_out` tears it down and records `guard.absconded`; the receipt is printed.
+5. `execute.carry_out` tears it down and records `guard.absconded`; the receipt is printed. A
+   step that fails partway (Docker down, a locked Leaving) exits 1 with one line; its
+   `guard.absconded` holds what was done, and running the command again finishes the rest.
 
-Anything refused or declined exits 1 having changed nothing (a refused point leaves its
-`guard.denied` row). Each prompt reads the next stdin line under `--password-stdin` too, in the
-order above.
+Anything refused or declined before step 5 exits 1 having changed nothing (a refused point
+leaves its `guard.denied` row). Each prompt reads the next stdin line under `--password-stdin`
+too, in the order above.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.abscond`. Registered as `hive
@@ -76,6 +78,8 @@ PasswordStdinOption = Annotated[
         "--password-stdin", help="Read the operator password, then each answer, from stdin."
     ),
 ]
+# What a refusal, or a step failing partway, raises; anything else is a bug and stays a traceback.
+_TYPED_ERRORS = (HiveMindError, PermissionError, ValueError, OSError)
 MAX_REASON_CHARS = 300  # A sentence naming ids, like every trail reason in the Hive.
 
 __all__ = ["abscond_command"]
@@ -106,7 +110,10 @@ def abscond_command(
     if not phrase_matches(typer.prompt(f"Type '{PHRASE}' to confirm")):
         _refuse(f"the phrase was not {PHRASE!r}; nothing was done.")
     evidence = Evidence(reason=reason[:MAX_REASON_CHARS], leavings_ticked=len(ticked))
-    receipt = asyncio.run(carry_out(deps, sources.basket, scope, ticked, evidence))
+    try:
+        receipt = asyncio.run(carry_out(deps, sources.basket, scope, ticked, evidence))
+    except _TYPED_ERRORS as exc:
+        _refuse(f"stopped partway ({_why(exc)}); guard.absconded records what was done.")
     for line in receipt_lines(receipt):
         typer.echo(line)
 
@@ -144,8 +151,13 @@ def _refusing[T](run: Callable[[], T]) -> T:
     """Run `run`; turn a typed refusal into one stderr line and exit 1."""
     try:
         return run()
-    except (HiveMindError, PermissionError, ValueError, OSError) as exc:
-        _refuse(describe(exc) if isinstance(exc, HiveMindError) else str(exc))
+    except _TYPED_ERRORS as exc:
+        _refuse(_why(exc))
+
+
+def _why(exc: Exception) -> str:
+    """One line naming a typed refusal."""
+    return describe(exc) if isinstance(exc, HiveMindError) else str(exc)
 
 
 def _refuse(why: str) -> NoReturn:

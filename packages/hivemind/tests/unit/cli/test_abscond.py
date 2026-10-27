@@ -4,7 +4,8 @@ Roadmap step 13.4. With the operator password, a confirmed scope review and the 
 destroys every Virtual Cell, releases the Hive Stand's open lease (its scratch removed), removes a
 temp dir no lease owns, evicts the resident Basket rows, removes only the Leaving the human ticked,
 and records `guard.absconded` as the human with the confirmation evidence. A wrong password, a
-declined review or a wrong phrase each change nothing at all.
+declined review or a wrong phrase each change nothing at all. A backend failing mid-teardown still
+leaves `guard.absconded` with the human's consent and the failure, and exits 1 with one line.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/abscond/ (codingrules section 3).
@@ -29,7 +30,7 @@ from typer.testing import Result
 from hivemind.cli.abscond import ABSCONDED_KIND
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.stores import open_basket_store, open_leavings, open_trail
-from hivemind.hive import VirtualCellSpec
+from hivemind.hive import CellDestroyError, VirtualCellSpec
 from hivemind.manifest import HiveManifest, load_manifest
 from hivemind.pheromone import CellEvent, PheromoneEvent, TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -205,3 +206,26 @@ async def test_any_refusal_changes_nothing(
     assert await _cells(hive) == 1
     assert hive.lease_scratch.exists() and hive.temp_dir.exists() and hive.ticked.exists()
     assert await _absconded(hive) == ()
+
+
+async def test_a_teardown_failing_partway_still_records_the_consent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hive = await _seeded(tmp_path, monkeypatch)
+
+    async def docker_down(cell_id: CellId) -> None:
+        raise CellDestroyError("fake", cell_id, "the daemon is not answering")
+
+    monkeypatch.setattr(hive.parts.registry.get("fake"), "destroy", docker_down)
+
+    result = await _abscond(hive, _ANSWERS)
+
+    assert result.exit_code == 1
+    assert "hive abscond refused: stopped partway" in result.output  # One line, no traceback.
+    [event] = await _absconded(hive)
+    assert event.actor == "human" and event.payload["reason"] == "leaving this machine"
+    assert event.payload["confirmation"]["leavings_ticked"] == 1  # type: ignore[index,call-overload]
+    assert (event.payload["failed"], event.payload["containers_destroyed"]) == (
+        "CellDestroyError",
+        None,
+    )
