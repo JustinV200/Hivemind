@@ -6,10 +6,10 @@
  * much of that has been used (the filled part). Each label stands on the side the layout gives it
  * (the pool's to the left of its boxes; the Wardens' and grants' to the right on the wide canvas,
  * to the left on a phone) with a halo of the surface colour, so the words stay legible where a
- * ribbon passes. The canvas is sized from the pane the drawing measures, so its 12 unit text is
- * 12 px on a phone; only a pane under 240 px scrolls the drawing sideways. A grant nearing expiry
- * has its box and ribbon edge in the warn token and the word "soon" in its label. Beside the SVG
- * a table repeats every figure for screen readers.
+ * ribbon passes, its lines centred on the box. The canvas is sized from the pane the drawing
+ * measures, so its 12 unit text is 12 px on a phone; only a pane under 240 px scrolls the
+ * drawing sideways. A grant nearing expiry has its box and ribbon edge in the warn token and the
+ * word "soon" in its label. Beside the SVG a table repeats every figure for screen readers.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/flow/`. Drawn by `forage_screen.tsx`; makes no
@@ -27,8 +27,10 @@ import type { ReactElement } from 'react';
 import { usePaneWidth } from '../../../components';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
-import { COLUMN_HEADINGS, HEAD_H, layoutFlow, NODE_W } from './layout';
+import { COLUMN_HEADINGS, HEAD_H, layoutFlow, LINE_H, NODE_W } from './layout';
 import type { FlowBox, FlowLayout, FlowRibbon, NodeKind } from './layout';
+
+const BASELINE = 4; // From a line's centre down to its baseline, for 12 unit text.
 
 // The pool's reserve is hatched; granted-side boxes are the granted token; free is the track.
 const FILL: Readonly<Record<NodeKind, string>> = {
@@ -63,14 +65,19 @@ function Box(props: { box: FlowBox }): ReactElement {
           fill="var(--accent)"
         />
       ) : null}
-      <text
-        className="forage-svg-label"
-        x={left ? box.x - 4 : box.x + box.w + 4}
-        y={box.y + box.h / 2 + 4}
-        textAnchor={left ? 'end' : 'start'}
-      >
-        {box.label}
-      </text>
+      {/* The lines centre on the box as a block: the first sits above its middle by half the
+          block, so two lines straddle it and one sits on it */}
+      {box.lines.map((line, i) => (
+        <text
+          key={i}
+          className="forage-svg-label"
+          x={left ? box.x - 4 : box.x + box.w + 4}
+          y={box.y + box.h / 2 + BASELINE + (i - (box.lines.length - 1) / 2) * LINE_H}
+          textAnchor={left ? 'end' : 'start'}
+        >
+          {line}
+        </text>
+      ))}
     </g>
   );
 }

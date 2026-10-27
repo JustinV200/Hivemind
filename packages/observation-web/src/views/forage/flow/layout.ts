@@ -6,13 +6,15 @@
  * Warden. On the wide canvas (480 units, a pane of at least that many px) the pool's labels sit
  * to the left of its boxes and the others to the right, so no label lies on the ribbons that
  * leave the pool. A narrower pane gets a canvas exactly as wide as itself, so its 12 unit text is
- * 12 px (design.md 4.8): every label then sits to the left of its box, cut to the characters the
- * width leaves, and the ribbons pass under the Warden and grant labels (the drawing gives the
- * words a halo). A box's height is proportional to its amount on one scale for the whole diagram
- * (with a floor so a small box keeps room for its label), and a ribbon joins each slice of a box
- * to the next column with the same share of the height. Used amounts fill a box from its bottom.
- * Every position comes from sorted ids, fixed sizes and the one width, so equal models on equal
- * panes give equal layouts.
+ * 12 px (design.md 4.8): every label then sits to the left of its box and the pool's amount goes
+ * under its word rather than being cut away, and the ribbons pass under the Warden and grant
+ * labels (the drawing gives the words a halo). A grant nearing expiry carries "soon" under its
+ * name on either canvas, so the name keeps its tail. A box's height is proportional to its amount
+ * on one scale for the whole diagram, with a floor of one line per line of its label so a small
+ * box keeps room for its words, and a ribbon joins each slice of a box to the next column with
+ * the same share of the height. Used amounts fill a box from its bottom. Every position comes
+ * from sorted ids, fixed sizes and the one width, so equal models on equal panes give equal
+ * layouts.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/flow/`. Takes the model of `model.ts`; its output
@@ -21,12 +23,14 @@
  * Key invariants:
  *   - Pure and deterministic; numbers rounded to two decimals; the wide canvas keeps the columns
  *     at 90, 232 and 374 units.
- *   - Box heights are `max(MIN_BOX, amount * scale)`; with no amounts at all, every box is `MIN_BOX`.
+ *   - Box heights are `max(LINE_H * lines, amount * scale)`; with no amounts at all, every box is
+ *     as tall as its label (`MIN_BOX` for a one-line label).
  *   - A ribbon never leaves its source box: slices of one box tile it without overlap.
  *
  * See Also:
  *   - docs/observation/design.md sections 4.7 and 4.8.
  */
+import { idText } from '../../../components/id_token';
 import { cut } from '../format';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
@@ -41,23 +45,28 @@ export const COLUMN_HEADINGS: readonly [string, string, string] = [
 ];
 export const HEAD_H = 20; // The column headings' row, above the first box.
 const TARGET_H = 200; // The tallest column's boxes together, before the floor and gaps.
-export const MIN_BOX = 14;
+export const LINE_H = 14; // One line of 12 unit label text with its leading.
+export const MIN_BOX = LINE_H; // The floor of a box with a one-line label.
 const GAP = 6;
 export const PAD = 6;
 const CHAR_W = 6.6; // Units one character of 12 unit sans text takes, on average.
 const LABEL_PAD = 4; // Between a label and its box.
 const LABEL_CHARS = 13; // The most a label keeps; the wide canvas has room for all of it.
 const RIBBON_W = 38; // The clear run of ribbon between a label and the next column's box.
+const SOON = 'soon'; // The word a grant nearing expiry carries, so warn is never colour alone.
 
 // The columns' geometry for a canvas width: where each column's boxes stand, how many characters
-// a label keeps, and whether a column's labels sit left of its boxes. Wide puts the Warden and
-// grant labels to the right, in the gaps, which costs a fourth label width; narrow puts every
-// label to the left and gives the characters whatever three label widths leave.
+// a label keeps, whether a column's labels sit left of its boxes, and whether a label stacks its
+// parts. Wide puts the Warden and grant labels to the right, in the gaps, which costs a fourth
+// label width, and keeps the pool's word and amount on one line; narrow puts every label to the
+// left, gives the characters whatever three label widths leave, and stacks the amount under the
+// word, since eight characters hold one of them. "soon" is under a grant's name on both.
 export interface Geometry {
   width: number;
   columns: readonly [number, number, number];
   chars: number;
   labelLeft: readonly [boolean, boolean, boolean];
+  stacked: boolean;
 }
 
 export function geometryFor(width: number): Geometry {
@@ -72,6 +81,7 @@ export function geometryFor(width: number): Geometry {
     columns: [labelW, labelW + pitch, labelW + 2 * pitch],
     chars,
     labelLeft: [true, !wide, !wide],
+    stacked: !wide,
   };
 }
 
@@ -89,7 +99,8 @@ export interface FlowBox {
   // Height of the used part, filled from the bottom; 0 when no use figure exists.
   usedH: number;
   near: boolean;
-  label: string;
+  // The label's lines, top to bottom, centred on the box; one on the wide canvas.
+  lines: readonly string[];
   // Whether the label stands to the left of the box (right-aligned to it) or to its right.
   labelLeft: boolean;
   title: string;
@@ -120,11 +131,26 @@ interface Item {
   amount: number;
   used: number | null;
   near: boolean;
-  label: string;
+  lines: readonly string[];
   title: string;
 }
 
-function poolItems(model: FlowModel, chars: number): Item[] {
+// An id as the tables show it, its kind and ULID tail (design.md 4.3); where even that is too
+// long for the canvas, the tail alone, which is the part that tells ids apart.
+function idLabel(id: string, chars: number): string {
+  const text = idText(id);
+  if (text.length <= chars) return text;
+  const tail = text.indexOf('…');
+  return cut(tail > 0 ? text.slice(tail) : text, chars);
+}
+
+// A label's parts as its lines: one line of them all on the wide canvas, one line each when stacked.
+function linesOf(geo: Geometry, ...parts: string[]): string[] {
+  const kept = geo.stacked ? parts : [parts.join(' ')];
+  return kept.map((part) => cut(part, geo.chars));
+}
+
+function poolItems(model: FlowModel, geo: Geometry): Item[] {
   const text = (n: number): string => formatAmount(model.unit, n);
   const item = (kind: NodeKind, word: string, amount: number): Item => ({
     id: `pool-${kind}`,
@@ -132,7 +158,7 @@ function poolItems(model: FlowModel, chars: number): Item[] {
     amount,
     used: null,
     near: false,
-    label: cut(`${word} ${text(amount)}`, chars),
+    lines: linesOf(geo, word, text(amount)),
     title: `${word} in the shared pool: ${text(amount)}`,
   });
   const items = [
@@ -143,19 +169,27 @@ function poolItems(model: FlowModel, chars: number): Item[] {
   return items.filter((i) => i.amount > 0);
 }
 
-function wardenItems(model: FlowModel, chars: number): Item[] {
+function wardenItems(model: FlowModel, geo: Geometry): Item[] {
   return model.wardens.map((w) => ({
     id: w.id,
     kind: 'warden',
     amount: w.amount,
     used: w.used,
     near: w.grants.some((g) => g.near),
-    label: cut(w.id, chars),
+    lines: [idLabel(w.id, geo.chars)],
     title: `Warden ${w.id} on ${w.cellId || 'an unknown Cell'}${w.state ? ` (${w.state})` : ''}: ${formatAmount(model.unit, w.amount)} granted`,
   }));
 }
 
-function grantItems(model: FlowModel, chars: number): Item[] {
+// A grant's label is its task; one nearing expiry says so in words, so the warn colour is never
+// the only signal. The word goes on a line of its own on either canvas, since beside the name it
+// would cost the name its tail even on the wide one.
+function grantLines(label: string, near: boolean, geo: Geometry): string[] {
+  const name = idLabel(label, geo.chars);
+  return near ? [name, SOON] : [name];
+}
+
+function grantItems(model: FlowModel, geo: Geometry): Item[] {
   return model.wardens.flatMap((w) =>
     w.grants.map((g) => ({
       id: g.id,
@@ -163,8 +197,7 @@ function grantItems(model: FlowModel, chars: number): Item[] {
       amount: g.amount,
       used: g.used,
       near: g.near,
-      // A grant nearing expiry says so in words, so the warn colour is never the only signal.
-      label: g.near ? `${cut(g.label, chars - 5)} soon` : cut(g.label, chars),
+      lines: grantLines(g.label, g.near, geo),
       title: `Grant ${g.id} for ${g.label}: ${formatAmount(model.unit, g.amount)}${g.used === null ? '' : `, used ${formatAmount(model.unit, g.used)}`}, expires ${g.expiresAt}`,
     })),
   );
@@ -174,7 +207,8 @@ function grantItems(model: FlowModel, chars: number): Item[] {
 function stack(items: readonly Item[], column: 0 | 1 | 2, scale: number, geo: Geometry): FlowBox[] {
   let y = PAD + HEAD_H;
   return items.map((item) => {
-    const h = round2(Math.max(MIN_BOX, item.amount * scale));
+    // The floor is the label's height, so two stacked lines never spill onto the next box's label.
+    const h = round2(Math.max(LINE_H * item.lines.length, item.amount * scale));
     const filled = item.used !== null && item.amount > 0 ? Math.min(1, item.used / item.amount) : 0;
     const box: FlowBox = {
       id: item.id,
@@ -187,7 +221,7 @@ function stack(items: readonly Item[], column: 0 | 1 | 2, scale: number, geo: Ge
       amount: item.amount,
       usedH: round2(h * filled),
       near: item.near,
-      label: item.label,
+      lines: item.lines,
       labelLeft: geo.labelLeft[column],
       title: item.title,
     };
@@ -243,9 +277,9 @@ export function layoutFlow(
   paneWidth: number | null = null,
 ): FlowLayout {
   const geo = geometryFor(Math.max(FLOW_MIN, paneWidth ?? FLOW_WIDTH));
-  const pool = poolItems(model, geo.chars);
-  const wardens = wardenItems(model, geo.chars);
-  const grants = grantItems(model, geo.chars);
+  const pool = poolItems(model, geo);
+  const wardens = wardenItems(model, geo);
+  const grants = grantItems(model, geo);
   const total = (items: readonly Item[]): number => items.reduce((a, i) => a + i.amount, 0);
   const tallest = Math.max(total(pool), total(wardens), total(grants));
   const scale = tallest > 0 ? TARGET_H / tallest : 0;

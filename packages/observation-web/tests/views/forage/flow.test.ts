@@ -23,6 +23,7 @@ import {
   FLOW_WIDTH,
   HEAD_H,
   layoutFlow,
+  LINE_H,
   MIN_BOX,
   NODE_W,
   PAD,
@@ -130,12 +131,19 @@ describe('the layout', () => {
     expect(box.usedH).toBeCloseTo(box.h * 0.25, 1);
   });
 
-  it('marks a near-expiry grant in its label and its ribbon', () => {
-    const layout = layoutFlow(
-      flowModel(input({ grants: [grant({ id: 'g_a', expires_at: at(4) })] })),
-    );
-    expect(layout.boxes.find((b) => b.id === 'g_a')).toMatchObject({ near: true });
-    expect(layout.boxes.find((b) => b.id === 'g_a')?.label).toContain('soon');
+  // The word "soon" goes under the task's name, which keeps its tail (the part that tells ids
+  // apart) on the wide canvas and is the tail alone where a phone's eight characters hold no more.
+  it.each([
+    [null, ['task_…9K4L1', 'soon']],
+    [304, ['…9K4L1', 'soon']],
+  ])('marks a near-expiry grant in its label and its ribbon (%s px pane)', (pane, lines) => {
+    const near = grant({
+      id: 'g_a',
+      task_id: 'task_01HZK5B2A7C4DF8G1H3JE9K4L1',
+      expires_at: at(4),
+    });
+    const layout = layoutFlow(flowModel(input({ grants: [near] })), pane);
+    expect(layout.boxes.find((b) => b.id === 'g_a')).toMatchObject({ near: true, lines });
     expect(layout.ribbons.some((r) => r.near)).toBe(true);
   });
 
@@ -161,20 +169,24 @@ describe('the layout', () => {
   });
 
   // The canvas is the pane's width on a phone, so 12 unit text is 12 px; labels move left of
-  // their boxes and keep fewer characters, and nothing is drawn past the canvas.
+  // their boxes, stack the pool's amount under its word (the box growing to two lines) rather
+  // than cut it, keep fewer characters per line, and nothing is drawn past the canvas.
   it.each([
-    [null, FLOW_WIDTH, [90, 232, 374], false],
-    [700, FLOW_WIDTH, [90, 232, 374], false],
-    [304, 304, [57, 166, 275], true],
-    [200, 240, [37, 126, 215], true],
-  ])('draws on a canvas sized from a %s px pane', (pane, width, columns, left) => {
+    [null, FLOW_WIDTH, [90, 232, 374], false, ['Free 8']],
+    [700, FLOW_WIDTH, [90, 232, 374], false, ['Free 8']],
+    [304, 304, [57, 166, 275], true, ['Free', '8']],
+    [200, 240, [37, 126, 215], true, ['Free', '8']],
+  ])('draws on a canvas sized from a %s px pane', (pane, width, columns, left, free) => {
     const layout = layoutFlow(flowModel(input()), pane);
     expect(layout.width).toBe(width);
     expect(layout.columns).toEqual(columns);
     expect(layout.labelLeft).toEqual([true, left, left]);
     expect(layout.boxes.every((b) => b.x + b.w <= width)).toBe(true);
-    const longest = Math.max(...layout.boxes.map((b) => b.label.length));
+    const longest = Math.max(...layout.boxes.flatMap((b) => b.lines.map((l) => l.length)));
     expect(longest).toBeLessThanOrEqual(pane === 200 ? 5 : pane === 304 ? 8 : 13);
+    const pool = layout.boxes.find((b) => b.id === 'pool-free')!;
+    expect(pool.lines).toEqual(free);
+    expect(pool.h).toBeGreaterThanOrEqual(LINE_H * free.length);
   });
 });
 
