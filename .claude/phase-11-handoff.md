@@ -1003,18 +1003,26 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   `queen/cluster/returned.py`, ADR-0053's last amendment.) `TaskNeeds.survives_link_loss` is
   not carried by the Entrance goal API or the remote CLI. `control.queen_moved` carries no TLS pin
   (13.2a). The packet installs `hivemind` without the browser extra, so a device has no browser
-  launcher; a Cell Warden's ears go through an unmetered gate (codingrules 8.10). A colonized
-  Warden is not woken by a link change (it notices on its next beat). The dispatcher's
-  placement-failure record names `night_veil_initiation` for a task that does cite a request.
+  launcher; a Cell Warden's ears go through an unmetered gate (codingrules 8.10). ~~A colonized
+  Warden is not woken by a link change (it notices on its next beat).~~ (Closed 2026-10-27: its
+  link nudges its `Outage`, as a Night Veil Cell's already did, `cli/in_cell/borrowed/deps.py`.)
+  ~~The dispatcher's placement-failure record names `night_veil_initiation` for a task that does
+  cite a request.~~ (Closed 2026-10-27: `_record_placement_failure` checks with `tier_context`, so
+  the refusal is the ceiling's `guard.not_held`.)
   ~~`pause_on_warden` still waits on the Queen's own Bee Bread for a checkpoint a device Warden
   never writes there.~~ (Closed 2026-10-27: it waits for her checkpoint or the bee's HANDOFF
-  deposit to change.) Tool eligibility and the Nuc decision do not read the platform report yet.
-  `ReconnectingQueenLink.close()` does not wake a redial asleep between attempts: its receive task
-  ends after that wait (at most 30 s) without dialing again. The liveness sweep's
-  `CELL_UNREACHABLE` reaches the human's inbox and chat with no `alarm.raised` or `alarm.escalated`
-  row (so since phase 3; `escalate_alarm` would give it one), so the trail-rebuilt inbox
-  (`cli/readback/inbox.py`) never shows it. Destroying an in-process Virtual Cell (the test backend
-  cancels it) lets its Warden stop all the way and ship its last trail since 14b075a, while the
-  Docker backend's forced removal ships nothing: a scenario must not rely on a destroyed Cell's last
-  words.
+  deposit to change.) Tool eligibility and the Nuc decision do not read the platform report yet
+  (tool eligibility matches `supported_os` against the Cell's `os`, which comes from it; a ToolSpec
+  names no distribution or architecture, and nothing a Nuc starts names a platform, so what more
+  either should read is a design question). ~~`ReconnectingQueenLink.close()` does not wake a
+  redial asleep between attempts: its receive task ends after that wait (at most 30 s) without
+  dialing again.~~
+  (Closed 2026-10-27: `close` sets an event the backoff waits on, `reconnect.wait_or_wake`.) ~~The
+  liveness sweep's `CELL_UNREACHABLE` reaches the human's inbox and chat with no `alarm.raised` or
+  `alarm.escalated` row (so since phase 3; `escalate_alarm` would give it one), so the
+  trail-rebuilt inbox (`cli/readback/inbox.py`) never shows it.~~ (Closed 2026-10-27: the sweep
+  escalates through `escalate_alarm`, so it has its `alarm.escalated` row.) Destroying an
+  in-process Virtual Cell (the test backend cancels it) lets its Warden stop all the way and ship
+  its last trail since 14b075a, while the Docker backend's forced removal ships nothing: a scenario
+  must not rely on a destroyed Cell's last words.
 
