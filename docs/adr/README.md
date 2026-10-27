@@ -301,3 +301,8 @@ ADRs that exist today, in numeric order:
   claim); `run_command` asks the whole policy before it proposes, so on a SCRATCH Real Cell it is
   `guard.denied` before anything starts; `TaskNeeds.commands` keeps such a task off such a Cell,
   and fails it at once when the Hive has no Virtual backend.
+- `0061-the-nurse-bee-reviews-an-attempt-in-a-fresh-context.md`: once an attempt's machine checks
+  pass, the Warden hands a bounded, Warden-built bundle of evidence (never the Worker's own
+  account) to a Nurse Bee on the JUDGE slot at least as strong as the Worker; CHANGES_REQUESTED
+  sends a fresh Worker to fix forward on the same Cell, up to `[nurse] max_rounds`, then the human
+  (`NURSE_UNRESOLVED`); with no eligible model the attempt is accepted "not nursed". Waggle 1.15.
