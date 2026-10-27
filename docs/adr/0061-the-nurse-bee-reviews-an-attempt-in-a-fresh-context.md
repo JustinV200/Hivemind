@@ -57,8 +57,8 @@ spend is added to the attempt's `TaskResult.spend`.
 
 **Layering.** The `NurseReviewer` protocol and the request model live in
 `supervision/capping/checks/nurse.py`, which imports nothing from `hivemind.llm`; the model-backed
-implementation lives in `wardens/nurse.py`; a `FakeNurseReviewer` lives beside the Protocol. The Queen's rule reads
-only the wire fields below.
+implementation lives in `wardens/nurse.py`; a `FakeNurseReviewer` lives beside the Protocol. The
+Queen's rule reads only the wire fields below.
 
 **Wire (Waggle 1.15, additive).** `waggle.messages.task.review` defines three frozen value models
 that forbid extras:
@@ -119,13 +119,16 @@ Both are classified as observations in the Guard's event catalogue.
   maps an answer or a `NurseAnswerError` onto the wire's `NurseReview` and returns the spend to
   add to `TaskResult.spend`, so the Warden never hand-builds a review. An outage still
   propagates, as it does from the judge.
-- **`NurseRequest` carries `worker_grade` and `tempo`.** The reviewer filters eligible models by
-  the grade and orders its call by the tempo; neither tells the Nurse anything about how the
-  Worker reasoned. It names no Worker, provider or rubric: provider preference and the prompt
-  are the model Nurse's own (step 3).
-- **Bounds.** At most 64 actions (`MAX_NURSE_ACTIONS`), 32 files (`MAX_NURSE_FILES`) and
-  100,000 characters of file text in all (`MAX_NURSE_EVIDENCE_CHARS`), a hard ceiling the
-  manifest's `max_evidence_chars` sits beneath. The goal reuses the judge's `MAX_GOAL_CHARS`.
+- **`NurseRequest` carries `worker_grade`, `worker_providers` and `tempo`.** One reviewer serves
+  every task on a Warden, so these per-task facts travel in the request. The reviewer filters
+  eligible models by the grade, prefers a provider outside `worker_providers` (the providers of
+  the Worker's bindings and of the models its `llm.call` events reached, at most 16), and orders
+  its call by the tempo; none of them tells the Nurse how the Worker reasoned. It names no Worker
+  and no rubric: the prompt is the model Nurse's own (step 3).
+- **Bounds.** At most 64 actions (`MAX_NURSE_ACTIONS`), 64 artifacts (`MAX_ARTIFACTS`, as on
+  `TaskResult`), 32 files (`MAX_NURSE_FILES`), 16 providers (`MAX_NURSE_PROVIDERS`) and 100,000
+  characters of file text in all (`MAX_NURSE_EVIDENCE_CHARS`), a hard ceiling the manifest's
+  `max_evidence_chars` sits beneath. The goal reuses the judge's `MAX_GOAL_CHARS`.
   Every outcome's index must name a criterion in the request.
 
 ## Consequences
