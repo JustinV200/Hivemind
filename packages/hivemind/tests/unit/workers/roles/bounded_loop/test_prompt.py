@@ -4,7 +4,8 @@ Fits into the Hive:
     Mirrors src/hivemind/workers/roles/bounded_loop/prompt.py (codingrules section 3). The
     objective/acceptance/leaves rendering this module also covers is already exercised, unchanged,
     by hivemind.workers.roles.drone.prompt's own re-export and that package's tests; this module
-    covers what roadmap step 6.9 added: rendering `TaskAssign.recon`.
+    covers what roadmap step 6.9 added, rendering `TaskAssign.recon`, and ADR-0061's
+    `TaskAssign.review_findings`.
 
 Key invariants:
     - None: this module holds tests only.
@@ -19,7 +20,7 @@ from builders.llm import make_bound
 from builders.workers import make_assignment, make_context
 
 from hivemind.workers.roles.bounded_loop.prompt import brief_for
-from waggle.messages.task import ScoutReport
+from waggle.messages.task import NurseFinding, ScoutReport
 
 
 def test_brief_omits_the_recon_block_when_there_is_none() -> None:
@@ -79,3 +80,23 @@ def test_recon_is_untrusted_and_never_precedes_the_objective() -> None:
     # delimiter, never mixed into the instructions a bee reads first (codingrules section 15).
     assert text.startswith("Log in.")
     assert text.index("<<<scout_findings>>>") > text.index("Log in.")
+
+
+def test_nurse_findings_reach_the_brief_fenced_and_anchored_after_the_objective() -> None:
+    """ADR-0061: the fixing bee is told what to change and where, as untrusted data."""
+    ctx = make_context(bound=make_bound())
+    findings = (
+        NurseFinding(criterion_index=0, problem="The poem has no title.", fix="Add one."),
+        NurseFinding(path="poem.txt", line=3, problem="Line 3 rhymes badly.", fix="Rework it."),
+    )
+    assignment = make_assignment(
+        objective="Write a poem.", review_round=1, review_findings=findings
+    )
+
+    text = brief_for(assignment, ctx.cell)
+    plain = brief_for(make_assignment(objective="Write a poem."), ctx.cell)
+
+    assert text.startswith("Write a poem.") and "nurse_findings" not in plain
+    block = text[text.index("<<<nurse_findings>>>") : text.index("<<<end nurse_findings>>>")]
+    assert "1. criterion 1 (" in block and "The poem has no title. Fix: Add one." in block
+    assert "2. poem.txt line 3: Line 3 rhymes badly. Fix: Rework it." in block
