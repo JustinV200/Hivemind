@@ -142,6 +142,11 @@ class NurseRequest(BaseModel):
         default_factory=Tempo,
         description="The task's tempo: orders the Nurse's call in the Fanner's queues only.",
     )
+    spend_left: Annotated[float, Field(ge=0.0)] | None = Field(
+        default=None,
+        description="What the task's grant has left to spend; the Nurse skips a model whose "
+        "call could cost more. None when the Warden holds no spend cap for the task.",
+    )
 
     @model_validator(mode="after")
     def _bounded_and_consistent(self) -> NurseRequest:
@@ -187,8 +192,8 @@ class NurseAnswer(BaseModel):
 class NurseReviewer(Protocol):
     """Review one attempt in a fresh context and say PASS or what to fix.
 
-    An implementation picks an eligible model (grade at least `request.worker_grade`, preferring
-    a provider not in `request.worker_providers`), returns a
+    An implementation picks an eligible model (grade at least `request.worker_grade`, a call that
+    fits `request.spend_left`, preferring a provider not in `request.worker_providers`), returns a
     `NurseAnswer` with no verdict when none is eligible, and raises `NurseAnswerError` when the
     chosen model's call or output fails. An outage is not an answer failure: it propagates.
     Implementations must be safe to call concurrently, since a Warden may accept several tasks.
