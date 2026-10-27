@@ -41,7 +41,9 @@ From top to bottom, on every screen after login:
 
    It is a slice seeded by `/v1/summary` and kept live by the cells, telemetry and episodes
    streams (ADR-0049). If a stream is down, the strip dims and says `stale since hh:mm:ss` rather
-   than showing old numbers as if they were current. Under it a **notice bar** appears while the
+   than showing old numbers as if they were current; on a phone the note is a third line of the
+   band and the four cells give up 2 px of padding each, so the band keeps its 116 px and the
+   head does not grow. Under it a **notice bar** appears while the
    push stream (`/v1/push/stream`) says something is waiting (a question, an Alarm, a reply, a
    finished goal, a security event): one line per kind with a count and a link to the view that
    holds the item; opening the chat clears the chat kinds, Dismiss clears the rest.
@@ -56,7 +58,7 @@ From top to bottom, on every screen after login:
 
 | Width | Shell |
 |---|---|
-| 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells, each two lines (the label with its hint on one 12 px line, the number under it) in a 49 px cell, so the band holds the 116 px `--strip-h` budgets and the pinned head (bar and strip) stays under a quarter of a phone's screen. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row; the Capping view's two filter groups become one select each. |
+| 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells, each two lines (the label with its hint on one 12 px line, the number under it) in a 46 px cell, so the band holds the 116 px `--strip-h` budget, stale note included, and the pinned head (bar and strip) stays under a quarter of a phone's screen. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row; the Capping view's two filter groups become one select each. A link in a row, a card, a line of links or a breadcrumb has the buttons' 44 px touch area, as padding around its line. |
 | 720 to 1079 | Nav becomes a left rail of icons with labels. A table with few columns (the Cost tables, the Forage's Wardens, requests and map tables) is a table; the rest stay cards, two across where there is room (the Fleet). Diagrams fill the width. |
 | 1080 and up | Left rail with labels beside the icons, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). Every table shows all its columns (the Grants table, with ten, from here), except the three whose columns need more room: the Fleet, the Capping queue and the Devices list become tables from 1280 px and keep their cards below it, so no table ever scrolls sideways. |
 
@@ -214,7 +216,9 @@ comb cell. Beside it, in text: `used / budget` and the percentage (`41,200 / 128
 bar has `role="meter"` with `aria-valuenow`, `aria-valuemin` and `aria-valuemax`. The same
 component draws grant used against issued and a cost against its cap. A share that is not a limit
 (the Cost view's hosted calls out of all calls) asks for the `neutral` tone and fills in `--idle`
-at every level, so a slot served wholly by a provider never reads as a fault.
+at every level, so a slot served wholly by a provider never reads as a fault. A word beside a
+gauge (the Cell page's `Tokens` and `Spend (USD)`) sits level with the bar it names, not with the
+bar and its caption together, where it would read as part of the numbers.
 
 ### 4.3 Tables
 
@@ -284,14 +288,17 @@ Cell frame and one on the Cell inside it.
   filled up to what it has used.
 - **Spend.** One bar per sub-bee, grouped under its Warden, proportional to what it spent.
 - Ribbons join each segment to the next column, with width proportional to the amount. A grant
-  near expiry gets a `--warn` ribbon edge and its expiry as text.
+  near expiry gets a `--warn` ribbon edge, its expiry as text and the word `soon` on a line under
+  its name, on either canvas, so the name keeps its tail.
 
 The flow's canvas is 480 units wide, the pool's labels left of its boxes and the others right, in
-the gaps. A pane narrower than that (a phone) gets a canvas exactly as wide as the pane: every
-label moves to the left of its box, right-aligned, and keeps the characters the width leaves
-(ten at 334 px, eight at 304 px; the full words stay in `<title>`), the ribbons pass under the
-Warden and grant labels (which have a halo of the surface), and nothing scrolls sideways above
-240 px.
+the gaps; a Warden's or a grant's label is its id as the tables show it (kind and ULID tail, 4.3),
+or the tail alone where the line is too short for both. A pane narrower than that (a phone) gets
+a canvas exactly as wide as the pane: every label moves to the left of its box, right-aligned,
+the pool's amount goes on a line under its word rather than being cut away (a box is never
+shorter than its label's lines), each line keeps the characters the width leaves (ten at 334 px,
+eight at 304 px; the full words stay in `<title>`), the ribbons pass under the Warden and grant
+labels (which have a halo of the surface), and nothing scrolls sideways above 240 px.
 
 Below the flow, **per-host capacity** is a stacked bar per host (Hive Stand, each Nuc, each
 Virtual Cell backend): in use, reserved, available, with the numbers beside it, and one legend
@@ -310,12 +317,17 @@ right of the shared flow, with its own reserve and the seats it exports.
 - A diagram measures its pane (`usePaneWidth`, a `ResizeObserver` on the box it is drawn in)
   and sizes its narrow canvas from it, one viewBox unit per pixel, so text in SVG, which is real
   `<text>` at 12 units, is at least 12 px on any phone; a wide canvas (the Cell diagram's 744
-  units, the Attendant graph's natural size, the flow's 480) is drawn only in a pane that holds it
-  at 1x or more. Before the pane is measured, and in a test, the canvas is the design's 360. If a
-  label does not fit, it is cut and the full text stays in `<title>`.
+  units, the Attendant graph's natural size, the flow's 480) is drawn only in a pane that holds
+  it, at exactly 1x (the `<svg>` carries its canvas's width) and centred, so diagram type stays on
+  the page's 12 to 15 px scale on a wide screen rather than stretching with the pane. Before the
+  pane is measured, and in a test, the canvas is the design's 360. If a label does not fit, it is
+  cut and the full text stays in `<title>`.
 - A line never runs through a node. The Attendant graph's lines take the plain elbow (out of the
   task's far edge, along the gap before the waiting task's layer, in) where that is clear, and
   otherwise the gaps between rows and columns, which every layer shares and no node sits in.
+  Lines into one task share no segment: each takes a bus and an entry point of its own, and in
+  the gaps a lane of its own, a few units apart (the gap widens by a lane for each line a task
+  can receive), so two dependencies never draw as one line with one arrowhead.
 
 ## 5. Views
 
@@ -421,8 +433,9 @@ moving it local would save. Money is two decimals with thousands separators (`$3
 The Hive-wide queue of proposals by tier and state, judge verdicts with reasons, rollbacks,
 sampled-audit findings and rates per tier. The tier and state filters are chips (several of a
 group can be on at once; `All` clears it) from 720 px, and one select per group below, since the
-chips would take six rows of a phone before any content; the Fleet's filter is a segmented
-control because it is one choice at a time. Every item links to the bee's thoughts and, for an
+chips would take six rows of a phone before any content; a group of several chips collapses to
+its first member when the select takes over, so the control always names what the table shows.
+The Fleet's filter is a segmented control because it is one choice at a time. Every item links to the bee's thoughts and, for an
 Exoskeleton action, to its recording. Read: `/v1/capping` (added in 12.1). Streams: trail.
 
 ### 5.10 Devices and enrolment (`#/devices`, `#/enrol`)
@@ -463,8 +476,10 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
 - **Spacing:** `--sp-1` to `--sp-8` are 4, 8, 12, 16, 24, 32 px. Page gutter 16 px under 720 px,
   24 px above. `--radius` is 6 px for controls and `--radius-card` 12 px for cards and panels;
   tier pills are fully round and mask tags 2 px.
-- **Density:** table rows 32 px; buttons 36 px with a 44 px touch area under 720 px; numbers use
-  `font-variant-numeric: tabular-nums`.
+- **Density:** table rows 32 px; buttons 36 px with a 44 px touch area under 720 px, and under
+  720 px a link in a row, a card, a line of links or a breadcrumb has the same 44 px area as
+  padding around its line (a flex row that sets one beside plain text aligns them by baseline);
+  numbers use `font-variant-numeric: tabular-nums`.
 
 ## 7. Accessibility
 

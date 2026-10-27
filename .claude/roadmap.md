@@ -2545,6 +2545,18 @@ in this phase adds a new write path.
   beside every grant gauge on the Cell page; the Forage's legend drawn once and its pool card
   untitled under its heading; the Capping filters a select per group on a phone; the system
   font stack the stated design (design.md sections 2, 4.1, 4.7, 4.8, 5.1, 5.7, 5.9 and 6).
+  **Round 6 (2026-10-27), the phone diagrams:** the Forage flow's pool amounts on a line under
+  their words on a phone and "soon" under a near-expiry grant's name on either canvas (a box
+  never shorter than its label's lines; Warden and grant labels by kind and ULID tail, or the
+  tail alone); every line into one Attendant task with a bus, an entry point and, in the gaps, a
+  lane of its own, the gap a lane wider per line a task can receive, with a test that two lines
+  into one task share no segment; the wide diagrams drawn at exactly 1x and centred (the `<svg>`
+  carries its canvas's width), so their type stays 12 px at 1280 and up; a 44 px touch area for
+  the links in rows, cards, link lines and the Honey crumbs on a phone, with the flex rows that
+  mix one with plain text aligned by baseline; the stale note inside the strip's 116 px phone
+  budget (the cells' label line as tight as their number's, 2 px of padding given up while
+  stale); the Cell page's gauge words level with their bars (`--gauge-h`); the Capping select
+  collapsing a chip set to its first member (design.md sections 2, 4.2, 4.7, 4.8, 5.9 and 6).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
