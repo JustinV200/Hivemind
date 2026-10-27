@@ -1011,13 +1011,13 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   the refusal is the ceiling's `guard.not_held`.)
   ~~`pause_on_warden` still waits on the Queen's own Bee Bread for a checkpoint a device Warden
   never writes there.~~ (Closed 2026-10-27: it waits for her checkpoint or the bee's HANDOFF
-  deposit to change.) Tool eligibility and the Nuc decision do not read the platform report yet
-  (tool eligibility matches `supported_os` against the Cell's `os`, which comes from it; a ToolSpec
-  names no distribution or architecture, and nothing a Nuc starts names a platform, so what more
-  either should read is a design question). ~~`ReconnectingQueenLink.close()` does not wake a
-  redial asleep between attempts: its receive task ends after that wait (at most 30 s) without
-  dialing again.~~
-  (Closed 2026-10-27: `close` sets an event the backoff waits on, `reconnect.wait_or_wake`.) ~~The
+  deposit to change.) Tool eligibility reads the platform report: it matches `supported_os`
+  against the Cell's `os`, which comes from it (`queen/ticks/tools/announce.supports`). The Nuc
+  decision does not read it yet: `decide_nuc` weighs no OS or architecture, and no `[llm.servers]`
+  entry names the platforms it runs on, so what it should refuse is parked for Justin.
+  ~~`ReconnectingQueenLink.close()` does not wake a redial asleep between attempts: its receive
+  task ends after that wait (at most 30 s) without dialing again.~~ (Closed 2026-10-27: `close`
+  sets an event the backoff waits on, `reconnect.wait_or_wake`.) ~~The
   liveness sweep's `CELL_UNREACHABLE` reaches the human's inbox and chat with no `alarm.raised` or
   `alarm.escalated` row (so since phase 3; `escalate_alarm` would give it one), so the
   trail-rebuilt inbox (`cli/readback/inbox.py`) never shows it.~~ (Closed 2026-10-27: the sweep

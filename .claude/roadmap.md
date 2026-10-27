@@ -2192,7 +2192,8 @@ promotion, `hive swarm` CLI.
   Raspberry Pi OS's), Windows x86-64 and macOS ARM64 and x86-64; the CI Arch job runs the packet's
   tests on Arch. The enrolment `PlatformReport` carries OS, distribution, architecture, package
   manager, shell and Python, and the decisions about the device read it (placement by `os`,
-  scaffolding, colonization by `python_version`; tool eligibility and the Nuc decision do not yet).
+  scaffolding, colonization by `python_version`, tool eligibility by `os`; the Nuc decision does
+  not yet).
   A frozen packet hands the programs it starts the device's own loader path, not PyInstaller's.
   Proved on a clean Debian 12 container standing in for Raspberry Pi OS
   (`tests/e2e/test_phase11_exit_binary.py`); ARM64 itself only on the CI matrix.
