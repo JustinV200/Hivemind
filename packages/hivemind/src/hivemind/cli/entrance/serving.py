@@ -135,7 +135,7 @@ def hold_queen_lock(db: Path, holder: str) -> Iterator[None]:
 
     Args:
         db: The Hive's database file (``[hive] db``, resolved); the lock sits beside it.
-        holder: What this process is running the Queen for (``"hive run"``), for the refusal.
+        holder: Who holds it (``"a running Queen"``), shown in the refusal.
 
     Yields:
         Nothing; the lock is held until the block exits (or the process ends).

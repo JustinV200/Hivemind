@@ -2799,22 +2799,23 @@ borrowed device and revoking every grant.
   never on receipt), so an Alarm or question resent after it is dropped and a question's answer is
   still forwarded, however long after the restart the human answers (its wiring is kept until the
   question closes). One Queen per Brood Chamber: `run_hive` holds the Hive's Queen lock
-  (`<db>.queen.lock`), so a `hive run` beside a running `hive serve` is refused at start instead
-  of requeening the serve's live work. `queen.requeened` carries counts only (the Night Veil boundary) and is classified
-  a lifecycle notice. Proved in-process by `tests/e2e/test_requeening.py`: the Queen killed (her
-  sockets closed, her tasks cancelled, no teardown) with a task BLOCKED on the Hive Stand and one
-  held mid-call on a Virtual Cell; under a second Queen over the same file both finish, the lease
-  is given back and `queen.requeened` reads one given back, one Warden back. The container and Nuc
-  legs need Docker and a Nuc and are the operator's run (`docs/runbooks/requeening.md`).
+  (`<db>.queen.lock`), so a `hive run` beside a running `hive serve` is refused at start instead of
+  requeening the serve's live work. `queen.requeened` carries counts only (the Night Veil boundary)
+  and is classified a lifecycle notice. Proved in-process by `tests/e2e/test_requeening.py`: the
+  Queen killed (her sockets closed, her tasks cancelled, no teardown) with a task BLOCKED on the
+  Hive Stand and one held mid-call on a Virtual Cell; under a second Queen over the same file both
+  finish, the lease is given back and `queen.requeened` reads one given back, one Warden back. The
+  container and Nuc legs need Docker and a Nuc and are the operator's run
+  (`docs/runbooks/requeening.md`).
 - [x] **13.2 Queen state snapshots.** The Queen's own periodic Handoff, so recovery is bounded;
   `docs/runbooks/requeening.md`.
   **Built 2026-10-27.** `queen/requeening/snapshot.py`: every `[queen] snapshot_interval_s` (60 s)
   her tick writes a `QueenSnapshot` (the trail cursor, trailing it by 60 s, the Hive Stand leases
   open there, the Wardens attached) into `queen_snapshot` beside the handled-envelope table and the
-  listener's port (`queen/requeening/store`, its own migration), and prunes plain handled rows
-  past the replay window and the wiring of closed questions; recovery folds the trail only from the newest cursor. The first snapshot of a
-  Queen's life follows `queen.requeened`. `docs/runbooks/requeening.md` says what an operator sees
-  and checks.
+  listener's port (`queen/requeening/store`, its own migration), and prunes plain handled rows past
+  the replay window and the wiring of closed questions; recovery folds the trail only from the
+  newest cursor. The first snapshot of a Queen's life follows `queen.requeened`.
+  `docs/runbooks/requeening.md` says what an operator sees and checks.
 - [ ] **13.2a Supersedure: moving the Hive Stand.** `queen/supersedure/` (coding rules 8.16):
   `preflight.py` (the candidate must be a colonized Real Cell, Level 1 or a Nuc, with `FULL`
   access, the same runtime version, disk for the stores plus headroom, Forage covering the Royal
