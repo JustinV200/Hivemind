@@ -31,7 +31,12 @@ checks that it wrote `SCOUT_REPORT_FILE`, so a report that recommends against th
 mechanically, a SUCCEEDED result -- reading its `scout_report.feasible` here, a plain field on the
 wire `TaskResult` no `hivemind.llm` import is needed to read, is what turns that one case into
 `FAIL_TASK` instead, so the dependents `hivemind.brood_chamber.task.graph.ready_tasks` gates on
-the Scout's own success are never dispatched.
+the Scout's own success are never dispatched. A current FAILED result carrying a Nurse Bee's
+`CHANGES_REQUESTED` review (ADR-0061, `TaskResult.review`, again a plain wire field) has its own
+rule: `RETRY_TASK` while the tally says the task may still be sent back
+(`AttemptTally.nurse_left`, the caller's `[nurse] max_rounds` less the task's own
+`nurse_rounds`), so a fresh Worker fixes forward on the same Cell, and `ESCALATE_TO_HUMAN` once it
+may not; the attempt ceiling plays no part in it, since the round cap is the bound.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -53,6 +58,9 @@ Key invariants:
     - A `LeaseReleased` whose lease was not restored is never only recorded: a Cell not left as
       found is the one release report that needs a decision (codingrules: Real Cells are borrowed
       and left exactly as found).
+    - A current FAILED `TaskResult` whose review is a Nurse's CHANGES_REQUESTED resolves to
+      `RETRY_TASK` only while `attempts.nurse_left` is above zero, and to `ESCALATE_TO_HUMAN`
+      otherwise, never to `FAIL_TASK`: a reviewed attempt is never silently given up on.
     - A current FAILED `TaskResult` carrying `ResultCause.CELL_RUNS_NO_COMMANDS` resolves to
       `REQUEUE_TASK` only while its task does not yet need commands (ADR-0060), so a task is
       re-placed for its commands at most once; after that it retries or fails as usual.
@@ -84,9 +92,16 @@ from waggle.messages.cell.status import CellHeartbeat
 from waggle.messages.control import HumanMessage
 from waggle.messages.forage import CapacityReport
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
-from waggle.messages.task import ResultCause, TaskOutcome, TaskProgress, TaskResult, TaskStage
+from waggle.messages.task import (
+    NurseOutcome,
+    ResultCause,
+    TaskOutcome,
+    TaskProgress,
+    TaskResult,
+    TaskStage,
+)
 
-__all__ = ["AttemptTally", "decide"]
+__all__ = ["AttemptTally", "decide", "nurse_rejected"]
 
 # What a Warden says again whenever its link is made, beside its heartbeat (a device's, after its
 # Warden moved onto it or its link came back): the gate has read what it needs from the last two,
@@ -122,10 +137,14 @@ class AttemptTally:
             policy's rungs count these alone, so a Warden's local respawns never skip a rung.
         latest: The highest attempt number dispatched or reported for the task; a FAILED report
             numbered below it is about an attempt a later one already replaced.
+        nurse_left: How many more times a Nurse Bee rejection may send the task back to fix
+            forward (ADR-0061): the Queen's `[nurse] max_rounds` less the task's `nurse_rounds`.
+            0, the default, escalates the next rejection.
     """
 
     made: int
     latest: int
+    nurse_left: int = 0
 
 
 def decide(
@@ -209,6 +228,11 @@ def _decide_task_result(
             # (attempt 1's result landing after attempt 2 went out) is history, not a decision:
             # retrying on it would run two attempts for one failure.
             return QueenAction.RECORD
+        if nurse_rejected(payload):
+            # ADR-0061: fix forward on a fresh Worker while rounds remain; then the human decides.
+            return (
+                QueenAction.RETRY_TASK if attempts.nurse_left > 0 else QueenAction.ESCALATE_TO_HUMAN
+            )
         if _needs_a_cell_that_runs_commands(payload, task):
             # ADR-0060: its Cell refused its commands, so a retry there is refused again; it is
             # re-placed once where commands run, whatever attempts remain.
@@ -218,6 +242,17 @@ def _decide_task_result(
     # CLAIMED never reaches the Queen (the Warden intercepts it); CANCELLED is the echo of a
     # cancellation the Queen herself already decided elsewhere. Either way, nothing more to decide.
     return QueenAction.RECORD
+
+
+def nurse_rejected(payload: TaskResult) -> bool:
+    """Say whether a failed result is a Nurse Bee's CHANGES_REQUESTED, read from the wire alone.
+
+    Public so the Queen carries out the very rule `decide` applied: a FAILED result may carry an
+    UNAVAILABLE or ERROR review too (a JUDGE_RUBRIC criterion no Nurse judged), and that one is
+    retried like any other failure, never counted as a Nurse round.
+    """
+    verdict = payload.review.verdict if payload.review is not None else None
+    return verdict is not None and verdict.outcome is NurseOutcome.CHANGES_REQUESTED
 
 
 def _needs_a_cell_that_runs_commands(payload: TaskResult, task: Task | None) -> bool:

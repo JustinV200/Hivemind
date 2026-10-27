@@ -39,8 +39,8 @@ See Also:
 
 Public API (roadmap steps 3.20, 4.7, 4.2a):
     - QueenAction: the closed set of moves the dispatch table can pick (actions).
-    - decide, AttemptTally: the dispatch table itself, and how far a task has got as it reads it
-      (table).
+    - decide, AttemptTally, nurse_rejected: the dispatch table itself, how far a task has got as
+      it reads it, and its Nurse Bee rejection test (ADR-0061, table).
     - effort_for: the Effort an awake episode gets, by event class (effort).
     - ForageAutopilotOutcome, ForageRequestSignal, decide_forage_request: the ForageRequest rule
       (forage).
@@ -58,7 +58,7 @@ from hivemind.queen.autopilot.forage import (
     decide_forage_request,
 )
 from hivemind.queen.autopilot.guard import AWAKE_ACTIONS, decide_guard_request, fallback_action
-from hivemind.queen.autopilot.table import AttemptTally, decide
+from hivemind.queen.autopilot.table import AttemptTally, decide, nurse_rejected
 from hivemind.queen.autopilot.wax import WaxAutopilotOutcome, WaxProposalSignal, decide_wax_proposal
 
 __all__ = [
@@ -75,4 +75,5 @@ __all__ = [
     "decide_wax_proposal",
     "effort_for",
     "fallback_action",
+    "nurse_rejected",
 ]

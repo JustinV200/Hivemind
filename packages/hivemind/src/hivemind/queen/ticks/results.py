@@ -122,7 +122,7 @@ from waggle.ids import CellId, TaskId, WardenId
 from waggle.messages import Postcondition
 from waggle.messages.honey import NectarKind
 from waggle.messages.honey.exchange import MAX_TITLE_CHARS
-from waggle.messages.task import ArtifactRef, ScoutReport, TaskResult
+from waggle.messages.task import ArtifactRef, NurseFinding, ScoutReport, TaskResult
 from waggle.messages.task import TaskOutcome as WireTaskOutcome
 
 MAX_FAIL_SUMMARY_CHARS = 2_000  # Matches brood_chamber.task.model.MAX_SUMMARY_CHARS's own bound.
@@ -234,7 +234,11 @@ async def _notify_cell_finished(
 
 
 async def retry_task(
-    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempts: AttemptBook
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    task_id: TaskId,
+    attempts: AttemptBook,
+    review_findings: tuple[NurseFinding, ...] = (),
 ) -> None:
     """Resend a fresh grant and assignment to the same placement, as the task's next attempt.
 
@@ -243,8 +247,11 @@ async def retry_task(
         wardens: Every Warden currently attached; `task_id`'s own Warden must be among these.
         task_id: The task to retry; still RUNNING in the Brood Chamber (module docstring).
         attempts: The Queen's own AttemptBook; the retry counts in it and takes its next number.
+        review_findings: A Nurse Bee's findings for the fresh Worker to fix (ADR-0061,
+            `hivemind.queen.ticks.nurse.send_back`); empty for every other retry.
     """
-    await redispatch(deps, wardens, task_id, attempts.next_attempt(task_id))
+    attempt = attempts.next_attempt(task_id)
+    await redispatch(deps, wardens, task_id, attempt, review_findings)
 
 
 async def requeue_task(

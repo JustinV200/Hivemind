@@ -35,6 +35,10 @@ never required manifest keys. Both `_task_assign` and `size_grant` are the one c
 dispatch path (`dispatch_ready`, `redispatch`, `resume_paused`) funnels through, so a role and its
 recon are carried the same way regardless of which one sent the assign.
 
+Every assignment carries the task's Nurse Bee round count (ADR-0061, `Task.nurse_rounds` as
+`TaskAssign.review_round`), and a Nurse retry the findings to fix (`AssignmentTerms.
+review_findings`), for the fresh Worker's brief.
+
 Every assignment also carries what the Queen's Honey pre-check found (roadmap steps 7.9 and 7.9a,
 `hivemind.queen.dispatcher.honey.consult_for_assignment`): Honey about the task's objective and
 the chosen Cell's own history, plus that Cell's live Cell Wax, on `TaskAssign.honey`. The
@@ -98,7 +102,13 @@ from waggle.messages import HandoffRef
 from waggle.messages.forage import GrantIssued
 from waggle.messages.forage.values import RevocationCause
 from waggle.messages.honey import HoneyHit
-from waggle.messages.task import HandoffDocument, ScoutReport, TaskAssign, WorkerRole
+from waggle.messages.task import (
+    HandoffDocument,
+    NurseFinding,
+    ScoutReport,
+    TaskAssign,
+    WorkerRole,
+)
 from waggle.messages.task.recon import MAX_RECON_REPORTS
 
 __all__ = ["AssignmentTerms", "record_forage_granted", "send_grant_and_assign"]
@@ -119,12 +129,15 @@ class AssignmentTerms:
             none of this dataclass's three callers has the async chamber access `_recon_for`
             needs -- `send_grant_and_assign` fills it in with `dataclasses.replace` right before
             building the `TaskAssign`, the one place in this module that awaits it.
+        review_findings: What the Nurse Bee's last review asked to change (ADR-0061), for the
+            fresh Worker that fixes forward; set only by a Nurse retry, empty otherwise.
     """
 
     attempt: int
     resume_from: HandoffRef | None = None
     handoff: HandoffDocument | None = None
     recon: tuple[ScoutReport, ...] = ()
+    review_findings: tuple[NurseFinding, ...] = ()
 
 
 async def send_grant_and_assign(
@@ -348,6 +361,10 @@ def _task_assign(
         resume_from=terms.resume_from,
         handoff=terms.handoff,
         honey=honey,
+        # ADR-0061: every send carries the Queen's own round count, so a Warden numbers its next
+        # review past it whatever kind of retry came between; findings only on a Nurse retry.
+        review_round=task.nurse_rounds,
+        review_findings=terms.review_findings,
         reason=reason,
     )
 

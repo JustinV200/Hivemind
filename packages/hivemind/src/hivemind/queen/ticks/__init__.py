@@ -26,7 +26,8 @@ human's waiting messages into the inbox, a `REPLY`'s words out, each message sta
 decided) and `human.intake` (every durable goal request settled, held or planned, one plan at a
 time beside the tick). Roadmap step 10.6 adds `guard_bee` (`run_guard_bee`, one Guard Bee round
 beside the House Bee's sweep), a package of one module because this directory already holds the
-ten modules codingrules 5.6 allows; the same limit is why `chat` and `intake` share `human`.
+ten modules codingrules 5.6 allows; the same limit is why `chat` and `intake` share `human`, and
+why ADR-0061's `nurse` (a Nurse Bee rejection sent back, or escalated at the cap) is a package.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Called
@@ -52,6 +53,7 @@ Public API (roadmap steps 3.20, 4.7, 4.2a, 4.3, 7.8, 10.5, 10.6):
       sandbox runs, promotions and blob transfers, reached through `handle_infrastructure_item`.
     - awake, human: the awake episode, and the chat and the goal requests (step 10.5).
     - guard_bee: the Guard Bee's round on the Queen's tick (step 10.6).
+    - nurse: a Nurse Bee rejection sent back to fix forward, or escalated at the cap (ADR-0061).
 """
 
 from hivemind.queen.ticks import (
@@ -63,6 +65,7 @@ from hivemind.queen.ticks import (
     housekeeping,
     human,
     liveness,
+    nurse,
     results,
     tools,
     wax,
@@ -77,6 +80,7 @@ __all__ = [
     "housekeeping",
     "human",
     "liveness",
+    "nurse",
     "results",
     "tools",
     "wax",

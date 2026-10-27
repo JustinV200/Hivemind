@@ -160,6 +160,7 @@ _DEFAULT_DRONE_FOOTPRINT = RoleFootprint(
     exoskeleton_extra_memory_bytes=0,
 )
 _DEFAULT_GRANT_TTL_S = 300.0  # Matches the manifest's own [forage] grant_ttl_s default.
+_DEFAULT_NURSE_MAX_ROUNDS = 2  # Matches the manifest's own [nurse] max_rounds default.
 # roadmap step 4.6: MemoryBudget's own two threshold defaults, additive (module docstring on the
 # class itself explains why they are not yet read from a manifest slice). 0.5 leaves real room
 # before handoff_threshold's own two-thirds mark, so a bee that only needs compacting is caught
@@ -840,6 +841,8 @@ class QueenDeps:
         sandboxes: Provisions the Comb's sandbox Cell; None leaves only the subprocess sandbox.
         tool_lane: Her tool jobs and Basket transfers beside the tick (`ToolLane`).
         uplink_keys: The key a Warden's node signs a Basket manifest with; None trusts the Hive key.
+        nurse_max_rounds: `[nurse] max_rounds` (ADR-0061): how many Nurse Bee rejections send a
+            task back to fix forward before the next one escalates it to the human.
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.
@@ -940,3 +943,4 @@ class QueenDeps:
     sandboxes: SandboxCellProvider | None = None
     tool_lane: ToolLane = field(default_factory=ToolLane)
     uplink_keys: UplinkKeys | None = None
+    nurse_max_rounds: int = _DEFAULT_NURSE_MAX_ROUNDS  # ADR-0061; defaulted like the rest.

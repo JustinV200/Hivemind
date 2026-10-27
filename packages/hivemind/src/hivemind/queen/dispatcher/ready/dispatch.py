@@ -187,6 +187,7 @@ from hivemind.queen.placement import (
 from hivemind.queen.trail import record_event
 from waggle.ids import TaskId, WardenId
 from waggle.messages import HandoffRef
+from waggle.messages.task import NurseFinding
 
 # The reason `task.unassigned` records for a task a pass found stranded ASSIGNED: ids and plain
 # words only, never task content (codingrules section 12).
@@ -242,7 +243,11 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
 
 
 async def redispatch(
-    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempt: int
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    task_id: TaskId,
+    attempt: int,
+    review_findings: tuple[NurseFinding, ...] = (),
 ) -> None:
     """Resend a fresh grant and assignment to a RUNNING task's own Cell and Warden (a retry).
 
@@ -255,6 +260,8 @@ async def redispatch(
         wardens: Every Warden currently attached.
         task_id: The task to retry; must already be placed (have a `warden_id` and `cell_id`).
         attempt: The attempt number to stamp on the fresh `TaskAssign`.
+        review_findings: A Nurse Bee's findings for the fresh Worker to fix forward (ADR-0061);
+            empty for every other retry.
 
     Returns:
         None, once a fresh grant and assignment have been sent; silently if the task is somehow
@@ -268,9 +275,8 @@ async def redispatch(
     if link is None:
         return  # Not placed, held, or its Warden is gone: there is nothing to resend to.
     sized = await size_grant(deps, link, task, read_live=False)
-    fresh_grant = await send_grant_and_assign(
-        deps, link, task, AssignmentTerms(attempt=attempt), sized
-    )
+    terms = AssignmentTerms(attempt=attempt, review_findings=review_findings)
+    fresh_grant = await send_grant_and_assign(deps, link, task, terms, sized)
     if fresh_grant is None:
         return  # Denied: send_grant_and_assign already failed the task (module docstring).
     await record_forage_granted(deps, task, fresh_grant, link.warden_id)

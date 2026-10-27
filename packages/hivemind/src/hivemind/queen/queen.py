@@ -76,13 +76,14 @@ from __future__ import annotations
 
 import types
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import ClassVar
 
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import attach, leave_memory, quarantine, questions, ticks
-from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
+from hivemind.queen.autopilot import AttemptTally, QueenAction, decide, nurse_rejected
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, stop_provisions, stop_releases
@@ -462,7 +463,9 @@ def _note_attempt(queen: Queen, task: Task, payload: object) -> AttemptTally:
     queen._attempts.note(task.id, task.attempt)
     if isinstance(payload, TaskProgress | TaskResult):
         queen._attempts.note(task.id, payload.attempt)
-    return queen._attempts.tally(task.id)
+    # ADR-0061: the rounds left are the chamber's durable count against her cap, never her book.
+    nurse_left = max(0, queen._deps.nurse_max_rounds - task.nurse_rounds)
+    return replace(queen._attempts.tally(task.id), nurse_left=nurse_left)
 
 
 async def _task_for_item(deps: QueenDeps, item: InboxItem) -> Task | None:
@@ -512,12 +515,18 @@ async def _act(
 async def _act_on_task_result(
     queen: Queen, action: QueenAction, payload: TaskResult, warden_id: WardenId
 ) -> None:
-    """Carry out COMPLETE_TASK, RETRY_TASK, REQUEUE_TASK or FAIL_TASK for a TaskResult."""
+    """Carry out COMPLETE_TASK, RETRY_TASK, REQUEUE_TASK, FAIL_TASK or ESCALATE_TO_HUMAN."""
     if action is QueenAction.COMPLETE_TASK:
         await ticks.results.complete_task(queen._deps, queen.wardens, payload, warden_id)
         await _resolve_pending_alarm(queen, payload.task_id)
+    elif action is QueenAction.RETRY_TASK and nurse_rejected(payload):
+        # ADR-0061: a fresh Worker fixes the Nurse's findings forward on the same Cell.
+        await ticks.nurse.send_back(queen._deps, queen.wardens, payload, queen._attempts)
     elif action is QueenAction.RETRY_TASK:
         await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, queen._attempts)
+    elif action is QueenAction.ESCALATE_TO_HUMAN:
+        # ADR-0061: the one TaskResult the table escalates, a Nurse rejection at the round cap.
+        await ticks.nurse.escalate_unresolved(queen._deps, queen._human_inbox, payload, warden_id)
     elif action is QueenAction.REQUEUE_TASK:
         # ADR-0060: re-placed where commands run; its next attempt's number is the chamber's,
         # so a late result from the refused attempt reads as stale.

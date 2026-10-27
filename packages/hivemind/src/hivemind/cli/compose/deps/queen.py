@@ -121,6 +121,7 @@ def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedg
         # 10.3a adds the Night Veil tier profile, which no composition root used to build.
         placement_policy=_placement_policy(manifest),
         in_process_providers=in_process_providers(manifest),  # Roadmap step 10.3a.
+        nurse_max_rounds=manifest.nurse.max_rounds,  # ADR-0061: her cap on fix-forward rounds.
     )
 
 
