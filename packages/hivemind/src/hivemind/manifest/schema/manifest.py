@@ -3,13 +3,14 @@
 ``HiveManifest`` gathers every section (``[hive]``, ``[queen]``, ``[hive_stand]``, ``[llm]``,
 ``[forage]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
 ``[brood_chamber]``, ``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``,
-``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]``, ``[swarm]``) into one frozen value.
+``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]``, ``[swarm]``, ``[nurse]``) into one
+frozen value.
 Every section but ``[hive]`` has a ``default_factory``, so a manifest may omit ``[queen]``,
 ``[hive_stand]``, ``[supervision]``, ``[memory]``, ``[security]``, ``[honey.clearance]``,
 ``[brood_chamber]``, ``[pheromone]``, ``[placement]``, ``[virtual_cells]``, ``[exoskeleton]``,
-``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]`` and ``[swarm]`` entirely and still
-validate (an omitted ``[swarm]`` is the disabled default: no listener, no devices); ``[hive]``
-alone has no default, because an id and a node id are never guessed on a Hive's behalf
+``[entrance]``, ``[guard]``, ``[royal_jelly]``, ``[basket]``, ``[swarm]`` and ``[nurse]`` entirely
+and still validate (an omitted ``[swarm]`` is the disabled default: no listener, no devices);
+``[hive]`` alone has no default, because an id and a node id are never guessed on a Hive's behalf
 (``hivemind.manifest.schema.core.HiveSection``). Omitting ``[virtual_cells]`` (or its own
 ``backend`` key) leaves placement
 Real-only, exactly as before roadmap step 5.7 (``hivemind.manifest.schema.placement.
@@ -75,6 +76,7 @@ from hivemind.manifest.schema.entrance import EntranceSection
 from hivemind.manifest.schema.exoskeleton import ExoskeletonSection
 from hivemind.manifest.schema.forage import ForageSection
 from hivemind.manifest.schema.llm import LlmSection, check_server_sources
+from hivemind.manifest.schema.nurse import NurseSection
 from hivemind.manifest.schema.placement import PlacementSection, VirtualCellsSection
 from hivemind.manifest.schema.royal_jelly import BasketSection, RoyalJellySection, SandboxKind
 from hivemind.manifest.schema.security.guard import GuardSection
@@ -170,6 +172,11 @@ class HiveManifest(BaseModel):
         description="The Swarm: the listener Pollen Packets dial, device invites and liveness, "
         "and the thresholds that colonize a device or promote it to a Nuc (roadmap phase 11, "
         "ADR-0051 to ADR-0053); disabled by default.",
+    )
+    nurse: NurseSection = Field(
+        default_factory=NurseSection,
+        description="The Nurse Bee: whether it reviews accepted attempts, its round cap, the roles "
+        "it skips and its evidence budget (ADR-0061); on by default.",
     )
     source_path: Path | None = Field(
         default=None,

@@ -49,6 +49,7 @@ Public API:
     - Placement and Virtual Cells (placement): PlacementSection, PlacementRoleOverride,
       VirtualCellsSection, VirtualCellsOverwinterSection.
     - Exoskeleton (exoskeleton): ExoskeletonSection.
+    - The Nurse Bee (nurse): NurseSection.
     - Royal Jelly Lab and Basket (royal_jelly): RoyalJellySection, QuarantineLimitsSection,
       SandboxKind, BasketSection.
     - Root (manifest): HiveManifest.
@@ -88,6 +89,7 @@ from hivemind.manifest.schema.llm import (
     SlotBinding,
 )
 from hivemind.manifest.schema.manifest import HiveManifest
+from hivemind.manifest.schema.nurse import NurseSection
 from hivemind.manifest.schema.placement import (
     PlacementRoleOverride,
     PlacementSection,
@@ -150,6 +152,7 @@ __all__ = [
     "HoneyStoreSection",
     "LlmSection",
     "MemorySection",
+    "NurseSection",
     "PheromoneSection",
     "PlacementRoleOverride",
     "PlacementSection",

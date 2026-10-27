@@ -46,7 +46,7 @@ Public API:
       GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), RoyalJellySection,
       QuarantineLimitsSection, SandboxKind, BasketSection (phase 9), SwarmSection,
       SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection, WatchTuning
-      (phase 11).
+      (phase 11), NurseSection (ADR-0061).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - The device manifest (`hivemind.manifest.device`, roadmap steps 11.6a and 11.8):
       DeviceManifest, DeviceForageSection, DeviceSupervisionSection, DeviceWatchSection and
@@ -102,6 +102,7 @@ from hivemind.manifest.schema import (
     HoneyStoreSection,
     LlmSection,
     MemorySection,
+    NurseSection,
     PheromoneSection,
     PlacementRoleOverride,
     PlacementSection,
@@ -158,6 +159,7 @@ __all__ = [
     "LlmSection",
     "ManifestError",
     "MemorySection",
+    "NurseSection",
     "PheromoneSection",
     "PlacementRoleOverride",
     "PlacementSection",
