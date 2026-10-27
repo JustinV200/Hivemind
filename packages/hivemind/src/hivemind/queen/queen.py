@@ -524,7 +524,7 @@ async def _act_on_task_result(
         await ticks.nurse.send_back(queen._deps, queen.wardens, payload, queen._attempts)
     elif action is QueenAction.RETRY_TASK:
         await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, queen._attempts)
-    elif action is QueenAction.ESCALATE_TO_HUMAN:
+    elif action is QueenAction.ESCALATE_TO_HUMAN and nurse_rejected(payload):
         # ADR-0061: the one TaskResult the table escalates, a Nurse rejection at the round cap.
         await ticks.nurse.escalate_unresolved(queen._deps, queen._human_inbox, payload, warden_id)
     elif action is QueenAction.REQUEUE_TASK:

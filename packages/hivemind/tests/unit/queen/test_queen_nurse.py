@@ -118,10 +118,14 @@ async def test_a_rejection_is_fixed_forward_with_its_findings_then_escalated_at_
     assert len(warden_end.assignments) == 2  # Never sent back a second time.
     [alarm] = queen.human_inbox.alarms
     assert alarm.kind is AlarmKind.NURSE_UNRESOLVED and alarm.context.task_id == first.task_id
-    assert _FINDING.problem in alarm.detail and "<<<nurse_findings>>>" in alarm.detail
-    # The words reach the inbox alone: the trail row and the chat line carry counts only.
-    [escalated] = await deps.trail.query(TrailQuery(kind="alarm.escalated"))
-    assert escalated.subject_id == alarm.id
-    assert _FINDING.problem not in str(escalated.payload)
+    note = queen.human_inbox.note_for(alarm.id)
+    assert note is not None and _FINDING.problem in note and "<<<nurse_findings>>>" in note
+    assert _FINDING.problem not in alarm.detail  # What the trail, chat and awake episodes read.
+    # The words reach the inbox alone, and go with it once the human acknowledges the Alarm.
+    assert await queen.acknowledge_alarm(alarm.id)
+    assert queen.human_inbox.note_for(alarm.id) is None
+    rows = await deps.trail.query(TrailQuery(subject_id=alarm.id))
+    assert {row.kind for row in rows} == {"alarm.escalated", "alarm.resolved"}
+    assert all(_FINDING.problem not in str(row.payload) for row in rows)
     assert all(_FINDING.problem not in line.text for line in await deps.chat.read(ChatQuery()))
     await warden_end.close()

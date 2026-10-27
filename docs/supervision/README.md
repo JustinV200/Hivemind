@@ -47,7 +47,7 @@ ADR-0061 (Waggle 1.15) adds `NURSE_UNRESOLVED`, again with one `ESCALATE` row fr
 attempt. The Queen raises it when the Nurse Bee (a fresh-context reviewer of an attempt that passed
 its machine checks) still asks for changes after the last fix-forward round `[nurse] max_rounds`
 allows; those rounds were the retries, so she posts it to the human and closes the task out as
-failed, its Cell keeping the last attempt's work. Only the human inbox's copy of the Alarm carries
+failed, its Cell keeping the last attempt's work. Only a note beside the Alarm in her inbox carries
 the Nurse's findings; the trail and the chat carry their count.
 
 The manifest's `[supervision] policy_file` (roadmap step 3.1) is unset by default, which is what

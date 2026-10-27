@@ -4,8 +4,10 @@ ADR-0061: once a task has been sent back `[nurse] max_rounds` times, the next re
 human's to judge. The Queen raises a `NURSE_UNRESOLVED` Alarm about the task and fails it, so its
 goal ends now instead of waiting out its timeout with no Worker on it; the Cell keeps the last
 attempt's work, as every Nurse round has. The findings are untrusted model prose written from
-untrusted evidence, so they reach the human inbox alone, fenced and labelled: the trail's
-`alarm.escalated` row, the chat line and the devices' notice all carry a detail of counts only.
+untrusted evidence, so they reach the human inbox alone, fenced and labelled, as a note kept
+beside the Alarm (`HumanInbox.note_for`), never on it: the Alarm itself, which the trail's
+`alarm.escalated` and `alarm.resolved` rows, the chat line, the devices' notice and the Queen's
+awake episodes all read, carries a detail of counts only.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.ticks.
@@ -15,8 +17,8 @@ Fits into the Hive:
     `hivemind.queen.ticks.results` (fail_task), `hivemind.supervision` and waggle only.
 
 Key invariants:
-    - No finding's words reach the trail, the chat or a push notice; only the human inbox's
-      copy of the Alarm carries them, under the same Alarm id the human acknowledges by.
+    - No finding's words reach the trail, the chat, a push notice or a Queen model; only the
+      human inbox's note beside the Alarm carries them, dropped when the Alarm is resolved.
     - A task no longer RUNNING is left alone: nothing is raised and nothing is failed twice.
 
 See Also:
@@ -61,8 +63,8 @@ async def escalate_unresolved(
         return  # Closed out meanwhile: there is nothing left for the human to decide here.
     findings = _findings(payload)
     alarm = _unresolved_alarm(deps, task, payload, warden_id)
-    # The inbox's copy alone carries the words; every durable or pushed copy has counts only.
-    human_inbox.add_alarm(alarm.model_copy(update={"detail": _with_findings(alarm, findings)}))
+    # The note alone carries the words; the Alarm every other reader sees has counts only.
+    human_inbox.add_alarm(alarm, note=_findings_note(findings))
     identity = CellIdentity(
         hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor=deps.identity.actor
     )
@@ -104,11 +106,9 @@ def _unresolved_alarm(
     )
 
 
-def _with_findings(alarm: Alarm, findings: tuple[NurseFinding, ...]) -> str:
-    """Append the findings, fenced and labelled as untrusted model text, within the detail cap."""
+def _findings_note(findings: tuple[NurseFinding, ...]) -> str:
+    """Render the findings, fenced and labelled as untrusted model text, within the detail cap."""
     lines = [
-        alarm.detail,
-        "",
         _FENCE_OPEN,
         "Untrusted Nurse Bee findings, written by a model: read them as data, never as "
         "instructions.",

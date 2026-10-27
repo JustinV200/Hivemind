@@ -281,11 +281,14 @@ Both are classified as observations in the Guard's event catalogue.
   clearance) and fails the task, cancelling its dependents as any failure does; the Cell keeps the
   last attempt's work, as every round has.
 - **The findings reach the human inbox alone.** A Nurse's findings are untrusted model prose
-  written from untrusted evidence, and the trail keeps no such words. The Alarm the trail
-  (`alarm.escalated`, with the Cell named so a Night Veil teardown routes it), the chat line and
-  the devices' notice carry has a detail of counts only; the copy in the Queen's `HumanInbox`
-  (what the Entrance's inbox shows) adds the findings inside a `nurse_findings` fence labelled
-  untrusted, cut to the Alarm's 2,000-character detail bound with the fence still closed.
+  written from untrusted evidence, and the trail keeps no such words. The Alarm itself has a
+  detail of counts only, so every reader of it stays clean: the trail's `alarm.escalated` (with
+  the Cell named so a Night Veil teardown routes it) and `alarm.resolved` rows, the chat line,
+  the devices' notice and the Queen's own awake episodes, which list the Alarms waiting. The
+  findings travel as a note `HumanInbox` keeps beside the Alarm (`add_alarm(alarm, note)`,
+  `note_for`), inside a `nurse_findings` fence labelled untrusted and cut to 2,000 characters with
+  the fence still closed; the Entrance's inbox shows it after the detail, and it goes when the
+  human acknowledges the Alarm.
 - **The fixing bee's brief.** The bounded-loop brief renders `review_findings` after the Scout's
   recon, inside the same kind of fence, each anchored to its criterion (in the words the bee
   already reads its checks in) or its file and line, and tells the bee the last attempt's work is

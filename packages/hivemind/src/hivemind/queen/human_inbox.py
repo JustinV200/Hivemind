@@ -7,7 +7,8 @@ Alarm the Queen cannot resolve herself escalates to the human as the last hop of
 `BLOCK_ON_QUESTION` decision already wrote its `Question` there through `chamber.ask`, so this
 class holds no question state of its own); `alarms` is a bare in-memory list of the `Alarm` values
 `hivemind.queen.ticks.alarms`' `ESCALATE_TO_HUMAN` handler and `hivemind.queen.ticks.liveness`'s
-offline-Warden check add, and the human's acknowledgement (`Queen.acknowledge_alarm`, through
+offline-Warden check add (and `hivemind.queen.ticks.nurse`, with a note for the human beside it,
+`note_for`, ADR-0061), and the human's acknowledgement (`Queen.acknowledge_alarm`, through
 `hivemind.queen.chat.post.resolve_alarm`, roadmap step 10.5) resolves, since the Brood Chamber has
 no Alarm table of its own to read back (codingrules Appendix C: an Alarm's durable home this phase
 is the trail, not a store `HumanInbox` can query). `add_alarm`/`resolve` never write a trail event
@@ -77,6 +78,9 @@ class HumanInbox:
     def __init__(self) -> None:
         """Create a HumanInbox with no Alarms escalated yet."""
         self._alarms: dict[AlarmId, Alarm] = {}
+        # ADR-0061: words for the human's eyes alone, kept beside an Alarm and never on it, so
+        # its trail rows (escalated, resolved) and the Queen's awake episodes never carry them.
+        self._notes: dict[AlarmId, str] = {}
 
     async def pending_questions(self, chamber: BroodChamber) -> tuple[Question, ...]:
         """Return every question still awaiting an answer, read straight from the Brood Chamber.
@@ -94,14 +98,24 @@ class HumanInbox:
         """Every Alarm currently escalated to the human, in no particular order."""
         return tuple(self._alarms.values())
 
-    def add_alarm(self, alarm: Alarm) -> None:
+    def add_alarm(self, alarm: Alarm, note: str | None = None) -> None:
         """Escalate `alarm` to the human.
 
         Args:
             alarm: The Alarm to add; a repeat `add_alarm` for the same `alarm.id` replaces the
                 prior entry, so a re-escalated Alarm (a later attempt, same id) never duplicates.
+            note: Words only the human reads beside it (`note_for`), already fenced and labelled
+                by the caller when untrusted; a Nurse Bee's findings (ADR-0061). None for none.
         """
         self._alarms[alarm.id] = alarm
+        if note is None:
+            self._notes.pop(alarm.id, None)
+        else:
+            self._notes[alarm.id] = note
+
+    def note_for(self, alarm_id: AlarmId) -> str | None:
+        """Return the note kept beside a waiting Alarm for the human, or None when it has none."""
+        return self._notes.get(alarm_id)
 
     def resolve(self, alarm_id: AlarmId) -> None:
         """Remove an Alarm once it is resolved.
@@ -112,6 +126,7 @@ class HumanInbox:
             alarm_id: The Alarm to remove.
         """
         self._alarms.pop(alarm_id, None)
+        self._notes.pop(alarm_id, None)
 
 
 @dataclass(frozen=True, slots=True)

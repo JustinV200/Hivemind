@@ -131,11 +131,13 @@ def question_view(question: Question) -> QuestionView:
     )
 
 
-def alarm_view(alarm: Alarm) -> AlarmView:
+def alarm_view(alarm: Alarm, note: str | None = None) -> AlarmView:
     """Shape an Alarm waiting on the human for the Landing Board.
 
     Args:
         alarm: The Alarm as the Queen holds it.
+        note: What the Queen keeps beside it for the human alone (`HumanInbox.note_for`), shown
+            after its detail; None for none.
 
     Returns:
         Its view.
@@ -144,7 +146,7 @@ def alarm_view(alarm: Alarm) -> AlarmView:
         id=alarm.id,
         kind=alarm.kind.value,
         severity=alarm.severity.value,
-        detail=alarm.detail,
+        detail=alarm.detail if note is None else f"{alarm.detail}\n\n{note}",
         task_id=alarm.context.task_id,
         raised_at=alarm.raised_at,
     )

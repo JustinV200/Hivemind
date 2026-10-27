@@ -61,7 +61,8 @@ async def read_inbox(services: Services) -> InboxView:
     alarms = sorted(queen.human_inbox.alarms, key=lambda alarm: (alarm.raised_at, alarm.id))
     return InboxView(
         questions=[question_view(question) for question in questions],
-        alarms=[alarm_view(alarm) for alarm in alarms],
+        # ADR-0061: a note the Queen keeps for the human alone (a Nurse's findings) shows here.
+        alarms=[alarm_view(alarm, queen.human_inbox.note_for(alarm.id)) for alarm in alarms],
     )
 
 
