@@ -6,7 +6,7 @@ its grants, has its Warden release the lease, forgets its key and closes its lin
 Veil Cell keeps nothing and is torn down after the record, which lives in its segment alone. A
 Real Cell's Warden is ordered to release its lease. The Queen's own cut is refused, with nothing
 scrubbed, on the Hive Stand, on a Cell not isolated, past her hourly cap, and where no evidence
-could be kept.
+could be kept. Her cap counts her own cuts and skeleton rows in the last hour, never the human's.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/sting_cut/path.py, steps.py and authority.py (codingrules 3).
@@ -37,7 +37,7 @@ from builders.sting_cut import FakeCellCut, cut_order
 
 from hivemind.cell import Cell, CellKind
 from hivemind.forage.grant_state import GrantState
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import CellEvent, TrailQuery
 from hivemind.queen.guard_requests import GuardDeps
 from hivemind.queen.isolation import isolate_cell
 from hivemind.queen.sting_cut import (
@@ -49,6 +49,7 @@ from hivemind.queen.sting_cut import (
 )
 from hivemind.supervision import AlarmKind, AlarmSeverity
 from waggle.clock import FakeClock
+from waggle.ids import new_cell_id, new_event_id
 from waggle.messages.supervision import InterventionAction
 
 
@@ -160,3 +161,55 @@ def _cell(name: str, clock: FakeClock) -> Cell:
     if name == "hive_stand":
         return hive_stand_cell(clock)
     return make_cell(kind=CellKind.VIRTUAL if name == "virtual" else CellKind.REAL, clock=clock)
+
+
+@pytest.mark.parametrize(
+    ("earlier", "seconds_since", "refused"),
+    [
+        (None, 1.0, False),  # Nothing yet: her first cut goes through.
+        ({"cut_by": "queen"}, 1.0, True),  # Her own cut fills a cap of one.
+        ({}, 1.0, True),  # A skeleton row (Night Veil) cannot say who cut: it counts as hers.
+        ({"cut_by": "human"}, 1.0, False),  # The human's cut never spends her cap.
+        ({"cut_by": "queen"}, 3601.0, False),  # Past the hour, her earlier cut drops out.
+    ],
+    ids=["first", "queen", "skeleton", "human", "an_hour_later"],
+)
+async def test_the_queens_hourly_cap_counts_only_her_cuts_in_the_hour(
+    earlier: dict[str, str] | None, seconds_since: float, refused: bool
+) -> None:
+    clock = FakeClock()
+    cell = make_cell(kind=CellKind.VIRTUAL, clock=clock)
+    guard = GuardDeps(cut=FakeCellCut(cell.id), pause_timeout_s=0.0, max_sting_cuts_per_hour=1)
+    deps, link, warden_end = make_queen_deps(clock, cell=cell, guard=guard)
+    if earlier is not None:
+        await deps.trail.record(
+            _earlier_cut(deps.identity.hive_id, deps.identity.node_id, clock, earlier)
+        )
+    clock.advance(seconds_since)
+    site = isolation_site(deps, link)
+    await isolate_cell(site, queen_order(cell.id))
+
+    outcome = await sting_cut_cell(site, cut_order(cell.id, Cutter.QUEEN))
+
+    assert outcome.cut is not refused
+    denied = await deps.trail.query(TrailQuery(kind="guard.denied"))
+    assert [event.payload["rule"] for event in denied] == (
+        ["guard.scope.hourly_cap"] if refused else []
+    )
+    await warden_end.close()
+
+
+def _earlier_cut(
+    hive_id: str, node_id: str, clock: FakeClock, payload: dict[str, str]
+) -> CellEvent:
+    """A `cell.sting_cut` of some other Cell, recorded now, carrying `payload`."""
+    return CellEvent(
+        id=new_event_id(clock),
+        hive_id=hive_id,
+        node_id=node_id,
+        at=clock.now(),
+        actor="system",
+        kind=STING_CUT_KIND,
+        subject_id=new_cell_id(clock),
+        payload=dict(payload),
+    )
