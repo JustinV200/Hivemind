@@ -1,7 +1,7 @@
 """Re-export the Swarming policy: how many fresh Virtual Cells each backend may start now.
 
 The Queen's scheduling policies that sit beside placement rather than inside it. Swarming
-(ADR-0063, roadmap step 13.3) is the first: a pure cap on fresh Virtual Cells from queue depth,
+(ADR-0063, roadmap step 13.3) is the first: a pure cap on fresh Virtual Cells from max_parallel,
 the Hive Stand's room, per-backend limits and an hourly cost cap.
 
 Fits into the Hive:

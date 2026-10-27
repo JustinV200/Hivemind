@@ -2,11 +2,12 @@
 
 Swarming is the Hive scaling its fleet up under load. The dispatcher already provisions one fresh
 Virtual Cell for a ready task when placement picks the Virtual side; this module is the cap over
-that. `plan_swarm` reads a `SwarmView` (queue depth, each backend's Cells held and being made,
-the Hive Stand's room) and a `SwarmingPolicy` (`[virtual_cells.swarming]`) and returns, per
-backend, how many fresh Cells it may start, with the reason when that is none. Every bound is a
-minimum, and a bound left unset does not bind; queue depth always does, but never below the one
-task being placed, so the default policy never holds a backend back.
+that. `plan_swarm` reads a `SwarmView` (each backend's Cells held and being made, the Hive
+Stand's room) and a `SwarmingPolicy` (`[virtual_cells.swarming]`) and returns, per backend, how
+many fresh Cells it may start, with the reason when that is none. Every bound is a minimum, and a
+bound left unset does not bind, so the default policy never holds a backend back. Queue depth is
+no bound here: the dispatcher asks once per ready task with no Cell on the way, so demand is
+always the one Cell for the task being placed.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.scheduler`
@@ -16,7 +17,8 @@ Fits into the Hive:
 
 Key invariants:
     - Pure (codingrules 8.3): no I/O, no clock, no store; the same inputs give the same plan.
-    - An allowance is never negative, and never above any bound that is set.
+    - An allowance is never negative, never above any bound that is set, and None (unbounded)
+      only when no bound is set.
     - A backend priced at zero is never cost-capped; one not marked `draws_on_hive_stand` is
       never capped by the Hive Stand's room.
     - Reasons carry the bound's name and its configured figure only, never a live count, so the
@@ -98,13 +100,12 @@ class SwarmView:
     """Everything `plan_swarm` reads, measured by its caller.
 
     Attributes:
-        queue_depth: Ready tasks waiting to be placed, those with a Cell on the way included.
         backends: Every registered Virtual backend.
-        stand_room: Fresh Cells' worth of free memory and idle cores on the Hive Stand; None when
-            not measured (no Hive Stand attached), which leaves `draws_on_hive_stand` unbound.
+        stand_room: Fresh Cells' worth of free memory and idle cores on the Hive Stand, as
+            measured: Cells still being made use none yet, so `plan_swarm` takes those off. None
+            when not measured (no Hive Stand attached), which leaves `draws_on_hive_stand` unbound.
     """
 
-    queue_depth: int
     backends: tuple[BackendLoad, ...]
     stand_room: int | None = None
 
@@ -114,12 +115,12 @@ class SwarmPlan:
     """What `plan_swarm` decided: how many fresh Cells each backend may start, and why not.
 
     Attributes:
-        allowance: Fresh Cells each backend may start now, by name: never more than the tasks
-            waiting with no Cell on the way, and never more than any bound that is set.
+        allowance: Fresh Cells each backend may start now, by name: the smallest bound that is
+            set, never negative; None when no bound is set on it.
         reasons: Why, for each backend whose allowance is zero.
     """
 
-    allowance: Mapping[str, int]
+    allowance: Mapping[str, int | None]
     reasons: Mapping[str, str]
 
 
@@ -127,17 +128,20 @@ def plan_swarm(view: SwarmView, policy: SwarmingPolicy) -> SwarmPlan:
     """Return how many fresh Virtual Cells each backend in `view` may start now under `policy`.
 
     Args:
-        view: Queue depth, every backend's load and the Hive Stand's room, measured live.
+        view: Every backend's load and the Hive Stand's room, measured live.
         policy: The configured bounds.
 
     Returns:
         A `SwarmPlan` with one allowance per backend in `view`, and a reason for each zero.
     """
-    allowance: dict[str, int] = {}
+    allowance: dict[str, int | None] = {}
     reasons: dict[str, str] = {}
     for load in view.backends:
-        # Queue depth always binds; every other bound only when the manifest sets it.
+        # A bound binds only when the manifest sets it; with none set, the backend is unbounded.
         binding = [(room, why) for room, why in _bounds(load, view, policy) if room is not None]
+        if not binding:
+            allowance[load.name] = None
+            continue
         room, why = min(binding, key=lambda pair: pair[0])
         allowance[load.name] = max(0, room)
         if room <= 0:
@@ -151,17 +155,14 @@ def _bounds(
     """Return every bound on `load`'s fresh Cells as (room, reason); None room binds nothing."""
     limit = policy.limit_for(load.name)
     in_use = sum(other.held + other.provisioning for other in view.backends)
-    # The task being placed has no Cell on the way, so it alone is always demand of one.
-    demand = max(1, view.queue_depth - sum(other.provisioning for other in view.backends))
     return [
-        (demand, "every waiting task already has a Cell on the way"),  # Never below one.
         (
             _left(limit.max_cells, load.held + load.provisioning),
             f"max_cells {limit.max_cells} reached",
         ),
         (_left(policy.max_parallel, in_use), f"max_parallel {policy.max_parallel} reached"),
         (
-            view.stand_room if limit.draws_on_hive_stand else None,
+            _stand_left(view, policy) if limit.draws_on_hive_stand else None,
             "the Hive Stand has no room for another Cell",
         ),
         (
@@ -174,6 +175,21 @@ def _bounds(
 def _left(cap: int | None, used: int) -> int | None:
     """Return what `cap` leaves after `used`, or None when there is no cap."""
     return None if cap is None else cap - used
+
+
+def _stand_left(view: SwarmView, policy: SwarmingPolicy) -> int | None:
+    """Return the Stand's room less the Cells being made on backends that draw on it.
+
+    A Cell still being made uses no memory yet, so the measured room still counts it as free.
+    """
+    if view.stand_room is None:
+        return None
+    making = sum(
+        load.provisioning
+        for load in view.backends
+        if policy.limit_for(load.name).draws_on_hive_stand
+    )
+    return view.stand_room - making
 
 
 def _cost_room(view: SwarmView, policy: SwarmingPolicy, limit: BackendLimit) -> int | None:

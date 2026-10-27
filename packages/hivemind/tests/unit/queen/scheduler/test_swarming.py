@@ -29,12 +29,10 @@ _CLOUD = "cloud"
 def _view(
     docker: tuple[int, int] = (0, 0),
     cloud: tuple[int, int] = (0, 0),
-    queue_depth: int = 10,
     stand_room: int | None = None,
 ) -> SwarmView:
     """Build a two-backend view; each tuple is (held, provisioning)."""
     return SwarmView(
-        queue_depth=queue_depth,
         backends=(BackendLoad(_DOCKER, *docker), BackendLoad(_CLOUD, *cloud)),
         stand_room=stand_room,
     )
@@ -49,42 +47,46 @@ _PRICED = {
 @pytest.mark.parametrize(
     ("view", "policy", "docker", "cloud", "reason"),
     [
-        # The default policy binds only queue depth: ten waiting, two with a Cell on the way.
-        (_view((7, 2)), SwarmingPolicy(), 8, 8, None),
+        # The default policy binds nothing.
+        (_view((7, 2)), SwarmingPolicy(), None, None, None),
         # max_parallel counts held and in-flight Cells across every backend.
         (_view((1, 1), (1, 0)), SwarmingPolicy(max_parallel=5), 2, 2, None),
         (_view((1, 1), (1, 0)), SwarmingPolicy(max_parallel=3), 0, 0, "max_parallel 3 reached"),
         # A backend's own max_cells binds it alone; the other backend is untouched.
-        (_view((4, 0), (2, 1)), SwarmingPolicy(backends=_PRICED), 9, 0, "max_cells 3 reached"),
+        (_view((4, 0), (2, 1)), SwarmingPolicy(backends=_PRICED), None, 0, "max_cells 3 reached"),
         # Cost: two cloud Cells burn 1.0 of a 1.75 cap, room for one more at 0.5; docker is free.
         (
             _view((5, 0), (1, 1)),
             SwarmingPolicy(max_cost_per_hour_usd=1.75, backends=_PRICED),
-            9,
+            None,
             1,
             None,
         ),
         (
             _view((0, 0), (2, 0)),
             SwarmingPolicy(max_cost_per_hour_usd=1.0, backends=_PRICED),
-            10,
+            None,
             0,
             "max_cost_per_hour_usd 1.0 reached",
         ),
         # The Hive Stand's room caps only a backend that draws on it.
         (_view(stand_room=0), SwarmingPolicy(backends=_PRICED), 0, 3, "no room for another"),
         (_view(stand_room=2), SwarmingPolicy(backends=_PRICED), 2, 3, None),
-        # Queue depth: three waiting, two with a Cell on the way, so one more is wanted.
-        (_view((0, 2), queue_depth=3), SwarmingPolicy(max_parallel=9), 1, 1, None),
-        # The task being placed is always demand of one, however stale the figure.
-        (_view((0, 0), queue_depth=0), SwarmingPolicy(max_parallel=9), 1, 1, None),
+        # A Cell still being made on a drawing backend uses no memory yet: take it off the room.
+        (
+            _view((0, 1), stand_room=1),
+            SwarmingPolicy(backends=_PRICED),
+            0,
+            3,
+            "no room for another",
+        ),
     ],
 )
 def test_plan_swarm_takes_the_smallest_bound_that_is_set(
     view: SwarmView,
     policy: SwarmingPolicy,
-    docker: int,
-    cloud: int,
+    docker: int | None,
+    cloud: int | None,
     reason: str | None,
 ) -> None:
     """Each backend gets the smallest set bound; a zero carries the reason naming that bound."""

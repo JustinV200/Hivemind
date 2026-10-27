@@ -37,10 +37,11 @@ A backend whose provisions keep failing is marked held back for a while
 (`hivemind.queen.dispatcher.backoff`), placement data like any other, so `decide` skips it.
 
 Roadmap step 13.3 (ADR-0063) adds Swarming: before every decision, the retry's included, the
-policy (`hivemind.queen.scheduler.plan_swarm`) reads the last pass's queue depth, each backend's
-Cells held and being made, and, for a backend that draws on the Hive Stand, the Stand's free
-memory and idle cores measured live against one Cell's reservation; a backend it allows no fresh
-Cell is marked held back with its reason, the same seam the backoff uses.
+policy (`hivemind.queen.scheduler.plan_swarm`) reads each backend's Cells held and being made,
+and, for a backend that draws on the Hive Stand, the Stand's free memory and idle cores measured
+live against one Cell's reservation (the policy takes off the Cells still being made there); a
+backend it allows no fresh Cell is marked held back with its reason, the same seam the backoff
+uses.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
@@ -432,7 +433,6 @@ async def _swarm_gated(
     policy = deps.placement_policy.swarming
     reserved = _provisioning_by_backend(deps)
     view = SwarmView(
-        queue_depth=deps.dispatch.queue_depth,
         backends=tuple(BackendLoad(b.name, b.held, reserved[b.name]) for b in backends),
         stand_room=await _stand_room(wardens, backends, policy),
     )
