@@ -65,9 +65,12 @@
   font-size: var(--fs-sm);
 }
 
+/* The crumbs share a baseline, so a link padded to its phone touch area (base.css) reads level
+   with the current folder's name */
 .honey-crumbs ol {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--sp-1);
   margin: 0;
   padding: 0;

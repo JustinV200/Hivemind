@@ -174,9 +174,12 @@
   background: var(--surface);
 }
 
+/* The label and the value share a baseline, so a link padded to its phone touch area (base.css)
+   reads level with its label */
 .capping-table td {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: var(--sp-3);
   overflow-wrap: anywhere;
 }

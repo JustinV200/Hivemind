@@ -3,9 +3,10 @@
  *
  * These are the element-level defaults every screen inherits. They use tokens only (see
  * tokens.css), set tabular figures for numbers, make the keyboard focus ring visible everywhere,
- * give every form control the page's font, and honour the reduced-motion preference by removing
- * transitions and animation. The one motion rule is a 150 ms ease on hover, so a control answers
- * the pointer without ever moving.
+ * give every form control the page's font, give a button and, on a phone, a link in a row or a
+ * card the 44px touch area, and honour the reduced-motion preference by removing transitions
+ * and animation. The one motion rule is a 150 ms ease on hover, so a control answers the
+ * pointer without ever moving.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx after tokens.css.
@@ -135,6 +136,19 @@ a.button {
 .button--danger:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--alarm);
+}
+
+/* On a phone a link in a row, a card, a line of links or a breadcrumb (the Cell page's task rows
+   and links, the Fleet, Capping and Honey cards, the chat's and the Attendant's links, the Honey
+   crumbs) has the buttons' 44px touch area (design.md 6): padding above and below its own line,
+   so a link that holds an id and a word keeps the space between them, which a flex box would
+   drop; a flex row that sets a padded link beside plain text aligns them by baseline. The
+   shell's nav sizes its own items and a diagram's node links are the nodes. */
+@media (max-width: 719px) {
+  main :is(p, li, td, th, nav) a:not(.button) {
+    display: inline-block;
+    padding-block: calc((44px - 1lh) / 2);
+  }
 }
 
 @media (min-width: 720px) {
