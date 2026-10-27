@@ -8,8 +8,9 @@ without its rows fails here, for both tables that map one: the Warden's autopilo
 shipped escalation policy is walked the same way for every `AlarmKind`, and its SECURITY row
 (roadmap steps 10.6 and 10.6c) is pinned: a security Alarm is never retried, respawned or rebound
 at any level; a Warden sends it to the Queen, and she sends it on to the human. So is its
-sibling PATROL_ANOMALY's (roadmap phase 11, ADR-0054): a Patrol's finding is escalated from the
-first attempt and posted to the human by the Queen.
+siblings PATROL_ANOMALY's (roadmap phase 11, ADR-0054) and NURSE_UNRESOLVED's (ADR-0061): a
+Patrol's finding, or a Nurse review still unresolved after its last fix-forward round, is
+escalated from the first attempt and posted to the human by the Queen.
 
 Fits into the Hive:
     Mirrors src/hivemind/supervision/policy.py (codingrules section 3), across the two tables that
@@ -152,13 +153,16 @@ def test_a_security_alarm_always_goes_up_never_retried_or_rebound() -> None:
         assert decided is QueenAction.ESCALATE_TO_HUMAN
 
 
-def test_a_patrol_anomaly_always_goes_up_to_the_queen_who_posts_it_to_the_human() -> None:
+@pytest.mark.parametrize("kind", [WireAlarmKind.PATROL_ANOMALY, WireAlarmKind.NURSE_UNRESOLVED])
+def test_an_escalate_only_kind_always_goes_up_to_the_queen_who_posts_it_to_the_human(
+    kind: WireAlarmKind,
+) -> None:
     shipped = load_policy()
 
     for attempts in _ATTEMPTS:
-        alarm = _alarm(WireAlarmKind.PATROL_ANOMALY, attempts)
-        # No bee failed and the Warden only observes the device, so nothing is retried, respawned
-        # or rebound: every level above the raiser escalates, and the Queen tells the human.
+        alarm = _alarm(kind, attempts)
+        # A Patrol finding has no failed bee to retry, and an unresolved Nurse review has already
+        # spent its fix-forward rounds: every level above the raiser escalates to the human.
         assert policy_decide(shipped, Alarm.from_wire(alarm)) is PolicyAction.ESCALATE
         view = SubBeeView(state=WorkerState.RUNNING, attempt=max(attempts, 1))
         assert warden_decide(_item(alarm), view, shipped) is WardenAction.ESCALATE

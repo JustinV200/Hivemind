@@ -43,6 +43,11 @@ read-only review of an idle Cell) raises it when something deserves a person's e
 it can be retried, respawned or rebound, so a Warden sends it to the Queen, who posts it to the
 human.
 
+ADR-0061 (Waggle 1.15) adds `NURSE_UNRESOLVED`, again with one `ESCALATE` row from the first
+attempt. The Queen raises it when the Nurse Bee (a fresh-context reviewer of an attempt that passed
+its machine checks) still asks for changes after the last fix-forward round `[nurse] max_rounds`
+allows; those rounds were the retries, so she posts it to the human.
+
 The manifest's `[supervision] policy_file` (roadmap step 3.1) is unset by default, which is what
 selects the shipped table; setting it to a path, resolved against the manifest's own directory,
 overrides it with an operator's own. The Queen and each Warden load their own `EscalationPolicy`

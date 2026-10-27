@@ -109,6 +109,10 @@ class AlarmKind(Enum):
     # of an idle Cell) found something worth a human's eyes. The shipped policy sends it up the
     # chain: a Warden to the Queen, and the Queen on to the human.
     PATROL_ANOMALY = "PATROL_ANOMALY"
+    # Waggle 1.15 (ADR-0061): the Nurse Bee (a fresh-context reviewer) still asked for changes
+    # after the last fix-forward round the manifest allows. More rounds are what failed, so the
+    # shipped policy never retries it: it goes up the chain to the human.
+    NURSE_UNRESOLVED = "NURSE_UNRESOLVED"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 

@@ -101,6 +101,9 @@ class AlarmKind(Enum):
     # review of an idle Cell) found something worth a human's eyes; it escalates to the Queen,
     # who posts it to the human.
     PATROL_ANOMALY = "PATROL_ANOMALY"
+    # PROTOCOL_MINOR 15 (ADR-0061): the Nurse Bee (a fresh-context reviewer) still asked for
+    # changes after the Queen's last fix-forward round; the Queen raises it to the human.
+    NURSE_UNRESOLVED = "NURSE_UNRESOLVED"
     OTHER = "OTHER"  # Anything new, until a minor bump names it.
 
 

@@ -93,6 +93,7 @@ RESOLVED = AlarmResolved(
                 "EXOSKELETON_FAILED",
                 "SECURITY",
                 "PATROL_ANOMALY",
+                "NURSE_UNRESOLVED",
                 "OTHER",
             ],
         ),
