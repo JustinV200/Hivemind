@@ -2,10 +2,10 @@
 
 ADR-0061: the Nurse runs on `ModelSlot.JUDGE`, but only on a binding at least as strong as the
 Worker (the identical model counts, so a Worker on the top model can still be reviewed), whose
-call fits the task's remaining spend and the model's context window, preferring a provider the
-Worker never used. This module filters the JUDGE binding's fallback chain down to those links and
-re-links them into a chain of their own, so `complete_structured` can still fall back, but only
-ever onto a model that is itself eligible. An empty result is the "not nursed" case.
+one attempt fits the task's remaining spend and the model's context window, preferring a provider
+the Worker never used. This module filters the JUDGE binding's fallback chain down to those
+links and re-links them into a chain of their own, so `complete_structured` can still fall back,
+but only ever onto a model that is itself eligible. An empty result is the "not nursed" case.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors), inside `hivemind.wardens.nurse`. Called by
@@ -19,6 +19,9 @@ Key invariants:
       so the review records the weakest model that might have, never one stronger than it was.
     - Within each group (another provider first, then the Worker's own), the manifest's chain
       order is kept: that order is the operator's preference.
+    - The budget check prices one attempt, not the review: the ladder may retry a link and then
+      fall back, so the real spend can be a few times the estimate. The Fanner meters every
+      attempt against the grant, which is the real bound.
     - An unpriced link (no Forage price) passes the budget check: its cost cannot be estimated,
       and the Fanner still meters whatever it really costs.
 
@@ -96,7 +99,7 @@ def nurse_chain(
 
 
 def _cost(link: BoundModel, input_tokens: int, output_tokens: int) -> float:
-    """Return the most `link` could charge for this call; an unpriced side counts as zero."""
+    """Return what one attempt on `link` could charge, retries aside; unpriced counts as 0."""
     input_price = link.cost_per_million_input_usd or 0.0
     output_price = link.cost_per_million_output_usd or 0.0
     return (input_tokens * input_price + output_tokens * output_price) / TOKENS_PER_MILLION
