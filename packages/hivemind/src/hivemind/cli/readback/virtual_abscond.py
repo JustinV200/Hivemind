@@ -1,4 +1,4 @@
-"""Define run_abscond: `hive cells abscond`'s own orchestration, from backend labels and the trail.
+"""Define run_abscond: `hive abscond`'s Cells-and-leases pass, from backend labels and the trail.
 
 Roadmap step 5.13's own wording for `abscond`: "destroy every Virtual Cell tagged with this Hive id
 and release every lease, from backend labels and the trail alone" -- no lifecycle table, since the
@@ -21,7 +21,7 @@ checked against the Night Veil boundary `virtual_cells` carries (its labels, a s
 process holds, or the trail's skeleton, `hivemind.hive.night_veil.adopt_night_veil`), its
 destruction is recorded through the boundary's own trail so only the skeleton of it survives, and
 the teardown purge runs once it is gone. In a running Hive's process that boundary is the Queen's
-own, so the Cell's ephemeral segment goes with it; a separate `hive cells abscond` process holds no
+own, so the Cell's ephemeral segment goes with it; a separate `hive abscond` process holds no
 segment, and purges what the trail and the registered side channels still hold. That process
 never saw the Cell's grants issued either, so it files every grant the ledger holds on the Cell
 under it first: the Undertaker's `forage.revoked` rows then stay out of the trail too. Both are
@@ -84,7 +84,7 @@ __all__ = ["AbscondDeps", "AbscondSummary", "run_abscond"]
 
 @dataclass(frozen=True, slots=True)
 class AbscondDeps:
-    """Every collaborator one `hive cells abscond` pass needs, bundled per codingrules 5.1.
+    """Every collaborator one Absconding's Cells-and-leases pass needs, bundled per codingrules 5.1.
 
     Attributes:
         manifest: The loaded Hive Manifest; `virtual_cells`, `hive_stand.scratch_root` and
@@ -119,8 +119,9 @@ class AbscondSummary:
     Attributes:
         containers_destroyed: Virtual Cells destroyed this pass.
         leases_released: Real Cell leases released directly, offline.
-        leases_deferred_to_queen: Real Cell leases handed to a running Queen via a RELEASE order,
-            not yet actually released by this pass itself.
+        leases_deferred_to_queen: Real Cell leases handed to a Queen via a RELEASE order, not yet
+            actually released by this pass itself: every lease while one looks to be running, and
+            a Swarm device's lease always (its own Warden releases it, roadmap step 13.4).
         leases_left_untouched: Real Cell leases neither released nor deferred: no Queen looked to
             be running, and the lease's own scratch directory was already gone (module docstring's
             own "minimal safe thing" -- nothing here can restore a fact this process never saw).
@@ -209,15 +210,7 @@ async def _release_every_lease(deps: AbscondDeps, identity: CellIdentity) -> tup
         return 0, 0, 0
     if await queen_likely_running(deps.trail):
         for orphan in orphans:
-            await deps.orders.put_order(
-                ClusterOrder(
-                    id=new_order_id(deps.clock),
-                    kind=OrderKind.RELEASE,
-                    provider=None,
-                    requested_at=deps.clock.now(),
-                    lease_id=orphan.lease_id,
-                )
-            )
+            await _order_release(deps, orphan.lease_id)
         return 0, len(orphans), 0
 
     scratch_base = deps.manifest.resolve_path(deps.manifest.hive_stand.scratch_root)
@@ -225,8 +218,14 @@ async def _release_every_lease(deps: AbscondDeps, identity: CellIdentity) -> tup
     # UndertakerDeps.backend's own required shape.
     offline = _offline(deps, identity)
     undertaker = build_undertaker(FakeCellBackend(deps.clock), offline, deps.ledger)
-    released = untouched = 0
+    released = deferred = untouched = 0
     for orphan in orphans:
+        if orphan.node_id and orphan.node_id != deps.manifest.hive.node_id:
+            # Roadmap 13.4: a device's lease is its own Warden's to release; the order waits
+            # for the next Queen, who sends it the moment that Warden attaches.
+            await _order_release(deps, orphan.lease_id)
+            deferred += 1
+            continue
         scratch_root = scratch_base / orphan.lease_id
         if not scratch_root.exists():
             untouched += 1
@@ -234,4 +233,17 @@ async def _release_every_lease(deps: AbscondDeps, identity: CellIdentity) -> tup
         lease = reconstruct_lease(orphan, scratch_root, offline)
         await undertaker.release_real(lease)
         released += 1
-    return released, 0, untouched
+    return released, deferred, untouched
+
+
+async def _order_release(deps: AbscondDeps, lease_id: str) -> None:
+    """Write one durable RELEASE order for `lease_id`, for a Queen's tick to carry out."""
+    await deps.orders.put_order(
+        ClusterOrder(
+            id=new_order_id(deps.clock),
+            kind=OrderKind.RELEASE,
+            provider=None,
+            requested_at=deps.clock.now(),
+            lease_id=lease_id,
+        )
+    )

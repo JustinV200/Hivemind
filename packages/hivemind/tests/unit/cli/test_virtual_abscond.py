@@ -29,11 +29,18 @@ from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts, build_virtual_cells
 from hivemind.cli.readback.virtual_abscond import AbscondDeps, run_abscond
 from hivemind.forage.grant_state import GrantState
-from hivemind.pheromone import MemoryPheromoneTrail, TrailQuery
+from hivemind.pheromone import CellEvent, MemoryPheromoneTrail, TrailQuery
 from hivemind.queen import ForageLedger
 from hivemind.queen.cluster import InMemoryOrderStore
 from waggle.clock import FakeClock
-from waggle.ids import CellId
+from waggle.ids import (
+    CellId,
+    new_cell_id,
+    new_event_id,
+    new_lease_id,
+    new_node_id,
+    new_warden_id,
+)
 
 _CLEANUP_COUNTS = {"grants_revoked": 1, "wax_retired": 0, "leavings_removed": 0}
 
@@ -95,3 +102,44 @@ async def test_a_meadow_cells_absconding_records_what_it_always_did(tmp_path: Pa
     assert events[1].subject_id == cell_id
     assert events[1].payload == _CLEANUP_COUNTS
     assert not parts.night_veil.segments.owns(cell_id)
+
+
+async def test_offline_a_device_lease_is_ordered_released_never_left(tmp_path: Path) -> None:
+    """Roadmap 13.4: a device's open lease waits as a RELEASE order for its own Warden."""
+    manifest = night_veil_manifest(tmp_path)
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    lease_id = new_lease_id(clock)
+    leased = CellEvent(
+        id=new_event_id(clock),
+        hive_id=manifest.hive.id,
+        node_id=new_node_id(clock),  # A Swarm device's node, not the Hive Stand's.
+        at=clock.now(),
+        actor="system",
+        kind="cell.leased",
+        subject_id=new_cell_id(clock),
+        payload={
+            "lease_id": lease_id,
+            "holder": new_warden_id(clock),
+            "task_id": None,
+            "access_level": "FULL",
+            "comb_shield": "MEADOW",
+        },
+    )
+    await trail.record(leased)
+    orders = InMemoryOrderStore()
+    deps = AbscondDeps(
+        manifest=manifest,
+        trail=trail,
+        ledger=ForageLedger(),
+        orders=orders,
+        clock=clock,
+        virtual_cells=None,
+        leavings=InMemoryLeavingsStore(trail),
+    )
+
+    summary = await run_abscond(deps)
+
+    assert (summary.leases_deferred_to_queen, summary.leases_left_untouched) == (1, 0)
+    [order] = await orders.pending()
+    assert order.lease_id == lease_id

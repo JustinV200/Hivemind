@@ -314,6 +314,8 @@ class LeaseOrphan:
         task_id: The task it served, or None for an internal lease.
         access_level: The access it was granted.
         comb_shield: The Cell's own tier at the time it was opened.
+        node_id: The node whose trail recorded it: the Hive Stand's own for its lease, a
+            device's for a lease on a Swarm device (roadmap step 13.4).
     """
 
     lease_id: str
@@ -322,13 +324,14 @@ class LeaseOrphan:
     task_id: TaskId | None
     access_level: AccessLevel
     comb_shield: CombShieldLevel
+    node_id: str = ""
 
 
 async def open_real_leases(trail: PheromoneTrail) -> tuple[LeaseOrphan, ...]:
     """Return every `cell.leased` event this trail holds with no matching `cell.released`.
 
     Unlike `hivemind.workers.roles.undertaker.sweep.orphan_real_leases`, this never filters by
-    "the task is still active": `hive cells abscond` tears down every open lease this Hive's own
+    "the task is still active": `hive abscond` tears down every open lease this Hive's own
     database still shows, active task or not (roadmap step 5.13's own wording, "release every
     lease"), so the whole richer fact set (not just the id) is read back in one pass here.
     """
@@ -363,6 +366,7 @@ async def open_real_leases(trail: PheromoneTrail) -> tuple[LeaseOrphan, ...]:
                 else None,
                 access_level=AccessLevel(str(event.payload.get("access_level"))),
                 comb_shield=CombShieldLevel(str(event.payload.get("comb_shield"))),
+                node_id=event.node_id,
             )
         )
     return tuple(orphans)
