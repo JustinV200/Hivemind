@@ -53,6 +53,7 @@ from datetime import timedelta
 from typing import Protocol
 
 from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reaping
 from hivemind.memory import MemoryIdentity
 from hivemind.pheromone import PheromoneTrail, WardenEvent
 from hivemind.wardens.offline.outbox import OfflineOutbox
@@ -278,13 +279,9 @@ async def wait_or_wake(clock: Clock, seconds: float, wake: asyncio.Event | None)
         return
     sleeping = asyncio.ensure_future(clock.sleep(seconds))
     woken = asyncio.ensure_future(wake.wait())
-    try:
+    # Both reaped however this ends, the caller's cancellation included: neither outlives the wait.
+    async with reaping(sleeping), reaping(woken):
         await asyncio.wait((sleeping, woken), return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        # Whichever lost (or both, if the caller was cancelled) must not outlive this wait.
-        sleeping.cancel()
-        woken.cancel()
-        await asyncio.gather(sleeping, woken, return_exceptions=True)
 
 
 async def rejoin(
