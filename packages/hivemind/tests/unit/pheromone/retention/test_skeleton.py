@@ -184,6 +184,8 @@ def test_every_task_event_carries_nothing_beyond_the_task_id(kind: str) -> None:
         "capping.proposed",
         "capping.capped",
         "capping.rolled_back",
+        "capping.nurse_reviewed",  # ADR-0061: a Nurse round dies with a Night Veil Cell.
+        "capping.nurse_unavailable",
         "memory.episode",
         "guard.denied",
         "llm.rebound",
@@ -247,6 +249,8 @@ def test_tier_counts_join_every_outcome_to_its_proposals_tier() -> None:
         _event("capping.rejected", {"tier": "SPEND"}, "msg_01HBBBBBBBBBBBBBBBBBBBBBBB"),
         _event("capping.proposed", {"tier": "SPEND"}, "msg_01HCCCCCCCCCCCCCCCCCCCCCCC"),
         _event("worker.done", {}, "worker_01HZZZZZZZZZZZZZZZZZZZZZZZ"),
+        # A Nurse round is about a task and names no tier (ADR-0061), so it counts nowhere.
+        _event("capping.nurse_reviewed", {"round": 1, "findings": 2}, _TASK),
     ]
 
     assert tier_counts(events) == (

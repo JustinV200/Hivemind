@@ -219,6 +219,8 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("capping.audited", _OBSERVATION),
     ("capping.leave_decided", _DECISION),
     ("capping.summary", _OBSERVATION),
+    ("capping.nurse_reviewed", _OBSERVATION),  # ADR-0061: a Nurse's verdict on an attempt.
+    ("capping.nurse_unavailable", _OBSERVATION),  # No Nurse was eligible; accepted not nursed.
     ("llm.call", _OBSERVATION),  # Metering of a call on a binding checked at slot_binding.
     ("llm.fallback", _LIFECYCLE),  # The next link of a chain already bound.
     ("llm.spill", _DECISION),  # Routing within Forage the grant already covers.

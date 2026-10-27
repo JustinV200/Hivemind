@@ -58,7 +58,13 @@ Vocabulary (family -> kind -> when it is recorded):
         leave policy decided ALLOW/ASK/DENY for one outside-scratch path, roadmap step 5.0c;
         carries the path, its PathClass and whether it was persisted -- never the human-readable
         reason); summary (a per-tier rollup of approved/rejected/rolled_back counts, the only
-        capping.* record kept through a Night Veil teardown, codingrules section 12).
+        capping.* record kept through a Night Veil teardown, codingrules section 12). ADR-0061
+        adds two for the Nurse Bee (a fresh-context reviewer of an attempt that passed its
+        machine checks), each about the task and carrying ids, enums and counts only, never a
+        finding's words or a risk tier (so the teardown's tier counts never see them):
+        nurse_reviewed (a Nurse returned PASS or CHANGES_REQUESTED, or its call failed: the
+        round, status, outcome, finding count and both grades); nurse_unavailable (no model was
+        eligible, so the attempt was accepted "not nursed": the round and the Worker's grade).
     guard: denied (an enforcement point refused an action; carries the principal's kind, id and
         role, the point, the capability, the rule, the reason and the escalation, never content,
         ADR-0039). Reserved, declared now so the later phase 10 steps that record them never race
@@ -208,6 +214,9 @@ class CappingEvent(PheromoneEvent):
             "capping.audited",
             "capping.leave_decided",
             "capping.summary",
+            # ADR-0061: one Nurse Bee round on a task, by ids, enums and counts only.
+            "capping.nurse_reviewed",
+            "capping.nurse_unavailable",
         }
     )
 
