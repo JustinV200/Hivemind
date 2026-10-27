@@ -2534,7 +2534,17 @@ in this phase adds a new write path.
   (`.section-heading`, the panel hairline) on every top-level section heading; the Fleet's
   table box and `EmptyState` comb cells, `EmptyState` wherever a view or section has nothing to
   list; the Devices list's platform on one line with its door controls the column that wraps
-  (design.md sections 2, 3.4, 4.3, 5.2, 5.6, 6, 7 and 8).
+  (design.md sections 2, 3.4, 4.3, 5.2, 5.6, 6, 7 and 8). **Round 5 (2026-10-27), the phone
+  round:** every diagram sized from its measured pane (`usePaneWidth`), so the Cell diagram's
+  and the Attendant graph's narrow canvases are the pane's width and their 12 unit text is 12 px
+  on any phone, and the Forage flow narrows (every label left of its box, cut to what the width
+  leaves) instead of scrolling sideways; the Attendant graph's lines routed through the grid's
+  gaps so one never runs through a node; the strip's phone form two lines per cell within its
+  116 px budget; the seven per-view tags folded into one `.tag` and `.tag--status`; the Honey
+  item in the hash (`#/honey/<path>?item=<id>`) with the opener and Close real links; a word
+  beside every grant gauge on the Cell page; the Forage's legend drawn once and its pool card
+  untitled under its heading; the Capping filters a select per group on a phone; the system
+  font stack the stated design (design.md sections 2, 4.1, 4.7, 4.8, 5.1, 5.7, 5.9 and 6).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the

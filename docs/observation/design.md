@@ -56,7 +56,7 @@ From top to bottom, on every screen after login:
 
 | Width | Shell |
 |---|---|
-| 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row. |
+| 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells, each two lines (the label with its hint on one 12 px line, the number under it) in a 49 px cell, so the band holds the 116 px `--strip-h` budgets and the pinned head (bar and strip) stays under a quarter of a phone's screen. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row; the Capping view's two filter groups become one select each. |
 | 720 to 1079 | Nav becomes a left rail of icons with labels. A table with few columns (the Cost tables, the Forage's Wardens, requests and map tables) is a table; the rest stay cards, two across where there is room (the Fleet). Diagrams fill the width. |
 | 1080 and up | Left rail with labels beside the icons, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). Every table shows all its columns (the Grants table, with ten, from here), except the three whose columns need more room: the Fleet, the Capping queue and the Devices list become tables from 1280 px and keep their cards below it, so no table ever scrolls sideways. |
 
@@ -196,6 +196,16 @@ drawn, because "no mask" is information. A Queen-forced mask also shows its expi
 (`until hh:mm`) in `--text-muted`. A badge is never a button and has no hover-only content.
 `Legend` renders the three tier pills and the three mask tags with one line each of what they mean.
 
+**The tag** is the one short label beside a name in every view, and it is a class, not a
+component: `.tag` (`components.css`) is the Fleet's quiet look, the comb surface (`--surface-2`)
+with a soft outline (`--border-soft`) and the 2 px radius, for a kind (`Message`, `Awake`, `C1`,
+`trigger tick`), a place (`this device`, `Hive Stand`) or a request (`Goal request`), so a static
+word never looks pressable beside a real button (which is outlined in `--border` on `--surface`).
+A status word (a proposal's state, a verdict, a severity, a taint, a waiting `Question` or
+`Alarm`) is `.tag--status`: bold, outlined in its tone (`.tag--ok`, `--warn`, `--alarm`, `--idle`),
+with the word carrying the meaning and the colour only underlining it. No view defines a tag of
+its own.
+
 ### 4.2 Gauges
 
 `ContextGauge` is a horizontal bar, 8 px tall, with the track in `--border-soft` and the fill in
@@ -276,9 +286,17 @@ Cell frame and one on the Cell inside it.
 - Ribbons join each segment to the next column, with width proportional to the amount. A grant
   near expiry gets a `--warn` ribbon edge and its expiry as text.
 
+The flow's canvas is 480 units wide, the pool's labels left of its boxes and the others right, in
+the gaps. A pane narrower than that (a phone) gets a canvas exactly as wide as the pane: every
+label moves to the left of its box, right-aligned, and keeps the characters the width leaves
+(ten at 334 px, eight at 304 px; the full words stay in `<title>`), the ribbons pass under the
+Warden and grant labels (which have a halo of the surface), and nothing scrolls sideways above
+240 px.
+
 Below the flow, **per-host capacity** is a stacked bar per host (Hive Stand, each Nuc, each
-Virtual Cell backend): in use, reserved, available, with the numbers beside it. A Nuc's local pool
-sits to the right of the shared flow, with its own reserve and the seats it exports.
+Virtual Cell backend): in use, reserved, available, with the numbers beside it, and one legend
+for the four kinds under the first capacity figure on the page. A Nuc's local pool sits to the
+right of the shared flow, with its own reserve and the seats it exports.
 
 ### 4.8 Diagram rules
 
@@ -289,8 +307,15 @@ sits to the right of the shared flow, with its own reserve and the seats it expo
   `role="img"` and an `aria-labelledby` pointing at a `<title>` that states what it shows. A
   hidden table with the same numbers follows each diagram for screen readers.
 - Colours come from tokens (`fill="var(--ok)"`), never literals, so both themes work.
-- Text in SVG is real `<text>`, at least 12 px at 360 px width. If a label does not fit, it is
-  cut and the full text stays in `<title>`.
+- A diagram measures its pane (`usePaneWidth`, a `ResizeObserver` on the box it is drawn in)
+  and sizes its narrow canvas from it, one viewBox unit per pixel, so text in SVG, which is real
+  `<text>` at 12 units, is at least 12 px on any phone; a wide canvas (the Cell diagram's 744
+  units, the Attendant graph's natural size, the flow's 480) is drawn only in a pane that holds it
+  at 1x or more. Before the pane is measured, and in a test, the canvas is the design's 360. If a
+  label does not fit, it is cut and the full text stays in `<title>`.
+- A line never runs through a node. The Attendant graph's lines take the plain elbow (out of the
+  task's far edge, along the gap before the waiting task's layer, in) where that is clear, and
+  otherwise the gaps between rows and columns, which every layer shares and no node sits in.
 
 ## 5. Views
 
@@ -302,7 +327,8 @@ capability shows a one-line `forbidden` notice in place, never an empty screen.
 ### 5.1 Fleet (`#/fleet`)
 
 All Cells in one table with a Real, Virtual or All filter (a three-way segmented control, default
-All). Columns: Cell id, kind, source, status and mode, tier badge, mask badge, access level, two
+All: one choice at a time, which is what makes it a segmented control and not the Capping view's
+chips). Columns: Cell id, kind, source, status and mode, tier badge, mask badge, access level, two
 badges for where the Warden runs and where its models come from, current task and role, open
 Alarms, the highest live Cell Wax severity, lease age, and links to its page, its Attendant view
 and its bees' thoughts. The **legend** (`Legend`) is fixed at the top right of the view's title
@@ -375,7 +401,10 @@ acknowledge routes under `/v1/inbox`.
 
 A folder tree on the left (a single list on phone) and the folder's items on the right: `/hive`,
 `/cells/<id>`, `/bees/<id>`, `/tasks/<id>`, `/bee-bread`. Every item shows its `HoneyClearance`
-(`C0`, `C1`, `C2`) and provenance. A search box searches the open folder. "Propose a note" queues
+(`C0`, `C1`, `C2`) and provenance. An item's title is a link to `#/honey/<path>?item=<id>`, which
+opens it in the reading pane, so an open item can be shared, comes back on reload and closes with
+Back; the pane's Close is a link back to the folder's own address. Only the Honey route reads the
+hash's query. A search box searches the open folder. "Propose a note" queues
 a note for the House Bee (Cell Wax when opened from a Cell's folder) and says so; it never says
 "saved". What shows follows the viewer's scopes. Read: `/v1/honey/tree`, `/v1/honey/items/{id}` and `/v1/honey/search`. There is no Honey stream: the
 view reads on navigation and re-reads a folder when the trail stream shows a Honey event for it.
@@ -390,7 +419,10 @@ moving it local would save. Money is two decimals with thousands separators (`$3
 ### 5.9 Capping (`#/capping`)
 
 The Hive-wide queue of proposals by tier and state, judge verdicts with reasons, rollbacks,
-sampled-audit findings and rates per tier. Every item links to the bee's thoughts and, for an
+sampled-audit findings and rates per tier. The tier and state filters are chips (several of a
+group can be on at once; `All` clears it) from 720 px, and one select per group below, since the
+chips would take six rows of a phone before any content; the Fleet's filter is a segmented
+control because it is one choice at a time. Every item links to the bee's thoughts and, for an
 Exoskeleton action, to its recording. Read: `/v1/capping` (added in 12.1). Streams: trail.
 
 ### 5.10 Devices and enrolment (`#/devices`, `#/enrol`)
@@ -414,12 +446,12 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
 
 ## 6. Typography and density
 
-- **Sans:** `"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-  Arial, sans-serif`. Plex is used where the device has it and nothing is fetched for it: the
-  app makes no external request, so self-hosting the two faces means dropping their `woff2` files
-  under `public/fonts/` with `@font-face` rules in `base.css` (not yet done).
-- **Mono (ids, code, numbers in logs):** `"IBM Plex Mono", ui-monospace, "SF Mono", Menlo,
-  Consolas, "DejaVu Sans Mono", monospace`.
+- **Sans:** `system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+  sans-serif`: the device's own face (Segoe UI on Windows, Roboto on Android, San Francisco on
+  Apple) is the design, so the app fetches nothing and every device of a kind shows the same
+  page. A named face was dropped because one that is not shipped is never seen.
+- **Mono (ids, code, numbers in logs):** `ui-monospace, "SF Mono", Menlo, Consolas,
+  "DejaVu Sans Mono", monospace`.
 - **Headings:** weight 600 with 0.01 em tracking. One rhythm in every view: a panel's heading
   and every top-level section heading (the Forage's, the Cost's and the Capping's sections, the
   Devices' Entrance panel, the Enrol's two sections, the Queen's inbox on the Thoughts view, the
