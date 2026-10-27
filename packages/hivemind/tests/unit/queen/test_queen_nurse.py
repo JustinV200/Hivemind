@@ -17,15 +17,18 @@ from __future__ import annotations
 import asyncio
 
 from builders.queen import make_queen_deps, plan_responder
+from builders.tasks import make_graph_draft
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.cell import HoneyClearance
+from hivemind.cell import CombShieldLevel, HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.chat import ChatQuery
+from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.queen import Queen
+from hivemind.queen.ticks.nurse import escalate_unresolved
 from hivemind.supervision import AlarmKind
-from waggle.ids import TaskId, WardenId
+from waggle.ids import TaskId, WardenId, new_cell_id
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.task import (
     NurseFinding,
@@ -128,4 +131,26 @@ async def test_a_rejection_is_fixed_forward_with_its_findings_then_escalated_at_
     assert {row.kind for row in rows} == {"alarm.escalated", "alarm.resolved"}
     assert all(_FINDING.problem not in str(row.payload) for row in rows)
     assert all(_FINDING.problem not in line.text for line in await deps.chat.read(ChatQuery()))
+    await warden_end.close()
+
+
+async def test_a_night_veil_tasks_findings_never_reach_the_human_inbox() -> None:
+    # Regression: the inbox is not purged at a Night Veil teardown, so the Cell's words stay out.
+    deps, link, warden_end = make_queen_deps()
+    (task,) = await deps.chamber.submit(make_graph_draft({"poem": ()}))
+    await deps.chamber.assign(
+        task.id,
+        link.warden_id,
+        new_cell_id(deps.clock),
+        "Placed.",
+        bound_tier=CombShieldLevel.NIGHT_VEIL,
+    )
+    await deps.chamber.start(task.id)
+    inbox = HumanInbox()
+
+    await escalate_unresolved(deps, inbox, _rejected(task.id, link.warden_id, 1, 1), link.warden_id)
+
+    [alarm] = inbox.alarms
+    assert alarm.kind is AlarmKind.NURSE_UNRESOLVED and inbox.note_for(alarm.id) is None
+    assert (await deps.chamber.get(task.id)).status is TaskStatus.FAILED
     await warden_end.close()

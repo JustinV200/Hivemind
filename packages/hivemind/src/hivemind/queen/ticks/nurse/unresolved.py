@@ -7,7 +7,9 @@ attempt's work, as every Nurse round has. The findings are untrusted model prose
 untrusted evidence, so they reach the human inbox alone, fenced and labelled, as a note kept
 beside the Alarm (`HumanInbox.note_for`), never on it: the Alarm itself, which the trail's
 `alarm.escalated` and `alarm.resolved` rows, the chat line, the devices' notice and the Queen's
-awake episodes all read, carries a detail of counts only.
+awake episodes all read, carries a detail of counts only. A Night Veil task gets no note at all:
+its Nurse wrote from that Cell's own files, and the inbox is not purged when the Cell is torn down
+(codingrules section 12, "Nothing else crosses the boundary").
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `hivemind.queen.ticks.
@@ -19,6 +21,7 @@ Fits into the Hive:
 Key invariants:
     - No finding's words reach the trail, the chat, a push notice or a Queen model; only the
       human inbox's note beside the Alarm carries them, dropped when the Alarm is resolved.
+    - A Night Veil task's findings reach no store at all, the human inbox included.
     - A task no longer RUNNING is left alone: nothing is raised and nothing is failed twice.
 
 See Also:
@@ -29,7 +32,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.brood_chamber import Task, TaskStatus
-from hivemind.cell import CellIdentity
+from hivemind.cell import CellIdentity, CombShieldLevel
 from hivemind.queen.chat import post_alarm
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.human_inbox import HumanInbox
@@ -61,10 +64,11 @@ async def escalate_unresolved(
     task = await deps.chamber.get(payload.task_id)
     if task.status is not TaskStatus.RUNNING:
         return  # Closed out meanwhile: there is nothing left for the human to decide here.
-    findings = _findings(payload)
     alarm = _unresolved_alarm(deps, task, payload, warden_id)
     # The note alone carries the words; the Alarm every other reader sees has counts only.
-    human_inbox.add_alarm(alarm, note=_findings_note(findings))
+    # A Night Veil Cell's words never leave it: the inbox outlives its teardown's purge.
+    veiled = CombShieldLevel.NIGHT_VEIL in (task.spec.needs.comb_shield, task.bound_tier)
+    human_inbox.add_alarm(alarm, note=None if veiled else _findings_note(_findings(payload)))
     identity = CellIdentity(
         hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor=deps.identity.actor
     )

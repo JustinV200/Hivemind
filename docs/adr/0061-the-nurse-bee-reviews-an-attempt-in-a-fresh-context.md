@@ -289,6 +289,12 @@ Both are classified as observations in the Guard's event catalogue.
   `note_for`), inside a `nurse_findings` fence labelled untrusted and cut to 2,000 characters with
   the fence still closed; the Entrance's inbox shows it after the detail, and it goes when the
   human acknowledges the Alarm.
+- **A Night Veil task's findings stay on its Cell.** Its Nurse runs on local models and writes
+  from that Cell's own files, but `HumanInbox` is in memory on the Queen and is not one of the
+  side channels a Night Veil teardown purges, so a note there would outlive the Cell (codingrules
+  section 12, "Nothing else crosses the boundary"). For a task asked for at, or bound to, the
+  NIGHT_VEIL tier the Queen raises the same counts-only Alarm with no note; the human reads the
+  findings on the Cell, if at all, while it still stands.
 - **The fixing bee's brief.** The bounded-loop brief renders `review_findings` after the Scout's
   recon, inside the same kind of fence, each anchored to its criterion (in the words the bee
   already reads its checks in) or its file and line, and tells the bee the last attempt's work is
