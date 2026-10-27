@@ -375,6 +375,26 @@ describe('live', () => {
     expect(drawnIds()).toEqual(['cell_r', 'cell_v', 'cell_new']);
   });
 
+  it('holds new rows behind a button while the pointer is in the table, updating the rest', () => {
+    const box = screen.getByRole('table').parentElement!;
+    fireEvent.pointerEnter(box);
+    act(() => {
+      opened.socket.receive(cellFrame({ id: 'cell_new', kind: 'VIRTUAL' }));
+      opened.socket.receive(cellFrame({ id: 'cell_v', comb_shield: 'NIGHT_VEIL' }));
+    });
+    // The new Cell waits; the Cell already shown still changed in place.
+    expect(drawnIds()).toEqual(['cell_r', 'cell_v']);
+    expect(within(rows()[1]!).getByText('NIGHT VEIL')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '1 new row, re-sort' }));
+    expect(drawnIds()).toEqual(['cell_r', 'cell_v', 'cell_new']);
+    // Leaving the table lets later rows through at once.
+    fireEvent.pointerLeave(box);
+    act(() => {
+      opened.socket.receive(cellFrame({ id: 'cell_late', kind: 'VIRTUAL' }));
+    });
+    expect(drawnIds()).toContain('cell_late');
+  });
+
   it('reads again once, one second after a burst of frames, and takes the aggregate fields', async () => {
     opened.fake.respond('GET /v1/fleet', 200, fleetAnswer([{ ...virtual, open_alarms: 4 }, real]));
     withFakeTimers();

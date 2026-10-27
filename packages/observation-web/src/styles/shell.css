@@ -297,6 +297,11 @@
   border-color: var(--chrome-muted);
 }
 
+.nav-extra .button:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--chrome-text);
+}
+
 @media (max-width: 719px) and (orientation: landscape) {
   .nav--hidden {
     transform: translateY(100%);

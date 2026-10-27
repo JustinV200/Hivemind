@@ -3,8 +3,8 @@
  *
  * The two place badges answer "where does the thinking happen": the Warden on the Hive Stand or
  * on the Cell, and the Cell's models local, from the Hive Stand, hosted or hybrid by its hosting
- * plan. They are neither a tier pill nor a mask tag (a dashed outline marks them), and each
- * carries its words. The Cell Wax mark is a status dot with the highest live severity as a word.
+ * plan. They are neither a tier pill nor a mask tag (a quiet square tag on the comb surface), and
+ * each carries its words. The Cell Wax mark is a status dot with the highest live severity as a word.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/table/`. Used by `fleet_row.tsx`; styled by

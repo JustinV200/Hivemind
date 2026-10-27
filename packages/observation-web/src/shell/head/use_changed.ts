@@ -10,7 +10,8 @@
  *   Layer 7 (observation-web), `src/shell/head/`. Used by `summary_strip.tsx` for each group's value.
  *
  * Key invariants:
- *   - The first value never counts as a change, so a fresh page is not underlined all over.
+ *   - The first value never counts as a change, and neither does the step from `null` (still
+ *     loading) to a value, so a fresh page is not underlined all over.
  *   - The timer is cleared on unmount and restarted on every change, so a value that keeps
  *     moving stays marked.
  *
@@ -21,13 +22,15 @@ import { useEffect, useRef, useState } from 'react';
 
 export const MARK_MS = 5000; // The five seconds the design gives a changed value.
 
-export function useChanged(value: string): boolean {
+export function useChanged(value: string | null): boolean {
   const last = useRef(value);
   const [changed, setChanged] = useState(false);
   useEffect(() => {
-    // The same value again is not a change, and the first render sets the baseline only.
-    if (last.current === value) return;
+    // The same value again is not a change; the first render, and a value arriving where there
+    // was none, set the baseline only.
+    const previous = last.current;
     last.current = value;
+    if (previous === value || previous === null) return;
     setChanged(true);
     const timer = setTimeout(() => setChanged(false), MARK_MS);
     return () => clearTimeout(timer);

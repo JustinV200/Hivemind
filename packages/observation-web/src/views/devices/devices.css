@@ -2,8 +2,9 @@
  * Devices view styles: the device list, its forms, the Entrance panel and the held requests.
  *
  * Mobile first (design.md section 2): one column at 360 px, where the table is a stack of cards and
- * each cell keeps its label; from 1080 px it is a table. Forms are bordered cards with 44 px fields
- * and buttons. Standing and mode are always words in the markup; the colour only repeats them.
+ * each cell keeps its label; from 1080 px it is a table in which an enum or a name never splits
+ * mid-word. Forms are bordered cards with 44 px fields and buttons; a fact list puts each value
+ * beside its label. Standing and mode are always words in the markup; the colour only repeats them.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/devices/`. Imported by `devices_screen.tsx`. Class names
@@ -59,7 +60,13 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
+}
+
+/* A form's buttons sit side by side at their own width, never stretched across the card */
+.devices-form .button,
+.devices-section > .button {
+  justify-self: start;
 }
 
 .devices-form label {
@@ -96,6 +103,7 @@
 
 .devices-status {
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .devices-status--approved {
@@ -118,18 +126,17 @@
   flex-wrap: wrap;
 }
 
-/* The Entrance panel */
+/* The Entrance panel: a two-column list, each value next to its label */
 .devices-facts {
   display: grid;
-  gap: var(--sp-1);
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
   margin: 0;
   font-size: var(--fs-sm);
 }
 
 .devices-facts div {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--sp-3);
+  display: contents;
 }
 
 .devices-facts dt {
@@ -138,7 +145,6 @@
 
 .devices-facts dd {
   margin: 0;
-  text-align: right;
 }
 
 .devices-held-list {
@@ -193,7 +199,7 @@
   margin-bottom: var(--sp-3);
   padding: var(--sp-2);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
 }
 
@@ -258,6 +264,18 @@
     text-align: left;
     border-bottom: 1px solid var(--border-soft);
     vertical-align: middle;
+    overflow-wrap: normal;
+  }
+
+  /* Short enums and names stay on one line; the platform, capabilities and controls may wrap */
+  .devices-table td {
+    white-space: nowrap;
+  }
+
+  .devices-table td[data-label='Platform'],
+  .devices-table td[data-label='May do'],
+  .devices-table td.devices-controls {
+    white-space: normal;
   }
 
   .devices-table thead th {

@@ -21,10 +21,9 @@
  *   - docs/observation/design.md sections 2 and 4.4.
  */
 import type { ReactElement } from 'react';
-import { Mark, StatusDot } from '../../components';
+import { Mark, RAIL_MIN, StatusDot, useMinWidth } from '../../components';
 import { connectionWord, useHive, useSlice } from '../../store';
 import { ThemeToggle } from '../theme';
-import { useWide } from '../use_wide';
 
 export function useLogOut(): () => void {
   const { client, store } = useHive();
@@ -48,7 +47,7 @@ export function DeviceLine(): ReactElement {
 
 export function TopBar(): ReactElement {
   const connection = useSlice('connection');
-  const wide = useWide();
+  const wide = useMinWidth(RAIL_MIN);
   const logOut = useLogOut();
 
   return (

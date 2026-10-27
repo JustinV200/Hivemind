@@ -25,11 +25,11 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
+import { RAIL_MIN, useMinWidth } from '../components';
 import { useRoute } from '../router';
 import { useSlice } from '../store';
-import { CLOSE_ICON, Icon, MORE_ICON, visibleItems } from './nav_items';
 import { DeviceLine, useLogOut } from './head';
-import { useWide } from './use_wide';
+import { CLOSE_ICON, Icon, MORE_ICON, visibleItems } from './nav_items';
 
 // True while the person is scrolling down; the stylesheet applies it to landscape phones only.
 function useScrolledDown(): boolean {
@@ -65,7 +65,7 @@ export function Nav(): ReactElement {
   const { listener } = useSlice('session');
   const [moreOpen, setMoreOpen] = useState(false);
   const scrolledDown = useScrolledDown();
-  const wide = useWide();
+  const wide = useMinWidth(RAIL_MIN);
   const classes = ['nav', moreOpen ? 'nav--more-open' : '', scrolledDown ? 'nav--hidden' : ''];
 
   return (

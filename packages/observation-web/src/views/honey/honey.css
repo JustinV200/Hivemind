@@ -95,12 +95,30 @@
   list-style: none;
 }
 
+/* Folders are comb cells: hex-cornered tiles in a grid, each a link first */
+.honey-folders {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
 .honey-folders li {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--sp-1) var(--sp-3);
-  min-height: 32px;
+  min-height: 56px;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--surface-2);
+  clip-path: var(--hex-cut);
+  transition: background-color var(--motion);
+}
+
+.honey-folders li:hover {
+  background: var(--accent-soft);
+}
+
+.honey-folders li a {
+  font-weight: 600;
+  flex-basis: 100%;
 }
 
 .honey-item {
@@ -109,7 +127,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .honey-item[aria-current='true'] {
@@ -250,7 +268,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .honey-pane .button {

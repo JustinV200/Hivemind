@@ -5,8 +5,10 @@
  * Mask as badges that are never hidden, its access level, where its Warden runs and where its
  * models come from, its current task and role, open Alarms, the highest live Cell Wax severity,
  * its lease's age and links to its page, its Warden's Attendant view and its bees' thoughts. The
- * legend of the three Comb Shield levels is fixed above the table. A Real / Virtual / All filter
- * (remembered per viewer) and a click-to-sort header choose what is drawn.
+ * legend of the three Comb Shield levels sits in the title row and is never collapsed. A Real /
+ * Virtual / All filter (remembered per viewer) and a click-to-sort header (one "Sort by" control
+ * on a phone) choose what is drawn, and while the reader is in the table new rows wait behind a
+ * button rather than move the list.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/`. Chosen by the outlet in `src/shell/` when the
@@ -23,7 +25,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
 import { useViewStream } from '../../store';
 import { byKind, KindFilter, useKindFilter } from './filter';
 import './fleet.css';
@@ -32,6 +34,7 @@ import { FleetTable, nextSort, sortRows } from './table';
 import type { SortState } from './table';
 import type { CellFrame, FleetEvent } from './slice';
 import { useFleet } from './use_fleet';
+import { useHold } from './use_hold';
 
 export const CELLS_STREAM = '/v1/cells/stream';
 
@@ -48,20 +51,38 @@ export function FleetView(props: { rereadMs?: number }): ReactElement {
 
   // The order is recomputed only when the rows, the filter or the sort change.
   const shown = useMemo(() => sortRows(byKind(state.rows, kind), sort), [state.rows, kind, sort]);
+  const hold = useHold(shown);
+  // A new order the reader asked for is shown at once, whatever is held.
+  const chooseSort = (next: SortState | null): void => {
+    hold.release();
+    setSort(next);
+  };
   return (
     <>
       <ViewTitle title="Fleet">
-        <KindFilter kind={kind} onChoose={setKind} />
+        <KindFilter
+          kind={kind}
+          onChoose={(next) => {
+            hold.release();
+            setKind(next);
+          }}
+        />
+        <Legend entries={state.legend} />
       </ViewTitle>
-      <Legend entries={state.legend} />
       {state.error ? <ErrorNotice error={state.error} /> : null}
       {!state.seeded && !state.error ? <p aria-busy="true">Reading the fleet</p> : null}
-      {state.seeded && state.rows.length === 0 ? <p>{EMPTY}</p> : null}
+      {state.seeded && state.rows.length === 0 ? <EmptyState>{EMPTY}</EmptyState> : null}
       {state.rows.length > 0 && shown.length === 0 ? (
         <p>No {kind === 'REAL' ? 'Real' : 'Virtual'} Cells right now.</p>
       ) : null}
       {shown.length > 0 ? (
-        <FleetTable rows={shown} sort={sort} onSort={(key) => setSort(nextSort(sort, key))} />
+        <FleetTable
+          rows={hold.rows}
+          sort={sort}
+          onSort={(key) => chooseSort(nextSort(sort, key))}
+          onSortChange={chooseSort}
+          hold={hold}
+        />
       ) : null}
     </>
   );

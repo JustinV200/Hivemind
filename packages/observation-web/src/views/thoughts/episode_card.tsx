@@ -1,8 +1,9 @@
 /**
  * `EpisodeCard`: one episode record as a card, with its context in sections that expand inline.
  *
- * An episode is one decision: what triggered it, what was decided and what was done, with the
- * provider's reasoning summary when it gave one. What a record carries beyond that is grouped into
+ * An episode is one decision: what triggered it (its kind as a tag in the header, its summary as
+ * the first line), what was decided and what was done, with the provider's reasoning summary when
+ * it gave one. What a record carries beyond that is grouped into
  * sections (the assembled prompt it refers to, the trigger's detail, the usage), each collapsed
  * until the reader opens it, one at a time, in place. A section appears only when the record
  * carries something for it; the card never shows a field the schema does not have. An autopilot
@@ -94,10 +95,11 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
         <span className="thought-tag">{e.is_autopilot ? 'Autopilot' : 'Awake'}</span>
         <span className="thought-tag">{e.clearance}</span>
         <TaintTag episode={e} />
+        <span className="thought-tag thought-tag--kind">
+          <span className="thought-label">trigger</span> {e.trigger_kind}
+        </span>
       </header>
-      <p className="thought-trigger">
-        <code>{e.trigger_kind}</code> {e.trigger_summary}
-      </p>
+      <p className="thought-trigger">{e.trigger_summary}</p>
       {e.reasoning_summary ? (
         <p className="thought-reasoning">
           <span className="thought-label">Reasoning</span> {e.reasoning_summary}

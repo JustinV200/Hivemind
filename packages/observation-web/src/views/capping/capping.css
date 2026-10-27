@@ -78,7 +78,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .capping-rate h3 {
@@ -195,7 +195,7 @@
   margin-bottom: var(--sp-3);
   padding: var(--sp-2);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
 }
 
@@ -254,6 +254,14 @@
     text-align: left;
     border-bottom: 1px solid var(--border-soft);
     vertical-align: middle;
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
+
+  /* The reason and the recording note are sentences, the one place a cell may wrap */
+  .capping-table td[data-label='Reason'],
+  .capping-table td[data-label='Recording'] {
+    white-space: normal;
   }
 
   .capping-table thead th {

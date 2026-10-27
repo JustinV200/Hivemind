@@ -22,6 +22,7 @@ export type { MaskState } from './mask_badge';
 export { StatusDot } from './status_dot';
 export type { StatusWord } from './status_dot';
 export { TimeStamp } from './time';
+export { RAIL_MIN, TABLE_MIN, useMinWidth } from './use_min_width';
 export { TierBadge } from './tier_badge';
 export type { CombShieldLevel } from './tier_badge';
 export { ViewBoundary } from './view_boundary';

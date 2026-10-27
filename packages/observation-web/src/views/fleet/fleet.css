@@ -2,10 +2,13 @@
  * Fleet view styles: the filter, the fixed legend, the table and its card form.
  *
  * Mobile first (design.md section 2): under 1080 px the table becomes stacked cards, one per Cell,
- * with the tier badge and the mask badge first; the headers become a wrapped row of sort buttons
- * above the cards. From 1080 px it is a table, inside a box that scrolls on its own if the columns
- * are wider than the pane, so the page itself never scrolls sideways. Nothing is hidden by width:
- * the tier and mask cells have no rule that hides them at any size.
+ * with the tier badge and the mask badge first; the header row is hidden (a screen reader still
+ * has it) and one "Sort by" control stands in for it. From 1080 px it is a 13 px table inside a
+ * box that scrolls on its own, sideways if the columns are wider than the pane and down past a
+ * screenful of rows, with its header stuck to the top of the box, so the page itself never
+ * scrolls sideways. Words break only inside a card: in the table an enum, an id or a badge never
+ * splits mid-word. Nothing is hidden by width: the tier and mask cells have no rule that hides
+ * them at any size.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/`. Imported by `fleet.tsx`. Class names are those
@@ -13,7 +16,8 @@
  *
  * Key invariants:
  *   - Tokens only: a hex value here is a bug.
- *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *   - Nothing here makes the page wider than the viewport; long text wraps in a card and the table
+ *     scrolls in its box.
  *
  * See Also:
  *   - docs/observation/design.md sections 3, 4.3 and 5.1.
@@ -31,6 +35,9 @@
   color: var(--text);
   border: 1px solid var(--border);
   cursor: pointer;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
 }
 
 .fleet-filter-button + .fleet-filter-button {
@@ -47,30 +54,34 @@
 
 .fleet-filter-button[aria-pressed='true'] {
   background: var(--accent);
+  border-color: var(--accent);
   color: var(--on-accent);
   font-weight: 700;
 }
 
-/* Legend: fixed above the table, never collapsed */
+/* Legend: in the title row, never collapsed; its three lines wrap as the row narrows */
 .fleet-legend {
-  display: grid;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-  padding: var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  flex-basis: 100%;
+  padding: var(--sp-2) var(--sp-3);
   background: var(--surface-2);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
 .fleet-legend h2 {
   margin: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--text-muted);
 }
 
 .fleet-legend ul {
-  display: grid;
-  gap: var(--sp-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -80,21 +91,52 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-sm);
+  gap: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
-/* The two place badges: a dashed outline marks them as neither a tier nor a mask */
+/* The two place badges: a quiet square tag, neither a tier pill nor a mask tag */
 .badge-place {
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
-  border-style: dashed;
-  border-radius: var(--radius);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-tag);
+  font-weight: 400;
 }
 
 .badge-place--none {
-  background: var(--surface-2);
   color: var(--text-muted);
+}
+
+/* The phone's sort control, drawn only while the rows are cards */
+.fleet-sort-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.fleet-sort-select select {
+  min-height: 36px;
+  margin-left: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.fleet-sort-select .button {
+  min-height: 36px;
+}
+
+.fleet-fresh {
+  margin-bottom: var(--sp-3);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* Table, as cards first */
@@ -111,28 +153,24 @@
   font-variant-numeric: tabular-nums;
 }
 
-.fleet-table thead tr {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-3);
+/* The header row is for assistive technology only while the rows are cards */
+.fleet-table thead {
+  position: absolute;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 .fleet-sort {
-  min-height: 36px;
-  padding: 0 var(--sp-3);
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 0;
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
-}
-
-.fleet-table th[aria-sort='ascending'] .fleet-sort,
-.fleet-table th[aria-sort='descending'] .fleet-sort {
-  border-color: var(--accent);
-  font-weight: 700;
 }
 
 .fleet-table tbody {
@@ -148,7 +186,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   overflow-wrap: anywhere;
 }
 
@@ -194,6 +232,7 @@
 .fleet-status {
   margin-left: 0;
   margin-right: var(--sp-2);
+  white-space: nowrap;
 }
 
 .fleet-none {
@@ -236,21 +275,36 @@
   .fleet-table tbody {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .fleet-legend {
+    flex-basis: auto;
+    margin-left: auto;
+  }
 }
 
-/* Desktop: a real table */
+/* Desktop: a real table in its own scroll box, with a sticky header */
 @media (min-width: 1080px) {
   .fleet-scroll {
-    overflow-x: auto;
+    overflow: auto;
+    max-height: calc(100dvh - var(--topbar-h) - var(--strip-h) - 7rem);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    background: var(--surface);
   }
 
   .fleet-table {
     display: table;
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
   }
 
   .fleet-table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
     display: table-header-group;
   }
 
@@ -267,6 +321,7 @@
     border: 0;
     border-radius: 0;
     margin: 0;
+    overflow-wrap: normal;
   }
 
   .fleet-table th,
@@ -276,15 +331,25 @@
     vertical-align: middle;
     text-align: left;
     border-bottom: 1px solid var(--border-soft);
+    white-space: nowrap;
   }
 
   .fleet-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
   }
 
   .fleet-table tbody tr {
     background: transparent;
     min-height: 32px;
+    transition: background-color var(--motion);
+  }
+
+  .fleet-table tbody tr:hover {
+    background: var(--surface-2);
   }
 
   .fleet-table td::before,
@@ -302,20 +367,22 @@
     font-weight: 400;
   }
 
-  .fleet-sort {
-    min-height: 32px;
-    padding: 0;
-    background: transparent;
-    border: 0;
-    font-weight: 700;
-  }
-
-  .fleet-table .fleet-links {
+  /* The links and the task are the two cells that may wrap, between their words, never inside one */
+  .fleet-table .fleet-links,
+  .fleet-table td[data-label='Task and role'] {
     display: table-cell;
+    white-space: normal;
   }
 
-  /* Spacing on the right, so a link that wraps to a new line still starts at the cell's edge. */
+  .fleet-table .fleet-links a,
+  .fleet-table .fleet-links span,
+  .fleet-table .fleet-role {
+    white-space: nowrap;
+  }
+
+  /* A 32px row: the 36px touch target is for the cards; in the table a link is a word */
   .fleet-links a {
+    min-height: 0;
     margin-right: var(--sp-2);
   }
 }

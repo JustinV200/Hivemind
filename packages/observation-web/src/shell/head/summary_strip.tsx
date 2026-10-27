@@ -79,7 +79,7 @@ function clock(ms: number): string {
 function Cell(props: { group: Group; denied: boolean; loaded: boolean }): ReactElement {
   const { group, denied, loaded } = props;
   const value = denied ? 'no access' : group.value;
-  const changed = useChanged(value);
+  const changed = useChanged(loaded ? value : null);
   return (
     <div
       className="strip-group"

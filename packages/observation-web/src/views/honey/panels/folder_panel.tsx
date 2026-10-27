@@ -20,6 +20,7 @@
  *   - docs/observation/design.md section 5.7.
  */
 import type { ReactElement } from 'react';
+import { EmptyState } from '../../../components';
 import { ClearanceBadge } from '../parts/clearance_badge';
 import { ItemRow } from '../parts/item_row';
 import { folderHref } from '../parts/words';
@@ -76,7 +77,7 @@ export function FolderPanel(props: {
           </ul>
         </section>
       ) : null}
-      {empty ? <p>Nothing in this folder that this device may see.</p> : null}
+      {empty ? <EmptyState>Nothing in this folder that this device may see.</EmptyState> : null}
       {folder.next_cursor !== null ? (
         <button type="button" className="button" disabled={loadingMore} onClick={onMore}>
           More

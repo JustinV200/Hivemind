@@ -297,6 +297,9 @@ describe('the waiting list', () => {
       status: 'DENIED',
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Deny phone' }));
+    // The first tap only arms it; nothing is sent until the second.
+    expect(opened.sent('POST /v1/entrance/pending/dev_wait/deny')).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Deny now' }));
     expect(await screen.findByText('Denied phone.')).toBeTruthy();
     expect(opened.sent('POST /v1/entrance/pending/dev_wait/deny').map(bodyOf)).toEqual([
       { reason: 'denied by the operator' },

@@ -5,7 +5,8 @@
  * the same calls, so it is an upper bound and the heading says so. The hosted share is a `Gauge` of
  * calls (calls through a provider that charged, out of all the slot's calls), with the same numbers
  * in text beside the bar. It counts calls, not dollars, because hosted spend is all of a slot's
- * spend and a share of it would always read 100 percent.
+ * spend and a share of it would always read 100 percent. The bar is a share, not a limit, so it
+ * keeps a neutral fill: a slot served wholly by a provider is a fact, not a fault.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cost/tables/`. Drawn by `cost_screen.tsx` from the
@@ -46,6 +47,7 @@ const COLUMNS: readonly Column<SlotRow>[] = [
         used={row.hostedCalls}
         budget={row.calls}
         label={`Hosted share of ${row.slot} calls`}
+        tone="neutral"
       />
     ),
     sortBy: (row) => sharePercent(row.hostedCalls, row.calls),

@@ -55,9 +55,18 @@
   gap: var(--sp-2);
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
   overflow-wrap: anywhere;
+  animation: thought-in var(--motion);
+}
+
+/* A new card slides in 8px; reduced motion turns every animation off in base.css */
+@keyframes thought-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 
 .thought--autopilot {
@@ -76,6 +85,15 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-tag);
   font-size: var(--fs-xs);
+}
+
+.thought-tag--kind {
+  font-family: var(--font-mono);
+  border-color: var(--border-soft);
+}
+
+.thought-tag--kind .thought-label {
+  font-family: var(--font-sans);
 }
 
 /* Taint is a status, so it borrows the status colours: refused reads as an alarm, cleared as
@@ -186,7 +204,7 @@
   gap: var(--sp-1) var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
   font-size: var(--fs-sm);
 }

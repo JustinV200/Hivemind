@@ -45,7 +45,7 @@
   width: min(100%, 44rem);
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
   display: grid;
   gap: var(--sp-2);
@@ -167,7 +167,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .chat-stepup label,

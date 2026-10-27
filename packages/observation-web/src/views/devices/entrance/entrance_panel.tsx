@@ -32,7 +32,7 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
   const { actions } = props;
   if (!arming) {
     return (
-      <button type="button" className="button" onClick={() => setArming(true)}>
+      <button type="button" className="button button--danger" onClick={() => setArming(true)}>
         Reduce the Entrance
       </button>
     );
@@ -46,7 +46,7 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
       <div className="devices-row">
         <button
           type="button"
-          className="button"
+          className="button button--danger"
           disabled={actions.busy}
           onClick={() => void actions.reduce().then(() => setArming(false))}
         >

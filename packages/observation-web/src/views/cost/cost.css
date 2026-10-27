@@ -40,7 +40,7 @@
 .cost-figure {
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
 }
 
@@ -123,7 +123,7 @@
     margin-bottom: var(--sp-3);
     padding: var(--sp-2);
     border: 1px solid var(--border-soft);
-    border-radius: var(--radius);
+    border-radius: var(--radius-card);
     background: var(--surface);
   }
 

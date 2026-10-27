@@ -35,10 +35,10 @@ function Controls(props: {
 }): ReactElement | null {
   const { device, actions } = props;
   const named = (verb: string): string => `${verb} ${device.name}`;
-  const button = (label: string, aria: string, run: () => void): ReactElement => (
+  const button = (label: string, aria: string, run: () => void, danger = false): ReactElement => (
     <button
       type="button"
-      className="button"
+      className={danger ? 'button button--danger' : 'button'}
       aria-label={aria}
       disabled={actions.busy}
       onClick={run}
@@ -46,7 +46,8 @@ function Controls(props: {
       {label}
     </button>
   );
-  const revoke = button('Revoke', named('Revoke'), () => props.onEdit('revoke'));
+  // Revoke ends the device for good, so it is outlined in the alarm token; its form confirms.
+  const revoke = button('Revoke', named('Revoke'), () => props.onEdit('revoke'), true);
   if (device.status === 'APPROVED') {
     return (
       <>
