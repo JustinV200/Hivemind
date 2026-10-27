@@ -53,15 +53,13 @@
   min-width: 0;
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .att-panel {
   display: grid;
   gap: var(--sp-2);
   align-content: start;
   min-width: 0;
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
   background: var(--surface);
   overflow-wrap: anywhere;
 }

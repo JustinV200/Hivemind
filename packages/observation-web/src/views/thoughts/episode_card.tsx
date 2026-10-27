@@ -88,7 +88,9 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
   const e = props.episode;
   const hasUsage = !e.is_autopilot;
   return (
-    <article className={e.is_autopilot ? 'thought thought--autopilot' : 'thought'}>
+    <article
+      className={e.is_autopilot ? 'thought comb-cell thought--autopilot' : 'thought comb-cell'}
+    >
       <header className="thought-head">
         <TimeStamp at={e.at} />
         <IdToken id={e.id} />

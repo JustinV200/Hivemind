@@ -68,7 +68,7 @@ export function InboxList(props: {
   reconstructed: boolean;
 }): ReactElement {
   return (
-    <section className="att-panel" aria-labelledby="att-inbox-title">
+    <section className="att-panel comb-cell" aria-labelledby="att-inbox-title">
       <h2 id="att-inbox-title">Inbox, in the Attendant&apos;s order</h2>
       {props.reconstructed ? (
         <p className="att-note">

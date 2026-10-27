@@ -25,7 +25,7 @@ export type TagTone = 'ok' | 'warn' | 'alarm' | 'idle';
 export function Panel(props: { id: string; title: string; children: ReactNode }): ReactElement {
   const heading = `cell-panel-${props.id}`;
   return (
-    <section className="cell-panel" aria-labelledby={heading}>
+    <section className="cell-panel comb-cell" aria-labelledby={heading}>
       <h2 id={heading}>{props.title}</h2>
       {props.children}
     </section>

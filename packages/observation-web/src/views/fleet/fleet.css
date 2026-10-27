@@ -1,5 +1,5 @@
 /*
- * Fleet view styles: the filter, the fixed legend, the table and its card form.
+ * Fleet view styles: the fixed legend, the table and its card form.
  *
  * Mobile first (design.md section 2): under 1280 px the table becomes stacked cards, one per Cell
  * (two across from 720 px), with the tier badge and the mask badge first; the header row is hidden
@@ -7,10 +7,12 @@
  * where its columns fit the pane, it is a 13 px table in a box with its header stuck to the top,
  * each row two short lines (the origin under the Cell's name, the mode under the status, the
  * role under the task, the wax under the Alarm count, the thoughts under the Attendant link) so
- * the row is 40 px; the box scrolls down past a screenful of rows and only sideways if a pane is
- * narrower than the design allows, so the page itself never scrolls sideways. Words break only inside a card: in the table an enum, an id or a
- * badge never splits mid-word. Nothing is hidden by width: the tier and mask cells have no rule
- * that hides them at any size.
+ * the row is 40 px, or 44 where its second line holds the sub-bees' comb cells; the box scrolls
+ * down past a screenful of rows and only sideways if a pane is narrower than the design allows,
+ * so the page itself never scrolls sideways. Words break only inside a card: in the table an
+ * enum, an id or a badge never splits mid-word. Nothing is hidden by width: the tier and mask
+ * cells have no rule that hides them at any size. The Real / Virtual / All control is styled in
+ * `filter/filter.css`.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/`. Imported by `fleet.tsx`. Class names are those
@@ -25,42 +27,6 @@
  * See Also:
  *   - docs/observation/design.md sections 3, 4.3 and 5.1.
  */
-
-/* Real / Virtual / All */
-.fleet-filter {
-  display: inline-flex;
-}
-
-.fleet-filter-button {
-  min-height: 36px;
-  padding: 0 var(--sp-4);
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  transition:
-    background-color var(--motion),
-    color var(--motion);
-}
-
-.fleet-filter-button + .fleet-filter-button {
-  margin-left: -1px;
-}
-
-.fleet-filter-button:first-child {
-  border-radius: var(--radius) 0 0 var(--radius);
-}
-
-.fleet-filter-button:last-child {
-  border-radius: 0 var(--radius) var(--radius) 0;
-}
-
-.fleet-filter-button[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  font-weight: 700;
-}
 
 /* Legend: in the title row, never collapsed; its three lines wrap as the row narrows */
 .fleet-legend {
@@ -259,6 +225,13 @@
   gap: var(--sp-1);
 }
 
+/* The cell is 20px at every width, so its digit (14.4 of 24 units) draws at the 12px floor */
+.fleet-bee svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
 /* The wax severity after the Alarm count, labelled on a card and under the count in the table */
 .fleet-wax {
   margin-left: var(--sp-2);
@@ -271,12 +244,6 @@
 
 .fleet-pair {
   font-weight: 400;
-}
-
-.fleet-bee svg {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
 }
 
 /* Tablet: two cards across */
@@ -296,7 +263,7 @@
 @media (min-width: 1280px) {
   .fleet-scroll {
     overflow: auto;
-    max-height: calc(100dvh - var(--topbar-h) - var(--strip-h) - 7rem);
+    max-height: calc(100dvh - var(--head-h) - 7rem);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-card);
     background: var(--surface);
@@ -334,13 +301,15 @@
     overflow-wrap: normal;
   }
 
+  /* A 4px pad and the heading's tight line height: two 13px lines fit a 40px row, and the ten
+     columns keep slack in a 1280px window even beside a scrollbar */
   .fleet-table th,
   .fleet-table td {
     display: table-cell;
-    padding: 3px 6px;
+    padding: var(--sp-1);
     vertical-align: middle;
     text-align: left;
-    line-height: 1.25;
+    line-height: var(--lh-heading);
     border-bottom: 1px solid var(--border-soft);
     white-space: nowrap;
   }
@@ -416,10 +385,5 @@
   /* A 40px row: the 36px touch target is for the cards; in the table a link is a word or a cell */
   .fleet-links a {
     min-height: 0;
-  }
-
-  .fleet-bee svg {
-    width: 16px;
-    height: 16px;
   }
 }

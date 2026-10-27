@@ -22,7 +22,7 @@ import { hostedCalls, hostedTotal } from './rows';
 
 function Figure(props: { term: string; value: string; note?: string }): ReactElement {
   return (
-    <div className="cost-figure">
+    <div className="cost-figure comb-cell">
       <dt>{props.term}</dt>
       <dd>{props.value}</dd>
       {props.note ? <dd className="cost-note">{props.note}</dd> : null}

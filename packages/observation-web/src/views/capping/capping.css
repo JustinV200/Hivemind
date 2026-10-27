@@ -74,12 +74,10 @@
   list-style: none;
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .capping-rate {
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
 }
 
 .capping-rate h3 {

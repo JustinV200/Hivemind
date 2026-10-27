@@ -35,7 +35,7 @@ function Figure(props: { label: string; value: string | number }): ReactElement 
 function TierCard(props: { rates: TierRates }): ReactElement {
   const r = props.rates;
   return (
-    <li className="capping-rate">
+    <li className="capping-rate comb-cell">
       <h3>{wordsOf(r.tier)}</h3>
       <dl className="capping-figures">
         <Figure label="Proposals" value={r.proposals} />

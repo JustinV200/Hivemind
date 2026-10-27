@@ -52,6 +52,7 @@
   gap: var(--sp-2);
 }
 
+/* Comb cells, outlined like their fields (`.comb-cell--strong` in components.css) */
 .enrol-form,
 .enrol-invite,
 .enrol-pending,
@@ -60,9 +61,6 @@
   gap: var(--sp-2);
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
 }
 
 /* A form's submit sits at its own width, so it never reads as a bar across the card */

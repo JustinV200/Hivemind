@@ -50,7 +50,7 @@ export function AttendantScreen(props: { principal: string }): ReactElement {
       {!view && !error ? <p aria-busy="true">Reading the Attendant view</p> : null}
       {view ? (
         <div className="att-page">
-          <section className="att-panel att-graph" aria-labelledby="att-graph-title">
+          <section className="att-panel comb-cell att-graph" aria-labelledby="att-graph-title">
             <h2 id="att-graph-title">Task graph</h2>
             {nodes.length === 0 ? (
               <p className="att-muted">

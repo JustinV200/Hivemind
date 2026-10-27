@@ -37,11 +37,9 @@
   margin: var(--sp-4) 0;
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .cost-figure {
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
   background: var(--surface);
 }
 

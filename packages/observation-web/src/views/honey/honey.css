@@ -41,9 +41,10 @@
     display: block;
   }
 
+  /* Under the head's measured height, so an open notice bar never covers the pane's top */
   .honey-pane {
     position: sticky;
-    top: calc(var(--topbar-h) + var(--strip-h) + var(--sp-3));
+    top: calc(var(--head-h) + var(--sp-3));
   }
 }
 
@@ -263,13 +264,10 @@
   }
 }
 
-/* The reading pane */
+/* The reading pane, a comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .honey-pane {
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
 }
 
 .honey-pane .button {

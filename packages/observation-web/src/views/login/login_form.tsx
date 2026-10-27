@@ -38,7 +38,7 @@ export function LoginForm(props: {
 }): ReactElement {
   const { fields, setFields } = props;
   return (
-    <form className="login-card" onSubmit={props.onSubmit}>
+    <form className="login-card comb-cell" onSubmit={props.onSubmit}>
       <span className="login-brand">
         <Mark />
         HiveMind

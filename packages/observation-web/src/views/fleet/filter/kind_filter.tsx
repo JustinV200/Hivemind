@@ -6,7 +6,7 @@
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/filter/`. Used by `fleet.tsx`; styled by
- *   `fleet.css`.
+ *   `filter.css` beside it.
  *
  * Key invariants:
  *   - Exactly one button has `aria-pressed="true"`.
@@ -16,6 +16,7 @@
  *   - docs/observation/design.md section 5.1.
  */
 import type { ReactElement } from 'react';
+import './filter.css';
 import type { KindChoice as Kind } from './use_kind_filter';
 
 const CHOICES: readonly { kind: Kind; label: string }[] = [

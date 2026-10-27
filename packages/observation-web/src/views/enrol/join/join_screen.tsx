@@ -36,7 +36,7 @@ function NameForm(props: { join: Join }): ReactElement {
     if (name.trim() !== '') void join.join(name);
   };
   return (
-    <form className="login-card" onSubmit={submit}>
+    <form className="login-card comb-cell" onSubmit={submit}>
       <h1>Join the Observation Hive</h1>
       <p>
         You have an invite. Name this device and make a passkey for it; the operator then approves
@@ -69,7 +69,7 @@ function NameForm(props: { join: Join }): ReactElement {
 function Waiting(props: { join: Join }): ReactElement {
   const { join } = props;
   return (
-    <section className="login-card" aria-label="Waiting for the operator">
+    <section className="login-card comb-cell" aria-label="Waiting for the operator">
       <h1>Waiting for the operator</h1>
       <p>Read this fingerprint to the operator so they approve the right device:</p>
       <p className="join-fingerprint" aria-label="Key fingerprint">
@@ -100,7 +100,7 @@ export function JoinScreen(props: {
   const join = useJoin(props.code);
   if (join.phase === 'approved') {
     return (
-      <section className="login-card" aria-label="Approved">
+      <section className="login-card comb-cell" aria-label="Approved">
         <h1>Approved</h1>
         <p>
           The operator approved this device. Log in with your password and this device's passkey.

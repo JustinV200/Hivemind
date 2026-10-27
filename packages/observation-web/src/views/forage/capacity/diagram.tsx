@@ -121,7 +121,7 @@ function Title(props: { block: LaidBlock; name: string | null }): ReactElement {
 function HostCard(props: { block: LaidBlock; name: string | null; hatch: string }): ReactElement {
   const { block, name, hatch } = props;
   return (
-    <li className="forage-host">
+    <li className="forage-host comb-cell">
       <h3 className="forage-host-title">
         <Title block={block} name={name} />
       </h3>

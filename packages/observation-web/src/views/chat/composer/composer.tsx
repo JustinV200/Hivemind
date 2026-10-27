@@ -78,7 +78,11 @@ export function Composer(props: {
   }
 
   return (
-    <form className="chat-composer" onSubmit={submit} aria-label="Message the Queen">
+    <form
+      className="chat-composer comb-cell comb-cell--strong"
+      onSubmit={submit}
+      aria-label="Message the Queen"
+    >
       <label>
         <span className="sr-only">Message to the Queen</span>
         <textarea

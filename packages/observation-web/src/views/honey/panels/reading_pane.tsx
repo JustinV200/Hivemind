@@ -87,7 +87,7 @@ export function ReadingPane(props: { reading: ReadingState; onClose: () => void 
   const { item, error } = reading;
   const gone = error instanceof LandingBoardError && error.status === 404;
   return (
-    <aside className="honey-pane" aria-label="Item">
+    <aside className="honey-pane comb-cell" aria-label="Item">
       <button type="button" className="button" onClick={onClose}>
         Close
       </button>

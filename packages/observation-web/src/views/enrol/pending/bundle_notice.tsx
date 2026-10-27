@@ -24,7 +24,11 @@ import type { IssuedBundle } from '../use_enrol_actions';
 export function BundleNotice(props: { bundle: IssuedBundle; onDismiss: () => void }): ReactElement {
   const { bundle } = props;
   return (
-    <section className="enrol-bundle" aria-label="Certificate bundle" role="status">
+    <section
+      className="enrol-bundle comb-cell comb-cell--strong"
+      aria-label="Certificate bundle"
+      role="status"
+    >
       <h3>Certificate for {bundle.device}</h3>
       <p>
         Take this now: the Hive does not keep it. Import the file on the device and type the

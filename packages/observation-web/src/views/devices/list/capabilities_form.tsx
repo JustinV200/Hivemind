@@ -45,7 +45,7 @@ export function CapabilitiesForm(props: {
 
   return (
     <form
-      className="devices-form"
+      className="devices-form comb-cell comb-cell--strong"
       aria-label={`Capabilities of ${device.name}`}
       onSubmit={(event) => void submit(event)}
     >

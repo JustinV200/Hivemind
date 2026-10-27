@@ -42,7 +42,11 @@ export function StepUpPrompt(props: {
   }
 
   return (
-    <form className="chat-stepup" onSubmit={submit} aria-label="Confirm again">
+    <form
+      className="chat-stepup comb-cell comb-cell--strong"
+      onSubmit={submit}
+      aria-label="Confirm again"
+    >
       <p>
         <strong>{words.sentence}</strong> {words.action}
       </p>

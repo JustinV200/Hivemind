@@ -38,7 +38,11 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
     );
   }
   return (
-    <div className="devices-arming" role="group" aria-label="Reduce the Entrance">
+    <div
+      className="devices-arming comb-cell comb-cell--strong"
+      role="group"
+      aria-label="Reduce the Entrance"
+    >
       <p>
         This ends every remote session, including this one if it is remote, and the Entrance answers
         on the Hive Stand only until it is reopened there.

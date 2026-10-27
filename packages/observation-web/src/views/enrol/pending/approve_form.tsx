@@ -59,7 +59,7 @@ export function ApproveForm(props: {
 
   return (
     <form
-      className="enrol-form"
+      className="enrol-form comb-cell comb-cell--strong"
       aria-label={`Approve ${device.name}`}
       onSubmit={(event) => void submit(event)}
     >

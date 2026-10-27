@@ -38,7 +38,10 @@ function Card(props: {
   // The first tap on Deny arms it; the second sends. Opening Approve disarms it.
   const [denying, setDenying] = useState(false);
   return (
-    <li className="enrol-pending" aria-label={`Waiting: ${device.name}`}>
+    <li
+      className="enrol-pending comb-cell comb-cell--strong"
+      aria-label={`Waiting: ${device.name}`}
+    >
       <p>
         <strong>{said?.name || device.name}</strong> asks to join
       </p>

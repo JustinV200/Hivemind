@@ -33,7 +33,7 @@ export function SpokenCard(props: {
   const { result } = state.spoken;
   const goal = result.goal ? (goalById(state, result.goal.id) ?? result.goal) : null;
   return (
-    <section className="chat-spoken" aria-label="What was heard">
+    <section className="chat-spoken comb-cell comb-cell--strong" aria-label="What was heard">
       <p>
         You said: <q className="chat-transcript">{result.transcript}</q>
       </p>

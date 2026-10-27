@@ -40,7 +40,7 @@ export function RevokeForm(props: {
 
   return (
     <form
-      className="devices-form"
+      className="devices-form comb-cell comb-cell--strong"
       aria-label={`Revoke device ${device.name}`}
       onSubmit={(event) => void submit(event)}
     >

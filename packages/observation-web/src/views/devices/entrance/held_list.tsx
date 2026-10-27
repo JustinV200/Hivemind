@@ -32,7 +32,7 @@ function HeldItem(props: {
 }): ReactElement {
   const { held, actions } = props;
   return (
-    <li className="devices-held" aria-label={`Held request ${held.id}`}>
+    <li className="devices-held comb-cell comb-cell--strong" aria-label={`Held request ${held.id}`}>
       <p>
         <strong>{words(held.action)}</strong> from {props.asker ? props.asker.name : 'a device'}{' '}
         <IdToken id={held.device_id} />

@@ -26,11 +26,12 @@
   border-bottom: 1px solid var(--border-soft);
 }
 
-/* The header sticks under the strip from the rail width; on a phone it would take the screen */
+/* The header sticks under the head (its measured height, notices included) from the rail width;
+   on a phone it would take the screen */
 @media (min-width: 720px) {
   .cell-header {
     position: sticky;
-    top: calc(var(--topbar-h) + var(--strip-h));
+    top: var(--head-h);
     z-index: 10;
   }
 }
@@ -68,14 +69,12 @@
   margin-top: var(--sp-4);
 }
 
-/* Diagram: a band across the page, the drawing centred and capped at a readable scale */
+/* Diagram: a band across the page, the drawing centred and capped at a readable scale; a comb
+   cell like the panels (`.comb-cell` in components.css gives it the cut and the stroke) */
 .cell-diagram {
   min-width: 0;
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
 }
 
 .dg {
@@ -160,14 +159,12 @@
   }
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .cell-panel {
   display: grid;
   gap: var(--sp-2);
   align-content: start;
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
   background: var(--surface);
   overflow-wrap: anywhere;
 }

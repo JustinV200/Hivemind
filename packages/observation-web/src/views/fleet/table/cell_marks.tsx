@@ -68,6 +68,10 @@ export function WaxMark(props: { severity: FleetRow['highest_wax_severity'] }): 
   );
 }
 
+// The digit's size in the cell's 24-unit box: at the 20px the stylesheet draws the cell, it lands
+// at 12px, the floor design.md 4.8 sets for text in a drawing.
+const DIGIT_SIZE = 14.4;
+
 // A sub-bee's thoughts as a numbered comb cell; the bee's id is drawn beside it only on a card
 // (`withId`), where there is room, and is in the link's name everywhere.
 export function BeeLink(props: {
@@ -85,7 +89,14 @@ export function BeeLink(props: {
     >
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d={HEXAGON} fill="var(--surface-2)" stroke="currentColor" strokeWidth="1.5" />
-        <text x="12" y="16" textAnchor="middle" fontSize="11" fill="currentColor">
+        <text
+          x="12"
+          y="17"
+          textAnchor="middle"
+          fontSize={DIGIT_SIZE}
+          fontWeight="600"
+          fill="currentColor"
+        >
           {props.index}
         </text>
       </svg>

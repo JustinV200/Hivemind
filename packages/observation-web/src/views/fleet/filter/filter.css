@@ -1,0 +1,51 @@
+/*
+ * The Fleet's Real / Virtual / All filter: one segmented control of three buttons.
+ *
+ * The three buttons share their borders (each after the first overlaps the one before by a pixel)
+ * and only the outer corners are rounded, so the control reads as one piece. The pressed button
+ * is filled in the accent and bold, so the current choice is never colour alone.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/fleet/filter/`. Imported by `kind_filter.tsx`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - The pressed state comes from `aria-pressed`, the same attribute a reader is told.
+ *
+ * See Also:
+ *   - docs/observation/design.md section 5.1.
+ */
+.fleet-filter {
+  display: inline-flex;
+}
+
+.fleet-filter-button {
+  min-height: 36px;
+  padding: 0 var(--sp-4);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    background-color var(--motion),
+    color var(--motion);
+}
+
+.fleet-filter-button + .fleet-filter-button {
+  margin-left: -1px;
+}
+
+.fleet-filter-button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.fleet-filter-button:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.fleet-filter-button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}

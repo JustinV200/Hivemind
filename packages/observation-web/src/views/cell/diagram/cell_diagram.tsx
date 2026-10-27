@@ -154,7 +154,7 @@ export function CellDiagram(props: { page: CellPage; awake: ReadonlySet<string> 
   const model = useMemo(() => buildModel(props.page, props.awake), [props.page, props.awake]);
   const layout = useMemo(() => layoutDiagram(model, mode), [model, mode]);
   return (
-    <div className="cell-diagram" ref={ref}>
+    <div className="cell-diagram comb-cell" ref={ref}>
       <Drawing model={model} layout={layout} />
       <DiagramTable model={model} />
     </div>
