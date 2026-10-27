@@ -537,8 +537,9 @@ The host was Windows 11 with Docker Desktop 4.91 (WSL 2, engine 29.8).
     Requeening's (13.1).
   - No local command cancels a goal. `ChatDoor.cancel_goal` is reached only through a device
     revocation, so an operator cannot drop an interrupted `hive run`'s goal from the CLI.
-  - `hive run` takes no serve lock, so beside a running `hive serve` two Queens dispatch from one
-    Brood Chamber. The new give-back touches only its own Queen's Wardens.
+  - ~~`hive run` takes no serve lock, so beside a running `hive serve` two Queens dispatch from one
+    Brood Chamber. The new give-back touches only its own Queen's Wardens.~~ **Fixed in 13.1
+    (ADR-0062):** `run_hive` holds the Hive's Queen lock, so a second Queen is refused at start.
   - ~~The Night Veil purge cancels a BLOCKED task without withdrawing its question~~ **Fixed the
     same day, for every cancellation, not only the purge:** `_cancel` (chamber base) withdraws a
     still-ASKED question in the same store write as the cancellation (`task.cancelled` names it as

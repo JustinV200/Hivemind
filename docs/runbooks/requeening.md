@@ -14,7 +14,8 @@ what you will see, and what to check when a restart does not go the way you expe
    Hive's database), the backends are listed, and every live Virtual Cell's public key is read
    back from its `hivemind.cell_key` label, so a Cell that outlived her can prove itself again.
 2. **The first half of Requeening.** The Queen reads back the Alarms and questions she handled in
-   the last ten minutes and the wiring of every still-open question, so nothing a Warden sends
+   the last ten minutes and the wiring of every still-open question, however long ago it was
+   asked, so nothing a Warden sends
    again is handled twice and an answer still reaches the Warden that asked. Any Hive Stand lease
    her dead process left open is given back: its scratch removed (kept if `[hive_stand]
    keep_scratch` is set), a `cell.released` recorded with `requeened: true`. Every task that was
@@ -57,6 +58,15 @@ Each task given back has its own `task.unassigned` (and `task.question_withdrawn
 lease its own `cell.released`.
 
 ## When something looks wrong
+
+- **`hive run` says another Queen runs on the Hive.** Only one Queen may run on a Brood Chamber:
+  her Requeening takes back the work of every Warden not attached to her, so a second one would
+  take back the first one's live work. Every command that runs a Queen (`hive serve`, `hive run`,
+  `hive tools submit`, `hive swarm run`, `hive llm eval`) holds the Hive's Queen lock
+  (`<db>.queen.lock`, beside the database) for its whole life, and a second one is refused before
+  it starts anything. The refusal names the holder's pid. Send the goal to a running `hive serve`
+  with `hive run --remote`, or stop the other process first. The operating system lets the lock
+  go when its holder dies, so a crashed Queen never blocks the next start.
 
 - **`wardens_missing` is not 0.** A Virtual Cell's Warden did not redial inside the grace. Check
   that the Cell is still running (`hive cells list`, `docker ps`) and that it can reach the

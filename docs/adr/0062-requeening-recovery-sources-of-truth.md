@@ -53,6 +53,17 @@ and she stays `CLUSTERED` until the provider answers.
 | Clustering pauses | Nowhere durable | A PAUSED task held by neither a quarantine nor an isolation (both are trail-derived and stay as they are) was paused for Clustering. It resumes from its newest Handoff through its Warden when that Warden is back, and is otherwise re-placed with that Handoff as its resume hint. |
 | Handled Alarms and questions | A durable handled table | See "the replay window" below. |
 
+**One Queen per Brood Chamber.** Requeening takes back the work of every Warden not attached to
+the Queen doing it, so it is only safe when no other Queen is alive on the same chamber. Before
+this decision `hive run` (and `hive tools submit`, `hive swarm run`, `hive llm eval`) took no lock,
+and beside a running `hive serve` made a second Queen: its Requeening would have taken back the
+serve's running Hive Stand tasks, revoked their grants and removed a live lease's scratch.
+`run_hive`, which every one of those commands and `hive serve` go through, now holds the Hive's
+**Queen lock** (`<db>.queen.lock`, an operating-system lock like the serve lock of ADR-0041, so
+the kernel lets it go with a dead process) from before anything starts until its teardown has
+run. A second Queen is refused (`HiveBusyError`, naming the holder) before it attaches a Warden or
+requeens anything; a goal for a running `hive serve` goes through `hive run --remote`.
+
 **Waiting for live Wardens.** Requeening runs in two halves. The first, before her loop starts,
 re-arms the gate, releases the Hive Stand's orphan leases, gives back the tasks of Wardens that
 cannot return, releases ended grants and records what it found. The second runs on her tick and
@@ -77,9 +88,12 @@ in a durable table keyed by the sending Warden and the envelope id, at the momen
 (never on receipt: a frame noted on receipt and lost in a crash before her tick would be dropped as
 a replay and never handled). A question's row also keeps the wire ids she needs to forward its
 answer. After a restart a frame whose pair is in the table is dropped as an expected replay, and the
-question wiring of every still-open question is restored, so an answer to a question a returning
-Warden asked still reaches it. Rows older than the transport's replay window are pruned: nothing
-older is ever sent again. Results and Nectar need no row; both are idempotent already.
+question wiring of every still-open question is restored, whatever its age, so an answer to a
+question a returning Warden asked still reaches it, even when the human answers long after the
+restart. Plain rows older than the transport's replay window are pruned on each snapshot: nothing
+older is ever sent again. A question's row is kept past the window for as long as its question is
+still ASKED, and forgotten once it is answered or withdrawn. Results and Nectar need no row; both
+are idempotent already.
 
 **The Queen's own Handoff (13.2).** Every `[queen] snapshot_interval_s` (default 60 s) her tick
 writes a `QueenSnapshot`: when it was taken, the trail cursor it folded up to, the Hive Stand leases
@@ -112,6 +126,8 @@ of a Night Veil Cell beyond envelope ids, which expire with the replay window.
   started outlives a crash only on POSIX (Windows runs each in a Job Object that dies with the
   process); killing it needs its pid on the trail, which is left for later.
 - Every start records one `queen.requeened`, including a clean one.
+- A local `hive run` beside a running `hive serve` on the same Hive is refused, where it used to
+  run a second Queen over the same chamber; `hive run --remote` is the way to reach a serve.
 - A task a quarantine or an isolation holds stays PAUSED even when its Warden is gone: its hold is
   someone else's to lift, and placing it afresh would slip it. Once lifted, it is cancelled or
   placed by hand.
