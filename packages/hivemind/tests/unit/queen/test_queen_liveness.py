@@ -28,6 +28,7 @@ from builders.supervision import make_telemetry
 
 from hivemind.forage.grant_state import GrantState
 from hivemind.llm import FakeLLMProvider
+from hivemind.pheromone import TrailQuery
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.queen import Queen
 from hivemind.queen.ticks.liveness import WardenLiveness, check_liveness
@@ -209,6 +210,11 @@ def test_check_liveness_marks_a_warden_offline_exactly_once() -> None:
     # A second sweep with nothing changed must never raise a second Alarm for the same outage.
     asyncio.run(check_liveness(deps, (link,), liveness, human_inbox))
     assert human_inbox.alarms == first_pass_alarms
+    # Regression (phase 11 open item): the trail-rebuilt inbox reads `alarm.escalated` rows, so
+    # the offline Alarm needs exactly one, or `hive inbox` never shows it.
+    events = asyncio.run(deps.trail.query(TrailQuery(family="alarm")))
+    escalated = [event for event in events if event.kind == "alarm.escalated"]
+    assert [event.subject_id for event in escalated] == [first_pass_alarms[0].id]
 
 
 async def test_heartbeat_renews_live_grants_for_that_warden() -> None:

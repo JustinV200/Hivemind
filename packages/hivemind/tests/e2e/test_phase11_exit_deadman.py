@@ -170,8 +170,10 @@ async def _the_wardens_alarm(hive: Hive, cut: datetime) -> None:
     [alarm] = await _since(hive, cut, "alarm.raised", "CELL_UNREACHABLE")
     assert "link to this Warden's Cell was lost" in str(alarm.payload["detail"])
     # The Queen carries it up the chain to the human, as she does every Alarm the table escalates.
-    [escalated] = await _since(hive, cut, "alarm.escalated", "CELL_UNREACHABLE")
-    assert escalated.subject_id == alarm.subject_id
+    # Matched by id: her own liveness sweep escalates a CELL_UNREACHABLE of its own for a Warden
+    # that goes silent, and that one is not the device Warden's.
+    escalated = await _since(hive, cut, "alarm.escalated", "CELL_UNREACHABLE")
+    assert [e for e in escalated if e.subject_id == alarm.subject_id]
     [lost] = await _since(hive, cut, "swarm.unreachable")
     assert lost.payload["reason"] == "missed_heartbeats"
 
