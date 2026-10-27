@@ -26,10 +26,11 @@ from hivemind.queen.state import (
 )
 
 # Every allowed edge, read literally off Appendix C's "Queen mode" row, expanded (this module's
-# own docstring): REQUEENING -> RUNNING; RUNNING <-> CLUSTERED; CLUSTERED -> SUPERSEDING ->
-# SUPERSEDED; SUPERSEDING -> CLUSTERED (rollback).
+# own docstring): REQUEENING -> RUNNING / CLUSTERED; RUNNING <-> CLUSTERED; CLUSTERED ->
+# SUPERSEDING -> SUPERSEDED; SUPERSEDING -> CLUSTERED (rollback).
 _ALLOWED_EDGES: tuple[tuple[QueenMode, QueenMode], ...] = (
     (QueenMode.REQUEENING, QueenMode.RUNNING),
+    (QueenMode.REQUEENING, QueenMode.CLUSTERED),
     (QueenMode.RUNNING, QueenMode.CLUSTERED),
     (QueenMode.CLUSTERED, QueenMode.RUNNING),
     (QueenMode.CLUSTERED, QueenMode.SUPERSEDING),
@@ -124,3 +125,32 @@ def test_mark_resumed_for_a_never_clustered_provider_is_a_no_op() -> None:
     state.mark_resumed("anthropic")
 
     assert state.mode is QueenMode.RUNNING
+
+
+@pytest.mark.parametrize(
+    ("outage", "settled"),
+    [
+        (None, QueenMode.RUNNING),  # Recovery settles with every provider up.
+        ("anthropic", QueenMode.CLUSTERED),  # A provider went down first: she stays clustered.
+    ],
+)
+def test_a_requeening_queen_settles_running_unless_a_provider_clustered_her_first(
+    outage: str | None, settled: QueenMode
+) -> None:
+    state = ClusterState()
+    state.begin_requeening()
+    assert state.mode is QueenMode.REQUEENING
+    if outage is not None:
+        state.mark_clustered(outage)
+
+    state.finish_requeening()
+
+    assert state.mode is settled
+
+
+def test_only_a_fresh_running_queen_begins_requeening() -> None:
+    state = ClusterState()
+    state.mark_clustered("anthropic")
+
+    with pytest.raises(InvalidQueenModeTransitionError):
+        state.begin_requeening()

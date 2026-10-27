@@ -38,6 +38,9 @@ Key invariants:
       non-empty; `mark_clustered`/`mark_resumed` are the only two ways to change either, and both
       go through `assert_transition` on the way (a caller can never see `ClusterState` move to an
       edge the table forbids).
+    - `begin_requeening` only ever puts a fresh RUNNING Queen into REQUEENING, her start state
+      (ADR-0062); she leaves it by `finish_requeening` (REQUEENING -> RUNNING) or, should a
+      provider go down first, by `mark_clustered` (REQUEENING -> CLUSTERED).
 
 See Also:
     - .claude/codingrules.md section 9 for the state-machine shape this module follows.
@@ -85,7 +88,9 @@ class QueenMode(Enum):
 TRANSITIONS: Mapping[QueenMode, frozenset[QueenMode]] = {
     QueenMode.REQUEENING: frozenset(
         {
-            QueenMode.RUNNING,  # Her own stores are read back and every attached Warden re-links.
+            QueenMode.RUNNING,  # Recovery settled: every Warden she expected is back, or the grace
+            # ran out (ADR-0062).
+            QueenMode.CLUSTERED,  # A provider went down while recovery was still settling.
         }
     ),
     QueenMode.RUNNING: frozenset(
@@ -245,3 +250,29 @@ class ClusterState:
         if not self._clustered_providers and self._mode is QueenMode.CLUSTERED:
             assert_transition(self._mode, QueenMode.RUNNING)
             self._mode = QueenMode.RUNNING
+
+    def begin_requeening(self) -> None:
+        """Put a Queen that has not yet run into REQUEENING, her start state (ADR-0062).
+
+        Appendix C: "A new Queen starts in `REQUEENING`". A `ClusterState` is built RUNNING so a
+        Queen no composition root requeens (a test's) runs as before; `begin_requeening` is the
+        one way in, taken before her first tick, and so is a start state rather than an edge.
+
+        Raises:
+            InvalidQueenModeTransitionError: She is past her start (clustered, or in a mode other
+                than a fresh RUNNING), where REQUEENING would be a move the table does not have.
+        """
+        if self._mode is not QueenMode.RUNNING or self._clustered_providers:
+            raise InvalidQueenModeTransitionError(self._mode, QueenMode.REQUEENING)
+        self._mode = QueenMode.REQUEENING
+
+    def finish_requeening(self) -> None:
+        """Move REQUEENING -> RUNNING once recovery has settled (`hivemind.queen.requeening`).
+
+        A Queen a provider outage clustered while recovery settled is left CLUSTERED: her way
+        back to RUNNING is `mark_resumed`, once the last provider answers, never this.
+        """
+        if self._mode is not QueenMode.REQUEENING:
+            return  # Clustered meanwhile (or already RUNNING): recovery is over all the same.
+        assert_transition(self._mode, QueenMode.RUNNING)
+        self._mode = QueenMode.RUNNING
