@@ -253,6 +253,31 @@ describe('top bar and nav', () => {
     await openShell();
     expect(screen.queryByText(/new network/)).toBeNull();
   });
+
+  it("tells the stylesheet the head's measured height, so the rail sits under a notice", async () => {
+    // jsdom has no ResizeObserver: a fake records the callback and the test fires it by hand.
+    let observed: (() => void) | null = null;
+    class FakeResizeObserver {
+      constructor(callback: () => void) {
+        observed = callback;
+      }
+      observe(): void {}
+      disconnect(): void {
+        observed = null;
+      }
+    }
+    Object.assign(globalThis, { ResizeObserver: FakeResizeObserver });
+    try {
+      await openShell();
+      const head = screen.getByRole('banner');
+      Object.defineProperty(head, 'offsetHeight', { value: 162 });
+      act(() => observed?.());
+      const shell = document.querySelector<HTMLElement>('.shell')!;
+      expect(shell.style.getPropertyValue('--head-h')).toBe('162px');
+    } finally {
+      Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
+  });
 });
 
 describe('theme and notices', () => {

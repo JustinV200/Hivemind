@@ -97,9 +97,11 @@
   /* 7 motion: one duration for every hover and insert; reduced motion turns it off in base.css */
   --motion: 150ms ease;
 
-  /* 2 shell geometry */
+  /* 2 shell geometry; the shell overwrites --head-h with the head's measured height, since the
+     banner and the notice bar add to it (src/shell/use_head_height.ts) */
   --topbar-h: 48px;
   --strip-h: 116px;
+  --head-h: calc(var(--topbar-h) + var(--strip-h));
   --bottom-nav-h: 56px;
   --rail-w: 88px;
 }

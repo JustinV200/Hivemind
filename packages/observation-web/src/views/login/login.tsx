@@ -29,6 +29,7 @@ import type { FormEvent, ReactElement } from 'react';
 import { HexPattern } from '../../components';
 import { useHive, useSlice } from '../../store';
 import { inviteCodeFrom, JoinScreen } from '../enrol/join';
+import './login.css';
 import { LoginForm } from './login_form';
 import type { Fields } from './login_form';
 

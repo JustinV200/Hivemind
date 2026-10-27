@@ -1,23 +1,25 @@
 /*
- * Shell layout for the Observation Hive: top bar, summary strip, notice bar, nav, main area, login.
+ * Shell layout for the Observation Hive: the grid, the sticky head, the nav and the main area.
  *
  * Mobile first, as design.md section 2 sets out. Under 720px the page is one column with a
- * bottom nav and a strip of four comb cells in two rows; from 720px the nav becomes a left rail
- * of stacked icon and label; from 1080px the rail widens and labels sit beside the icons and
- * content is capped at 1440px. The head (bar, banner, strip, notices) is sticky, so the strip is
- * never scrolled away or hidden by navigation. The bar and the nav are the hive's chrome: the
- * propolis tokens, dark wood around cream content in the light theme and the comb surface, one
- * step lighter than the page, in the dark one, so the frame survives at night. A faint comb fills
- * the rail below its items and the bar's empty middle from the rail width.
+ * bottom nav; from 720px the nav becomes a left rail of stacked icon and label; from 1080px the
+ * rail widens and labels sit beside the icons and content is capped at 1440px. The head (bar,
+ * banner, strip, notices; its parts are in head.css) is sticky, so the strip is never scrolled
+ * away or hidden by navigation, and the rail sits under its measured height (`--head-h`, written
+ * by src/shell/use_head_height.ts), so a notice is never hidden under the rail. The nav is the
+ * hive's chrome: the propolis tokens, dark wood around cream content in the light theme and the
+ * comb surface, one step lighter than the page, in the dark one, so the frame survives at night.
+ * A comb fills the rail below its items.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
- *   rendered by `src/shell/` and `src/views/login/`.
+ *   rendered by `src/shell/`; the head's parts are styled in head.css and the login screen in
+ *   `src/views/login/login.css`.
  *
  * Key invariants:
  *   - Tokens only: no colour or size literal except breakpoints and one-off pixel borders.
  *   - Nothing here makes the page wider than the viewport.
- *   - The strip dims, never hides, when its data is stale.
+ *   - The rail never overlaps the head: its top and height follow `--head-h`.
  *   - The current nav item is never colour alone: bold, with a 3px rule beside it.
  *
  * See Also:
@@ -37,179 +39,6 @@
   grid-column: 1 / -1;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border-soft);
-}
-
-/* Top bar: one 48px row of chrome */
-.topbar {
-  height: var(--topbar-h);
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: 0 var(--gutter);
-  background: var(--chrome);
-  color: var(--chrome-text);
-}
-
-.topbar-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin-right: auto;
-  font-weight: 600;
-  font-size: var(--fs-lg);
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-
-/* The comb across the bar's empty middle: drawn from the rail width, where there is a middle */
-.topbar-comb {
-  display: none;
-}
-
-.topbar-connection {
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-}
-
-.topbar-device {
-  display: none;
-  gap: var(--sp-2);
-  align-items: baseline;
-  color: var(--chrome-muted);
-  font-size: var(--fs-sm);
-  min-width: 0;
-}
-
-.topbar-device > span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-listener {
-  font-family: var(--font-mono);
-}
-
-/* Controls in the bar are outlined on the chrome, not on the surface */
-.topbar .button {
-  min-height: 36px;
-  background: transparent;
-  color: var(--chrome-text);
-  border-color: var(--chrome-muted);
-}
-
-.topbar .button:hover:not(:disabled) {
-  background: transparent;
-  border-color: var(--chrome-text);
-}
-
-.topbar-theme {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: 0 var(--sp-2);
-}
-
-.topbar-theme svg {
-  width: 18px;
-  height: 18px;
-}
-
-.topbar-theme-word {
-  display: none;
-}
-
-.banner {
-  padding: var(--sp-2) var(--gutter);
-  background: var(--surface-2);
-  border-top: 1px solid var(--warn);
-  border-bottom: 1px solid var(--warn);
-  font-size: var(--fs-sm);
-}
-
-/* Summary strip: four comb cells, two by two on a phone */
-.strip {
-  min-height: var(--strip-h);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-2);
-  align-content: center;
-  padding: var(--sp-2) var(--gutter);
-  background: var(--surface-2);
-}
-
-.strip--stale .strip-group {
-  opacity: 0.55;
-}
-
-.strip-group {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 0;
-  min-height: 44px;
-  padding: var(--sp-1) var(--sp-4);
-  background: var(--surface);
-  clip-path: var(--hex-cut);
-}
-
-.strip-label {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* On a phone the hint takes its own line, so "LLM / autopilot" is never cut to "autopil…" */
-@media (max-width: 719px) {
-  .strip-hint {
-    display: block;
-  }
-}
-
-.strip-value {
-  font-size: 20px;
-  font-weight: 600;
-  line-height: var(--lh-heading);
-}
-
-/* A value that just moved: a 2px accent underline for five seconds, with or without motion */
-.strip-value--changed {
-  box-shadow: inset 0 -2px 0 var(--accent);
-}
-
-.strip-stale {
-  grid-column: 1 / -1;
-  font-size: var(--fs-xs);
-  color: var(--warn);
-}
-
-/* Notice bar: what the push stream says is waiting, under the strip */
-.notice-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-2) var(--sp-4);
-  padding: var(--sp-2) var(--gutter);
-  background: var(--accent-soft);
-  border-top: 1px solid var(--border-soft);
-  font-size: var(--fs-sm);
-}
-
-.notice-bar ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1) var(--sp-4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  flex: 1 1 auto;
-}
-
-.notice-bar-dismiss {
-  min-height: 32px;
-  padding: 0 var(--sp-3);
 }
 
 /* Nav: bottom bar on a phone, rail from 720px, chrome in both */
@@ -366,50 +195,16 @@
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
   }
 
-  .topbar {
-    gap: var(--sp-4);
-  }
-
-  /* The comb takes the bar's free space instead of the brand's auto margin */
-  .topbar-brand {
-    margin-right: 0;
-  }
-
-  .topbar-comb {
-    display: block;
-    position: relative;
-    flex: 1 1 auto;
-    align-self: stretch;
-    min-width: 0;
-  }
-
-  .topbar-device {
-    display: flex;
-  }
-
-  .topbar-theme-word {
-    display: inline;
-  }
-
-  .strip {
-    grid-template-columns: repeat(4, minmax(0, 200px)) 1fr;
-    column-gap: var(--sp-3);
-  }
-
-  .strip-stale {
-    grid-column: auto;
-    justify-self: end;
-    align-self: center;
-  }
-
+  /* The rail starts where the head ends and fills the rest of the viewport, whatever the head
+     holds: `--head-h` is the head's measured height, not the bar plus the strip */
   .nav {
     position: sticky;
-    top: calc(var(--topbar-h) + var(--strip-h));
+    top: var(--head-h);
     align-self: start;
     display: flex;
     flex-direction: column;
     border-top: 0;
-    height: calc(100dvh - var(--topbar-h) - var(--strip-h));
+    height: calc(100dvh - var(--head-h));
     overflow-y: auto;
   }
 
@@ -454,76 +249,4 @@
     padding: var(--sp-2) var(--sp-4);
     font-size: var(--fs-md);
   }
-}
-
-/* Login: one card on the comb */
-.login {
-  position: relative;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: var(--gutter);
-  overflow: hidden;
-}
-
-.login-stack {
-  position: relative;
-  width: 100%;
-  max-width: 400px;
-  display: grid;
-  gap: var(--sp-3);
-}
-
-.login-card {
-  width: 100%;
-  display: grid;
-  gap: var(--sp-4);
-  padding: var(--sp-5);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
-}
-
-.login-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-weight: 600;
-  font-size: var(--fs-lg);
-}
-
-.login-brand .mark {
-  width: 32px;
-  height: 32px;
-}
-
-.login-card h1 {
-  font-size: var(--fs-lg);
-}
-
-.login-hint {
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
-}
-
-.login-card label {
-  display: grid;
-  gap: var(--sp-1);
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-}
-
-.login-card input {
-  min-height: 44px;
-  padding: 0 var(--sp-3);
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.login-notice {
-  position: relative;
-  color: var(--text-muted);
 }

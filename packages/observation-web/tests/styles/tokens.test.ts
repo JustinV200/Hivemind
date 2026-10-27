@@ -20,6 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import base from '../../src/styles/base.css?raw';
 import components from '../../src/styles/components.css?raw';
+import head from '../../src/styles/head.css?raw';
 import shell from '../../src/styles/shell.css?raw';
 import tokens from '../../src/styles/tokens.css?raw';
 
@@ -143,7 +144,7 @@ describe('theme parity and hygiene', () => {
   });
 
   it('keeps colour literals out of every other stylesheet', () => {
-    for (const css of [base, shell, components]) {
+    for (const css of [base, shell, head, components]) {
       expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(
         /#[0-9A-Fa-f]{3,8}\b|rgba?\(|hsla?\(/,
       );

@@ -29,6 +29,7 @@ import { applyStoredTheme } from './shell/theme';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
+import './styles/head.css';
 import './styles/components.css';
 import './styles/thoughts.css';
 
