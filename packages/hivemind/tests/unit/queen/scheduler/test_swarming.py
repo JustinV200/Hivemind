@@ -80,6 +80,14 @@ _PRICED = {
             3,
             "no room for another",
         ),
+        # Cells held past a lowered cap leave an allowance of zero, never below.
+        (
+            _view((6, 0), (3, 0)),
+            SwarmingPolicy(max_parallel=4, backends=_PRICED),
+            0,
+            0,
+            "max_parallel 4 reached",
+        ),
     ],
 )
 def test_plan_swarm_takes_the_smallest_bound_that_is_set(
@@ -97,9 +105,3 @@ def test_plan_swarm_takes_the_smallest_bound_that_is_set(
     if reason is not None:
         assert zeroed
         assert all(text.startswith("swarming: ") and reason in text for text in zeroed)
-
-
-def test_an_overspent_cap_never_gives_a_negative_allowance() -> None:
-    """Cells held past a lowered cap leave an allowance of zero, never below."""
-    plan = plan_swarm(_view((6, 0), (3, 0)), SwarmingPolicy(max_parallel=4, backends=_PRICED))
-    assert plan.allowance == {_DOCKER: 0, _CLOUD: 0}

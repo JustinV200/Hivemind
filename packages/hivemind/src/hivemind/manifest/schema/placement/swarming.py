@@ -49,6 +49,7 @@ class SwarmingBackendSection(BaseModel):
     cost_per_hour_usd: float = Field(
         default=0.0,
         ge=0,
+        allow_inf_nan=False,  # TOML allows inf, which would break the cost arithmetic.
         description="What one of its Cells costs an hour while held, in US dollars; 0 (a local "
         "backend) is never cost-capped.",
     )
@@ -74,6 +75,7 @@ class VirtualCellsSwarmingSection(BaseModel):
     max_cost_per_hour_usd: float | None = Field(
         default=None,
         ge=0,
+        allow_inf_nan=False,  # TOML allows inf, which would break the cost arithmetic.
         description="The most every Virtual Cell held or being made may cost an hour together, "
         "priced by each backend's cost_per_hour_usd; unset for no cost cap.",
     )
