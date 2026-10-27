@@ -42,7 +42,7 @@ from hivemind.workers.tools.authorize import GUARD_REFUSAL_PREFIX
 
 _CAUSE = "the resolver file names a host that is gone"
 _CLOSING = f"CAUSE: {_CAUSE}\nI ran the lookup, saw it fail and removed the line."
-_CHECK = ["sh", "-c", "getent hosts hive.example > out.txt 2>&1; echo exit=$? >> out.txt"]
+_CHECK = ["ip", "route", "show"]  # A listed read-only diagnostic: it runs at SCRATCH (ADR-0060).
 
 
 def _call(tool: str, /, **arguments: object) -> ToolCall:

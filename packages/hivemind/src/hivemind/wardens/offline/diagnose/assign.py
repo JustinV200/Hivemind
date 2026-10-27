@@ -65,6 +65,9 @@ from waggle.messages.task import TaskAssign, WorkerRole
 # is a family of its own that `tool:*` does not cover, so it cannot ask the Hive for a tool.
 CEILING = (
     "exec:*",
+    # Marks this a diagnostic task: below FULL on a Cell that does not contain its processes, its
+    # Drone may run the read-only diagnostics alone (hivemind.guard.diagnostics, ADR-0060).
+    "exec:@diagnostic",
     "fs:read:**",
     "fs:write:**",
     "llm:worker",
@@ -80,7 +83,9 @@ COMMAND_HINT = (
     "commands stop you. So run each check as an argument list that writes its output to a file "
     "in your scratch directory and always succeeds, for example "
     '`["sh", "-c", "getent hosts <name> > out.txt 2>&1; echo exit=$? >> out.txt"]`, and read '
-    "the file back."
+    "the file back. Below FULL access on a borrowed machine only a fixed list of read-only "
+    'commands runs, each exactly as listed (for example `["ip", "route", "show"]`); there, '
+    "read the files you need with read_file instead."
 )
 FINDING_RUBRIC = (
     "The closing message's first line is `CAUSE:` followed by the cause in one line, or by "

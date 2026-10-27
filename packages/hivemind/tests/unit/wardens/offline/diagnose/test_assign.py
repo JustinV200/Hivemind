@@ -135,7 +135,14 @@ def test_the_goal_ceiling_names_commands_files_the_slot_and_the_tools_the_role_l
     task = local_assignment(_plan(clock), clock).assignment
 
     assert task.capabilities == CEILING
-    assert set(CEILING) == {"exec:*", "fs:read:**", "fs:write:**", "llm:worker", "tool:*"}
+    assert set(CEILING) == {
+        "exec:*",
+        "exec:@diagnostic",  # Marks a diagnostic task (hivemind.guard.diagnostics).
+        "fs:read:**",
+        "fs:write:**",
+        "llm:worker",
+        "tool:*",
+    }
 
 
 def test_under_that_ceiling_a_drone_holds_its_tools_and_nothing_that_asks_or_reaches_out() -> None:

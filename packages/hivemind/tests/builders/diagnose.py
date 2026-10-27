@@ -31,13 +31,12 @@ import asyncio
 from collections.abc import Callable
 from typing import cast
 
-from builders.cells import make_cell
 from builders.forage import make_source
 from builders.hosting import make_server_config
 from builders.offline_warden import OfflineScene, Searching, start_offline_scene
 from builders.workers import RunScript, make_outcome
 
-from hivemind.cell import AccessLevel, BackgroundProcess
+from hivemind.cell import BackgroundProcess
 from hivemind.forage import Ceilings
 from hivemind.llm import FakeLLMProvider
 from hivemind.memory import Handoff
@@ -164,9 +163,6 @@ async def start_thinking_nuc_scene(
         searching=searching,
         local_providers=frozenset({PROVIDER}),
         fake_provider=provider,
-        # A borrowed device's processes are not contained, so its Drone runs commands only at
-        # FULL (ADR-0060); the real role's diagnostic commands need one.
-        cells=(make_cell(access_level=AccessLevel.FULL),),
     )
 
 

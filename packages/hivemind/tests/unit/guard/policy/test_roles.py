@@ -135,7 +135,9 @@ def test_warden_set_drops_every_entry_the_deny_list_covers() -> None:
 def test_warden_set_is_always_a_subset_of_the_role_default(level: AccessLevel) -> None:
     warden = warden_set(_POLICY, level, _SCRATCH)
 
-    assert warden.capabilities <= role_set(_POLICY, "warden", _SCRATCH).capabilities
+    # Never wider; it may hold a narrower entry than the default's (`exec:@diagnostic` under its
+    # `exec:*`, on an uncontained SCRATCH Cell), so coverage, not entry identity, is the rule.
+    assert warden.issubset(role_set(_POLICY, "warden", _SCRATCH))
 
 
 # ──────────────────────────────────────────────────────────────────────────────

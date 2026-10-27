@@ -60,7 +60,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import TaskNeeds
-from hivemind.guard import CapabilitySet, glob_literal
+from hivemind.guard import DIAGNOSTIC_EXEC, CapabilitySet, glob_literal
 
 __all__ = ["worker_capabilities"]
 
@@ -111,6 +111,7 @@ def worker_capabilities(
             if warden_caps.allows(capability) and (goal is None or goal.allows(capability))
         )
     )
+    granted = _with_diagnostics(granted, role_default, warden_caps, goal)
     # Proves the slice invariant rather than relying on the filtering above alone (module
     # docstring): raises only if this function's own filtering let something wider through.
     return warden_caps.attenuate(granted)
@@ -169,3 +170,23 @@ def _needs_specs(needs: TaskNeeds) -> list[str]:
     if needs.audio:
         specs.append("exoskeleton:audio")
     return specs
+
+
+def _with_diagnostics(
+    granted: CapabilitySet,
+    role_default: CapabilitySet,
+    warden_caps: CapabilitySet,
+    goal: CapabilitySet | None,
+) -> CapabilitySet:
+    """Add the read-only diagnostics' grant where only its narrow form survives the Warden's set.
+
+    A Warden below FULL on an uncontained Cell holds `exec:@diagnostic` and no wider `exec`
+    (`hivemind.guard.diagnostics`), so a role default's `exec:*` is dropped above; the narrower
+    part all three sets cover is kept. Anywhere a wider `exec` survived, nothing is added.
+    """
+    need = DIAGNOSTIC_EXEC
+    if granted.allows(need) or not role_default.allows(need) or not warden_caps.allows(need):
+        return granted
+    if goal is not None and not goal.allows(need):
+        return granted
+    return CapabilitySet(capabilities=granted.capabilities | {need})

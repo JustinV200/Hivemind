@@ -51,6 +51,11 @@ on the Pheromone Trail. The policy loader reads its TOML once, when a compositio
   or unreadable file URL always escapes; any other scheme never does. `file_url_path` and
   `is_within` are its two halves. The Worker's browser tool, the Capping gate's allowlist rung
   and both browsers ask it; the real browser also resolves symlinks before it loads a file.
+- **Diagnostics** (`hivemind.guard.diagnostics`, ADR-0060): `DIAGNOSTIC_COMMANDS`, the fixed list
+  of read-only, local, shell-free argument lists a diagnostic Drone (ADR-0056) may run below FULL
+  on a Cell that does not contain its processes; `is_diagnostic(argv)` matches one exactly. They
+  are asked for as `exec:@diagnostic` (`DIAGNOSTIC_EXEC`), which an uncontained SCRATCH ceiling
+  holds and the access-level rule admits to the Drone role alone (`admits_diagnostic`).
 - **Watch** (`hivemind.guard.watch`, roadmap 10.7): `WatchObservation`, `WATCH_OBSERVATIONS` and
   `watch_permits(level, observation)`: watch mode observes the process list, resource use, and
   logs and file-change events under the roots it may read, at every level exactly what
@@ -182,7 +187,7 @@ own trail segment).
 | `grant_issue` | the Queen | `llm:<slot>` per binding, in the Warden's set and the goal's, with its locality stated | `queen.dispatcher.grants` |
 | `forage_request` | the Warden | `forage:request`, and holding the grant | `queen.ticks.forage` |
 | `warden_spawn` | the Queen | `warden:spawn` | `queen.attach` |
-| `tool_invocation` | the Worker | `tool:<name>`; `net:<host>` for `http_request`, then every address it resolves to; `exec:<argv[0]>` against the whole policy (the access-level rule refuses it on an uncontained Cell below FULL, ADR-0060); a Capping `exec`/`net` refusal | `workers.tools.registry`, `.http`, `.session`, `.proposals` |
+| `tool_invocation` | the Worker | `tool:<name>`; `net:<host>` for `http_request`, then every address it resolves to; `exec:<argv[0]>` against the whole policy (the access-level rule refuses it on an uncontained Cell below FULL, ADR-0060), or `exec:@diagnostic` for a listed diagnostic on a diagnostic task; a Capping `exec`/`net` refusal | `workers.tools.registry`, `.http`, `.session`, `.proposals` |
 | `session_outside_scratch` | the Worker | `fs:read:<path>`; a write also `cell:outside_scratch:<path>`, and `fs:write:<path>` against the floors | `workers.tools.session`, `.keep`, `.proposals` |
 | `slot_binding` | the Warden, or the Queen for her `Intervene(REBIND)` | `llm:<slot>` in the grant and the sub-bee's set, bound to the Cell's tier with the chain's locality stated | `wardens.spawn.binding` |
 | `question_routing` | the Worker at the Warden, the Warden at the Queen | `question:human` | `workers.tools.ask`, `wardens.ticks.questions`, `queen.questions` |

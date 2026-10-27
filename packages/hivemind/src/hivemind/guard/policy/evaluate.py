@@ -51,6 +51,7 @@ from dataclasses import dataclass
 
 from hivemind.guard.access import admits
 from hivemind.guard.capabilities import CapabilityFamily
+from hivemind.guard.diagnostics import DIAGNOSTIC_EXEC, admits_diagnostic
 from hivemind.guard.policy.floors import STATE_FLOOR_RULE, TIER_FLOOR_RULE, floor_refusal
 from hivemind.guard.policy.models import (
     EscalationAction,
@@ -207,6 +208,8 @@ def _access_level_ceiling(request: PolicyRequest, policy: GuardPolicy) -> _Verdi
     # the real scratch root when it was built, decides the exact scope later.
     if level is None or admits(level, family, processes_contained=contained):
         return None
+    if request.needed == DIAGNOSTIC_EXEC and admits_diagnostic(level, request.principal.role):
+        return None  # The read-only diagnostics, for the Drone alone (hivemind.guard.diagnostics).
     why = f"a {level.name} Cell never permits {family.value}"
     if family is CapabilityFamily.EXEC and admits(level, family, processes_contained=True):
         # ADR-0060: the level would allow it on a contained Cell, so say what would.

@@ -44,6 +44,7 @@ from pydantic import ValidationError
 
 from hivemind.cell import AccessLevel
 from hivemind.guard import (
+    DIAGNOSTIC_EXEC,
     SCRATCH_PLACEHOLDER,
     Capability,
     CapabilityFamily,
@@ -81,7 +82,13 @@ def granted_capabilities(level: AccessLevel, cell_id: CellId) -> tuple[str, ...]
     # The Guard fills `{scratch}` from a root path; handing it the placeholder itself as the root
     # makes it write the placeholder back, so the packet receives the template it expects.
     ceiling = ceiling_for(level, PurePosixPath(SCRATCH_PLACEHOLDER))
-    kept = {str(capability) for capability in ceiling if capability.family in PACKET_FAMILIES}
+    # Not the read-only diagnostics' `exec:@diagnostic`: the packet matches `exec` by program
+    # name alone and could not hold a command to the exact argument lists that grant names.
+    kept = {
+        str(capability)
+        for capability in ceiling
+        if capability.family in PACKET_FAMILIES and capability != DIAGNOSTIC_EXEC
+    }
     # Watching one's own Cell is allowed at every level: it is read-only by construction, and
     # the packet checks the capability again on every swarm.observe (ADR-0054).
     kept.add(str(Capability(family=CapabilityFamily.WATCH, scope=cell_id)))

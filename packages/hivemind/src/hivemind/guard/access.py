@@ -64,6 +64,7 @@ from types import MappingProxyType
 
 from hivemind.cell.tiers import AccessLevel
 from hivemind.guard.capabilities import CapabilityFamily, CapabilitySet, glob_literal
+from hivemind.guard.diagnostics import DIAGNOSTIC_EXEC
 
 SCRATCH_PLACEHOLDER = "{scratch}"  # Stands for a lease's POSIX scratch root inside a capability.
 _SAMPLE_SCRATCH_ROOT = PurePosixPath("/scratch")  # Any root will do where only families matter.
@@ -166,7 +167,9 @@ def ceiling_for(
             `exoskeleton:real_display` at FULL only; ignored below FULL, and never implied.
         processes_contained: Whether the Cell contains every process it runs, so a command
             reaches no further than the lease (`CellCapabilities.processes_contained`,
-            ADR-0060). Adds `exec:*` at SCRATCH; FULL holds it either way, READ_ONLY never.
+            ADR-0060). Adds `exec:*` at SCRATCH; FULL holds it either way, READ_ONLY never. An
+            uncontained SCRATCH Cell gets `exec:@diagnostic` instead, the read-only diagnostics
+            alone (`hivemind.guard.diagnostics`).
 
     Returns:
         Every governed capability `level` permits, each level including the ones below it. No
@@ -186,6 +189,10 @@ def ceiling_for(
     if processes_contained and level.rank >= _CONTAINED_EXEC_FROM.rank:
         # A contained command cannot reach past the lease, so SCRATCH may run one too.
         specs.append(_CONTAINED_EXEC)
+    elif level is AccessLevel.SCRATCH:
+        # The read-only diagnostics alone (hivemind.guard.diagnostics); the access-level rule
+        # admits them only to the Drone role, and only the diagnostic task's Drone asks.
+        specs.append(str(DIAGNOSTIC_EXEC))
     return CapabilitySet.parse(*specs)
 
 
@@ -239,6 +246,11 @@ def cap_to_access(
         for capability in requested
         if not governs(capability.family) or ceiling.allows(capability)
     )
+    narrowest = not any(capability.matches(DIAGNOSTIC_EXEC) for capability in kept)
+    if narrowest and ceiling.allows(DIAGNOSTIC_EXEC) and requested.allows(DIAGNOSTIC_EXEC):
+        # A requested `exec:*` is wider than an uncontained SCRATCH ceiling's `exec:@diagnostic`
+        # and so is dropped above; the narrower part both hold is kept (hivemind.guard.diagnostics).
+        kept |= {DIAGNOSTIC_EXEC}
     return CapabilitySet(capabilities=kept)
 
 
@@ -269,6 +281,8 @@ def _admitted_families() -> Mapping[tuple[AccessLevel, bool], frozenset[Capabili
                 for capability in ceiling_for(
                     level, _SAMPLE_SCRATCH_ROOT, processes_contained=contained
                 )
+                # The diagnostics' one grant admits no family: its rule is admits_diagnostic.
+                if capability != DIAGNOSTIC_EXEC
             )
             for level in AccessLevel
             for contained in (False, True)

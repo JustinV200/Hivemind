@@ -27,6 +27,7 @@ from hivemind.workers.tools.session import (
     write_file,
 )
 from waggle.clock import FakeClock
+from waggle.messages.task import WorkerRole
 
 _SCRATCH_DIR = Path("scratch")
 # A Real Cell its operator granted in full: commands run there (ADR-0060).
@@ -166,6 +167,33 @@ async def test_run_command_is_refused_on_an_uncontained_cell_below_full_before_p
     assert not await ctx.trail.query(TrailQuery(kind="capping.proposed"))
     [denial] = await ctx.trail.query(TrailQuery(kind="guard.denied"))
     assert denial.payload["capability"] == "exec:cp"
+
+
+_DIAGNOSTIC_CEILING = ("exec:*", "exec:@diagnostic", "fs:read:**", "tool:*")  # As diagnose's.
+
+
+@pytest.mark.parametrize(
+    ("argv", "role", "ceiling", "allowed"),
+    [
+        (["ip", "route", "show"], WorkerRole.DRONE, _DIAGNOSTIC_CEILING, True),
+        (["ip", "route", "add", "default"], WorkerRole.DRONE, _DIAGNOSTIC_CEILING, False),
+        (["ip", "route", "show"], WorkerRole.FORAGER, _DIAGNOSTIC_CEILING, False),
+        (["ip", "route", "show"], WorkerRole.DRONE, None, False),
+    ],
+)
+async def test_only_a_diagnostic_drone_runs_a_listed_diagnostic_below_full(
+    argv: list[str], role: WorkerRole, ceiling: tuple[str, ...] | None, allowed: bool
+) -> None:
+    # ADR-0060's one exception: an uncontained SCRATCH Cell runs a listed read-only diagnostic for
+    # the Drone of a diagnostic task alone; an unlisted command, another role, or another task's
+    # Drone still needs FULL.
+    ctx = make_context()
+    assignment = make_assignment(role=role, capabilities=ceiling)
+
+    result = await run_command(ToolInvocation(ctx=ctx, assignment=assignment), {"argv": argv})
+
+    assert result.startswith("refused by the Guard") is not allowed
+    assert bool(await ctx.trail.query(TrailQuery(kind="capping.proposed"))) is allowed
 
 
 async def test_run_command_runs_on_a_contained_cell_at_scratch() -> None:

@@ -306,7 +306,9 @@ def test_cap_to_access_result_is_always_a_subset_of_what_was_requested(
 ) -> None:
     granted = cap_to_access(requested, level, _SCRATCH_ROOT)
 
-    assert granted.capabilities <= requested.capabilities
+    # Never wider; it may hold a narrower entry than one requested (`exec:@diagnostic` under an
+    # `exec:*`, at SCRATCH), so coverage, not entry identity, is the rule.
+    assert granted.issubset(requested)
 
 
 @given(requested=_capability_sets(), level=st.sampled_from(list(AccessLevel)))

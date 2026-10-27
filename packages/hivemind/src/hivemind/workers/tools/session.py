@@ -14,7 +14,11 @@ lands on the Hive's own state is refused as `guard.denied` before it is ever pro
 `run_command` asks the whole policy for `exec:<argv[0]>` before proposing (ADR-0060), because the
 Capping gate checks `exec` only for a command run outside scratch, and a command run in scratch
 can still read anything the Cell's user can: on a Cell whose processes are not contained, below
-FULL access, the access-level rule refuses it as `guard.denied` and nothing starts.
+FULL access, the access-level rule refuses it as `guard.denied` and nothing starts. The one
+exception is a diagnostic Drone's read-only diagnostics (`hivemind.guard.diagnostics`): when the
+task's goal ceiling names `exec:@diagnostic` exactly and the argument list is one of the listed
+ones, that capability is asked for instead, which the access-level rule admits to the Drone role
+from SCRATCH up.
 
 Fits into the Hive:
     Layer 4 (roles that do the work), inside `hivemind.workers.tools`. Registered by
@@ -53,7 +57,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import PathNotAllowedError
-from hivemind.guard import Capability, CapabilityFamily, EnforcementPoint
+from hivemind.guard import (
+    DIAGNOSTIC_EXEC,
+    Capability,
+    CapabilityFamily,
+    EnforcementPoint,
+    is_diagnostic,
+)
 from hivemind.guard.scanner import ScanSource
 from hivemind.llm import JsonObject, ToolDefinition
 from hivemind.supervision.capping import RiskTier
@@ -141,11 +151,15 @@ async def run_command(invocation: ToolInvocation, arguments: JsonObject) -> str:
     # An empty program names nothing to run (or to check), so it is malformed like no argv.
     if not argv or not argv[0]:
         return "argv must be a non-empty list of strings."
+    if argv[0].startswith("@"):
+        # `exec:@...` is a reserved scope (hivemind.guard.diagnostics), never a program's name.
+        return "argv[0] must name a program; a name starting with @ is reserved."
     # The whole policy, before anything is proposed: the floors refuse the Hive's own entry points
     # (roadmap step 10.3a), and the access-level rule refuses any command on an uncontained Cell
     # below FULL (ADR-0060), which the gate's scratch tier would never check.
-    program = Capability(family=CapabilityFamily.EXEC, scope=argv[0])
-    decision = await authorize(invocation, EnforcementPoint.TOOL_INVOCATION, program)
+    decision = await authorize(
+        invocation, EnforcementPoint.TOOL_INVOCATION, _exec_need(invocation, argv)
+    )
     if not decision.allowed:
         return refusal_text(decision)
     ctx = invocation.ctx
@@ -263,6 +277,19 @@ READ_FILE_SPEC = ToolSpec(
     definition=READ_FILE_DEFINITION, run=read_file, scan_source=ScanSource.SESSION_OUTPUT
 )
 WRITE_FILE_SPEC = ToolSpec(definition=WRITE_FILE_DEFINITION, run=write_file)
+
+
+def _exec_need(invocation: ToolInvocation, argv: tuple[str, ...]) -> Capability:
+    """The capability a command is asked for: a listed diagnostic's, on a diagnostic task only.
+
+    Only a task whose goal ceiling names `exec:@diagnostic` exactly is a diagnostic task (only
+    `hivemind.wardens.offline.diagnose.assign.CEILING` does); every other command, and every
+    unlisted one, needs `exec:<argv[0]>` as before (module docstring).
+    """
+    ceiling = invocation.assignment.capabilities or ()
+    if str(DIAGNOSTIC_EXEC) in ceiling and is_diagnostic(argv):
+        return DIAGNOSTIC_EXEC
+    return Capability(family=CapabilityFamily.EXEC, scope=argv[0])
 
 
 def _command_tier(ctx: WorkerContext, cwd: str | None) -> RiskTier:
