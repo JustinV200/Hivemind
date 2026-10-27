@@ -168,6 +168,11 @@ Drone's grant without a free core.
   the answer from the model, `guard.injection_suspected` lands on the real trail with the keyed
   hash (never the words), the steered outside-scratch write is capped and rejected, the goal still
   finishes, and the scanner's key is minted in the manifest's secrets dir on that first flag.
+- `test_nurse_on_hive_stand.py` (`@pytest.mark.e2e`) -- ADR-0061's whole loop on a real run: the
+  Hive Stand's Warden asks its model Nurse after acceptance passes, the Nurse rejects a poem with
+  no title, the Queen sends the task back, and a fresh Drone whose brief carries the findings
+  fixes the file forward; the second round passes. The scripted model answers each bee only from
+  what it is shown, and the findings' words never reach the trail.
 - `test_quarantine_on_hive_stand.py` (`@pytest.mark.e2e`) -- roadmap step 10.6c on a real run: a
   real Drone writes its first haiku and starts a real minute-long command; while it runs, the Queen
   orders a quarantine through `Queen.intervene` (the lever a Guard request pulls), suspect from the
