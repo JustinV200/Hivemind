@@ -724,6 +724,8 @@ class DispatchBook:
         returned: The Wardens back from a cut whose first settled Heartbeat she has not read
             yet: that one says whether the Warden clustered fully while it was away, and so
             holds tasks only she can start again (`hivemind.queen.cluster.returned`).
+        queue_depth: The ready tasks a dispatch pass last counted: the Swarming policy's queue
+            depth (ADR-0063), read by every placement, a resumed task's included.
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -735,6 +737,7 @@ class DispatchBook:
     held: HeldCells = field(default_factory=HeldCells)
     resumes: ResumeHints = field(default_factory=ResumeHints)
     placed_on: set[WardenId] = field(default_factory=set)
+    queue_depth: int = 0  # Ready tasks at the last read of a pass, for Swarming (ADR-0063).
     returned: set[WardenId] = field(default_factory=set)
 
 

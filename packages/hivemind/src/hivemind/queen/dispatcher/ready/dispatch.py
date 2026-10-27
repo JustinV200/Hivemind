@@ -219,6 +219,7 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
         ended = {task.id for task in tasks if is_terminal(task.status)}
         await forage_grants.release_finished(deps.ledger, deps, ended)
         ready = ready_tasks(tasks)
+        deps.dispatch.queue_depth = len(ready)  # Swarming's queue depth (ADR-0063).
         # A task that left PENDING some other way (its goal cancelled, say) waits no longer, and a
         # Cell acquired for it is released rather than left behind.
         forget_waits(deps, {task.id for task in ready})
@@ -240,6 +241,7 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
                 await _record_placement_failure(deps, task, exc)
             # Read again: what was just dispatched, failed or cancelled is no longer ready.
             ready = await _ready_tasks(deps)
+            deps.dispatch.queue_depth = len(ready)
 
 
 async def redispatch(

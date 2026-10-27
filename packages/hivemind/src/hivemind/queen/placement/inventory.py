@@ -141,14 +141,17 @@ class VirtualBackendCandidate:
         specs: The `VirtualCellSpec`s this backend can provision right now, in the caller's own
             preference order; `decide` picks the first one that fits a task's needs and Forage.
         held_back: Why the caller holds this backend back right now, or None: its provisions
-            keep failing, so it rests a while (`hivemind.queen.dispatcher.backoff`); `decide`
-            skips a held backend, naming this reason.
+            keep failing, so it rests a while (`hivemind.queen.dispatcher.backoff`), or Swarming
+            allows it no fresh Cell (ADR-0063); `decide` skips a held backend, naming this reason.
+        held: The Cells this backend holds right now (running or dormant), for the Swarming
+            policy's counts; `decide` never reads it.
     """
 
     name: str
     capabilities: BackendCapabilities
     specs: tuple[VirtualCellSpec, ...] = ()
     held_back: str | None = None
+    held: int = 0
 
 
 @dataclass(frozen=True, slots=True)

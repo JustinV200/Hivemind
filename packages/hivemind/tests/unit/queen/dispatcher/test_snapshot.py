@@ -23,13 +23,20 @@ import asyncio
 import dataclasses
 from collections.abc import Sequence
 
+import pytest
 from builders.cells import make_cell
 from builders.forage import make_capacity, make_grant, make_host_capacity, make_source
 from builders.queen import make_queen_deps
 from builders.tasks import make_task, make_task_spec
 
 from hivemind.brood_chamber import TaskStatus
-from hivemind.cell import CellKind, CombShieldLevel, HoneyClearance, RequestOrigin
+from hivemind.cell import (
+    HIVE_STAND_SOURCE,
+    CellKind,
+    CombShieldLevel,
+    HoneyClearance,
+    RequestOrigin,
+)
 from hivemind.forage import (
     ForageCapacity,
     ForageGrant,
@@ -57,11 +64,14 @@ from hivemind.queen.placement import (
     ProvisionVirtual,
     VirtualBackendCandidate,
 )
+from hivemind.queen.scheduler import BackendLimit, SwarmingPolicy
 from waggle.clock import FakeClock
 from waggle.ids import CellId, TaskId, new_cell_id, new_task_id
 from waggle.messages.cell.wax import WaxDecision, WaxOrigin
 
 _MIB = 1024**2
+# The fake backend's Cells run on the Hive Stand, so its free memory bounds them (ADR-0063).
+_DRAWS = SwarmingPolicy(backends={"fake": BackendLimit(draws_on_hive_stand=True)})
 
 
 async def _write_wax(deps: QueenDeps, cell_id: CellId, severity: WaxSeverity, text: str) -> None:
@@ -145,6 +155,49 @@ async def test_a_fresh_cell_being_provisioned_holds_its_backends_room_until_it_e
     assert in_flight.virtual_backends[0].capabilities.headroom == 0
     # Ended: its Cell is the lifecycle's to count now (none here: this backend's room is static).
     assert ended.virtual_backends[0].capabilities.headroom == 1
+    await warden_end.close()
+
+
+@pytest.mark.parametrize(
+    ("swarming", "free_gib", "held_back"),
+    [
+        (SwarmingPolicy(), 8, None),  # The default policy never holds a backend back.
+        (SwarmingPolicy(max_parallel=2), 8, "swarming: max_parallel 2 reached"),
+        (SwarmingPolicy(max_parallel=3), 8, None),
+        # Read live, the Hive Stand's 1.5 GiB free fits one more 1 GiB Cell; 0.5 GiB fits none.
+        (_DRAWS, 1.5, None),
+        (_DRAWS, 0.5, "swarming: the Hive Stand has no room for another Cell"),
+    ],
+)
+async def test_swarming_holds_back_a_backend_its_caps_allow_no_fresh_cell(
+    swarming: SwarmingPolicy, free_gib: float, held_back: str | None
+) -> None:
+    # Two Cells held on the backend; the Hive Stand's free memory read live.
+    deps, link, warden_end = make_queen_deps(cell=make_cell(source=HIVE_STAND_SOURCE))
+    backend = dataclasses.replace(_backend_with_room(deps, headroom=5), held=2)
+    policy = dataclasses.replace(deps.placement_policy, swarming=swarming)
+    deps = dataclasses.replace(deps, virtual_backends=(backend,), placement_policy=policy)
+    free = make_capacity(host=make_host_capacity(memory_free_bytes=int(free_gib * 1024**3)))
+
+    async def read() -> ForageCapacity:
+        return free
+
+    stand = dataclasses.replace(link, live_capacity=read)
+    inventory = await build_inventory(deps, (stand,))
+
+    assert inventory.virtual_backends[0].held_back == held_back
+    await warden_end.close()
+
+
+async def test_swarming_leaves_a_backoff_hold_its_own_reason() -> None:
+    deps, link, warden_end = make_queen_deps()
+    backend = dataclasses.replace(_backend_with_room(deps, headroom=5), held=2, held_back="down")
+    policy = dataclasses.replace(deps.placement_policy, swarming=SwarmingPolicy(max_parallel=1))
+    deps = dataclasses.replace(deps, placement_policy=policy)
+
+    inventory = await build_inventory(deps, (link,), virtual_backends=(backend,))
+
+    assert inventory.virtual_backends[0].held_back == "down"
     await warden_end.close()
 
 

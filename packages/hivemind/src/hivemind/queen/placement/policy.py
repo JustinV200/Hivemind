@@ -81,6 +81,7 @@ from typing import Literal
 
 from hivemind.cell import CombShieldLevel, RequestOrigin, TaskNeeds
 from hivemind.hive import NetworkPolicy
+from hivemind.queen.scheduler import SwarmingPolicy
 
 __all__ = [
     "NightVeilConstraints",
@@ -198,6 +199,9 @@ class PlacementPolicy:
             configures no Night Veil profile at all -- `check_night_veil` then reports every
             NIGHT_VEIL task as a placement violation, since the tier cannot be honoured without one
             (roadmap step 5.7a).
+        swarming: `[virtual_cells.swarming]` (ADR-0063): how many fresh Virtual Cells each backend
+            may start. `decide` never reads it; the dispatcher's snapshot does, before `decide`,
+            and marks a backend it allows nothing held back. Caps nothing by default.
     """
 
     prefer: Prefer = "real"
@@ -205,6 +209,7 @@ class PlacementPolicy:
     role_overrides: Mapping[str, Prefer] = field(default_factory=dict)
     default_virtual_spec: VirtualSpecTemplate | None = None
     night_veil: NightVeilConstraints | None = None
+    swarming: SwarmingPolicy = field(default_factory=SwarmingPolicy)
 
     def prefer_for(self, role_key: str) -> Prefer:
         """Return the effective `prefer` for `role_key`, falling back to the top-level value.

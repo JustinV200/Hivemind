@@ -40,9 +40,11 @@ from hivemind.common.sqlite import connect
 from hivemind.forage import ForageMap, GoalBudgets, Tempo
 from hivemind.honey_store import HoneyAccess
 from hivemind.manifest import ForageSection, HiveManifest, budget_over_compact_line
+from hivemind.manifest.schema.placement import VirtualCellsSwarmingSection
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
 from hivemind.queen.placement import PlacementPolicy
 from hivemind.queen.requeening import RequeeningBook, SqliteRequeeningStore
+from hivemind.queen.scheduler import BackendLimit, SwarmingPolicy
 from hivemind.supervision import load_policy
 from waggle.clock import SystemClock
 
@@ -173,6 +175,23 @@ def _placement_policy(manifest: HiveManifest) -> PlacementPolicy:
             if override.prefer is not None
         },
         night_veil=night_veil_constraints(manifest),
+        swarming=_swarming_policy(manifest.virtual_cells.swarming),  # ADR-0063.
+    )
+
+
+def _swarming_policy(section: VirtualCellsSwarmingSection) -> SwarmingPolicy:
+    """Convert `[virtual_cells.swarming]` into the policy the dispatcher's snapshot reads."""
+    return SwarmingPolicy(
+        max_parallel=section.max_parallel,
+        max_cost_per_hour_usd=section.max_cost_per_hour_usd,
+        backends={
+            name: BackendLimit(
+                max_cells=limit.max_cells,
+                cost_per_hour_usd=limit.cost_per_hour_usd,
+                draws_on_hive_stand=limit.draws_on_hive_stand,
+            )
+            for name, limit in section.backends.items()
+        },
     )
 
 

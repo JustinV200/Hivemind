@@ -155,6 +155,7 @@ See Also:
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 
@@ -482,8 +483,10 @@ def _virtual_backend_source(
     )
 
     async def source() -> tuple[VirtualBackendCandidate, ...]:
+        # Every Cell each backend holds, dormant ones included: Swarming's counts (ADR-0063).
+        held = Counter(cell.backend for cell in lifecycle.live_cells())
         return tuple(
-            virtual_backend_candidate_from_lifecycle(backend, specs)
+            virtual_backend_candidate_from_lifecycle(backend, specs, held[backend.name])
             for backend in lifecycle.virtual_backend_candidates()
         )
 

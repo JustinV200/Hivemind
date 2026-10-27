@@ -36,6 +36,12 @@ releases`) is no candidate at all, attached or dormant: it is about to be torn d
 A backend whose provisions keep failing is marked held back for a while
 (`hivemind.queen.dispatcher.backoff`), placement data like any other, so `decide` skips it.
 
+Roadmap step 13.3 (ADR-0063) adds Swarming: before every decision, the retry's included, the
+policy (`hivemind.queen.scheduler.plan_swarm`) reads the last pass's queue depth, each backend's
+Cells held and being made, and, for a backend that draws on the Hive Stand, the Stand's free
+memory and idle cores measured live against one Cell's reservation; a backend it allows no fresh
+Cell is marked held back with its reason, the same seam the backoff uses.
+
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.dispatcher`
     sub-package. Called by `hivemind.queen.dispatcher.ready` and `hivemind.queen.dispatcher.
@@ -44,7 +50,8 @@ Fits into the Hive:
     `hivemind.queen.authority` (goal_held), `hivemind.queen.deps` (QueenDeps, WardenLink),
     `hivemind.queen.dispatcher.backoff` (mark_held),
     `hivemind.queen.placement` (Inventory, ForageView, ProvisionVirtual, RealCandidate,
-    VirtualBackendCandidate, WaxMention), `QueenDeps.guard.requests` (the Guard's placement holds),
+    VirtualBackendCandidate, WaxMention), `hivemind.queen.scheduler` (plan_swarm and its
+    shapes), `QueenDeps.guard.requests` (the Guard's placement holds),
     `QueenDeps.ledger` (the grants in force) and waggle (including `waggle.messages.task.
     WorkerRole`) only.
 
@@ -62,6 +69,8 @@ Key invariants:
     - A backend's headroom is never above what its declared cap leaves once every tracked Cell and
       every fresh Cell still being provisioned on it are counted, each once.
     - No attached Night Veil Cell is ever in an `Inventory`'s Real candidates.
+    - A backend Swarming allows no fresh Cell is never offered to `decide` as one to provision
+      on; a backoff hold already on it keeps its own reason.
 
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for "the caller precomputes... before
@@ -76,6 +85,7 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections import Counter
 from collections.abc import Iterable, Sequence
 
@@ -99,6 +109,7 @@ from hivemind.queen.placement import (
     VirtualBackendCandidate,
     WaxMention,
 )
+from hivemind.queen.scheduler import BackendLoad, SwarmingPolicy, SwarmView, plan_swarm
 from waggle.ids import CellId, TaskId
 from waggle.messages.task import WorkerRole
 
@@ -152,10 +163,10 @@ async def build_inventory(
     # about to be torn down or paused (hivemind.queen.dispatcher.releases).
     releasing = deps.dispatch.releases.releasing()
     real = await _real_candidates(deps, wardens, footprint, releasing)
-    if virtual_backends is not None:
-        backends = virtual_backends  # The retry-once-with-zeroed-headroom path always wins.
-    else:
-        backends = await current_virtual_backends(deps)
+    # The retry-once-with-zeroed-headroom path's own backends win; Swarming gates either way.
+    if virtual_backends is None:
+        virtual_backends = await current_virtual_backends(deps)
+    backends = await _swarm_gated(deps, wardens, virtual_backends)
     dormant = await _dormant_candidates(deps, exclude_dormant | releasing)
     return Inventory(
         real=real, virtual_backends=backends, dormant=dormant, blocked=blocked, cautioned=cautioned
@@ -222,7 +233,7 @@ def _night_veil_hosting(deps: QueenDeps, task: Task) -> NightVeilHostingView:
 
 
 def virtual_backend_candidate_from_lifecycle(
-    backend: LifecycleVirtualBackend, specs: tuple[VirtualCellSpec, ...] = ()
+    backend: LifecycleVirtualBackend, specs: tuple[VirtualCellSpec, ...] = (), held: int = 0
 ) -> VirtualBackendCandidate:
     """Convert one hive-layer `LifecycleVirtualBackend` into a queen-layer candidate.
 
@@ -240,12 +251,13 @@ def virtual_backend_candidate_from_lifecycle(
             `hive.lifecycle` carries none of its own (module docstring's own key invariant on
             `LifecycleVirtualBackend`), so the composition root supplies them from the manifest's
             own `[virtual_cells]` section. Defaults to empty, matching a caller that has none yet.
+        held: The Cells the lifecycle tracks on this backend now, for Swarming's counts.
 
     Returns:
         The equivalent `VirtualBackendCandidate`.
     """
     return VirtualBackendCandidate(
-        name=backend.name, capabilities=backend.capabilities, specs=specs
+        name=backend.name, capabilities=backend.capabilities, specs=specs, held=held
     )
 
 
@@ -406,3 +418,50 @@ def _less_room(backend: VirtualBackendCandidate, reserved: int) -> VirtualBacken
     left = max(0, headroom - reserved)
     capabilities = backend.capabilities.model_copy(update={"headroom": left})
     return dataclasses.replace(backend, capabilities=capabilities)
+
+
+async def _swarm_gated(
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    backends: tuple[VirtualBackendCandidate, ...],
+) -> tuple[VirtualBackendCandidate, ...]:
+    """Mark held back every backend the Swarming policy lets start no fresh Cell (ADR-0063).
+
+    A backend the backoff already holds keeps that reason: it is the one that will clear last.
+    """
+    policy = deps.placement_policy.swarming
+    reserved = _provisioning_by_backend(deps)
+    view = SwarmView(
+        queue_depth=deps.dispatch.queue_depth,
+        backends=tuple(BackendLoad(b.name, b.held, reserved[b.name]) for b in backends),
+        stand_room=await _stand_room(wardens, backends, policy),
+    )
+    reasons = plan_swarm(view, policy).reasons
+    return tuple(
+        dataclasses.replace(b, held_back=reasons[b.name])
+        if b.held_back is None and b.name in reasons
+        else b
+        for b in backends
+    )
+
+
+async def _stand_room(
+    wardens: Sequence[WardenLink],
+    backends: tuple[VirtualBackendCandidate, ...],
+    policy: SwarmingPolicy,
+) -> int | None:
+    """Return how many fresh Cells the Hive Stand's free memory and idle cores still fit.
+
+    Read live, and only when some backend draws on the Stand, against the largest reservation
+    among those backends' first specs; None (nothing binds) with no Hive Stand or no spec.
+    """
+    drawing = [b for b in backends if policy.limit_for(b.name).draws_on_hive_stand and b.specs]
+    stand = next((link for link in wardens if link.cell.source == HIVE_STAND_SOURCE), None)
+    if not drawing or stand is None:
+        return None
+    capacity = await stand.live_capacity() if stand.live_capacity is not None else None
+    host = (capacity or stand.cell.capacity).host
+    memory = max(b.specs[0].memory_bytes for b in drawing)
+    cores = max(b.specs[0].cpu_cores for b in drawing)
+    idle_cores = host.cores * max(0.0, 1.0 - host.cpu_load)
+    return min(host.memory_free_bytes // memory, math.floor(idle_cores / cores))
