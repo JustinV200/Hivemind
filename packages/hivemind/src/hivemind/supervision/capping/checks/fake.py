@@ -1,4 +1,4 @@
-"""Provide FakeJudgeReviewer: an honest, scriptable JudgeReviewer for tests and demo paths.
+"""Provide FakeJudgeReviewer and FakeNurseReviewer: honest, scriptable reviewers for tests.
 
 A hand-written fake that implements `JudgeReviewer` honestly (codingrules section 14.4: "fakes
 live in src/ beside their Protocol"), answering from a scripted FIFO queue instead of a real model
@@ -21,6 +21,9 @@ Key invariants:
       conversation transcript, which this is not).
     - The scripted queue is FIFO: `script(a, b)` then two calls return `a` then `b`.
     - An empty queue raises `JudgeUnavailableError`, never a bare `IndexError`.
+    - FakeNurseReviewer follows the same shape for `NurseReviewer` (ADR-0061): a scripted
+      `NurseAnswerError` is raised in its turn, and an empty queue raises one too, at the
+      request's own worker grade, so the caller sees the ERROR path a failing Nurse produces.
 
 See Also:
     - .claude/codingrules.md section 14.4 for the fakes-over-mocks rule this module follows.
@@ -28,6 +31,8 @@ See Also:
     - hivemind.supervision.capping.checks.judge for the JudgeReviewer protocol this class
       implements, and JudgeRequest/JudgeVerdict, the values it records and returns.
     - hivemind.supervision.capping.errors for JudgeUnavailableError, raised on an empty queue.
+    - hivemind.supervision.capping.checks.nurse for the NurseReviewer protocol FakeNurseReviewer
+      implements.
 """
 
 from __future__ import annotations
@@ -35,9 +40,10 @@ from __future__ import annotations
 from collections import deque
 
 from hivemind.supervision.capping.checks.judge import JudgeRequest, JudgeVerdict
-from hivemind.supervision.capping.errors import JudgeUnavailableError
+from hivemind.supervision.capping.checks.nurse import NurseAnswer, NurseRequest
+from hivemind.supervision.capping.errors import JudgeUnavailableError, NurseAnswerError
 
-__all__ = ["FakeJudgeReviewer"]
+__all__ = ["FakeJudgeReviewer", "FakeNurseReviewer"]
 
 
 class FakeJudgeReviewer:
@@ -78,3 +84,45 @@ class FakeJudgeReviewer:
             # reviewer's own outage would produce, never a bare IndexError.
             raise JudgeUnavailableError()
         return self._verdicts.popleft()
+
+
+class FakeNurseReviewer:
+    """A NurseReviewer that answers, or fails, from a scripted FIFO queue instead of a model."""
+
+    def __init__(self, *answers: NurseAnswer | NurseAnswerError) -> None:
+        """Build a FakeNurseReviewer, optionally pre-scripted with `answers`.
+
+        Args:
+            *answers: Answers to return, or errors to raise, in order; more via `script`.
+        """
+        self._answers: deque[NurseAnswer | NurseAnswerError] = deque(answers)
+        self.calls: list[NurseRequest] = []
+
+    def script(self, *answers: NurseAnswer | NurseAnswerError) -> None:
+        """Append `answers` to the FIFO queue `review` answers from.
+
+        Args:
+            *answers: Answers or errors, after whatever is already queued.
+        """
+        self._answers.extend(answers)
+
+    async def review(self, request: NurseRequest) -> NurseAnswer:
+        """Record `request` on `calls`, then return or raise the next scripted entry.
+
+        Args:
+            request: The review request; recorded, never inspected to choose an answer.
+
+        Returns:
+            The next scripted NurseAnswer.
+
+        Raises:
+            NurseAnswerError: The next entry is one, or nothing is left in the queue.
+        """
+        self.calls.append(request)
+        if not self._answers:
+            # Forgetting to script an answer looks like a Nurse that failed, never an IndexError.
+            raise NurseAnswerError("no scripted answers left", nurse_grade=request.worker_grade)
+        answer = self._answers.popleft()
+        if isinstance(answer, NurseAnswerError):
+            raise answer
+        return answer

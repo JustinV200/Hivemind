@@ -24,6 +24,7 @@ See Also:
     - hivemind.supervision.capping.tiers for TierSpec, TierTable.
     - hivemind.supervision.capping.lease_view for the LeaseView Protocol FakeLeaseView implements.
     - hivemind.supervision.capping.checks.judge for JudgeRubric, JudgeRequest, JudgeVerdict.
+    - hivemind.supervision.capping.checks.nurse for NurseRequest.
     - waggle.messages.capping for ProposedAction, ActionKind.
     - waggle.messages.labels for Postcondition, PostconditionKind.
 """
@@ -41,6 +42,7 @@ from hivemind.supervision.capping.checks.judge import (
     JudgeRequest,
     JudgeVerdict,
 )
+from hivemind.supervision.capping.checks.nurse import NurseRequest
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric
 from hivemind.supervision.capping.proposal import Proposal
 from hivemind.supervision.capping.state import ProposalState
@@ -68,6 +70,7 @@ __all__ = [
     "make_judge_request",
     "make_judge_rubric",
     "make_judge_verdict",
+    "make_nurse_request",
     "make_postcondition",
     "make_proposal",
     "make_tier_table",
@@ -253,6 +256,26 @@ def make_judge_request(
     }
     fields.update(overrides)
     return JudgeRequest(**fields)
+
+
+def make_nurse_request(**overrides: object) -> NurseRequest:
+    """Build a valid NurseRequest: one DIFF to `note.txt`, its FILE_EXISTS criterion, grade 3.
+
+    Args:
+        **overrides: Field values that replace the defaults below.
+
+    Returns:
+        A validated NurseRequest.
+    """
+    fields: dict[str, object] = {
+        "goal": "Write a note to scratch.",
+        "acceptance_criteria": (make_postcondition(),),
+        "outcomes": (),
+        "actions": (make_action(),),
+        "worker_grade": 3,
+    }
+    fields.update(overrides)
+    return NurseRequest(**fields)
 
 
 class FakeLeaseView:

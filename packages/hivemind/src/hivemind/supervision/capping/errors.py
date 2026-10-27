@@ -13,8 +13,9 @@ Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside the supervision package. Raised
     by `hivemind.supervision.capping.state` (the transition table), `hivemind.supervision.capping.
     gate` (an unknown proposal id), `hivemind.supervision.capping.diff` (a diff that does not apply
-    cleanly) and `hivemind.supervision.capping.checks.fake` (a scripted judge with nothing left to
-    answer with). Imported by every module in this package that raises on purpose.
+    cleanly), `hivemind.supervision.capping.checks.fake` (a scripted judge or Nurse with nothing
+    left to answer with) and a NurseReviewer that could not answer (ADR-0061). Imported by every
+    module in this package that raises on purpose.
 
 Key invariants:
     - Every CappingError subclass sets its own `code`; none shares a code with another.
@@ -49,6 +50,7 @@ __all__ = [
     "InvalidProposalTransitionError",
     "JudgeAnswerError",
     "JudgeUnavailableError",
+    "NurseAnswerError",
     "UnknownProposalError",
 ]
 
@@ -173,3 +175,30 @@ class JudgeUnavailableError(CappingError):
     def __init__(self) -> None:
         """Build the error for an exhausted scripted verdict queue."""
         super().__init__("FakeJudgeReviewer has no scripted verdicts left to answer with.")
+
+
+class NurseAnswerError(CappingError):
+    """Raise when a chosen Nurse Bee could not produce a verdict on an attempt (ADR-0061).
+
+    Raised by a `NurseReviewer` (`hivemind.supervision.capping.checks.nurse`) once it has picked a
+    model and that model's call or output failed; caught by `checks.nurse.run_nurse`, which turns
+    it into a `NurseReview` with status ERROR. It carries the chosen model's grade, because the
+    wire requires one on every review but UNAVAILABLE, and what the failed call cost, because that
+    spend is still the attempt's. An outage (`ProviderUnavailableError`, `RateLimitedError`) is
+    never this error; it propagates to the Warden like any other outage.
+    """
+
+    code: ClassVar[str] = "hivemind.supervision.capping.nurse_answer_failed"
+
+    def __init__(self, detail: str, nurse_grade: int, spend: float = 0.0) -> None:
+        """Build the error for a Nurse that was chosen but could not answer.
+
+        Args:
+            detail: Why it could not answer, already bounded by the caller.
+            nurse_grade: The effective grade of the model that was chosen.
+            spend: What the failed call cost; added to the attempt's spend all the same.
+        """
+        super().__init__(f"The Nurse could not produce a verdict: {detail}")
+        self.detail = detail
+        self.nurse_grade = nurse_grade
+        self.spend = spend

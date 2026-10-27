@@ -58,6 +58,8 @@ Public API:
     - JudgeCheck, JudgeEvidence, JudgeOutcome, JudgeRequest, JudgeReviewer, JudgeVerdict,
       judge_checks, JudgeRubric, load_judge_rubrics, FakeJudgeReviewer: the independent-review
       rung and deterministic_checks()'s sibling registry (checks).
+    - NurseAnswer, NurseFile, NurseRequest, NurseReviewer, run_nurse, FakeNurseReviewer: the
+      Nurse Bee's fresh-context review of an attempt (checks, ADR-0061).
     - ApplyResult, TouchedPath, apply_action: applying a CAPPED proposal (apply).
     - apply_unified_diff: the pure diff applier behind a DIFF action (diff).
     - PostconditionOutcome, check_postcondition: checking one assertion after applying
@@ -80,7 +82,7 @@ Public API:
       tier's sampled-audit rate, read back from the trail by a gate on it, carried on a grant to
       every other Warden (roadmap step 10.6, Waggle 1.10) (raises).
     - CappingError, UnknownProposalError, InvalidProposalTransitionError, DiffApplyError,
-      JudgeUnavailableError, JudgeAnswerError: this package's error tree (errors).
+      JudgeUnavailableError, JudgeAnswerError, NurseAnswerError: this package's error tree (errors).
 """
 
 from hivemind.supervision.capping.apply import ApplyResult, TouchedPath, apply_action
@@ -112,6 +114,7 @@ from hivemind.supervision.capping.checks import (
     CommandAllowlistCheck,
     DiffSizeCapCheck,
     FakeJudgeReviewer,
+    FakeNurseReviewer,
     GuiAllowlistCheck,
     JudgeCheck,
     JudgeEvidence,
@@ -120,11 +123,16 @@ from hivemind.supervision.capping.checks import (
     JudgeReviewer,
     JudgeRubric,
     JudgeVerdict,
+    NurseAnswer,
+    NurseFile,
+    NurseRequest,
+    NurseReviewer,
     PathAllowlistCheck,
     SchemaCheck,
     deterministic_checks,
     judge_checks,
     load_judge_rubrics,
+    run_nurse,
 )
 from hivemind.supervision.capping.commands import (
     COMMAND_POSTCONDITION_KINDS,
@@ -138,6 +146,7 @@ from hivemind.supervision.capping.errors import (
     InvalidProposalTransitionError,
     JudgeAnswerError,
     JudgeUnavailableError,
+    NurseAnswerError,
     UnknownProposalError,
 )
 from hivemind.supervision.capping.gate import CappingGate, GateDeps, GateOutcome
@@ -208,6 +217,7 @@ __all__ = [
     "DiffApplyError",
     "DiffSizeCapCheck",
     "FakeJudgeReviewer",
+    "FakeNurseReviewer",
     "FindingsSink",
     "GateDeps",
     "GateOutcome",
@@ -226,6 +236,11 @@ __all__ = [
     "JudgeUnavailableError",
     "JudgeVerdict",
     "LeaseView",
+    "NurseAnswer",
+    "NurseAnswerError",
+    "NurseFile",
+    "NurseRequest",
+    "NurseReviewer",
     "PathAllowlistCheck",
     "PostconditionOutcome",
     "Proposal",
@@ -254,4 +269,5 @@ __all__ = [
     "raised_audit_rate",
     "required_capabilities",
     "review_applied",
+    "run_nurse",
 ]

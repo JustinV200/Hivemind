@@ -6,10 +6,11 @@ path and command allowlists, diff size cap -- and the registry `deterministic_ch
 composition root wires into `hivemind.supervision.capping.gate.GateDeps`. `judge.py` supplies the
 independent-review rung (`JudgeCheck`, `CheckKind.JUDGE`) behind the same `Check` Protocol, plus
 the `JudgeReviewer` seam a Warden-layer dispatch satisfies with a real model call later; `rubrics.
-py` loads the per-tier rubric a judge reviews against; `fake.py` a scripted `JudgeReviewer` for
-tests; `human.py` supplies `HumanCheck` (roadmap step 5.0d), the HUMAN rung a leave-policy ASK
-verdict calls directly, never through the generic ladder (that module's own docstring). A later
-phase adds a sandbox-test rung the same way, without touching the gate.
+py` loads the per-tier rubric a judge reviews against; `nurse.py` the Nurse Bee's seam (ADR-0061),
+the fresh-context review of a whole attempt; `fake.py` a scripted `JudgeReviewer` and
+`NurseReviewer` for tests; `human.py` supplies `HumanCheck` (roadmap step 5.0d), the HUMAN rung
+a leave-policy ASK verdict calls directly, never through the generic ladder (that module's own
+docstring). A later phase adds a sandbox-test rung the same way, without touching the gate.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.supervision.capping`.
@@ -35,7 +36,9 @@ Public API:
       judge_checks: the independent-review rung and deterministic_checks()'s sibling registry
       (judge).
     - JudgeRubric, load_judge_rubrics: the per-tier rubric a judge reviews against (rubrics).
-    - FakeJudgeReviewer: a scripted JudgeReviewer for tests and demo paths (fake).
+    - NurseAnswer, NurseFile, NurseRequest, NurseReviewer, run_nurse, MAX_NURSE_ACTIONS,
+      MAX_NURSE_EVIDENCE_CHARS, MAX_NURSE_FILES: the Nurse Bee's seam (nurse, ADR-0061).
+    - FakeJudgeReviewer, FakeNurseReviewer: scripted reviewers for tests and demo paths (fake).
     - HumanCheck, LEAVE_QUESTION_OPTIONS, KEEP_OPTION, KEEP_FOR_GOAL_OPTION, DISCARD_OPTION: the
       HUMAN rung a leave-policy ASK verdict calls directly (human).
 """
@@ -49,7 +52,7 @@ from hivemind.supervision.capping.checks.deterministic import (
     SchemaCheck,
     deterministic_checks,
 )
-from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer
+from hivemind.supervision.capping.checks.fake import FakeJudgeReviewer, FakeNurseReviewer
 from hivemind.supervision.capping.checks.human import (
     DISCARD_OPTION,
     KEEP_FOR_GOAL_OPTION,
@@ -68,6 +71,16 @@ from hivemind.supervision.capping.checks.judge import (
     JudgeVerdict,
     judge_checks,
 )
+from hivemind.supervision.capping.checks.nurse import (
+    MAX_NURSE_ACTIONS,
+    MAX_NURSE_EVIDENCE_CHARS,
+    MAX_NURSE_FILES,
+    NurseAnswer,
+    NurseFile,
+    NurseRequest,
+    NurseReviewer,
+    run_nurse,
+)
 from hivemind.supervision.capping.checks.rubrics import JudgeRubric, load_judge_rubrics
 
 __all__ = [
@@ -77,12 +90,16 @@ __all__ = [
     "LEAVE_QUESTION_OPTIONS",
     "MAX_EVIDENCE_CHARS",
     "MAX_EVIDENCE_FRAMES",
+    "MAX_NURSE_ACTIONS",
+    "MAX_NURSE_EVIDENCE_CHARS",
+    "MAX_NURSE_FILES",
     "Check",
     "CheckContext",
     "CheckResultRecord",
     "CommandAllowlistCheck",
     "DiffSizeCapCheck",
     "FakeJudgeReviewer",
+    "FakeNurseReviewer",
     "GuiAllowlistCheck",
     "HumanCheck",
     "JudgeCheck",
@@ -92,9 +109,14 @@ __all__ = [
     "JudgeReviewer",
     "JudgeRubric",
     "JudgeVerdict",
+    "NurseAnswer",
+    "NurseFile",
+    "NurseRequest",
+    "NurseReviewer",
     "PathAllowlistCheck",
     "SchemaCheck",
     "deterministic_checks",
     "judge_checks",
     "load_judge_rubrics",
+    "run_nurse",
 ]
