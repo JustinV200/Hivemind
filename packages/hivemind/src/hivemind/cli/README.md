@@ -190,7 +190,11 @@ typer layer that calls into a subsystem's public API and never contains logic of
       listener (`POST /v1/cells/{cell_id}/isolate` and `/lift`), logging in and stepping up with
       the operator password (`--password-stdin`) exactly as `hive entrance open` does
       (`cli/entrance/console.py`, whose `run_console` takes the group its refusal line names).
-      A nameless Typer app, folded into `hive cells` by `cells.py`.
+      A nameless Typer app, folded into `hive cells` by `cells.py`. `hive cells sting-cut
+      <cell_...|lease_...> --reason TEXT [--report ID] [--json]` (roadmap step
+      13.4a, docs/guard/sting-cut.md) is the human's emergency disconnect the same way (`POST
+      /v1/cells/{target}/sting-cut`), break-glass: it carries the typed phrase, asked for at the
+      terminal once the console is logged in (after the password, on `--password-stdin` too).
     - `inbox.py` -- `hive inbox --manifest hive.toml [--json]` lists pending questions
       (`chamber.pending_questions`) and Alarms still escalated to the human, reconstructed from the
       trail's own `alarm.escalated`/`alarm.resolved` events; `hive inbox answer QUESTION_ID "text"

@@ -1,11 +1,12 @@
-"""Test hivemind.cli.readback.isolation: `hive cells isolate|lift` over a real `hive serve`.
+"""Test hivemind.cli.readback.isolation: `hive cells isolate|lift|sting-cut` over a real serve.
 
 The Hive Stand's console isolates and lifts through the Landing Board's routes on the running
 serve's loopback listener, stepping up with the operator password when the route asks: the Hive
 Stand's own Cell is isolated (only the human may), `cell.isolated` lands on the Queen's trail
 naming the console device as who ordered it, and a lift clears it and reports what it released. A
 second lift has nothing to lift and is refused; a malformed report id is refused before the
-password is even read; and nothing serving means nothing to act through.
+password is even read; and nothing serving means nothing to act through. `sting-cut` (roadmap step
+13.4a) carries the typed phrase: the right one cuts the Hive Stand's Cell, a wrong one cuts nothing.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/readback/isolation.py (codingrules section 3).
@@ -39,11 +40,11 @@ from hivemind.queen import Queen
 _REASON = "the operator saw something"  # A short phrase for the trail, as the route asks.
 
 
-async def _cells(stand: Stand, *args: str) -> Result:
-    """Run `hive cells ARGS --manifest ... --password-stdin` with the operator password."""
+async def _cells(stand: Stand, *args: str, typed: str = "") -> Result:
+    """Run `hive cells ARGS --manifest ... --password-stdin`: the password, then `typed`."""
     manifest = str(stand.manifest_path)
     return await stand.terminal.hive(
-        "cells", *args, "--manifest", manifest, "--password-stdin", stdin=f"{PASSWORD}\n"
+        "cells", *args, "--manifest", manifest, "--password-stdin", stdin=f"{PASSWORD}\n{typed}"
     )
 
 
@@ -77,6 +78,26 @@ async def test_the_console_isolates_the_hive_stand_and_lifts_it_again(tmp_path: 
     assert f"Lifted Cell {cell_id}" in lifted.output
     assert "Tainted memory stays tainted" in lifted.output
     assert again.exit_code == 1 and "hive cells lift refused" in again.output
+
+
+async def test_the_console_sting_cuts_only_with_the_typed_phrase(tmp_path: Path) -> None:
+    path = stand_manifest(tmp_path)
+    await set_password(path)
+
+    async with serving_stand(path) as (stand, entrance):
+        queen = _queen(entrance)
+        cell_id = queen.wardens[0].cell.id
+        wrong = await _cells(stand, "sting-cut", cell_id, "--reason", _REASON, typed="go\n")
+        before = await queen._deps.trail.query(TrailQuery(kind="cell.sting_cut"))
+        phrase = "sting cut this cell\n"
+        cut = await _cells(stand, "sting-cut", cell_id, "--reason", _REASON, typed=phrase)
+        [event] = await queen._deps.trail.query(TrailQuery(kind="cell.sting_cut"))
+
+    assert wrong.exit_code == 1 and "hive cells sting-cut refused" in wrong.output
+    assert before == ()
+    assert cut.exit_code == 0, cut.output
+    assert f"Sting Cut Cell {cell_id} (cell.sting_cut {event.id})" in cut.output
+    assert event.payload["cut_by"] == "human"
 
 
 async def test_a_malformed_report_id_is_refused_before_anything_is_sent(tmp_path: Path) -> None:

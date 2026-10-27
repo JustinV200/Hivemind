@@ -5707,6 +5707,138 @@
         "title": "SteppedUpView",
         "type": "object"
       },
+      "StingCutBody": {
+        "additionalProperties": false,
+        "description": "Cut one Cell off: why, the typed phrase, and the Guard report it answers, if any.",
+        "properties": {
+          "phrase": {
+            "description": "The break-glass phrase, typed: 'sting cut this cell'.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Phrase",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why, in a short phrase for the trail (ids, not content).",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "report_id": {
+            "anyOf": [
+              {
+                "pattern": "^guardrep_[0-9A-HJKMNP-TV-Z]{26}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A Guard report the Queen was sent.",
+            "title": "Report Id"
+          }
+        },
+        "required": [
+          "reason",
+          "phrase"
+        ],
+        "title": "StingCutBody",
+        "type": "object"
+      },
+      "StingCutView": {
+        "description": "What the Sting Cut did: cut the Cell off, or found it cut already.",
+        "properties": {
+          "already_cut": {
+            "description": "It was cut before; nothing changed.",
+            "title": "Already Cut",
+            "type": "boolean"
+          },
+          "cell_id": {
+            "description": "The Cell.",
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "cut": {
+            "description": "This order cut it (cell.sting_cut recorded).",
+            "title": "Cut",
+            "type": "boolean"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cell.sting_cut event, when cut now.",
+            "title": "Event Id"
+          },
+          "isolated_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cell.isolated event it follows.",
+            "title": "Isolated Event Id"
+          },
+          "key_forgotten": {
+            "description": "Its key is forgotten; its Warden cannot redial.",
+            "title": "Key Forgotten",
+            "type": "boolean"
+          },
+          "revoked_grant_ids": {
+            "description": "The grants on it revoked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Revoked Grant Ids",
+            "type": "array"
+          },
+          "scrub": {
+            "description": "confirmed, ordered, unconfirmed or unreached.",
+            "title": "Scrub",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The snapshot kept as evidence, if any.",
+            "title": "Snapshot Id"
+          },
+          "torn_down": {
+            "description": "A Night Veil Cell torn down, its records purged.",
+            "title": "Torn Down",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cell_id",
+          "cut",
+          "already_cut",
+          "event_id",
+          "isolated_event_id",
+          "snapshot_id",
+          "revoked_grant_ids",
+          "scrub",
+          "key_forgotten",
+          "torn_down"
+        ],
+        "title": "StingCutView",
+        "type": "object"
+      },
       "SubscribeBody": {
         "additionalProperties": false,
         "description": "Register a push destination for the calling device (``entrance:push``).",
@@ -8642,6 +8774,123 @@
         "x-hive-c2": false,
         "x-hive-capability": "observe",
         "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/cells/{target}/sting-cut": {
+      "post": {
+        "operationId": "sting_cut_v1_cells__target__sting_cut_post",
+        "parameters": [
+          {
+            "description": "The Cell's id, or the id of a lease on it.",
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "description": "The Cell's id, or the id of a lease on it.",
+              "pattern": "^(cell|lease)_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Target",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StingCutBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StingCutView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Sting Cut a Cell (interactive, after step-up, with the typed phrase).",
+        "tags": [
+          "cells"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
         "x-hive-listeners": [
           "loopback",
           "remote"

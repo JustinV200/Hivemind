@@ -436,7 +436,7 @@ logs, and the code agree.
 | Entrance Reducer | `entrance/reducer.py` | `EntranceReducer`, `EntranceMode` | Drops the Entrance to loopback only and kills remote sessions; only loopback reopens it. |
 | Pheromone Mask | `supervision/mask.py`, `workers/tactics/`, `exoskeleton/tactics/` | `MaskState` (`OFF`, `WARDEN`, `QUEEN_FORCED`), `MaskTactic` | State with reason and expiry in supervision; the prose tactic acts in workers, the input tactic in the exoskeleton. |
 | Supersedure | `queen/supersedure/` | `Supersedure`, `SupersedurePlan`, `QueenMoved` | Moving the Hive Stand: freeze, copy, hand over, never two Queens. |
-| Sting Cut | `queen/sting_cut.py` | `StingCut` | Human-initiated per-Cell disconnect; revokes the lease and keys, kills lease processes; the Undertaker performs the cleanup. |
+| Sting Cut | `queen/sting_cut/` | `StingCutOrder`, `sting_cut_cell` | Per-Cell emergency disconnect, the human's for any Cell and the Queen's for the dire patterns only; revokes the lease, grants and keys, kills lease processes, scrubs scratch, keeps evidence first. |
 | Devices | `swarm`, `pollen` | `SwarmNode`, `PollenPacket`, `PollenSession` | A Swarm node is a Real Cell; `PollenSession` is its `CellSession` carried over Waggle. |
 | Audit | `pheromone` | `PheromoneTrail`, `PheromoneEvent` | |
 | Config | `manifest` | `HiveManifest` | |

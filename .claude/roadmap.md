@@ -2864,7 +2864,7 @@ borrowed device and revoking every grant.
   autopilot rule, or tool. Execution requires password re-auth, an explicit typed confirmation
   phrase, and a final scope review prompt. Records actor, reason, and confirmation evidence in the
   trail. Persistent stores are not wiped by default.
-- [ ] **13.4a Sting Cut (per-Cell emergency disconnect).** `hive cells sting-cut <lease|cell>`:
+- [x] **13.4a Sting Cut (per-Cell emergency disconnect).** `hive cells sting-cut <lease|cell>`:
   immediate lease revocation for one Cell, session key/token invalidation, termination of
   Hive-started processes for that lease, idempotent scratch cleanup, and deletion of lease-local
   volatile traces (ephemeral caches, temp artifacts, transient credentials) per policy. Records
@@ -2882,6 +2882,25 @@ borrowed device and revoking every grant.
   `max_autonomous_sting_cuts_per_hour`, preserves evidence before scrubbing (a snapshot on a
   Virtual Cell, scratch copied as tainted `C2` Nectar on a Real one), and is pushed to the human.
   `hive cells sting-cut` with step-up remains the human's path for any Cell.
+  **Built 2026-10-27.** `queen/sting_cut/`: one path, `sting_cut_cell`, for the human and the
+  Queen. It checks `EnforcementPoint.STING_CUT` (`sting_cut` held; the Queen is refused the Hive
+  Stand's lease and past `[guard.sting_cut] max_autonomous_sting_cuts_per_hour`, each a
+  `guard.denied`), follows an isolation (the Queen's needs one standing; the human's isolates first
+  through 10.6a's path), keeps a snapshot of a Virtual Cell as evidence (a month's retention), then
+  revokes the Cell's grants, has its Warden release the lease through the Overwintering scrub's
+  confirmed `Intervene(RELEASE_LEASE)` (processes killed, scratch removed, session closed; a Real
+  Cell's Warden gets the order unconfirmed), forgets a Virtual Cell's key at the readiness gate and
+  closes its link, and records `cell.sting_cut` (reason, `cut_by`, report, evidence, each step's
+  result). A Night Veil Cell keeps nothing and is torn down after the record, which purges its
+  segment. A CRITICAL SECURITY Alarm goes to the human. A restarted Queen never re-arms a cut Cell
+  (`rearm_gate` skips it). A Guard request whose rule `[guard.sting_cut] dire_patterns` lists
+  (shipped: `envelope_forgery`, `segment_forgery`, `replay_refusal_burst`,
+  `frame_ceiling_repeats`), or an awake `STING_CUT`, is `QueenAction.STING_CUT`: isolate, then
+  cut. The human's lever is `POST /v1/cells/{target}/sting-cut` (step-up, the typed phrase,
+  `entrance:steward`; a lease id names its Cell) and `hive cells sting-cut <lease|cell>`. Left
+  open: the Queen never cuts a Real Cell or a Cell whose backend cannot snapshot on her own, since
+  copying a Real Cell's scratch in as tainted C2 Nectar is not built; such a Cell stays isolated
+  for the human. `docs/guard/sting-cut.md`.
 - [ ] **13.5 Overwintering at scale.** QEMU snapshots and cloud stop; disk accounting; eviction.
 - [ ] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
   refusals, malformed JSON and rate limits from the fake, take a provider down mid-run and assert

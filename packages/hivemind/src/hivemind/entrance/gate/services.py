@@ -53,6 +53,7 @@ from hivemind.entrance.reducer import EntranceReducer
 from hivemind.guard import Enforcer
 from hivemind.queen import GoalRequest, HumanInbox
 from hivemind.queen.isolation import IsolationOutcome, LiftOutcome
+from hivemind.queen.sting_cut import StingCutOutcome
 from hivemind.supervision import Alarm
 from waggle.clock import Clock
 from waggle.ids import CellId, DeviceId, MessageId, TaskId
@@ -145,6 +146,12 @@ class QueenDoor(Protocol):
 
     async def lift_isolation(self, cell_id: CellId, device_id: DeviceId) -> LiftOutcome:
         """Lift a Cell's isolation, the human's alone; see ``Queen.lift_isolation``."""
+        ...
+
+    async def sting_cut(
+        self, target: str, device_id: DeviceId, reason: str, report_id: str | None = None
+    ) -> StingCutOutcome:
+        """Cut a Cell off on the human's order (roadmap 13.4a); see ``Queen.sting_cut``."""
         ...
 
 
