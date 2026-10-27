@@ -247,14 +247,20 @@ Grouped by owner area. The first group belongs to phase 10 as found defects. The
 are named by the roadmap step that owns them.
 
 **Phase 10, found this session, not yet fixed:**
-- `queen/README.md` and the module docstrings touched by the patches: keep them true as you merge.
-- `queen/ticks/alarms.py::_isolate`: the task claim (`882cbcae`) checks only the task an Alarm
-  names; `AlarmRaised.context.cell_id` is never compared with the sending link's Cell. Under an
-  operator ISOLATE policy row (none ships by default) a Warden could have the Queen isolate
-  another Cell. Compare it with the proved link's Cell before acting.
-- No manifest check ties `[memory] budget_fraction` (0.6) to the compact line (0.5) or the
-  handoff threshold: a fresh episode can start over the compact line. The executor no longer
-  loops on it, but a manifest warning when budget_fraction exceeds compact_at would say why.
+- ~~`queen/README.md` and the module docstrings touched by the patches: keep them true as you
+  merge.~~ Fixed: `queen/README.md` names `TaskClaims`, `queen.attach` (relay refusal,
+  `frozen_cell`), `AttemptTally` and both Night Veil purges; `queen.py`'s invariants name the
+  claim and the `AttemptBook`.
+- ~~`queen/ticks/alarms.py::_isolate`: `AlarmRaised.context.cell_id` is never compared with the
+  sending link's Cell.~~ Fixed: `_isolate` acts only on the Cell the forwarding Warden's link
+  proved; another is refused through `TaskClaims.refuse_cell` as `guard.task_refused`
+  (`another_cell`), and an Alarm whose Warden has detached reaches the human. Test in
+  `tests/unit/queen/test_queen_isolation.py`.
+- ~~No manifest check ties `[memory] budget_fraction` (0.6) to the compact line (0.5) or the
+  handoff threshold.~~ Fixed: `manifest.advice.budget_over_compact_line`, logged by
+  `build_queen_deps` as `manifest.budget_over_compact_line`; the compact line is
+  `DEFAULT_COMPACT_AT` in `manifest/schema/supervision.py`. The shipped default (0.6) still trips
+  it: lowering it is the operator's call.
 - ~~A Cell release still runs inside the Queen's tick.~~ Fixed: every release runs beside the
   tick in `queen/dispatcher/releases.py` (a `ReleaseLane`, at most 4 at once, two of one Cell in
   order, collected each pass). Placement offers no task a Cell being released. `Queen.stop`

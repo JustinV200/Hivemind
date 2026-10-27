@@ -51,6 +51,9 @@ every assignment goes to a Warden, over Waggle.
   `ResultCause.CELL_RUNS_NO_COMMANDS` maps to `REQUEUE_TASK` while its task does not yet need
   commands (ADR-0060): re-placed once where commands run, never retried on the Cell refusing them.
   The planner sets `needs.commands` itself on any task whose acceptance runs a command.
+  `decide` reads how far a task has got as an `AttemptTally` (`made`: her own dispatches, which
+  her ceiling and policy rungs count; `latest`: the highest attempt number dispatched or reported,
+  so a FAILED report about an attempt a later one replaced changes nothing; `nurse_left`).
 - `queen.awake`: `QueenDecision`, `QueenSources` (its `wax(cells)` returns WRITTEN Cell Wax
   capped per Cell, `cap_wax_for_hot_state`), `decide_awake` (now takes an optional
   `cells_in_play`, roadmap step 4.2a) -- one stateless episode on `ModelSlot.QUEEN`, at the
@@ -72,83 +75,83 @@ every assignment goes to a Warden, over Waggle.
   `allow_hive_stand = false`, then fit, then Forage) and ranked (a `CAUTION` note behind a clean
   candidate, a dormant Cell before a fresh provision), only then honouring `prefer`. See
   `queen/placement/README.md` for the full module map.
-- `dispatch_ready`, `redispatch`, `resume_paused`, `requeue_for_commands`, `requeue_unfinished` (`dispatcher/`, a
-  package since roadmap step 5.7): place, grant and assign every ready task, never to a Worker directly. `dispatcher.snapshot`
-  builds the pure `Inventory`/`ForageView` `queen.placement.decide` reads (the one place this
-  dispatch awaits `deps.memory.list_wax`); `dispatcher.acquire.resolve_link` turns whatever
-  `decide` returns into a `WardenLink`, acquiring a Virtual Cell through `QueenDeps.
-  virtual_provider` first when it names one (re-entering placement once with that backend's own
-  headroom zeroed on a failed acquire, ADR-0028 Consequences). A fresh task's own `queen.placed`
-  (the placement's own reason), `chamber.assign`/`chamber.start` and `queen.assigned` land before
-  either wire message is sent, so a fast sub-bee's own immediate Question can never reach
-  `Queen._act` while the chamber still reads ASSIGNED. Roadmap step 4.8's own wiring step: before
-  the first grant a Warden ever receives, `_ensure_warden_provisioned` sets its first `Ceilings`
-  (`queen.forage.ceilings.set_ceilings`, from the Cell's own capacity report) and writes its
-  Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending `PlanWritten`
-  over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what "newly
-  attached" means, so every later dispatch to the same Warden is a no-op here. A send of either
-  that the link refuses leaves the Warden owed (`DecisionBook.owe`): every dispatch pass sends
-  both again, before any assignment, while it stays attached (`queen.forage.deliveries.
-  redeliver_owed`), and every re-attach sends what is in force again (`forage.resend`). The `TaskAssign` it
-  builds carries `task.spec.leaves` unchanged (roadmap step 5.0b) and `task.spec.role` (roadmap
-  steps 6.9/6.10) as its own `role`, plus `recon`: the `waggle.messages.task.ScoutReport`s of the
-  task's SUCCEEDED Scout dependencies, at most `MAX_RECON_REPORTS`, newest completion first
-  (`_recon_for`), and `honey`, the Queen's pre-check (roadmap step 7.9). Grants are sized against
-  the role's own `[forage.roles]` footprint when the manifest set one, else the Drone's
-  (`forager`/`scout` are never required manifest keys). Every grant is sized by
-  `dispatcher.sizing.size_grant`; a fresh dispatch's from the Cell's capacity as it stands when its
-  link carries a live reader (`WardenLink.live_capacity`: the Hive Stand's, re-reading its load and
-  free memory on every pass), every other from the link's own Cell as probed (a Virtual Cell's is
-  fixed by its spec). A grant
-  that runs no bee is never sent to the Warden (`.claude/phase-4-handoff.md` section 4.2 item 1 --
-  a grant that empty used to be sent anyway, park the task RUNNING with a `GRANT_EXCEEDED`
-  escalation, and time out silently), and `dispatcher.zero_grant` decides what happens instead.
-  A lasting shortfall (the Guard removed every binding, the Cell's own cap is zero, its whole
-  memory or all its cores could never hold one bee, no allowed source offers a seat past the
-  reserve, or any shortfall on a Cell whose capacity is fixed) records `forage.denied` with the
-  figures and fails the task at once. A passing one (the Hive Stand's free cores or free memory
-  right now, or every allowed model seat busy) is sized before the chamber moves, so the task stays
-  PENDING, one `forage.denied` with `deferred = true` says so, every later pass tries again
-  quietly, and the task fails with the figures only once `[forage] zero_grant_patience_s` has
-  passed; busy seats, like a goal whose other running tasks hold its whole
-  `max_sub_bees_per_goal`, are waited out before any Cell is chosen. One dispatch pass tries every
-  ready task once, and a waiting one never holds up the rest. `redispatch` (a RUNNING retry) and
-  `resume_paused` (a `resume_from` resume) fail at once on any zero: a RUNNING task has no queue to
-  wait in, which is also why they size their grants from the link's own Cell as probed, as before,
-  so a busy moment never fails running work. The dispatcher lifecycle fix: a pass never awaits a
-  Virtual Cell's provision; `dispatcher.provisions` acquires it beside the tick (at most
-  `ProvisionLane.limit` at once, collected by a later pass, awaited by `Queen.stop`), and a Cell
-  acquired for a task that was cancelled or whose grant was denied is released through
-  `QueenDeps.on_task_finished`. Every release, a finished task's included, runs beside the tick
-  too (`dispatcher.releases`, `ReleaseLane`: at most 4 at once, the rest waiting their turn; two
-  of one Cell in order; collected by every pass; awaited, never cancelled, by `Queen.stop` before
-  the shutdown retires what is left), and placement offers a Cell being released to no task. A
-  task a pass finds ASSIGNED was stranded between `chamber.assign` and `chamber.start` (a stop or
-  a failure; nothing was sent to its Warden yet), so every pass first gives it back to PENDING
-  through `chamber.unassign` and places it afresh as a new attempt. A stopping Hive does the same
-  for everything it leaves on its own Cells: `requeue_unfinished` (`dispatcher.ready.unfinished`),
-  awaited by `run_hive` once every Cell is gone, gives each task still ASSIGNED, RUNNING or
-  BLOCKED on a Warden this Queen placed work on (`DispatchBook.placed_on`) back to PENDING, a
-  BLOCKED one's question withdrawn first, so the next start places it afresh; a task on a Night
-  Veil Cell is cancelled instead (teardown-only), and a PAUSED one keeps its hold. Placement reads each attached Cell's live capacity less the grants
-  in force on it, and each backend's headroom less the Cells being provisioned on it; every pass
-  first returns an ended task's grants to the pool (`queen.forage.grants.release_finished`,
-  `forage.revoked` with cause RELEASED). The dispatcher's lock, waits and lane live in one
-  `QueenDeps.dispatch` (`DispatchBook`). A fresh Virtual Cell's grant is sized from its spec
-  before it is provisioned (`dispatcher.zero_grant.ready_to_provision`): a task whose grant there
-  could run no bee (seats still busy once their patience is spent, a cap the grant's margin
-  zeroes) waits, or is cancelled with `forage.denied`, instead of having a Cell made only to deny
-  its grant and release it. A task no Cell can take records `queen.decided` once per cause
-  (`DispatchBook.unplaced`), again only when the cause changes or it waits afresh, never on every
-  pass. A Virtual backend whose provision fails is held back for a while (`dispatcher.backoff`,
-  `DispatchBook.backoff`): placement skips it for 1 s after one failed round, twice as long after
-  each further round in a row, at most 5 minutes, then tries it one provision at a time, and a
-  provision on it that succeeds ends the run. One `queen.decided` (reason `backend_held_back`)
-  says when a run begins and one (`backend_restored`) when it ends, so a backend that is down
-  costs a bounded few `cell.provisioning`/`cell.provision_failed` rows, not a pair on every pass.
-  A grant or assignment that never reaches its Warden's link (a closed or dropped transport,
-  `WardenLink.send` returning False) revokes the grant (`HOLDER_OFFLINE`) and fails the task at
-  once, rather than leaving it RUNNING with no Worker.
+- `dispatch_ready`, `redispatch`, `resume_paused`, `requeue_for_commands`, `requeue_unfinished`
+  (`dispatcher/`, a package since roadmap step 5.7): place, grant and assign every ready task, never
+  to a Worker directly. `dispatcher.snapshot` builds the pure `Inventory`/`ForageView`
+  `queen.placement.decide` reads (the one place this dispatch awaits `deps.memory.list_wax`);
+  `dispatcher.acquire.resolve_link` turns whatever `decide` returns into a `WardenLink`, acquiring a
+  Virtual Cell through `QueenDeps. virtual_provider` first when it names one (re-entering placement
+  once with that backend's own headroom zeroed on a failed acquire, ADR-0028 Consequences). A fresh
+  task's own `queen.placed` (the placement's own reason), `chamber.assign`/`chamber.start` and
+  `queen.assigned` land before either wire message is sent, so a fast sub-bee's own immediate
+  Question can never reach `Queen._act` while the chamber still reads ASSIGNED. Roadmap step 4.8's
+  own wiring step: before the first grant a Warden ever receives, `_ensure_warden_provisioned` sets
+  its first `Ceilings` (`queen.forage.ceilings.set_ceilings`, from the Cell's own capacity report)
+  and writes its Cell's `HostingPlan` (`queen.forage.hosting.write_hosting_plan`, now also sending
+  `PlanWritten` over the link); `deps.ledger.decisions.ceilings_for(warden_id)` being `None` is what
+  "newly attached" means, so every later dispatch to the same Warden is a no-op here. A send of
+  either that the link refuses leaves the Warden owed (`DecisionBook.owe`): every dispatch pass
+  sends both again, before any assignment, while it stays attached (`queen.forage.deliveries.
+  redeliver_owed`), and every re-attach sends what is in force again (`forage.resend`). The
+  `TaskAssign` it builds carries `task.spec.leaves` unchanged (roadmap step 5.0b) and
+  `task.spec.role` (roadmap steps 6.9/6.10) as its own `role`, plus `recon`: the
+  `waggle.messages.task.ScoutReport`s of the task's SUCCEEDED Scout dependencies, at most
+  `MAX_RECON_REPORTS`, newest completion first (`_recon_for`), and `honey`, the Queen's pre-check
+  (roadmap step 7.9). Grants are sized against the role's own `[forage.roles]` footprint when the
+  manifest set one, else the Drone's (`forager`/`scout` are never required manifest keys). Every
+  grant is sized by `dispatcher.sizing.size_grant`; a fresh dispatch's from the Cell's capacity as
+  it stands when its link carries a live reader (`WardenLink.live_capacity`: the Hive Stand's,
+  re-reading its load and free memory on every pass), every other from the link's own Cell as probed
+  (a Virtual Cell's is fixed by its spec). A grant that runs no bee is never sent to the Warden
+  (`.claude/phase-4-handoff.md` section 4.2 item 1 -- a grant that empty used to be sent anyway,
+  park the task RUNNING with a `GRANT_EXCEEDED` escalation, and time out silently), and
+  `dispatcher.zero_grant` decides what happens instead. A lasting shortfall (the Guard removed every
+  binding, the Cell's own cap is zero, its whole memory or all its cores could never hold one bee,
+  no allowed source offers a seat past the reserve, or any shortfall on a Cell whose capacity is
+  fixed) records `forage.denied` with the figures and fails the task at once. A passing one (the
+  Hive Stand's free cores or free memory right now, or every allowed model seat busy) is sized
+  before the chamber moves, so the task stays PENDING, one `forage.denied` with `deferred = true`
+  says so, every later pass tries again quietly, and the task fails with the figures only once
+  `[forage] zero_grant_patience_s` has passed; busy seats, like a goal whose other running tasks
+  hold its whole `max_sub_bees_per_goal`, are waited out before any Cell is chosen. One dispatch
+  pass tries every ready task once, and a waiting one never holds up the rest. `redispatch` (a
+  RUNNING retry) and `resume_paused` (a `resume_from` resume) fail at once on any zero: a RUNNING
+  task has no queue to wait in, which is also why they size their grants from the link's own Cell as
+  probed, as before, so a busy moment never fails running work. The dispatcher lifecycle fix: a pass
+  never awaits a Virtual Cell's provision; `dispatcher.provisions` acquires it beside the tick (at
+  most `ProvisionLane.limit` at once, collected by a later pass, awaited by `Queen.stop`), and a
+  Cell acquired for a task that was cancelled or whose grant was denied is released through
+  `QueenDeps.on_task_finished`. Every release, a finished task's included, runs beside the tick too
+  (`dispatcher.releases`, `ReleaseLane`: at most 4 at once, the rest waiting their turn; two of one
+  Cell in order; collected by every pass; awaited, never cancelled, by `Queen.stop` before the
+  shutdown retires what is left), and placement offers a Cell being released to no task. A task a
+  pass finds ASSIGNED was stranded between `chamber.assign` and `chamber.start` (a stop or a
+  failure; nothing was sent to its Warden yet), so every pass first gives it back to PENDING through
+  `chamber.unassign` and places it afresh as a new attempt. A stopping Hive does the same for
+  everything it leaves on its own Cells: `requeue_unfinished` (`dispatcher.ready.unfinished`),
+  awaited by `run_hive` once every Cell is gone, gives each task still ASSIGNED, RUNNING or BLOCKED
+  on a Warden this Queen placed work on (`DispatchBook.placed_on`) back to PENDING, a BLOCKED one's
+  question withdrawn first, so the next start places it afresh; a task on a Night Veil Cell is
+  cancelled instead (teardown-only), and a PAUSED one keeps its hold. Placement reads each attached
+  Cell's live capacity less the grants in force on it, and each backend's headroom less the Cells
+  being provisioned on it; every pass first returns an ended task's grants to the pool
+  (`queen.forage.grants.release_finished`, `forage.revoked` with cause RELEASED). The dispatcher's
+  lock, waits and lane live in one `QueenDeps.dispatch` (`DispatchBook`). A fresh Virtual Cell's
+  grant is sized from its spec before it is provisioned
+  (`dispatcher.zero_grant.ready_to_provision`): a task whose grant there could run no bee (seats
+  still busy once their patience is spent, a cap the grant's margin zeroes) waits, or is cancelled
+  with `forage.denied`, instead of having a Cell made only to deny its grant and release it. A task
+  no Cell can take records `queen.decided` once per cause (`DispatchBook.unplaced`), again only when
+  the cause changes or it waits afresh, never on every pass. A Virtual backend whose provision fails
+  is held back for a while (`dispatcher.backoff`, `DispatchBook.backoff`): placement skips it for 1
+  s after one failed round, twice as long after each further round in a row, at most 5 minutes, then
+  tries it one provision at a time, and a provision on it that succeeds ends the run. One
+  `queen.decided` (reason `backend_held_back`) says when a run begins and one (`backend_restored`)
+  when it ends, so a backend that is down costs a bounded few
+  `cell.provisioning`/`cell.provision_failed` rows, not a pair on every pass. A grant or assignment
+  that never reaches its Warden's link (a closed or dropped transport, `WardenLink.send` returning
+  False) revokes the grant (`HOLDER_OFFLINE`) and fails the task at once, rather than leaving it
+  RUNNING with no Worker.
 - `submit_goal` (`goal_submission.py`): plan a goal, mint and persist its task graph, and dispatch
   what's ready -- `Queen.submit_goal`'s own body, pulled into a module-level function (taking
   `QueenDeps`/`WardenLink`s explicitly, never a `Queen`) so `queen.py`, pinned at the codingrules
@@ -163,7 +166,8 @@ every assignment goes to a Warden, over Waggle.
 - `HumanInbox`, `ChatWaxProposal`, `propose_wax_from_chat` (`human_inbox.py`): pending questions
   (read through the chamber) and Alarms (held in memory) awaiting the human; `propose_wax_from_chat`
   (roadmap step 4.2a) is the smallest hook for a human-typed Cell Wax proposal, building the same
-  wire `CellWaxProposed` shape (`origin=HUMAN`, `proposer=None`) `queen.ticks.wax` judges either way.
+  wire `CellWaxProposed` shape (`origin=HUMAN`, `proposer=None`) `queen.ticks.wax` judges either
+  way.
 - `queen.chat` (roadmap step 10.5, ADR-0040): the human end of her inbox, reached by the Hive
   Entrance through `ChatDoor`. When a device is revoked, `withdraw.refuse_unplanned` refuses its
   goal requests not planned yet (RECEIVED, AWAITING_CONFIRMATION, PLANNING) and
@@ -171,35 +175,45 @@ every assignment goes to a Warden, over Waggle.
   `TaskCancel` before recording it CANCELLED (a goal whose Warden cannot be told is left running,
   and named so). Every goal-request edge is moved from the row as it stands, under
   `QueenDeps.intake_lock`, so a refusal and a plan landing beside her tick never overwrite each
-  other; a plan that lands after its request was refused is stopped at once.
+  other; a plan that lands after its request was refused is stopped at once. At a Night Veil
+  Cell's teardown `ChatLog.purge_night_veil` reduces every chat line naming the Cell or its ids
+  to its skeleton in place, so no stream cursor moves.
 - `QueenDeps.on_heartbeat`: handed every Heartbeat once she has recorded it, its one way out (a
   Heartbeat never reaches the trail); the Hive Entrance's telemetry board in `hive serve`.
 - `record_event` (`trail/record.py`): the one place a `queen.*` trail event is built.
 - The Night Veil boundary (codingrules section 12, `hivemind.pheromone.retention`): whenever a
   Virtual side exists, `QueenDeps.trail` is the `VeiledTrail` the composition root builds, so a
-  record about a Night Veil Cell or one of its tasks reaches the durable trail only as its
-  skeleton and whole only in the Cell's ephemeral segment. The Queen routes her own records to it
-  by id: `attach_warden` files a Night Veil Cell's Warden under the Cell (`segments_of`),
-  `submit_goal` expects every task of a Night Veil goal, and `LifecycleVirtualCellProvider.acquire`
-  binds a task to the Night Veil Cell it now runs on. `TrailSegmentReceiver` (`trail/sync.py`)
-  offers every shipped segment to the ephemeral segments first, so a Night Veil Cell's own trail
-  never merges into the durable one. It routes by the Cell a chunk names, so the Cell gate hands
-  it only chunks naming the Cell their link proved (`cell_gate.trust.refusals`, reason
-  `another_cell`): a Night Veil Cell cannot ship its segment onto the durable trail under a MEADOW Cell's id, nor a
-  MEADOW Cell bury its own in a Night Veil Cell's segment. Nothing the Queen keeps elsewhere may
-  outlive the Cell either: she refuses Cell Wax about a Night Veil Cell (`ticks/wax.py`, recorded
-  as `queen.decided` with the reason alone), placement never offers an attached Night Veil Cell to
-  any task (`dispatcher/snapshot.py`: it holds only the task it was provisioned for), and her
-  Forage ledger forgets every row keyed to the Cell or its Wardens at its teardown
-  (`ForageLedger.forget_cell`, the ledger's Night Veil side channel, with `rows_about` as its
-  member source). Isolating a Night Veil Cell writes no BLOCK wax and labels none of its rows in
-  the Hive's tables, and reads the Cell's own records (its standing isolation, its bees' pause
-  answers, its tasks and bees for the taint order) through `hivemind.pheromone.query_cell`, since
-  they live only in its segment; the human's lift reads them there too.
+  record about a Night Veil Cell or one of its tasks reaches the durable trail only as its skeleton
+  and whole only in the Cell's ephemeral segment. The Queen routes her own records to it by id:
+  `attach_warden` files a Night Veil Cell's Warden under the Cell (`segments_of`), `submit_goal`
+  expects every task of a Night Veil goal, and `LifecycleVirtualCellProvider.acquire` binds a task
+  to the Night Veil Cell it now runs on. `TrailSegmentReceiver` (`trail/sync.py`) offers every
+  shipped segment to the ephemeral segments first, so a Night Veil Cell's own trail never merges
+  into the durable one. It routes by the Cell a chunk names, so the Cell gate hands it only chunks
+  naming the Cell their link proved (`cell_gate.trust.refusals`, reason `another_cell`): a Night
+  Veil Cell cannot ship its segment onto the durable trail under a MEADOW Cell's id, nor a MEADOW
+  Cell bury its own in a Night Veil Cell's segment. Nothing the Queen keeps elsewhere may outlive
+  the Cell either: she refuses Cell Wax about a Night Veil Cell (`ticks/wax.py`, recorded as
+  `queen.decided` with the reason alone), placement never offers an attached Night Veil Cell to any
+  task (`dispatcher/snapshot.py`: it holds only the task it was provisioned for), and her Forage
+  ledger forgets every row keyed to the Cell or its Wardens at its teardown
+  (`ForageLedger.forget_cell`, the ledger's Night Veil side channel, with `rows_about` as its member
+  source). Isolating a Night Veil Cell writes no BLOCK wax and labels none of its rows in the Hive's
+  tables, and reads the Cell's own records (its standing isolation, its bees' pause answers, its
+  tasks and bees for the taint order) through `hivemind.pheromone.query_cell`, since they live only
+  in its segment; the human's lift reads them there too.
 - `queen.inbox`: `queen_attendant`, `to_inbox_item`, `ModelTieBreaker` -- the Queen's own
   Attendant, with an optional model-backed tie-breaker on `ModelSlot.ATTENDANT`. A
   `CellWaxProposed` classifies as a routine `WAGGLE_MESSAGE` (roadmap step 4.2a: "scores low"),
-  never its own `InboxKind`.
+  never its own `InboxKind`. `TaskClaims` (`claims.py`): a Warden speaks only for the tasks placed
+  on its own Cell; a result, progress report, Alarm, question or answer about a live task placed
+  elsewhere, or nowhere, is refused before `decide` as `guard.task_refused` about the sending Cell.
+- `queen.attach`: the one path every Warden joins by (`attach_warden`, `serve_warden` for a
+  gate's proved link, `FanoutTransport`). A link relays a snapshot or rollback request only about
+  the Cell its handshake proved; any other is answered with an error and recorded as
+  `guard.relay_refused` (`refusals`, the `relay_forgery` dire pattern). While the Queen freezes a
+  Cell for a snapshot or rollback, `frozen_cell` holds its Warden's liveness
+  (`ticks.liveness.frozen_by_the_hive`), so the freeze is never judged a stall.
 - `queen.ticks`: `alarms`, `liveness`, `results`, `forage`, `wax`, `housekeeping` -- the tick
   handlers each
   `QueenAction` (or, for `forage`/`wax`, each received `ForageRequest`/`CellWaxProposed`) calls
@@ -297,7 +311,11 @@ every assignment goes to a Warden, over Waggle.
   turns every undecided row into a `GUARD_REQUEST` inbox item (a fixed 100 times the Guard
   principal's multiplier: above every Alarm and human message). `GuardDeps` is her one
   `QueenDeps.guard` field: the table, `[guard] dire_patterns`, the `CellEgress` seam and the pause
-  bound. `decision.decide_guard_item` decides each item on her tick: the dire-pattern rule
+  bound. At a Night Veil Cell's teardown `GuardRequestStore.purge_night_veil` deletes every
+  request naming it, but never one still holding goals off a Cell. The `alarm.escalated` row
+  of a Night Veil Cell's SECURITY Alarm carries the Cell's id, so the veil keeps it in that Cell's
+  segment.
+  `decision.decide_guard_item` decides each item on her tick: the dire-pattern rule
   (`queen.autopilot.guard`, no model), one awake episode with the report's facts, or the fallback
   (isolate); records `queen.decided` before any effect; carries it out (`act`: the one isolation
   path, the Hive Stand's fallback of quarantine orders plus a `PlacementHold` placement reads as a
@@ -309,12 +327,13 @@ every assignment goes to a Warden, over Waggle.
   Virtual Cell's egress, records `cell.isolated` (`record`, where a Cell's `OPEN`/`ISOLATED` state
   lives), taints its memory from the first cited event (`taint`: the Hive's tables, then a
   `CellTaintOrder` for the store the Cell's Warden keeps, resent by `resend_taint_order` whenever
-  that Warden attaches while the isolation stands) and raises a CRITICAL SECURITY Alarm
-  (`site`). `lift_isolation` is the human's lift (holds released, wax cleared, egress restored, `cell.isolation_lifted`; taint and paused tasks stay). `IsolationDoor` gives the
-  running `Queen` both as methods for the Hive Entrance's `POST /v1/cells/{cell_id}/isolate` and
-  `/lift`. Her own `ISOLATE` policy row (`QueenAction.ISOLATE_CELL`, `ticks.alarms`) isolates an
-  Alarm's Cell the same way, and only the Cell the sending Warden's link proved: an Alarm naming
-  another is refused as `guard.task_refused` (`inbox.TaskClaims.refuse_cell`).
+  that Warden attaches while the isolation stands) and raises a CRITICAL SECURITY Alarm (`site`).
+  `lift_isolation` is the human's lift (holds released, wax cleared, egress restored,
+  `cell.isolation_lifted`; taint and paused tasks stay). `IsolationDoor` gives the running `Queen`
+  both as methods for the Hive Entrance's `POST /v1/cells/{cell_id}/isolate` and `/lift`. Her own
+  `ISOLATE` policy row (`QueenAction.ISOLATE_CELL`, `ticks.alarms`) isolates an Alarm's Cell the
+  same way, and only the Cell the sending Warden's link proved: an Alarm naming another is refused
+  as `guard.task_refused` (`inbox.TaskClaims.refuse_cell`).
 - `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
 ## Enforcement points (roadmap step 10.3)
@@ -375,13 +394,13 @@ turns a connected device into a Cell the Queen can place work on lives here, and
 according to its rung of the runtime ladder (ADR-0052).
 
 - `SwarmGate` (`gate.py`) owns the listener and is the hub's `HubListener`. `start(queen, deps)`
-  binds the Wardens, the hold and the colonizer to the Queen, binds the door for device Wardens
-  on the listener and opens it; `run()` is a `TaskGroup` holding the gate's loop, every Level 0
+  binds the Wardens, the hold and the colonizer to the Queen, binds the door for device Wardens on
+  the listener and opens it; `run()` is a `TaskGroup` holding the gate's loop, every Level 0
   Warden's run task and every colonization flow; `stop()` ends the loop, cancels the flows (each
   puts back the tasks it paused), stops every Warden (each releases its lease over the packet's
   link, so the device is left as found) and only then closes the listener. `on_online` and
-  `on_offline` run in the task that reads a device's link, so they only note what happened and
-  wake the loop; the loop does the work, every `[swarm] heartbeat_interval_s` and at once when woken.
+  `on_offline` run in the task that reads a device's link, so they only note what happened and wake
+  the loop; the loop does the work, every `[swarm] heartbeat_interval_s` and at once when woken.
 - `DeviceWardens` (`wardens.py`) is the table of Level 0 Wardens, one per device, built by an
   injected `DeviceWardenFactory` (`hivemind.cli.compose.swarm`). `serve` attaches a Warden to the
   Queen (her `warden_spawn` point), starts it (it leases the device) and runs it; `stop` reverses
@@ -411,21 +430,21 @@ according to its rung of the runtime ladder (ADR-0052).
   a pending `desired_level` is handed to the colonizer, and a device with none to the Queen's own
   rung decisions (`rungs/`); anything not reachable goes to the hold.
 - `UnreachableDevices` (`unreachable/`) holds a lost device's tasks (`swarm.node_held`; the
-  dispatcher neither fails nor moves them, `DispatchBook.held`), tells a Level 0 Warden its Cell
-  was lost (one `CELL_UNREACHABLE` Alarm), marks a device whose own Warden is gone UNREACHABLE,
-  and asks the diagnosis seam for a reason: the Hive installs `HiveStandDiagnosis`
-  (`unreachable/hive_stand.py`, ADR-0056), which creates one task, without the planner, for the
-  Hive Stand's own Warden (a low-tempo Drone the Queen asked for, pinned to the Hive Stand) to
-  check the device's reachability from this end; its outcome is deposited as Nectar when it
-  completes, and a task nobody started is cancelled when the hold ends. When `[swarm]
-  unreachable_grace_s` ends it decides by the rung (`decide.py`): a Level 0 or Level 1 device's tasks are taken back
+  dispatcher neither fails nor moves them, `DispatchBook.held`), tells a Level 0 Warden its Cell was
+  lost (one `CELL_UNREACHABLE` Alarm), marks a device whose own Warden is gone UNREACHABLE, and asks
+  the diagnosis seam for a reason: the Hive installs `HiveStandDiagnosis`
+  (`unreachable/hive_stand.py`, ADR-0056), which creates one task, without the planner, for the Hive
+  Stand's own Warden (a low-tempo Drone the Queen asked for, pinned to the Hive Stand) to check the
+  device's reachability from this end; its outcome is deposited as Nectar when it completes, and a
+  task nobody started is cancelled when the hold ends. When `[swarm] unreachable_grace_s` ends it
+  decides by the rung (`decide.py`): a Level 0 or Level 1 device's tasks are taken back
   (`takeback.py`: paused, their newest Handoff noted, unassigned, placed afresh) and its Warden let
   go; the newest Handoff is the newest she can hold (`recall.py`): a colonized device's own store is
   lost with it, so a Handoff only the Honey Store has, as the HANDOFF Nectar its bee deposited, is
   filed in her memory first, unless it is tainted, written under a standing isolation, above the
   task's clearance or a Night Veil Cell's. A Nuc's tasks keep waiting, up to `[supervision]
-  max_offline_s`. A device back inside the window
-  cancels the hold. Every decision is a `queen.decided`.
+  max_offline_s`. A device back inside the window cancels the hold. Every decision is a
+  `queen.decided`.
 - `Colonizer` (`colonize/`) carries out the rung an operator asked for, one at a time
   (`request.py` decides, `guard.py` asks the Guard's `NUC_PROMOTION` point for every change). A
   promotion (`promote.py`): PREPARE the runtime, pause the Level 0 Warden's tasks into Handoffs,

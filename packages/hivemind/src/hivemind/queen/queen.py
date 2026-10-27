@@ -61,6 +61,9 @@ Key invariants:
       its own throwaway waiters even when a tick is cancelled from outside.
     - Liveness is judged after everything already queued has been drained and against the newest
       Heartbeat each link delivered (`LinkReaders.heard`), never one envelope per Warden per tick.
+    - A Warden's item about a live task not placed with it never reaches `decide`
+      (`hivemind.queen.inbox.TaskClaims`), and attempt numbers are read from her own
+      `AttemptBook`, never from `Task.attempt` alone, so they never go backwards.
 
 See Also:
     - .claude/codingrules.md section 8.8 for the kernel/Attendant/autopilot/awake shape this class
