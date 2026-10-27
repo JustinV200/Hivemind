@@ -2841,10 +2841,12 @@ borrowed device and revoking every grant.
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
   **Built 2026-10-27** (ADR-0063). `plan_swarm` (no `hivemind` import; the autopilot import
   contract now forbids `hivemind.llm` to `queen.scheduler` too) gives each backend the smallest set
-  bound on fresh Cells: queue depth (never below the task being placed), its own `max_cells`, a
-  Hive-wide `max_parallel` over Cells held (dormant included) and being made, the Hive Stand's live
-  free memory and idle cores against one reservation for a backend that `draws_on_hive_stand`, and
-  `max_cost_per_hour_usd` over each backend's stated price. The dispatcher's snapshot asks it before
+  bound on fresh Cells: its own `max_cells`, a Hive-wide `max_parallel` over Cells held (dormant
+  included) and being made, the Hive Stand's live free memory and idle cores against one
+  reservation, less the Cells still being made there, for a backend that `draws_on_hive_stand`,
+  and `max_cost_per_hour_usd` over each backend's stated price. Queue depth is no bound of its
+  own: the dispatcher asks once per ready task with no Cell on the way, so it scales the fleet
+  only through how many placements a pass makes. The dispatcher's snapshot asks it before
   every placement, the retry's included, and marks a backend it allows nothing held back with the
   bound's name, so the task waits PENDING with one `queen.decided`. Scale-down is the existing
   release; a Virtual Cell shared by several tasks is now released only after its last one (it used
