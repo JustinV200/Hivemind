@@ -91,6 +91,7 @@ __all__ = [
     "close_quietly",
     "redial",
     "rejoin",
+    "wait_or_wake",
 ]
 
 
@@ -211,7 +212,10 @@ def _never() -> bool:
 
 
 async def redial(
-    parts: Reconnection, *, abandoned: Callable[[], bool] = _never
+    parts: Reconnection,
+    *,
+    abandoned: Callable[[], bool] = _never,
+    wake: asyncio.Event | None = None,
 ) -> Transport | None:
     """Dial and announce until both succeed, waiting longer after each failure.
 
@@ -220,6 +224,8 @@ async def redial(
         abandoned: Whether the owner closed the link meanwhile. Asked before each attempt and
             once more when a connection is made, so a closed link never dials again and never
             keeps what it dialled after it was closed.
+        wake: Set by the owner when it closes the link; it cuts short a wait between attempts,
+            so a closed link's redial ends at once rather than after up to `RECONNECT_MAX_S`.
 
     Returns:
         A connected transport that has announced the Cell; None when `abandoned` became true
@@ -245,7 +251,7 @@ async def redial(
                 await close_quietly(transport)
             _LOG.info("wardens.offline.redial_failed", error=type(exc).__name__, retry_in_s=delay)
             # Through the injected clock, so a test drives the whole schedule without a timer.
-            await parts.clock.sleep(delay)
+            await wait_or_wake(parts.clock, delay, wake)
             delay = min(delay * RECONNECT_FACTOR, RECONNECT_MAX_S)
             continue
         except asyncio.CancelledError:
@@ -257,6 +263,28 @@ async def redial(
             await close_quietly(transport)
             return None
         return transport
+
+
+async def wait_or_wake(clock: Clock, seconds: float, wake: asyncio.Event | None) -> None:
+    """Sleep `seconds` on `clock`, or less if `wake` is set first.
+
+    Args:
+        clock: Paces the wait, so a test drives it without a timer.
+        seconds: The longest the wait lasts.
+        wake: Ends the wait early once set; None waits the whole time.
+    """
+    if wake is None:
+        await clock.sleep(seconds)
+        return
+    sleeping = asyncio.ensure_future(clock.sleep(seconds))
+    woken = asyncio.ensure_future(wake.wait())
+    try:
+        await asyncio.wait((sleeping, woken), return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        # Whichever lost (or both, if the caller was cancelled) must not outlive this wait.
+        sleeping.cancel()
+        woken.cancel()
+        await asyncio.gather(sleeping, woken, return_exceptions=True)
 
 
 async def rejoin(

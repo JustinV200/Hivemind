@@ -43,7 +43,8 @@ Key invariants:
       transport's does; a Warden's `stop` cancels its receive task before the link is closed.
     - A closed link never dials again: a recovery in progress is told (`redial`'s `abandoned`), so
       a receive task that outlives its Warden, because the Warden never got to reap it, can still
-      not go on redialing for it. It ends after the attempt or the wait it was in.
+      not go on redialing for it. It ends after the attempt it was in, or at once from a wait
+      between attempts (`close` wakes it).
     - Sends are serialised: the recovery's frames and the Warden's never interleave on the wire.
     - While recovering, only a trail-segment sync passes through to the new connection, since the
       recovery asks for exactly that; everything else is routed as if the link were still down.
@@ -77,6 +78,7 @@ from hivemind.wardens.offline.reconnect import (
     close_quietly,
     redial,
     rejoin,
+    wait_or_wake,
 )
 from waggle.envelope import Envelope
 from waggle.errors import (
@@ -124,6 +126,8 @@ class ReconnectingQueenLink:
         self._inner: Transport | None = None
         self._phase = LinkPhase.OFFLINE
         self._closed = False
+        # Set by `close`: wakes a recovery asleep between attempts, so it ends without dialing.
+        self._closing = asyncio.Event()
         self._watchers: list[Callable[[], None]] = []
         self._lost_at = reconnection.clock.monotonic()  # When the current outage began.
         # One frame at a time on the wire: the recovery's frames and the Warden's must not mix
@@ -205,6 +209,7 @@ class ReconnectingQueenLink:
         if self._closed:
             return
         self._closed = True
+        self._closing.set()
         inner, self._inner = self._inner, None
         self._set_phase(LinkPhase.OFFLINE)
         if inner is not None:
@@ -268,7 +273,9 @@ class ReconnectingQueenLink:
         """Dial, catch the Queen up and go online, as often as it takes."""
         clock = self._reconnection.clock
         while not self._closed:
-            dialed = await redial(self._reconnection, abandoned=lambda: self._closed)
+            dialed = await redial(
+                self._reconnection, abandoned=lambda: self._closed, wake=self._closing
+            )
             # `close` cannot reach a recovery running in the receive task, so `redial` was told.
             if dialed is None:
                 return
@@ -291,7 +298,7 @@ class ReconnectingQueenLink:
                 self._set_phase(LinkPhase.OFFLINE)
                 await close_quietly(transport)
                 # A link that opens and dies at once must not be redialled in a hot loop.
-                await clock.sleep(RECONNECT_INITIAL_S)
+                await wait_or_wake(clock, RECONNECT_INITIAL_S, self._closing)
                 continue
             return
 

@@ -24,9 +24,10 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from builders.offline import LinkRig, ScriptedQueen
+from builders.offline import AutoClock, LinkRig, ScriptedQueen
 
 from hivemind.wardens.offline import LinkPhase, OfflineRefusedError
+from waggle.clock import FakeClock
 from waggle.codec import Codec
 from waggle.errors import TransportClosedError
 from waggle.messages.task import TaskStage
@@ -238,6 +239,37 @@ async def test_a_link_closed_between_attempts_dials_no_more_and_its_receive_ends
         await asyncio.sleep(0)
 
     assert rig.queen.dials == dials  # Not one more, though the Queen is still refusing.
+
+
+class _SleepingClock(AutoClock):
+    """An AutoClock whose backoff really waits, until the test advances it (it never does)."""
+
+    def __init__(self) -> None:
+        """Create the clock; `asleep` is set once something waits on it."""
+        super().__init__()
+        self.asleep = asyncio.Event()
+
+    async def sleep(self, seconds: float) -> None:
+        """Record `seconds` and wait for an `advance` past it, as a plain FakeClock does."""
+        self.sleeps.append(seconds)
+        self.asleep.set()
+        await FakeClock.sleep(self, seconds)
+
+
+async def test_closing_a_link_wakes_a_redial_asleep_between_attempts(tmp_path: Path) -> None:
+    # Regression (phase 11 open item): `close` used to leave the backoff to run out (up to 30 s).
+    clock = _SleepingClock()
+    rig = LinkRig(tmp_path, clock=clock)
+    rig.queen.fail_dials = 1_000_000
+    rig.start()
+    async with asyncio.timeout(5.0):
+        await clock.asleep.wait()  # The first dial failed and its backoff has begun.
+
+    await rig.link.close()
+    await rig.pump_ended()  # At once: the clock never moved, so only the close could end it.
+
+    assert rig.queen.dials == 1
+    await rig.stop()
 
 
 async def test_a_link_closed_while_a_dial_is_in_flight_does_not_keep_the_connection_it_gets(
