@@ -46,14 +46,17 @@ From top to bottom, on every screen after login:
 3. **Nav.** Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping, Devices. `Enrol` is
    added only when the session's `listener` is `loopback`. The nav is drawn on the chrome; the
    current item is bold in the chrome accent with a 3 px rule beside it and `aria-current="page"`,
-   never colour alone.
+   never colour alone. As a rail it starts where the head ends, whatever the head holds: the shell
+   measures the head (bar, banner, strip and notice bar) and the rail, the Cell page's sticky
+   header and the Honey reading pane follow that height (`--head-h`), so a waiting question is
+   never hidden under the rail.
 4. **Main area.** One view. A view has a title row (title, then its filters), then its body.
 
 | Width | Shell |
 |---|---|
 | 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row. |
-| 720 to 1079 | Nav becomes a left rail of icons with labels. A table with few columns (the Cost tables) is a table; the rest stay cards, two across where there is room (the Fleet). Diagrams fill the width. |
-| 1080 and up | Left rail with labels beside the icons, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). Every table shows all its columns, except the two whose columns need more room: the Fleet and the Capping queue become tables from 1280 px and keep their cards below it, so no table ever scrolls sideways. |
+| 720 to 1079 | Nav becomes a left rail of icons with labels. A table with few columns (the Cost tables, the Forage's Wardens, requests and map tables) is a table; the rest stay cards, two across where there is room (the Fleet). Diagrams fill the width. |
+| 1080 and up | Left rail with labels beside the icons, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). Every table shows all its columns (the Grants table, with ten, from here), except the three whose columns need more room: the Fleet, the Capping queue and the Devices list become tables from 1280 px and keep their cards below it, so no table ever scrolls sideways. |
 
 On a phone in landscape the nav hides on scroll down and returns on scroll up. The strip never hides.
 
@@ -146,22 +149,29 @@ Nothing is cartoon: no mascot, no stripes.
 1. **The mark.** A hexagon outline holding a smaller filled hexagon (`Mark`), in the top bar before
    the name and on the login card; the same two hexagons, drawn on the propolis chrome, are the
    PWA icon (`public/icons/`).
-2. **The comb pattern.** An SVG hex grid of 28 px cells, stroked in `--border` at 8 percent
+2. **The comb pattern.** An SVG hex grid of 28 px cells, stroked in `--border` at 12 percent
    (`HexPattern`), behind the login card and behind an empty state (`EmptyState`), never behind a
    table or running text.
 3. **The diagrams.** Each bee in the supervision tree and each task in the Attendant graph is a
    wide flat-top hexagon, the Cell frame a hex-cornered rectangle, the role glyph inside a small
    hexagon (`components/comb/shapes.ts`).
-4. **The summary strip.** Its four groups are shallow hex-cornered cells on `--surface-2`.
-5. **The Honey browser's folders**, the Forage view's host cards and the strip share the one
-   hex-cornered clip (`--hex-cut`, a 10 px chamfer).
-6. **The chrome's comb.** The same hex grid, stroked in `--chrome-muted` at 6 percent, fills the
+4. **The summary strip.** Its four groups are shallow hex-cornered cells on `--surface-2`, set
+   4 px apart so they read as one row of comb rather than four boxes.
+5. **The Honey browser's folders** and the strip share the one hex-cornered clip (`--hex-cut`, a
+   10 px chamfer on all four corners) with no stroke, since they sit on the comb surface.
+6. **The chrome's comb.** The same hex grid, stroked in `--chrome-muted` at 12 percent, fills the
    rail below its items and the top bar's empty middle from the rail width, so the comb is felt
    on every screen; it never runs behind an item or a word.
 7. **Panels and cards.** Every panel and card of the working views (a Cell page panel and its
-   diagram, a thought, a rate card, a cost figure, the Forage flow, the Attendant's panels, the
-   Honey reading pane, the login card, the device, enrolment and spoken-goal forms) cuts its two
-   top corners by 12 px (`--hex-cut-top`); the bottom edge stays square against what follows.
+   diagram, a thought, a rate card, a cost figure, the Forage flow and host cards, the Attendant's
+   panels, the Honey reading pane, the login card, the device, enrolment and spoken-goal forms) is
+   a comb cell (`.comb-cell`): the same four-corner 10 px cut as the strip's groups, with a 1 px
+   stroke that follows the cut. The stroke is a ring drawn under the clip (`--hex-ring`), never a
+   CSS border, which would stop at each chamfer and leave the corners open; a panel is stroked in
+   `--border-soft`, a form in `--border` like its fields (`comb-cell--strong`). A row card (a
+   Fleet card, a chat line, a Honey item, a table row folded into a card) keeps the 12 px radius,
+   so a comb cell always means a panel and a rounded card a row; nothing mixes a chamfer with a
+   radius.
 
 Every view title is led by a 10 px hexagon in `--accent`, the one recurring glyph; everywhere else
 the comb is implied by the warm palette and the 2 px radius on tags.
@@ -193,13 +203,17 @@ at every level, so a slot served wholly by a provider never reads as a fault.
 
 ### 4.3 Tables
 
-Dense: 32 px rows (40 px where a row holds two short lines, as in the Fleet), 13 px type, tabular
-figures. The header is sticky and uses `--surface-2`.
+Dense: 32 px rows (40 px where a row holds two short lines, as in the Fleet, and 44 px where the
+second line holds the sub-bees' numbered comb cells, which are 20 px so their digit draws at the
+12 px floor of 4.8), 13 px type, tabular figures. The header is sticky and uses `--surface-2`.
 A column sorts when its header is clicked or activated by Enter or Space; the sorted column shows
 an arrow and has `aria-sort`. The sort is stable and ties break on the row's id, so the order is
 deterministic. Rows are keyed by id and update in place; while focus or the pointer is inside the table, new
-rows wait behind a `3 new rows, re-sort` button instead of moving the list. Ids are monospace, cut
-to 8 characters, the full id in `title`; times are relative with the ISO time in `<time>`. In a
+rows wait behind a `3 new rows, re-sort` button instead of moving the list. Ids are monospace and
+cut to their kind and the last five characters of their ULID (`cell_…2C3D4`), the part that
+differs between ids minted the same day (a ULID starts with its timestamp, so the head reads
+`cell_01H…` on every row); an id of twelve characters or fewer is shown whole, and the full id is
+always in `title` and the accessible name. Times are relative with the ISO time in `<time>`. In a
 table an enum, an id, a badge or a name never splits mid-word: cells are `nowrap` except the few
 that hold free text (a reason, a platform, the links), which wrap between words. Only a card may
 break inside a word. Below the width at which a table is a table, the one `SortSelect` control
@@ -306,8 +320,10 @@ telemetry, tasks, forage, trail (Capping events for this Cell).
 The `ForageFlow` and per-host capacity from 4.7; hosted spend against cost caps; the Forage map as
 a table (source, grade, measured grade, distance from each Cell, abundance, cost); the Fanner's
 queues per binding with waiting requests and their tempo; pending `ForageRequest`s with reasons
-and the Queen's decision when it lands; grants nearing expiry. Read: `/v1/forage`, `/v1/llm`,
-`/v1/fleet` (added in 12.1). Streams: forage, cells.
+and the Queen's decision when it lands; grants nearing expiry. The host cards are named from the
+fleet, which the view reads once itself when no view has seeded it yet. The Wardens, requests and
+map tables are tables from 720 px; the Grants table, with ten columns, from 1080 px. Read:
+`/v1/forage`, `/v1/llm`, `/v1/fleet` (added in 12.1). Streams: forage, cells.
 
 ### 5.4 Thoughts (`#/thoughts/<bee>`, `#/thoughts/queen`)
 
@@ -367,9 +383,10 @@ Exoskeleton action, to its recording. Read: `/v1/capping` (added in 12.1). Strea
 
 ### 5.10 Devices and enrolment (`#/devices`, `#/enrol`)
 
-`#/devices` is on every device: the device list with where each last connected from, the
-passkey step-up prompt, and the join screen a new device lands on when it opens the Entrance with
-an invite. Read: `/v1/devices`, `/v1/devices/me`. Stream: entrance (security events).
+`#/devices` is on every device: the device list with where each last connected from (a table
+from 1280 px, since its capability list, platform and door controls need the room; cards below),
+the passkey step-up prompt, and the join screen a new device lands on when it opens the Entrance
+with an invite. Read: `/v1/devices`, `/v1/devices/me`. Stream: entrance (security events).
 `#/enrol` renders only when the session's `listener` is `loopback`: the invite (code and QR), the
 pending list, approve (name, capabilities, spend cap, expiry), deny, unlock, revoke, and the
 Entrance Reducer with its reopen flow. A remote session that opens `#/enrol` sees a plain

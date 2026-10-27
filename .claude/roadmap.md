@@ -2516,7 +2516,17 @@ in this phase adds a new write path.
   shared "Sort by" control on every sortable table's cards, the Cell page's panels in columns,
   the chat opening on its newest line, the comb in the rail and the top bar with hex-cut top
   corners on panels, a dark chrome one step above the page, and the PWA icon redrawn as the
-  Mark (design.md sections 2, 3.1, 3.4, 4.3, 5.6 and 5.8).
+  Mark (design.md sections 2, 3.1, 3.4, 4.3, 5.6 and 5.8). **Round 3 (2026-10-27):** ids cut
+  to their kind and ULID tail (`cell_…2C3D4`) so real ids tell apart; the rail, the Cell header
+  and the Honey pane sized from the head's measured height (`--head-h`), so a waiting question
+  is never under the rail; every panel, card and form a comb cell (`.comb-cell`) with the four
+  corner 10 px cut and a stroked ring (`--hex-ring`) in place of a border cut off at the
+  chamfers; the comb at 12 percent in the chrome and behind the login card, the strip's groups
+  one comb row; 20 px numbered comb cells for the sub-bees' thoughts; the Devices list a table
+  from 1280 px with its controls a wrapping row; the Forage's Wardens, requests and map tables
+  back from 720 px with only the Grants table waiting for 1080, and the host cards named from a
+  fleet read the view makes itself; `shell.css` split into `head.css` and the login view's own
+  stylesheet (design.md sections 2, 3.4, 4.3, 5.3 and 5.10).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
