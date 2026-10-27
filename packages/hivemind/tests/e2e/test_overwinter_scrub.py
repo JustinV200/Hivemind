@@ -40,6 +40,7 @@ from e2e.kernel_helpers import HaikuScript, default_worker_turn, wait_until
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose import Hive, build_hive, run_goal, run_hive
 from hivemind.cli.in_cell.basket import BASKET_DIR
+from hivemind.cli.in_cell.redial import OUTBOX_DIR
 from hivemind.manifest import load_manifest
 from hivemind.pheromone import PheromoneEvent, TrailQuery
 from hivemind.queen.cell_gate import SCRUB_FAILED_KIND
@@ -187,5 +188,9 @@ async def _run_one_goal_scrub_failing(hive: Hive) -> None:
 
 
 def _lease_leftovers(scratch_root: Path) -> list[Path]:
-    """What a lease left in a Cell's scratch root: anything but the resident Basket's volume."""
-    return [entry for entry in scratch_root.iterdir() if entry.name != BASKET_DIR]
+    """What a lease left in a Cell's scratch root: anything but the Cell's own keeping.
+
+    The resident Basket's volume, and the Warden's outbox, which every Cell's mending link keeps
+    below its scratch root (ADR-0062), are the Cell's, never a lease's.
+    """
+    return [e for e in scratch_root.iterdir() if e.name not in (BASKET_DIR, OUTBOX_DIR)]
