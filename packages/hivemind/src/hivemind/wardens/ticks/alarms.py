@@ -302,6 +302,7 @@ async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
     fresh = await _spawn_into_slot(warden, ctx, successor, order.binding or sub_bee.binding, None)
     if fresh is None:
         return  # The Guard refused the binding: the task is already reported FAILED.
+    fresh.trace = sub_bee.trace.then(fresh.trace)  # ADR-0061: its work is this attempt's too.
     if order.new_attempt:
         await _report_attempt(warden, fresh)
     if fresh.binding != sub_bee.binding:
@@ -323,6 +324,8 @@ async def _retire_and_spawn(
     )
     fresh = await _spawn_into_slot(warden, ctx, new_assignment, binding, orderer)
     if fresh is not None:
+        # ADR-0061: the Cell still holds the retired bee's changes, and its model touched them.
+        fresh.trace = sub_bee.trace.then(fresh.trace)
         await _report_attempt(warden, fresh)
     return fresh
 

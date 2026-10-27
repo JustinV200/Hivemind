@@ -163,6 +163,14 @@ class CappingGate:
         """
         return tuple(p for p in self._proposals.values() if not is_terminal(p.state))
 
+    def proposals(self) -> tuple[Proposal, ...]:
+        """Return every stored proposal, in the order they were proposed (ADR-0061).
+
+        Returns:
+            Each proposal in its latest state; the Nurse Bee's evidence keeps the VERIFIED ones.
+        """
+        return tuple(self._proposals.values())
+
     async def run(
         self,
         proposal_id: MessageId,

@@ -41,7 +41,8 @@ Fits into the Hive:
     `hivemind.cell` (CellIdentity), `hivemind.common.tasks` (reap),
     `hivemind.forage.slots` (ModelSlot), `hivemind.guard` (the binding point's principals and
     context), `hivemind.pheromone` (WorkerEvent), `hivemind.wardens.errors`
-    (BindingRefusedError), `hivemind.wardens.spawn.attenuate` and `.binding`,
+    (BindingRefusedError), `hivemind.wardens.nurse.trace` (NurseTrace, ADR-0061),
+    `hivemind.wardens.spawn.attenuate` and `.binding`,
     `hivemind.supervision.capping` (CappingGate, GateDeps), `hivemind.workers` (everything a
     Worker's role may use) and waggle only.
 
@@ -105,6 +106,7 @@ from hivemind.supervision.capping import CommandGuard, GateDeps, GuiSurface
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.links import send_guarded
+from hivemind.wardens.nurse.trace import NurseTrace
 from hivemind.wardens.spawn.attenuate import sub_bee_capabilities, widen_lease_reachability
 from hivemind.wardens.spawn.audited_gate import AuditingCappingGate, AuditWiring
 from hivemind.wardens.spawn.binding import BindingCheck, authorize_binding
@@ -340,6 +342,8 @@ async def _start_sub_bee(
         spawned_event_id=spawned_event_id,
         exoskeleton=exoskeleton,
         comb_tools=comb.bundle if comb is not None else None,
+        # ADR-0061: what the Nurse Bee is held against and reads; a successor extends it.
+        trace=NurseTrace(bindings=(bound,), gates=((worker_id, capping_gate),)),
     )
 
 
@@ -422,6 +426,7 @@ def _build_capping_gate(
     a command postcondition this Cell may not run is this Warden's own `guard.denied` (ADR-0060).
     """
     deps = ctx.deps
+    ident = deps.identity
     return AuditingCappingGate(
         GateDeps(
             session=ctx.session,
@@ -429,11 +434,7 @@ def _build_capping_gate(
             cell=ctx.cell,
             tiers=deps.tiers,
             trail=deps.trail,
-            identity=CellIdentity(
-                hive_id=deps.identity.hive_id,
-                node_id=deps.identity.node_id,
-                actor=deps.identity.actor,
-            ),
+            identity=CellIdentity(hive_id=ident.hive_id, node_id=ident.node_id, actor=ident.actor),
             clock=deps.clock,
             checks=deps.checks,
             leave_policy=deps.leave_policy,

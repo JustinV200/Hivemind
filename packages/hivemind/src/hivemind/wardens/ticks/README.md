@@ -28,6 +28,9 @@ every decided action to one of these; none of them is a general-purpose module o
   device error while checking (`DEVICE_ERRORS`: a closed session, a refused request, a lost link)
   reports the task FAILED with the error's class and never ends the Warden's loop. A claim from a
   bee the Warden started for itself (`SubBee.local`, roadmap 11.9a) is kept on its row instead.
+  Once the machine checks pass, a Warden built with a Nurse Bee (ADR-0061) asks it: PASS, or no
+  Nurse, reports SUCCEEDED with the review; CHANGES_REQUESTED reports FAILED with it; a
+  `JUDGE_RUBRIC` criterion holds only on a PASS.
 - `trail_ship`: ship this Warden's own trail segment right before a `TaskResult` goes to the
   Queen, so a Cell paused or destroyed on that result never takes the task's rows with it;
   called by `results` and `alarms`.

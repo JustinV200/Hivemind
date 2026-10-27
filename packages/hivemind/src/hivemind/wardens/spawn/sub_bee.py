@@ -33,8 +33,9 @@ Fits into the Hive:
     `hivemind.wardens.warden.Warden` and its `hivemind.wardens.ticks` handlers on every report a
     sub-bee sends; `reap_runtime` is called by `stop_sub_bee`. Calls into `hivemind.cell`
     (RequestOrigin), `hivemind.common` (logging, reap), `hivemind.exoskeleton`
-    (ExoskeletonHandle), `hivemind.guard` (CapabilitySet), `hivemind.workers` (WorkerState,
-    WorkerRuntime, WorkerRuntimeError) and waggle only.
+    (ExoskeletonHandle), `hivemind.guard` (CapabilitySet), `hivemind.wardens.nurse.trace`
+    (NurseTrace, ADR-0061), `hivemind.workers` (WorkerState, WorkerRuntime, WorkerRuntimeError)
+    and waggle only.
 
 Key invariants:
     - `state` only ever moves along `hivemind.workers.state.TRANSITIONS`; a SubBee's own state is
@@ -73,6 +74,7 @@ from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reap
 from hivemind.exoskeleton import ExoskeletonHandle
 from hivemind.guard import CapabilitySet
+from hivemind.wardens.nurse.trace import NurseTrace
 from hivemind.workers.errors import WorkerRuntimeError
 from hivemind.workers.runtime import WorkerRuntime
 from hivemind.workers.state import WorkerState, is_terminal
@@ -178,6 +180,10 @@ class SubBee:
             a Heartbeat reads its context back under the compact line: one order per crossing,
             never one per Heartbeat, so an order read late never lands on the fresh episode that
             already acted on it.
+        trace: Every bee of this attempt, this one last: the binding each ran on and the
+            Capping gate each proposed through (ADR-0061), carried from a retired bee to its
+            successor, so the Nurse Bee is held against every model that touched the work and
+            sees every verified change. Empty for a row built outside `spawn_sub_bee`.
     """
 
     worker_id: WorkerId
@@ -200,6 +206,7 @@ class SubBee:
     comb_tools: CombToolBundle | None = field(default=None)
     local: LocalRun | None = field(default=None)
     compact_ordered: bool = field(default=False)
+    trace: NurseTrace = field(default_factory=NurseTrace)
 
     def started(self) -> TaskProgress:
         """The `TaskProgress(STARTED)` telling the Queen this bee began its task's attempt here.

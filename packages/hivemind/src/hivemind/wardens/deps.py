@@ -21,7 +21,7 @@ untrusted-content scanner its sub-bees' tool results pass through (`scanner`), a
 step 8.3) the model servers it may host on its own Cell (`servers`, `register_provider`,
 `unregister_provider`), and (roadmap step 11.6) what only a Swarm device's Warden is built with
 (`device`), and (roadmap step 11.10) what a Warden that watches its idle Cell is built with
-(`watch`).
+(`watch`), and (ADR-0061) the Nurse Bee its accept path asks (`nurse`).
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers). Built once per Warden by whichever
@@ -102,6 +102,7 @@ from hivemind.wardens.local_pool.hosting.config import (
     ServerConfig,
     UnregisterProvider,
 )
+from hivemind.wardens.nurse.accept import NurseWiring
 from hivemind.wardens.trail_sync import TrailSync
 from hivemind.wardens.watch import WatchDeps
 from hivemind.workers import Worker
@@ -281,12 +282,11 @@ class WardenDeps:
             Stand's Warden holds them, a Cell's Warden reaches the Basket through the Queen.
         resident_basket: This Warden's own resident view of the Basket (ADR-0048): the Hive Stand's
             (`RoyalJellyAccess.resident`) or, in a Cell, one over a store in its scratch.
-        basket_store, node_signer, node_signer_id, hive_verifier: A Cell's Warden's own blob store
-            and node keys: the signer of the manifests it deposits, the id its key is registered
-            under at the Queen, and the verifier of the manifests it receives. None on the Hive
-            Stand, whose store and Hive key are in `royal_jelly`.
-        device: What only a Swarm device's Warden is built with (`DeviceDeps`); None for the Hive
-            Stand's and a Virtual Cell's, which keep their lease for as long as they live.
+        basket_store, node_signer, node_signer_id, hive_verifier: A Cell's Warden's blob store and
+            keys: its manifests' signer, the id its key has at the Queen, and the Queen's
+            verifier. None on the Hive Stand, whose store and Hive key are in `royal_jelly`.
+        device: What only a Swarm device's Warden has (`DeviceDeps`); None for every other.
+        nurse: The Nurse Bee its accept path asks (ADR-0061); None asks none (`[nurse] enabled`).
     """
 
     source: RealCellSource
@@ -365,6 +365,7 @@ class WardenDeps:
     hive_verifier: Verifier | None = None
     # Roadmap step 11.6: set only by the Swarm's composition root (`hivemind.cli.compose.swarm`).
     device: DeviceDeps | None = None
+    nurse: NurseWiring | None = None  # ADR-0061: None never asks a Nurse (`[nurse] enabled`).
 
 
 def device_outage(deps: WardenDeps) -> Outage | None:

@@ -12,7 +12,9 @@ criteria at all passes vacuously (`waggle.messages.task.assignment.TaskAssign.ac
 never empty by construction, `MIN_ACCEPTANCE_ITEMS = 1`, but `run_acceptance` is also called
 directly by tests with an empty sequence, and an empty ladder is trivially "everything held"); an
 unsupported `PostconditionKind` (`HTTP_STATUS`, `JUDGE_RUBRIC` in v0) reports `has_held=False`, so
-acceptance fails closed rather than silently passing something nobody actually checked. The GUI
+acceptance fails closed rather than silently passing something nobody actually checked (a
+`JUDGE_RUBRIC` criterion is then judged by the Nurse Bee instead, ADR-0061: the accept path
+leaves it out of the machine verdict and holds it only on the Nurse's PASS). The GUI
 kinds (`URL_MATCHES`, `ELEMENT_TEXT`; ADR-0032, roadmap step 6.7) are checked through `gui_check`,
 which the caller builds over the Exoskeleton the Warden attached for the task, through its own
 session; with no Exoskeleton attached they fail closed the same way. A command criterion runs

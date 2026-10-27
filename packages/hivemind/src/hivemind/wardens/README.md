@@ -102,7 +102,11 @@ Warden never provisions Cells itself.
   (spill included); `nurse_chain` keeps only the `JUDGE` links at or above it that fit the prompt
   and the task's spend left, another provider first. No eligible link is an UNAVAILABLE ("not
   nursed") answer; a malformed, refused or over-long reply is `NurseAnswerError`; an outage
-  propagates.
+  propagates. The accept path's side (step 4): `NurseTrace` (every bee of an attempt, its binding
+  and Capping gate, carried across a respawn), `read_evidence` (the touched files through the
+  Warden's session and the Guard's scanner, within `[nurse] max_evidence_chars`), and
+  `NurseWiring`, `nurse_request`, `ask_nurse` (an outage there is "not nursed") and `nurse_event`,
+  which `ticks.results.handle_accept` calls once the machine checks pass.
 - `wardens.inbox`: `to_inbox_item`, `warden_attendant` -- the Warden's own Attendant.
 - `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
   codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter
