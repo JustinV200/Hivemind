@@ -15,12 +15,14 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from builders.borrowed import SERVER_ID, BorrowedKit, make_kit, watch
+from builders.offline import LinkRig
 
 from hivemind.cell import NoopSnapshotter
 from hivemind.cell.local import HiveStandSource
@@ -29,6 +31,7 @@ from hivemind.cli.compose.exoskeleton import running_as_root
 from hivemind.cli.in_cell.borrowed import (
     BorrowedConfig,
     BorrowedParts,
+    DeviceStores,
     LateTrailSync,
     build_borrowed_config,
     build_borrowed_warden_deps,
@@ -70,19 +73,19 @@ async def built(tmp_path: Path) -> AsyncIterator[tuple[BorrowedKit, BorrowedConf
     )
     config = build_borrowed_config(read_in_cell_env(kit.environ), _CLOCK)
     stores = await open_device_stores(config.state_dir, _CLOCK)
-    runtime = config.runtime
-    source = HiveStandSource(
-        config.cell,
-        CellIdentity(
-            hive_id=runtime.hive_id, node_id=runtime.node_id, actor=str(runtime.warden_id)
-        ),
-        stores.trail,
-        _CLOCK,
-        stores.leavings,
-    )
+    source = _source(config, stores)
     link = build_device_link(config, source, stores, LateTrailSync(), _CLOCK)
     deps = build_borrowed_warden_deps(config, BorrowedParts(source, link, stores), _CLOCK)
     yield kit, config, deps
+
+
+def _source(config: BorrowedConfig, stores: DeviceStores) -> HiveStandSource:
+    """The device's own Cell source, as the run builds it; nothing here leases it."""
+    runtime = config.runtime
+    identity = CellIdentity(
+        hive_id=runtime.hive_id, node_id=runtime.node_id, actor=str(runtime.warden_id)
+    )
+    return HiveStandSource(config.cell, identity, stores.trail, _CLOCK, stores.leavings)
 
 
 async def test_the_lease_needs_this_one_cell_and_not_a_virtual_one(
@@ -123,6 +126,26 @@ async def test_it_is_a_device_wardens_that_dials_the_queen(
     assert device.remote.reconnect_budget == ReconnectBudget(attempts=3, wall_clock_s=40.0)
     assert device.remote.peer == config.queen_host
     assert link.phase is LinkPhase.OFFLINE  # Built unconnected: the run connects it.
+
+
+async def test_a_change_of_the_link_wakes_the_wardens_tick_at_once(tmp_path: Path) -> None:
+    # Regression (phase 11 open item): the device Warden noticed a link change only on its next
+    # beat. Over a scripted Queen, the link's first connection is a change its Outage must hear.
+    kit = make_kit(tmp_path, "ws://127.0.0.1:8720", supervision=_SUPERVISION)
+    config = build_borrowed_config(read_in_cell_env(kit.environ), _CLOCK)
+    stores = await open_device_stores(config.state_dir, _CLOCK)
+    (tmp_path / "rig").mkdir()
+    rig = LinkRig(tmp_path / "rig")  # Its own outbox, apart from the device's state directory.
+    deps = build_borrowed_warden_deps(
+        config, BorrowedParts(_source(config, stores), rig.link, stores), _CLOCK
+    )
+    assert deps.device is not None and deps.device.outage is not None
+    woken = deps.device.outage.waiter(_CLOCK)  # Nothing is due: only a nudge resolves it.
+
+    rig.start()
+    async with asyncio.timeout(5.0):
+        assert await woken
+    await rig.stop()
 
 
 async def test_the_warden_keeps_its_ids_and_signs_as_the_devices_node(

@@ -9,7 +9,8 @@ its restart. Its lease needs `cell:real:<its Cell>` (the `warden` role's `cell:r
 this one machine), which is what the Guard's `lease_creation` point reads. It is a device's Warden
 (`DeviceDeps`): it gives its lease back whenever it settles with nothing to supervise, so the
 machine keeps no scratch between tasks (ADR-0054), and it holds an `Outage` and a `RemoteDeps`
-because its link to the Queen can be lost, unlike the in-process one of a Level 0 Warden; the
+because its link to the Queen can be lost, unlike the in-process one of a Level 0 Warden (every
+change of the link wakes its tick through that `Outage`, not its next beat); the
 `RemoteDeps` carries the budget it may spend sending a Drone to find out why, and the host it is
 trying to reach (roadmap 11.9a). And it is given none of the Virtual Cell's extras that only a
 Cell the Hive owns can have: no Queen-relayed snapshotter (a device cannot be snapshotted) and no
@@ -161,6 +162,10 @@ def build_borrowed_warden_deps(
     deps, registry, _fanner = build_core_deps(
         runtime, parts.source, parts.link, parts.stores.trail, clock
     )
+    outage = Outage()
+    # A change of the link wakes the Warden's tick at once, where it would otherwise notice at its
+    # next heartbeat; the offline limit is then counted from the moment the link actually dropped.
+    parts.link.watch(outage.nudge)
     deps = dataclasses.replace(
         deps,
         memory=parts.stores.memory,
@@ -174,7 +179,7 @@ def build_borrowed_warden_deps(
         ),
         device=DeviceDeps(
             release_lease_when_idle=True,
-            outage=Outage(),
+            outage=outage,
             remote=RemoteDeps(
                 link=parts.link,
                 max_offline_s=config.max_offline_s,
