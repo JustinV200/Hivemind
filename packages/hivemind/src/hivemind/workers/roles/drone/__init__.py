@@ -28,9 +28,10 @@ Key invariants:
     - `Drone.run` never calls `ctx.capping`, `ctx.session` or `ctx.asker` directly: every tool call
       goes through the registry `hivemind.workers.tools.build_registry` built, so a role's own code
       never re-implements what a tool already owns.
-    - `run_tool_loop` exposes no per-round telemetry hook; this attempt's tokens and spend are
-      recorded on `ctx.telemetry` exactly once, from the loop's own summed `Usage`, after it
-      returns (flagged as a deviation from the roadmap's per-round phrasing in this step's report).
+    - Every model round records its own tokens and spend on `ctx.telemetry` as it lands, through
+      the call gate `run_tool_loop` already calls (`bounded_loop.runner._MeteredGate`), so the
+      threshold check between tool calls and the Warden's own context check both see the context
+      mid-loop.
 
 See Also:
     - .claude/codingrules.md section 8.7 for "a Worker never marks itself SUCCEEDED."

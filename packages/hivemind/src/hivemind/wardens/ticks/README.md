@@ -70,7 +70,8 @@ every decided action to one of these; none of them is a general-purpose module o
 - `heartbeat`: send the Warden's own `Heartbeat`, mirror a sub-bee's reports (retiring one whose
   Heartbeat says it has ended with nothing more to send, leaving its Handoff with the outage if the
   outage paused it, or starting its successor when the Warden's own context check had ordered it
-  to hand off), watch for a stall,
+  to hand off; a compact is ordered once per crossing, since a bee reports its context every model
+  round), watch for a stall,
   and build the `HotStateSources` an awake episode reads -- including `wax(cells)` (roadmap step
   4.2a), WRITTEN Cell Wax for the given Cells, capped per Cell the same way
   `hivemind.queen.awake.episode.QueenSources.wax` is.

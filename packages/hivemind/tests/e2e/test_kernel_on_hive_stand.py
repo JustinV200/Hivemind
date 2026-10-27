@@ -557,13 +557,10 @@ def test_a_drone_that_checkpoints_resumes_and_finishes_from_its_handoff(
     triggering event at a quarter of the ordinary room.
 
     An `Intervene(Checkpoint)`, scheduled the moment the very first WORKER-slot call is answered,
-    is this suite's own closest true trigger: `hivemind.workers.telemetry.TelemetryTracker.
-    should_hand_off` runs before every tool call, but the one call that ever records tokens
-    (`hivemind.workers.roles.drone.role._record_usage`) only runs once an attempt's own tool loop
-    has *already* finished, so a token-threshold crossing can never fire from *within* the very
-    attempt whose own usage would cross it. `hive.warden.intervene` is the same lever a Queen- or
-    Warden-driven REBIND/TAKEOVER pulls; see this dispatch's own report. Exactly which round the
-    checkpoint actually lands on (before or after the first write commits) is not
+    is the lever pulled by hand; a real token-threshold crossing resetting the bee mid-loop is
+    `tests.e2e.test_context_reset`'s own scenario. `hive.warden.intervene` is the same lever a
+    Queen- or Warden-driven REBIND/TAKEOVER pulls; see this dispatch's own report. Exactly which
+    round the checkpoint actually lands on (before or after the first write commits) is not
     deterministic -- there is no synchronous signal this suite can await between "the model asked
     to write" and "the write landed" without reaching into the runtime's own internals -- so the
     script itself is idempotent to either outcome: a fresh attempt's own round 0 always writes

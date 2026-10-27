@@ -16,6 +16,7 @@ from builders.workers import make_assignment, make_context
 
 from hivemind.llm import (
     FakeLLMProvider,
+    LLMResponse,
     ProviderCapabilities,
     Usage,
     text_response,
@@ -121,14 +122,14 @@ async def test_drone_completes_via_the_prompted_rung_at_zero_capabilities() -> N
     assert [artifact.path for artifact in outcome.artifacts] == ["haiku.txt"]
 
 
-async def test_drone_hands_off_when_telemetry_crosses_the_threshold() -> None:
+async def test_drone_hands_off_once_a_rounds_own_usage_crosses_the_threshold() -> None:
     provider = FakeLLMProvider()
     ctx = make_context(bound=make_bound(provider=provider), handoff_threshold=0.5)
-    # Force the tracker past the threshold before the loop ever calls a tool.
-    ctx.telemetry.record_tokens(ctx.bound.context_window, ctx.bound.context_window)
     assignment = make_assignment()
     call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
-    provider.script(tool_call_response(call))
+    # The first round alone fills 60% of the window: the loop must not run the call it asked for.
+    window = ctx.bound.context_window
+    provider.script(_costing(tool_call_response(call), window * 6 // 10, 0.25))
 
     outcome = await Drone().run(ctx, assignment, resume_from=None)
 
@@ -139,6 +140,34 @@ async def test_drone_hands_off_when_telemetry_crosses_the_threshold() -> None:
     assert handoff.progress
     assert handoff.written_by == str(ctx.worker_id)
     assert handoff.task_id == assignment.task_id
+    assert handoff.open_threads and "write_file" in handoff.open_threads[0]
+    assert not (ctx.session.scratch_dir / "haiku1.txt").exists()
+    # The round's spend is the attempt's; its context ended with the handoff it asked for.
+    assert outcome.spend_usd == 0.25
+    assert ctx.telemetry.snapshot().tokens_used == 0
+
+
+async def test_each_round_records_the_context_it_leaves_never_a_sum_of_rounds() -> None:
+    provider = FakeLLMProvider()
+    ctx = make_context(bound=make_bound(provider=provider))
+    call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
+    provider.script(
+        _costing(tool_call_response(call), 1_000, 0.01),
+        _costing(text_response("Done."), 1_400, 0.02),
+    )
+
+    await Drone().run(ctx, make_assignment(), resume_from=None)
+
+    # Each round's input is the whole conversation so far: the context is the last round's own.
+    snapshot = ctx.telemetry.snapshot()
+    assert snapshot.tokens_used == 1_400
+    assert snapshot.spend == pytest.approx(0.03)
+
+
+def _costing(response: LLMResponse, tokens: int, cost_usd: float) -> LLMResponse:
+    """`response`, as a round whose input and output together hold `tokens` and cost `cost_usd`."""
+    usage = Usage(input_tokens=tokens - 100, output_tokens=100, cost_usd=cost_usd)
+    return response.model_copy(update={"usage": usage})
 
 
 async def test_pause_is_awaited_between_tool_calls() -> None:

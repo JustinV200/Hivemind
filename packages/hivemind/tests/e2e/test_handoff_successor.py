@@ -5,11 +5,10 @@ Warden pulls it on its own when a sub-bee's context passes the handoff threshold
 stop and nothing followed it: the task sat RUNNING with no bee until the goal timed out. This
 module runs the whole Hive Stand -- the Queen, the Hive Stand's own Warden and a real Drone over
 one scripted `FakeLLMProvider`, real SQLite, a real child process -- and pulls the Warden's own
-Handoff lever on the Drone while it is busy with a one-second command. The lever stands in for
-the context check (the Drone records its tokens only once its tool loop has ended, so a real
-crossing cannot be scripted inside the attempt it would end; scenario (e) of
-`test_kernel_on_hive_stand` says the same). The first bee writes its Handoff and stops; its
-successor resumes from it, writes the three haiku and the goal succeeds.
+Handoff lever on the Drone while it is busy with a one-second command: the one order that stops
+the bee and has its Warden start a fresh one (a context crossing resets the bee in place instead,
+`test_context_reset`). The first bee writes its Handoff and stops; its successor resumes from it,
+writes the three haiku and the goal succeeds.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.

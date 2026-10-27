@@ -1,4 +1,4 @@
-"""Tests for hivemind.workers.runtime.attempt: crash-to-Alarm classification.
+"""Tests for hivemind.workers.runtime.attempt: crash-to-Alarm classification, fresh episodes.
 
 Roadmap step 4.10's own wiring-pass deliverable: "A Drone whose overflow retries are exhausted
 raises an Alarm of kind CONTEXT_OVERFLOW" -- landed in a prior dispatch
@@ -8,6 +8,9 @@ over an in-process transport pair" shape `test_loop.py`'s own
 `test_a_raising_role_produces_an_alarm_moves_to_failed_and_the_loop_keeps_running` uses for a
 plain `RuntimeError` (`AlarmKind.WORKER_CRASHED`). Split into its own module, rather than added to
 `test_loop.py`, because that file is already at its own 400-line test-file cap (codingrules 5.1).
+A role restarted from its own checkpoint starts with none of the last episode's context: every
+Heartbeat until its first model round lands would otherwise report a window already full, and its
+Warden would order a handoff of an episode that has barely begun.
 
 Fits into the Hive:
     Mirrors src/hivemind/workers/runtime/attempt.py (codingrules section 3).
@@ -25,7 +28,15 @@ from __future__ import annotations
 
 import asyncio
 
-from builders.workers import RunScript, ScriptedWorker, WardenEnd, make_assignment, make_context
+from builders.memory import make_handoff
+from builders.workers import (
+    RunScript,
+    ScriptedWorker,
+    WardenEnd,
+    make_assignment,
+    make_context,
+    make_outcome,
+)
 
 from hivemind.memory import Handoff
 from hivemind.memory.overflow import MAX_OVERFLOWS, ContextOverflowError
@@ -85,6 +96,32 @@ async def test_exhausted_overflow_retries_raise_an_alarm_of_kind_context_overflo
 
     assert alarm.kind is AlarmKind.CONTEXT_OVERFLOW
     assert runtime.state is WorkerState.FAILED
+
+    runtime.stop()
+    await asyncio.wait_for(task, timeout=1)
+
+
+async def test_a_role_restarted_from_its_own_checkpoint_holds_none_of_the_last_context() -> None:
+    clock = FakeClock()
+    restarted_with: list[int] = []
+
+    async def script(
+        ctx: WorkerContext, assignment: TaskAssign, resume_from: Handoff | None
+    ) -> WorkerOutcome:
+        if resume_from is None:
+            # The first episode filled its window and checkpointed itself (codingrules 8.9).
+            ctx.telemetry.record_tokens(ctx.bound.context_window, ctx.bound.context_window)
+            return make_outcome(claimed=False, handoff=make_handoff(goal="carry on"))
+        restarted_with.append(ctx.telemetry.snapshot().tokens_used)
+        return make_outcome(summary="finished after the reset")
+
+    runtime, warden_end = _build(clock, script)
+    task = asyncio.create_task(runtime.run())
+
+    await warden_end.send(make_assignment(clock=clock))
+    await warden_end.wait_for_result()
+
+    assert restarted_with == [0]
 
     runtime.stop()
     await asyncio.wait_for(task, timeout=1)

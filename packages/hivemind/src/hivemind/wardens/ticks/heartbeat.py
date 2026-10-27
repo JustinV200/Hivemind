@@ -29,7 +29,9 @@ reported
 intervention_kind_for` -- the pure rule shared with `hivemind.queen.ticks.context.intervention_for`
 -- and sends an `Intervene(COMPACT)`/`Intervene(HANDOFF)` straight to any running sub-bee past its
 own threshold, mirroring the Queen's own watch over this Warden ("Wardens do the same to
-sub-bees"); never to one already stopping, cancelled, or on a task the Queen has paused.
+sub-bees"); never to one already stopping, cancelled, or on a task the Queen has paused, and a
+compact once per crossing: a bee reports its context every round now, so each Heartbeat of a long
+tool call would otherwise repeat the order, and one read late would reset the fresh episode too.
 `compact_view` (roadmap step 4.6) now builds a size-capped `CompactView` through `hivemind.memory.
 thresholds.capped_compact_view` rather than the raw telemetry fields. `announce_freeze` sends this
 same Heartbeat early, declaring a longer interval, right before a relayed snapshot freezes the
@@ -247,8 +249,11 @@ async def check_sub_bee_context(warden: Warden) -> None:
         if sub_bee.last_telemetry is None or not _takes_context_orders(warden, sub_bee):
             continue
         kind = intervention_kind_for(sub_bee.last_telemetry, thresholds)
-        if kind is not None:
-            await _send_context_intervene(warden, sub_bee, kind)
+        if kind is None or (kind is InterventionKind.COMPACT and sub_bee.compact_ordered):
+            # Under both lines (a new crossing may be ordered again), or already told to compact.
+            sub_bee.compact_ordered = kind is not None
+            continue
+        await _send_context_intervene(warden, sub_bee, kind)
 
 
 def _takes_context_orders(warden: Warden, sub_bee: SubBee) -> bool:
@@ -291,6 +296,8 @@ async def _send_context_intervene(warden: Warden, sub_bee: SubBee, kind: Interve
     if action is InterventionAction.HANDOFF:
         # The bee stops once its Handoff is written; this Warden starts the bee that resumes it.
         sub_bee.successor = SuccessorOrder()
+    else:
+        sub_bee.compact_ordered = True  # Once per crossing (module docstring).
     hop = Hop(
         sender=warden._warden_id, recipient=sub_bee.worker_id, node_id=warden._deps.identity.node_id
     )

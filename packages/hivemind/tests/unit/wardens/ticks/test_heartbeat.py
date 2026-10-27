@@ -114,6 +114,26 @@ async def test_check_sub_bee_context_sends_handoff_past_handoff_threshold() -> N
     assert payload.action is InterventionAction.HANDOFF
 
 
+async def test_check_sub_bee_context_orders_a_compact_once_per_crossing() -> None:
+    deps, _queen_end, warden_id = make_warden_deps()
+    warden = Warden(warden_id, deps)
+    sub_bee_end = _insert_sub_bee(warden, None)
+    [sub_bee] = warden._sub_bees.values()
+
+    # Three Heartbeats of one long tool call past the line, the reset episode's, then a new one.
+    for fraction in (0.6, 0.6, 0.6, 0.1, 0.6):
+        sub_bee.last_telemetry = _telemetry(fraction)
+        await check_sub_bee_context(warden)
+
+    receive = sub_bee_end.receive()
+    orders = [cast(Intervene, (await anext(receive)).payload).action for _ in range(2)]
+    more = asyncio.ensure_future(anext(receive))
+    await asyncio.sleep(0)
+    assert orders == [InterventionAction.COMPACT, InterventionAction.COMPACT]
+    assert not more.done()
+    more.cancel()
+
+
 async def test_check_sub_bee_context_skips_a_sub_bee_with_no_telemetry_yet() -> None:
     deps, _queen_end, warden_id = make_warden_deps()
     warden = Warden(warden_id, deps)

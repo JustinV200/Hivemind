@@ -204,6 +204,9 @@ class LoopExecutor:
             # Remember the call this attempt was about to make but never ran, so a Handoff's own
             # open_threads can name what was in progress when it checkpointed.
             self.pending_call = call
+            # Its context ends here: a Heartbeat sent while the Handoff is written must not read
+            # the old figure as a running bee's, or its Warden orders a handoff already under way.
+            self._telemetry.clear_context()
             raise HandoffRequestedError()
         # Roadmap step 9.7: a Warden that changed this Worker's tools while the model was thinking
         # has made the call it is about to run a decision about a stale menu; re-decide it.

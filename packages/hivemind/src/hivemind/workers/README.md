@@ -30,8 +30,10 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   `NectarDeposit` chunks (offsets, total, final flag, the whole content's sha256), the shape the
   Queen's intake reassembles.
 - `telemetry.py` -- `TelemetryTracker`: the mutable per-Worker `ContextTelemetry` a role writes
-  between turns and the runtime reads for every `Heartbeat`; also the `cancel_requested`/
-  `handoff_requested` flags and the `wait_if_paused()` a role's own turn loop cooperates with.
+  as it works (a Drone every model round) and the runtime reads for every `Heartbeat`; its
+  context is cleared when an episode hands off and when a fresh one starts; also the
+  `cancel_requested`/`handoff_requested` flags and the `wait_if_paused()` a role's own turn loop
+  cooperates with.
   `note_alarm`/`take_pending_alarms`/`PendingAlarm`: a small queue a tool's own call into Capping
   (`hivemind.workers.tools.proposals.cap`, on a rollback) notes an Alarm onto, with no handle on
   the runtime; the runtime drains it into a real `AlarmRaised` every tick, and also right before

@@ -117,16 +117,13 @@ class TelemetryTracker:
         self._last_actions: deque[str] = deque(maxlen=MAX_LAST_ACTIONS)
         self._blockers: tuple[str, ...] = ()
         self._spend = 0.0
-        # Grows on note_alarm (a tool-level failure the role never sees as an exception, e.g. a
-        # Capping rollback) and drains on take_pending_alarms, this dispatch's own fix 2.
+        # Grows on note_alarm (a failure no exception shows, e.g. a rollback); take_pending_alarms.
         self._pending_alarms: list[PendingAlarm] = []
         self._rollbacks = 0  # Capping rollbacks this attempt; see note_rollback.
-        # Starts "not paused": a role's first wait_if_paused() call returns at once unless a
-        # TaskPause has already landed by then.
+        # Starts "not paused": a first wait_if_paused() returns at once unless a TaskPause landed.
         self._pause_event = asyncio.Event()
         self._pause_event.set()
-        # Plain public flags: the runtime sets these from TaskCancel/Intervene, and a
-        # cooperative role (hivemind.workers.roles, roadmap step 3.16) reads them between turns.
+        # Plain public flags: the runtime sets them (TaskCancel/Intervene), a role reads them.
         self.cancel_requested = False
         self.handoff_requested = False
 
@@ -135,11 +132,14 @@ class TelemetryTracker:
 
         Args:
             used: Tokens consumed in the assembled prompt plus the response so far.
-            window: The bound model's context window this usage is measured against; a role
-                passes this every time in case a rebind changed the binding mid-attempt.
+            window: The context window `used` is measured against (a rebind may change it).
         """
         self._tokens_used = used
         self._context_window = window
+
+    def clear_context(self) -> None:
+        """Forget the tracked context: the episode that held it is ending, and the next has none."""
+        self._tokens_used = 0
 
     def record_action(self, text: str) -> None:
         """Append one short description of what the role just did.

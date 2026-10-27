@@ -174,6 +174,10 @@ class SubBee:
             replaces its entries when a tool is promoted. None for a Warden with no Basket.
         local: Set only for a task the Warden asked for itself (roadmap 11.9a): where its ending is
             kept. None for every task the Queen assigned.
+        compact_ordered: True once this Warden's context check ordered the bee to compact, until
+            a Heartbeat reads its context back under the compact line: one order per crossing,
+            never one per Heartbeat, so an order read late never lands on the fresh episode that
+            already acted on it.
     """
 
     worker_id: WorkerId
@@ -195,6 +199,7 @@ class SubBee:
     successor: SuccessorOrder | None = field(default=None)
     comb_tools: CombToolBundle | None = field(default=None)
     local: LocalRun | None = field(default=None)
+    compact_ordered: bool = field(default=False)
 
     def started(self) -> TaskProgress:
         """The `TaskProgress(STARTED)` telling the Queen this bee began its task's attempt here.

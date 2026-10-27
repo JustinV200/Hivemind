@@ -150,6 +150,8 @@ class AttemptManager:
         """
         runtime = self._runtime
         runtime._ctx.telemetry.handoff_requested = False
+        # A fresh episode assembles its own prompt: the last one's context is not its to report.
+        runtime._ctx.telemetry.clear_context()
         assignment = runtime._reporter.require_assignment()
         self._role_task = asyncio.ensure_future(
             runtime._worker.run(runtime._ctx, assignment, resume_from)

@@ -104,10 +104,11 @@ async def test_scout_handoff_is_returned_unchanged_not_treated_as_exhaustion() -
     clock = FakeClock()
     provider = FakeLLMProvider()
     ctx = make_context(clock=clock, bound=make_bound(provider=provider), handoff_threshold=0.5)
-    ctx.telemetry.record_tokens(ctx.bound.context_window, ctx.bound.context_window)
     assignment = make_assignment(clock=clock, role=WorkerRole.SCOUT)
     read = make_tool_call(name="read_file", arguments={"path": "does-not-exist.txt"})
-    provider.script(tool_call_response(read))
+    # The round's own usage fills the window, so the call it asks for checkpoints instead.
+    full = Usage(input_tokens=ctx.bound.context_window, output_tokens=0)
+    provider.script(tool_call_response(read).model_copy(update={"usage": full}))
 
     outcome = await Scout().run(ctx, assignment, resume_from=None)
 
