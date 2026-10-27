@@ -4,8 +4,8 @@
  * One `<nav>` landmark holds every item; CSS decides how it is laid out. On a phone the first
  * five items show and a "More" item opens the rest in a panel above the bar, with the device
  * name and the log out button that the top bar has no room for there; the item then reads
- * "Close". From 720px all items show in a rail. The current item carries `aria-current="page"`
- * and the chrome accent with a rule beside it. On a phone in landscape the bar slides away while
+ * "Close". From 720px all items show in a rail, with a faint comb filling the rail below them. The
+ * current item carries `aria-current="page"` and the chrome accent with a rule beside it. On a phone in landscape the bar slides away while
  * scrolling down and returns on scrolling up, to give the page its height; the summary strip is
  * not part of the nav and never hides.
  *
@@ -25,7 +25,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { RAIL_MIN, useMinWidth } from '../components';
+import { HexPattern, RAIL_MIN, useMinWidth } from '../components';
 import { useRoute } from '../router';
 import { useSlice } from '../store';
 import { DeviceLine, useLogOut } from './head';
@@ -96,6 +96,10 @@ export function Nav(): ReactElement {
         </li>
       </ul>
       {moreOpen && !wide ? <MorePanel /> : null}
+      {/* The rail's empty lower half carries a faint comb; on a phone's bar there is no room. */}
+      <div className="nav-comb">
+        <HexPattern tone="chrome" />
+      </div>
     </nav>
   );
 }

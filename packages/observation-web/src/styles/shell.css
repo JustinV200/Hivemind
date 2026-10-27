@@ -6,8 +6,9 @@
  * of stacked icon and label; from 1080px the rail widens and labels sit beside the icons and
  * content is capped at 1440px. The head (bar, banner, strip, notices) is sticky, so the strip is
  * never scrolled away or hidden by navigation. The bar and the nav are the hive's chrome: the
- * propolis tokens, dark wood around cream content in the light theme and the surface itself in
- * the dark one, so the chrome recedes at night.
+ * propolis tokens, dark wood around cream content in the light theme and the comb surface, one
+ * step lighter than the page, in the dark one, so the frame survives at night. A faint comb fills
+ * the rail below its items and the bar's empty middle from the rail width.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
@@ -58,6 +59,11 @@
   font-size: var(--fs-lg);
   letter-spacing: 0.01em;
   white-space: nowrap;
+}
+
+/* The comb across the bar's empty middle: drawn from the rail width, where there is a middle */
+.topbar-comb {
+  display: none;
 }
 
 .topbar-connection {
@@ -155,6 +161,13 @@
   text-overflow: ellipsis;
 }
 
+/* On a phone the hint takes its own line, so "LLM / autopilot" is never cut to "autopil…" */
+@media (max-width: 719px) {
+  .strip-hint {
+    display: block;
+  }
+}
+
 .strip-value {
   font-size: 20px;
   font-weight: 600;
@@ -210,6 +223,11 @@
   color: var(--chrome-text);
 }
 
+/* The comb in the rail's empty lower half; a phone's bar has no empty half */
+.nav-comb {
+  display: none;
+}
+
 .nav ul {
   list-style: none;
   margin: 0;
@@ -254,7 +272,8 @@
   box-shadow: inset 0 3px 0 var(--chrome-accent);
 }
 
-.nav svg {
+.nav a svg,
+.nav-more svg {
   width: 22px;
   height: 22px;
 }
@@ -351,6 +370,19 @@
     gap: var(--sp-4);
   }
 
+  /* The comb takes the bar's free space instead of the brand's auto margin */
+  .topbar-brand {
+    margin-right: 0;
+  }
+
+  .topbar-comb {
+    display: block;
+    position: relative;
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-width: 0;
+  }
+
   .topbar-device {
     display: flex;
   }
@@ -374,9 +406,18 @@
     position: sticky;
     top: calc(var(--topbar-h) + var(--strip-h));
     align-self: start;
+    display: flex;
+    flex-direction: column;
     border-top: 0;
     height: calc(100dvh - var(--topbar-h) - var(--strip-h));
     overflow-y: auto;
+  }
+
+  .nav-comb {
+    display: block;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 96px;
   }
 
   .nav ul {
@@ -441,6 +482,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  clip-path: var(--hex-cut-top);
 }
 
 .login-brand {

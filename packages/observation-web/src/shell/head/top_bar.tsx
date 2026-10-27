@@ -2,7 +2,8 @@
  * The top bar: the mark and the Hive's name, the connection word, the theme, the device, log out.
  *
  * The bar is the hive's chrome: propolis dark in the light theme, the surface itself in the dark
- * one. Left, the brand mark and the name. Then the connection dot, which says whether the live
+ * one. Left, the brand mark and the name, then a faint comb across the empty middle from the rail
+ * width. Then the connection dot, which says whether the live
  * streams are connected (`live`, `connecting`, `reconnecting` or `offline`) and whose word is
  * announced politely when it changes. Then the theme toggle. On a rail (720 px and up) the device
  * name (from the device's own record, its id until that loads), the listener (`loopback` on the
@@ -21,7 +22,7 @@
  *   - docs/observation/design.md sections 2 and 4.4.
  */
 import type { ReactElement } from 'react';
-import { Mark, RAIL_MIN, StatusDot, useMinWidth } from '../../components';
+import { HexPattern, Mark, RAIL_MIN, StatusDot, useMinWidth } from '../../components';
 import { connectionWord, useHive, useSlice } from '../../store';
 import { ThemeToggle } from '../theme';
 
@@ -55,6 +56,10 @@ export function TopBar(): ReactElement {
       <span className="topbar-brand">
         <Mark />
         HiveMind
+      </span>
+      {/* The bar's empty middle carries a faint comb from the rail width; a phone has no middle. */}
+      <span className="topbar-comb">
+        <HexPattern tone="chrome" />
       </span>
       <span aria-live="polite" className="topbar-connection">
         <StatusDot word={connectionWord(connection)} />

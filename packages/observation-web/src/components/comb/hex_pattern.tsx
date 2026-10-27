@@ -2,13 +2,13 @@
  * `HexPattern`: a faint comb drawn behind a surface, as an SVG pattern of hexagon outlines.
  *
  * The honeycomb is structure, not decoration, so it appears in a few fixed places only: behind
- * the login card and behind an empty state, never behind a table or running text. The cells are
- * 28 px across and drawn as strokes of the border token at low opacity, so the pattern is felt
- * more than read and never fights the words in front of it.
+ * the login card and an empty state, in the rail below its items and across the top bar's empty
+ * middle, never behind a table or running text. The cells are 28 px across and drawn as strokes
+ * at low opacity, so the pattern is felt more than read and never fights the words in front of it.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/components/comb/`. Used by the login screen and `EmptyState`;
- *   positioned by `.hex-pattern` in `src/styles/components.css`.
+ *   Layer 7 (observation-web), `src/components/comb/`. Used by the login screen, `EmptyState`,
+ *   the nav and the top bar; positioned by `.hex-pattern` in `src/styles/components.css`.
  *
  * Key invariants:
  *   - Decorative: `aria-hidden` and `pointer-events: none`, so it is never read or clicked.
@@ -26,18 +26,23 @@ const CELL = 'M14 0 28 8.08v16.17L14 32.33 0 24.25V8.08z';
 const TILE_W = 28;
 const TILE_H = 48.5;
 
-export function HexPattern(): ReactElement {
+// On the surface the stroke is the border token; on the chrome (the rail, the top bar) it is the
+// chrome's muted text, since the border token would vanish against the propolis.
+const STROKE = { surface: 'var(--border)', chrome: 'var(--chrome-muted)' } as const;
+
+export function HexPattern(props: { tone?: keyof typeof STROKE }): ReactElement {
   const id = useId();
+  const tone = props.tone ?? 'surface';
   return (
-    <svg className="hex-pattern" aria-hidden="true" focusable="false">
+    <svg className={`hex-pattern hex-pattern--${tone}`} aria-hidden="true" focusable="false">
       <defs>
         <pattern id={id} width={TILE_W} height={TILE_H} patternUnits="userSpaceOnUse">
-          <path d={CELL} fill="none" stroke="var(--border)" strokeWidth="1" />
+          <path d={CELL} fill="none" stroke={STROKE[tone]} strokeWidth="1" />
           <path
             d={CELL}
             transform={`translate(14 ${TILE_H / 2})`}
             fill="none"
-            stroke="var(--border)"
+            stroke={STROKE[tone]}
             strokeWidth="1"
           />
         </pattern>

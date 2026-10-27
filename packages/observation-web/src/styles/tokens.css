@@ -8,7 +8,8 @@
  * cream content. Light is the default. Dark, the night hive, applies when the system asks for it,
  * unless the page was told `data-theme="light"`, and again when the page was told
  * `data-theme="dark"`, so a stored choice on <html> always beats the system setting; there the
- * chrome is the surface itself, so it recedes.
+ * chrome is the comb surface (`--surface-2`), one step lighter than the page, so the rail and the
+ * bar still frame the content at night.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported first by src/main.tsx; read by base.css,
@@ -131,7 +132,7 @@
     --on-accent: #1a1400;
     --accent-soft: #4a3500;
 
-    --chrome: #1e1a12;
+    --chrome: #29231a;
     --chrome-text: #f3eee2;
     --chrome-muted: #b5ad9a;
     --chrome-accent: #f2b544;
@@ -171,7 +172,7 @@
   --on-accent: #1a1400;
   --accent-soft: #4a3500;
 
-  --chrome: #1e1a12;
+  --chrome: #29231a;
   --chrome-text: #f3eee2;
   --chrome-muted: #b5ad9a;
   --chrome-accent: #f2b544;

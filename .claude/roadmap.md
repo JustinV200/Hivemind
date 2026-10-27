@@ -2511,7 +2511,12 @@ in this phase adds a new write path.
   (checked in the phase's exit run). **Design round 2026-10-27:** the hive palette with the
   propolis chrome, the comb motif in its five places, the theme toggle in the top bar, the notice
   bar under the strip for `PushNotice`, a `ViewBoundary` around every view, relative time stamps,
-  and tables that never split a word (design.md sections 2, 3.4, 4.2, 4.3, 6 and 7).
+  and tables that never split a word (design.md sections 2, 3.4, 4.2, 4.3, 6 and 7). **Round 2
+  (2026-10-27):** one relative time per cell, phone captions on one line, two-decimal money, the
+  shared "Sort by" control on every sortable table's cards, the Cell page's panels in columns,
+  the chat opening on its newest line, the comb in the rail and the top bar with hex-cut top
+  corners on panels, a dark chrome one step above the page, and the PWA icon redrawn as the
+  Mark (design.md sections 2, 3.1, 3.4, 4.3, 5.6 and 5.8).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
@@ -2589,13 +2594,17 @@ in this phase adds a new write path.
   `/v1/cells/stream` folded into its row at once and one throttled re-read (a second after the
   first frame of a burst, never without a frame) for the aggregate-only columns; the Real /
   Virtual / All chips remembered per viewer; stable sorting by meaning with `aria-sort`; the tier
-  pill and mask tag first in every row and in the stacked cards below 1080 px; the legend fixed
+  pill and mask tag first in every row and in the stacked cards below 1280 px; the legend fixed
   above the table. The task's bee link comes from the row's `thought_principals`, since
   `FleetRow` does not name the bee working the task, and a Queen-forced mask's expiry is not
   published, so the tag is drawn without it. The design's tablet expander is not built. The
   header is sticky inside the table's own scroll box and new rows wait behind a "N new rows,
   re-sort" button while the pointer or focus is in the table (2026-10-27); on a phone one "Sort
-  by" select stands in for the header row.
+  by" select stands in for the header row. Round 2 (2026-10-27): the kind, source and lease age
+  fold under the Cell's name, the mode under the status, the role under the task, the wax under
+  the Alarm count and the thoughts (each sub-bee a numbered comb cell) under the Attendant link,
+  so a row is two short lines (40 px) and every column fits the pane from 1280 px; between 720
+  and 1279 px the rows stay cards, two across, and the page never scrolls sideways.
 - [x] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own

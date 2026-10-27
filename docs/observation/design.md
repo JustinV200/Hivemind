@@ -52,8 +52,8 @@ From top to bottom, on every screen after login:
 | Width | Shell |
 |---|---|
 | 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row. |
-| 720 to 1079 | Nav becomes a left rail of icons with labels. Tables show their main columns; the rest move behind a row's expander. Diagrams fill the width. |
-| 1080 and up | Left rail with labels, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). All columns shown. |
+| 720 to 1079 | Nav becomes a left rail of icons with labels. A table with few columns (the Cost tables) is a table; the rest stay cards, two across where there is room (the Fleet). Diagrams fill the width. |
+| 1080 and up | Left rail with labels beside the icons, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). Every table shows all its columns, except the two whose columns need more room: the Fleet and the Capping queue become tables from 1280 px and keep their cards below it, so no table ever scrolls sideways. |
 
 On a phone in landscape the nav hides on scroll down and returns on scroll up. The strip never hides.
 
@@ -65,8 +65,9 @@ The palette is the hive's: wax and comb for the surfaces, honey amber for the ac
 wood around cream content. Light is the default. Dark, the night hive, applies under
 `@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`, and again
 under `:root[data-theme="dark"]`, so a stored choice (`data-theme` set on `<html>` by the theme
-toggle) always wins over the system; there the chrome is the surface itself, so it recedes. A
-view uses tokens only; a hex value in a component is a bug.
+toggle) always wins over the system; there the chrome is the comb surface (`--surface-2`), one
+step lighter than the page, so the rail and the bar still frame the content at night. A view
+uses tokens only; a hex value in a component is a bug.
 
 ### 3.1 Surfaces, text, borders, accent
 
@@ -82,15 +83,15 @@ view uses tokens only; a hex value in a component is a bug.
 | `--accent` | `#9A4A00` | `#F2B544` | honey amber: links, current filter, focus ring, the send button |
 | `--on-accent` | `#FFFFFF` | `#1A1400` | text on a filled accent |
 | `--accent-soft` | `#F6DFA8` | `#4A3500` | a fill only: the notice bar, a hovered folder tile; never a text colour |
-| `--chrome` | `#3A2A14` | `#1E1A12` | the top bar and the nav (propolis in light; the surface in dark) |
+| `--chrome` | `#3A2A14` | `#29231A` | the top bar and the nav (propolis in light; the comb surface, one step above the page, in dark) |
 | `--chrome-text` | `#F3EEE2` | `#F3EEE2` | text on the chrome |
 | `--chrome-muted` | `#CDBFA6` | `#B5AD9A` | the nav's resting items and the device line |
 | `--chrome-accent` | `#F2B544` | `#F2B544` | the current nav item, with its rule and bold weight |
 
 Contrast on `--surface`, light and dark: `--text` 17.3 and 15.0, `--text-muted` 7.4 and 7.8,
 `--accent` 6.3 and 9.5, `--on-accent` on `--accent` 6.3 and 10.0; all pass 4.5:1 on `--bg` and
-`--surface-2` too. On the chrome, `--chrome-text` is 11.9 and 15.0, `--chrome-muted` 7.6 and 7.8
-and `--chrome-accent` 7.5 and 9.5. Shapes and motion: `--radius-card` is 12 px for every card and
+`--surface-2` too. On the chrome, `--chrome-text` is 11.9 and 13.4, `--chrome-muted` 7.6 and 7.0
+and `--chrome-accent` 7.5 and 8.5. Shapes and motion: `--radius-card` is 12 px for every card and
 panel, `--motion` is the one duration (150 ms ease) for hovers, inserts and the gauge's fill.
 
 ### 3.2 Status colours
@@ -139,11 +140,12 @@ diagrams.
 
 ### 3.4 The honeycomb
 
-The hive shows itself through one shape, the comb cell, in five fixed places and nowhere else.
+The hive shows itself through one shape, the comb cell, in seven fixed places and nowhere else.
 Nothing is cartoon: no mascot, no stripes.
 
 1. **The mark.** A hexagon outline holding a smaller filled hexagon (`Mark`), in the top bar before
-   the name and on the login card; the same two hexagons are the PWA icon.
+   the name and on the login card; the same two hexagons, drawn on the propolis chrome, are the
+   PWA icon (`public/icons/`).
 2. **The comb pattern.** An SVG hex grid of 28 px cells, stroked in `--border` at 8 percent
    (`HexPattern`), behind the login card and behind an empty state (`EmptyState`), never behind a
    table or running text.
@@ -153,6 +155,13 @@ Nothing is cartoon: no mascot, no stripes.
 4. **The summary strip.** Its four groups are shallow hex-cornered cells on `--surface-2`.
 5. **The Honey browser's folders**, the Forage view's host cards and the strip share the one
    hex-cornered clip (`--hex-cut`, a 10 px chamfer).
+6. **The chrome's comb.** The same hex grid, stroked in `--chrome-muted` at 6 percent, fills the
+   rail below its items and the top bar's empty middle from the rail width, so the comb is felt
+   on every screen; it never runs behind an item or a word.
+7. **Panels and cards.** Every panel and card of the working views (a Cell page panel and its
+   diagram, a thought, a rate card, a cost figure, the Forage flow, the Attendant's panels, the
+   Honey reading pane, the login card, the device, enrolment and spoken-goal forms) cuts its two
+   top corners by 12 px (`--hex-cut-top`); the bottom edge stays square against what follows.
 
 Every view title is led by a 10 px hexagon in `--accent`, the one recurring glyph; everywhere else
 the comb is implied by the warm palette and the 2 px radius on tags.
@@ -184,7 +193,8 @@ at every level, so a slot served wholly by a provider never reads as a fault.
 
 ### 4.3 Tables
 
-Dense: 32 px rows, 13 px type, tabular figures. The header is sticky and uses `--surface-2`.
+Dense: 32 px rows (40 px where a row holds two short lines, as in the Fleet), 13 px type, tabular
+figures. The header is sticky and uses `--surface-2`.
 A column sorts when its header is clicked or activated by Enter or Space; the sorted column shows
 an arrow and has `aria-sort`. The sort is stable and ties break on the row's id, so the order is
 deterministic. Rows are keyed by id and update in place; while focus or the pointer is inside the table, new
@@ -192,7 +202,13 @@ rows wait behind a `3 new rows, re-sort` button instead of moving the list. Ids 
 to 8 characters, the full id in `title`; times are relative with the ISO time in `<time>`. In a
 table an enum, an id, a badge or a name never splits mid-word: cells are `nowrap` except the few
 that hold free text (a reason, a platform, the links), which wrap between words. Only a card may
-break inside a word.
+break inside a word. Below the width at which a table is a table, the one `SortSelect` control
+stands in for its header row on every sortable table (the Fleet, the Forage map, the Cost tables,
+the Capping queue): a select naming the column and a button saying the direction in words, both
+driving the same sort state as the headers. A table whose columns would not fit the pane (the
+Fleet) folds a second value under a first (the kind, source and lease age under the Cell's name,
+the mode under the status, the role under the task, the wax under the Alarm count, the thoughts
+under the Attendant link) rather than scrolling sideways.
 
 ### 4.4 Status dot
 
@@ -319,7 +335,10 @@ One column: the conversation, oldest first, and below it the composer. Lines are
 A question shows its options as buttons (or a text field for a free answer); an Alarm shows
 `Acknowledge`. Each line links to the tasks and episodes it produced. A push-to-talk button holds
 to record, and a spoken goal shows its transcript with `Confirm` and `Decline` before anything
-runs. The composer's send button is the only filled accent button in the app. Break-glass Absconding needs the
+runs. The page opens on the newest line (the conversation is scrolled to its end once the seed
+lands) and follows a new line there unless the reader has scrolled up to read; a question's
+answer buttons sit under its own line, above the composer. The composer's send button is the
+only filled accent button in the app. Break-glass Absconding needs the
 password again, a typed phrase and a scope review; there is no one-click path. Read: `/v1/chat`, `/v1/inbox`. Streams: chat, push (to show a waiting
 question while another view is open). Writes: `POST /v1/chat`, `/v1/chat/audio`, the answer and
 acknowledge routes under `/v1/inbox`.
@@ -336,8 +355,9 @@ view reads on navigation and re-reads a folder when the trail stream shows a Hon
 ### 5.8 Cost (`#/cost`)
 
 Per-goal spend as a stacked bar by slot and provider, a table under it, and for each slot what
-moving it local would save. Read: `/v1/cost` (added in 12.1), `/v1/llm`. Streams: trail
-(normalised `Usage` events), forage.
+moving it local would save. Money is two decimals with thousands separators (`$3.10`,
+`$1,234.50`), and four only below one cent (`$0.0050`), so a column of figures lines up. Read:
+`/v1/cost` (added in 12.1), `/v1/llm`. Streams: trail (normalised `Usage` events), forage.
 
 ### 5.9 Capping (`#/capping`)
 

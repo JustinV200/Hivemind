@@ -61,6 +61,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  clip-path: var(--hex-cut-top);
 }
 
 /* A form's buttons sit side by side at their own width, never stretched across the card */

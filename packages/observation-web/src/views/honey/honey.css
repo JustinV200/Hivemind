@@ -269,6 +269,7 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
+  clip-path: var(--hex-cut-top);
 }
 
 .honey-pane .button {

@@ -168,6 +168,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  clip-path: var(--hex-cut-top);
 }
 
 .chat-stepup label,
