@@ -192,6 +192,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("queen.goal_request_refused", _REFUSAL),
     ("queen.goal_request_finished", _OUTCOME),  # Every task of its goal is terminal.
     ("queen.replied", _DECISION),  # Words to the human in the chat; nothing else changes.
+    ("queen.requeened", _LIFECYCLE),  # REQUEENING settled; each act inside recorded its own.
     ("warden.watch", _LIFECYCLE),
     ("warden.active", _LIFECYCLE),
     ("warden.clustered", _LIFECYCLE),

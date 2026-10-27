@@ -133,6 +133,7 @@ from hivemind.queen.placement import (
     PlacementPolicy,
     VirtualBackendCandidate,
 )
+from hivemind.queen.requeening.book import RequeeningBook
 from hivemind.queen.state import ClusterState
 from hivemind.royal_jelly import QuarantineReport, RoyalJellyAccess, ToolSpec
 from hivemind.supervision import EscalationPolicy
@@ -830,10 +831,8 @@ class QueenDeps:
             Cell (`CellId`, `TaskOutcome`) and of a Cell acquired for a task cancelled before it
             ran there; `None` is a no-op, `cell_gate.release.make_on_task_finished` the real one.
         dispatch: The dispatcher's own lock, waits, provisions and releases (`DispatchBook`).
-        keep_root: The manifest's own `[hive_stand] keep_root`, resolved (roadmap step 5.0e).
-            None (the default) until the operator sets one. Read only by `hivemind.queen.
-            goal_submission.submit_goal`, which passes it to `hivemind.queen.planner.PlanBrief.
-            keep_root` so the planner can be told the keep root and declare a leaving under it.
+        keep_root: `[hive_stand] keep_root`, resolved (step 5.0e); None until set. Read only by
+            `submit_goal`, which tells the planner (`PlanBrief.keep_root`) to leave files under it.
         honey: The Hive's Honey Store handles (roadmap phase 7, built by `hivemind.cli.compose.
             honey`): intake, the retriever for a bee's query and her own pre-check. None (the
             default) wires no Honey Store: a query is answered empty with that reason, a deposit
@@ -844,6 +843,7 @@ class QueenDeps:
         tool_lane: Her tool jobs and Basket transfers beside the tick (`ToolLane`).
         uplink_keys: The key a Warden's node signs a Basket manifest with; None trusts the Hive key.
         nurse_max_rounds: `[nurse] max_rounds`: Nurse rejections sent back before one escalates.
+        requeening: Requeening's state (ADR-0062): its store, cadences and any recovery settling.
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
             question, an Alarm, a goal request settled or finished); the Hive Entrance's own
             implementation in production, `NullHumanChannel` (tells nobody) by default.
@@ -945,3 +945,4 @@ class QueenDeps:
     tool_lane: ToolLane = field(default_factory=ToolLane)
     uplink_keys: UplinkKeys | None = None
     nurse_max_rounds: int = _DEFAULT_NURSE_MAX_ROUNDS  # ADR-0061; defaulted like the rest.
+    requeening: RequeeningBook = field(default_factory=RequeeningBook)  # ADR-0062.

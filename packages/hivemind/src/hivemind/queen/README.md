@@ -334,7 +334,12 @@ every assignment goes to a Warden, over Waggle.
   `ISOLATE` policy row (`QueenAction.ISOLATE_CELL`, `ticks.alarms`) isolates an Alarm's Cell the
   same way, and only the Cell the sending Warden's link proved: an Alarm naming another is refused
   as `guard.task_refused` (`inbox.TaskClaims.refuse_cell`).
-- `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
+- `queen.requeening`: Requeening (roadmap 13.1 and 13.2, ADR-0062). `begin_requeening` before
+  her loop starts and `settle_requeening` on her tick restore a Queen whose process died: orphaned
+  tasks placed afresh from their Handoffs, the Hive Stand's orphaned lease given back, Virtual
+  Cells' Wardens waited for and taken back, one `queen.requeened` of counts; her handled Alarms
+  and questions survive a restart, and her periodic snapshot bounds what recovery reads.
+- `queen.supersedure`: a placeholder, populated by roadmap step 13.2a.
 
 ## Enforcement points (roadmap step 10.3)
 

@@ -34,6 +34,10 @@ Vocabulary (family -> kind -> when it is recorded):
         in the chat, an awake REPLY decision; carries the chat entry id). None of the step 10.5
         kinds ever carries the human's or the Queen's words, and all are the Queen's own records,
         on her trail, never inside a Night Veil Cell's segment, so a teardown leaves them.
+        Roadmap 13.1 (ADR-0062) adds requeened: a restarted Queen's recovery settled, once per
+        start; its payload is counts (tasks given back, pauses resumed or re-placed, leases and
+        grants released, grants revoked, Wardens back and missing, Night Veil tasks cancelled)
+        and the instant of the snapshot it started from, never a Cell, task or Warden id.
     warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
         moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
@@ -172,6 +176,8 @@ class QueenEvent(PheromoneEvent):
             "queen.goal_request_finished",
             "queen.human_message_received",
             "queen.replied",
+            # Roadmap 13.1 (ADR-0062): a restarted Queen's recovery settled; counts only.
+            "queen.requeened",
         }
     )
 

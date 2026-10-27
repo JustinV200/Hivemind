@@ -90,7 +90,8 @@ Fits into the Hive:
     cross-process reason given above. Calls into `hivemind.brood_chamber` (Answer, AnswerSource,
     Task, TaskStatus), `hivemind.cell` (HoneyClearance), `hivemind.guard` (the question_routing
     point), `hivemind.memory` (MemoryStore, Note), `hivemind.queen.authority`, `.deps`
-    (QueenDeps, WardenLink), `.leave_memory` and waggle only.
+    (QueenDeps, WardenLink), `.leave_memory`, `.requeening` (note_question: a question's ids kept
+    durably, ADR-0062) and waggle only.
 
 Key invariants:
     - A Question reaches the human inbox (`chamber.ask`) only once the forwarding Warden's set
@@ -150,6 +151,7 @@ from hivemind.queen import leave_memory
 from hivemind.queen.authority import task_context, warden_held
 from hivemind.queen.chat import post_question
 from hivemind.queen.deps import QueenDeps, WardenLink
+from hivemind.queen.requeening import QuestionWiring, note_question
 from waggle.envelope import wrap
 from waggle.ids import MessageId, TaskId, WardenId
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
@@ -256,6 +258,14 @@ async def block_on_question(queen: Queen, asked: AskedQuestion) -> None:
     queen._open_questions[question.question_id] = question.task_id
     queen._question_wire_ids[chamber_question.id] = question.question_id
     queen._question_envelope_ids[chamber_question.id] = asked.envelope_id
+    # ADR-0062: the same three ids, kept durably, so an answer still reaches the Warden that asked
+    # after the Queen restarts (her dicts above die with her process).
+    wiring = QuestionWiring(
+        chamber_question_id=chamber_question.id,
+        wire_question_id=question.question_id,
+        task_id=question.task_id,
+    )
+    await note_question(queen._deps, asked.warden_id, asked.envelope_id, wiring)
     # Roadmap step 10.5: the question reaches the human in the chat, and their devices are told.
     await post_question(queen._deps, chamber_question)
 

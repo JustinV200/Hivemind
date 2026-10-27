@@ -11,8 +11,9 @@ through one stateless episode (`awake/`); `planner/` turns a goal into a validat
 `goal_submission.py` plans one goal end to end (`Queen.submit_goal`'s own body, split out so
 `queen.py` stays within its file-size cap), `placement/` picks a Cell for a ready task, and
 `dispatcher.py` places, grants and assigns it; `questions.py` and `human_inbox.py` are the
-blocking-question and human-Alarm traffic. `cluster/`, `forage/`, `requeening/` and `supersedure/`
-stay the placeholders a later roadmap phase populates.
+blocking-question and human-Alarm traffic. `requeening/` restores a Queen whose process died
+(every start is a Requeening, ADR-0062) and writes her own periodic snapshot; `supersedure/` stays
+the placeholder a later roadmap step populates.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage). Called by entrance, observation

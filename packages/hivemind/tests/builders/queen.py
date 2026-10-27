@@ -426,6 +426,14 @@ class WardenEnd:
         envelope = wrap(payload, self._hop, clock=self._clock, correlation_id=correlation_id)
         await self._transport.send(envelope)
 
+    def envelope(self, payload: WaggleMessage) -> Envelope:
+        """Wrap `payload` as this Warden would, without sending it (to send it, or again, later)."""
+        return wrap(payload, self._hop, clock=self._clock)
+
+    async def send_envelope(self, envelope: Envelope) -> None:
+        """Send `envelope` as it is: a resend keeps its id, as a Warden's after a lost link does."""
+        await self._transport.send(envelope)
+
     async def pump_until(self, ready: Callable[[], bool], limit: int = DEFAULT_PUMP_LIMIT) -> None:
         """Read and sort envelopes off the transport until `ready()` is true.
 

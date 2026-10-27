@@ -41,6 +41,9 @@ Key invariants:
       instance attributes or `QueenDeps`'s own fields (docs/adr/0019; a test introspects both).
     - She never assigns a task to a Worker directly: every assignment goes to a Warden
       (`hivemind.queen.dispatcher.dispatch_ready`).
+    - An Alarm or question a Warden sends again after her restart, one she handled before it, is
+      dropped before `decide`, and every one she handles is noted once acted on
+      (`hivemind.queen.requeening.is_replay`/`note_handled`, ADR-0062).
     - `dispatcher.dispatch_ready` and the Warden-liveness sweep run unconditionally at the end of
       every tick, never gated behind an inbox item: a stuck Alarm elsewhere in the ordered inbox
       must never delay noticing a dead Warden or placing a newly-ready task (this dispatch's own
@@ -85,7 +88,7 @@ from typing import ClassVar
 from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, TaskNotFoundError
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.memory.thresholds import capped_compact_view
-from hivemind.queen import attach, leave_memory, quarantine, questions, ticks
+from hivemind.queen import attach, leave_memory, quarantine, questions, requeening, ticks
 from hivemind.queen.autopilot import AttemptTally, QueenAction, decide, nurse_rejected
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
@@ -429,6 +432,8 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
         # Roadmap step 10.6a: a Guard request has its own rule, episode and fallback (ADR-0043).
         await decide_guard_item(queen._isolation_site(), item)
         return
+    if requeening.is_replay(queen._deps, item):
+        return  # ADR-0062: handled before her restart and sent again; never handled twice.
     # A Heartbeat, a ForageRequest, a CellWaxProposed or a Honey deposit or query is handled
     # directly (hivemind.queen.ticks.liveness.handle_infrastructure_item's own docstring explains
     # why they share this one dispatch ahead of decide).
@@ -454,6 +459,8 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
         subject = task.id if task is not None else queen._deps.identity.hive_id
         await record_event(queen._deps, "queen.decided", subject, action=action.value)
     await _act(queen, action, item, task, message)
+    # ADR-0062: an Alarm or a question, noted once handled, so a resend after a restart is dropped.
+    await requeening.note_handled(queen._deps, item)
 
 
 def _note_attempt(queen: Queen, task: Task, payload: object) -> AttemptTally:
