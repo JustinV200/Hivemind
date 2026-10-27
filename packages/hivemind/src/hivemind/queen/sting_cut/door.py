@@ -108,7 +108,9 @@ class StingCutDoor:
         """Return the Cell `target` names: itself, or the Cell its lease was opened on."""
         if not target.startswith(LEASE_PREFIX):
             return CellId(target)
-        leased = await self._deps.trail.query(TrailQuery(kind=LEASED_KIND, limit=MAX_QUERY_LIMIT))
+        # Newest first: the lease a human cuts is a recent one, still inside a bounded page.
+        query = TrailQuery(kind=LEASED_KIND, limit=MAX_QUERY_LIMIT, newest_first=True)
+        leased = await self._deps.trail.query(query)
         for event in leased:
             if str(event.payload.get("lease_id")) == target:
                 return CellId(event.subject_id)
