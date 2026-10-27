@@ -25,9 +25,10 @@ Fits into the Hive:
     sub-package. A `hivemind.wardens.warden.Warden` own delegate (see `hivemind.wardens.ticks.
     assign`'s own module docstring for why). Calls into `hivemind.cell` (CellIdentity),
     `hivemind.exoskeleton.surface` (check_structural, for a task's page criteria),
-    `hivemind.guard` (warden_principal, the scanner's site), `hivemind.supervision` (Alarm,
-    record_alarm_event -- this dispatch's own alarm-reaches-the-trail fix; capping's
-    CommandAdmission and CommandGuard, ADR-0060), `hivemind.wardens.acceptance` (run_acceptance),
+    `hivemind.guard` (warden_principal, worker_principal, PolicyContext, the scanner's site),
+    `hivemind.supervision` (Alarm, record_alarm_event -- this dispatch's own
+    alarm-reaches-the-trail fix; capping's CommandAdmission and CommandGuard, ADR-0060),
+    `hivemind.wardens.acceptance` (run_acceptance),
     `hivemind.wardens.nurse` (the Nurse Bee's accept-path side, ADR-0061),
     `hivemind.wardens.ticks.alarms` (retire_sub_bee, for the shared close-and-release-the-slot
     step) and waggle only.
@@ -72,7 +73,7 @@ from typing import TYPE_CHECKING
 from hivemind.cell import CellError, CellIdentity, CombShieldLevel, HoneyClearance
 from hivemind.exoskeleton.surface import check_structural
 from hivemind.forage import ModelSlot
-from hivemind.guard import warden_principal
+from hivemind.guard import PolicyContext, warden_principal, worker_principal
 from hivemind.guard.scanner import ScanRecorder, ScanSite, ScanSource
 from hivemind.supervision import Alarm as MirroredAlarm
 from hivemind.supervision import record_alarm_event
@@ -83,6 +84,7 @@ from hivemind.wardens.links import send_guarded
 from hivemind.wardens.nurse import (
     JUDGED_KINDS,
     AttemptEvidence,
+    BeeReads,
     EvidenceReader,
     NurseWiring,
     ask_nurse,
@@ -200,14 +202,34 @@ async def _gather(
         max_chars=nurse.max_evidence_chars,
     )
     # A claimed artifact is the Worker's word: read only what the bee could have read itself.
-    may_read = partial(bee_may_read, sub_bee.capabilities, warden._session.scratch_dir)
-    files = await read_evidence(reader, touched_paths(actions, claim.artifacts, may_read))
+    may_read = partial(bee_may_read, _bee_reads(warden, sub_bee))
+    files = await read_evidence(reader, await touched_paths(actions, claim.artifacts, may_read))
     # The Worker's grade: every binding the attempt ran on, plus any call those cannot explain.
     calls = await grant_calls(warden._deps.trail, sub_bee.assignment.grant_id)
     strength = worker_strength(trace.bindings, calls, nurse.forage)
     left = spend_left(warden._grants.get(sub_bee.assignment.grant_id), claim.spend)
     gathered = AttemptEvidence(actions=actions, files=files, strength=strength, spend_left=left)
     return nurse_request(sub_bee.assignment, claim, machine, gathered)
+
+
+def _bee_reads(warden: Warden, sub_bee: SubBee) -> BeeReads:
+    """Build the request the sub-bee's own read_file makes: it, its set, its Cell, this Enforcer."""
+    cell, session = warden._cell, warden._session
+    assert cell is not None and session is not None  # noqa: S101 - handle_accept checked both.
+    # The same context `hivemind.workers.tools.authorize` builds from the Worker's Cell.
+    context = PolicyContext(
+        comb_shield=cell.comb_shield,
+        access_level=cell.access_level,
+        processes_contained=cell.capabilities.processes_contained,
+        bound_tier=cell.comb_shield,
+    )
+    return BeeReads(
+        enforcer=warden._deps.enforcer,
+        principal=worker_principal(sub_bee.worker_id, sub_bee.assignment.role),
+        held=sub_bee.capabilities,
+        context=context,
+        scratch_dir=session.scratch_dir,
+    )
 
 
 def _scan_site(warden: Warden, sub_bee: SubBee, path: str) -> ScanSite:

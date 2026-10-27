@@ -193,8 +193,13 @@ Both are classified as observations in the Guard's event catalogue.
 - **Which files are read, and how.** The paths are the verified actions' `paths` followed by the
   claim's artifacts, each once, the first 32. An artifact is only the Worker's word, and the
   Warden's lease reaches further than the bee's own set, so an artifact is read only inside
-  scratch or where the sub-bee holds `fs:read` on its resolved path (`bee_may_read`, the check
-  the Worker's own `read_file` makes); a verified action's paths already passed the bee's gate.
+  scratch or where the Guard would let the sub-bee read it itself: `bee_may_read` asks the
+  Warden's `Enforcer` the request the Worker's own `read_file` makes outside scratch (the Worker
+  as principal, its own set, its Cell, at `session_outside_scratch`), so every floor refuses
+  first, the Hive-state floor's database, secret store and manifest included, then the access
+  level, the deny list and the held set. A refusal is a `guard.denied` row like any other, and
+  its escalation is never acted on: an unreadable artifact is skipped, never asked about. A
+  verified action's paths already passed the bee's gate, floors included.
   `CellSession` has no bounded read, so each file is read whole through the Warden's session,
   only the first `4 * budget` bytes are decoded, and the text is cut to what is left of
   `max_evidence_chars`. A Swarm device refuses a file over 16 MiB itself; on a local Cell the

@@ -12,6 +12,7 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
 from functools import partial
 from pathlib import Path
 
@@ -20,14 +21,27 @@ from builders.capping import make_action
 
 from hivemind.cell import CellIdentity
 from hivemind.cell.fake import FakeSession
+from hivemind.guard import (
+    Enforcer,
+    HiveState,
+    PolicyContext,
+    load_guard_policy,
+    worker_principal,
+)
 from hivemind.guard.capabilities import CapabilitySet
 from hivemind.guard.scanner import ScanRecorder, ScanSite, ScanSource, default_content_scanner
 from hivemind.pheromone import MemoryPheromoneTrail
 from hivemind.swarm import DeviceRequestError
-from hivemind.wardens.nurse import EvidenceReader, bee_may_read, read_evidence, touched_paths
+from hivemind.wardens.nurse import (
+    BeeReads,
+    EvidenceReader,
+    bee_may_read,
+    read_evidence,
+    touched_paths,
+)
 from waggle.clock import FakeClock
-from waggle.ids import new_hive_id, new_node_id, new_warden_id
-from waggle.messages.task import ArtifactRef
+from waggle.ids import new_hive_id, new_node_id, new_warden_id, new_worker_id
+from waggle.messages.task import ArtifactRef, WorkerRole
 
 _SCRATCH = Path("/scratch").resolve()
 _STACKED = (
@@ -100,6 +114,7 @@ async def test_an_injected_file_never_reaches_the_nurse_as_plain_text() -> None:
 
 
 _DATA = Path("/data").resolve().as_posix()
+_MANIFEST = Path("/data/hive.toml").resolve()  # The Hive's manifest, under the bee's own read.
 
 
 @pytest.mark.parametrize(
@@ -111,15 +126,26 @@ _DATA = Path("/data").resolve().as_posix()
         ("/keep/secret.txt", (f"fs:read:{_DATA}/**",), False),  # Reachable by lease, not by bee.
         ("/data/report.md", (), False),
         ("/data/report.md", (f"fs:read:{_DATA}/**",), True),
+        # The Hive-state floor refuses the manifest whatever the set holds, as read_file would.
+        ("/data/hive.toml", (f"fs:read:{_DATA}/**",), False),
     ],
 )
-def test_a_claimed_artifact_is_read_only_where_the_bee_could_read_it(
+async def test_a_claimed_artifact_is_read_only_where_the_bee_could_read_it(
     artifact: str, capabilities: tuple[str, ...], read: bool
 ) -> None:
+    clock = FakeClock()
+    identity = CellIdentity(hive_id=new_hive_id(clock), node_id=new_node_id(clock), actor="system")
+    policy = dataclasses.replace(load_guard_policy(), hive_state=HiveState.of(manifest=_MANIFEST))
+    bee = BeeReads(
+        enforcer=Enforcer(policy, MemoryPheromoneTrail(clock), clock, identity),
+        principal=worker_principal(new_worker_id(clock), WorkerRole.DRONE),
+        held=CapabilitySet.parse(*capabilities),
+        context=PolicyContext(),
+        scratch_dir=_SCRATCH,
+    )
     landed = make_action(paths=("/keep/written.txt",))  # Verified: its gate passed it.
-    may_read = partial(bee_may_read, CapabilitySet.parse(*capabilities), _SCRATCH)
     claimed = ArtifactRef(path=artifact, size_bytes=1, sha256="0" * 64)
 
-    paths = touched_paths((landed,), (claimed,), may_read)
+    paths = await touched_paths((landed,), (claimed,), partial(bee_may_read, bee))
 
     assert paths == ("/keep/written.txt", artifact)[: 1 + read]

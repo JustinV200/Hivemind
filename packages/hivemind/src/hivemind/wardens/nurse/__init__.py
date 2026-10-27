@@ -34,8 +34,8 @@ Public API:
     - NURSE_OUTPUT_TOKENS, build_nurse_request: the one LLMRequest a review makes (prompt).
     - NURSE_RUBRIC_ID: the rubric id every Nurse verdict carries (verdict).
     - NurseTrace: every bee of one attempt, its binding and its gate (trace).
-    - EvidenceReader, read_evidence, touched_paths, bee_may_read, spend_left: the files and
-      budget (evidence).
+    - EvidenceReader, BeeReads, read_evidence, touched_paths, bee_may_read, spend_left: the files
+      and budget (evidence).
     - NurseWiring, AttemptEvidence, JUDGED_KINDS, machine_report, unjudged_report, nurse_request,
       grant_calls, ask_nurse, not_nursed, nurse_event: the accept path's side (accept).
 """
@@ -54,6 +54,7 @@ from hivemind.wardens.nurse.accept import (
 )
 from hivemind.wardens.nurse.eligible import CallSize, NurseChain, nurse_chain
 from hivemind.wardens.nurse.evidence import (
+    BeeReads,
     EvidenceReader,
     bee_may_read,
     read_evidence,
@@ -71,6 +72,7 @@ __all__ = [
     "NURSE_OUTPUT_TOKENS",
     "NURSE_RUBRIC_ID",
     "AttemptEvidence",
+    "BeeReads",
     "CallSize",
     "EvidenceReader",
     "ModelNurseReviewer",

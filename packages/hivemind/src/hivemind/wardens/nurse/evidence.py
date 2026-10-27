@@ -5,22 +5,26 @@ Worker says about itself. The files are the one part that needs work: every path
 action touched or the claim names is read through the Warden's own `CellSession` (so its lease,
 never the Worker's, decides what is reachable), passed through the Guard's untrusted-content
 scanner, and cut to the manifest's evidence budget. `read_evidence` does that; `touched_paths`
-picks the paths (a claimed artifact only where `bee_may_read` says the bee could read it itself),
-and `spend_left` works out the budget pre-check's figure from the grant.
+picks the paths (a claimed artifact only where `bee_may_read` says the bee could read it itself,
+asked of the Guard as the Worker's own `read_file` asks), and `spend_left` works out the budget
+pre-check's figure from the grant.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors), inside `hivemind.wardens.nurse`. Called by the accept path
     (`hivemind.wardens.ticks.results`). Calls into `hivemind.cell` (CellSession, its errors),
-    `hivemind.guard` (Capability, CapabilitySet), `hivemind.guard.scanner` (ContentScanner,
-    ScanSite), `hivemind.common` (PermissionDeniedError), `hivemind.memory` (render_untrusted,
-    within_scan), `hivemind.supervision.capping` (NurseFile, the bounds) and waggle only.
+    `hivemind.guard` (Capability, Enforcer, PolicyRequest), `hivemind.guard.scanner`
+    (ContentScanner, ScanSite), `hivemind.common` (PermissionDeniedError), `hivemind.memory`
+    (render_untrusted, within_scan), `hivemind.supervision.capping` (NurseFile, the bounds) and
+    waggle only.
 
 Key invariants:
     - Every file's text has passed the scanner before it lands in a NurseFile: a PASS is cut to
       what was scanned, a LABEL is fenced under a harder label, a DROP is withheld with a notice.
     - The files together hold at most `max_chars` characters; a file cut to fit is `truncated`.
-    - A claimed artifact is read only inside scratch or where the bee holds `fs:read` on it: the
-      Worker names its artifacts, and the Warden's lease reaches further than the bee's own set.
+    - A claimed artifact is read only inside scratch or where the Guard lets the bee itself read
+      it at `session_outside_scratch` (every floor, the Hive-state one first, then the policy and
+      the bee's own set): the Worker names its artifacts, and the Warden's lease reaches further.
+      The decision is read, never escalated: evidence never asks the human.
     - A file is skipped, never an error, when it cannot be read for any reason (out of the lease,
       gone, a directory, binary, refused or over size on a device, a dropped link): the machine
       checks already passed, so the evidence can thin out but never fail the attempt.
@@ -32,13 +36,22 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from hivemind.cell import CellError, CellSession
 from hivemind.common import PermissionDeniedError
-from hivemind.guard import Capability, CapabilityFamily, CapabilitySet
+from hivemind.guard import (
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+    EnforcementPoint,
+    Enforcer,
+    PolicyContext,
+    PolicyRequest,
+    PrincipalRef,
+)
 from hivemind.guard.scanner import ContentScanner, ScanAction, ScanSite
 from hivemind.memory import UntrustedText, render_untrusted, within_scan
 from hivemind.supervision.capping import NurseFile
@@ -58,7 +71,14 @@ UTF8_MAX_BYTES = (
 # and the OS's own (gone, a directory, no access).
 _UNREADABLE = (CellError, PermissionDeniedError, TransportError, OSError)
 
-__all__ = ["EvidenceReader", "bee_may_read", "read_evidence", "spend_left", "touched_paths"]
+__all__ = [
+    "BeeReads",
+    "EvidenceReader",
+    "bee_may_read",
+    "read_evidence",
+    "spend_left",
+    "touched_paths",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +91,21 @@ class EvidenceReader:
     max_chars: int  # The manifest's [nurse] max_evidence_chars.
 
 
-def touched_paths(
+@dataclass(frozen=True, slots=True)
+class BeeReads:
+    """The parts of the request a bee's own read_file makes outside scratch, and who decides it."""
+
+    enforcer: Enforcer  # The Warden's Enforcer, the one its Workers' tools are handed.
+    principal: PrincipalRef  # The Worker, under its assignment's role; never the Warden.
+    held: CapabilitySet  # The sub-bee's own set, never the Warden's wider one.
+    context: PolicyContext  # The Cell the bee ran on, as its tools describe it.
+    scratch_dir: Path  # The session's scratch directory, where a relative path lands.
+
+
+async def touched_paths(
     actions: Sequence[ProposedAction],
     artifacts: Sequence[ArtifactRef],
-    may_read: Callable[[str], bool],
+    may_read: Callable[[str], Awaitable[bool]],
 ) -> tuple[str, ...]:
     """Return the paths to read: what verified actions touched, then the readable artifacts.
 
@@ -90,29 +121,41 @@ def touched_paths(
         Each path once, in first-seen order, at most MAX_NURSE_FILES of them.
     """
     paths = [path for action in actions for path in action.paths]
-    paths += [artifact.path for artifact in artifacts if may_read(artifact.path)]
+    for artifact in artifacts:
+        if await may_read(artifact.path):
+            paths.append(artifact.path)
     return tuple(dict.fromkeys(paths))[:MAX_NURSE_FILES]
 
 
-def bee_may_read(capabilities: CapabilitySet, scratch_dir: Path, path: str) -> bool:
-    """Return whether a bee could read `path` itself, as its own read_file tool would decide.
+async def bee_may_read(bee: BeeReads, path: str) -> bool:
+    """Return whether the bee could read `path` itself, decided as its own read_file decides.
+
+    Outside scratch, read_file asks the Enforcer at `session_outside_scratch` as the Worker: the
+    floors refuse first (the Hive-state floor refuses its database, secret store and manifest
+    whatever the set holds), then the access level, the deny list and the bee's own set.
 
     Args:
-        capabilities: The sub-bee's own capability set.
-        scratch_dir: The session's scratch directory, where a relative path lands.
+        bee: The Enforcer and the Worker's request parts.
         path: The path as the Worker named it.
 
     Returns:
-        True inside scratch, else whether the set holds `fs:read` on the resolved path.
+        True inside scratch, else whether the Guard allows it; a refusal is `guard.denied` on the
+        trail, and its escalation is never acted on (evidence is skipped, never asked about).
     """
-    joined = Path(path) if Path(path).is_absolute() else scratch_dir / path
+    joined = Path(path) if Path(path).is_absolute() else bee.scratch_dir / path
     resolved = joined.resolve(strict=False)
-    scratch = scratch_dir.resolve(strict=False)
+    scratch = bee.scratch_dir.resolve(strict=False)
     if resolved == scratch or scratch in resolved.parents:
         return True
-    return capabilities.allows(
-        Capability(family=CapabilityFamily.FS_READ, scope=resolved.as_posix())
+    request = PolicyRequest(
+        principal=bee.principal,
+        point=EnforcementPoint.SESSION_OUTSIDE_SCRATCH,
+        needed=Capability(family=CapabilityFamily.FS_READ, scope=resolved.as_posix()),
+        held=bee.held,
+        context=bee.context,
     )
+    # A local policy decision, plus one local trail write on a refusal.
+    return (await bee.enforcer.check(request)).allowed
 
 
 async def read_evidence(reader: EvidenceReader, paths: Iterable[str]) -> tuple[NurseFile, ...]:
