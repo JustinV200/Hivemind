@@ -191,14 +191,22 @@ Both are classified as observations in the Guard's event catalogue.
   whose proposer is that gate's bee), newest 64 kept. `CappingGate` gains a read-only
   `proposals()` for this. A Queen retry is a new attempt and starts a new trace.
 - **Which files are read, and how.** The paths are the verified actions' `paths` followed by the
-  claim's artifacts, each once, the first 32. `CellSession` has no bounded read, so each file is
-  read whole through the Warden's session and then cut to what is left of `max_evidence_chars`;
-  a file the lease cannot reach, that is gone, that is a directory, or that holds a NUL in its
-  first KiB (binary) is skipped and is still named by its action. The text that fits is scanned
-  as `SESSION_OUTPUT`, with the Warden as the reading bee, the sub-bee's capability set as the
-  task's own hosts, and the path as the locator; a flagged file reaches the Nurse inside a harder
-  fence, a dropped one as a withheld notice (`memory.render_untrusted`). Any other Cell error is
-  a device error, handled as one in acceptance.
+  claim's artifacts, each once, the first 32. An artifact is only the Worker's word, and the
+  Warden's lease reaches further than the bee's own set, so an artifact is read only inside
+  scratch or where the sub-bee holds `fs:read` on its resolved path (`bee_may_read`, the check
+  the Worker's own `read_file` makes); a verified action's paths already passed the bee's gate.
+  `CellSession` has no bounded read, so each file is read whole through the Warden's session,
+  only the first `4 * budget` bytes are decoded, and the text is cut to what is left of
+  `max_evidence_chars`. A Swarm device refuses a file over 16 MiB itself; on a local Cell the
+  read is whole, as acceptance's own file checks already are, and a ranged read is left for
+  later. A file is skipped, never an error, whenever it cannot be read: out of the lease, gone,
+  a directory, a NUL in its first KiB (binary), or any Cell, permission or transport error (a
+  device's size limit or wall, a bad transfer, a dropped link). The machine checks have already
+  passed, so reading evidence can thin what the Nurse sees but never fail the attempt; a skipped
+  file is still named by its action. The text that fits is scanned as `SESSION_OUTPUT`, with the
+  Warden as the reading bee, the sub-bee's capability set as the task's own hosts, and the path
+  as the locator; a flagged file reaches the Nurse inside a harder fence, a dropped one as a
+  withheld notice (`memory.render_untrusted`).
 - **Reads before retiring, the model call after.** The files are read while the sub-bee is still
   held (the same rule acceptance follows), and the Nurse's model call runs after the bee is
   retired, so a slow review never holds a pool slot.

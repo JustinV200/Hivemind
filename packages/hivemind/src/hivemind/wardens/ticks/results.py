@@ -86,6 +86,7 @@ from hivemind.wardens.nurse import (
     EvidenceReader,
     NurseWiring,
     ask_nurse,
+    bee_may_read,
     grant_calls,
     machine_report,
     not_nursed,
@@ -198,7 +199,9 @@ async def _gather(
         site=partial(_scan_site, warden, sub_bee),
         max_chars=nurse.max_evidence_chars,
     )
-    files = await read_evidence(reader, touched_paths(actions, claim.artifacts))
+    # A claimed artifact is the Worker's word: read only what the bee could have read itself.
+    may_read = partial(bee_may_read, sub_bee.capabilities, warden._session.scratch_dir)
+    files = await read_evidence(reader, touched_paths(actions, claim.artifacts, may_read))
     # The Worker's grade: every binding the attempt ran on, plus any call those cannot explain.
     calls = await grant_calls(warden._deps.trail, sub_bee.assignment.grant_id)
     strength = worker_strength(trace.bindings, calls, nurse.forage)
