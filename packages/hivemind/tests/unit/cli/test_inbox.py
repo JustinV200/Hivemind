@@ -25,6 +25,7 @@ from pathlib import Path
 
 from builders.cli import fake_manifest
 from builders.tasks import make_graph_draft
+from pydantic import JsonValue
 from typer.testing import CliRunner
 
 from hivemind.brood_chamber import ChamberIdentity
@@ -32,7 +33,7 @@ from hivemind.cell import CombShieldLevel
 from hivemind.cli.app import app
 from hivemind.cli.stores import open_chamber, open_trail
 from hivemind.manifest import HiveManifest, load_manifest
-from hivemind.pheromone import AlarmEvent
+from hivemind.pheromone import AlarmEvent, CappingEvent
 from waggle.clock import SystemClock
 from waggle.ids import (
     CellId,
@@ -41,6 +42,7 @@ from waggle.ids import (
     new_alarm_id,
     new_cell_id,
     new_event_id,
+    new_task_id,
     new_warden_id,
     new_worker_id,
 )
@@ -172,3 +174,37 @@ def test_inbox_answer_exits_2_on_a_missing_manifest(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 2
+
+
+def test_inbox_notes_the_rounds_no_nurse_judged_and_never_a_reviewed_one(tmp_path: Path) -> None:
+    """ADR-0061: "not nursed" is a line in the inbox, for no eligible model or a failed call."""
+    manifest_path = fake_manifest(tmp_path)
+    manifest = load_manifest(manifest_path, environ={})
+    trail = open_trail(manifest.resolve_path(manifest.hive.db))
+    clock = SystemClock()
+    rows: list[tuple[str, dict[str, JsonValue]]] = [
+        ("capping.nurse_unavailable", {"round": 1}),
+        ("capping.nurse_reviewed", {"round": 2, "status": "ERROR"}),
+        ("capping.nurse_reviewed", {"round": 1, "status": "REVIEWED", "outcome": "PASS"}),
+    ]
+    for kind, payload in rows:
+        event = CappingEvent(
+            id=new_event_id(clock),
+            hive_id=manifest.hive.id,
+            node_id=manifest.hive.node_id,
+            at=clock.now(),
+            actor="system",
+            kind=kind,
+            subject_id=new_task_id(clock),
+            payload={"cell_id": new_cell_id(clock), "worker_grade": 3, **payload},
+        )
+        asyncio.run(trail.record(event))
+
+    result = runner.invoke(app, ["inbox", "--manifest", str(manifest_path), "--json"])
+
+    assert result.exit_code == 0, result.output
+    noted = json.loads(result.output)["not_nursed"]
+    assert sorted((row["status"], row["round"]) for row in noted) == [
+        ("ERROR", 2),
+        ("UNAVAILABLE", 1),
+    ]

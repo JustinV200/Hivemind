@@ -1,15 +1,17 @@
 """Provide `hive inbox`: list pending questions and Alarms at the human, and answer a question.
 
 `hive inbox --manifest hive.toml [--json]` (the group's own default action, invoked with no
-subcommand) reads pending questions straight from the Brood Chamber (`chamber.pending_questions`)
-and reconstructs Alarms still escalated to the human from the trail's own `alarm.escalated` events
-with no later `alarm.resolved` for the same `alarm_id` -- there is no live `hivemind.queen.
-human_inbox.HumanInbox` to read in a separate CLI process (v0 has no live link into a running
-`hive run`'s Queen; the Landing Board, roadmap phase 10, is where one arrives). `hive inbox answer
-<question_id> "text" [--option N] --manifest hive.toml` records the answer through `chamber.answer`
-with `AnswerSource.HUMAN`, exactly `hive inbox answer`'s roadmap job, and also leaves a
-`hivemind.memory.Note` (`hivemind.queen.answer_note_author`) a running `hive run`'s own
-`hivemind.queen.sync_answers_from_chamber` polls for and forwards on its next poll -- see that
+subcommand) reads pending questions straight from the Brood Chamber (`chamber.pending_questions`),
+reconstructs Alarms still escalated to the human from the trail's own `alarm.escalated` events
+with no later `alarm.resolved` for the same `alarm_id`, and lists the newest attempts no Nurse
+Bee reviewed (ADR-0061: `capping.nurse_unavailable`, and `capping.nurse_reviewed` with status
+`ERROR`), the "not nursed" note that is a line here, never an Alarm -- there is no live
+`hivemind.queen.human_inbox.HumanInbox` to read in a separate CLI process (v0 has no live link
+into a running `hive run`'s Queen; the Landing Board, roadmap phase 10, is where one arrives).
+`hive inbox answer <question_id> "text" [--option N] --manifest hive.toml` records the answer
+through `chamber.answer` with `AnswerSource.HUMAN`, exactly `hive inbox answer`'s roadmap job, and
+also leaves a `hivemind.memory.Note` (`hivemind.queen.answer_note_author`) a running `hive run`'s
+own `hivemind.queen.sync_answers_from_chamber` polls for and forwards on its next poll -- see that
 function's own module docstring for why a Note, not the chamber's own `Answer`, carries the text
 across the process boundary. Roadmap step 10.8: the group also carries `--remote [--profile P]
 [--password-stdin]`, and with it every command asks a remote Hive's Entrance, as the device `hive
@@ -102,6 +104,13 @@ app = typer.Typer(
 
 __all__ = ["app"]
 
+# The newest "not nursed" rounds listed: a note to glance at, so a long-lived Hive's history of
+# them never floods the inbox. The reviewed rounds read to find ERRORs are bounded the same way.
+_NOT_NURSED_SHOWN = 20
+_NURSE_ROUNDS_READ = 500
+_NOT_NURSED_KIND = "capping.nurse_unavailable"
+_NURSE_REVIEWED_KIND = "capping.nurse_reviewed"
+
 # A human's answer is always C2 by convention (codingrules 6.1: any human-supplied detail is C2)
 # unless the question itself was asked at a lower ceiling, in which case the answer never exceeds
 # it (a Warden never receives an answer more sensitive than what it asked for).
@@ -132,6 +141,19 @@ class _AlarmRow(BaseModel):
     escalated_at: str = Field(description="When it was escalated, ISO 8601.")
 
 
+class _NotNursedRow(BaseModel):
+    """One Nurse Bee round in which no Nurse gave a verdict (ADR-0061), newest first."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    task_id: str = Field(description="The task whose attempt went unreviewed.")
+    round: int = Field(description="Which Nurse round of the task it was, from 1.")
+    status: str = Field(
+        description="UNAVAILABLE (no model was eligible) or ERROR (its call failed)."
+    )
+    at: str = Field(description="When the round was recorded, ISO 8601.")
+
+
 @app.callback(invoke_without_command=True)
 def list_command(
     ctx: typer.Context, manifest: ManifestOption = DEFAULT_MANIFEST, as_json: JsonOption = False
@@ -150,14 +172,17 @@ def list_command(
     chamber = open_chamber(db, _identity(loaded))
     trail = open_trail(db)
     questions, alarms = asyncio.run(_read_inbox(chamber, trail))
+    not_nursed = asyncio.run(_not_nursed(trail))
     if as_json:
         payload = {
             "questions": [row.model_dump(mode="json") for row in questions],
             "alarms": [row.model_dump(mode="json") for row in alarms],
+            "not_nursed": [row.model_dump(mode="json") for row in not_nursed],
         }
         typer.echo(json.dumps(payload, indent=2))
         return
     _print_tables(questions, alarms)
+    _print_not_nursed(not_nursed)
 
 
 @app.command("answer")
@@ -257,6 +282,31 @@ async def _escalated_alarms(trail: PheromoneTrail) -> tuple[_AlarmRow, ...]:
     )
 
 
+async def _not_nursed(trail: PheromoneTrail) -> tuple[_NotNursedRow, ...]:
+    """Return the newest rounds no Nurse judged: none was eligible, or the one chosen failed.
+
+    Both are accepted "not nursed" rather than escalated (ADR-0061), so this list is the one place
+    a human sees them without reading the trail.
+    """
+    unavailable = await trail.query(
+        TrailQuery(kind=_NOT_NURSED_KIND, limit=_NOT_NURSED_SHOWN, newest_first=True)
+    )
+    reviewed = await trail.query(
+        TrailQuery(kind=_NURSE_REVIEWED_KIND, limit=_NURSE_ROUNDS_READ, newest_first=True)
+    )
+    errored = [event for event in reviewed if event.payload.get("status") == "ERROR"]
+    events = sorted([*unavailable, *errored], key=lambda event: event.at, reverse=True)
+    return tuple(
+        _NotNursedRow(
+            task_id=event.subject_id,
+            round=int(str(event.payload.get("round") or 0)),
+            status="UNAVAILABLE" if event.kind == _NOT_NURSED_KIND else "ERROR",
+            at=event.at.isoformat(),
+        )
+        for event in events[:_NOT_NURSED_SHOWN]
+    )
+
+
 async def _answer(
     chamber: BroodChamber, ctx: MemoryContext, question_id: MessageId, text: str, option: int | None
 ) -> Task:
@@ -349,3 +399,12 @@ def _print_tables(questions: tuple[_QuestionRow, ...], alarms: tuple[_AlarmRow, 
         )
         if alarm_row.detail:
             typer.echo(f"    {alarm_row.detail}")
+
+
+def _print_not_nursed(rows: tuple[_NotNursedRow, ...]) -> None:
+    """Print the newest attempts no Nurse Bee reviewed; accepted, so a note and not an Alarm."""
+    typer.echo("")
+    typer.echo("NOT NURSED (accepted with no Nurse Bee review)")
+    typer.echo(f"{'TASK':<30}  {'ROUND':<5}  {'WHY':<11}  AT")
+    for row in rows:
+        typer.echo(f"{row.task_id:<30}  {row.round:<5}  {row.status:<11}  {row.at}")
