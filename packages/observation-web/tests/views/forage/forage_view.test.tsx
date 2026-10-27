@@ -182,11 +182,26 @@ describe('grants nearing expiry', () => {
     });
     const table = await screen.findByRole('table', { name: /^Grants/ });
     const rows = within(table).getAllByRole('row').slice(1);
+    const expires = (row: HTMLElement): string =>
+      row.querySelector('td[data-label="Expires"]')?.textContent?.trim() ?? '';
     expect(rows[0]?.textContent).toContain('g_soon');
     expect(rows[0]?.className).toContain('forage-near');
-    expect(rows[0]?.textContent).toContain('expiring soon');
+    // One relative time and the word, never the time twice.
+    expect(expires(rows[0]!)).toBe('in 4 min expiring soon');
     expect(rows[1]?.textContent).toContain('g_late');
     expect(rows[1]?.className).not.toContain('forage-near');
+    expect(expires(rows[1]!)).toBe('in 1 h 30 min');
+  });
+
+  it('say lapsed, not expiring soon, once the time has passed', async () => {
+    await mountForage({
+      forage: forageView({ grants: [grant({ id: 'g_gone', expires_at: inMinutes(-5) })] }),
+    });
+    const table = await screen.findByRole('table', { name: /^Grants/ });
+    const row = within(table).getAllByRole('row')[1]!;
+    expect(row.querySelector('td[data-label="Expires"]')?.textContent?.trim()).toBe(
+      '5 min ago lapsed',
+    );
   });
 });
 

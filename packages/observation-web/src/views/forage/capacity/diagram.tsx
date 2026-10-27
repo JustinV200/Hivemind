@@ -104,13 +104,26 @@ function Row(props: { laid: LaidRow; hatch: string }): ReactElement {
   );
 }
 
+// A host card's title: the fleet's name for the Cell when it has one, else the word "Cell"; the
+// Cell id follows as a token either way, so an unnamed host reads as a card and never as a 30
+// character line of id (design.md 4.3). The pool is named by its block.
+function Title(props: { block: LaidBlock; name: string | null }): ReactElement {
+  const { block, name } = props;
+  if (block.kind === 'pool') return <>{block.title}</>;
+  return (
+    <>
+      {name ?? <span className="forage-host-kind">Cell</span>}
+      <IdToken id={block.id} />
+    </>
+  );
+}
+
 function HostCard(props: { block: LaidBlock; name: string | null; hatch: string }): ReactElement {
   const { block, name, hatch } = props;
   return (
     <li className="forage-host">
       <h3 className="forage-host-title">
-        {name ?? block.title}
-        {name ? <IdToken id={block.id} /> : null}
+        <Title block={block} name={name} />
       </h3>
       <ul className="forage-host-rows">
         {block.rows.map((laid) => (

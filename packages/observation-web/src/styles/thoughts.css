@@ -34,11 +34,6 @@
   gap: var(--sp-2);
 }
 
-.follow-state {
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-}
-
 .follow-new {
   border-color: var(--accent);
   color: var(--accent);
@@ -56,6 +51,7 @@
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-card);
+  clip-path: var(--hex-cut-top);
   background: var(--surface);
   overflow-wrap: anywhere;
   animation: thought-in var(--motion);

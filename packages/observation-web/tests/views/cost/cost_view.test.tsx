@@ -60,10 +60,10 @@ describe('seed', () => {
   it('shows the totals strip: total spend, hosted spend and the local saving', async () => {
     await mountCost();
     await screen.findByRole('table', { name: /Spend per goal/ });
-    expect(figure('Total spend')).toContain('$0.0470');
-    expect(figure('Hosted spend')).toContain('$0.0470');
+    expect(figure('Total spend')).toContain('$0.05');
+    expect(figure('Hosted spend')).toContain('$0.05');
     expect(figure('Hosted spend')).toContain('4 of 7 calls cost money');
-    expect(figure('If local, saves')).toContain('$0.0470');
+    expect(figure('If local, saves')).toContain('$0.05');
   });
 
   it('formats a dollar or more with two decimals and thousands separators', async () => {
@@ -89,15 +89,15 @@ describe('the goal table', () => {
     await screen.findByRole('table', { name: /Spend per goal/ });
     const row = bodyRows(/Spend per goal/)[0]!;
     const cells = within(row).getAllByRole('cell');
-    expect(cells[1]?.textContent).toBe('$0.0300');
+    expect(cells[1]?.textContent).toBe('$0.03');
     expect(cells[2]?.textContent).toBe('5');
     expect(cells[3]?.textContent).toBe('13,000 / 3,600');
     const texts = (cell: HTMLElement): string[] =>
       within(cell)
         .getAllByRole('listitem')
         .map((li) => li.textContent ?? '');
-    expect(texts(cells[4]!)).toEqual(['queen $0.0300', 'worker $0.0000']);
-    expect(texts(cells[5]!)).toEqual(['cloud $0.0300', 'local $0.0000']);
+    expect(texts(cells[4]!)).toEqual(['queen $0.03', 'worker $0.00']);
+    expect(texts(cells[5]!)).toEqual(['cloud $0.03', 'local $0.00']);
   });
 
   it('sorts by a header, flips on a second click, and keeps unattributed last', async () => {
@@ -139,8 +139,8 @@ describe('the slot and provider tables', () => {
     expect(firstCells(/Spend per slot/)).toEqual(['queen', 'worker']);
     const worker = bodyRows(/Spend per slot/)[1]!;
     const cells = within(worker).getAllByRole('cell');
-    expect(cells[1]?.textContent).toBe('$0.0120');
-    expect(cells[3]?.textContent).toBe('$0.0120');
+    expect(cells[1]?.textContent).toBe('$0.01');
+    expect(cells[3]?.textContent).toBe('$0.01');
     const gauge = within(worker).getByRole('meter', { name: 'Hosted share of worker calls' });
     expect(gauge.getAttribute('aria-valuenow')).toBe('1');
     expect(gauge.getAttribute('aria-valuemax')).toBe('4');
@@ -161,7 +161,7 @@ describe('the slot and provider tables', () => {
     await screen.findByRole('table', { name: /Spend per provider/ });
     expect(firstCells(/Spend per provider/)).toEqual(['cloud', 'local']);
     const local = within(bodyRows(/Spend per provider/)[1]!).getAllByRole('cell');
-    expect(local.map((c) => c.textContent)).toEqual(['local', '3', '12,000 / 3,400', '$0.0000']);
+    expect(local.map((c) => c.textContent)).toEqual(['local', '3', '12,000 / 3,400', '$0.00']);
   });
 });
 
@@ -199,7 +199,7 @@ describe('live', () => {
       ),
     );
     expect(firstCells(/Spend per goal/)).toEqual(['goal_2', 'goal_1', 'Unattributed']);
-    expect(figure('Total spend')).toContain('$0.1470');
+    expect(figure('Total spend')).toContain('$0.15');
     expect(costReads(fake)).toBe(1);
   });
 

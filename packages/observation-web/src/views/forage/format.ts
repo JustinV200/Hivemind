@@ -1,19 +1,20 @@
 /**
- * Number and time formatting shared by the Forage view's tables and diagrams.
+ * Number formatting shared by the Forage view's tables and diagrams.
  *
- * Forage figures come in four shapes: counts (seats, sub-bees, tokens), bytes of memory, US dollars
- * and the minutes left on a lease. One place formats each so a figure reads the same in a table, a
- * diagram label and the hidden table beside a diagram, and so the tests can name the exact text.
+ * Forage figures come in three shapes: counts (seats, sub-bees, tokens), bytes of memory and US
+ * dollars. One place formats each so a figure reads the same in a table, a diagram label and the
+ * hidden table beside a diagram, and so the tests can name the exact text. Times are not here: a
+ * grant's expiry is a `TimeStamp`, like every other moment in the views.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/`. Used by every table and diagram module here.
  *
  * Key invariants:
- *   - Pure: no clock (the caller passes `nowMs`), no locale lookups beyond fixed en-US digits.
+ *   - Pure: no clock, no locale lookups beyond fixed en-US digits.
  *   - Output is plain text, never markup.
  *
  * See Also:
- *   - src/views/forage/tables/expiry.ts for the ten-minute rule that uses `minutesLeft`.
+ *   - src/components/time/time_stamp.tsx for the relative time every view shares.
  */
 
 const KIB = 1024;
@@ -44,21 +45,6 @@ export function bytes(n: number): string {
 // Dollars: cents under a hundred, whole dollars above, always with the sign.
 export function usd(n: number): string {
   return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString('en-US')}`;
-}
-
-// Whole minutes until an ISO time, rounded up; negative once it has passed; NaN reads as 0.
-export function minutesLeft(iso: string, nowMs: number): number {
-  const at = Date.parse(iso);
-  if (Number.isNaN(at)) return 0;
-  return Math.ceil((at - nowMs) / 60_000);
-}
-
-// `in 4 min`, `in 1 h 5 min`, or `lapsed` once the lease has run out.
-export function leaseText(iso: string, nowMs: number): string {
-  const minutes = minutesLeft(iso, nowMs);
-  if (minutes <= 0) return 'lapsed';
-  if (minutes < 60) return `in ${minutes} min`;
-  return `in ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 // A label cut to `max` characters with an ellipsis; the caller keeps the full text in `<title>`.

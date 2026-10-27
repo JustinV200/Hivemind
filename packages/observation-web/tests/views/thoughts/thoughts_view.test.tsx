@@ -271,7 +271,7 @@ describe('follow', () => {
   it('off, queues behind "N new" and reveals them on a click', async () => {
     const fake = await openThoughts({ page: thoughtsPage({ episodes: [oldest] }) });
     await screen.findByText('Wait');
-    const follow = screen.getByRole('button', { name: 'Follow' });
+    const follow = screen.getByRole('button', { name: 'Follow: on' });
     expect(follow.getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(follow);
     expect(follow.getAttribute('aria-pressed')).toBe('false');

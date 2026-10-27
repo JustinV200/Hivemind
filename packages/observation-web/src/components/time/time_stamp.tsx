@@ -24,8 +24,7 @@ import { useNowMs } from './clock';
 const pad = (n: number): string => String(n).padStart(2, '0');
 
 const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+const DAY = 24 * 60 * MINUTE;
 const JUST_NOW = 45_000; // Under this either way the stamp says "just now": a tick is 30 s.
 const WEEK = 7 * DAY; // Past a week the date says more than a count of days.
 
@@ -37,15 +36,17 @@ export function readable(iso: string): string {
   return `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-// The gap in words: minutes under an hour, hours under a day, days under a week.
+// The gap in words: minutes under an hour, hours under a day, days under a week. The whole gap is
+// rounded to minutes first, so 59 min 40 s reads as "1 h" and 23 h 59 min 40 s as "1 d", never as
+// "60 min" or "23 h 60 min".
 function span(ms: number): string {
-  if (ms < HOUR) return `${Math.max(1, Math.round(ms / MINUTE))} min`;
-  if (ms < DAY) {
-    const hours = Math.floor(ms / HOUR);
-    const minutes = Math.round((ms % HOUR) / MINUTE);
-    return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+  const minutes = Math.round(ms / MINUTE);
+  if (minutes < 60) return `${Math.max(1, minutes)} min`;
+  if (minutes < 24 * 60) {
+    const rest = minutes % 60;
+    return rest > 0 ? `${Math.floor(minutes / 60)} h ${rest} min` : `${Math.floor(minutes / 60)} h`;
   }
-  return `${Math.floor(ms / DAY)} d`;
+  return `${Math.max(1, Math.floor(ms / DAY))} d`;
 }
 
 // "just now", "5 min ago", "in 2 h", or the local date once the moment is more than a week off.

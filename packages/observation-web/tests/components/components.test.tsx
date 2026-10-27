@@ -150,6 +150,9 @@ describe('TimeStamp words', () => {
     ['2026-01-08T11:55:00Z', '5 min ago'],
     ['2026-01-08T12:04:00Z', 'in 4 min'],
     ['2026-01-08T09:30:00Z', '2 h 30 min ago'],
+    // A gap that rounds up to a whole hour or day carries, never "60 min" or "23 h 60 min".
+    ['2026-01-08T11:00:20Z', '1 h ago'],
+    ['2026-01-07T12:00:20Z', '1 d ago'],
     ['2026-01-06T12:00:00Z', '2 d ago'],
     ['2025-12-01T00:00:00Z', /^2025-1[12]-\d\d$/],
     ['not a date', 'not a date'],

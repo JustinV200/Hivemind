@@ -9,8 +9,8 @@
  *   Layer 7 (observation-web), `src/views/thoughts/`. Drawn in the title row by `thoughts_view.tsx`.
  *
  * Key invariants:
- *   - The switch is a real toggle button (`aria-pressed`) with a visible label, and the count is in
- *     the button's name, so neither relies on colour.
+ *   - The switch is a real toggle button (`aria-pressed`) whose label carries its state ("Follow:
+ *     on"), and the count is in the "N new" button's name, so neither relies on colour.
  *   - The "N new" button exists only while there is something queued and Follow is off.
  *
  * See Also:
@@ -35,9 +35,8 @@ export function FollowToggle(props: FollowToggleProps): ReactElement {
         aria-pressed={follow}
         onClick={() => props.onFollow(!follow)}
       >
-        Follow
+        {`Follow: ${follow ? 'on' : 'off'}`}
       </button>
-      <span className="follow-state">{follow ? 'on' : 'off'}</span>
       {!follow && queued > 0 ? (
         <button type="button" className="button follow-new" onClick={props.onReveal}>
           {queued} new
