@@ -874,7 +874,9 @@ human → Queen → Wardens → sub-bees, and one `Supervisor` protocol is used 
   A Nuc's Warden, and the Hive Stand's own Warden for any device it can no longer reach, each spend
   a bounded `reconnect_budget` spawning a Drone from their own local pool — never a request to the
   Queen — to run ordinary Capping-gated scratch diagnostics (`run_command`, one-off scripts) and
-  attempt a fix. This never touches the Royal Jelly Lab or the Quarantine Comb; nothing here is
+  attempt a fix. Below FULL, on a Cell that does not contain its processes (a borrowed device),
+  that Drone runs only the fixed, read-only list in `hivemind.guard.diagnostics` (ADR-0060), and
+  no other bee runs a command there at all. This never touches the Royal Jelly Lab or the Quarantine Comb; nothing here is
   promoted, only tried once and reported. The budget is carved out of, not added to, the offline
   duration in 8.13, so Clustering keeps the same deadline as a backstop regardless of outcome.
 

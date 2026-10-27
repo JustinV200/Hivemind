@@ -29,8 +29,8 @@ Key invariants:
     - Below FULL, `exec:@diagnostic` is admitted only to the Drone role, and never on READ_ONLY.
 
 See Also:
-    - docs/adr/0060-commands-run-only-where-they-are-contained-or-fully-granted.md, "The read-only
-      diagnostics", for the decision.
+    - docs/adr/0060-commands-run-only-where-they-are-contained-or-fully-granted.md, its amendment
+      "the read-only diagnostics", for the decision.
     - docs/adr/0056-active-reconnection-diagnostic-drones.md for the Drone that runs them.
 """
 

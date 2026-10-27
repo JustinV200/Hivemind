@@ -129,3 +129,13 @@ a 40 s budget). The pass now says when the clock will next change what it does (
 raced by `wake_future`), and the real run judges the search 0.008 s after its budget and clusters
 0.001 s after its limit. "The search is over by `wall_clock_s`" is therefore true of a quiet
 Warden too, and Clustering's deadline is still the one the manifest says.
+
+## Amendment (2026-10-26): below FULL, the Drone runs only the read-only diagnostics
+
+The Decision says the Drone does "`run_command` diagnostics and one-off scripts". ADR-0060 refuses
+any command below `FULL` on a Cell that does not contain its processes, which a Nuc, a borrowed
+device, does not. On such a Cell the Drone may run only the fixed list of read-only diagnostics in
+`hivemind.guard.diagnostics` (ADR-0060, "Amendment: the read-only diagnostics"): each matched
+exactly, none writing, reaching the network or going through a shell. A one-off script, a fix and
+a network probe need the device at `FULL`. A command shows the Drone only whether it worked, so
+below `FULL` it reads the files it needs (the resolver's, the hosts file) with `read_file`.

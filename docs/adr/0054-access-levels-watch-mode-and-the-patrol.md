@@ -215,3 +215,14 @@ Warden on the device sits in WATCH with no lease, is Patrolled on its beat and q
 planted CPU hog an Alarm at the next Patrol (the observations it covered hold no file while no
 directory is named), is restarted by the Queen when `hive swarm watch` names one, and then covers
 that directory's log lines and no other directory's, with the device left as found.
+
+## Amendment (2026-10-26): SCRATCH runs no command on a device
+
+The Decision's table says a bee on a `SCRATCH` Cell may "run programs". ADR-0060 narrows that:
+below `FULL`, a command runs only on a Cell whose processes are contained, because a command run
+as the machine's user can copy anything it can read into scratch. A borrowed device does not
+contain its processes, so a device at `SCRATCH` runs no command, and its enrolment grants carry no
+`exec` (docs/waggle/enrolment.md section 7.1). The one exception is ADR-0056's diagnostic Drone,
+which may run a fixed list of read-only diagnostics below `FULL` (ADR-0060, "Amendment: the
+read-only diagnostics"). Everything else in the table stands; watch mode is unchanged, since it
+runs no command.
