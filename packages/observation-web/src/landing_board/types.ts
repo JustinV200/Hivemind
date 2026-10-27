@@ -311,6 +311,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/me/certificate/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew the calling device's own client certificate, within its last 30 days, from a request for its enrolled key; the one it replaces is revoked. */
+        post: operations["renew_own_certificate_v1_devices_me_certificate_renew_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/devices/{device_id}/capabilities": {
         parameters: {
             query?: never;
@@ -322,6 +339,23 @@ export interface paths {
         put?: never;
         /** Replace what a device may do (loopback only, after step-up). */
         post: operations["regrant_device_v1_devices__device_id__capabilities_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices/{device_id}/certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-issue an approved device's client certificate (loopback only): for one approved while the Hive ran loopback only, or one whose certificate lapsed. */
+        post: operations["reissue_device_certificate_v1_devices__device_id__certificate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4257,6 +4291,28 @@ export interface components {
             public_key_hex: string;
         };
         /**
+         * ReissueBody
+         * @description Re-issue a device's client certificate (loopback only, ADR-0058).
+         */
+        ReissueBody: {
+            /**
+             * Certificate Request
+             * @description A PEM certificate signing request for the device's enrolled key; null uses the one it sent at redemption, or seals a browser's bundle under mutual TLS.
+             */
+            certificate_request?: string | null;
+        };
+        /**
+         * RenewalBody
+         * @description Renew the calling device's own client certificate (ADR-0058).
+         */
+        RenewalBody: {
+            /**
+             * Certificate Request
+             * @description A PEM certificate signing request for the device's own enrolled Ed25519 key: the key it logs in with, never a new one.
+             */
+            certificate_request: string;
+        };
+        /**
          * RequestOrigin
          * @description Who asked for a task to exist: a human, the Queen itself, or a Warden acting on its own.
          *
@@ -7033,6 +7089,84 @@ export interface operations {
             };
         };
     };
+    renew_own_certificate_v1_devices_me_certificate_renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenewalBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificateView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     regrant_device_v1_devices__device_id__capabilities_post: {
         parameters: {
             query?: never;
@@ -7056,6 +7190,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeviceView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reissue_device_certificate_v1_devices__device_id__certificate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's id. */
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReissueBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovedDeviceView"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */
