@@ -27,9 +27,8 @@ Warden never provisions Cells itself.
   records `warden.offline` and moves on), never an exception out of this Warden's own loop or
   `stop()`: every Warden -> Queen and Warden -> sub-bee send in this package goes through
   `wardens.links.send_guarded` (phase-7 handoff open item 8), not `Warden.stop()` alone. A
-  result, progress report or Alarm the Queen link cannot take is held in the Warden's outbox
-  (`wardens.offline.QueenOutbox`, through `report_to_queen`) rather than dropped, and delivered
-  in order on the next heartbeat the link takes frames again, and once more at `stop()`.
+  Warden that dials the Queen holds a reconnecting link that queues its results, progress and
+  Alarms durably while cut off (`wardens.offline`, ADR-0053).
   Also implements `hivemind.supervision.Supervisor` over its sub-bees. Roadmap step 4.9
   (Clustering): `_settle_after_tick` also settles `ACTIVE <-> CLUSTERED` -- every current sub-bee's
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
