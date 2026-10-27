@@ -156,7 +156,9 @@ def test_run_turns_a_device_that_never_reconnects_into_one_line_on_stderr(
     result = invoke(manifest, "run", "kitchen-pi", "write a report")
 
     assert result.exit_code == 1 and result.stdout == ""
-    assert result.stderr.startswith("hive swarm run failed: GatewayUnavailableError:")
+    # The last line: a log line (the shared-judge advice, say) may come before it on stderr.
+    last = result.stderr.splitlines()[-1]
+    assert last.startswith("hive swarm run failed: GatewayUnavailableError:")
     assert "did not connect" in result.stderr and "Traceback" not in result.stderr
 
 

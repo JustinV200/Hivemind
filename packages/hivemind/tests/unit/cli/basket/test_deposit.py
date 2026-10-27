@@ -109,7 +109,8 @@ def test_a_deposit_over_the_size_cap_prints_the_error_and_exits_1(tmp_path: Path
     result = invoke(manifest, "deposit", str(source), *_ARGS, "--media-type", "text/plain")
 
     assert result.exit_code == 1
-    assert result.stderr.startswith("hivemind.basket.blob_too_large")
+    # The last line: a log line (the shared-judge advice, say) may come before it on stderr.
+    assert result.stderr.splitlines()[-1].startswith("hivemind.basket.blob_too_large")
     assert "8-byte cap" in result.stderr
     assert asyncio.run(store_of(manifest).list_blobs()) == ()
     (event,) = trail_events(manifest, "basket.deposit_refused")
