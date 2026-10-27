@@ -62,14 +62,19 @@
   - Unrelated to CI: the Waggle spec listed minor 1.11 twice, phase 9's reservation and phase 8's
     entry, a leftover of the phase 8 + 9 + 12 merge (ef18cf2).
 - **Open, found by the first Windows runs.**
-  - **The device is not left as found on Windows when a command leaves a child behind.** The shim
-    follows an exec's tree through its leader, with no Job Object (which gateway-contract section 3
-    calls for), so a child that outlives its command is not recorded, is not killed at release, and
-    keeps the lease's scratch (its working directory) from being removed. Two tests are
-    `xfail(strict=True)` on Windows until a Job Object per exec is built, and fail the run the day
-    it is: the packet's `test_a_child_that_outlives_the_program_stays_recorded_with_the_lease` and
-    `test_swarm_level0.py`. A short Windows run that included the contract and packet suites ended
-    with the runner killing two orphaned `python` processes, which may be the same gap.
+  - ~~**The device is not left as found on Windows when a command leaves a child behind.** The
+    shim follows an exec's tree through its leader, with no Job Object (which gateway-contract
+    section 3 calls for), so a child that outlives its command is not recorded, is not killed at
+    release, and keeps the lease's scratch (its working directory) from being removed. Two tests
+    are `xfail(strict=True)` on Windows until a Job Object per exec is built, and fail the run the
+    day it is: the packet's `test_a_child_that_outlives_the_program_stays_recorded_with_the_lease`
+    and `test_swarm_level0.py`.~~ (Closed 2026-10-27: the shim starts every program suspended,
+    puts it in a Job Object of its own and only then resumes it, `pollen/platform/job_objects.py`;
+    liveness and KILL go to the job, and both tests pass on Windows with their markers removed. A
+    job lives only as long as the packet that made it, so after a packet restart, or from the CLI's
+    process, a Windows exec is still followed through its leader's tree.) A short Windows run that
+    included the contract and packet suites ended with the runner killing two orphaned `python`
+    processes, which may have been the same gap.
   - Watch mode observes nothing on a device that is not Linux.
   - The e2e suite runs at a 0.05 s heartbeat, so a runner that stalls for 0.15 s gets a
     WORKER_STALLED Alarm. A scenario that asserts it saw no Alarm at all
