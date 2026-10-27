@@ -4,12 +4,12 @@ Roadmap step 5.5/5.3's own entry point. `main()` is what `images/base-ubuntu/Doc
 ENTRYPOINT invokes (via the `hivemind-in-cell` console script, `packages/hivemind/pyproject.toml`):
 read `os.environ` exactly once here (codingrules section 13), turn it into an `InCellRuntimeConfig`
 (`hivemind.cli.in_cell.config`), build a `hivemind.wardens.spawn.in_cell.InCellSpawnSource` and
-probe this Cell's own one `Cell` from it, wire a signed `WebSocketClientTransport` to the Queen's
-Waggle URL, send the three frames that must go out before a `hivemind.wardens.warden.Warden`
-exists at all (`hivemind.cli.in_cell.link`'s own `announce`/`send_capacity_report`/
-`send_cell_heartbeat`, in that order -- `hivemind.queen.cell_gate.listener.CellListener`'s own
-readiness gate waits for the first and last of those, unmodified by this dispatch), then build and
-run a real, task-executing `Warden` over that same transport until it stops.
+probe this Cell's own one `Cell` from it, build its mending link to the Queen's Waggle URL
+(`hivemind.cli.in_cell.redial`), send on it the three frames that must go out before a
+`hivemind.wardens.warden.Warden` exists at all (`cell.ready`, the capacity report and a heartbeat,
+in that order -- `hivemind.queen.cell_gate.listener.CellListener`'s own readiness gate waits for
+the first and last of those), then build and run a real, task-executing `Warden` over that same
+link until it stops.
 `run_in_cell_warden` is the async half, taking an already-read environment mapping and an injected
 `Clock` so a test drives the whole sequence without touching the real environment or a real timer.
 Roadmap step 10.3a: the transport dials through the SOCKS proxy the bootstrap names (a Night Veil
@@ -17,9 +17,10 @@ Cell's Tor SOCKS port; never directly once one is named), a Night Veil Cell's `C
 its control-link checks, a Propolis Cell's the tunnel checks it makes of its own routes and
 resolvers (`hivemind.cli.in_cell.propolis`), and the Hive Stand's addresses are resolved once,
 before the Warden is built, so its floors know them (`hivemind.cli.in_cell.hive_stand`; an onion
-host never is). A Night Veil Cell's link is one that mends (`hivemind.cli.in_cell.redial`): Tor can
-die under it, and its Warden is then cut off and clusters past the Hive's offline limit, redialing
-through the proxy until Tor answers, and never reaching the Hive Stand any other way.
+host never is). Every Cell's link is one that mends (`hivemind.cli.in_cell.redial`): Tor can die
+under a Night Veil Cell's, and the Queen under any Cell's (Requeening, ADR-0062), and the Warden is
+then cut off and clusters past the Hive's offline limit, redialing until she answers again; a
+Night Veil Cell's only ever through the proxy, never reaching the Hive Stand any other way.
 
 Roadmap step 11.6a: with `HIVEMIND_CELL_LEASE=borrowed` the same entry point runs the Warden of a
 colonized Swarm device instead (`hivemind.cli.in_cell.borrowed`); a Virtual Cell's path is the
@@ -79,15 +80,11 @@ import os
 from collections.abc import Callable, Mapping
 
 from hivemind.cell.source import CellIdentity
-from hivemind.cell.tiers import CombShieldLevel
-from hivemind.cli.in_cell import link as cell_link
 from hivemind.cli.in_cell.borrowed import is_borrowed, run_borrowed_warden, stop_on_signals
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
 from hivemind.cli.in_cell.deps import build_in_cell_warden_deps
 from hivemind.cli.in_cell.hive_stand import hive_stand_addresses
-from hivemind.cli.in_cell.propolis import own_tunnel_attestation
-from hivemind.cli.in_cell.redial import connect_redialing, redials
-from hivemind.cli.version import collect_version_info
+from hivemind.cli.in_cell.redial import connect_redialing
 from hivemind.common.logging import configure_logging, get_logger
 from hivemind.manifest.env import InCellEnv, read_in_cell_env
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -96,10 +93,7 @@ from hivemind.wardens.spawn import InCellSpawnSource
 from hivemind.wardens.state import WardenState
 from hivemind.wardens.warden import Warden
 from waggle.clock import Clock, SystemClock
-from waggle.codec import Codec
-from waggle.messages.cell.status import AttestationCheck
 from waggle.transport.base import Transport
-from waggle.transport.websocket_client import DialOptions, WebSocketClientTransport
 
 __all__ = ["main", "run_in_cell_warden"]
 
@@ -212,8 +206,7 @@ async def _connect_and_build(
     """Connect this Cell to the Queen, announce it, and build its Warden's deps over that link.
 
     Returns:
-        The Warden's link to the Queen (the bare transport, or for a Night Veil Cell the link that
-        mends) and the deps built over it.
+        The Warden's link to the Queen (the link that mends) and the deps built over it.
     """
     # This Cell's own local Pheromone Trail segment (codingrules section 12: "A Warden that is
     # offline writes to its local segment; on reconnection the segment merges into the Queen's
@@ -221,69 +214,11 @@ async def _connect_and_build(
     # on this Warden's own heartbeat cadence and once more from `stop()`.
     trail = MemoryPheromoneTrail(clock)
     source = _spawn_source(config, trail, clock)
-    if not redials(config):
-        transport = await _connect_and_announce(config, source, clock)
-        return transport, build_in_cell_warden_deps(config, source, transport, trail, clock)
-    # Roadmap step 10.3a: Tor can die under a Night Veil Cell's link, and the Warden must then go
-    # cut off and cluster, never fall back to another route (`hivemind.cli.in_cell.redial`).
+    # Every Cell's link mends: Tor can die under a Night Veil Cell's (roadmap step 10.3a: cut off
+    # and cluster, never another route), and the Queen under any Cell's and come back (ADR-0062).
     redialing = await connect_redialing(config, source, trail, clock)
     deps = build_in_cell_warden_deps(config, source, redialing.link, trail, clock)
     return redialing.link, redialing.equip(deps)
-
-
-async def _connect_and_announce(
-    config: InCellRuntimeConfig, source: InCellSpawnSource, clock: Clock
-) -> WebSocketClientTransport:
-    """Dial the Queen and send CellReady, CapacityReport, then one CellHeartbeat (module docstring).
-
-    Returns:
-        This Cell's own connected transport.
-    """
-    codec = Codec(signer=config.signer, verifier=config.verifier)
-    # The gateway carve-out matches build_runtime_config's own validation of this URL: from inside
-    # a container, loopback is the Cell itself, so the Queen is reached through the host gateway.
-    # Roadmap step 10.3a: with a SOCKS proxy named, every dial goes through it and none directly.
-    transport = WebSocketClientTransport(
-        config.queen_waggle_url,
-        codec,
-        clock,
-        options=DialOptions(
-            allow_virtual_cell_gateway_host=True, socks_proxy_url=config.socks_proxy_url
-        ),
-    )
-    cell = (await source.cells())[0]
-
-    link_deps = cell_link.CellLinkDeps(
-        transport=transport,
-        cell=cell,
-        warden_id=config.warden_id,
-        hive_id=config.hive_id,
-        node_id=config.node_id,
-        clock=clock,
-        heartbeat_interval_s=config.heartbeat_interval_s,
-        runtime_version=collect_version_info().hivemind_version,
-        attestation=_attestation(cell.comb_shield, transport),
-    )
-    _LOG.info("cell.link.connecting", queen_waggle_url=config.queen_waggle_url, cell_id=cell.id)
-    await cell_link.announce(link_deps)
-    _LOG.info("cell.link.announced", cell_id=cell.id, warden_id=config.warden_id)
-    await cell_link.send_capacity_report(link_deps, config.spawn_config.capacity)
-    await cell_link.send_cell_heartbeat(link_deps)
-    _LOG.info("cell.link.ready", cell_id=cell.id)
-    return transport
-
-
-def _attestation(
-    tier: CombShieldLevel, transport: WebSocketClientTransport
-) -> tuple[AttestationCheck, ...]:
-    """Return the checks this Cell's CellReady carries, by its tier (CellReady's own rule)."""
-    if tier is CombShieldLevel.NIGHT_VEIL:
-        return cell_link.control_link_attestation(transport.uri, transport.socks_proxy)
-    if tier is CombShieldLevel.PROPOLIS:
-        # The tunnel checks, made of its own routes and resolvers: a tiered Cell with no checks
-        # would not even construct its CellReady. The Hive's attestation decides readiness.
-        return own_tunnel_attestation()
-    return ()  # MEADOW attests nothing.
 
 
 _DEFAULT_LOG_LEVEL = "INFO"  # Used when HIVEMIND_LOG_LEVEL is not set.

@@ -38,9 +38,10 @@ from waggle.envelope import Hop, wrap
 from waggle.ids import new_hive_id, new_node_id
 from waggle.messages.cell.status import CellHeartbeat, CellReady
 from waggle.messages.control.protocol import Shutdown
-from waggle.messages.forage import CapacityReport
+from waggle.messages.forage import CapacityReport, CapacityTrigger
 from waggle.messages.labels import Urgency
 from waggle.signing import Ed25519Signer
+from waggle.transport.websocket import WebSocketTransport
 from waggle.transport.websocket_server import WebSocketServer
 
 WAIT_S = 5.0  # Bounds every await that could hang; loopback answers in milliseconds.
@@ -119,6 +120,51 @@ async def test_run_in_cell_warden_connects_announces_and_stops_on_shutdown(
         await asyncio.wait_for(run_task, timeout=WAIT_S)
     finally:
         await server.close()
+
+
+async def test_a_meadow_cell_whose_queen_goes_away_redials_her_and_announces_again(
+    tmp_path: Path,
+) -> None:
+    """ADR-0062: a Virtual Cell's Warden outlives its Queen's connection and comes back to her.
+
+    Before Requeening a Meadow Cell's link was a bare socket: the Queen's end closing ended the
+    Warden, so a restarted Queen found no Cell to reattach. Now the same Warden dials her again
+    and says who it is, as a reconnection.
+    """
+    queen_signer = Ed25519Signer.generate()
+    server = WebSocketServer(Codec(signer=queen_signer))
+    await server.start()
+    try:
+        hive_id, queen_node_id = new_hive_id(_CLOCK), new_node_id(_CLOCK)
+        environ = _environ(server.uri, queen_node_id, hive_id, queen_signer, tmp_path)
+        run_task = asyncio.ensure_future(run_in_cell_warden(environ, SystemClock()))
+        connections = server.connections()
+        first = await asyncio.wait_for(anext(connections), timeout=WAIT_S)
+        ready, _capacity = await _two_frames(first)
+
+        await first.close()  # The Queen's end goes, as it does when her process dies.
+        second = await asyncio.wait_for(anext(connections), timeout=WAIT_S)
+        again, capacity = await _two_frames(second)
+
+        hop = Hop(sender=hive_id, recipient=again.warden_id, node_id=queen_node_id)
+        stop = Shutdown(urgency=Urgency.IMMEDIATE, deadline_s=0.0, reason="test teardown")
+        await second.send(wrap(stop, hop, clock=_CLOCK))
+        await asyncio.wait_for(run_task, timeout=WAIT_S)
+    finally:
+        await server.close()
+
+    assert again.warden_id == ready.warden_id  # The same Warden, back, not a new one.
+    assert capacity.trigger is CapacityTrigger.RECONNECTED
+
+
+async def _two_frames(accepted: WebSocketTransport) -> tuple[CellReady, CapacityReport]:
+    """Read a fresh connection's CellReady and CapacityReport, the start of an announcement."""
+    frames = accepted.receive()
+    ready = (await asyncio.wait_for(anext(frames), timeout=WAIT_S)).payload
+    capacity = (await asyncio.wait_for(anext(frames), timeout=WAIT_S)).payload
+    assert isinstance(ready, CellReady)
+    assert isinstance(capacity, CapacityReport)
+    return ready, capacity
 
 
 async def test_run_in_cell_warden_raises_on_missing_configuration() -> None:

@@ -1,11 +1,11 @@
-"""Tests for hivemind.cli.in_cell.redial.build: which Cells mend, the link, and the Warden's deps.
+"""Tests for hivemind.cli.in_cell.redial.build: how Cells redial, the link, and the Warden's deps.
 
-Only a Night Veil Cell's link is one that mends. The link, built over a fake Tor and a listener,
-connects and announces before it is returned and leaves its outbox below the Cell's scratch root.
-`equip` gives a built Warden what being cut off needs: an `Outage`, the link and the Hive's offline
-limit in `DeviceDeps` (without the idle lease release a borrowed device has, and without a search
-for why the link went), the wake that a change of the link sends the Warden's tick, and the
-Warden's own trail sync bound into the link.
+Every Cell's link mends, a Night Veil Cell's only through Tor. The link, built over a fake Tor
+and a listener, connects and announces before it is returned and leaves its outbox below the
+Cell's scratch root. `equip` gives a built Warden what being cut off needs: an `Outage`, the link
+and the Hive's offline limit in `DeviceDeps` (without the idle lease release a borrowed device
+has, and without a search for why the link went), the wake that a change of the link sends the
+Warden's tick, and the Warden's own trail sync bound into the link.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/in_cell/redial/build.py (codingrules section 3).
@@ -31,11 +31,19 @@ from builders.wardens import make_warden_deps
 
 from hivemind.cell import CellIdentity
 from hivemind.cli.in_cell.config import InCellRuntimeConfig, build_runtime_config
-from hivemind.cli.in_cell.redial import OUTBOX_DIR, RedialingLink, connect_redialing, redials
+from hivemind.cli.in_cell.redial import (
+    OUTBOX_DIR,
+    DirectDialer,
+    ProxyDialer,
+    RedialingLink,
+    connect_redialing,
+    dialer_for,
+)
 from hivemind.manifest import read_in_cell_env
 from hivemind.pheromone import MemoryPheromoneTrail
 from hivemind.wardens.spawn import InCellSpawnSource
 from waggle.clock import SystemClock
+from waggle.codec import Codec
 from waggle.messages.cell.status import CellReady
 
 WAIT_S = 10.0  # Bounds every await that could hang; loopback answers in milliseconds.
@@ -75,11 +83,11 @@ async def _connected(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Which Cells mend.
+# How each Cell redials.
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-async def test_only_a_night_veil_cells_link_is_one_that_mends(
+async def test_a_night_veil_cell_redials_through_tor_and_every_other_cell_directly(
     stand: TorStand, tmp_path: Path
 ) -> None:
     night_veil = _config(stand, tmp_path)
@@ -88,9 +96,12 @@ async def test_only_a_night_veil_cells_link_is_one_that_mends(
     )
     del environ["HIVEMIND_SOCKS_PROXY_URL"]
     meadow = build_runtime_config(read_in_cell_env(environ), _CLOCK)
+    codec = Codec(signer=meadow.signer, verifier=meadow.verifier)
 
-    assert redials(night_veil) is True
-    assert redials(meadow) is False
+    # Every Cell's link mends now (ADR-0062: the Queen can die under any of them and come back);
+    # only the route differs, and a Night Veil Cell's never leaves the proxy.
+    assert isinstance(dialer_for(night_veil, codec, _CLOCK), ProxyDialer)
+    assert isinstance(dialer_for(meadow, codec, _CLOCK), DirectDialer)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
