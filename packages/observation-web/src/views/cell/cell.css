@@ -205,12 +205,19 @@
   margin: 0;
 }
 
+/* A word beside each gauge, in a column; the word's line box is the bar's height, so it centres
+   on the bar it names rather than on the bar and its caption together, where it would sit beside
+   the numbers */
 .cell-gauges {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: var(--sp-1) var(--sp-4);
   font-size: var(--fs-sm);
+}
+
+.cell-gauges > span {
+  line-height: var(--gauge-h);
 }
 
 .cell-links {

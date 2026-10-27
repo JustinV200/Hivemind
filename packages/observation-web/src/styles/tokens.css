@@ -91,6 +91,7 @@
   --radius-pill: 999px;
   --radius-tag: 2px;
   --gutter: 16px;
+  --gauge-h: 8px; /* the gauge's bar (design.md 4.2); a word beside a gauge centres on it */
 
   /* 7 motion: one duration for every hover and insert; reduced motion turns it off in base.css */
   --motion: 150ms ease;

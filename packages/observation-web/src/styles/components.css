@@ -250,7 +250,7 @@
 }
 
 .gauge-track {
-  height: 8px;
+  height: var(--gauge-h);
   background: var(--border-soft);
   border-radius: var(--radius-tag);
   overflow: hidden;
