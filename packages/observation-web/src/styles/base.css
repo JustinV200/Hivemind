@@ -68,7 +68,7 @@ code,
   font-size: var(--fs-sm);
 }
 
-/* An id is cut to eight characters already; breaking it mid-token would only hide the cut. */
+/* An id is cut to its kind and tail already; breaking it mid-token would only hide the cut. */
 .id-token {
   white-space: nowrap;
 }

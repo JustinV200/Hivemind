@@ -1,12 +1,14 @@
 /**
  * Tests for the cards-to-table breakpoints: a table is a table where the design says it is.
  *
- * The Forage and Devices views are stacked cards on a phone and real tables from 1080 px, the
- * Fleet and the Capping queue (with the most columns) from 1280 px, the Cost tables from 720 px. Phase 12's exit run found the Fleet's
- * row still laid out as a card at 1280 px under a table header, because its desktop rule was a
+ * Every table is stacked cards on a phone. The Cost, Wardens and Forage map tables are real tables
+ * from 720 px, the Grants table (ten columns) from 1080 px, and the Fleet, the Capping queue and
+ * the Devices list (the most columns) from 1280 px. Phase 12's exit run found the Fleet's row
+ * still laid out as a card at 1280 px under a table header, because its desktop rule was a
  * specificity step weaker than the card rule it meant to undo. These tests resolve the winning
  * `display` of each part of each table at both widths from the stylesheet, so that mistake fails
- * here in every view, not only in a screenshot.
+ * here in every view, not only in a screenshot; a table that is a table one width below its
+ * breakpoint (which once put the Devices list sideways in a 1080 px window) fails here too.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Reads the views' CSS as text through `tests/support/cascade.ts`.
@@ -22,17 +24,19 @@
 import { describe, expect, it } from 'vitest';
 import { readCss, rulesAt, winning } from '../support/cascade';
 
+// Each table by its view and class, with the width its stylesheet makes it a table from.
 const TABLES = [
-  { view: 'fleet', desktop: 1280 },
-  { view: 'capping', desktop: 1280 },
-  { view: 'devices', desktop: 1080 },
-  { view: 'forage', desktop: 1080 },
-  { view: 'cost', desktop: 720 },
+  { view: 'fleet', className: 'fleet-table', desktop: 1280 },
+  { view: 'capping', className: 'capping-table', desktop: 1280 },
+  { view: 'devices', className: 'devices-table', desktop: 1280 },
+  { view: 'forage', className: 'forage-table', desktop: 720 },
+  { view: 'forage', className: 'forage-table forage-table--wide', desktop: 1080 },
+  { view: 'cost', className: 'cost-table', desktop: 720 },
 ] as const;
 
 // The markup every table of the app shares: a captioned head, and a body row of labelled cells.
-function tableOf(view: string): HTMLTableElement {
-  document.body.innerHTML = `<table class="${view}-table"><caption>c</caption>
+function tableOf(className: string): HTMLTableElement {
+  document.body.innerHTML = `<table class="${className}"><caption>c</caption>
     <thead><tr><th scope="col">A</th></tr></thead>
     <tbody><tr><th scope="row" data-label="A">a</th><td data-label="B">b</td></tr></tbody></table>`;
   return document.querySelector('table')!;
@@ -54,30 +58,34 @@ const SELECT: Record<keyof typeof PARTS, (t: HTMLTableElement) => Element> = {
   'tbody td': (t) => t.querySelector('tbody td')!,
 };
 
-describe.each(TABLES)('$view table', ({ view, desktop }) => {
+// The parts that must be cards at a width: none a table part, and the row a box of its own.
+function expectCards(table: HTMLTableElement, rules: ReturnType<typeof rulesAt>): void {
+  for (const part of ['table', 'tbody', 'tbody tr', 'tbody td'] as const) {
+    const shown = winning(SELECT[part](table), rules, 'display');
+    expect(shown, part).not.toMatch(/^table/);
+  }
+  // A caption left as `table-caption` in a block table shrinks to one word per line.
+  expect(winning(table.querySelector('caption')!, rules, 'display') ?? 'block').not.toMatch(
+    /^table/,
+  );
+  // A card row is a box of its own, so a cell inside it is not a bare table cell either.
+  expect(winning(table.querySelector('tbody tr')!, rules, 'display')).not.toBeNull();
+}
+
+describe.each(TABLES)('$className', ({ view, className, desktop }) => {
   it(`is a real table from ${desktop} px up, with no part left as a card`, async () => {
     const css = await readCss(`src/views/${view}/${view}.css`);
     const rules = rulesAt(css, desktop);
-    const table = tableOf(view);
+    const table = tableOf(className);
     for (const part of Object.keys(PARTS) as (keyof typeof PARTS)[]) {
       const shown = winning(SELECT[part](table), rules, 'display');
       expect(shown === null || shown === PARTS[part].replace('display: ', ''), part).toBe(true);
     }
   });
 
-  it('is a stack of cards on a phone: no row, body or cell is a table part', async () => {
+  it(`is a stack of cards on a phone and one pixel under ${desktop} px`, async () => {
     const css = await readCss(`src/views/${view}/${view}.css`);
-    const rules = rulesAt(css, 360);
-    const table = tableOf(view);
-    for (const part of ['table', 'tbody', 'tbody tr', 'tbody td'] as const) {
-      const shown = winning(SELECT[part](table), rules, 'display');
-      expect(shown, part).not.toMatch(/^table/);
-    }
-    // A caption left as `table-caption` in a block table shrinks to one word per line.
-    expect(winning(table.querySelector('caption')!, rules, 'display') ?? 'block').not.toMatch(
-      /^table/,
-    );
-    // A card row is a box of its own, so a cell inside it is not a bare table cell either.
-    expect(winning(table.querySelector('tbody tr')!, rules, 'display')).not.toBeNull();
+    expectCards(tableOf(className), rulesAt(css, 360));
+    expectCards(tableOf(className), rulesAt(css, desktop - 1));
   });
 });

@@ -22,13 +22,7 @@ export { IdToken } from './id_token';
 export { StatusDot } from './status_dot';
 export type { StatusWord } from './status_dot';
 export { TimeStamp } from './time';
-export {
-  NARROW_TABLE_MIN,
-  RAIL_MIN,
-  TABLE_MIN,
-  useMinWidth,
-  WIDE_TABLE_MIN,
-} from './use_min_width';
+export { NARROW_TABLE_MIN, RAIL_MIN, useMinWidth, WIDE_TABLE_MIN } from './use_min_width';
 export { SortSelect } from './sort_select';
 export type { SortChoice, SortDirection, SortOption } from './sort_select';
 export { ViewBoundary } from './view_boundary';

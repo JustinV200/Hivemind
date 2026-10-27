@@ -21,9 +21,8 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
 export const RAIL_MIN = 720; // The nav becomes a rail and the bar gains room (design.md 2).
-export const NARROW_TABLE_MIN = 720; // The Cost tables, with few columns, from the rail width.
-export const TABLE_MIN = 1080; // The Forage tables (and the Devices list) from the wide rail.
-export const WIDE_TABLE_MIN = 1280; // The Fleet and the Capping queue, with the most columns.
+export const NARROW_TABLE_MIN = 720; // The Cost, Wardens and Forage map tables, with few columns.
+export const WIDE_TABLE_MIN = 1280; // The Fleet, the Capping queue and the Devices list.
 
 const query = (px: number): MediaQueryList | null =>
   typeof window.matchMedia === 'function' ? window.matchMedia(`(min-width: ${px}px)`) : null;

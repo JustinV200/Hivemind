@@ -1,10 +1,14 @@
 /*
  * Devices view styles: the device list, its forms, the Entrance panel and the held requests.
  *
- * Mobile first (design.md section 2): one column at 360 px, where the table is a stack of cards and
- * each cell keeps its label; from 1080 px it is a table in which an enum or a name never splits
- * mid-word. Forms are bordered cards with 44 px fields and buttons; a fact list puts each value
- * beside its label. Standing and mode are always words in the markup; the colour only repeats them.
+ * Mobile first (design.md section 2): one column at 360 px, where the list is a stack of cards and
+ * each cell keeps its label. Its nine columns (a capability list, a platform and three door
+ * controls among them) need the pane of a 1280 px window, so it is a table from there, like the
+ * Fleet, and never one that scrolls sideways; in the table an enum or a name never splits
+ * mid-word, while the capabilities, the platform and the controls wrap, the controls as a row of
+ * buttons that folds rather than a stack. Forms are comb cells with 44 px fields and buttons; a
+ * fact list puts each value beside its label. Standing and mode are always words in the markup;
+ * the colour only repeats them.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/devices/`. Imported by `devices_screen.tsx`. Class names
@@ -51,7 +55,7 @@
   gap: var(--sp-2);
 }
 
-/* Forms: one bordered card each, under the list */
+/* Forms: one comb cell each, under the list, outlined like their fields (`.comb-cell--strong`) */
 .devices-form,
 .devices-arming,
 .devices-held {
@@ -59,9 +63,6 @@
   gap: var(--sp-2);
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  clip-path: var(--hex-cut-top);
 }
 
 /* A form's buttons sit side by side at their own width, never stretched across the card */
@@ -123,8 +124,11 @@
   color: var(--alarm);
 }
 
-.devices-controls {
+/* A device's door controls: a row of buttons that wraps, on a card and in the table alike */
+.devices-buttons {
+  display: flex;
   flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
 }
 
 /* The Entrance panel: a two-column list, each value next to its label */
@@ -226,7 +230,8 @@
   content: none;
 }
 
-@media (min-width: 1080px) {
+/* The list's nine columns need 1280px (design.md section 2); below that its rows stay cards */
+@media (min-width: 1280px) {
   .devices-table {
     display: table;
     width: 100%;
@@ -290,5 +295,17 @@
   /* The class that lays the card's buttons out in a row must not turn the cell into a flex box. */
   .devices-table td.devices-controls {
     display: table-cell;
+  }
+
+  /* The Controls column asks for the width of its three buttons in a row, or the capability list
+     would take the slack and leave the buttons stacked one deep */
+  .devices-table th.devices-controls {
+    width: 19rem;
+  }
+
+  /* In a 13px table a door control is a compact button, so three fit a row of ordinary height */
+  .devices-table .button {
+    min-height: 32px;
+    padding: 0 var(--sp-3);
   }
 }

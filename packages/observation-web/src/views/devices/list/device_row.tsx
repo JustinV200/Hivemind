@@ -48,23 +48,24 @@ function Controls(props: {
   );
   // Revoke ends the device for good, so it is outlined in the alarm token; its form confirms.
   const revoke = button('Revoke', named('Revoke'), () => props.onEdit('revoke'), true);
+  // The buttons sit in a row that wraps, so a narrow Controls column never stacks them one deep.
   if (device.status === 'APPROVED') {
     return (
-      <>
+      <span className="devices-buttons">
         {button('Lock', named('Lock'), () => void actions.lock(device))}
         {button('Edit capabilities', `Edit capabilities of ${device.name}`, () =>
           props.onEdit('capabilities'),
         )}
         {revoke}
-      </>
+      </span>
     );
   }
   if (device.status === 'LOCKED') {
     return (
-      <>
+      <span className="devices-buttons">
         {button('Unlock', named('Unlock'), () => void actions.unlock(device))}
         {revoke}
-      </>
+      </span>
     );
   }
   return null;

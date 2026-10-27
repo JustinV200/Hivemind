@@ -128,25 +128,28 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
   const layout = layoutFlow(model);
   const empty = layout.boxes.length === 0;
   return (
-    <figure className="forage-figure forage-figure--flow">
-      <svg
-        className="forage-svg forage-svg--flow"
-        viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}
-        role="img"
-        aria-labelledby="forage-flow-title"
-      >
-        <title id="forage-flow-title">
-          {`Forage flow: the shared pool, to ${model.wardens.length} Wardens, to their grants`}
-        </title>
-        <HatchDefs />
-        <Headings />
-        {layout.ribbons.map((ribbon) => (
-          <Ribbon key={ribbon.id} ribbon={ribbon} />
-        ))}
-        {layout.boxes.map((box) => (
-          <Box key={`${box.column}:${box.id}`} box={box} />
-        ))}
-      </svg>
+    <figure className="forage-figure forage-figure--flow comb-cell">
+      {/* On a phone the drawing scrolls sideways inside this box, so the figure's stroke stays */}
+      <div className="forage-scroll">
+        <svg
+          className="forage-svg forage-svg--flow"
+          viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}
+          role="img"
+          aria-labelledby="forage-flow-title"
+        >
+          <title id="forage-flow-title">
+            {`Forage flow: the shared pool, to ${model.wardens.length} Wardens, to their grants`}
+          </title>
+          <HatchDefs />
+          <Headings />
+          {layout.ribbons.map((ribbon) => (
+            <Ribbon key={ribbon.id} ribbon={ribbon} />
+          ))}
+          {layout.boxes.map((box) => (
+            <Box key={`${box.column}:${box.id}`} box={box} />
+          ))}
+        </svg>
+      </div>
       {empty ? <p className="forage-note">Nothing is granted in this unit yet.</p> : null}
       <div className="sr-only">
         <table>

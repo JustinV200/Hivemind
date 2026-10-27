@@ -6,7 +6,8 @@
  * ten minutes first (soonest first), each with the word "expiring soon" (or "lapsed" once the time
  * has passed) and the warn token, then the rest in the ledger's order. The expiry is one relative
  * `TimeStamp`, which keeps the ISO moment in its `<time>`. Spend is a gauge of what the grant has
- * spent against what it allows. Under 1080 px each grant becomes a stacked card.
+ * spent against what it allows. Its ten columns need the wide rail, so under 1080 px each grant
+ * becomes a stacked card (`forage-table--wide`), where the other Forage tables are tables from 720.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/tables/`. Drawn by `forage_screen.tsx` from the
@@ -61,7 +62,7 @@ function Row(props: { grant: GrantView; nowMs: number }): ReactElement {
 export function GrantsTable(props: { grants: readonly GrantView[]; nowMs: number }): ReactElement {
   const rows = orderGrants(props.grants, props.nowMs);
   return (
-    <table className="forage-table">
+    <table className="forage-table forage-table--wide">
       <caption>Grants: the Forage each Warden holds, soonest to lapse first</caption>
       <thead>
         <tr>

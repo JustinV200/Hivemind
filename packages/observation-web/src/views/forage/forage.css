@@ -3,12 +3,13 @@
  *
  * Mobile first (design.md section 2): everything is one column at 360 px. The shared pool and the
  * flow sit side by side from 1080 px; the host cards fill a grid of as many 280 px columns as fit
- * at every width. A host card is a hex-cornered comb cell with one row per dimension: the label,
- * a thin bar and the figures right-aligned. The flow SVG carries a `viewBox`, so it scales to its
- * pane. Under 1080 px (the grants table has ten columns) a table row becomes a stacked card whose
- * cells keep their labels (from
- * `data-label`), so nothing needs width and the page never scrolls sideways. A grant nearing expiry
- * is shown with the warn token and the words "expiring soon", never colour alone.
+ * at every width. A host card is a comb cell with one row per dimension: the label, a thin bar
+ * and the figures right-aligned. The flow SVG carries a `viewBox`, so it scales to its pane.
+ * Under 720 px a table row becomes a stacked card whose cells keep their labels (from
+ * `data-label`), so nothing needs width and the page never scrolls sideways; the Grants table,
+ * whose ten columns need the wide rail, keeps its cards to 1080 px (`forage-table--wide`), while
+ * the Wardens, requests and map tables fit the pane from 720 px. A grant nearing expiry is shown
+ * with the warn token and the words "expiring soon", never colour alone.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/`. Imported by `forage_screen.tsx`. Class names are
@@ -43,25 +44,23 @@
   gap: var(--sp-4);
 }
 
+/* A pane may shrink below the flow's 640px drawing, which then scrolls inside its own box */
 .forage-panes .forage-section {
+  min-width: 0;
   margin: 0;
 }
 
+/* The flow's figure is a comb cell (`.comb-cell` in components.css gives it the cut and stroke) */
 .forage-figure {
   margin: 0;
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-card);
   background: var(--surface);
-  clip-path: var(--hex-cut-top);
 }
 
 /* The capacity figure is a grid of cards, not a box: the cards carry their own surface and cut */
 .forage-capacity {
   padding: 0;
-  border: 0;
   background: transparent;
-  clip-path: none;
 }
 
 .forage-hosts {
@@ -73,13 +72,12 @@
   list-style: none;
 }
 
+/* A host card is a comb cell too */
 .forage-host {
   display: grid;
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
   background: var(--surface);
-  clip-path: var(--hex-cut);
-  box-shadow: inset 0 0 0 1px var(--border-soft);
 }
 
 .forage-host-title {
@@ -138,10 +136,10 @@
   height: auto;
 }
 
-/* Under 720px the flow keeps the width its 12px text needs and its figure scrolls sideways; the
-   page itself never does (design.md 4.8) */
+/* Under 720px the flow keeps the width its 12px text needs and scrolls sideways inside its own
+   box (not the figure, whose stroke would scroll away with it); the page never does (design 4.8) */
 @media (max-width: 719px) {
-  .forage-figure--flow {
+  .forage-scroll {
     overflow-x: auto;
   }
 
@@ -209,6 +207,7 @@
   list-style: none;
 }
 
+/* Tables: a table by default, with cards drawn below in the two card rules */
 .forage-table {
   width: 100%;
   border-collapse: collapse;
@@ -255,8 +254,9 @@
   color: var(--warn);
 }
 
-/* Under the wide rail a row is a card; each cell keeps its label. */
-@media (max-width: 1079px) {
+/* Cards: under 720px every table's row is a card, and the Grants table's to 1080px. The two
+   rules hold the same declarations, since one media query cannot carry two widths. */
+@media (max-width: 719px) {
   .forage-table thead {
     position: absolute;
     width: 1px;
@@ -299,14 +299,63 @@
   }
 }
 
-/* From the table width an enum or an id never splits mid-word */
-@media (min-width: 1080px) {
+@media (min-width: 720px) and (max-width: 1079px) {
+  .forage-table--wide thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .forage-table--wide,
+  .forage-table--wide tbody,
+  .forage-table--wide tr,
+  .forage-table--wide td {
+    display: block;
+  }
+
+  .forage-table--wide caption {
+    display: block;
+  }
+
+  .forage-table--wide tr {
+    margin-bottom: var(--sp-3);
+    padding: var(--sp-2);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+  }
+
+  .forage-table--wide td {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    border-bottom: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .forage-table--wide td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+  }
+}
+
+/* From the rail width an enum or an id never splits mid-word in a table */
+@media (min-width: 720px) {
   .forage-table td {
     white-space: nowrap;
   }
 
   .forage-table td[data-label='Expires'],
   .forage-table td[data-label='Falls back to'] {
+    white-space: normal;
+  }
+}
+
+/* The Grants table's cards wrap freely until it is a table at 1080px */
+@media (min-width: 720px) and (max-width: 1079px) {
+  .forage-table--wide td {
     white-space: normal;
   }
 }

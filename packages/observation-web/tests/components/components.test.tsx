@@ -21,6 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ErrorNotice,
   Gauge,
+  IdToken,
   MaskBadge,
   StatusDot,
   TierBadge,
@@ -116,6 +117,21 @@ describe('Gauge', () => {
   it('never shows NaN for a zero budget', () => {
     render(<Gauge used={5} budget={0} label="x" />);
     expect(screen.getByText('5 / 0 (0%)')).toBeTruthy();
+  });
+});
+
+describe('IdToken', () => {
+  // A real id is `<kind>_<26-char ULID>` whose head is the timestamp every id of the day shares.
+  it.each([
+    ['cell_01HZK4R0P3L1NT8U4WR1B2C3D4', 'cell_…2C3D4'],
+    ['task_01HZK4R0P3L1NT8U4WR1B2C3D4', 'task_…2C3D4'],
+    ['01HZK4R0P3L1NT8U4WR1B2C3D4', '…2C3D4'],
+    ['worker_12', 'worker_12'],
+  ])('shows %s as %s with the whole id in its name', (id, shown) => {
+    render(<IdToken id={id} />);
+    const token = screen.getByText(shown);
+    expect(token.getAttribute('title')).toBe(id);
+    expect(token.getAttribute('aria-label')).toBe(id);
   });
 });
 

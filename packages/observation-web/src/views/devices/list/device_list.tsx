@@ -58,7 +58,11 @@ export function DeviceList(props: {
               {label}
             </th>
           ))}
-          {props.loopback ? <th scope="col">Controls</th> : null}
+          {props.loopback ? (
+            <th scope="col" className="devices-controls">
+              Controls
+            </th>
+          ) : null}
         </tr>
       </thead>
       <tbody>

@@ -50,13 +50,23 @@ async function send(fake: FakeBrowser, frame: unknown): Promise<void> {
 }
 
 describe('seed', () => {
-  it('sends the three reads together and opens only the forage stream', async () => {
-    const { fake } = await mountForage();
+  it('sends the three reads and the fleet read together, and opens only the forage stream', async () => {
+    const { fake } = await mountForage({
+      fleet: { as_of: 'x', legend: [], rows: [{ id: 'cell_1', name: 'hive-stand' }] },
+    });
     expect(await screen.findByRole('table', { name: /^Grants/ })).toBeTruthy();
-    expect(reads(fake).sort()).toEqual(['GET /v1/forage', 'GET /v1/llm', 'GET /v1/wardens']);
+    expect(reads(fake).sort()).toEqual([
+      'GET /v1/fleet',
+      'GET /v1/forage',
+      'GET /v1/llm',
+      'GET /v1/wardens',
+    ]);
     expect(fake.sockets.map((s) => s.url.replace('wss://hive.test', ''))).toEqual([
       '/v1/forage/stream',
     ]);
+    // The host card is named from the fleet on the first load, not only once the Fleet was opened.
+    const hosts = screen.getByRole('group', { name: /^Capacity per host:/ });
+    expect(await within(hosts).findByText('hive-stand')).toBeTruthy();
   });
 
   it('draws the pool, the hosts and the flow with accessible names and tokens only', async () => {
@@ -95,19 +105,19 @@ describe('seed', () => {
 });
 
 describe('no read without a frame', () => {
-  it('stays at the three seed reads while nothing arrives and while ordinary frames do', async () => {
+  it('stays at the four seed reads while nothing arrives and while ordinary frames do', async () => {
     const { fake } = await mountForage();
     await screen.findByRole('table', { name: /^Grants/ });
     await act(async () => {
       fake.advance(120_000);
       await flush();
     });
-    expect(fake.requests).toHaveLength(3);
+    expect(fake.requests).toHaveLength(4);
     await send(
       fake,
       forageFrame(eventView('forage.granted', 'grant_1'), { grant: grant({ seats: 3 }) }),
     );
-    expect(fake.requests).toHaveLength(3);
+    expect(fake.requests).toHaveLength(4);
   });
 
   it('reads the ledger again once per capacity report, as a reaction to its frame', async () => {
@@ -119,7 +129,7 @@ describe('no read without a frame', () => {
       forageView({ capacities: [capacity({ cell_id: 'cell_9' })] }),
     );
     await send(fake, forageFrame(eventView('forage.capacity_reported', 'cell_9')));
-    await waitFor(() => expect(fake.requests).toHaveLength(4));
+    await waitFor(() => expect(fake.requests).toHaveLength(5));
     expect(fake.requests.at(-1)?.target).toBe('/v1/forage');
     expect((await screen.findAllByText('cell_9')).length).toBeGreaterThan(0);
   });

@@ -2,10 +2,10 @@
  * `MapTable`: the Forage map as a table, every source with what the Hive knows of it, sortable.
  *
  * A column sorts when its header is clicked or activated by Enter or Space; the sorted column shows
- * an arrow and `aria-sort`. Clicking the sorted column again flips its direction. Under 1080 px the
- * table becomes stacked cards (one source, one card), each cell keeping its label, and the shared
- * "Sort by" control stands in for the hidden header row. Health is a word with a dot, never a
- * colour alone.
+ * an arrow and `aria-sort`. Clicking the sorted column again flips its direction. Its eight columns
+ * fit the pane from the rail width, so under 720 px the table becomes stacked cards (one source,
+ * one card), each cell keeping its label, and the shared "Sort by" control stands in for the
+ * hidden header row. Health is a word with a dot, never a colour alone.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/tables/`. Drawn by `forage_screen.tsx` from the
@@ -20,7 +20,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { SortSelect, TABLE_MIN, useMinWidth } from '../../../components';
+import { NARROW_TABLE_MIN, SortSelect, useMinWidth } from '../../../components';
 import type { LlmView } from '../slice';
 import { MAP_COLUMNS, mapRows, sortMapRows } from './map_rows';
 import type { MapColumn, MapRow } from './map_rows';
@@ -52,7 +52,7 @@ export function MapTable(props: { llm: LlmView }): ReactElement {
   // Choosing the sorted column again reverses it; choosing another starts ascending.
   const choose = (column: MapColumn): void =>
     setSort((now) => ({ column, descending: now.column === column && !now.descending }));
-  const wide = useMinWidth(TABLE_MIN);
+  const wide = useMinWidth(NARROW_TABLE_MIN);
   return (
     <>
       {wide ? null : (

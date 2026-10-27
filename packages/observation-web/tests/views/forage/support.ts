@@ -182,6 +182,8 @@ export interface Reads {
   forage?: unknown;
   wardens?: unknown;
   llm?: unknown;
+  // The fleet, read for the host cards' names; unrouted (a 404 the view shrugs off) by default.
+  fleet?: unknown;
   status?: number;
   body?: unknown;
 }
@@ -194,6 +196,7 @@ export async function mountForage(reads: Reads = {}): Promise<Mounted> {
   fake.respond('GET /v1/forage', status, reads.body ?? reads.forage ?? forageView());
   fake.respond('GET /v1/wardens', status, reads.body ?? reads.wardens ?? { wardens: [warden()] });
   fake.respond('GET /v1/llm', status, reads.body ?? reads.llm ?? llm());
+  if (reads.fleet !== undefined) fake.respond('GET /v1/fleet', status, reads.fleet);
   const store = createHiveStore({ ...APP_SLICES, forage: forageSlice });
   const client = createLandingBoard({ browser: fake.browser, onSessionLost: () => undefined });
   await client.session.restore();
