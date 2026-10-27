@@ -235,6 +235,9 @@ deleted. One regression test per fix.
   on `TaskProgress(STARTED)`, the Queen keeps an `AttemptBook`, the table reads an `AttemptTally`.
 - **Done** (`99c664b7`). A bounded-loop bee records its context every model round
   (`bounded_loop.runner._MeteredGate`); `tests/e2e/test_context_reset.py` proves both resets.
+  A Compact and the bee's own threshold wait for an episode's first tool call
+  (`LoopExecutor._should_hand_off`), so a fresh episode whose first round is already over the line
+  cannot hand off forever with nothing done; Handoff, Rebind and Takeover still stop at once.
 - **Done** (`51656aa2`). The Queen holds a Warden's liveness while her backend freezes its Cell
   (`attach.frozen_cell`).
 
@@ -245,6 +248,13 @@ are named by the roadmap step that owns them.
 
 **Phase 10, found this session, not yet fixed:**
 - `queen/README.md` and the module docstrings touched by the patches: keep them true as you merge.
+- `queen/ticks/alarms.py::_isolate`: the task claim (`882cbcae`) checks only the task an Alarm
+  names; `AlarmRaised.context.cell_id` is never compared with the sending link's Cell. Under an
+  operator ISOLATE policy row (none ships by default) a Warden could have the Queen isolate
+  another Cell. Compare it with the proved link's Cell before acting.
+- No manifest check ties `[memory] budget_fraction` (0.6) to the compact line (0.5) or the
+  handoff threshold: a fresh episode can start over the compact line. The executor no longer
+  loops on it, but a manifest warning when budget_fraction exceeds compact_at would say why.
 - ~~A Cell release still runs inside the Queen's tick.~~ Fixed: every release runs beside the
   tick in `queen/dispatcher/releases.py` (a `ReleaseLane`, at most 4 at once, two of one Cell in
   order, collected each pass). Placement offers no task a Cell being released. `Queen.stop`
