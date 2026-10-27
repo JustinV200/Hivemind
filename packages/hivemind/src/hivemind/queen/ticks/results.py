@@ -216,21 +216,38 @@ async def complete_task(
     # Before on_task_finished: a Virtual Cell it releases takes its link (and so its record of
     # being borrowed or not, and its tier) with it.
     await _deposit_outcome(deps, wardens, payload.task_id, warden_id)
-    await _notify_cell_finished(deps, wardens, warden_id, outcome)
+    await _notify_cell_finished(deps, wardens, warden_id, payload.task_id, outcome)
     await dispatch_ready(deps, wardens)  # A dependant task may now be ready.
 
 
 async def _notify_cell_finished(
-    deps: QueenDeps, wardens: Sequence[WardenLink], warden_id: WardenId | None, outcome: TaskOutcome
+    deps: QueenDeps,
+    wardens: Sequence[WardenLink],
+    warden_id: WardenId | None,
+    task_id: TaskId,
+    outcome: TaskOutcome,
 ) -> None:
-    """Tell `deps.on_task_finished` about `warden_id`'s own Cell, when both are known."""
+    """Tell `deps.on_task_finished` about `warden_id`'s own Cell, once its last task is done.
+
+    A Virtual Cell may run several tasks at once (its sub-bee room; Swarming, ADR-0063, places a
+    task on a Cell already made when it caps fresh ones): it is released only when no other task
+    holds a live grant there, or the tasks still running on it would lose their Cell.
+    """
     if deps.on_task_finished is None or warden_id is None:
         return
     link = next((w for w in wardens if w.warden_id == warden_id), None)
-    if link is not None:
+    if link is not None and not _still_in_use(deps, link.cell.id, task_id):
         # Beside the tick (hivemind.queen.dispatcher.releases): a graceful stop of up to 5 s and
         # a teardown never hold her inbox, and placement skips the Cell until it is done.
         await start_release(deps, link.cell.id, outcome)
+
+
+def _still_in_use(deps: QueenDeps, cell_id: CellId, finished: TaskId) -> bool:
+    """Return whether a task other than `finished` holds a live grant on `cell_id`."""
+    return any(
+        grant.cell_id == cell_id and grant.task_id is not None and grant.task_id != finished
+        for grant in deps.ledger.live_grants()
+    )
 
 
 async def retry_task(
