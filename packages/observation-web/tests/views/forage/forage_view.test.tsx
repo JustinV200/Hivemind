@@ -36,9 +36,9 @@ import {
 const socketOf = (fake: FakeBrowser) => fake.sockets[0]!;
 const reads = (fake: FakeBrowser): string[] => fake.requests.map((r) => `${r.method} ${r.target}`);
 
-// The shared pool's seat figures, read from the numbers table that follows the capacity diagram.
+// The shared pool's seat figures, read from the numbers table that follows the pool's cards.
 const seatsFigures = (): string =>
-  within(screen.getByRole('table', { name: /Capacity per host/ })).getByRole('row', {
+  within(screen.getByRole('table', { name: /Shared pool, in numbers/ })).getByRole('row', {
     name: /Shared model seats/,
   }).textContent ?? '';
 
@@ -59,16 +59,18 @@ describe('seed', () => {
     ]);
   });
 
-  it('draws both diagrams with accessible names and tokens only', async () => {
+  it('draws the pool, the hosts and the flow with accessible names and tokens only', async () => {
     await mountForage();
-    const capacityImg = await screen.findByRole('img', { name: /Capacity of/ });
+    const pool = await screen.findByRole('group', { name: /^Shared pool:/ });
+    const hosts = screen.getByRole('group', { name: /^Capacity per host:/ });
     const flowImg = screen.getByRole('img', { name: /Forage flow/ });
-    for (const svg of [capacityImg, flowImg]) {
-      expect(svg.getAttribute('viewBox')).toMatch(/^0 0 360 /);
-      expect(svg.outerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(flowImg.getAttribute('viewBox')).toMatch(/^0 0 480 /);
+    for (const figure of [pool, hosts, flowImg]) {
+      expect(figure.outerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     }
-    // The same numbers follow for a screen reader.
-    expect(screen.getByRole('table', { name: /Capacity per host/ })).toBeTruthy();
+    // Every host row is a bar with its figures in its name, and the same numbers follow in a table.
+    expect(within(hosts).getAllByRole('img', { name: /^Cores: / }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('table', { name: /Capacity per host, in numbers/ })).toBeTruthy();
   });
 
   it('says what would fill an empty ledger', async () => {

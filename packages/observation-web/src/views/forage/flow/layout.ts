@@ -1,12 +1,14 @@
 /**
  * The flow layout: pure boxes and ribbons for the pool, Warden and grant columns.
  *
- * Three columns of boxes on a 360 unit canvas, left to right: the Queen's shared pool (the Royal
- * Reserve, what is granted, what is free), one box per Warden, and one box per grant grouped under
- * its Warden. A box's height is proportional to its amount on one scale for the whole diagram
- * (with a floor so a small box keeps room for its label), and a ribbon joins each slice of a box to
- * the next column with the same share of the height. Used amounts fill a box from its bottom. Every
- * position comes from sorted ids and fixed sizes, so equal models give equal layouts.
+ * Three labelled columns of boxes on a 480 unit canvas, left to right: the Queen's shared pool
+ * (the Royal Reserve, what is granted, what is free), one box per Warden, and one box per grant
+ * grouped under its Warden. The pool's labels sit to the left of its boxes and the others to the
+ * right, so no label lies on the ribbons that leave the pool. A box's height is proportional to
+ * its amount on one scale for the whole diagram (with a floor so a small box keeps room for its
+ * label), and a ribbon joins each slice of a box to the next column with the same share of the
+ * height. Used amounts fill a box from its bottom. Every position comes from sorted ids and
+ * fixed sizes, so equal models give equal layouts.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/flow/`. Takes the model of `model.ts`; its output
@@ -24,14 +26,20 @@ import { cut } from '../format';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
 
-export const FLOW_WIDTH = 360;
-const NODE_W = 14;
-const COLUMN_X: readonly [number, number, number] = [0, 123, 246];
+export const FLOW_WIDTH = 480;
+export const NODE_W = 14;
+export const COLUMN_X: readonly [number, number, number] = [90, 232, 374];
+export const COLUMN_HEADINGS: readonly [string, string, string] = [
+  'Shared pool',
+  'Wardens',
+  'Grants',
+];
+export const HEAD_H = 20; // The column headings' row, above the first box.
 const TARGET_H = 200; // The tallest column's boxes together, before the floor and gaps.
 export const MIN_BOX = 14;
 const GAP = 6;
-const PAD = 6;
-const LABEL_CHARS = 14; // What fits between a box and the next column at 12 units of text.
+export const PAD = 6;
+const LABEL_CHARS = 13; // What fits beside a box before the next column at 12 units of text.
 
 export type NodeKind = 'reserve' | 'granted' | 'free' | 'warden' | 'grant';
 
@@ -85,7 +93,7 @@ function poolItems(model: FlowModel): Item[] {
     amount,
     used: null,
     near: false,
-    label: `${word} ${text(amount)}`,
+    label: cut(`${word} ${text(amount)}`, LABEL_CHARS),
     title: `${word} in the shared pool: ${text(amount)}`,
   });
   const items = [
@@ -123,9 +131,9 @@ function grantItems(model: FlowModel): Item[] {
   );
 }
 
-// Stacks a column's items top to bottom on the shared scale, with a gap between boxes.
+// Stacks a column's items top to bottom under the headings on the shared scale, with a gap between.
 function stack(items: readonly Item[], column: 0 | 1 | 2, scale: number): FlowBox[] {
-  let y = PAD;
+  let y = PAD + HEAD_H;
   return items.map((item) => {
     const h = round2(Math.max(MIN_BOX, item.amount * scale));
     const filled = item.used !== null && item.amount > 0 ? Math.min(1, item.used / item.amount) : 0;
@@ -214,7 +222,7 @@ export function layoutFlow(model: FlowModel): FlowLayout {
   const bottoms = [...c0, ...c1, ...c2].map((b) => b.y + b.h);
   return {
     width: FLOW_WIDTH,
-    height: round2(Math.max(0, ...bottoms) + PAD),
+    height: round2(Math.max(PAD + HEAD_H, ...bottoms) + PAD),
     scale,
     boxes: [...c0, ...c1, ...c2],
     ribbons,

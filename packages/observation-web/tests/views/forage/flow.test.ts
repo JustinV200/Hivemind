@@ -19,7 +19,14 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ForageFlow } from '../../../src/views/forage/flow/diagram';
-import { layoutFlow, MIN_BOX } from '../../../src/views/forage/flow/layout';
+import {
+  COLUMN_X,
+  HEAD_H,
+  layoutFlow,
+  MIN_BOX,
+  NODE_W,
+  PAD,
+} from '../../../src/views/forage/flow/layout';
 import { flowModel } from '../../../src/views/forage/flow/model';
 import type { FlowInput } from '../../../src/views/forage/flow/model';
 import { grant, headroom, reserve, warden } from './support';
@@ -92,7 +99,7 @@ describe('the layout', () => {
     expect(layout.scale).toBeCloseTo(200 / 22, 6);
     expect(box('pool-reserve').h).toBeCloseTo(2 * (200 / 22), 1);
     expect(box('pool-granted').h).toBeCloseTo(12 * (200 / 22), 1);
-    expect(box('pool-granted').y).toBeCloseTo(6 + box('pool-reserve').h + 6, 1);
+    expect(box('pool-granted').y).toBeCloseTo(PAD + HEAD_H + box('pool-reserve').h + 6, 1);
     expect(box('w_1').h).toBeCloseTo(6 * (200 / 22), 1);
     expect(box('g_c').column).toBe(2);
     expect(layout.height).toBeGreaterThan(200);
@@ -107,8 +114,10 @@ describe('the layout', () => {
       'w_1>g_b',
       'w_2>g_c',
     ]);
-    // Every ribbon leaves the right edge of a 14 wide box.
-    expect(layout.ribbons.every((r) => /^M(14|137|260) /.test(r.path))).toBe(true);
+    // Every ribbon leaves the right edge of a box in the pool or the Warden column.
+    const edges = [COLUMN_X[0] + NODE_W, COLUMN_X[1] + NODE_W];
+    const startOf = (path: string): number => Number(path.split(' ')[0]!.slice(1));
+    expect(layout.ribbons.every((r) => edges.includes(startOf(r.path)))).toBe(true);
   });
 
   it('fills a box from the bottom by what was used', () => {

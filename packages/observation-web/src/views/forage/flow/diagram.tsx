@@ -1,10 +1,13 @@
 /**
  * `ForageFlow`: the Queen's shared pool flowing to each Warden's grants and each grant's spend.
  *
- * It draws the layout of `layout.ts` as SVG: three columns of boxes joined by ribbons. A box shows
- * how much was issued (its height) and, where the schema carries a use figure, how much of that has
- * been used (the filled part). A grant nearing expiry has its box and ribbon edge in the warn token
- * and the word "soon" in its label. Beside the SVG a table repeats every figure for screen readers.
+ * It draws the layout of `layout.ts` as SVG: three labelled columns of boxes joined by ribbons.
+ * A box shows how much was issued (its height) and, where the schema carries a use figure, how
+ * much of that has been used (the filled part). The pool's labels stand to the left of its boxes
+ * and the Wardens' and grants' to the right, each with a halo of the surface colour, so the words
+ * stay legible where a ribbon passes. A grant nearing expiry has its box and ribbon edge in the
+ * warn token and the word "soon" in its label. Beside the SVG a table repeats every figure for
+ * screen readers.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/flow/`. Drawn by `forage_screen.tsx`; makes no
@@ -21,7 +24,7 @@
 import type { ReactElement } from 'react';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
-import { layoutFlow } from './layout';
+import { COLUMN_HEADINGS, COLUMN_X, HEAD_H, layoutFlow } from './layout';
 import type { FlowBox, FlowRibbon, NodeKind } from './layout';
 
 // The pool's reserve is hatched; granted-side boxes are the granted token; free is the track.
@@ -35,6 +38,8 @@ const FILL: Readonly<Record<NodeKind, string>> = {
 
 function Box(props: { box: FlowBox }): ReactElement {
   const { box } = props;
+  // The pool's words go left of its box; the ribbons leave to the right.
+  const left = box.column === 0;
   return (
     <g>
       <title>{box.title}</title>
@@ -56,7 +61,12 @@ function Box(props: { box: FlowBox }): ReactElement {
           fill="var(--accent)"
         />
       ) : null}
-      <text className="forage-svg-label" x={box.x + box.w + 4} y={box.y + box.h / 2 + 4}>
+      <text
+        className="forage-svg-label"
+        x={left ? box.x - 4 : box.x + box.w + 4}
+        y={box.y + box.h / 2 + 4}
+        textAnchor={left ? 'end' : 'start'}
+      >
         {box.label}
       </text>
     </g>
@@ -87,9 +97,9 @@ function Ribbon(props: { ribbon: FlowRibbon }): ReactElement {
     <path
       d={ribbon.path}
       fill="var(--ok)"
-      fillOpacity="0.25"
-      stroke={ribbon.near ? 'var(--warn)' : 'none'}
-      strokeWidth="2"
+      fillOpacity="0.45"
+      stroke={ribbon.near ? 'var(--warn)' : 'var(--ok)'}
+      strokeWidth={ribbon.near ? 2 : 0.5}
     />
   );
 }
@@ -101,7 +111,7 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
   return (
     <figure className="forage-figure">
       <svg
-        className="forage-svg"
+        className="forage-svg forage-svg--flow"
         viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}
         role="img"
         aria-labelledby="forage-flow-title"
@@ -110,6 +120,17 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
           {`Forage flow: the shared pool, to ${model.wardens.length} Wardens, to their grants`}
         </title>
         <HatchDefs />
+        {COLUMN_HEADINGS.map((heading, i) => (
+          <text
+            key={heading}
+            className="forage-svg-heading"
+            x={i === 0 ? COLUMN_X[0] + 14 : COLUMN_X[i]}
+            y={HEAD_H - 6}
+            textAnchor={i === 0 ? 'end' : 'start'}
+          >
+            {heading}
+          </text>
+        ))}
         {layout.ribbons.map((ribbon) => (
           <Ribbon key={ribbon.id} ribbon={ribbon} />
         ))}

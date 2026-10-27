@@ -1,9 +1,10 @@
 # observation-web/src/views/forage
 
-The Forage view, `#/forage`: how the Hive's capacity is divided, live. It draws per-host capacity
-(cores, memory, GPUs, model seats and sub-bee slots as stacked bars of in use, granted, reserve and
-free, with the shared pool and the Royal Reserve first), the flow from the Queen's shared pool to each
-Warden's grants and each grant's spend (a switch picks seats, sub-bees, spend or tokens), spend against
+The Forage view, `#/forage`: how the Hive's capacity is divided, live. It draws the shared pool (the
+Royal Reserve first) beside the flow from the Queen's shared pool to each Warden's grants and each
+grant's spend (a switch picks seats, sub-bees, spend or tokens; the columns are labelled), then each
+host's capacity (cores, memory, GPUs, model seats and sub-bee slots as thin stacked bars of in use,
+granted, reserve and free) as a grid of compact comb-cell cards named from the fleet slice, spend against
 the grants' caps, every live grant with those ending within ten minutes first, the Forage requests
 with the Queen's decision, the Wardens, and the Forage map of model sources, sortable by header.
 
