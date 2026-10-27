@@ -80,7 +80,7 @@ async def test_create_applies_the_migration_and_is_idempotent(tmp_path: Path) ->
     rows = connection.execute(
         "SELECT version FROM schema_migrations WHERE subsystem = 'brood_chamber'"
     ).fetchall()
-    assert [row["version"] for row in rows] == [1]
+    assert [row["version"] for row in rows] == [1, 2]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -109,6 +109,29 @@ async def test_tasks_and_questions_survive_closing_and_reopening_the_same_file(
     result = await reopened_store.get_task(task.id)
 
     assert result == task
+
+
+async def test_nurse_rounds_survive_a_reopen_and_mirror_into_their_column(tmp_path: Path) -> None:
+    """ADR-0061: the Queen's round cap must hold across her restart, so the count is stored."""
+    db_path = tmp_path / "hive.sqlite3"
+    clock = FakeClock()
+    await SqlitePheromoneTrail.create(connect(db_path), clock)
+    store_connection = connect(db_path)
+    store = await SqliteTaskStore.create(store_connection, clock)
+    task = make_task(status=TaskStatus.RUNNING, clock=clock)
+    event = _make_task_event(clock, task.id, new_event_id(clock), "task.submitted")
+    await store.insert_tasks([task], [event])
+    rounded = task.model_copy(update={"nurse_rounds": 2})
+    await store.update_task(
+        rounded, _make_task_event(clock, task.id, new_event_id(clock), "task.nurse_round")
+    )
+    store_connection.close()
+
+    reopened = connect(db_path)
+    loaded = await (await SqliteTaskStore.create(reopened, clock)).get_task(task.id)
+    [row] = reopened.execute("SELECT nurse_rounds FROM tasks").fetchall()
+
+    assert loaded.nurse_rounds == 2 and row["nurse_rounds"] == 2
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -145,7 +168,9 @@ async def test_a_stored_task_body_without_role_loads_as_drone(tmp_path: Path) ->
 
     loaded = await store.get_task(task.id)
 
-    assert loaded.spec.role is WorkerRole.DRONE
+    # Nor did the body know nurse_rounds (ADR-0061): it loads as no round yet, and so does the
+    # column migration 0002 added.
+    assert loaded.spec.role is WorkerRole.DRONE and loaded.nurse_rounds == 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -139,6 +139,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("task.unassigned", _LIFECYCLE),
     ("task.started", _LIFECYCLE),
     ("task.progressed", _OBSERVATION),
+    ("task.nurse_round", _LIFECYCLE),  # ADR-0061: sent back to fix forward a Nurse's findings.
     ("task.question_withdrawn", _LIFECYCLE),
     ("task.paused", _LIFECYCLE),
     ("task.resumed", _LIFECYCLE),

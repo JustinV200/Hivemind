@@ -40,11 +40,12 @@ Vocabulary (family -> kind -> when it is recorded):
         lifted an isolation, with step-up; the Queen never lifts one herself, 10.6a).
     task: submitted (BroodChamber.submit minted it); assigned (PENDING -> ASSIGNED); unassigned
         (ASSIGNED -> PENDING, Warden lost); started (ASSIGNED -> RUNNING); progressed (a progress
-        report, no transition); blocked (RUNNING -> BLOCKED, a question was asked); answered
-        (BLOCKED -> RUNNING, a question was answered); question_withdrawn (BLOCKED -> RUNNING, the
-        question was withdrawn); paused (RUNNING -> PAUSED, Clustering); resumed (PAUSED ->
-        RUNNING); succeeded (-> SUCCEEDED, acceptance checks passed); failed (-> FAILED); cancelled
-        (-> CANCELLED).
+        report, no transition); nurse_round (the Queen sent a RUNNING task back to fix a Nurse
+        Bee's findings, no transition: the new count only, ADR-0061); blocked (RUNNING -> BLOCKED,
+        a question was asked); answered (BLOCKED -> RUNNING, a question was answered);
+        question_withdrawn (BLOCKED -> RUNNING, the question was withdrawn); paused (RUNNING ->
+        PAUSED, Clustering); resumed (PAUSED -> RUNNING); succeeded (-> SUCCEEDED, acceptance
+        checks passed); failed (-> FAILED); cancelled (-> CANCELLED).
     alarm: raised (a bee could not resolve an issue itself); handled (its supervisor resolved it
         without escalating); escalated (passed to the next level up); resolved (the issue is
         closed, at whichever level handled it, the human's own acknowledgement included).
@@ -135,6 +136,7 @@ class TaskEvent(PheromoneEvent):
             "task.unassigned",
             "task.started",
             "task.progressed",
+            "task.nurse_round",  # ADR-0061: the Queen sent it back to fix a Nurse's findings.
             "task.blocked",
             "task.answered",
             "task.question_withdrawn",

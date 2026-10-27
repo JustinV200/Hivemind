@@ -83,10 +83,14 @@ _PHEROMONE_TABLE_CHECK_SQL = (
 )
 
 _INSERT_TASK_SQL = """
-INSERT INTO tasks (id, goal_id, status, created_at, updated_at, body)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO tasks (id, goal_id, status, created_at, updated_at, body, nurse_rounds)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 """
-_UPDATE_TASK_SQL = "UPDATE tasks SET goal_id = ?, status = ?, updated_at = ?, body = ? WHERE id = ?"
+# nurse_rounds mirrors the body's own count (migration 0002), written with it on every update.
+_UPDATE_TASK_SQL = (
+    "UPDATE tasks SET goal_id = ?, status = ?, updated_at = ?, body = ?, nurse_rounds = ? "
+    "WHERE id = ?"
+)
 _SELECT_TASK_BODY_SQL = "SELECT body FROM tasks WHERE id = ?"
 _SELECT_TASKS_BODY_SQL = "SELECT body FROM tasks"
 _ORDER_TASKS_BY = " ORDER BY created_at, id"  # Matches TaskStore.list_tasks's documented order.
@@ -271,8 +275,8 @@ def _pheromone_table_exists(connection: sqlite3.Connection) -> bool:
     return connection.execute(_PHEROMONE_TABLE_CHECK_SQL).fetchone() is not None
 
 
-def _task_row(task: Task) -> tuple[str, str, str, str, str, str]:
-    """Build the six-column parametrised row both task insert and update statements bind."""
+def _task_row(task: Task) -> tuple[str, str, str, str, str, str, int]:
+    """Build the seven-column parametrised row the task insert statement binds."""
     return (
         task.id,
         task.goal_id,
@@ -280,6 +284,19 @@ def _task_row(task: Task) -> tuple[str, str, str, str, str, str]:
         task.created_at.isoformat(),
         task.updated_at.isoformat(),
         task.model_dump_json(),
+        task.nurse_rounds,
+    )
+
+
+def _task_update_row(task: Task) -> tuple[str, str, str, str, int, str]:
+    """Build the parametrised row every task UPDATE binds, its id last for the WHERE clause."""
+    return (
+        task.goal_id,
+        task.status.value,
+        task.updated_at.isoformat(),
+        task.model_dump_json(),
+        task.nurse_rounds,
+        task.id,
     )
 
 
@@ -313,16 +330,7 @@ def _insert_tasks_transaction(
 def _update_task_transaction(connection: sqlite3.Connection, task: Task, event: TaskEvent) -> None:
     """Update one task row then insert its event, in one transaction; run on the thread."""
     with transaction(connection):
-        cursor = connection.execute(
-            _UPDATE_TASK_SQL,
-            (
-                task.goal_id,
-                task.status.value,
-                task.updated_at.isoformat(),
-                task.model_dump_json(),
-                task.id,
-            ),
-        )
+        cursor = connection.execute(_UPDATE_TASK_SQL, _task_update_row(task))
         if cursor.rowcount != 1:
             # rowcount 0 means no row had this id: WHERE matched nothing to update.
             raise TaskNotFoundError(task.id)
@@ -379,16 +387,7 @@ def _insert_question_transaction(
 ) -> None:
     """Update the task, insert the question, then insert the event; run on the thread."""
     with transaction(connection):
-        cursor = connection.execute(
-            _UPDATE_TASK_SQL,
-            (
-                task.goal_id,
-                task.status.value,
-                task.updated_at.isoformat(),
-                task.model_dump_json(),
-                task.id,
-            ),
-        )
+        cursor = connection.execute(_UPDATE_TASK_SQL, _task_update_row(task))
         if cursor.rowcount != 1:
             raise TaskNotFoundError(task.id)
         try:
@@ -406,16 +405,7 @@ def _update_question_transaction(
 ) -> None:
     """Update the task, update the question, then insert the event; run on the thread."""
     with transaction(connection):
-        task_cursor = connection.execute(
-            _UPDATE_TASK_SQL,
-            (
-                task.goal_id,
-                task.status.value,
-                task.updated_at.isoformat(),
-                task.model_dump_json(),
-                task.id,
-            ),
-        )
+        task_cursor = connection.execute(_UPDATE_TASK_SQL, _task_update_row(task))
         if task_cursor.rowcount != 1:
             raise TaskNotFoundError(task.id)
         question_cursor = connection.execute(

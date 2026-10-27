@@ -29,6 +29,8 @@ Key invariants:
     - Task.pending_question_id is set if and only if Task.status is TaskStatus.BLOCKED.
     - Task.warden_id and Task.cell_id are both set or both None, and are set exactly when status
       is one of ASSIGNED, RUNNING, BLOCKED, PAUSED (the "placed" statuses).
+    - Task.nurse_rounds counts the Nurse Bee rejections the Queen sent the task back for
+      (ADR-0061); it only ever grows, and stays within TaskAssign.review_round's bound.
     - Task.bound_tier is None whenever the task is not placed: a task is bound to its Cell's tier
       at assignment (roadmap step 10.3b) and unbound when it leaves the Cell, so a task placed
       again is re-bound before it runs. A placed task stored before binding existed may carry
@@ -77,6 +79,7 @@ from waggle.messages.base import (
     WardenIdField,
 )
 from waggle.messages.task import ScoutReport, WorkerRole
+from waggle.messages.task.review import MAX_REVIEW_ROUND
 
 MAX_TITLE_CHARS = 200  # A one-line summary; the objective carries the detail.
 MAX_OBJECTIVE_CHARS = 8_000  # A few pages: enough to brief a Worker fully, never a whole document.
@@ -291,6 +294,14 @@ class Task(BaseModel):
     )
     pending_question_id: MessageIdField | None = Field(
         default=None, description="Set exactly when status is BLOCKED: the question awaiting reply."
+    )
+    # ADR-0061: the Queen's own count, so it survives her restart; bounded by the wire's
+    # TaskAssign.review_round, which carries it down. Defaulted, so an older body loads as 0.
+    nurse_rounds: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_REVIEW_ROUND,
+        description="Nurse Bee rejections this task has been sent back for, to fix forward.",
     )
 
     @model_validator(mode="after")

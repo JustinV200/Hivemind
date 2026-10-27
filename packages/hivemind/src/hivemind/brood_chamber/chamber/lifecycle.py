@@ -9,10 +9,12 @@ RUNNING one whose Hive stopped under it, taking its Cell and Warden along.
 `requeue_for_commands` (ADR-0060) moves a RUNNING task back to PENDING the same way, for a task
 whose Cell refused the commands its Worker or its acceptance runs: its needs gain `commands`, so
 its next placement lands on a Cell that runs them.
-`report_progress` records a running task's latest summary with no status change; `pause`/`resume`
+`report_progress` records a running task's latest summary with no status change, and
+`note_nurse_round` (ADR-0061) counts one more Nurse Bee rejection on a running task the Queen
+sends back to fix forward, with none either; `pause`/`resume`
 move a task in and out of PAUSED for Clustering (the Queen suspending work while a model provider
 is unavailable). Every transition
-here (other than `report_progress`, which is not one) is asserted legal by
+here (other than `report_progress` and `note_nurse_round`, which are not ones) is asserted legal by
 `hivemind.brood_chamber.task.state.TRANSITIONS` before it is written, through
 `_ChamberBase._transition` (`hivemind.brood_chamber.chamber.base`).
 
@@ -226,6 +228,28 @@ class _LifecycleMixin(_ChamberBase):
         return await self._write(
             task, "task.progressed", payload, last_summary=summary, fraction_done=fraction_done
         )
+
+    async def note_nurse_round(self, task_id: TaskId) -> Task:
+        """Count one more Nurse Bee rejection on a RUNNING task the Queen sends back (ADR-0061).
+
+        The Queen's round cap reads this count, so it lives on the stored Task and survives her
+        restart; the trail event carries the new count only, never a finding's words.
+
+        Args:
+            task_id: The task whose attempt the Nurse rejected.
+
+        Returns:
+            The task, still RUNNING, with `nurse_rounds` one higher.
+
+        Raises:
+            InvalidTransitionError: The task is not RUNNING; only a running task is sent back.
+        """
+        task = await self._store.get_task(task_id)
+        if task.status is not TaskStatus.RUNNING:
+            raise InvalidTransitionError(task.status, TaskStatus.RUNNING, subject_id=task.id)
+        rounds = task.nurse_rounds + 1
+        payload: dict[str, JsonValue] = {"nurse_rounds": rounds}
+        return await self._write(task, "task.nurse_round", payload, nurse_rounds=rounds)
 
     async def pause(self, task_id: TaskId, reason: str) -> Task:
         """Move a task RUNNING -> PAUSED: Clustering suspended it, or its bee was quarantined.
