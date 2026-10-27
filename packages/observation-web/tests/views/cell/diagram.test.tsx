@@ -239,14 +239,15 @@ describe('the drawing', () => {
     const yOf = (container: HTMLElement, sel: string) =>
       Number(container.querySelector(sel)!.getAttribute('y'));
     const onCell = draw({ warden_runs: 'on_cell' }).container;
-    const frame = (c: HTMLElement) => c.querySelector('svg > rect')!;
-    const wardenRect = (c: HTMLElement) => c.querySelector('[data-bee="warden_1"] rect')!;
-    expect(Number(wardenRect(onCell).getAttribute('y'))).toBeGreaterThan(
-      Number(frame(onCell).getAttribute('y')),
+    // The shapes are paths, so each carries its top edge in `data-y` for the test to read.
+    const top = (c: HTMLElement, sel: string) =>
+      Number(c.querySelector(sel)!.getAttribute('data-y'));
+    expect(top(onCell, '[data-bee="warden_1"] .dg-shape')).toBeGreaterThan(
+      top(onCell, 'svg > .dg-frame'),
     );
     const onStand = draw({ warden_runs: 'hive_stand' }).container;
-    expect(Number(wardenRect(onStand).getAttribute('y')) + 88).toBeLessThanOrEqual(
-      Number(frame(onStand).getAttribute('y')),
+    expect(top(onStand, '[data-bee="warden_1"] .dg-shape') + 88).toBeLessThanOrEqual(
+      top(onStand, 'svg > .dg-frame'),
     );
     expect(yOf(onStand, '[data-bee="warden_1"] .dg-line')).toBeGreaterThan(0);
   });
@@ -255,7 +256,7 @@ describe('the drawing', () => {
     const { container } = draw({ warden_runs: null });
     const warden = container.querySelector('[data-bee="warden_1"]')!;
     expect(warden.textContent).toContain('not tracked');
-    expect(warden.querySelector('rect')!.getAttribute('stroke-dasharray')).toBeTruthy();
+    expect(warden.querySelector('.dg-shape')!.getAttribute('stroke-dasharray')).toBeTruthy();
   });
 
   it('gives each bee a context meter with its numbers, and none when unreported', () => {
@@ -293,7 +294,7 @@ describe('the drawing', () => {
       new Set(['w_2']),
     );
     const outline = (id: string) =>
-      container.querySelector(`[data-bee="${id}"] rect`)!.getAttribute('stroke');
+      container.querySelector(`[data-bee="${id}"] .dg-shape`)!.getAttribute('stroke');
     expect(outline('w_1')).toBe('var(--alarm)');
     expect(container.querySelector('[data-bee="w_1"]')!.textContent).toContain('Alarm');
     expect(outline('w_2')).toBe('var(--accent)');

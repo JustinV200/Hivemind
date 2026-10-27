@@ -1,11 +1,13 @@
 /*
- * Cell page styles: the sticky header, the diagram and the panels beside it.
+ * Cell page styles: the sticky header, the diagram band and the panels under it.
  *
- * Mobile first (design.md section 2): the header's badges wrap rather than collapse, the diagram
+ * Mobile first (design.md section 2): the header's badges wrap rather than collapse (and the
+ * header sticks only from the rail width, where it does not take a phone's screen), the diagram
  * is one full-width SVG that scales by its viewBox, and the panels stack in one column under it.
- * From 720px the panels flow into as many columns as fit; from 1400px the diagram sits beside them.
- * The SVG's text is real text in the page's fonts and its fills and strokes are tokens, so both
- * themes work with no literal colour here.
+ * From 720px the panels flow into as many columns as fit (three at 1440px), under a diagram band
+ * that keeps the drawing no wider than its wide layout needs, so its 12 unit text never grows
+ * past a comfortable size. The SVG's text is real text in the page's fonts and its fills and
+ * strokes are tokens, so both themes work with no literal colour here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/`. Imported by `cell.tsx`. Class names are those
@@ -19,11 +21,18 @@
  *   - docs/observation/design.md sections 3, 4.5, 4.6 and 5.2.
  */
 .cell-header {
-  position: sticky;
-  top: calc(var(--topbar-h) + var(--strip-h));
-  z-index: 10;
   padding-bottom: var(--sp-2);
   background: var(--bg);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* The header sticks under the strip from the rail width; on a phone it would take the screen */
+@media (min-width: 720px) {
+  .cell-header {
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--strip-h));
+    z-index: 10;
+  }
 }
 
 .cell-header .view-title {
@@ -59,22 +68,21 @@
   margin-top: var(--sp-4);
 }
 
-@media (min-width: 1400px) {
-  .cell-page {
-    grid-template-columns: 744px minmax(0, 1fr);
-    align-items: start;
-  }
-}
-
-/* Diagram */
+/* Diagram: a band across the page, the drawing centred and capped at a readable scale */
 .cell-diagram {
   min-width: 0;
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-card);
 }
 
 .dg {
   display: block;
   width: 100%;
+  max-width: 900px;
   height: auto;
+  margin: 0 auto;
 }
 
 .dg text {
@@ -89,7 +97,7 @@
 
 .dg .dg-role,
 .dg .dg-box-value {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .dg .dg-line,
@@ -104,11 +112,19 @@
   font-weight: 700;
 }
 
+.dg-node .dg-shape {
+  transition: fill var(--motion);
+}
+
+.dg-node:hover .dg-shape {
+  fill: var(--surface-2);
+}
+
 .dg-node:focus-visible {
   outline: none;
 }
 
-.dg-node:focus-visible rect:first-of-type {
+.dg-node:focus-visible .dg-shape {
   stroke: var(--accent);
   stroke-width: 3px;
 }
@@ -133,12 +149,15 @@
   align-content: start;
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
   overflow-wrap: anywhere;
 }
 
+/* A hairline under each panel's heading gives the grid its rhythm */
 .cell-panel h2 {
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-soft);
   font-size: var(--fs-lg);
 }
 
@@ -179,6 +198,7 @@
   border-radius: var(--radius-tag);
   font-size: var(--fs-xs);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .cell-tag--ok {

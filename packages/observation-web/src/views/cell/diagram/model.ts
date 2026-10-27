@@ -68,7 +68,7 @@ export interface DiagramModel {
 
 // Characters a one-line cut keeps; the SVG text has no room for more (design.md 4.5).
 export const ID_CUT = 18;
-export const LINE_CUT = 24;
+export const LINE_CUT = 22;
 
 export function cut(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;

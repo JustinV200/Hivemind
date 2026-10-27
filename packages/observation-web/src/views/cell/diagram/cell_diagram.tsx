@@ -3,11 +3,12 @@
  * about the Cell beside or under it.
  *
  * It is a pure function of the page: `model.ts` says what each node and box shows, `layout.ts`
- * says where, and this file draws it. The frame is the Cell; the Warden is drawn inside it when it
- * runs on the Cell and above it (on the Hive Stand) otherwise, with a dashed outline while where
- * it runs is not tracked. Lines join the Warden to every sub-bee and each fact box to what it
- * concerns. The SVG scales by its `viewBox` to the width it is given and switches layout (boxes
- * beside the frame or under it) on its container's width.
+ * says where, and this file draws it. The frame is the Cell, a rectangle with its corners cut like
+ * a comb cell; the Warden is drawn inside it when it runs on the Cell and above it (on the Hive
+ * Stand) otherwise, with a dashed outline while where it runs is not tracked. Lines join the
+ * Warden to every sub-bee and each fact box to what it concerns. The SVG scales by its `viewBox`
+ * to the width it is given and switches layout (boxes beside the frame or under it) on its
+ * container's width.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/diagram/`. Rendered by `cell.tsx` from the slice's
@@ -20,10 +21,11 @@
  *   - All colours are tokens; text is real `<text>`.
  *
  * See Also:
- *   - docs/observation/design.md sections 4.5, 4.6 and 4.8.
+ *   - docs/observation/design.md sections 3.4, 4.5, 4.6 and 4.8.
  */
 import { useMemo } from 'react';
 import type { ReactElement } from 'react';
+import { chamferedPath } from '../../../components/comb/shapes';
 import { BeeNodeView } from './bee_node';
 import { DiagramTable } from './diagram_table';
 import { layoutDiagram } from './layout';
@@ -35,17 +37,23 @@ import { useLayoutMode } from './use_layout_mode';
 
 // Characters a box's value and detail keep; its `<title>` has the rest.
 const BOX_CUT = 24;
+const FRAME_CUT = 12; // The frame's corner cut; the boxes take a smaller one.
+const BOX_CORNER = 6;
 
 function safeId(text: string): string {
   return `cell-diagram-${text.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 }
 
 function FactBoxView(props: { placed: Placed<FactBox> }): ReactElement {
-  const { x, y, w, h, item } = props.placed;
+  const { x, y, item } = props.placed;
   return (
     <g data-box={item.key}>
       <title>{item.title}</title>
-      <rect x={x} y={y} width={w} height={h} rx={6} fill="var(--surface)" stroke="var(--border)" />
+      <path
+        d={chamferedPath(props.placed, BOX_CORNER)}
+        fill="var(--surface)"
+        stroke="var(--border)"
+      />
       <text className="dg-box-label" x={x + 8} y={y + 16}>
         {item.label}
       </text>
@@ -73,21 +81,19 @@ function FrameView(props: { model: DiagramModel; frame: Layout['frame'] }): Reac
   const note = emptyNote(model);
   return (
     <>
-      <rect
-        x={frame.x}
-        y={frame.y}
-        width={frame.w}
-        height={frame.h}
-        rx={8}
+      <path
+        className="dg-frame"
+        d={chamferedPath(frame, FRAME_CUT)}
+        data-y={frame.y}
         fill="var(--surface-2)"
         stroke="var(--border)"
         strokeWidth={2}
       />
-      <text className="dg-frame-label" x={frame.x + 10} y={frame.y + 16}>
+      <text className="dg-frame-label" x={frame.x + FRAME_CUT} y={frame.y + 16}>
         {model.frameLabel}
       </text>
       {note ? (
-        <text className="dg-note" x={frame.x + 10} y={frame.y + frame.h - 12}>
+        <text className="dg-note" x={frame.x + FRAME_CUT} y={frame.y + frame.h - 12}>
           {note}
         </text>
       ) : null}
