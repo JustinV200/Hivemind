@@ -43,7 +43,12 @@ _FINDING = NurseFinding(
 
 
 def _one_task_plan(goal: str) -> dict[str, object]:
-    criterion = {"kind": "FILE_EXISTS", "subject": "scratch/poem.txt", "argv": [], "expected": None}
+    criterion: dict[str, object] = {
+        "kind": "FILE_EXISTS",
+        "subject": "scratch/poem.txt",
+        "argv": [],
+        "expected": None,
+    }
     task = {
         "key": "poem",
         "title": "Write a poem",
