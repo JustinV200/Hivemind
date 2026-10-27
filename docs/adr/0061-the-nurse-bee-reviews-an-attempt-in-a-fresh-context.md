@@ -131,6 +131,44 @@ Both are classified as observations in the Guard's event catalogue.
   `max_evidence_chars` sits beneath. The goal reuses the judge's `MAX_GOAL_CHARS`.
   Every outcome's index must name a criterion in the request.
 
+### Deviations from the design pass, made in step 3 (the model Nurse)
+
+- **`wardens.nurse` is a package, not one module:** `strength` (the Worker's grade), `eligible`
+  (which JUDGE links may review), `prompt`, `verdict` (the reply and its translation) and
+  `reviewer` (`ModelNurseReviewer`). Five jobs do not fit one file under codingrules 5.2, and
+  `wardens/` already holds more than ten modules.
+- **`NurseRequest` gains `spend_left`,** what the task's grant has left (None when uncapped). The
+  budget pre-check needs a per-task figure, and one reviewer serves every task on a Warden.
+- **Eligibility is more than grade.** A JUDGE link is eligible only when the Forage map grades it
+  at or above the Worker, the estimated prompt plus reply fits its context window, and the
+  worst-case cost of the call (estimated input tokens and the reply budget, at the link's own
+  prices) fits `spend_left`. A link failing any check is skipped; no link left is the "not
+  nursed" UNAVAILABLE answer, never an escalation, the same as having no strong model at all. An
+  unpriced link passes the budget check, since its cost cannot be estimated; the Fanner still
+  meters it.
+- **The eligible links are re-linked into a chain of their own,** another provider first, the
+  manifest's order otherwise, so the ladder may still fall back but only onto an eligible model.
+  The ladder does not report which link answered, so the review records the lowest grade in that
+  chain: never a stronger Nurse than the one that may have answered.
+- **Unknown grades fail toward a stronger Nurse.** A JUDGE link the Forage map cannot grade is
+  never eligible. A Worker model the map cannot grade sets the Worker's grade to the top grade,
+  so only a top-grade Nurse (the identical model included) can review it, and otherwise the
+  attempt is flagged "not nursed".
+- **Spill is read per provider.** An `llm.call` event names its provider but never its model (the
+  trail keeps model ids off it), so each call counts as the strongest model the map lists on that
+  provider. That can overstate the Worker, never understate it. Putting the binding key on
+  `llm.call`, as `llm.spill` already carries it, would make this exact; it is left for later.
+- **The reply is translated fail-closed.** The model answers in a looser private schema;
+  `to_verdict` keeps each finding that has a real anchor (a criterion in range, or a path) and
+  non-empty text, bounded to the wire's limits, and drops the rest. Any usable finding makes the
+  verdict CHANGES_REQUESTED, whatever the model said; CHANGES_REQUESTED with none is a
+  `NurseAnswerError` (an ERROR review), because it cannot steer a fix. The verdict's `rubric_id`
+  is always `nurse-review/1`, never model text.
+- **A refused or over-long call is an answer failure too.** `RefusedError` and
+  `ContextTooLongError` become `NurseAnswerError` beside `MalformedOutputError`, so the accept path
+  records ERROR instead of crashing; outages still propagate. A failed ladder reports zero spend,
+  because the ladder does not return the usage of attempts that failed.
+
 ## Consequences
 
 - An attempt reaches SUCCEEDED only after a model that did not write it has read the evidence,
