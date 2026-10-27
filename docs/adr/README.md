@@ -306,3 +306,9 @@ ADRs that exist today, in numeric order:
   account) to a Nurse Bee on the JUDGE slot at least as strong as the Worker; CHANGES_REQUESTED
   sends a fresh Worker to fix forward on the same Cell, up to `[nurse] max_rounds`, then the human
   (`NURSE_UNRESOLVED`); with no eligible model the attempt is accepted "not nursed". Waggle 1.15.
+- `0062-requeening-recovery-sources-of-truth.md`: every start is a Requeening; each fact comes back
+  from its own source (the Brood Chamber, backend labels with the Cell's key, the trail's lease
+  events from the Queen's last snapshot, the ledger, whichever Wardens reattach within
+  `requeening_grace_s`); orphans are re-placed, ended grants released and missing holders revoked,
+  Clustering pauses resumed from Handoffs; handled Alarms and questions survive in a durable table,
+  so the replay window no longer starts empty; `queen.requeened` carries counts only.
