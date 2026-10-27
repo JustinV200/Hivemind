@@ -43,6 +43,9 @@ merge. What changed for whoever resumes:
   recorded inconclusive. `tests/e2e/test_audit_raise_on_virtual_cell.py` asserts it. The Guard
   Bee item below about this is done.
 
+**Later (2026-10-27).** Everything in "In flight" was ported onto branch `finish/roadmap` from
+`main` at `21e43754`, and the patches were deleted; see "In flight" for each item's commit.
+
 ## Start here
 
 1. **Read, in this order:**
@@ -55,13 +58,8 @@ merge. What changed for whoever resumes:
    These are normative, and the ADRs were amended this session. See "Decisions taken".
 2. **Confirm the head is green.** Run `uv sync --frozen --all-groups`, then the gates (see "How
    the work was run").
-3. **Resume the two in-flight rounds** from the patches (see "In flight"):
-   - finish each item;
-   - gate the result and commit it;
-   - push.
-
-   In the same commit, delete the patches and the two stale briefs in `.claude/phase-10-handoff/`
-   (`brief-floors.md`, `brief-queen-human-path.md`; both describe finished work).
+3. ~~Resume the two in-flight rounds from the patches.~~ Done on `finish/roadmap` (see "In
+   flight"); the patches are deleted.
 4. Work through "Still open", then run the whole-system real run (see "Real runs"), then write the
    final report (last section).
 
@@ -201,81 +199,44 @@ bytes.**
 10. `withdrawn` arrived, then `goal_completed`, with the task SUCCEEDED.
 11. A remote approve got 404.
 
-## In flight (saved as patches; nothing here is merged)
+## In flight: landed on `finish/roadmap` (2026-10-27)
+
+Both rounds were ported by hand onto the current code (the paths had moved: the shared attach path
+is `queen/attach/`, the bounded-loop runner now holds the Drone's loop) and the four patches were
+deleted. One regression test per fix.
 
 ### Night Veil round 3
 
-Files: `nv3-committed.patch` (1 commit) and `nv3-wip.patch` (uncommitted work).
-
-Both apply cleanly to `6e05b34`, in order:
-
-```bash
-git am .claude/phase-10-handoff/nv3-committed.patch
-git apply .claude/phase-10-handoff/nv3-wip.patch
-```
-
-The brief, item by item:
-
-1. **Not started.** The SECURITY Alarm about a Night Veil Cell: its `alarm.escalated` row names
-   the Cell and outlives it on the durable trail.
-   - Carry the Cell id as its own payload field so the veil routes the row.
-   - `was_shown` should read through `hivemind.pheromone.query_cell`.
-   - The human must still see the CRITICAL Alarm while the Cell lives.
-2. **Not started.** `chat_entries` rows that name the Cell need a purge side channel at teardown.
-3. **Not started.** `guard_requests` rows (report, evidence, decision) need a purge side channel
-   too.
-   - Then drop the `alarm.escalated` exclusion in `tests/e2e/test_guard_bee_on_night_veil.py`.
-   - Then assert all three stores after teardown.
-4. **Done in the committed patch** (SECURITY). The snapshot relay answers only about the Cell its
-   link proved.
-5. **Work in progress** (SECURITY). A `TaskResult`, or any Cell message naming a task, about a
-   task not placed on the sending Cell is refused and recorded.
-   - The work in progress adds `queen/inbox/claims.py`, `test_claims.py` and
-     `test_queen_claims.py`.
-   - The agent was writing "a Cell cannot finish, fail, block, alarm or answer for another
-     Cell's task" when stopped. Finish it and run it.
+1. **Done** (`d547dbb2`). The SECURITY Alarm's `alarm.escalated` row carries `cell_id` as its own
+   payload field, so the veil keeps it in the Cell's segment; `was_shown` reads through
+   `query_cell`, so the human still sees the CRITICAL Alarm once while the Cell lives.
+2. **Done** (`251f5d17`). `ChatLog.purge_night_veil`: a chat line naming the Cell or its ids is
+   reduced to its skeleton in place (its position is kept, so no stream cursor moves).
+3. **Done** (`251f5d17`). `GuardRequestStore.purge_night_veil` deletes the report, evidence and
+   decision, but never a request still holding goals off a Cell. Both stores are `SideChannels`
+   (`chat`, `guard_requests`); `HiveStores.guard_requests` is now the Queen's one store. The
+   `alarm.escalated` exclusion in `tests/e2e/test_guard_bee_on_night_veil.py` is gone, and the
+   e2e asserts the trail, the chat and the Guard requests after teardown.
+4. **Done** (`fad1729c`). `queen/attach/serve.py` relays a snapshot or rollback only about the
+   Cell the link proved; any other is answered with an error and recorded as
+   `guard.relay_refused` (the `relay_forgery` dire pattern).
+5. **Done** (`882cbcae`). `queen/inbox/claims.py` (`TaskClaims`) refuses a Warden's result,
+   progress, Alarm, question or answer about a live task not placed with it, before `decide`, as
+   `guard.task_refused` (the judged `task_claim` rule).
 
 ### Supervision round 4
 
-Files: `sup4-committed.patch` (5 commits) and `sup4-wip.patch`.
-
-The agent cut these on `fac57e7`. Its first four commits apply to `6e05b34`. The fifth
-(`fc0239f`) and the work in progress conflict with the Night Veil changes in
-`queen/cell_gate/listener.py`, `tests/unit/queen/cell_gate/test_listener.py` and
-`queen/attach.py`.
-
-Apply them on their own base, then cherry-pick onto the head, keeping both sides' intent:
-
-```bash
-git worktree add -b sup4 <scratch>/sup4 fac57e7
-cd <scratch>/sup4
-git am <repo>/.claude/phase-10-handoff/sup4-committed.patch
-git apply <repo>/.claude/phase-10-handoff/sup4-wip.patch
-```
-
-The brief, item by item:
-
-- **Items 2 to 6, committed:**
-  - A Drone reports its context every model round, so the Warden's context check can fire
-    mid-attempt.
-  - Rebind and Takeover through `Warden.intervene` start the bee they promise.
-  - A cancelled or failed task leaves the Warden's clustered set.
-  - Attempt numbers never go backwards on the trail.
-  - The Queen holds a Warden's liveness while she freezes its Cell (a snapshot freeze).
-- **Item 1, work in progress:** Docker Overwinter reuse past about 45 s.
-  - The websocket keepalive drops a paused Cell's link about 47 s into the pause, and the
-    in-Cell Warden never redials.
-  - The fix under way:
-    - `cli/in_cell/redial.py` (new);
-    - `cli/in_cell/link.py` and `main.py`;
-    - `queen/cell_gate/{gate,listener,provider}.py` accept the re-attach;
-    - `queen/attach.py`.
-  - Tests: `tests/unit/cli/in_cell/test_redial.py`, `tests/e2e/test_overwinter_redial.py`, and
-    a hook in `tests/builders/virtual_cells.py`.
-  - The agent was adding "a hook in the builder so a subclass can point its container at a
-    relay" when stopped.
-  - Finish it, and prove it on real Docker if you can: a Cell paused 60 s or more is reused for
-    a second goal.
+- Item 1 (redial) was already on `main` as `cli/in_cell/redial/`.
+- **Done** (`495bc712`). A clustered task the Queen cancels or fails leaves the clustered set;
+  CLUSTERED -> ACTIVE -> WATCH (`settle_path`).
+- **Done** (`441b332f`). Rebind and Takeover through `Warden.intervene` start the bee they promise
+  (`SuccessorOrder`).
+- **Done** (`424b8fbe`). Attempt numbers never go backwards: the Warden reports each new attempt
+  on `TaskProgress(STARTED)`, the Queen keeps an `AttemptBook`, the table reads an `AttemptTally`.
+- **Done** (`99c664b7`). A bounded-loop bee records its context every model round
+  (`bounded_loop.runner._MeteredGate`); `tests/e2e/test_context_reset.py` proves both resets.
+- **Done** (`51656aa2`). The Queen holds a Warden's liveness while her backend freezes its Cell
+  (`attach.frozen_cell`).
 
 ## Still open after the patches (resolve; do not merely note)
 
@@ -310,9 +271,7 @@ are named by the roadmap step that owns them.
     `hive remote certificate renew` and `hive entrance reissue`.
   - ~~Expiry-driven revocation-list rebuild has no unit test.~~ Fixed (`a451e65a`): `sweep_once`
     over a real TLS handshake, in `tests/unit/entrance/runtime/test_tls.py`.
-- Still not done: the four patches in "In flight". Night Veil round 3's items 1, 2, 3 and 5 are
-  not on this branch (nor on `main` as of 2026-10-26); Supervision round 4's item 1 (the in-Cell
-  redial) is on `origin/main` as `cli/in_cell/redial/`, not here.
+- ~~The four patches in "In flight".~~ Ported on `finish/roadmap` (see "In flight").
 
 **Later phases, recorded in the roadmap's notes:**
 - QEMU egress cut and QEMU Night Veil (design only, and fail-closed).
