@@ -147,8 +147,7 @@ async def attach_warden(queen: Queen, link: WardenLink) -> bool:
     # Warden, a restarted one, or one a restarted Queen meets for the first time.
     resent = await resend_state(deps, link)
     if returning:
-        deps.dispatch.held.release(link.cell.id)  # The dispatcher resumes what it was holding.
-        await _record_reconnected(queen, link, resent)
+        await _welcome_back(queen, link, resent)
     else:
         await _record_spawned(queen, link)
     # An isolation standing on its Cell: the taint order may have been lost with the old link.
@@ -279,6 +278,16 @@ async def _record_spawned(queen: Queen, link: WardenLink) -> None:
     record of which node speaks for which Cell, the one the Guard Bee attributes events by.
     """
     await _record(queen, link, "warden.spawned", {})
+
+
+async def _welcome_back(queen: Queen, link: WardenLink, resent: Resent) -> None:
+    """Lift the hold on a returning Warden's Cell, mark it returned, record `warden.reconnected`."""
+    dispatch = queen._deps.dispatch
+    dispatch.held.release(link.cell.id)  # The dispatcher resumes what it was holding.
+    # Its first settled Heartbeat says whether it clustered fully while it was away, which leaves
+    # tasks only the Queen starts again (`hivemind.queen.cluster.returned`).
+    dispatch.returned.add(link.warden_id)
+    await _record_reconnected(queen, link, resent)
 
 
 async def _record_reconnected(queen: Queen, link: WardenLink, resent: Resent) -> None:

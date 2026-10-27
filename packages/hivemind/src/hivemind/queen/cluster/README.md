@@ -20,6 +20,12 @@ this package.
   through `hivemind.queen.dispatcher.resume_paused` (so no work is redone) and records one
   `queen.resumed`. Neither call ever touches a grant, so the same ledger read finds the same bees
   again for `resume`.
+- `returned.py`: `resume_after_cut(deps, wardens, warden_id, heartbeat)`, called for every
+  Heartbeat: a Warden marked returned at its reconnection (`DispatchBook.returned`) is settled by
+  its first Heartbeat past OFFLINE, and if that says CLUSTERED (it clustered fully while cut off)
+  every task the chamber has RUNNING on it with no sub-bee row, on a Cell no hold covers, is paused
+  and resumed from the Handoff `recall_handoff` returns, with one `queen.decided`
+  (`resumed_after_cut`).
 - `health.py`: `HealthPoller` polls a provider's `LLMProvider.health()` (never
   `.complete`/`.stream`): every `healthy_interval_s` while it reads HEALTHY, on an exponential
   backoff schedule (`ClusterBackoff`, and the pure `next_probe_at(attempt, now)` the schedule is

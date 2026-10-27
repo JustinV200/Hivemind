@@ -114,6 +114,7 @@ from typing import cast
 from hivemind.cell import HoneyClearance
 from hivemind.memory.thresholds import Thresholds
 from hivemind.queen.chat import post_alarm
+from hivemind.queen.cluster.returned import resume_after_cut
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.human_inbox import HumanInbox
@@ -280,9 +281,9 @@ async def handle_heartbeat_item(
     """Record one Heartbeat InboxItem, renew its own Warden's live grants, and watch its context.
 
     `hivemind.queen.queen.Queen`'s own tick calls this directly for a received Heartbeat, so the
-    five things a Heartbeat causes (mirror it, record liveness, hand it to `deps.on_heartbeat`,
-    renew grants, watch context) live in one place instead of split across that call site and
-    this module.
+    six things a Heartbeat causes (mirror it, record liveness, hand it to `deps.on_heartbeat`,
+    renew grants, resume what a returned Warden clustered, watch context) live in one place
+    instead of split across that call site and this module.
 
     Args:
         deps: The Queen's collaborators.
@@ -303,6 +304,8 @@ async def handle_heartbeat_item(
     if deps.on_heartbeat is not None:
         deps.on_heartbeat(warden_id, heartbeat, item.received_at)
     await renew_grants_on_heartbeat(deps, warden_id)
+    # A Warden back from a cut long enough to cluster fully waits for her to start its tasks.
+    await resume_after_cut(deps, tuple(wardens.values()), warden_id, heartbeat)
     await _watch_context(deps, wardens, warden_id, heartbeat)
 
 

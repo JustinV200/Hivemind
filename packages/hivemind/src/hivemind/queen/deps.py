@@ -720,6 +720,9 @@ class DispatchBook:
             (`hivemind.queen.dispatcher.ready.unfinished`), never another Queen's work on the
             same Brood Chamber. Grows by one id per Warden (the Hive Stand's, one per Virtual
             Cell), and is never pruned: a task can outlive its Warden's link.
+        returned: The Wardens back from a cut whose first settled Heartbeat she has not read
+            yet: that one says whether the Warden clustered fully while it was away, and so
+            holds tasks only she can start again (`hivemind.queen.cluster.returned`).
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -731,6 +734,7 @@ class DispatchBook:
     held: HeldCells = field(default_factory=HeldCells)
     resumes: ResumeHints = field(default_factory=ResumeHints)
     placed_on: set[WardenId] = field(default_factory=set)
+    returned: set[WardenId] = field(default_factory=set)
 
 
 def _set_event() -> asyncio.Event:
