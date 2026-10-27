@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.14`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.15`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.14"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.15"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.14"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 14` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.15"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 15` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -265,6 +265,14 @@ validates every message a newer one sends it, as long as the sender honours the 
   `CELL_RUNS_NO_COMMANDS` says the Cell refused the attempt's commands, and the Queen re-places the
   task once on a Cell that runs them. The field defaults to None, so a peer below minor 14 still
   validates every result that leaves it unset.
+- **1.15** (additive): the Nurse Bee, a fresh-context reviewer of an attempt that passed its
+  machine checks (ADR-0061). `TaskResult.review` (a `NurseReview`, with its `NurseVerdict` and
+  `NurseFinding`s, section 8.2) on the Warden's verified result; `TaskAssign.review_round` and
+  `TaskAssign.review_findings`, which hand a fresh Worker the findings to fix forward on the same
+  Cell; and `AlarmKind.NURSE_UNRESOLVED` (section 8.3), raised by the Queen when the Nurse still
+  asks for changes after her last round. Every field defaults (None, 0 or empty), so a peer below
+  minor 15 still validates every message that leaves them unset; a sender uses none of them, nor
+  the new Alarm kind, toward a peer that has not advertised minor 15.
 
 ## 5. Wire format and size limit
 
@@ -697,6 +705,28 @@ Family enums and value models:
   - `task_id` (`TaskId | None`): the task it concerns, if any. Default None.
 - `HandoffDecision` (`PROTOCOL_MINOR` 13): one decision with its reason. `what` (`str`, min 1,
   max 500) and `why` (`str`, min 1, max 500).
+- The Nurse Bee's review (`PROTOCOL_MINOR` 15, `messages/task/review.py`, ADR-0061): what a
+  fresh-context reviewer said about an attempt that had already passed its machine checks. Every
+  `problem`, `fix` and `notes` is untrusted model prose, written from untrusted evidence; a
+  receiver delimits it as such before it reaches another model.
+  - `NurseOutcome`: `PASS`, `CHANGES_REQUESTED`.
+  - `NurseReviewStatus`: `REVIEWED` (a Nurse returned a verdict), `UNAVAILABLE` (no model was
+    eligible; the attempt is accepted "not nursed", never escalated), `ERROR` (a Nurse was chosen
+    but its call or output failed).
+  - `NurseFinding`: one problem, anchored. `criterion_index` (`int | None`, 0 to 31: the
+    acceptance criterion it fails), `path` (`str | None`, min 1, max `MAX_PATH_CHARS`), `line`
+    (`int | None`, at least 1), `problem` and `fix` (`str`, min 1, max 300 each). It names a
+    `criterion_index` or a `path`, and a `line` only with a `path` (validator).
+  - `NurseVerdict`: `outcome` (`NurseOutcome`); `findings` (`tuple[NurseFinding, ...]`, max 8,
+    default empty), empty exactly when `outcome` is `PASS` (validator); `rubric_id` (`str`, min 1,
+    max 64), stamped by the Nurse's implementation, never by the model; `notes` (`str`, max 1000,
+    default empty).
+  - `NurseReview`: `status` (`NurseReviewStatus`); `round` (`int`, 1 to 8: which review of the
+    task this is, `TaskAssign.review_round` plus one); `verdict` (`NurseVerdict | None`), set
+    exactly when `status` is `REVIEWED` (validator); `nurse_grade` (`int | None`, 1 to 5: the
+    reviewing model's effective grade), None exactly when `status` is `UNAVAILABLE` and never
+    below `worker_grade` (validators); `worker_grade` (`int`, 1 to 5: the highest grade over the
+    Worker's bindings and the models its calls actually reached).
 
 #### TaskAssign
 
@@ -763,6 +793,11 @@ Cell, which re-issues it to the Worker it spawns.
   device wrote their Handoffs in their Warden's own store, which is where the receiver resumes
   from, and a receiver whose store lacks the one named starts the bee fresh (ADR-0024). Defaults
   to None, so an envelope from before this field existed still validates.
+- `review_round` (`int`, `PROTOCOL_MINOR` 15): Nurse Bee reviews this task has already had, as
+  the Queen counts them; 0 to 8, default 0. The Warden stamps its own review one higher.
+- `review_findings` (`tuple[NurseFinding, ...]`, `PROTOCOL_MINOR` 15): what the last Nurse review
+  asked to change, for the fresh Worker that fixes forward on the same Cell; untrusted model
+  prose. Max 8; set only when `review_round` is at least 1 (validator); default empty.
 - `reason` (`str`): why this task was placed here, on this role and slot, now.
 
 #### TaskProgress
@@ -814,6 +849,10 @@ from the Worker, then the Warden's verified result after the acceptance checks.
   without reading `reason`; None by default. `CELL_RUNS_NO_COMMANDS`: the Cell refused the
   attempt's commands under the access-level rule (ADR-0060), so the Queen re-places the task once
   on a Cell that runs them instead of retrying it where they will be refused again.
+- `review` (`NurseReview | None`, `PROTOCOL_MINOR` 15): the Nurse Bee's review of this attempt
+  (ADR-0061), set by the Warden on its verified result; None when no review ran and by default.
+  Never on a Worker's claim, and a `CHANGES_REQUESTED` verdict only with outcome `FAILED`
+  (validators), so a rejected attempt never reaches `SUCCEEDED`.
 
 #### TaskCancel
 
@@ -879,7 +918,9 @@ Family enums and value models:
   or rebound; PROTOCOL_MINOR 9, roadmap step 10.6), `PATROL_ANOMALY` (a watching Warden's Patrol,
   its scheduled read-only review of an idle Cell, found something worth a human's eyes; it
   escalates to the Queen, who posts it to the human; PROTOCOL_MINOR 13, roadmap phase 11,
-  ADR-0054), `OTHER`. The closed set the escalation policy keys on; `OTHER` carries anything new
+  ADR-0054), `NURSE_UNRESOLVED` (the Nurse Bee still asked for changes after the last
+  fix-forward round the Queen allows; she escalates it to the human, never retries it;
+  PROTOCOL_MINOR 15, ADR-0061), `OTHER`. The closed set the escalation policy keys on; `OTHER` carries anything new
   until a minor bump names it.
 - `AlarmContext`: typed references to what an Alarm is about.
   - `task_id` (`TaskId | None`), `cell_id` (`CellId | None`), `worker_id` (`WorkerId | None`:

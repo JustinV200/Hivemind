@@ -53,10 +53,17 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   when the receiver cannot read the sender's memory store; `swarm/colonized.py`'s
   `TrailSegmentSync` gains `segment_signature` with the helper `segment_signing_bytes`;
   `cell.request` gains `scratch_quota_bytes`; `AlarmKind` gains `PATROL_ANOMALY`.
+- Waggle 1.14 (ADR-0060): `task.result` gains `cause` (`ResultCause`).
+- Waggle 1.15 (ADR-0061, the Nurse Bee), all additive: `task/review.py` adds `NurseFinding`,
+  `NurseVerdict` and `NurseReview` (with `NurseOutcome` and `NurseReviewStatus`), the record of a
+  fresh-context review; `task.result` carries one in `review`, and `task.assign` gains
+  `review_round` and `review_findings` for the fresh Worker that fixes forward; `AlarmKind` gains
+  `NURSE_UNRESOLVED`.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section
-  3): `task/` (`assignment.py`, `reports.py`, `needs.py`, `recon.py`, `handoff.py`);
+  3): `task/` (`assignment.py`, `reports.py`, `needs.py`, `recon.py`, `handoff.py`,
+  `review.py`);
   `supervision/` (`oversight.py`, `telemetry.py`, `alarms.py`, `questions.py`); `forage/`
   (`grants.py`, `values.py`, `capacity.py`, `hosting.py`, `sources.py`); `cell/` (`status.py`,
   `leases.py`, `wax.py`, `snapshot.py`, `taint.py`); `session/` (`commands.py`, `output.py`,
