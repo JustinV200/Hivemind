@@ -227,8 +227,12 @@ async def escalate_alarm(deps: QueenDeps, human_inbox: HumanInbox, alarm: Alarm)
     identity = CellIdentity(
         hive_id=deps.identity.hive_id, node_id=deps.identity.node_id, actor=deps.identity.actor
     )
-    # The same `alarm.escalated` row an Alarm climbing the chain records at its last hop.
-    await record_alarm_event(deps.trail, identity, deps.clock, alarm, "alarm.escalated")
+    # The same `alarm.escalated` row an Alarm climbing the chain records at its last hop. An Alarm
+    # about a Cell (a SECURITY Alarm about an isolation, say) names it as its own field, so the
+    # Night Veil boundary routes the row to a Night Veil Cell's segment (codingrules 12) rather
+    # than leaving a durable record whose words name the Cell; one about no Cell is unchanged.
+    cell = {"cell_id": alarm.context.cell_id} if alarm.context.cell_id is not None else {}
+    await record_alarm_event(deps.trail, identity, deps.clock, alarm, "alarm.escalated", **cell)
     return await post_alarm(deps, alarm)
 
 

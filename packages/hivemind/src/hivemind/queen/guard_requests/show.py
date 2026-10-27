@@ -1,30 +1,32 @@
 """Show the human a SECURITY Alarm about a Guard report, or an isolation, at most once per report.
 
-ADR-0043: a report the Queen acts on, or one at CRITICAL confidence, reaches the human as a
-SECURITY Alarm pushed to every device. Several paths can reach the human about the same report:
-the Guard Bee's `report_to_human` for a CRITICAL finding, the Queen's decision on a request, the
-isolation she carries out on it, the Hive Stand's fallback. `show_alert` is the one way all of
-them do it, and it shows each report once. Every Alarm about a report carries the same id,
-derived from the report's own (`report_alarm_id`: the report's ULID under the `alarm_` prefix),
-and an Alarm whose `alarm.escalated` row is already on the trail is not raised again. That row is
-durable (the Hive's own SQLite trail), so a restart never shows a report twice, and a lock in
-`GuardDeps` keeps two concurrent callers from both passing the check. An alert about no report
-(the Queen's own ISOLATE policy row, the human's isolation citing nothing) gets a fresh id. The
-Alarm is raised by the Hive itself and escalated straight to the chain's last hop
+ADR-0043: a report the Queen acts on, or one at CRITICAL confidence, reaches the human as a SECURITY
+Alarm pushed to every device. Several paths can reach the human about the same report: the Guard
+Bee's `report_to_human` for a CRITICAL finding, the Queen's decision on a request, the isolation she
+carries out on it, the Hive Stand's fallback. `show_alert` is the one way all of them do it, and it
+shows each report once. Every Alarm about a report carries the same id, derived from the report's
+own (`report_alarm_id`: the report's ULID under the `alarm_` prefix), and an Alarm whose
+`alarm.escalated` row is already on the trail is not raised again. That row is durable (the Hive's
+own SQLite trail), so a restart never shows a report twice (except about a Night Veil Cell, whose
+row lives in the Cell's segment and goes with it, codingrules 12), and a lock in `GuardDeps` keeps
+two concurrent callers from both passing the check. An alert about no report (the Queen's own
+ISOLATE policy row, the human's isolation citing nothing) gets a fresh id. The Alarm is raised by
+the Hive itself and escalated straight to the chain's last hop
 (`hivemind.queen.chat.escalate_alarm`: the human's inbox, `alarm.escalated`, then `post_alarm`,
 which appends it to the chat and pushes it to every enrolled device).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
-    guard_requests sub-package. Called by `.door` (report_to_human), `hivemind.queen.isolation`
-    (an isolation's Alarm) and `.decision` (a decision's). Calls into `hivemind.cell`,
-    `hivemind.guard` (GuardReportId), `hivemind.pheromone` (TrailQuery), `hivemind.queen.chat`
-    (escalate_alarm), `hivemind.supervision` (Alarm) and waggle only; `QueenDeps` and
-    `HumanInbox` only for their types.
+    guard_requests sub-package. Called by `.door` (report_to_human), `hivemind.queen.isolation` (an
+    isolation's Alarm) and `.decision` (a decision's). Calls into `hivemind.cell`, `hivemind.guard`
+    (GuardReportId), `hivemind.pheromone` (TrailQuery, query_cell), `hivemind.queen.chat`
+    (escalate_alarm), `hivemind.supervision` (Alarm) and waggle only; `QueenDeps` and `HumanInbox`
+    only for their types.
 
 Key invariants:
     - Every Alarm here is SECURITY, HANDLING, at clearance C1, originated by the Hive.
-    - At most one Alarm per report id, ever: the trail's `alarm.escalated` row is the proof.
+    - At most one Alarm per report id, ever: the trail's `alarm.escalated` row is the proof, read
+      with the Cell's held segment for a Night Veil Cell, where that row lives while it does.
 
 See Also:
     - hivemind.queen.chat.post for escalate_alarm and post_alarm.
@@ -39,7 +41,7 @@ from typing import TYPE_CHECKING
 from hivemind.cell import HoneyClearance
 from hivemind.guard import GuardReportId
 from hivemind.guard.report import GUARD_REPORT_ID_PREFIX
-from hivemind.pheromone import TrailQuery
+from hivemind.pheromone import TrailQuery, query_cell
 from hivemind.queen.chat import escalate_alarm
 from hivemind.supervision import Alarm, AlarmKind, AlarmSeverity, AlarmState
 from waggle.ids import AlarmId, CellId, EventId, new_alarm_id
@@ -95,18 +97,24 @@ def report_alarm_id(report_id: GuardReportId) -> AlarmId:
     return AlarmId(f"{ALARM_ID_PREFIX}{report_id.removeprefix(GUARD_REPORT_ID_PREFIX)}")
 
 
-async def was_shown(deps: QueenDeps, report_id: GuardReportId) -> bool:
+async def was_shown(
+    deps: QueenDeps, report_id: GuardReportId, cell_id: CellId | None = None
+) -> bool:
     """Return whether an Alarm about `report_id` already reached the human.
 
     Args:
         deps: The Queen's collaborators; `trail` is read.
         report_id: The Guard report.
+        cell_id: The Cell the report is about, if any: a Night Veil Cell's row lives in its
+            segment while it lives, never on the durable trail (codingrules 12).
 
     Returns:
-        True once its `alarm.escalated` row is on the trail.
+        True once its `alarm.escalated` row is on the trail, or in the Cell's held segment.
     """
     query = TrailQuery(kind=ESCALATED_KIND, subject_id=report_alarm_id(report_id), limit=1)
-    return bool(await deps.trail.query(query))
+    if cell_id is None:
+        return bool(await deps.trail.query(query))
+    return bool(await query_cell(deps.trail, cell_id, query))
 
 
 async def show_alert(deps: QueenDeps, human_inbox: HumanInbox, alert: SecurityAlert) -> bool:
@@ -122,7 +130,10 @@ async def show_alert(deps: QueenDeps, human_inbox: HumanInbox, alert: SecurityAl
     """
     # One check-then-raise at a time: the Guard Bee's call and her tick can race on one report.
     async with deps.guard.show_lock:
-        if alert.report_id is not None and await was_shown(deps, alert.report_id):
+        shown = alert.report_id is not None and await was_shown(
+            deps, alert.report_id, alert.cell_id
+        )
+        if shown:
             return False
         alarm_id = (
             report_alarm_id(alert.report_id)

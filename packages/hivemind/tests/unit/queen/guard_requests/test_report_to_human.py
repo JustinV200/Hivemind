@@ -6,6 +6,8 @@ reduce order, an observation) as a SECURITY Alarm naming the report, pushed to e
 committed before the call returns; showing is idempotent by report id, across a new door and a
 fresh trail connection alike, because the proof is the durable `alarm.escalated` row. A CRITICAL
 request is filed, not shown: the one Alarm the human gets for it is the Queen's, when she acts.
+About a living Night Veil Cell, the Alarm's row names the Cell, so it is kept in the Cell's
+segment, never on the durable trail, and is still read back there: a repeat shows nothing.
 
 Fits into the Hive:
     Mirrors src/hivemind/queen/guard_requests/door.py (report_to_human) and show.py (codingrules
@@ -24,7 +26,7 @@ from pathlib import Path
 
 import pytest
 from builders.human import RecordingHumanChannel
-from builders.isolation import isolation_site, make_guard_report
+from builders.isolation import isolation_site, make_guard_report, veil_cell
 from builders.queen import make_queen_deps
 
 from hivemind.common.sqlite import connect
@@ -42,6 +44,7 @@ from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.supervision import AlarmKind, AlarmSeverity
 from waggle.clock import FakeClock
+from waggle.ids import new_cell_id
 
 _ESCALATED = "alarm.escalated"
 
@@ -71,6 +74,28 @@ async def test_a_critical_finding_is_pushed_to_every_device_once() -> None:
     assert [line.ref for line in lines if line.kind is ChatKind.ALARM] == [alarm.id]
     escalated = await deps.trail.query(TrailQuery(kind=_ESCALATED, subject_id=alarm.id))
     assert len(escalated) == 1
+    await warden_end.close()
+
+
+async def test_a_night_veil_cells_alarm_row_stays_in_its_segment_and_shows_once() -> None:
+    # Regression (Night Veil round 3 item 1): the row named the Cell only in its words, so the
+    # veil let it onto the durable trail, where it outlived the Cell.
+    clock = FakeClock()
+    plain, _link, warden_end = make_queen_deps(clock)
+    cell = new_cell_id(clock)
+    deps, segments = veil_cell(plain, cell)
+    inbox = HumanInbox()
+    report = make_guard_report(
+        clock, cell_id=cell, recommended=GuardAction.OBSERVE, confidence=GuardConfidence.CRITICAL
+    )
+    door = QueenGuardDoor(deps, inbox)
+
+    await door.report_to_human(report)
+    await door.report_to_human(report)  # Read back from the segment: shows nothing.
+
+    assert len(inbox.alarms) == 1
+    assert await plain.trail.query(TrailQuery(kind=_ESCALATED)) == ()
+    assert len(await segments.query(cell, TrailQuery(kind=_ESCALATED))) == 1
     await warden_end.close()
 
 
