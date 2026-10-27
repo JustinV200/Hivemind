@@ -15,6 +15,7 @@ See Also:
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 from builders.cells import make_cell
@@ -32,7 +33,7 @@ from hivemind.cli.compose.deps import (
 )
 from hivemind.cli.compose.links import build_hive_links
 from hivemind.guard import Capability, CapabilityFamily
-from hivemind.manifest import load_manifest
+from hivemind.manifest import NurseSection, load_manifest
 from waggle.clock import FakeClock, SystemClock
 from waggle.ids import new_hive_id, new_node_id, new_warden_id
 
@@ -97,6 +98,18 @@ def test_the_hive_stands_own_warden_is_built_exactly_as_before(tmp_path: Path) -
     assert deps.resident_basket is hive.royal_jelly.resident  # type: ignore[union-attr]
     assert deps.recording_store is not None
     assert deps.device is None  # Only a Swarm device's Warden carries `DeviceDeps`.
+    # ADR-0061: the manifest omits [nurse], so the Nurse runs on its defaults and the live map.
+    assert deps.nurse is not None and deps.nurse.forage is hive.fanner.deps.map
+
+
+def test_a_disabled_nurse_is_never_wired(tmp_path: Path) -> None:
+    hive = _hive(tmp_path)
+    off = hive.manifest.model_copy(update={"nurse": NurseSection(enabled=False)})
+    parts = dataclasses.replace(_parts(hive), manifest=off)
+    cell = make_cell(kind=CellKind.REAL, clock=hive.clock)
+    links = build_hive_links(hive.manifest.hive.id, hive.manifest.hive.node_id, cell, hive.clock)
+
+    assert build_warden_deps(parts, hive.source, links).nurse is None
 
 
 def test_hive_links_use_the_warden_id_they_are_given_and_mint_one_otherwise() -> None:

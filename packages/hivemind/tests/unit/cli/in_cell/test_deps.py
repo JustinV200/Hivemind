@@ -354,6 +354,7 @@ def test_the_in_cell_warden_is_equipped_with_the_exoskeleton_wiring(tmp_path: Pa
     # and no judge, so every JUDGE tier fails closed at this Cell's gate as it always has.
     assert deps.ears is None
     assert CheckKind.JUDGE not in deps.checks
+    assert deps.nurse is None  # ADR-0061: no judge binding, so no Nurse either.
     has_extra = importlib.util.find_spec("playwright") is not None
     assert (deps.browser_launcher is not None) is has_extra
     # Roadmap phase 9: its own resident Basket, in a database below the Cell's scratch.
@@ -410,6 +411,7 @@ def test_a_cell_whose_table_binds_a_judge_gets_the_judge_rung_and_reviewer(
 
     assert CheckKind.JUDGE in deps.checks  # Irreversible GUI work can be judged, and land.
     assert isinstance(deps.judge_reviewer, ModelJudgeReviewer)
+    assert deps.nurse is not None  # ADR-0061: the Nurse reviews on the same JUDGE binding.
 
 
 async def test_a_drones_model_call_is_metered_and_recorded_on_the_cells_own_trail(

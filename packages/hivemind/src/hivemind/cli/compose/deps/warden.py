@@ -3,9 +3,10 @@
 `build_warden_deps` is the one conversion from `[supervision]`/`[memory]`/`[hive_stand]` and the
 shared parts into the bag `hivemind.wardens.Warden` takes for the Hive Stand's Warden; its helpers
 each wire one later phase's seam: the judge reviewer and per-grant Fanner lanes (roadmap steps
-4.8 and 4.10), `keep_root` (5.0e), the Exoskeleton (6.4 to 6.6, `hivemind.cli.compose.
-exoskeleton`), the Guard policy and Enforcer (10.2 and 10.3), the live Forage map, routing rules
-and the model servers it may host (8.1 and 8.3), and the Royal Jelly Lab's handles (phase 9).
+4.8 and 4.10), the Nurse Bee from `[nurse]` (ADR-0061), `keep_root` (5.0e), the Exoskeleton (6.4
+to 6.6, `hivemind.cli.compose.exoskeleton`), the Guard policy and Enforcer (10.2 and 10.3), the
+live Forage map, routing rules and the model servers it may host (8.1 and 8.3), and the Royal
+Jelly Lab's handles (phase 9).
 
 The bag is built in two layers (roadmap step 11.6). `build_cell_warden_deps` is what any Real
 Cell's Warden needs, given the source it leases through and the capability its lease needs, and
@@ -61,6 +62,7 @@ from hivemind.supervision.capping import deterministic_checks, judge_checks, loa
 from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer, WardenDeps
 from hivemind.wardens.local_pool.hosting import provider_door
+from hivemind.wardens.nurse import ModelNurseReviewer, NurseWiring
 from hivemind.workers.roles import worker_for
 
 # Roadmap step 10.3: what the Hive Stand's own Warden's lease needs of its set (the lease_creation
@@ -142,7 +144,29 @@ def build_cell_warden_deps(
         bindings=slot_bindings(manifest),
         local_providers=local_providers(manifest),  # Roadmap step 10.3a: a binding's locality.
     )
-    return _routed(deps, parts)
+    return _with_nurse(_routed(deps, parts), parts)
+
+
+def _with_nurse(deps: WardenDeps, parts: HiveParts) -> WardenDeps:
+    """Give `deps` the Nurse Bee `[nurse]` asks for (ADR-0061), or none when it is disabled.
+
+    The Nurse runs on `ModelSlot.JUDGE`, one Fanner lane per review on the task's tempo, and grades
+    models on the Fanner's own live map, the same figures routing and metering read.
+    """
+    section = parts.manifest.nurse
+    if not section.enabled:
+        return deps
+    forage = parts.fanner.deps.map
+    reviewer = ModelNurseReviewer(
+        bound=parts.registry.bound(ModelSlot.JUDGE), forage=forage, lane_for=parts.fanner.lane
+    )
+    wiring = NurseWiring(
+        reviewer=reviewer,
+        forage=forage,
+        skip_roles=section.skipped(),
+        max_evidence_chars=section.max_evidence_chars,
+    )
+    return dataclasses.replace(deps, nurse=wiring)
 
 
 def _routed(deps: WardenDeps, parts: HiveParts) -> WardenDeps:

@@ -54,8 +54,9 @@ Key invariants:
       the two cannot drift apart.
     - `worker_factory` is `hivemind.workers.roles.worker_for` (roadmap step 6.9), the same mapping
       `hivemind.cli.compose.deps.build_warden_deps` wires for the Hive Stand.
-    - The gate has a JUDGE rung, and the Warden a model-backed judge, exactly when the Cell's slot
-      table binds `ModelSlot.JUDGE`; without one, every JUDGE tier fails closed.
+    - The gate has a JUDGE rung, and the Warden a model-backed judge and Nurse Bee (ADR-0061),
+      exactly when the Cell's slot table binds `ModelSlot.JUDGE`; without one, every JUDGE tier
+      fails closed and no attempt is nursed.
     - `call_gate`, every `lane_for_grant` lane, every judge review's lane and the ears' gate all
       draw on one Fanner per Cell, built the same way whichever provider registry was built (the
       fallback fake one included): no model call in a Virtual Cell ever bypasses the seat meter
@@ -99,6 +100,7 @@ from hivemind.supervision.capping.checks.rubrics import load_judge_rubrics
 from hivemind.wardens import ModelJudgeReviewer
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.local_pool.hosting import provider_door
+from hivemind.wardens.nurse import ModelNurseReviewer, NurseWiring
 from hivemind.wardens.snapshot_relay import RelaySnapshotter
 from hivemind.wardens.trail_sync import TrailSyncDeps, WaggleTrailSync
 from hivemind.workers.roles import worker_for
@@ -200,7 +202,8 @@ def build_core_deps(
     deps = _warden_deps(config, parts)
     deps = _with_trail_sync(deps, config, queen_link, trail, clock)
     routed = _routed(deps, config, parts.fanner, parts.registry)
-    return _with_judge(routed, parts.registry, parts.fanner), parts.registry, parts.fanner
+    judged = _with_judge(routed, parts.registry, parts.fanner)
+    return _with_nurse(judged, parts.registry, parts.fanner), parts.registry, parts.fanner
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +332,23 @@ def _with_judge(deps: WardenDeps, registry: ProviderRegistry, fanner: Fanner) ->
     rubrics = load_judge_rubrics()
     checks = {**deps.checks, **judge_checks(reviewer, rubrics)}
     return dataclasses.replace(deps, checks=checks, judge_reviewer=reviewer, judge_rubrics=rubrics)
+
+
+def _with_nurse(deps: WardenDeps, registry: ProviderRegistry, fanner: Fanner) -> WardenDeps:
+    """Give this Cell's Warden the Nurse Bee on its JUDGE binding, with `[nurse]`'s defaults.
+
+    ADR-0061: a Cell boots with no manifest, so its Nurse runs on `NurseWiring`'s defaults (the
+    roles skipped, the evidence budget), the same call `load_tiers(None)` makes for the tier
+    table. A table that binds no judge leaves the Nurse out, as `_with_judge` leaves the judge out.
+    """
+    try:
+        bound = registry.bound(ModelSlot.JUDGE)  # Bookkeeping only: no provider is contacted.
+    except (UnresolvableSlotError, UnknownProviderError) as error:
+        log.warning("in_cell.nurse_unbound", reason=type(error).__name__)
+        return deps
+    forage = fanner.deps.map
+    reviewer = ModelNurseReviewer(bound=bound, forage=forage, lane_for=fanner.lane)
+    return dataclasses.replace(deps, nurse=NurseWiring(reviewer=reviewer, forage=forage))
 
 
 def _hop(config: InCellRuntimeConfig) -> Hop:
