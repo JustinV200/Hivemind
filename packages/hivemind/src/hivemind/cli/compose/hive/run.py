@@ -10,13 +10,18 @@ lease, "left as found" -- on exit.
 Last of all, a task the stop caught on one of those Cells (an interrupted or timed-out `hive run`,
 a `hive serve` shut down) is given back to PENDING, its question withdrawn, so the next start
 places it afresh (`hivemind.queen.requeue_unfinished`): no task outlives the stop bound to a Cell
-that is gone.
+that is gone. A process that died without that teardown is recovered by the next start instead:
+every start is a Requeening (ADR-0062). Once the Virtual side is reconciled, the readiness gate is
+re-armed with the key of every Virtual Cell that outlived the last Queen (`rearm_gate`), and the
+Queen's first half of Requeening runs (`begin_requeening`) before the Hive Stand's Warden takes its
+lease and before her loop starts; her tick settles the rest.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Called by
     `hivemind.cli.run`, `hivemind.cli.compose.entrance` and every end-to-end test. Calls into
     `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive), `hivemind.queen`
-    (requeue_unfinished), `hivemind.queen.attach` (detach_warden, to unwind a failed start) and the
+    (requeue_unfinished), `hivemind.queen.attach` (detach_warden, to unwind a failed start),
+    `hivemind.queen.cell_gate` (rearm_gate), `hivemind.queen.requeening` (begin_requeening) and the
     Queen, Warden, House Bee and Swarm gate a Hive holds only.
 
 Key invariants:
@@ -57,8 +62,12 @@ from contextlib import asynccontextmanager
 from hivemind.cli.compose.guard import close_guard_bee
 from hivemind.cli.compose.hive.build import Hive
 from hivemind.common.tasks import run_to_end
+from hivemind.hive import VirtualCellRecord
 from hivemind.queen import requeue_unfinished
 from hivemind.queen.attach import detach_warden
+from hivemind.queen.cell_gate import rearm_gate
+from hivemind.queen.requeening import RequeeningStart, begin_requeening
+from waggle.ids import CellId
 
 __all__ = ["run_hive"]
 
@@ -168,7 +177,8 @@ async def _start(hive: Hive) -> None:
 
 
 async def _open(hive: Hive) -> None:
-    """Open the Virtual side and the Swarm, then lease the Hive Stand's one Cell."""
+    """Open the Virtual side and the Swarm, requeen, then lease the Hive Stand's one Cell."""
+    listed: tuple[VirtualCellRecord, ...] = ()
     if hive.virtual_cells is not None:
         # Roadmap step 5.6: start accepting Virtual Cells' own control connections, THEN reconcile
         # the live table from every registered backend's own list_cells (hivemind.hive.lifecycle.
@@ -182,12 +192,29 @@ async def _open(hive: Hive) -> None:
         await hive.virtual_cells.prepare()
         await hive.virtual_cells.listener.start(hive.queen)
         await hive.virtual_cells.lifecycle.reconcile(hive.manifest.hive.id)
+        # ADR-0062: a Cell that outlived the last Queen proves itself with the key its labels
+        # carry; without this, its redialing Warden would be refused at the handshake.
+        gate, registry = hive.virtual_cells.gate, hive.virtual_cells.registry
+        listed = await rearm_gate(gate, registry, hive.manifest.hive.id)
     if hive.swarm is not None:
         # Roadmap step 11.6: after the Hive Stand's Warden is attached and the Virtual side is open,
         # so the Queen has her own Cell to place on before a device's Warden joins her; devices
         # that dial in from here on wait for `gate.run()` to serve them.
         await hive.swarm.gate.start(hive.queen, hive.queen_deps)
+    # Before the Hive Stand's Warden leases: any lease still open on its Cell is the dead
+    # process's, and recovery gives it back (ADR-0062).
+    await _requeen(hive, listed)
     await hive.warden.start()
+
+
+async def _requeen(hive: Hive, listed: tuple[VirtualCellRecord, ...]) -> None:
+    """Run the first half of Requeening with what only the composition root knows."""
+    devices: frozenset[CellId] = frozenset()
+    if hive.swarm is not None:
+        # A device's tasks are the swarm gate's to hold (ADR-0053); local SQLite read.
+        devices = frozenset(node.cell_id for node in await hive.swarm.registry.nodes())
+    start = RequeeningStart(virtual_cells=listed, device_cells=devices, hive_stand=hive.source)
+    await begin_requeening(hive.queen, start)
 
 
 async def _unwind(hive: Hive) -> None:

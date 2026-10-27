@@ -64,6 +64,10 @@ DEFAULT_HEARTBEAT_INTERVAL_S = (
 DEFAULT_MAX_AWAKE_PER_MINUTE = (
     30  # A budget against a runaway autopilot rule waking the Queen in a loop.
 )
+# ADR-0062: three of the Cell redial's 30 s backoff caps, so a Warden that outlived the Queen is
+# back before she gives its tasks up.
+DEFAULT_REQUEENING_GRACE_S = 90.0
+DEFAULT_SNAPSHOT_INTERVAL_S = 60.0  # Roadmap 13.2: her own Handoff, bounding what recovery reads.
 DEFAULT_SCRATCH_ROOT = ".hive/scratch"  # Relative to the manifest's own directory (resolve_path).
 DEFAULT_HIVE_STAND_ADDRESS = (
     "ws://127.0.0.1:8720"  # Loopback by default; check_waggle_uri allows it.
@@ -158,6 +162,18 @@ class QueenSection(BaseModel):
         default=DEFAULT_MAX_AWAKE_PER_MINUTE,
         gt=0,
         description="A ceiling on awake episodes per minute, against a runaway autopilot rule.",
+    )
+    requeening_grace_s: float = Field(
+        default=DEFAULT_REQUEENING_GRACE_S,
+        gt=0,
+        description="Seconds a restarted Queen waits for a Warden that outlived her to redial "
+        "before placing its tasks afresh (ADR-0062).",
+    )
+    snapshot_interval_s: float = Field(
+        default=DEFAULT_SNAPSHOT_INTERVAL_S,
+        gt=0,
+        description="Seconds between the Queen's own snapshots; recovery reads the trail only "
+        "from the newest one (roadmap 13.2).",
     )
 
 

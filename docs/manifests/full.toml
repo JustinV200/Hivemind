@@ -27,6 +27,11 @@ tick_interval_s = 0.25
 heartbeat_interval_s = 5.0
 # A ceiling on awake episodes per minute, against a runaway autopilot rule.
 max_awake_per_minute = 30
+# Seconds a restarted Queen waits for a Warden that outlived her (a Virtual Cell's) to redial
+# before placing its tasks afresh (ADR-0062, docs/runbooks/requeening.md).
+requeening_grace_s = 90.0
+# Seconds between the Queen's own snapshots; recovery reads the trail only from the newest.
+snapshot_interval_s = 60.0
 
 [hive_stand]
 # Whether the Hive Stand (the Queen's own machine) may be leased as a Real Cell at all.

@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import dataclasses
 import shutil
 import tempfile
@@ -89,7 +90,7 @@ from hivemind.hive.backends.base import BackendCapabilities
 from hivemind.hive.backends.bootstrap import CellBootstrap, QueenEndpoint
 from hivemind.hive.backends.fake import FakeCellBackend, ReadinessGateExpect
 from hivemind.hive.models import VirtualCellSpec
-from hivemind.llm import LLMResponse, ToolCall
+from hivemind.llm import LLMRequest, LLMResponse, ToolCall
 from hivemind.llm.fake import FakeLLMProvider, text_response, tool_call_response
 from hivemind.memory import MemoryContext, MemoryIdentity
 from hivemind.memory.cell_wax import (
@@ -456,6 +457,29 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         # backend after `run_hive` already exited -- can never safely await one of this loop's own
         # Tasks directly, only ask it to cancel one).
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Set by a scenario that needs a container's Worker held mid-call (ADR-0062's restart:
+        # the Queen dies while the Cell still works): every model call waits for it, and
+        # `holding` is set the moment the first one does.
+        self.hold: asyncio.Event | None = None
+        self.holding = asyncio.Event()
+
+    def rebind(
+        self,
+        endpoint: QueenEndpoint | Callable[[], QueenEndpoint | None] | None,
+        gate: ReadinessGateExpect | None,
+    ) -> None:
+        """Serve a second Hive, as a real backend outlives the Queen process that built it.
+
+        A restarted Queen builds her registry afresh, but a Docker daemon is the same daemon:
+        a scenario hands this very backend (its Cells, its running containers) to the second
+        Hive, which provisions any new Cell against its own endpoint and gate.
+
+        Args:
+            endpoint: The second Hive's Queen endpoint.
+            gate: The second Hive's readiness gate.
+        """
+        self._endpoint = endpoint
+        self._gate = gate
 
     async def provision(self, spec: VirtualCellSpec) -> Cell:
         """Provision as `FakeCellBackend` does, then start this Cell's own container task."""
@@ -464,8 +488,10 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         cell = await super().provision(spec)
         bootstrap = self.bootstraps.get(cell.id)
         if bootstrap is not None:
-            self.container_tasks[cell.id] = asyncio.ensure_future(
-                self._run_container(cell.id, bootstrap)
+            # A context of its own, as a container is a process of its own: nothing the Queen's
+            # tasks carry reaches it, and a scenario that kills the Queen can tell the two apart.
+            self.container_tasks[cell.id] = self._loop.create_task(
+                self._run_container(cell.id, bootstrap), context=contextvars.Context()
             )
         return cell
 
@@ -491,6 +517,8 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
             # The Cell's Warden judges through that same fake (hivemind.cli.in_cell.deps): a
             # sampled audit must get a verdict, never a reply scripted for the Worker.
             provider.answer_slot(ModelSlot.JUDGE, judge_approve_response)
+            if self.hold is not None:
+                _held(provider, self.hold, self.holding)
             self.providers[cell_id] = provider
 
         # SystemClock, not the FakeClock a unit test might inject as `self._clock`: this container
@@ -556,6 +584,19 @@ class ContainerSpawningFakeCellBackend(FakeCellBackend):
         await asyncio.gather(
             *(self._stop_container(cell_id) for cell_id in tuple(self.container_tasks))
         )
+
+
+def _held(provider: FakeLLMProvider, hold: asyncio.Event, holding: asyncio.Event) -> None:
+    """Make every model call `provider` answers wait for `hold` first (`hold`'s own comment)."""
+    complete = provider.complete
+
+    async def held(request: LLMRequest) -> LLMResponse:
+        """Say a call is waiting, wait for the scenario's word, then answer as scripted."""
+        holding.set()
+        await hold.wait()
+        return await complete(request)
+
+    setattr(provider, "complete", held)  # noqa: B010 - an instance's method, swapped on purpose.
 
 
 def without_shutdown_retire(hive: Hive) -> Hive:

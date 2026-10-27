@@ -11,8 +11,9 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.deps`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cli.compose.deps.parts`,
     `hivemind.cli.compose.night_veil`, `hivemind.cli.compose.virtual_cells`, `hivemind.cli.stores`,
-    `hivemind.common.logging`, `hivemind.forage`, `hivemind.honey_store`, `hivemind.manifest`,
-    `hivemind.queen` and `hivemind.supervision` only.
+    `hivemind.common.logging`, `hivemind.common.sqlite`, `hivemind.forage`,
+    `hivemind.honey_store`, `hivemind.manifest`, `hivemind.queen` (the Requeening store over
+    `[hive] db`, ADR-0062, among the rest) and `hivemind.supervision` only.
 
 Key invariants:
     - Every seam a later phase added is additive: `virtual_cells=None` keeps placement Real-only
@@ -27,6 +28,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 
 from hivemind.cli.compose.deps.parts import HiveParts, footprints, supervision_file, system_identity
@@ -34,12 +36,15 @@ from hivemind.cli.compose.night_veil import in_process_providers, night_veil_con
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import open_cluster_orders, routing_rules, slot_bindings
 from hivemind.common.logging import get_logger
+from hivemind.common.sqlite import connect
 from hivemind.forage import ForageMap, GoalBudgets, Tempo
 from hivemind.honey_store import HoneyAccess
 from hivemind.manifest import ForageSection, HiveManifest, budget_over_compact_line
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
 from hivemind.queen.placement import PlacementPolicy
+from hivemind.queen.requeening import RequeeningBook, SqliteRequeeningStore
 from hivemind.supervision import load_policy
+from waggle.clock import SystemClock
 
 log = get_logger(__name__)
 
@@ -74,10 +79,38 @@ def build_queen_deps(
     Returns:
         A QueenDeps ready for `hivemind.queen.Queen(deps)`.
     """
+    book = _requeening_book(parts.manifest)
+    if virtual_cells is not None:
+        # ADR-0062: the Cell listener keeps the port the OS chose in her store, so her next start
+        # binds the one every Cell that outlives her will redial.
+        virtual_cells.listener.bind_ports(book.store)
     base = dataclasses.replace(
-        _base_queen_deps(parts, forage_map, ledger), honey=honey, royal_jelly=parts.royal_jelly
+        _base_queen_deps(parts, forage_map, ledger),
+        honey=honey,
+        royal_jelly=parts.royal_jelly,
+        requeening=book,
     )
     return _with_virtual_cells(base, virtual_cells)
+
+
+def _requeening_book(manifest: HiveManifest) -> RequeeningBook:
+    """Open her Requeening store over `[hive] db` (ADR-0062), with the `[queen]` cadences.
+
+    SAFETY: a fresh event loop for this one setup call, the seam `open_cluster_orders` uses: the
+    store's migration is async, `build_hive` is a sync composition root, and the call is local
+    SQLite only.
+    """
+
+    async def _open() -> SqliteRequeeningStore:
+        """Connect to the Hive's database file and apply the store's migration."""
+        connection = connect(manifest.resolve_path(manifest.hive.db))
+        return await SqliteRequeeningStore.create(connection, SystemClock())
+
+    return RequeeningBook(
+        store=asyncio.run(_open()),
+        grace_s=manifest.queen.requeening_grace_s,
+        snapshot_interval_s=manifest.queen.snapshot_interval_s,
+    )
 
 
 def _base_queen_deps(parts: HiveParts, forage_map: ForageMap, ledger: ForageLedger) -> QueenDeps:
