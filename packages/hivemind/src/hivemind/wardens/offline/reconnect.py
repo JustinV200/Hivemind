@@ -207,39 +207,29 @@ class TrailReconnect:
             await self._trail_sync.sync()
 
 
-def _never() -> bool:
-    """The default `abandoned` of a redial nobody can close: it goes on until it connects."""
-    return False
-
-
-async def redial(
-    parts: Reconnection,
-    *,
-    abandoned: Callable[[], bool] = _never,
-    wake: asyncio.Event | None = None,
-) -> Transport | None:
+async def redial(parts: Reconnection, *, closed: asyncio.Event | None = None) -> Transport | None:
     """Dial and announce until both succeed, waiting longer after each failure.
 
     Args:
         parts: The dialer, announcer and clock.
-        abandoned: Whether the owner closed the link meanwhile. Asked before each attempt and
-            once more when a connection is made, so a closed link never dials again and never
-            keeps what it dialled after it was closed.
-        wake: Set by the owner when it closes the link; it cuts short a wait between attempts,
-            so a closed link's redial ends at once rather than after up to `RECONNECT_MAX_S`.
+        closed: Set by the owner when it closes the link. Read before each attempt and once more
+            when a connection is made, so a closed link never dials again and never keeps what it
+            dialled after it was closed; setting it also ends a wait between attempts at once.
+            None for a redial nobody can close: it goes on until it connects.
 
     Returns:
-        A connected transport that has announced the Cell; None when `abandoned` became true
-        first, any connection already made having been closed.
+        A connected transport that has announced the Cell; None when `closed` was set first, any
+        connection already made having been closed.
 
     Raises:
         asyncio.CancelledError: The caller was cancelled (the Warden is stopping); the connection
             being attempted is closed first.
     """
+    closed = closed if closed is not None else asyncio.Event()
     delay = RECONNECT_INITIAL_S
     while True:
         # A link its owner closed does not dial again, however long it slept for this attempt.
-        if abandoned():
+        if closed.is_set():
             return None
         transport: Transport | None = None
         try:
@@ -252,7 +242,7 @@ async def redial(
                 await close_quietly(transport)
             _LOG.info("wardens.offline.redial_failed", error=type(exc).__name__, retry_in_s=delay)
             # Through the injected clock, so a test drives the whole schedule without a timer.
-            await wait_or_wake(parts.clock, delay, wake)
+            await wait_or_wake(parts.clock, delay, closed)
             delay = min(delay * RECONNECT_FACTOR, RECONNECT_MAX_S)
             continue
         except asyncio.CancelledError:
@@ -260,22 +250,21 @@ async def redial(
                 await close_quietly(transport)
             raise
         # Closed while the attempt ran: nothing owns this connection any more, so it is not kept.
-        if abandoned():
+        if closed.is_set():
             await close_quietly(transport)
             return None
         return transport
 
 
-async def wait_or_wake(clock: Clock, seconds: float, wake: asyncio.Event | None) -> None:
-    """Sleep `seconds` on `clock`, or less if `wake` is set first.
+async def wait_or_wake(clock: Clock, seconds: float, wake: asyncio.Event) -> None:
+    """Sleep `seconds` on `clock`, or less if `wake` is set first (at once if it already is).
 
     Args:
         clock: Paces the wait, so a test drives it without a timer.
         seconds: The longest the wait lasts.
-        wake: Ends the wait early once set; None waits the whole time.
+        wake: Ends the wait early once set.
     """
-    if wake is None:
-        await clock.sleep(seconds)
+    if wake.is_set():
         return
     sleeping = asyncio.ensure_future(clock.sleep(seconds))
     woken = asyncio.ensure_future(wake.wait())

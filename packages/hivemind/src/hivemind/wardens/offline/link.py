@@ -41,7 +41,7 @@ Key invariants:
       a send happens under that same lock, so no message is queued after the last replay.
     - `close` ends a pending `receive` through the connection's own close, as the WebSocket
       transport's does; a Warden's `stop` cancels its receive task before the link is closed.
-    - A closed link never dials again: a recovery in progress is told (`redial`'s `abandoned`), so
+    - A closed link never dials again: a recovery in progress is told (`redial`'s `closed`), so
       a receive task that outlives its Warden, because the Warden never got to reap it, can still
       not go on redialing for it. It ends after the attempt it was in, or at once from a wait
       between attempts (`close` wakes it).
@@ -125,9 +125,7 @@ class ReconnectingQueenLink:
         self._recent = reconnection.recent
         self._inner: Transport | None = None
         self._phase = LinkPhase.OFFLINE
-        self._closed = False
-        # Set by `close`: wakes a recovery asleep between attempts, so it ends without dialing.
-        self._closing = asyncio.Event()
+        self._closed = asyncio.Event()  # Set by `close`; also wakes a recovery's backoff at once.
         self._watchers: list[Callable[[], None]] = []
         self._lost_at = reconnection.clock.monotonic()  # When the current outage began.
         # One frame at a time on the wire: the recovery's frames and the Warden's must not mix
@@ -169,7 +167,7 @@ class ReconnectingQueenLink:
             OfflineRefusedError: The link is down and the message may not wait for it.
             waggle.errors.FrameTooLargeError: The frame would exceed the codec's limit.
         """
-        if self._closed:
+        if self._closed.is_set():
             raise TransportClosedError("The reconnecting link to the Queen was closed.")
         if self._phase is LinkPhase.ONLINE:
             await self._send_live(envelope)
@@ -181,7 +179,7 @@ class ReconnectingQueenLink:
 
     async def receive(self) -> AsyncGenerator[Envelope, None]:
         """Yield every frame the Queen sends, across reconnections, until the link is closed."""
-        while not self._closed:
+        while not self._closed.is_set():
             inner = self._inner
             if inner is None:
                 await self._recover()
@@ -200,16 +198,15 @@ class ReconnectingQueenLink:
                 continue
             except (ConnectionLostError, TransportClosedError, CodecError, SignatureError) as exc:
                 reason = type(exc).__name__
-            if not self._closed:
+            if not self._closed.is_set():
                 await self._lose(reason)
                 await self._recover()
 
     async def close(self) -> None:
         """Close the connection for good; later sends raise and `receive` ends."""
-        if self._closed:
+        if self._closed.is_set():
             return
-        self._closed = True
-        self._closing.set()
+        self._closed.set()
         inner, self._inner = self._inner, None
         self._set_phase(LinkPhase.OFFLINE)
         if inner is not None:
@@ -272,11 +269,9 @@ class ReconnectingQueenLink:
     async def _recover(self) -> None:
         """Dial, catch the Queen up and go online, as often as it takes."""
         clock = self._reconnection.clock
-        while not self._closed:
-            dialed = await redial(
-                self._reconnection, abandoned=lambda: self._closed, wake=self._closing
-            )
-            # `close` cannot reach a recovery running in the receive task, so `redial` was told.
+        while not self._closed.is_set():
+            # `close` cannot reach a recovery running in the receive task, so `redial` is told.
+            dialed = await redial(self._reconnection, closed=self._closed)
             if dialed is None:
                 return
             # Whatever this connection takes that must arrive is remembered, the queue's replay
@@ -298,7 +293,7 @@ class ReconnectingQueenLink:
                 self._set_phase(LinkPhase.OFFLINE)
                 await close_quietly(transport)
                 # A link that opens and dies at once must not be redialled in a hot loop.
-                await wait_or_wake(clock, RECONNECT_INITIAL_S, self._closing)
+                await wait_or_wake(clock, RECONNECT_INITIAL_S, self._closed)
                 continue
             return
 

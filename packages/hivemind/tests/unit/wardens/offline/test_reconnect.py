@@ -156,23 +156,38 @@ async def test_cancelling_the_redial_closes_the_connection_it_had_made() -> None
     await rig.queen.aclose()
 
 
+class _ClosedOnDial:
+    """Dials the scripted Queen, and sets `closed` as dial number `at` begins, as a close would."""
+
+    def __init__(self, queen: ScriptedQueen, closed: asyncio.Event, at: int) -> None:
+        self._queen, self._closed, self._at = queen, closed, at
+
+    async def dial(self) -> Transport:
+        if self._queen.dials + 1 >= self._at:
+            self._closed.set()
+        return await self._queen.dial()
+
+
 async def test_a_redial_told_the_link_was_closed_stops_before_it_dials_again() -> None:
     rig = _Rig()
     rig.queen.fail_dials = 9
+    closed = asyncio.Event()
+    parts = Reconnection(_ClosedOnDial(rig.queen, closed, 2), rig.announcer, rig.after, rig.clock)
 
-    transport = await redial(rig.parts, abandoned=lambda: rig.queen.dials >= 2)
+    transport = await redial(parts, closed=closed)
 
     assert transport is None
     assert rig.queen.dials == 2  # The third attempt was never made, though the Queen still refuses.
-    assert rig.clock.sleeps == [0.5, 1.0]
+    assert rig.clock.sleeps == [0.5]  # And the wait after the second was cut short by the close.
     await rig.queen.aclose()
 
 
 async def test_a_connection_made_after_the_link_was_closed_is_closed_not_handed_on() -> None:
     rig = _Rig()
-    asked = iter([False, True])  # Open as the attempt began, closed by the time it connected.
+    closed = asyncio.Event()  # Open as the attempt began, closed by the time it connected.
+    parts = Reconnection(_ClosedOnDial(rig.queen, closed, 1), rig.announcer, rig.after, rig.clock)
 
-    transport = await redial(rig.parts, abandoned=lambda: next(asked))
+    transport = await redial(parts, closed=closed)
 
     assert transport is None
     assert rig.queen.dials == 1
