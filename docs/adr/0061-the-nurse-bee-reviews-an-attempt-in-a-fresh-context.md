@@ -180,6 +180,63 @@ Both are classified as observations in the Guard's event catalogue.
   records ERROR instead of crashing; outages still propagate. A failed ladder reports zero spend,
   because the ladder does not return the usage of attempts that failed.
 
+### Deviations from the design pass, made in step 4 (the Warden wiring)
+
+- **The attempt is every bee that worked on it.** A Warden-side respawn (a retry, a rebind, a
+  Handoff successor) retires one sub-bee and starts the next on the same Cell, and the last one
+  claims. Each `SubBee` carries a `NurseTrace` (`wardens.nurse.trace`): the binding every bee ran
+  on and the Capping gate it proposed through, carried from a retired bee to its successor. The
+  Worker's grade is taken over every one of those bindings, which is how step 3's "rebind targets
+  included" is met, and the actions are every bee's own VERIFIED proposals (a gate's proposals
+  whose proposer is that gate's bee), newest 64 kept. `CappingGate` gains a read-only
+  `proposals()` for this. A Queen retry is a new attempt and starts a new trace.
+- **Which files are read, and how.** The paths are the verified actions' `paths` followed by the
+  claim's artifacts, each once, the first 32. `CellSession` has no bounded read, so each file is
+  read whole through the Warden's session and then cut to what is left of `max_evidence_chars`;
+  a file the lease cannot reach, that is gone, that is a directory, or that holds a NUL in its
+  first KiB (binary) is skipped and is still named by its action. The text that fits is scanned
+  as `SESSION_OUTPUT`, with the Warden as the reading bee, the sub-bee's capability set as the
+  task's own hosts, and the path as the locator; a flagged file reaches the Nurse inside a harder
+  fence, a dropped one as a withheld notice (`memory.render_untrusted`). Any other Cell error is
+  a device error, handled as one in acceptance.
+- **Reads before retiring, the model call after.** The files are read while the sub-bee is still
+  held (the same rule acceptance follows), and the Nurse's model call runs after the bee is
+  retired, so a slow review never holds a pool slot.
+- **The Worker's calls are found by grant.** Every sub-bee lane stamps its grant on `llm.call`,
+  so the Warden reads the newest 2,000 `llm.call` rows and keeps those carrying the task's grant.
+  `spend_left` is the grant's budget less its `spent` and the claim's own spend; no grant held
+  means no cap.
+- **An outage is "not nursed".** The seam lets `ProviderUnavailableError` and `RateLimitedError`
+  propagate; the Warden's accept path turns them into an UNAVAILABLE review (logged by class),
+  the same as no eligible model, rather than ending its loop or escalating.
+- **An ERROR review is accepted, flagged.** The design names the UNAVAILABLE case only. A Nurse
+  that was chosen but gave no verdict is treated the same way: the attempt reaches SUCCEEDED with
+  the ERROR review on it, recorded as `capping.nurse_reviewed` with that status.
+- **JUDGE_RUBRIC, exactly.** The machine verdict the Warden decides on first leaves out every
+  `JUDGE_RUBRIC` criterion, and the Nurse sees those criteria with no machine outcome ("judge it
+  yourself"). A PASS holds them; CHANGES_REQUESTED rejects the attempt like any other finding.
+  When no Nurse judged them (UNAVAILABLE or ERROR), they fail closed as before this ADR, with an
+  ACCEPTANCE_FAILED Alarm naming the review's status: the "accept not nursed" rule covers a review
+  of work the machine checks already proved, never a criterion nothing checked. With the Nurse
+  off, or for a skipped role, `JUDGE_RUBRIC` fails as it always did. The planner still refuses to
+  plan `JUDGE_RUBRIC`; letting it, where the Queen knows a Nurse will run, is left to step 5.
+- **A Night Veil Cell's evidence stays local.** Roadmap step 10.3a binds a Night Veil task to
+  local models only, and the Nurse reads that task's files, so on a Night Veil Cell the Nurse is
+  asked only when every link its JUDGE chain can reach serves locally (`binding_is_local` on the
+  `judge` row, failing closed on a chain it cannot follow). Otherwise the round is UNAVAILABLE
+  with no call: accepted "not nursed", or failed closed for a `JUDGE_RUBRIC` criterion.
+- **A rejection is a FAILED result with reason `nurse`,** the review attached, no
+  ACCEPTANCE_FAILED Alarm and no typed cause: the Queen's rule (step 5) reads the review itself.
+- **The trail events carry the Cell.** Both events carry `cell_id` beside the round, the grades,
+  and (when reviewed) the status, outcome and finding count, so a Night Veil teardown can find
+  and drop them with the Cell.
+- **Where `[nurse]` reaches.** The Hive Stand's Warden and a Swarm device's (both built from the
+  manifest) get the section as written; `max_rounds` is 1 to 7, the wire's `review_round` ceiling.
+  A Virtual Cell's or colonized device's Warden boots with no manifest, so it runs on
+  `NurseWiring`'s defaults whenever its slot table binds JUDGE, the same way it takes the shipped
+  tier table: `[nurse] enabled = false` does not reach a Cell yet. Carrying the section through
+  the `HIVEMIND_*` environment is left for later.
+
 ## Consequences
 
 - An attempt reaches SUCCEEDED only after a model that did not write it has read the evidence,
