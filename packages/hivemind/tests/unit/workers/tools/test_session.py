@@ -13,10 +13,12 @@ import pytest
 from builders.capping import FakeLeaseView
 from builders.cells import make_capabilities, make_cell
 from builders.workers import make_assignment, make_context
+from pydantic import JsonValue
 
 from hivemind.cell import AccessLevel, CompletedCommand, PathNotAllowedError
 from hivemind.cell.fake import FakeSession
 from hivemind.guard import CapabilitySet
+from hivemind.llm import JsonObject
 from hivemind.pheromone import TrailQuery
 from hivemind.workers.tools.errors import UnreachablePathError
 from hivemind.workers.tools.registry import ToolInvocation
@@ -190,7 +192,9 @@ async def test_only_a_diagnostic_drone_runs_a_listed_diagnostic_below_full(
     ctx = make_context()
     assignment = make_assignment(role=role, capabilities=ceiling)
 
-    result = await run_command(ToolInvocation(ctx=ctx, assignment=assignment), {"argv": argv})
+    arguments: JsonObject = {"argv": list[JsonValue](argv)}
+
+    result = await run_command(ToolInvocation(ctx=ctx, assignment=assignment), arguments)
 
     assert result.startswith("refused by the Guard") is not allowed
     assert bool(await ctx.trail.query(TrailQuery(kind="capping.proposed"))) is allowed
