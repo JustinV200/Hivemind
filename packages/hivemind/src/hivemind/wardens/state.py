@@ -45,7 +45,7 @@ from hivemind.wardens.errors import InvalidWardenTransitionError
 from waggle.ids import TaskId
 from waggle.messages.supervision import Intervene, InterventionAction
 from waggle.messages.supervision import WardenState as WireWardenState
-from waggle.messages.task import TaskResume
+from waggle.messages.task import TaskCancel, TaskResume
 
 __all__ = [
     "SETTLED_EVENT_KINDS",
@@ -55,6 +55,7 @@ __all__ = [
     "can_transition",
     "clustering_update",
     "is_terminal",
+    "settle_path",
     "settled_state",
 ]
 
@@ -281,5 +282,29 @@ def clustering_update(
         return
     if isinstance(payload, Intervene) and payload.action is InterventionAction.HANDOFF:
         clustered_tasks.add(task_id)
-    elif isinstance(payload, TaskResume):
+    elif isinstance(payload, TaskResume | TaskCancel) or (
+        isinstance(payload, Intervene) and payload.action is InterventionAction.CANCEL
+    ):
+        # Resumed, or ended for good (a withdrawal, or the TaskCancel her FAIL_TASK sends): either
+        # way the task is no longer paused here, so it no longer holds this Warden CLUSTERED.
         clustered_tasks.discard(task_id)
+
+
+def settle_path(current: WardenState, target: WardenState) -> tuple[WardenState, ...]:
+    """Return the moves that take a Warden from `current` to `target` along TRANSITIONS' edges.
+
+    One move, the target itself, everywhere but one case: CLUSTERED has no edge to WATCH
+    (Appendix C: "any -> CLUSTERED -> ACTIVE"), so a clustered Warden left with nothing to run
+    (its paused tasks cancelled or failed while it held no bee) comes back from Clustering first
+    and then, finding nothing, watches: CLUSTERED -> ACTIVE -> WATCH, each move its own event.
+
+    Args:
+        current: The Warden's state now.
+        target: The state `settled_state` decided it belongs in.
+
+    Returns:
+        The states to move through, in order, the last being `target`.
+    """
+    if current is WardenState.CLUSTERED and target is WardenState.WATCH:
+        return (WardenState.ACTIVE, WardenState.WATCH)
+    return (target,)

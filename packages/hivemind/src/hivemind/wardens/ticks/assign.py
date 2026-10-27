@@ -63,7 +63,12 @@ from hivemind.pheromone import MemoryEvent, WardenEvent
 from hivemind.wardens.deps import device_outage
 from hivemind.wardens.errors import BindingRefusedError
 from hivemind.wardens.spawn import spawn_sub_bee
-from hivemind.wardens.state import SETTLED_EVENT_KINDS, assert_transition, settled_state
+from hivemind.wardens.state import (
+    SETTLED_EVENT_KINDS,
+    assert_transition,
+    settle_path,
+    settled_state,
+)
 from hivemind.wardens.ticks.alarms import (
     cell_context,
     report_refused,
@@ -302,10 +307,11 @@ async def settle_after_tick(warden: Warden) -> None:
     the sub-bee table (and, roadmap step 4.9, `warden._clustered_tasks`) that spawn may just have
     grown, through `assert_transition`, so a move the machine has no edge for raises loudly
     rather than being written silently (a clustered Warden whose paused bees have all been retired
-    stays CLUSTERED rather than asking for WATCH, `settled_state`'s own docstring). Every settled
-    state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`), beside
-    the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel file stays
-    inside its size cap (codingrules 5.1); it is the second half of this module's spawn duty.
+    stays CLUSTERED rather than asking for WATCH, `settled_state`'s own docstring; one whose paused
+    tasks the Queen then ends passes through ACTIVE on its way to WATCH, `settle_path`). Every
+    settled state, CLUSTERED included, records its own `warden.*` event (`SETTLED_EVENT_KINDS`),
+    beside the Queen's own `queen.clustered`. Lives here rather than in warden.py so the kernel
+    file stays inside its size cap (codingrules 5.1); it is the second half of its spawn duty.
 
     Last of all (roadmap step 11.6), a Swarm device's Warden that has settled to WATCH gives its
     lease back (`hivemind.wardens.ticks.lease.release_idle_lease`; every other Warden is
@@ -316,9 +322,11 @@ async def settle_after_tick(warden: Warden) -> None:
     target = settled_state(
         (s.task_id for s in warden._sub_bees.values()), warden._clustered_tasks, warden._state
     )
-    if target is not warden._state:  # Something changed since the last check.
-        assert_transition(warden._state, target, warden_id=warden._warden_id)
-        warden._state = target
+    # Usually one move; a clustered Warden left with nothing passes through ACTIVE (`settle_path`).
+    steps = settle_path(warden._state, target) if target is not warden._state else ()
+    for step in steps:
+        assert_transition(warden._state, step, warden_id=warden._warden_id)
+        warden._state = step
         # Same shape as warden.py's own _record_event: subject is this Warden, no payload.
         event = WardenEvent(
             id=new_event_id(warden._deps.clock),
@@ -326,7 +334,7 @@ async def settle_after_tick(warden: Warden) -> None:
             node_id=warden._deps.identity.node_id,
             at=warden._deps.clock.now(),
             actor=warden._deps.identity.actor,
-            kind=SETTLED_EVENT_KINDS[target],
+            kind=SETTLED_EVENT_KINDS[step],
             subject_id=warden._warden_id,
             payload={},
         )

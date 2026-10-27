@@ -34,7 +34,8 @@ Warden never provisions Cells itself.
   own task in `warden._clustered_tasks` (populated from a Queen-sent `Intervene(HANDOFF)`/
   `TaskResume`, `hivemind.wardens.state.clustering_update`) moves it to `CLUSTERED`, and it stays
   there once those paused bees have stopped and been retired; any one no longer in that set (a
-  `TaskResume`, or the Queen's fresh `TaskAssign` resuming the task) moves it back, recording
+  `TaskResume`, the Queen's fresh `TaskAssign` resuming the task, or her cancel of it) moves it
+  back -- by way of ACTIVE to WATCH when nothing is left, CLUSTERED's only way out -- recording
   `warden.clustered`/`warden.active` (`state.SETTLED_EVENT_KINDS`) each time. Roadmap step 4.8's
   own wiring step: the RECORD handler (`wardens.ticks.dispatch`'s own `_record_routine`) also
   handles a Queen-sent `CeilingsSet`/`PlanWritten`, storing them as `_ceilings`/

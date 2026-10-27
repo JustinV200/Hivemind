@@ -39,6 +39,7 @@ from builders.wardens import QueenEnd, make_warden_deps
 from builders.workers import RunScript, ScriptedWorker, make_assignment, make_outcome
 
 from hivemind.memory import Handoff
+from hivemind.pheromone import TrailQuery
 from hivemind.supervision import Handoff as HandoffLever
 from hivemind.wardens.spawn.sub_bee import SubBee
 from hivemind.wardens.state import WardenState
@@ -49,7 +50,7 @@ from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.ids import TaskId, new_grant_id
 from waggle.messages.supervision import Intervene, InterventionAction
-from waggle.messages.task import TaskAssign, TaskPause
+from waggle.messages.task import TaskAssign, TaskCancel, TaskPause
 
 _WORKER_BEAT_S = 1.0  # Each sub-bee's own cadence.
 _WARDEN_BEAT_S = 10.0  # The Warden's own: its context check rides this one.
@@ -173,6 +174,17 @@ async def test_a_handoff_its_warden_orders_is_resumed_by_a_fresh_bee(
     await _stop(scene)
 
 
+async def _paused_by_the_queen(scene: _Scene, first: TaskAssign) -> SubBee:
+    """Have the Queen pause `first` as Clustering does, and wait until its bee's row is gone."""
+    bee = await _running_bee(scene, first.task_id)
+    await scene.queen.send(_queen_handoff(first.task_id))
+    await scene.queen.send(TaskPause(task_id=first.task_id, reason="Clustering."))
+    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
+    scene.clock.advance(_WORKER_BEAT_S)
+    await settle(lambda: _rows(scene.warden, first.task_id) == [])
+    return bee
+
+
 async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
     # Clustering and isolation pause a task with Intervene(HANDOFF) then TaskPause and resume it
     # themselves with a fresh TaskAssign: the Warden starts no bee of its own meanwhile, and stays
@@ -180,12 +192,7 @@ async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
     resumed: list[Handoff] = []
     first = make_assignment()
     scene = await _start(_handoff_then_resume(resumed), first)
-    bee = await _running_bee(scene, first.task_id)
-    await scene.queen.send(_queen_handoff(first.task_id))
-    await scene.queen.send(TaskPause(task_id=first.task_id, reason="Clustering."))
-    await settle(lambda: bee.runtime.state is WorkerState.DONE and bee.last_handoff is not None)
-    scene.clock.advance(_WORKER_BEAT_S)
-    await settle(lambda: _rows(scene.warden, first.task_id) == [])
+    bee = await _paused_by_the_queen(scene, first)
     assert (resumed, scene.warden.state) == ([], WardenState.CLUSTERED)
     assert scene.warden._sub_bee_slots.in_use == 0
     resume = first.model_copy(
@@ -204,10 +211,38 @@ async def test_a_handoff_the_queen_orders_waits_for_her_resume() -> None:
     await _stop(scene)
 
 
+@pytest.mark.parametrize("order", ["task_cancel", "cancel_lever"])
+async def test_a_clustered_task_the_queen_then_ends_leaves_the_warden_watching(order: str) -> None:
+    # She cancels a task her Clustering paused (a withdrawal), or fails it (FAIL_TASK sends the
+    # same TaskCancel): the task is no longer paused here, and a Warden left with nothing settles
+    # WATCH by way of ACTIVE, CLUSTERED's only way out. It used to stay CLUSTERED for good.
+    first = make_assignment()
+    scene = await _start(_handoff_then_resume([]), first)
+    await _paused_by_the_queen(scene, first)
+    cancel: TaskCancel | Intervene = TaskCancel(
+        task_id=first.task_id, grace_s=0.0, reason="Withdrawn."
+    )
+    if order == "cancel_lever":
+        cancel = _queen_intervene(InterventionAction.CANCEL, first.task_id)
+
+    await scene.queen.send(cancel)
+    await settle(lambda: scene.warden.state is WardenState.WATCH)
+
+    assert scene.warden._clustered_tasks == set()
+    kinds = [e.kind for e in await scene.warden._deps.trail.query(TrailQuery(family="warden"))]
+    assert kinds[-3:] == ["warden.clustered", "warden.active", "warden.watch"], kinds
+    await _stop(scene)
+
+
 def _queen_handoff(task_id: TaskId) -> Intervene:
     """The Queen's Intervene(HANDOFF) for `task_id`, as Clustering and isolation send it."""
+    return _queen_intervene(InterventionAction.HANDOFF, task_id)
+
+
+def _queen_intervene(action: InterventionAction, task_id: TaskId) -> Intervene:
+    """One Queen-sent Intervene for `task_id`, naming no slot or binding."""
     return Intervene(
-        action=InterventionAction.HANDOFF,
+        action=action,
         subject=None,
         task_id=task_id,
         slot=None,
