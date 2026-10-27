@@ -45,6 +45,7 @@ _FAMILIES = {
     "signature or replay failures": "guard.entrance_login_failed",
     "a Cell's forged frames": "guard.envelope_refused",
     "refused segment merges": "guard.segment_refused",
+    "relay requests naming another Cell": "guard.relay_refused",
     "a node's connection closed for flooding": "guard.frame_ceiling",
     "a node's replayed envelope ids": "guard.replay_refused",
     "records forged about another Cell": SUBJECT_FORGED_KIND,
@@ -70,7 +71,7 @@ def test_the_shipped_rules_load_and_count_every_family_the_roadmap_names() -> No
 
     counted = {matcher.kind for rule in rules.enabled for matcher in rule.matchers}
 
-    assert len(rules.rules) == 22
+    assert len(rules.rules) == 23
     assert {family: kind in counted for family, kind in _FAMILIES.items()} == dict.fromkeys(
         _FAMILIES, True
     )

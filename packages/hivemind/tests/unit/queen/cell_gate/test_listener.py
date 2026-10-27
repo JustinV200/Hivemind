@@ -11,9 +11,11 @@ is refused (`guard.segment_refused`) while the link stays up and its Warden is a
 `control.error` naming the reason; the Guard Bee reads that refusal and files a request through the
 running Queen's own door, and she isolates the Cell by rule. A handshake frame that fails its
 signature before attach is `guard.handshake_refused` about the Hive, with what it claimed kept
-apart, never about the Cell it named. Roadmap
-steps 11.3a and 11.3b: the transport's own limits are on, so a frame flood closes the link (code
-4029) and a replayed envelope id is dropped, each recorded as a guard event naming the Cell's node.
+apart, never about the Cell it named. A snapshot relay request naming another attached Cell is
+answered with an error and never reaches the relay, either way round (`guard.relay_refused`).
+Roadmap steps 11.3a and 11.3b: the transport's own limits are on, so a frame flood closes the link
+(code 4029) and a replayed envelope id is dropped, each recorded as a guard event naming the Cell's
+node.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Mirrors src/hivemind/queen/cell_gate/listener.py
@@ -115,16 +117,21 @@ async def test_listener_never_attaches_an_unexpected_cell() -> None:
 
 
 class _FakeSnapshotHandler:
-    """A CellSnapshotHandler stand-in.
+    """A CellSnapshotHandler stand-in, remembering each Cell it was asked about.
 
     This module tests the listener's own dispatch, not a real backend
     (hivemind.queen.cell_gate.snapshot's own module has that coverage).
     """
 
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
     async def snapshot(self, request: CellSnapshotRequest) -> CellSnapshotReply:
+        self.asked.append(request.cell_id)
         return CellSnapshotReply(cell_id=request.cell_id, snapshot_id="snap_test", error=None)
 
     async def rollback(self, request: CellRollbackRequest) -> CellRollbackReply:
+        self.asked.append(request.cell_id)
         return CellRollbackReply(cell_id=request.cell_id, ok=True, error=None)
 
 
@@ -143,6 +150,35 @@ async def test_listener_answers_a_snapshot_request_correlated_to_its_own_envelop
     assert reply_envelope.payload.snapshot_id == "snap_test"
 
     await transport.close()
+    await scenario.listener.stop()
+
+
+async def test_no_cell_snapshots_or_rolls_back_another_through_its_link() -> None:
+    # Regression (Night Veil round 3 item 4): the relay acted on whatever cell_id a request named.
+    scenario = await build_scenario()
+    handler = _FakeSnapshotHandler()
+    scenario.listener.bind_snapshot_handler(handler)
+    one, one_link = await attach(scenario)
+    other, other_link = await attach(scenario)
+    clock = FakeClock()
+
+    snapshot_request = CellSnapshotRequest(cell_id=other.cell_id, purpose="t")
+    await one_link.send(wrap(snapshot_request, one.hop(scenario.hive_id), clock=clock))
+    snapshot = (await asyncio.wait_for(anext(one_link.receive()), WAIT_S)).payload
+    rollback_request = CellRollbackRequest(cell_id=one.cell_id, snapshot_id="snap_test")
+    await other_link.send(wrap(rollback_request, other.hop(scenario.hive_id), clock=clock))
+    rollback = (await asyncio.wait_for(anext(other_link.receive()), WAIT_S)).payload
+
+    assert handler.asked == []  # Neither request reached the Queen's relay.
+    assert isinstance(snapshot, CellSnapshotReply) and snapshot.snapshot_id is None
+    assert isinstance(rollback, CellRollbackReply) and rollback.ok is False
+    refused = await scenario.trail.query(TrailQuery(kind="guard.relay_refused"))
+    assert {(event.subject_id, event.payload["reason"]) for event in refused} == {
+        (one.cell_id, "another_cell"),
+        (other.cell_id, "another_cell"),
+    }
+    for transport in (one_link, other_link):
+        await transport.close()
     await scenario.listener.stop()
 
 

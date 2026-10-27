@@ -37,8 +37,8 @@ Public API:
       proved connection after its handshake (serve).
     - FanoutTransport, FANOUT_QUEUE_SIZE: the one-reader wrapper around a connection (fanout).
     - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
-      SEGMENT_REFUSED_CODE, refusal_error: what a link refused, recorded for the Guard Bee and
-      answered to the Warden (refusals).
+      RELAY_REFUSED_KIND, SEGMENT_REFUSED_CODE, refusal_error: what a link refused, recorded for
+      the Guard Bee and answered to the Warden (refusals).
 """
 
 from hivemind.queen.attach.admit import (
@@ -52,6 +52,7 @@ from hivemind.queen.attach.admit import (
 from hivemind.queen.attach.fanout import FANOUT_QUEUE_SIZE, FanoutTransport
 from hivemind.queen.attach.refusals import (
     ENVELOPE_REFUSED_KIND,
+    RELAY_REFUSED_KIND,
     SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
@@ -70,6 +71,7 @@ from hivemind.queen.attach.serve import (
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
     "FANOUT_QUEUE_SIZE",
+    "RELAY_REFUSED_KIND",
     "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "AnswerClaims",

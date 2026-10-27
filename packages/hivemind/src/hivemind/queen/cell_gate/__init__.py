@@ -59,8 +59,9 @@ Public API:
     - GateSegmentKeys: the key a Virtual Cell's trail segment is checked against when it is signed
       (hivemind.queen.cell_gate.trust.segment_keys, roadmap 11.9).
     - LinkRefusals, SegmentRefusal, ENVELOPE_REFUSED_KIND, SEGMENT_REFUSED_KIND,
-      SEGMENT_REFUSED_CODE, refusal_error: what one Cell's link refused, recorded for the Guard
-      Bee and answered to the Cell (hivemind.queen.cell_gate.trust.refusals, roadmap step 10.6).
+      RELAY_REFUSED_KIND, SEGMENT_REFUSED_CODE, refusal_error: what one Cell's link refused,
+      recorded for the Guard Bee and answered to the Cell
+      (hivemind.queen.cell_gate.trust.refusals, roadmap step 10.6).
     - HandshakeRefusals, HANDSHAKE_REFUSED_KIND, GateVerifier: a handshake that failed before
       attach, recorded about the Hive, and the verifier every frame is checked by
       (hivemind.queen.cell_gate.trust.handshake).
@@ -89,6 +90,7 @@ from hivemind.queen.cell_gate.trust.handshake import (
 )
 from hivemind.queen.cell_gate.trust.refusals import (
     ENVELOPE_REFUSED_KIND,
+    RELAY_REFUSED_KIND,
     SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
@@ -102,6 +104,7 @@ from hivemind.queen.cell_gate.trust.segment_keys import GateSegmentKeys
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
     "HANDSHAKE_REFUSED_KIND",
+    "RELAY_REFUSED_KIND",
     "SCRUB_FAILED_KIND",
     "SCRUB_TIMEOUT_S",
     "SEGMENT_REFUSED_CODE",

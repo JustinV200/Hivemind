@@ -129,6 +129,7 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 | `subject_forgery` | `guard_bee.subject_forged`: a record a Cell's node made about what another Cell owns | cell (the recorder's) | 1 h | 1 | `isolate_cell`, critical | no |
 | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_forgery` | `guard.segment_refused` for `another_node`, `another_cell` or `bad_signature` | cell | 1 h | 1 | `isolate_cell`, critical | no |
+| `relay_forgery` | `guard.relay_refused` for `another_cell` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_unmergeable` | `guard.segment_refused` for `format`, `corrupt` or `unsigned` | cell | 1 h | 1 | `isolate_cell`, high | no |
 | `frame_ceiling_repeats` | `guard.frame_ceiling`: a connection closed for sending frames past its ceiling | node | 10 min | 3 | `isolate_cell`, high | no |
 | `replay_refusal_burst` | `guard.replay_refused`: an envelope id repeated inside the replay window, outside the reconnection grace | node | 5 min | 5 | `isolate_cell`, high | no |
@@ -137,7 +138,7 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 The Queen's two gates, the Cell gate (`hivemind.queen.cell_gate`, the listener every Virtual Cell's
 Warden dials) and the swarm gate (`hivemind.queen.swarm_gate`, which attaches a colonized device's
 Warden), serve a Warden's link through one shared path (`hivemind.queen.attach`) and so record the
-next two the same way, about the Cell whose own proved link carried the frame:
+next three the same way, about the Cell whose own proved link carried the frame:
 
 - **`guard.envelope_refused`**: a frame on an attached link failed its signature (reason
   `invalid`, `missing` or `unknown_node`). The link is closed. A tampered link, or a Cell signing
@@ -161,10 +162,14 @@ next two the same way, about the Cell whose own proved link carried the frame:
   Cell's bad export is a fault to hear of, not a reason to cut its Warden off mid-task. The Cell's Warden is answered with a `control.error`
   whose code names the reason (`hivemind.queen.segment_refused.<reason>`), correlated to the
   refused chunk.
+- **`guard.relay_refused`**: a snapshot relay request (`cell.snapshot_request`,
+  `cell.rollback_request`) named a Cell other than the one its link proved (reason
+  `another_cell`). It never reached the Queen's snapshotter and was answered with an error: no Cell
+  snapshots or rolls back another.
 
 Each reason is recorded once per link, so no Cell can flood the trail. `subject_forgery`,
-`envelope_forgery` and `segment_forgery` are shipped dire patterns: the Queen isolates the Cell by
-rule.
+`envelope_forgery`, `segment_forgery` and `relay_forgery` are shipped dire patterns: the Queen
+isolates the Cell by rule.
 
 A frame that fails its signature before its link is attached proves no Cell (whoever dialled may
 have named any Cell's id), so the gate closes that connection and records
@@ -304,7 +309,7 @@ binds no judge records the sample as inconclusive (`capping.audited` with `judge
 |---|---|---|
 | `[guard] request_confidence` | `"high"` | The floor a request must reach to be filed. |
 | `[guard] requests_per_hour` | `6` | The most requests filed in any hour. A `critical` request is always filed. |
-| `[guard] dire_patterns` | `["injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery"]` | The rules whose requests the Queen decides by rule, with no model ([isolation](isolation.md)). |
+| `[guard] dire_patterns` | `["injection_then_denial", "envelope_forgery", "segment_forgery", "relay_forgery", "subject_forgery"]` | The rules whose requests the Queen decides by rule, with no model ([isolation](isolation.md)). |
 | `[guard.bee] interval_s` | `5.0` | Seconds between two readings of the trail. |
 | `[guard.bee] coalesce_window_s` | `900.0` | One request per rule and target in this window (0 files every one). |
 | `[guard.bee] judge_timeout_s` | `60.0` | The longest one awake episode may take. |

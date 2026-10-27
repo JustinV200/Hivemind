@@ -245,6 +245,7 @@ class GuardEvent(PheromoneEvent):
             "guard.entrance_certificate_issued",  # ADR-0058: renewed, or re-issued on loopback.
             "guard.envelope_refused",  # Roadmap step 10.6: a node-integrity refusal at the gate.
             "guard.segment_refused",
+            "guard.relay_refused",  # A snapshot relay request naming a Cell its link never proved.
             "guard.basket_integrity_failed",  # Phase 9 (ADR-0048): a blob failed verification.
             # Phase 11 (ADR-0055): the Waggle transport's two protections, recorded by the
             # listener wrapper (waggle itself writes no trail), each naming the node.

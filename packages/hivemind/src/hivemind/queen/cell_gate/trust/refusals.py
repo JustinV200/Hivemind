@@ -41,6 +41,7 @@ from hivemind.cell import CellIdentity
 from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach import (
     ENVELOPE_REFUSED_KIND,
+    RELAY_REFUSED_KIND,
     SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
@@ -55,6 +56,7 @@ from waggle.transport.websocket_server import ServerOptions
 
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
+    "RELAY_REFUSED_KIND",
     "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "LinkRefusals",

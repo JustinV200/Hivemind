@@ -115,6 +115,7 @@ def test_guard_event_kinds_hold_denied_and_every_reserved_phase_10_kind() -> Non
         "guard.reduce_ordered",
         "guard.envelope_refused",
         "guard.segment_refused",
+        "guard.relay_refused",
         "guard.basket_integrity_failed",  # Phase 9 (ADR-0048).
         "guard.frame_ceiling",  # Phase 11 (ADR-0055): a connection over its frame ceiling.
         "guard.replay_refused",  # Phase 11 (ADR-0055): an envelope id repeated in the window.

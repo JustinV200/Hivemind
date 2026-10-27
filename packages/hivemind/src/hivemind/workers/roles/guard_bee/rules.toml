@@ -257,6 +257,18 @@ threshold = 1
 confidence = "critical"
 action = "isolate_cell"
 
+# A snapshot relay request naming a Cell its link never proved (guard.relay_refused, reason
+# another_cell): a Cell asking the Queen to snapshot or roll back another Cell. An honest Warden
+# only ever names its own; nothing was snapshotted or rolled back. A shipped dire pattern.
+[rules.relay_forgery]
+title = "a snapshot relay request naming another Cell"
+counts = [{ kind = "guard.relay_refused", where = { reason = ["another_cell"] } }]
+group_by = "cell"
+window_s = 3600.0
+threshold = 1
+confidence = "critical"
+action = "isolate_cell"
+
 # A trail segment the Queen could not merge (guard.segment_refused, reason format, corrupt or
 # unsigned): a gap in the Cell's audit record, from a fault, a tampered export or a Swarm node's
 # Warden that does not sign the segments it must (ADR-0053); the Queen judges which.

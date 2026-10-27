@@ -1477,7 +1477,11 @@ relay: a snapshot or rollback request travels Warden -> Queen and its reply Quee
 replies carry their own outcome rather than falling back to `control.error`, so a timed-out or
 failed request always resolves to `hivemind.cell.SnapshotUnsupportedError` on the asking Warden's
 own `RelaySnapshotter`, which makes the Capping gate fall back to REVERSE_DIFF (ADR-0018) exactly
-as it would for a Real Cell's `NoopSnapshotter`.
+as it would for a Real Cell's `NoopSnapshotter`. The receiver rule holds here too: the Queen answers
+a request only about the Cell the sender's link proved at its handshake. One naming another Cell
+never reaches her snapshotter; it is answered with `error` set (`ok` false for a rollback) and
+recorded as `guard.relay_refused` about the sender's own Cell, which the Guard Bee's
+`relay_forgery` rule counts.
 
 ##### CellSnapshotRequest
 

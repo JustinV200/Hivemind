@@ -1,4 +1,4 @@
-"""Record what a remote Warden's link refused: a failed signature, or a segment left unmerged.
+"""Record what a remote Warden's link refused: a failed signature, a segment, a relay request.
 
 Roadmap step 10.6 has the Guard Bee (the Hive's security watcher, reading the Queen's trail) watch
 for node integrity failures, and two of them happen at the gates, the Queen's listeners every
@@ -17,9 +17,13 @@ one), is recorded as `guard.segment_refused`, and the link stays up: an honest W
 is a fault the Queen should hear of, not a reason to cut it off mid-task. The Warden hears of it
 too: every refused chunk is answered with the `control.error` `refusal_error` builds, correlated to
 the chunk's envelope, whose code names the reason (`hivemind.queen.segment_refused.<reason>`,
-docs/waggle/spec.md section 8.10), so it learns the export was not merged.
+docs/waggle/spec.md section 8.10), so it learns the export was not merged. A snapshot relay request
+(the Warden asking the Queen to snapshot or roll back its Cell, which it cannot reach itself) is
+answered only about the Cell its link proved: one naming another Cell would snapshot or roll back a
+Cell that is not the asker's, so it is refused with an error reply (`relay_refused_reply`),
+recorded as `guard.relay_refused` (reason `another_cell`), and never reaches the relay's handler.
 
-Both events are the Queen's own records, about the Cell whose own link carried the frame, and name
+Every event is the Queen's own record, about the Cell whose own link carried the frame, and name
 a reason, never the frame. A frame that fails before its link is attached proves no Cell (whoever
 dialled may have named any Cell's id), so nothing is recorded against a Cell for it; the Cell gate
 records the knock about the Hive instead (`hivemind.queen.cell_gate.trust.handshake`).
@@ -37,6 +41,8 @@ Key invariants:
     - A chunk that breaks the receiver rule, or names a Cell its link did not prove, never
       reaches the receiver, so nothing it carries is merged or veiled.
     - Nothing is recorded without a recorder: a gate built without one refuses the same way.
+    - A relay request naming a Cell its link did not prove never reaches the relay's handler: no
+      Cell snapshots or rolls back another.
     - Every refused chunk is answered, never retryable (only a whole export sent again can
       merge); the answer names ids and the reason, never the chunk's bytes.
 
@@ -63,6 +69,12 @@ from hivemind.queen.trail import (
 from waggle.envelope import Envelope
 from waggle.errors import SignatureError
 from waggle.ids import CellId, NodeId, new_event_id
+from waggle.messages.cell.snapshot import (
+    CellRollbackReply,
+    CellRollbackRequest,
+    CellSnapshotReply,
+    CellSnapshotRequest,
+)
 from waggle.messages.control import ErrorMessage
 from waggle.messages.registry import kind_for
 from waggle.messages.swarm import TrailSegmentSync
@@ -72,14 +84,19 @@ log = get_logger(__name__)
 ENVELOPE_REFUSED_KIND = "guard.envelope_refused"
 SEGMENT_REFUSED_KIND = "guard.segment_refused"
 SEGMENT_REFUSED_CODE = "hivemind.queen.segment_refused"  # The control.error code's stem.
+RELAY_REFUSED_KIND = "guard.relay_refused"
+# The reply a refused relay request gets: the asker learns only that it was refused.
+_RELAY_REFUSED = "Refused: a Cell's link may only snapshot or roll back that Cell itself."
 
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
+    "RELAY_REFUSED_KIND",
     "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "LinkRefusals",
     "SegmentRefusal",
     "refusal_error",
+    "relay_refused_reply",
 ]
 
 
@@ -148,6 +165,21 @@ class LinkRefusals:
             await self._record(SEGMENT_REFUSED_KIND, refusal.value)
         return refusal
 
+    async def relay(self, request: CellSnapshotRequest | CellRollbackRequest) -> bool:
+        """Whether the link may relay `request`: only about its own Cell; record any other.
+
+        Args:
+            request: What the link's Warden asked, naming the Cell to snapshot or roll back.
+
+        Returns:
+            True when it names the Cell the handshake proved; False once refused and recorded.
+        """
+        # The Cell the handshake proved is the only one this link may act on (module docstring).
+        if request.cell_id == self._cell_id:
+            return True
+        await self._record(RELAY_REFUSED_KIND, SegmentRefusal.ANOTHER_CELL.value)
+        return False
+
     async def _record(self, kind: str, reason: str) -> None:
         """Record `kind` about this link's Cell, unless there is no recorder or it already was."""
         if self._recorder is None or (kind, reason) in self._recorded:
@@ -188,6 +220,23 @@ def refusal_error(refusal: SegmentRefusal, chunk: TrailSegmentSync) -> ErrorMess
         # The same chunk never merges alone: only a whole, honest export sent again can.
         is_retryable=False,
     )
+
+
+def relay_refused_reply(
+    request: CellSnapshotRequest | CellRollbackRequest,
+) -> CellSnapshotReply | CellRollbackReply:
+    """The reply a refused relay request gets: an error naming no more than the request did.
+
+    Args:
+        request: The refused request.
+
+    Returns:
+        A snapshot reply with no snapshot, or a rollback reply that did not roll back, either way
+        with `error` set, so the asking Warden falls back as for any failed relay (ADR-0018).
+    """
+    if isinstance(request, CellSnapshotRequest):
+        return CellSnapshotReply(cell_id=request.cell_id, snapshot_id=None, error=_RELAY_REFUSED)
+    return CellRollbackReply(cell_id=request.cell_id, ok=False, error=_RELAY_REFUSED)
 
 
 async def _merged(

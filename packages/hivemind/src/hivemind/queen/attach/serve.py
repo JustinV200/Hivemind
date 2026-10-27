@@ -36,9 +36,10 @@ Key invariants:
       `guard.envelope_refused` against the link's Cell; one that fails before the link is attached
       proves no Cell and is the gate's to close, not recorded here.
     - A snapshot relay request is answered on the connection it arrived on, correlated to its own
-      envelope; a trail segment chunk is handed to the receiver and answered only when refused,
-      with a `control.error` naming the reason. Both are no-ops when the services name no handler
-      or receiver.
+      envelope, and only about the Cell the link proved: one naming another Cell is answered with
+      an error and recorded as `guard.relay_refused`; a trail segment chunk is handed to the
+      receiver and answered only when refused, with a `control.error` naming the reason. Both are
+      no-ops when the services name no handler or receiver.
     - A returning Warden's gate hears of it (`LinkHooks.on_returning`) before the fan-out's pump
       reads anything after the handshake, so a duplicate in its first frames is never met before
       the transport knows it is expected.
@@ -61,7 +62,7 @@ from hivemind.cell import Cell
 from hivemind.pheromone import TrailRecorder
 from hivemind.queen.attach.admit import current_link, detach_if_current, knows_warden
 from hivemind.queen.attach.fanout import FanoutTransport
-from hivemind.queen.attach.refusals import LinkRefusals, refusal_error
+from hivemind.queen.attach.refusals import LinkRefusals, refusal_error, relay_refused_reply
 from hivemind.queen.deps import LiveCapacity, WardenLink, send_guarded
 from hivemind.queen.errors import WardenSpawnRefusedError
 from hivemind.queen.trail import TrailSegmentReceiver
@@ -314,14 +315,33 @@ class _Answers:
     async def _snapshot(self, envelope: Envelope) -> None:
         """Answer a snapshot relay request through the bound handler, if there is one."""
         handler, request = self._services.snapshots, envelope.payload
-        if handler is not None and isinstance(request, CellSnapshotRequest):
+        if (
+            handler is not None
+            and isinstance(request, CellSnapshotRequest)
+            and await self._own_cell(envelope, request)
+        ):
             await self._reply(envelope, await handler.snapshot(request))
 
     async def _rollback(self, envelope: Envelope) -> None:
         """Answer a rollback request through the bound handler, if there is one."""
         handler, request = self._services.snapshots, envelope.payload
-        if handler is not None and isinstance(request, CellRollbackRequest):
+        if (
+            handler is not None
+            and isinstance(request, CellRollbackRequest)
+            and await self._own_cell(envelope, request)
+        ):
             await self._reply(envelope, await handler.rollback(request))
+
+    async def _own_cell(
+        self, envelope: Envelope, request: CellSnapshotRequest | CellRollbackRequest
+    ) -> bool:
+        """Whether `request` names the link's own Cell; answer it with an error if not."""
+        # No Cell snapshots or rolls back another: a request naming any Cell but the one the
+        # handshake proved never reaches the handler (`.refusals`).
+        if await self._refusals.relay(request):
+            return True
+        await self._reply(envelope, relay_refused_reply(request))
+        return False
 
     async def _segment(self, envelope: Envelope) -> None:
         """Merge a trail segment chunk through the link's refusals, if a receiver is bound."""

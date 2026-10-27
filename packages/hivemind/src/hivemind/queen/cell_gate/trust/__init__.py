@@ -39,6 +39,7 @@ from hivemind.queen.cell_gate.trust.handshake import (
 )
 from hivemind.queen.cell_gate.trust.refusals import (
     ENVELOPE_REFUSED_KIND,
+    RELAY_REFUSED_KIND,
     SEGMENT_REFUSED_CODE,
     SEGMENT_REFUSED_KIND,
     LinkRefusals,
@@ -54,6 +55,7 @@ __all__ = [
     "HANDSHAKE_RECORDS_PER_WINDOW",
     "HANDSHAKE_REFUSED_KIND",
     "HANDSHAKE_WINDOW_S",
+    "RELAY_REFUSED_KIND",
     "SEGMENT_REFUSED_CODE",
     "SEGMENT_REFUSED_KIND",
     "GateSegmentKeys",

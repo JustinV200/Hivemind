@@ -797,9 +797,15 @@ requests_per_hour = 6
 # when her awake mode is unavailable she isolates, since isolation only removes access. A key naming
 # no Guard Bee rule never fires. The shipped default, written out: a scanner flag followed by a
 # denial in the same episode, a frame that failed its signature on a Cell's own link, a trail
-# segment a Cell shipped under another node's identity, and a Cell's node recording what another
-# Cell owns.
-dire_patterns = ["injection_then_denial", "envelope_forgery", "segment_forgery", "subject_forgery"]
+# segment a Cell shipped under another node's identity, a snapshot relay request naming another
+# Cell, and a Cell's node recording what another Cell owns.
+dire_patterns = [
+    "injection_then_denial",
+    "envelope_forgery",
+    "segment_forgery",
+    "relay_forgery",
+    "subject_forgery",
+]
 
 [guard.roles.drone]
 # Replaces the Drone role's whole default set (a Worker still keeps only what its Warden holds).
