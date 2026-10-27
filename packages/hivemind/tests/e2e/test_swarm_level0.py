@@ -34,7 +34,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -66,13 +65,6 @@ pytestmark = pytest.mark.e2e
 _WAIT_S = 30.0  # Each wait; a device enrols, connects and runs its task in a couple of seconds.
 
 
-@pytest.mark.xfail(
-    sys.platform == "win32",
-    reason="Windows follows an exec's tree through its leader (the shim has no Job Object yet, "
-    "gateway-contract section 3): the stray the Drone's command leaves is never killed, and the "
-    "lease's scratch, which is its working directory, cannot be removed",
-    strict=True,
-)
 def test_a_goal_runs_on_an_enrolled_device_and_leaves_it_as_found(tmp_path: Path) -> None:
     hive = swarm_hive(tmp_path, free_port())
 

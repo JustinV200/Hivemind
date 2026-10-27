@@ -315,12 +315,6 @@ async def test_output_past_the_cap_kills_the_group_and_is_reported(rig: Rig) -> 
     assert rig.text(SessionStream.STDOUT) == b"x" * 1000  # Cut exactly at the cap.
 
 
-@pytest.mark.xfail(
-    sys.platform == "win32",
-    reason="Windows follows an exec's tree through its leader (the shim has no Job Object yet, "
-    "gateway-contract section 3), so a child the leader leaves behind is not recorded",
-    strict=True,
-)
 async def test_a_child_that_outlives_the_program_stays_recorded_with_the_lease(rig: Rig) -> None:
     code = (
         "import subprocess, sys; subprocess.Popen([sys.executable, '-c', "

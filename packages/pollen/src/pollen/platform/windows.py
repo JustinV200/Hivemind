@@ -1,19 +1,22 @@
-"""Provide WindowsShim: LocalAppData paths, process trees through taskkill and a Scheduled Task.
+"""Provide WindowsShim: LocalAppData paths, a Job Object per program and a Scheduled Task.
 
 The Pollen Packet (the thin gateway program on a device the Hive borrows) keeps its data in a
 ``pollen`` folder under the user's LocalAppData on Windows, starts each command in a new process
-group so a break signal can reach it, and ends a whole process tree with ``taskkill /T`` (the
-Windows stand-in for signalling a POSIX group; a Real Cell is an existing device the Hive borrows
-for a task, and nothing a lease started may outlive it). It is installed as a per-user Scheduled
-Task that runs at logon, which needs no administrator rights. The shim is written to run on any
-host: the Windows-only constants are read with ``getattr`` and every external command goes
-through the injected runner, so the install logic is tested by recording the ``schtasks``
-commands it would run.
+group so a break signal can reach it and in a Job Object of its own (the Windows stand-in for a
+POSIX process group; a Real Cell is an existing device the Hive borrows for a task, and nothing a
+lease started may outlive it), so a child that outlives its command is still seen and killed. A
+process whose job this packet does not hold (it was started before a restart, or the CLI asks
+from another process) is followed through its tree instead and ended with ``taskkill /T``. It is
+installed as a per-user Scheduled Task that runs at logon, which needs no administrator rights.
+The shim is written to run on any host: the Windows-only constants are read with ``getattr`` and
+every external command goes through the injected runner, so the install logic is tested by
+recording the ``schtasks`` commands it would run.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Chosen by
     pollen.platform.select on Windows; called by the executors, the lease code and pollen.cli
-    through the PlatformShim Protocol; calls into psutil and the standard library only.
+    through the PlatformShim Protocol; calls into pollen.platform.job_objects, psutil and the
+    standard library only.
 
 Key invariants:
     - The task is one entry named after the packet; uninstalling ends and deletes that entry and
@@ -48,6 +51,7 @@ from pollen.platform.base import (
     own_interpreter,
     run_command,
 )
+from pollen.platform.job_objects import SUSPENDED_FLAG, JobTable
 from waggle.messages.labels import OsFamily
 from waggle.messages.session import ProcessSignal
 
@@ -84,6 +88,7 @@ class WindowsShim:
         self._home = home
         self._env = {} if env is None else env
         self._runner = runner
+        self._jobs = JobTable()  # The job of every program spawn started in this process.
 
     def default_data_dir(self) -> Path:
         """Return the ``pollen`` folder under LOCALAPPDATA, or under the profile's AppData/Local.
@@ -95,7 +100,7 @@ class WindowsShim:
         return Path(base) / "pollen"
 
     async def spawn(self, spec: SpawnSpec) -> asyncio.subprocess.Process:
-        """Start ``spec`` in a new process group so a break signal reaches it alone.
+        """Start ``spec`` in a new process group, inside a Job Object of its own on Windows.
 
         Args:
             spec: The program, directory, environment and standard streams.
@@ -104,18 +109,24 @@ class WindowsShim:
             The started process.
 
         Raises:
-            OSError: The program could not be started.
+            OSError: The program could not be started, or not inside its job.
         """
         # An argument list, never a shell: no expansion or quoting happens to a request's argv.
-        return await asyncio.create_subprocess_exec(
+        # Started suspended, so it cannot start anything before it is inside its job.
+        process = await asyncio.create_subprocess_exec(
             *spec.argv,  # SAFETY: an argument list, never shell=True.
             cwd=spec.cwd,
             env=dict(spec.env),
             stdin=spec.stdin,
             stdout=spec.stdout,
             stderr=spec.stderr,
-            creationflags=_NEW_PROCESS_GROUP,
+            creationflags=_NEW_PROCESS_GROUP | SUSPENDED_FLAG,
         )
+        # Job Objects exist on Windows only; elsewhere (CI runs this shim on Linux) the flag above
+        # is 0 and the program already runs.
+        if SUSPENDED_FLAG:
+            await self._jobs.contain(process)
+        return process
 
     def process_ref(self, pid: int) -> ProcessRef:
         """Capture ``pid`` together with its creation time.
@@ -138,17 +149,11 @@ class WindowsShim:
             ref: A process the lease started.
 
         Returns:
-            True while the leader (same creation time) or one of its descendants lives.
+            True while anything in its job runs or, for a job this process does not hold, while
+            the leader (same creation time) or one of its descendants lives.
         """
-        try:
-            leader = psutil.Process(ref.pid)
-            if ref.created and abs(leader.create_time() - ref.created) > CREATE_TIME_TOLERANCE_S:
-                return False  # The pid now belongs to something else.
-            if leader.status() != psutil.STATUS_ZOMBIE:
-                return True
-            return any(child.is_running() for child in leader.children(recursive=True))
-        except psutil.Error:
-            return False
+        contained = self._jobs.alive(ref)
+        return _tree_alive(ref) if contained is None else contained
 
     def signal_group(self, ref: ProcessRef, signal_: ProcessSignal) -> bool:
         """Deliver ``signal_`` to the process tree of ``ref``.
@@ -166,6 +171,11 @@ class WindowsShim:
             return False
         if signal_ is ProcessSignal.INTERRUPT:
             return _send_break(ref.pid)
+        if signal_ is ProcessSignal.KILL:
+            # The job reaches a child whose leader has gone, which taskkill /T cannot.
+            killed = self._jobs.kill(ref)
+            if killed is not None:
+                return killed
         flags = ["/F"] if signal_ is ProcessSignal.KILL else []
         # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
         result = self._runner(["taskkill", "/T", *flags, "/PID", str(ref.pid)])
@@ -256,6 +266,23 @@ class WindowsShim:
             else "There was no Scheduled Task to remove."
         )
         return ServiceResult(unit_path=None, is_active=False, manual_command=None, detail=detail)
+
+
+def _tree_alive(ref: ProcessRef) -> bool:
+    """Say whether the leader of ``ref`` or a process below it runs, for a job this shim lacks.
+
+    The fallback for a process started before a packet restart, or asked about from another
+    process: a child whose leader has exited is no longer below it, so this can miss one.
+    """
+    try:
+        leader = psutil.Process(ref.pid)
+        if ref.created and abs(leader.create_time() - ref.created) > CREATE_TIME_TOLERANCE_S:
+            return False  # The pid now belongs to something else.
+        if leader.status() != psutil.STATUS_ZOMBIE:
+            return True
+        return any(child.is_running() for child in leader.children(recursive=True))
+    except psutil.Error:
+        return False
 
 
 def _send_break(pid: int) -> bool:

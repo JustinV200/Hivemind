@@ -1,8 +1,9 @@
 """Test the Windows shim: LocalAppData, taskkill trees and a Scheduled Task, on any host.
 
 On Windows the Pollen Packet (the thin gateway program on a device the Hive borrows) keeps its
-files in a ``pollen`` folder under LocalAppData, runs each program in a process group of its own
-and ends a tree with ``taskkill /T``, and starts at logon as a Scheduled Task. The shim is written
+files in a ``pollen`` folder under LocalAppData, runs each program in a process group and a Job
+Object of its own, ends a tree whose job it does not hold with ``taskkill /T``, and starts at
+logon as a Scheduled Task. The shim is written
 so it imports and its pure parts run on every host, which is what lets CI check it without a
 Windows machine: a recorder stands in for ``schtasks`` and ``taskkill``, and the process-tree
 rules are exercised against real programs on the host's own process table.
@@ -12,7 +13,9 @@ Fits into the Hive:
 
 Key invariants:
     - The Scheduled Task is created, started and removed by name; nothing else is touched.
-    - A tree is ended with ``taskkill /T`` (forced with ``/F``), and only the pid the lease started.
+    - A job ends everything in it, a child its leader left behind included.
+    - A tree with no job here is ended with ``taskkill /T`` (forced with ``/F``), and only the pid
+      the lease started.
     - A virtual environment's programs are ``.exe`` files under ``Scripts``.
 
 See Also:
@@ -137,14 +140,17 @@ async def _spawn(shim: WindowsShim, code: str, tmp_path: Path) -> asyncio.subpro
     return process
 
 
-async def test_a_tree_is_alive_while_its_leader_runs_and_signals_use_taskkill(
+async def test_a_tree_with_no_job_here_is_alive_while_its_leader_runs_and_signals_use_taskkill(
     tmp_path: Path,
 ) -> None:
     runner = Schtasks()
-    shim = WindowsShim(tmp_path, {}, runner)
     process = await _spawn(
-        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
+        WindowsShim(tmp_path, {}, Schtasks()),
+        "import time; print('ready', flush=True); time.sleep(60)",
+        tmp_path,
     )
+    # Another shim holds no job for it, as after a packet restart or from the CLI's process.
+    shim = WindowsShim(tmp_path, {}, runner)
     ref = shim.process_ref(process.pid)
     try:
         assert shim.group_alive(ref)
@@ -250,10 +256,12 @@ async def test_a_terminate_neither_taskkill_nor_a_break_can_deliver_reports_noth
 async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_break(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))
     process = await _spawn(
-        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
+        WindowsShim(tmp_path, {}, Schtasks()),
+        "import time; print('ready', flush=True); time.sleep(60)",
+        tmp_path,
     )
+    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))  # Holds no job.
     sent: list[int] = []
     try:
         with monkeypatch.context() as patch:
@@ -263,3 +271,29 @@ async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_bre
     finally:
         process.kill()
         await _reap(process)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Job Objects exist on Windows only")
+async def test_a_job_keeps_a_child_its_leader_left_behind_and_a_kill_ends_it(
+    tmp_path: Path,
+) -> None:
+    runner = Schtasks()
+    shim = WindowsShim(tmp_path, {}, runner)
+    code = (
+        "import subprocess, sys; subprocess.Popen([sys.executable, '-c', "
+        "'import time; time.sleep(60)'], stdout=subprocess.DEVNULL); print('ready', flush=True)"
+    )
+    process = await _spawn(shim, code, tmp_path)
+    ref = shim.process_ref(process.pid)
+    try:
+        await _reap(process)  # The leader is gone; its child is not below anything now.
+        assert shim.group_alive(ref)
+        assert shim.signal_group(ref, ProcessSignal.KILL) is True
+        for _ in range(100):
+            if not shim.group_alive(ref):
+                break
+            await asyncio.sleep(0.05)
+        assert shim.group_alive(ref) is False
+        assert runner.calls == []  # The job ended it, not taskkill.
+    finally:
+        shim.signal_group(ref, ProcessSignal.KILL)
