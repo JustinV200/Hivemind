@@ -197,7 +197,12 @@ class NurseAnswerError(CappingError):
             detail: Why it could not answer, already bounded by the caller.
             nurse_grade: The effective grade of the model that was chosen.
             spend: What the failed call cost; added to the attempt's spend all the same.
+
+        Raises:
+            ValueError: `spend` is negative, which would quietly shrink the attempt's charge.
         """
+        if spend < 0:
+            raise ValueError(f"NurseAnswerError spend {spend} is negative.")
         super().__init__(f"The Nurse could not produce a verdict: {detail}")
         self.detail = detail
         self.nurse_grade = nurse_grade

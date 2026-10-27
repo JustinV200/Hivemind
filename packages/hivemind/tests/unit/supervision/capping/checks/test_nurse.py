@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from hivemind.supervision.capping.checks.fake import FakeNurseReviewer
 from hivemind.supervision.capping.checks.nurse import (
     MAX_NURSE_EVIDENCE_CHARS,
+    MAX_NURSE_PROVIDERS,
     NurseAnswer,
     NurseFile,
     run_nurse,
@@ -47,6 +48,8 @@ _CHANGES = NurseVerdict(
                 PostconditionOutcome(index=1, kind=PostconditionKind.FILE_EXISTS, has_held=True),
             )
         },
+        # More providers than the bound, so a corrupt binding list cannot flood the request.
+        {"worker_providers": tuple(f"p{i}" for i in range(MAX_NURSE_PROVIDERS + 1))},
         # The claim's summary is the Worker's own account, so the request has no field for it.
         {"summary": "I did everything."},
     ],
@@ -102,6 +105,12 @@ async def test_run_nurse_records_each_answer_as_a_review_with_its_spend(
     )
     assert review.verdict == (scripted.verdict if isinstance(scripted, NurseAnswer) else None)
     assert reviewer.calls == [request]
+
+
+def test_nurse_answer_error_refuses_negative_spend() -> None:
+    # A negative spend would quietly shrink what the attempt is charged.
+    with pytest.raises(ValueError, match="negative"):
+        NurseAnswerError("bad json", nurse_grade=3, spend=-0.01)
 
 
 async def test_run_nurse_refuses_a_nurse_weaker_than_the_worker() -> None:

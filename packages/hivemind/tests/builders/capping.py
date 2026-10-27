@@ -273,6 +273,7 @@ def make_nurse_request(**overrides: object) -> NurseRequest:
         "outcomes": (),
         "actions": (make_action(),),
         "worker_grade": 3,
+        "worker_providers": ("anthropic",),
     }
     fields.update(overrides)
     return NurseRequest(**fields)

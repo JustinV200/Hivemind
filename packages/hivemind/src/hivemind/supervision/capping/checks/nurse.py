@@ -53,13 +53,15 @@ from hivemind.supervision.capping.errors import NurseAnswerError
 from hivemind.supervision.capping.postconditions import PostconditionOutcome
 from waggle.messages.base import MAX_PATH_CHARS
 from waggle.messages.capping import ProposedAction
-from waggle.messages.forage.values import MAX_MODEL_GRADE, MIN_MODEL_GRADE
+from waggle.messages.forage.values import MAX_MODEL_GRADE, MAX_PROVIDER_CHARS, MIN_MODEL_GRADE
 from waggle.messages.labels import Postcondition
 from waggle.messages.task import ArtifactRef, NurseReview, NurseReviewStatus, NurseVerdict
 from waggle.messages.task.assignment import MAX_ACCEPTANCE_ITEMS
+from waggle.messages.task.reports import MAX_ARTIFACTS
 
 MAX_NURSE_ACTIONS = 64  # One attempt's verified proposals; more means the task was too big.
 MAX_NURSE_FILES = 32  # Touched files read for the Nurse; the rest are named by their actions.
+MAX_NURSE_PROVIDERS = 16  # Distinct providers one Worker's bindings and calls reached.
 # A hard ceiling on all file text in one request, so a misconfigured budget cannot flood a model's
 # context; the manifest's max_evidence_chars picks the working budget beneath it.
 MAX_NURSE_EVIDENCE_CHARS = 100_000
@@ -68,6 +70,7 @@ __all__ = [
     "MAX_NURSE_ACTIONS",
     "MAX_NURSE_EVIDENCE_CHARS",
     "MAX_NURSE_FILES",
+    "MAX_NURSE_PROVIDERS",
     "NurseAnswer",
     "NurseFile",
     "NurseRequest",
@@ -78,6 +81,8 @@ __all__ = [
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 # A model grade as the Forage map grades it, matching NurseReview's own bound.
 _Grade = Annotated[int, Field(ge=MIN_MODEL_GRADE, le=MAX_MODEL_GRADE)]
+# A manifest provider key, as the Forage map names one.
+_Provider = Annotated[str, Field(min_length=1, max_length=MAX_PROVIDER_CHARS)]
 
 
 class NurseFile(BaseModel):
@@ -116,7 +121,9 @@ class NurseRequest(BaseModel):
         description="The attempt's VERIFIED proposals' actions, in order, with no proposer id.",
     )
     artifacts: tuple[ArtifactRef, ...] = Field(
-        default=(), description="The claimed outputs, by reference; contents never travel."
+        default=(),
+        max_length=MAX_ARTIFACTS,
+        description="The claimed outputs, by reference; contents never travel.",
     )
     files: tuple[NurseFile, ...] = Field(
         default=(), max_length=MAX_NURSE_FILES, description="Bounded reads of touched files."
@@ -124,6 +131,12 @@ class NurseRequest(BaseModel):
     worker_grade: _Grade = Field(
         description="The Worker's grade, the highest over its bindings and the models its calls "
         "reached; a Nurse must be at least this strong."
+    )
+    worker_providers: tuple[_Provider, ...] = Field(
+        default=(),
+        max_length=MAX_NURSE_PROVIDERS,
+        description="The providers of the Worker's bindings and of the models its calls reached; "
+        "a Nurse prefers a model outside them. Names a provider, never the Worker.",
     )
     tempo: Tempo = Field(
         default_factory=Tempo,
@@ -174,7 +187,8 @@ class NurseAnswer(BaseModel):
 class NurseReviewer(Protocol):
     """Review one attempt in a fresh context and say PASS or what to fix.
 
-    An implementation picks an eligible model (grade at least `request.worker_grade`), returns a
+    An implementation picks an eligible model (grade at least `request.worker_grade`, preferring
+    a provider not in `request.worker_providers`), returns a
     `NurseAnswer` with no verdict when none is eligible, and raises `NurseAnswerError` when the
     chosen model's call or output fails. An outage is not an answer failure: it propagates.
     Implementations must be safe to call concurrently, since a Warden may accept several tasks.

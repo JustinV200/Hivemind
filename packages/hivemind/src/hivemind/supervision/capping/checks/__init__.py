@@ -37,7 +37,8 @@ Public API:
       (judge).
     - JudgeRubric, load_judge_rubrics: the per-tier rubric a judge reviews against (rubrics).
     - NurseAnswer, NurseFile, NurseRequest, NurseReviewer, run_nurse, MAX_NURSE_ACTIONS,
-      MAX_NURSE_EVIDENCE_CHARS, MAX_NURSE_FILES: the Nurse Bee's seam (nurse, ADR-0061).
+      MAX_NURSE_EVIDENCE_CHARS, MAX_NURSE_FILES, MAX_NURSE_PROVIDERS: the Nurse Bee's seam
+      (nurse, ADR-0061).
     - FakeJudgeReviewer, FakeNurseReviewer: scripted reviewers for tests and demo paths (fake).
     - HumanCheck, LEAVE_QUESTION_OPTIONS, KEEP_OPTION, KEEP_FOR_GOAL_OPTION, DISCARD_OPTION: the
       HUMAN rung a leave-policy ASK verdict calls directly (human).
@@ -75,6 +76,7 @@ from hivemind.supervision.capping.checks.nurse import (
     MAX_NURSE_ACTIONS,
     MAX_NURSE_EVIDENCE_CHARS,
     MAX_NURSE_FILES,
+    MAX_NURSE_PROVIDERS,
     NurseAnswer,
     NurseFile,
     NurseRequest,
@@ -93,6 +95,7 @@ __all__ = [
     "MAX_NURSE_ACTIONS",
     "MAX_NURSE_EVIDENCE_CHARS",
     "MAX_NURSE_FILES",
+    "MAX_NURSE_PROVIDERS",
     "Check",
     "CheckContext",
     "CheckResultRecord",
