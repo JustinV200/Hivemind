@@ -31,6 +31,7 @@ Public API:
       the console (console).
     - hold_serve_lock, publish_serve_record, read_serve_record, ServeRecord, HiveBusyError,
       SERVE_HOLDER, LOCK_SUFFIX, RECORD_SUFFIX: the serve lock and record (serving).
+    - hold_queen_lock, QUEEN_LOCK_SUFFIX: one running Queen per Brood Chamber (serving).
     - device_lines, device_row, devices_table, invite_lines, stamp: what is printed (render).
 """
 
@@ -58,10 +59,12 @@ from hivemind.cli.entrance.render import (
 )
 from hivemind.cli.entrance.serving import (
     LOCK_SUFFIX,
+    QUEEN_LOCK_SUFFIX,
     RECORD_SUFFIX,
     SERVE_HOLDER,
     HiveBusyError,
     ServeRecord,
+    hold_queen_lock,
     hold_serve_lock,
     publish_serve_record,
     read_serve_record,
@@ -71,6 +74,7 @@ __all__ = [
     "LOCK_SUFFIX",
     "MANIFEST",
     "OFFLINE_HOLDER",
+    "QUEEN_LOCK_SUFFIX",
     "RECORD_SUFFIX",
     "SERVE_HOLDER",
     "YES",
@@ -85,6 +89,7 @@ __all__ = [
     "device_row",
     "devices_table",
     "entrance_tables",
+    "hold_queen_lock",
     "hold_serve_lock",
     "invite_lines",
     "offline_console",

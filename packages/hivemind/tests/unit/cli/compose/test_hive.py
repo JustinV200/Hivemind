@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
 from builders.basket import make_blob, make_manifest
 from builders.cli import fake_manifest
 from builders.honey import make_nectar_submission
@@ -31,6 +32,7 @@ from hivemind.cell import hive_stand_cell_id
 from hivemind.cell.leavings import InMemoryLeavingsStore
 from hivemind.cli.compose import Hive, HiveStores, build_hive, run_hive
 from hivemind.cli.compose.deps import open_default_stores
+from hivemind.cli.entrance import HiveBusyError, hold_queen_lock
 from hivemind.honey_store import SqliteHoneyStore
 from hivemind.manifest import load_manifest
 from hivemind.memory import InMemoryMemoryStore
@@ -194,6 +196,23 @@ def test_run_hive_ripens_beside_the_queen_and_stops_the_loop_on_exit(tmp_path: P
 
     assert pending == 0  # Ripened by the loop, not by anything this test called.
     assert leftover == set()  # The loop, the Queen and the Warden all stopped and were reaped.
+
+
+def test_run_hive_refuses_to_start_a_second_queen_on_the_same_chamber(tmp_path: Path) -> None:
+    # Regression: every start requeens, and a requeening beside a live Queen would take back her
+    # running tasks (ADR-0062), so the second Queen must be refused before anything starts.
+    hive = _default_hive(tmp_path)
+    db = hive.manifest.resolve_path(hive.manifest.hive.db)
+
+    async def scenario() -> None:
+        async with run_hive(hive):
+            pytest.fail("a second Queen must not start")
+
+    with hold_queen_lock(db, "hive serve"), pytest.raises(HiveBusyError) as busy:
+        asyncio.run(scenario())
+
+    assert "hive serve" in str(busy.value)
+    assert hive.queen.wardens == ()  # Not even the Hive Stand's Warden was attached.
 
 
 _SERVER_TABLES = """

@@ -11,20 +11,28 @@ Last of all, a task the stop caught on one of those Cells (an interrupted or tim
 a `hive serve` shut down) is given back to PENDING, its question withdrawn, so the next start
 places it afresh (`hivemind.queen.requeue_unfinished`): no task outlives the stop bound to a Cell
 that is gone. A process that died without that teardown is recovered by the next start instead:
-every start is a Requeening (ADR-0062). Once the Virtual side is reconciled, the readiness gate is
-re-armed with the key of every Virtual Cell that outlived the last Queen (`rearm_gate`), and the
-Queen's first half of Requeening runs (`begin_requeening`) before the Hive Stand's Warden takes its
-lease and before her loop starts; her tick settles the rest.
+every start is a Requeening (ADR-0062). Because a Requeening takes back the work of every Warden
+not attached to it, `run_hive` first takes the Hive's Queen lock
+(`hivemind.cli.entrance.serving.hold_queen_lock`) and holds it until its teardown has run: a
+second Queen over the same Brood Chamber (`hive run` beside a running `hive serve`) is refused
+before anything starts, instead of taking back the first one's live work. Once the Virtual side
+is reconciled, the readiness gate is re-armed with the key of every Virtual Cell that outlived the
+last Queen (`rearm_gate`), and the Queen's first half of Requeening runs (`begin_requeening`)
+before the Hive Stand's Warden takes its lease and before her loop starts; her tick settles the
+rest.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.hive`. Called by
     `hivemind.cli.run`, `hivemind.cli.compose.entrance` and every end-to-end test. Calls into
-    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive), `hivemind.queen`
+    `hivemind.cli.compose.guard` (close_guard_bee), `.hive.build` (Hive),
+    `hivemind.cli.entrance.serving` (hold_queen_lock), `hivemind.queen`
     (requeue_unfinished), `hivemind.queen.attach` (detach_warden, to unwind a failed start),
     `hivemind.queen.cell_gate` (rearm_gate), `hivemind.queen.requeening` (begin_requeening) and the
     Queen, Warden, House Bee and Swarm gate a Hive holds only.
 
 Key invariants:
+    - At most one Queen runs on a Brood Chamber: nothing starts, and nothing is requeened, unless
+      this process holds the Queen lock, and the lock is let go only after the teardown.
     - The House Bee's ripening loop starts after the Queen and stops before her, so she never
       runs a tick without it and it never ripens for a Queen already gone; a Hive with no Honey
       Store (a hand-built HiveStores) has no loop and runs exactly as before phase 7.
@@ -61,6 +69,7 @@ from contextlib import asynccontextmanager
 
 from hivemind.cli.compose.guard import close_guard_bee
 from hivemind.cli.compose.hive.build import Hive
+from hivemind.cli.entrance.serving import hold_queen_lock
 from hivemind.common.tasks import run_to_end
 from hivemind.hive import VirtualCellRecord
 from hivemind.queen import requeue_unfinished
@@ -68,6 +77,8 @@ from hivemind.queen.attach import detach_warden
 from hivemind.queen.cell_gate import rearm_gate
 from hivemind.queen.requeening import RequeeningStart, begin_requeening
 from waggle.ids import CellId
+
+_QUEEN_HOLDER = "a running Queen"  # What the Queen lock's file says while this process holds it.
 
 __all__ = ["run_hive"]
 
@@ -84,9 +95,22 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
         tasks; call `hive.queen.submit_goal`/`run_goal` inside the `async with` block.
 
     Raises:
+        hivemind.cli.entrance.HiveBusyError: Another process runs a Queen on this Brood Chamber;
+            nothing was started (ADR-0062).
         hivemind.queen.WardenSpawnRefusedError: The Guard refused the Queen `warden:spawn`; nothing
             was started (roadmap step 10.3).
     """
+    db = hive.manifest.resolve_path(hive.manifest.hive.db)
+    # Before anything starts (module invariant): requeening beside a live Queen would take back
+    # her running tasks and remove their scratch.
+    with hold_queen_lock(db, _QUEEN_HOLDER):
+        async with _running(hive):
+            yield
+
+
+@asynccontextmanager
+async def _running(hive: Hive) -> AsyncIterator[None]:
+    """Start the Hive, run its loops for the caller's block, and tear it all down (`run_hive`)."""
     await _start(hive)
     # Structured concurrency (codingrules section 11): both loops are owned by this one
     # asyncio.TaskGroup, which awaits them to completion when the block below exits, whether

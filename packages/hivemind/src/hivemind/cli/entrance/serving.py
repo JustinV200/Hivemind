@@ -15,13 +15,22 @@ holder is killed. ``hive serve`` holds it for its whole life and publishes the *
 an offline operation holds the same lock for its duration, so neither can run beside the other.
 The lock file also names its holder, for the refusal a second holder gets.
 
+The **Queen lock** (``<db>.queen.lock``, the same kind of lock) keeps one Queen per Brood Chamber.
+Every start of a Queen is a Requeening (ADR-0062), which takes back the work of every Warden not
+attached to it, so a second Queen over the same chamber (``hive run`` beside a running ``hive
+serve``) would take back, and remove the scratch of, the first one's live work. Whatever runs a
+Queen (``hivemind.cli.compose.hive.run.run_hive``) holds it for her whole life, and a second one
+is refused before anything starts.
+
 Fits into the Hive:
     Layer 7 (the terminal), inside ``hivemind.cli.entrance``. Used by ``hivemind.cli.compose.
-    entrance.serve_hive`` (hold, publish) and by the console and offline commands of
-    ``hive entrance`` (read, hold). Calls into the standard library and pydantic only.
+    entrance.serve_hive`` (hold, publish), by the console and offline commands of ``hive
+    entrance`` (read, hold), and by ``hivemind.cli.compose.hive.run`` (the Queen lock). Calls
+    into the standard library and pydantic only.
 
 Key invariants:
-    - At most one process holds a Hive's serve lock; the kernel releases it with the process.
+    - At most one process holds a Hive's serve lock, and at most one its Queen lock; the kernel
+      releases each with the process.
     - The serve record is written atomically and only while its writer holds the serve lock; a
       record whose writer has gone is never trusted without the lock saying someone serves.
 
@@ -35,7 +44,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +56,7 @@ from hivemind.common.errors import ConflictError
 from hivemind.common.logging import get_logger
 
 LOCK_SUFFIX = ".serve.lock"  # Beside the Hive's database: one lock per Hive, whatever the manifest.
+QUEEN_LOCK_SUFFIX = ".queen.lock"  # Beside it too: one running Queen per Brood Chamber.
 RECORD_SUFFIX = ".serve.json"  # The running serve's pid and loopback listener.
 SERVE_HOLDER = "hive serve"  # What a running serve's lock file says.
 # Windows locks bytes, and a locked byte cannot be read by anyone else: the lock sits far past the
@@ -58,10 +68,12 @@ log = get_logger(__name__)
 
 __all__ = [
     "LOCK_SUFFIX",
+    "QUEEN_LOCK_SUFFIX",
     "RECORD_SUFFIX",
     "SERVE_HOLDER",
     "HiveBusyError",
     "ServeRecord",
+    "hold_queen_lock",
     "hold_serve_lock",
     "publish_serve_record",
     "read_serve_record",
@@ -109,13 +121,46 @@ def hold_serve_lock(db: Path, holder: str) -> Iterator[None]:
     Raises:
         HiveBusyError: Another process holds it; the message names what it said it was doing.
     """
-    path = db.with_name(db.name + LOCK_SUFFIX)
+
+    def refusal(other: str) -> str:
+        return f"The Hive at {db} is in use by another process ({other}); stop it first."
+
+    with _hold(db.with_name(db.name + LOCK_SUFFIX), holder, refusal):
+        yield
+
+
+@contextmanager
+def hold_queen_lock(db: Path, holder: str) -> Iterator[None]:
+    """Hold the Hive's Queen lock for the block, or refuse at once if another Queen runs on it.
+
+    Args:
+        db: The Hive's database file (``[hive] db``, resolved); the lock sits beside it.
+        holder: What this process is running the Queen for (``"hive run"``), for the refusal.
+
+    Yields:
+        Nothing; the lock is held until the block exits (or the process ends).
+
+    Raises:
+        HiveBusyError: Another process runs a Queen on this Brood Chamber; the message names it.
+    """
+
+    def refusal(other: str) -> str:
+        return (
+            f"Another Queen runs on the Hive at {db} ({other}); stop it first, or send the goal "
+            "to it with `hive run --remote`."
+        )
+
+    with _hold(db.with_name(db.name + QUEEN_LOCK_SUFFIX), holder, refusal):
+        yield
+
+
+@contextmanager
+def _hold(path: Path, holder: str, refusal: Callable[[str], str]) -> Iterator[None]:
+    """Hold the exclusive lock on ``path``, or raise ``refusal`` of the process that has it."""
     # "a+" creates the file when missing and never truncates what another holder wrote.
     with path.open("a+", encoding="utf-8") as handle:
         if not _try_lock(handle):
-            raise HiveBusyError(
-                f"The Hive at {db} is in use by another process ({_holder(path)}); stop it first."
-            )
+            raise HiveBusyError(refusal(_holder(path)))
         try:
             _name_holder(handle, holder)
             yield
