@@ -57,7 +57,9 @@ from waggle.messages.capping import ElementTarget
 
 ORIGIN = "http://127.0.0.1:8000"  # A loopback origin: the fake site never leaves the Cell.
 LOGIN_URL = f"{ORIGIN}/login"
-_BROWSER_NEED = {"exoskeleton": True, "browser_only": True}
+# The site is served on the Hive Stand's own loopback, which a Real Cell's bee reaches only with
+# `net:loopback` granted (ADR-0059), so the plan asks for that scope.
+_BROWSER_NEED = {"exoskeleton": True, "browser_only": True, "network_scopes": ["loopback"]}
 _GREETING = ElementTarget(role="heading", name=WELCOME_HEADING)
 
 __all__ = ["FORAGER_TITLE", "forager_plan", "forager_turn", "pin_fake_browser"]

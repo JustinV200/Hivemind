@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from builders.cli import ManifestTuning
 from builders.virtual_cells import VirtualCellsTuning, virtual_cells_manifest
 from e2e.kernel_helpers import assert_kinds_in_order, single_task_plan
 from e2e.royal_jelly_forager import forager_plan, forager_turn, pin_fake_browser
@@ -101,7 +102,9 @@ def test_a_forager_needing_a_missing_tool_gets_it_scaffolded_proved_promoted_and
     pin_host_platform(monkeypatch)
     pin_fake_browser(monkeypatch)
     script = LabScript(forager_turn, forager_plan(), [count_lines_reply()])
-    hive = build_lab_hive(lab_manifest(tmp_path, role="forager"), script)
+    # FULL: a SCRATCH Cell never permits net, and the Forager's site is on loopback (ADR-0059).
+    manifest = lab_manifest(tmp_path, role="forager", tuning=ManifestTuning(hive_stand_full=True))
+    hive = build_lab_hive(manifest, script)
 
     # Act
     run = asyncio.run(run_lab(hive, ["Log in and count the lines of what you keep."]))
