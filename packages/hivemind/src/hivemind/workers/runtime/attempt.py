@@ -150,6 +150,7 @@ class AttemptManager:
         """
         runtime = self._runtime
         runtime._ctx.telemetry.handoff_requested = False
+        runtime._ctx.telemetry.handoff_stops = False
         # A fresh episode assembles its own prompt: the last one's context is not its to report.
         runtime._ctx.telemetry.clear_context()
         assignment = runtime._reporter.require_assignment()
@@ -189,6 +190,7 @@ class AttemptManager:
         """
         self._runtime._ctx.telemetry.handoff_requested = True
         if stop_after:
+            self._runtime._ctx.telemetry.handoff_stops = True
             self._stop_after_handoff = True
             self._stop_reason = reason
 

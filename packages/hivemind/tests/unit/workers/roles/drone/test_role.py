@@ -127,9 +127,16 @@ async def test_drone_hands_off_once_a_rounds_own_usage_crosses_the_threshold() -
     ctx = make_context(bound=make_bound(provider=provider), handoff_threshold=0.5)
     assignment = make_assignment()
     call = make_tool_call(name="write_file", arguments={"path": "haiku1.txt", "content": "a\nb\nc"})
-    # The first round alone fills 60% of the window: the loop must not run the call it asked for.
+    then = call.model_copy(
+        update={"id": "call-2", "arguments": {"path": "haiku2.txt", "content": "a"}}
+    )
+    # The first round alone fills 60% of the window: its call runs (an episode does some work
+    # before it may reset), and the loop hands off before the next round's call.
     window = ctx.bound.context_window
-    provider.script(_costing(tool_call_response(call), window * 6 // 10, 0.25))
+    provider.script(
+        _costing(tool_call_response(call), window * 6 // 10, 0.25),
+        _costing(tool_call_response(then), window * 7 // 10, 0.0),
+    )
 
     outcome = await Drone().run(ctx, assignment, resume_from=None)
 
@@ -141,7 +148,7 @@ async def test_drone_hands_off_once_a_rounds_own_usage_crosses_the_threshold() -
     assert handoff.written_by == str(ctx.worker_id)
     assert handoff.task_id == assignment.task_id
     assert handoff.open_threads and "write_file" in handoff.open_threads[0]
-    assert not (ctx.session.scratch_dir / "haiku1.txt").exists()
+    assert "haiku2.txt" in handoff.open_threads[0]  # The call it stopped before, not the first.
     # The round's spend is the attempt's; its context ended with the handoff it asked for.
     assert outcome.spend_usd == 0.25
     assert ctx.telemetry.snapshot().tokens_used == 0

@@ -106,9 +106,10 @@ async def test_scout_handoff_is_returned_unchanged_not_treated_as_exhaustion() -
     ctx = make_context(clock=clock, bound=make_bound(provider=provider), handoff_threshold=0.5)
     assignment = make_assignment(clock=clock, role=WorkerRole.SCOUT)
     read = make_tool_call(name="read_file", arguments={"path": "does-not-exist.txt"})
-    # The round's own usage fills the window, so the call it asks for checkpoints instead.
+    # The first round's usage fills the window, so once its call has run the next one checkpoints.
     full = Usage(input_tokens=ctx.bound.context_window, output_tokens=0)
-    provider.script(tool_call_response(read).model_copy(update={"usage": full}))
+    filled = tool_call_response(read).model_copy(update={"usage": full})
+    provider.script(filled, filled)
 
     outcome = await Scout().run(ctx, assignment, resume_from=None)
 

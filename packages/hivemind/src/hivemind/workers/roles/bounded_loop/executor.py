@@ -198,9 +198,7 @@ class LoopExecutor:
         # timeout, since a paused attempt is meant to wait until TaskResume, not time out on its
         # own (hivemind.workers.telemetry.TelemetryTracker.wait_if_paused's own contract).
         await self._telemetry.wait_if_paused()
-        if self._telemetry.handoff_requested or self._telemetry.should_hand_off(
-            self._handoff_threshold
-        ):
+        if self._should_hand_off():
             # Remember the call this attempt was about to make but never ran, so a Handoff's own
             # open_threads can name what was in progress when it checkpointed.
             self.pending_call = call
@@ -227,6 +225,22 @@ class LoopExecutor:
         return ToolResultPart(
             call_id=call.id, content=output.text, is_error=is_error, media=output.media
         )
+
+    def _should_hand_off(self) -> bool:
+        """Whether this attempt checkpoints before running its next call.
+
+        A lever that stops the bee (Handoff, Rebind, Takeover) is honoured at once. A Compact and
+        the bee's own threshold wait until this episode has run a tool call: a fresh episode's
+        first round can already sit over the line (its prompt is packed up to the memory budget,
+        and the reply adds to it), and handing off before any work would restart into the same
+        state forever, one model call and one checkpoint per cycle, with nothing done.
+        """
+        telemetry = self._telemetry
+        if telemetry.handoff_stops:
+            return True
+        if not self.records:
+            return False
+        return telemetry.handoff_requested or telemetry.should_hand_off(self._handoff_threshold)
 
     def _bundle_version(self) -> int:
         """Return the Worker's Comb tool bundle version, or 0 when it has none."""

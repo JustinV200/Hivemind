@@ -96,8 +96,8 @@ class TelemetryTracker:
 
     Owns its own mutable state in place (codingrules section 8.5), documented here: `_tokens_used`,
     `_context_window`, `_goal`, `_last_actions`, `_blockers`, `_spend` and `_pending_alarms` all
-    change as the role runs, and `cancel_requested`/`handoff_requested` are plain public flags the
-    runtime sets and a role's own turn loop reads.
+    change as the role runs, and `cancel_requested`/`handoff_requested`/`handoff_stops` are public
+    flags the runtime sets and a role's own turn loop reads (`handoff_stops`: a stopping lever).
     """
 
     def __init__(self, context_window: int, goal: str = "") -> None:
@@ -112,8 +112,7 @@ class TelemetryTracker:
         self._tokens_used = 0
         self._context_window = context_window
         self._goal = goal[:MAX_GOAL_CHARS]
-        # A bounded deque: appending past MAX_LAST_ACTIONS silently drops the oldest, so a role
-        # that never trims its own action log still produces a valid ContextTelemetry.
+        # Bounded: past MAX_LAST_ACTIONS the oldest drops, so a snapshot always validates.
         self._last_actions: deque[str] = deque(maxlen=MAX_LAST_ACTIONS)
         self._blockers: tuple[str, ...] = ()
         self._spend = 0.0
@@ -126,6 +125,7 @@ class TelemetryTracker:
         # Plain public flags: the runtime sets them (TaskCancel/Intervene), a role reads them.
         self.cancel_requested = False
         self.handoff_requested = False
+        self.handoff_stops = False
 
     def record_tokens(self, used: int, window: int) -> None:
         """Overwrite the tracked token usage and context window with the role's latest count.

@@ -70,14 +70,21 @@ async def test_execute_bounds_records_to_max_recorded_calls() -> None:
     assert len(executor.records) == MAX_RECORDED_CALLS
 
 
-async def test_execute_captures_the_pending_call_when_handoff_is_requested() -> None:
+@pytest.mark.parametrize("stops", (True, False), ids=("handoff_lever", "compact_or_threshold"))
+async def test_execute_captures_the_pending_call_when_handoff_is_requested(stops: bool) -> None:
+    # A stopping lever hands off at once. A Compact waits for the episode's first tool call:
+    # a fresh episode over the line would otherwise restart forever with nothing done.
     ctx = make_context()
     executor = _build_executor(ctx)
     ctx.telemetry.handoff_requested = True
+    ctx.telemetry.handoff_stops = stops
     call = make_tool_call(name="stub_tool", arguments={})
+    ran = 0 if stops else 1
+    for _ in range(ran):
+        await executor.execute(make_tool_call(name="stub_tool", arguments={}))
 
     with pytest.raises(HandoffRequestedError):
         await executor.execute(call)
 
     assert executor.pending_call == call
-    assert executor.records == []  # Never ran: refused before the registry was ever called.
+    assert len(executor.records) == ran  # The refused call itself never reached the registry.

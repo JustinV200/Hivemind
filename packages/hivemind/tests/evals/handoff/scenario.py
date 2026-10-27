@@ -210,7 +210,7 @@ async def _run_bee_one(world: _World) -> tuple[HandoffRef, int]:
         # Two steps already landed: flip the same public flag a real Intervene(Handoff) would
         # (module docstring). The write_call below never actually lands -- _RecordingExecutor
         # checks handoff_requested before running it -- so bee 1 stops mid-task after step two.
-        holder["telemetry"].handoff_requested = True
+        holder["telemetry"].handoff_requested = holder["telemetry"].handoff_stops = True
         return tool_response(request, (write_call(STEP_FILES[2]),))
 
     provider = FakeLLMProvider(responder=worker_turn)
@@ -458,7 +458,7 @@ class _CheckpointAfterNCalls:
         """Count one landed call, flipping `handoff_requested` once `trigger_after` is reached."""
         self._calls += 1
         if self._calls >= self._trigger_after:
-            self._telemetry.handoff_requested = True
+            self._telemetry.handoff_requested = self._telemetry.handoff_stops = True
 
 
 async def _present_files(session: _RecordingSession, expected: Sequence[str]) -> tuple[str, ...]:

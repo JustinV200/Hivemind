@@ -5,15 +5,17 @@ it holds now, mid-loop. This module runs the whole Hive Stand -- the Queen, the 
 Warden and a real Drone over one scripted `FakeLLMProvider`, real SQLite, a real child process --
 where the Drone's first round alone fills its context, and nobody pulls a lever:
 
-- past the handoff threshold, the Drone checkpoints and resets itself before it runs the call that
-  round asked for (codingrules 8.9: a bee "checkpoints and resets itself");
+- past the handoff threshold, the Drone checkpoints and resets itself at its next tool call
+  (codingrules 8.9: a bee "checkpoints and resets itself");
 - between the compact line and the threshold, the bee's own check stays quiet; its Warden reads the
   figure off a Heartbeat while a one-second command runs and orders a compact, which the bee
   carries out at its next tool call ("its supervisor may order it earlier").
 
-Either way the episode that resumes from the Handoff writes the three haiku and the goal succeeds.
-Usage used to be recorded once the tool loop had ended: neither check ever saw the crossing, and
-the first episode ran on to its end holding a full window.
+Either way the episode that resumes from the Handoff writes the three haiku and the goal succeeds,
+though its own first round is over the line too (a rich prompt can be): neither check hands off an
+episode before it has run a tool call, or it would restart into the same state forever. Usage used
+to be recorded once the tool loop had ended: neither check ever saw the crossing, and the first
+episode ran on to its end holding a full window.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -65,20 +67,20 @@ _HANDOFF_BLOCK = "<<<end handoff>>>"
 _OWN_THRESHOLD = 0.9  # Past the manifest's handoff threshold (two thirds): the bee's own reset.
 _WARDENS_COMPACT = 0.55  # Past the Warden's compact line (half), short of the bee's own threshold.
 _FULL = ManifestTuning(hive_stand_full=True)
+_WINDOW = ProviderCapabilities.full().context_window  # builders.cli's fake binding at "full".
 
 
-@pytest.mark.parametrize("capabilities", ("full", "none"))
 @pytest.mark.parametrize(
     "fraction", (_OWN_THRESHOLD, _WARDENS_COMPACT), ids=("own_threshold", "wardens_compact")
 )
 def test_a_drone_whose_context_crosses_the_line_mid_loop_is_handed_off_and_finishes(
-    tmp_path: Path, capabilities: str, fraction: float
+    tmp_path: Path, fraction: float
 ) -> None:
     resumed: list[bool] = []
-    script = HaikuScript(_filling_round(_window(capabilities), fraction, resumed))
+    script = HaikuScript(_filling_round(fraction, resumed))
     hive = build_hive(
         # FULL: the busy second is a command, which a Hive Stand below FULL refuses (ADR-0060).
-        load_manifest(fake_manifest(tmp_path, capabilities=capabilities, tuning=_FULL), {}),
+        load_manifest(fake_manifest(tmp_path, capabilities="full", tuning=_FULL), {}),
         environ={},
         clock=SystemClock(),
         responders={"fake": script.responder},
@@ -87,25 +89,20 @@ def test_a_drone_whose_context_crosses_the_line_mid_loop_is_handed_off_and_finis
     asyncio.run(_run(hive, resumed, reset_in_place=fraction == _WARDENS_COMPACT))
 
 
-def _window(capabilities: str) -> int:
-    """The fake binding's context window at `capabilities` (builders.cli's own two shapes)."""
-    full = capabilities == "full"
-    shape = ProviderCapabilities.full() if full else ProviderCapabilities.none()
-    return shape.context_window
-
-
-def _filling_round(window: int, fraction: float, resumed: list[bool]) -> WorkerTurn:
-    """The first episode's first round fills `fraction` of the window; a resumed one finishes."""
+def _filling_round(fraction: float, resumed: list[bool]) -> WorkerTurn:
+    """Every episode's first round fills `fraction` of the window; a resumed one then finishes."""
+    filled = Usage(input_tokens=int(_WINDOW * fraction), output_tokens=0)
 
     def worker_turn(request: LLMRequest) -> LLMResponse:
+        rounds = tool_round_count(request)
         if _resumes(request):
             resumed.append(True)
-            return default_worker_turn(request)
-        rounds = tool_round_count(request)
+            reply = default_worker_turn(request)
+            # Regression: the resumed first round is over the line as well, and must still work.
+            return reply.model_copy(update={"usage": filled}) if rounds == 0 else reply
         if rounds == 0:
             busy = tool_response(request, (("busy", "run_command", {"argv": _BUSY}),))
-            usage = Usage(input_tokens=int(window * fraction), output_tokens=0)
-            return busy.model_copy(update={"usage": usage})
+            return busy.model_copy(update={"usage": filled})
         if rounds == 1:
             # Reached only if nothing handed the episode off: it would finish the goal unreset.
             return tool_response(request, tuple(write_call(name) for name in _FILES))

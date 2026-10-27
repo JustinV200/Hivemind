@@ -33,11 +33,11 @@ def _write_call(index: int, usage: Usage | None = None) -> LLMResponse:
 
 
 async def test_run_bounded_loop_books_a_handed_off_attempts_spend() -> None:
-    # The Warden asked for a checkpoint (Intervene), so the first tool call hands off; the round
-    # that proposed it was priced, and that money was spent whether or not the call ran.
+    # The Warden ordered a Handoff (Intervene), so the first tool call hands off; the round that
+    # proposed it was priced, and that money was spent whether or not the call ran.
     provider = FakeLLMProvider()
     ctx = make_context(bound=make_bound(provider=provider), handoff_threshold=_HANDOFF_THRESHOLD)
-    ctx.telemetry.handoff_requested = True
+    ctx.telemetry.handoff_requested = ctx.telemetry.handoff_stops = True
     priced = Usage(input_tokens=10, output_tokens=1, cost_usd=0.25)
     provider.script(_write_call(1, priced))
 
@@ -55,12 +55,13 @@ async def test_run_bounded_loop_handoff_leaves_the_token_gauge_for_the_resumed_a
     provider = FakeLLMProvider()
     bound = make_bound(provider=provider)
     ctx = make_context(bound=bound, handoff_threshold=_HANDOFF_THRESHOLD)
-    ctx.telemetry.handoff_requested = True
+    ctx.telemetry.handoff_requested = ctx.telemetry.handoff_stops = True
     full = Usage(input_tokens=bound.context_window, output_tokens=1, cost_usd=0.25)
     provider.script(_write_call(1, full))
     first = await Drone().run(ctx, make_assignment(), resume_from=None)
     gauge_after_handoff = ctx.telemetry.should_hand_off(_HANDOFF_THRESHOLD)
-    ctx.telemetry.handoff_requested = False  # What AttemptManager.start does before a resume.
+    # What AttemptManager.start does before a resume.
+    ctx.telemetry.handoff_requested = ctx.telemetry.handoff_stops = False
     priced = Usage(input_tokens=5, output_tokens=1, cost_usd=0.25)
     provider.script(_write_call(2, priced), text_response("Done.", usage=priced))
 
