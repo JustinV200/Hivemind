@@ -50,10 +50,13 @@ Public API:
     - HiveStandSource, HIVE_STAND_SOURCE, hive_stand_cell_id: the RealCellSource for the Hive
       Stand's one Cell, the `source` name it carries, and the pure function that derives its id
       from the node id (hivemind.cell.local.source).
+    - OrphanedLease: a lease a dead process left open, which `HiveStandSource.release_orphan`
+      gives back for Requeening (hivemind.cell.local.orphans, ADR-0062).
 """
 
 from hivemind.cell.local.config import DEFAULT_CELL_NAME, DEFAULT_SOURCE_NAME, HiveStandConfig
 from hivemind.cell.local.observer import ObserverSession
+from hivemind.cell.local.orphans import OrphanedLease
 from hivemind.cell.local.probe import (
     DEFAULT_MAX_SUB_BEES,
     ProbeResult,
@@ -89,6 +92,7 @@ __all__ = [
     "HiveStandSource",
     "LocalProcessSession",
     "ObserverSession",
+    "OrphanedLease",
     "ProbeResult",
     "ScratchQuota",
     "directory_size_bytes",

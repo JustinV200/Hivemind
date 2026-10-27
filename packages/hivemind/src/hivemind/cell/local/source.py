@@ -22,7 +22,7 @@ Fits into the Hive:
     `hivemind.cell.source.RealCellSource`; constructed once by the composition root
     (`hivemind.cli.compose.deps.build_hive_stand_source`) from a loaded `HiveStandConfig` and a
     `LeavingsStore`. Calls into `hivemind.cell.lease`, `.lease_state`, `.leavings`, `.models`,
-    `.source`, `hivemind.cell.local.config`, `.probe`, `.releaser`, `.session`,
+    `.source`, `hivemind.cell.local.config`, `.orphans`, `.probe`, `.releaser`, `.session`,
     `hivemind.pheromone` and the standard library (`shutil.disk_usage`) only.
 
 Key invariants:
@@ -52,6 +52,7 @@ from hivemind.cell.lease import LeaseFacts, LeaseRequest, RealCellLease
 from hivemind.cell.lease_state import LeaseState
 from hivemind.cell.leavings import LeavingsStore
 from hivemind.cell.local.config import DEFAULT_SOURCE_NAME, HiveStandConfig
+from hivemind.cell.local.orphans import OrphanedLease, OrphanReleaser
 from hivemind.cell.local.probe import ProbeResult, probe_host, refresh_live
 from hivemind.cell.local.quota import ScratchQuota
 from hivemind.cell.local.releaser import HiveStandLeaseReleaser
@@ -134,6 +135,16 @@ class HiveStandSource:
         )
         self._static: ProbeResult = probe_host(config)
         self._active_lease: RealCellLease | None = None
+        # Leases a process that died left open on this Cell (ADR-0062), given back by Requeening.
+        self._orphans = OrphanReleaser(
+            self._cell_id,
+            config.scratch_root,
+            config.keep_scratch,
+            config.comb_shield,
+            identity,
+            trail,
+            clock,
+        )
 
     @property
     def name(self) -> str:
@@ -219,6 +230,18 @@ class HiveStandSource:
         """
         quota = ScratchQuota(quota_bytes=self._config.scratch_quota_mb * _BYTES_PER_MB)
         return LocalProcessSession(lease, quota, self._clock)
+
+    async def release_orphan(self, orphan: OrphanedLease) -> bool:
+        """Give back a lease a dead process left open on this Cell (`OrphanReleaser`).
+
+        Args:
+            orphan: The lease, as Requeening read it from the trail.
+
+        Returns:
+            True when its scratch is gone (or kept on purpose); False when its id is malformed
+            or the directory would not go. Its `cell.released` is recorded either way.
+        """
+        return await self._orphans.release_orphan(orphan)
 
     def _prepare_scratch_root(self, request: LeaseRequest) -> None:
         """Make this Hive's scratch root if it is not there yet, then enforce the disk reserve.

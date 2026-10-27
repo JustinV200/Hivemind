@@ -76,6 +76,8 @@ Public API:
       SnapshotUnsupportedError, InvalidLeaseTransitionError, ProbeError,
       ScratchQuotaExceededError, BackgroundStartError: this package's error tree
       (hivemind.cell.errors).
+    - OrphanedLease: a lease a dead process left open on the Hive Stand, the shape Requeening
+      hands `HiveStandSource.release_orphan` (hivemind.cell.local, ADR-0062).
     - HIVE_STAND_SOURCE, hive_stand_cell_id: the Hive Stand's own `source` name and the pure
       function that derives its one Cell's id from a node id (hivemind.cell.local), re-exported
       here because callers outside `hivemind.cell` name a Hive Stand Cell by these without
@@ -112,7 +114,7 @@ from hivemind.cell.lease import (
     RestoreRecord,
 )
 from hivemind.cell.lease_state import TRANSITIONS, LeaseState, assert_transition, can_transition
-from hivemind.cell.local import HIVE_STAND_SOURCE, hive_stand_cell_id
+from hivemind.cell.local import HIVE_STAND_SOURCE, OrphanedLease, hive_stand_cell_id
 from hivemind.cell.models import Cell, CellCapabilities, CellKind
 from hivemind.cell.needs import MAX_SCOPE_CHARS, Isolation, OsFamily, RequestOrigin, TaskNeeds
 from hivemind.cell.session import (
@@ -175,6 +177,7 @@ __all__ = [
     "LeaseState",
     "LocalPaths",
     "NoopSnapshotter",
+    "OrphanedLease",
     "OsFamily",
     "OutputChunk",
     "OutputStream",
