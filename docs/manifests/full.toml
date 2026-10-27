@@ -438,6 +438,8 @@ roots = []
 
 [memory]
 # Fraction of a request's context window reserved for assembled (retrieved/hot-state) content.
+# Past the compact line (0.5) or handoff_threshold, a fresh episode starts over it and is compacted
+# at once; the Hive logs manifest.budget_over_compact_line at start when it is.
 budget_fraction = 0.6
 # Tokens reserved for the model's own reply, never spent on assembled content.
 output_reserve_tokens = 4096

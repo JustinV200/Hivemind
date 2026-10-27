@@ -57,9 +57,12 @@ enums rather than the hivemind-side mirrors those two packages own.
   kind and base URL). A valid manifest is never refused for it: `build_honey_access` logs it
   as `manifest.judge_shares_ripener` whenever it builds a judge that will run, so `hive run`,
   `hive serve` and the `hive honey` commands that open the store with its models (`ripen --now`,
-  `review --judge`, `query`, `reembed`) all say it on stderr. The clearance judge (ADR-0038) is meant to be an independent
-  second reading; on the Ripener's own model it shares its blind spots, and a weak shared model
-  blocks every lowering.
+  `review --judge`, `query`, `reembed`) all say it on stderr. The clearance judge (ADR-0038) is
+  meant to be an independent second reading; on the Ripener's own model it shares its blind
+  spots, and a weak shared model blocks every lowering. `budget_over_compact_line(memory) -> str | None` warns when `[memory]
+  budget_fraction` exceeds the compact line (`DEFAULT_COMPACT_AT`, 0.5) or `handoff_threshold`,
+  so a fresh episode would start already past it; `build_queen_deps` logs it as
+  `manifest.budget_over_compact_line` when the Hive starts.
 
 ### The slot-table validators (`LlmSection`)
 

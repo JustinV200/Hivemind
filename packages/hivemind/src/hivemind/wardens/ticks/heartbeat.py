@@ -144,7 +144,7 @@ _WAX_CAP_PER_CELL = 20
 # already carries a real handoff_threshold field (used to hand a Drone's own attempt off); no such
 # field exists yet for the milder compact lever, so this mirrors the Queen's own default the same
 # way _WAX_CAP_PER_CELL above mirrors a manifest default no field carries yet.
-_COMPACT_AT = 0.5
+_COMPACT_AT = 0.5  # Matches manifest.schema.supervision.DEFAULT_COMPACT_AT.
 
 __all__ = [
     "announce_freeze",

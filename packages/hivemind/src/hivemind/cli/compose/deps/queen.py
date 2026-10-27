@@ -11,8 +11,8 @@ Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside `hivemind.cli.compose.deps`. Called by
     `hivemind.cli.compose.hive.build_hive`. Calls into `hivemind.cli.compose.deps.parts`,
     `hivemind.cli.compose.night_veil`, `hivemind.cli.compose.virtual_cells`, `hivemind.cli.stores`,
-    `hivemind.forage`, `hivemind.honey_store`, `hivemind.manifest`, `hivemind.queen` and
-    `hivemind.supervision` only.
+    `hivemind.common.logging`, `hivemind.forage`, `hivemind.honey_store`, `hivemind.manifest`,
+    `hivemind.queen` and `hivemind.supervision` only.
 
 Key invariants:
     - Every seam a later phase added is additive: `virtual_cells=None` keeps placement Real-only
@@ -33,12 +33,15 @@ from hivemind.cli.compose.deps.parts import HiveParts, footprints, supervision_f
 from hivemind.cli.compose.night_veil import in_process_providers, night_veil_constraints
 from hivemind.cli.compose.virtual_cells import VirtualCellsParts
 from hivemind.cli.stores import open_cluster_orders, routing_rules, slot_bindings
+from hivemind.common.logging import get_logger
 from hivemind.forage import ForageMap, GoalBudgets, Tempo
 from hivemind.honey_store import HoneyAccess
-from hivemind.manifest import ForageSection, HiveManifest
+from hivemind.manifest import ForageSection, HiveManifest, budget_over_compact_line
 from hivemind.queen import ForageLedger, MemoryBudget, QueenDeps
 from hivemind.queen.placement import PlacementPolicy
 from hivemind.supervision import load_policy
+
+log = get_logger(__name__)
 
 __all__ = ["build_queen_deps"]
 
@@ -167,6 +170,10 @@ def _goal_budgets(forage: ForageSection) -> GoalBudgets:
 
 def _awake_memory_budget(manifest: HiveManifest) -> MemoryBudget:
     """Build the `[memory]` slice `build_queen_deps`'s own `memory_budget` field carries."""
+    # Valid but self-defeating: say so once, at the Hive's start (hivemind.manifest.advice).
+    advice = budget_over_compact_line(manifest.memory)
+    if advice is not None:
+        log.warning("manifest.budget_over_compact_line", advice=advice)
     return MemoryBudget(
         budget_fraction=manifest.memory.budget_fraction,
         output_reserve_tokens=manifest.memory.output_reserve_tokens,

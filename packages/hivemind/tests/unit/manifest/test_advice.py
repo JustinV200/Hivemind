@@ -1,4 +1,4 @@
-"""Tests for hivemind.manifest.advice: the JUDGE-shares-RIPENER warning on real manifests.
+"""Tests for hivemind.manifest.advice: the JUDGE-shares-RIPENER and memory-budget warnings.
 
 Fits into the Hive:
     Mirrors src/hivemind/manifest/advice.py (codingrules section 3). Builds real `LlmSection`
@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from structlog.testing import capture_logs
 
 from hivemind.forage import ModelSlot
-from hivemind.manifest import judge_shares_ripener, load_manifest
-from hivemind.manifest.schema import LlmSection
+from hivemind.manifest import budget_over_compact_line, judge_shares_ripener, load_manifest
+from hivemind.manifest.schema import LlmSection, MemorySection
 
 _MANIFESTS_DIR = Path(__file__).resolve().parents[5] / "docs" / "manifests"
 _LOCAL = {"kind": "openai_compat", "base_url": "http://127.0.0.1:1234/v1"}
@@ -72,3 +73,18 @@ def test_loading_a_manifest_stays_silent_about_it() -> None:
         load_manifest(_MANIFESTS_DIR / "local.toml")
 
     assert not [entry for entry in logs if entry["event"] == "manifest.judge_shares_ripener"]
+
+
+@pytest.mark.parametrize(
+    ("budget_fraction", "handoff_threshold", "line"),
+    [(0.6, 0.66, "compact line"), (0.45, 0.4, "handoff_threshold"), (0.5, 0.66, None)],
+)
+def test_a_budget_past_the_lower_line_gets_advice_naming_it(
+    budget_fraction: float, handoff_threshold: float, line: str | None
+) -> None:
+    memory = MemorySection(budget_fraction=budget_fraction, handoff_threshold=handoff_threshold)
+
+    advice = budget_over_compact_line(memory, compact_at=0.5)
+
+    assert (advice is None) == (line is None)
+    assert line is None or (advice is not None and line in advice)

@@ -56,10 +56,10 @@ Public API:
     - Environment (`hivemind.manifest.env`): EnvOverrides, read_env, apply_env, provider_api_key,
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
-    - Advice (`hivemind.manifest.advice`): judge_shares_ripener.
+    - Advice (`hivemind.manifest.advice`): judge_shares_ripener, budget_over_compact_line.
 """
 
-from hivemind.manifest.advice import judge_shares_ripener
+from hivemind.manifest.advice import budget_over_compact_line, judge_shares_ripener
 from hivemind.manifest.device import (
     DeviceForageSection,
     DeviceManifest,
@@ -183,6 +183,7 @@ __all__ = [
     "WatchSection",
     "WatchTuning",
     "apply_env",
+    "budget_over_compact_line",
     "judge_shares_ripener",
     "load_device_manifest",
     "load_manifest",

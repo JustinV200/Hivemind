@@ -39,7 +39,8 @@ Key invariants:
       holding its grant longer than the limit already allows.
     - ``MemorySection.budget_fraction`` and ``handoff_threshold`` are both fractions in (0, 1]: a
       value of 0 would starve the model of any context and both quantities are "portion of
-      something", never a raw count.
+      something", never a raw count. A ``budget_fraction`` past the compact line or the handoff
+      threshold is valid but advised against (``hivemind.manifest.advice``).
 
 See Also:
     - .claude/roadmap.md step 3.1 for the field-by-field description this module implements.
@@ -75,6 +76,9 @@ DEFAULT_OUTPUT_RESERVE_TOKENS = (
     4_096  # Reserved so a long reply is never truncated by its own prompt.
 )
 DEFAULT_HANDOFF_THRESHOLD = 0.66  # Checkpoint before two-thirds of the window fills, not after.
+# The compact line: past half the window the Queen (queen.deps.MemoryBudget) and a Warden
+# (wardens.ticks.heartbeat) order COMPACT. No [memory] field sets it; both mirror this value.
+DEFAULT_COMPACT_AT = 0.5
 DEFAULT_ITEM_CAP_CHARS = (
     4_000  # One hot-state item's cap: a paragraph or two, not a whole document.
 )
@@ -112,6 +116,7 @@ __all__ = [
     "DEFAULT_ALARM_ATTEMPT_LIMIT",
     "DEFAULT_BUDGET_FRACTION",
     "DEFAULT_CELL_WAX_CAP",
+    "DEFAULT_COMPACT_AT",
     "DEFAULT_CPU_SHARE_ALARM",
     "DEFAULT_DISK_FILL_ALARM",
     "DEFAULT_EPISODE_RETENTION_S",

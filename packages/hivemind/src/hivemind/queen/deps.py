@@ -165,7 +165,7 @@ _DEFAULT_NURSE_MAX_ROUNDS = 2  # Matches the manifest's own [nurse] max_rounds d
 # class itself explains why they are not yet read from a manifest slice). 0.5 leaves real room
 # before handoff_threshold's own two-thirds mark, so a bee that only needs compacting is caught
 # before it is forced to hand off entirely.
-_DEFAULT_COMPACT_AT = 0.5
+_DEFAULT_COMPACT_AT = 0.5  # Matches manifest.schema.supervision.DEFAULT_COMPACT_AT.
 _DEFAULT_HANDOFF_THRESHOLD = 0.66  # Matches manifest.schema.supervision.DEFAULT_HANDOFF_THRESHOLD.
 # roadmap step 4.3's own wiring step: mirrors manifest.schema.supervision's own
 # DEFAULT_SWEEP_INTERVAL_S/DEFAULT_HOT_WINDOW_S so a QueenDeps built without naming either field
