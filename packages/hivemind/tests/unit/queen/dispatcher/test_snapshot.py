@@ -159,22 +159,27 @@ async def test_a_fresh_cell_being_provisioned_holds_its_backends_room_until_it_e
 
 
 @pytest.mark.parametrize(
-    ("swarming", "free_gib", "held_back"),
+    ("swarming", "free_gib", "held_back", "cores"),
     [
-        (SwarmingPolicy(), 8, None),  # The default policy never holds a backend back.
-        (SwarmingPolicy(max_parallel=2), 8, "swarming: max_parallel 2 reached"),
-        (SwarmingPolicy(max_parallel=3), 8, None),
+        (SwarmingPolicy(), 8, None, 1.0),  # The default policy never holds a backend back.
+        (SwarmingPolicy(max_parallel=2), 8, "swarming: max_parallel 2 reached", 1.0),
+        (SwarmingPolicy(max_parallel=3), 8, None, 1.0),
         # Read live, the Hive Stand's 1.5 GiB free fits one more 1 GiB Cell; 0.5 GiB fits none.
-        (_DRAWS, 1.5, None),
-        (_DRAWS, 0.5, "swarming: the Hive Stand has no room for another Cell"),
+        (_DRAWS, 1.5, None, 1.0),
+        (_DRAWS, 0.5, "swarming: the Hive Stand has no room for another Cell", 1.0),
+        # A subnormal spec cpu_cores makes the core quotient inf: cores don't bind, no crash.
+        (_DRAWS, 1.5, None, 1e-320),
     ],
 )
 async def test_swarming_holds_back_a_backend_its_caps_allow_no_fresh_cell(
-    swarming: SwarmingPolicy, free_gib: float, held_back: str | None
+    swarming: SwarmingPolicy, free_gib: float, held_back: str | None, cores: float
 ) -> None:
     # Two Cells held on the backend; the Hive Stand's free memory read live.
     deps, link, warden_end = make_queen_deps(cell=make_cell(source=HIVE_STAND_SOURCE))
     backend = dataclasses.replace(_backend_with_room(deps, headroom=5), held=2)
+    backend = dataclasses.replace(
+        backend, specs=(_spec(deps).model_copy(update={"cpu_cores": cores}),)
+    )
     policy = dataclasses.replace(deps.placement_policy, swarming=swarming)
     deps = dataclasses.replace(deps, virtual_backends=(backend,), placement_policy=policy)
     free = make_capacity(host=make_host_capacity(memory_free_bytes=int(free_gib * 1024**3)))

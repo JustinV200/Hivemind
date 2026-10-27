@@ -463,5 +463,7 @@ async def _stand_room(
     host = (capacity or stand.cell.capacity).host
     memory = max(b.specs[0].memory_bytes for b in drawing)
     cores = max(b.specs[0].cpu_cores for b in drawing)
-    idle_cores = host.cores * max(0.0, 1.0 - host.cpu_load)
-    return min(host.memory_free_bytes // memory, math.floor(idle_cores / cores))
+    memory_room = host.memory_free_bytes // memory
+    # A subnormal cpu_cores can push this quotient to inf (floor would raise): cores don't bind.
+    core_room = host.cores * max(0.0, 1.0 - host.cpu_load) / cores
+    return min(memory_room, math.floor(core_room)) if math.isfinite(core_room) else memory_room
