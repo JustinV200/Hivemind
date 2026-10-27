@@ -232,7 +232,8 @@ Both are classified as observations in the Guard's event catalogue.
   ACCEPTANCE_FAILED Alarm naming the review's status: the "accept not nursed" rule covers a review
   of work the machine checks already proved, never a criterion nothing checked. With the Nurse
   off, or for a skipped role, `JUDGE_RUBRIC` fails as it always did. The planner still refuses to
-  plan `JUDGE_RUBRIC`; letting it, where the Queen knows a Nurse will run, is left to step 5.
+  plan `JUDGE_RUBRIC`; letting it, where the Queen knows a Nurse will run, is left for later
+  (step 5, below, says why).
 - **A Night Veil Cell's evidence stays local.** Roadmap step 10.3a binds a Night Veil task to
   local models only, and the Nurse reads that task's files, so on a Night Veil Cell the Nurse is
   asked only when every link its JUDGE chain can reach serves locally (`binding_is_local` on the
@@ -249,6 +250,62 @@ Both are classified as observations in the Guard's event catalogue.
   `NurseWiring`'s defaults whenever its slot table binds JUDGE, the same way it takes the shipped
   tier table: `[nurse] enabled = false` does not reach a Cell yet. Carrying the section through
   the `HIVEMIND_*` environment is left for later.
+
+### Deviations from the design pass, made in step 5 (the Queen's loop)
+
+- **What `nurse_rounds` counts, and the cap.** `Task.nurse_rounds` counts the rejections the
+  Queen has already sent the task back for. Her table reads a rejection as `RETRY_TASK` while
+  `[nurse] max_rounds` less that count is above zero, and as `ESCALATE_TO_HUMAN` once it is not:
+  with the default 2, the first two rejections are fixed forward and the third goes to the human.
+  The table stays pure: the caller hands it the rounds left as `AttemptTally.nurse_left`, read
+  from the stored Task (so the cap holds across her restart), never from her in-memory book or
+  from the Warden's `review.round`, which a broken or hostile Warden could hold at 1 forever. The
+  ordinary attempt ceiling plays no part in a Nurse rejection; the round cap is its bound.
+  `nurse_rejected`, the table's own test (a `CHANGES_REQUESTED` verdict on the wire), is public so
+  the Queen carries out exactly the rule the table applied: a FAILED result with an UNAVAILABLE or
+  ERROR review (a `JUDGE_RUBRIC` criterion nobody judged) is retried like any failure and never
+  counted as a round.
+- **The column is a mirror.** Migration 0002 adds `tasks.nurse_rounds` as a column beside the
+  row's JSON body, which stays the source of truth every read decodes, as `status` already is.
+  `BroodChamber.note_nurse_round` counts one more on a RUNNING task and records a new
+  `task.nurse_round` kind carrying only the new count (classified as a lifecycle notice).
+- **Every assignment carries the count.** `TaskAssign.review_round` is the task's `nurse_rounds`
+  on every send (a fresh dispatch, an ordinary retry, a re-placement, a resume), not only on a
+  Nurse retry, so a Warden numbers its next review past it whatever kind of retry came between.
+  `review_findings` rides only on a Nurse retry. The round is counted in the chamber before the
+  assignment is built.
+- **At the cap the task also fails.** The design names the escalation only. A rejected attempt's
+  bee is already retired, so a task left RUNNING would wait out its goal's timeout with nothing
+  on it and no lever for the human to pull. The Queen raises `NURSE_UNRESOLVED` (severity
+  WARNING, origin the Warden whose Nurse rejected it, `attempts` the rounds spent, the task's
+  clearance) and fails the task, cancelling its dependents as any failure does; the Cell keeps the
+  last attempt's work, as every round has.
+- **The findings reach the human inbox alone.** A Nurse's findings are untrusted model prose
+  written from untrusted evidence, and the trail keeps no such words. The Alarm the trail
+  (`alarm.escalated`, with the Cell named so a Night Veil teardown routes it), the chat line and
+  the devices' notice carry has a detail of counts only; the copy in the Queen's `HumanInbox`
+  (what the Entrance's inbox shows) adds the findings inside a `nurse_findings` fence labelled
+  untrusted, cut to the Alarm's 2,000-character detail bound with the fence still closed.
+- **The fixing bee's brief.** The bounded-loop brief renders `review_findings` after the Scout's
+  recon, inside the same kind of fence, each anchored to its criterion (in the words the bee
+  already reads its checks in) or its file and line, and tells the bee the last attempt's work is
+  still on the Cell to fix where it stands.
+- **The "not nursed" note is a list, not a digest.** There is no inbox digest to add a line to.
+  `hive inbox` gains a NOT NURSED section (and `not_nursed` in `--json`): the newest 20 rounds
+  recorded as `capping.nurse_unavailable` or as `capping.nurse_reviewed` with status `ERROR`, by
+  task, round and why, read from the trail. It is a note to glance at, never an Alarm. The
+  Entrance's remote inbox does not list them yet; that is left for later.
+- **A task that moved on is left alone.** Both the send-back and the escalation re-read the task
+  and do nothing unless it is still RUNNING, so a rejection that lands after a cancel or a pause
+  never revives work the Queen already closed.
+- **The planner still refuses `JUDGE_RUBRIC`.** The Queen cannot yet know whether the Warden of
+  the Cell a task lands on will run a Nurse (`[nurse] enabled` does not reach an in-Cell Warden,
+  step 4, and a slot table may bind no judge), and a `JUDGE_RUBRIC` criterion nobody judges fails
+  closed every attempt. Letting the planner plan one is left for later.
+- **The real run.** `tests/e2e/test_nurse_on_hive_stand.py` runs the whole loop on the Hive Stand
+  with a scripted model that answers each bee only from what it is shown: the Nurse rejects a
+  file, the Queen sends the task back, a fresh Drone fixes it from the findings in its brief, and
+  the second review passes.
 
 ## Consequences
 

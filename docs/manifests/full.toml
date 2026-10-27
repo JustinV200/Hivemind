@@ -671,7 +671,8 @@ recording_retention_days = 30
 # Every field here has a default; the section may be omitted entirely. There is no per-tempo
 # opt-out: a hurried task is reviewed like any other.
 enabled = true
-# Nurse rejections a task may have before the Queen escalates it to a human (at most 7).
+# Times a Nurse rejection sends a task back to fix forward on the same Cell; the rejection after
+# the last of them goes to a human and closes the task out as failed (1 to 7).
 max_rounds = 2
 # Roles whose attempts are never reviewed (WorkerRole names); SCOUT is reviewed.
 skip_roles = ["UNDERTAKER", "HOUSE_BEE"]

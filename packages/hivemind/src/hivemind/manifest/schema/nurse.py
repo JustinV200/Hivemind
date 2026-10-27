@@ -67,7 +67,8 @@ class NurseSection(BaseModel):
         default=DEFAULT_MAX_ROUNDS,
         ge=1,
         le=MAX_ROUNDS,
-        description="Nurse rejections a task may have before the Queen escalates it to a human.",
+        description="Times a Nurse rejection sends a task back to fix forward; the rejection "
+        "after the last of them goes to a human.",
     )
     skip_roles: tuple[str, ...] = Field(
         default=DEFAULT_SKIP_ROLES,
