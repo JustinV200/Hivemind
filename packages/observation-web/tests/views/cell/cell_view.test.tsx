@@ -258,9 +258,10 @@ describe('the panels', () => {
 
   it('show the last Patrol once the schema carries one', async () => {
     await mount({ body: pageView({ last_patrol_at: '2026-01-01T00:10:00Z' }) });
-    const mode = within(await screen.findByRole('region', { name: 'Access and mode' }));
-    expect(mode.queryByText('not tracked yet')).toBeNull();
-    expect(mode.getByText(/2026-01-01/)).toBeTruthy();
+    const region = await screen.findByRole('region', { name: 'Access and mode' });
+    expect(within(region).queryByText('not tracked yet')).toBeNull();
+    // The visible text is relative to the clock, so the ISO time in `<time>` is what is asserted.
+    expect(region.querySelector('time')?.getAttribute('datetime')).toBe('2026-01-01T00:10:00Z');
   });
 
   it('list Cell Wax with severity, proposer and expiry, and standing wax', async () => {

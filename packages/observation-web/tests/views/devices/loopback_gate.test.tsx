@@ -64,6 +64,9 @@ const CONTROLS: Record<string, RegExp | null> = {
   // Added from the command line (`hive entrance operator add`, a program's own registration).
   'POST /v1/entrance/operators': null,
   'POST /v1/entrance/register': null,
+  // Re-issued from the command line (`hive entrance reissue`, ADR-0058): a client certificate is
+  // a credential the operator hands over deliberately, so the UI draws no control for it.
+  'POST /v1/devices/{device_id}/certificate': null,
 };
 
 // Open to both listeners in the document, but this UI keeps them on the Hive Stand.

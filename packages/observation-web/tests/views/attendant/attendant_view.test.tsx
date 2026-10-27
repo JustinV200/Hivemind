@@ -151,7 +151,7 @@ describe('the task graph', () => {
       .getAllByRole('cell')
       .map((c) => c.textContent);
     expect(third).toEqual(['pending', 'drone', 'not placed yet', 'none', '0', 'task_1, task_2']);
-    expect(table.className).toContain('sr-only');
+    expect(table.parentElement?.className).toContain('sr-only');
   });
 });
 

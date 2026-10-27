@@ -118,17 +118,19 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
         ))}
       </svg>
       {empty ? <p className="forage-note">Nothing is granted in this unit yet.</p> : null}
-      <table className="sr-only">
-        <caption>Forage flow, in numbers</caption>
-        <tbody>
-          {layout.boxes.map((box) => (
-            <tr key={`${box.column}:${box.id}`}>
-              <th scope="row">{box.title}</th>
-              <td>{formatAmount(model.unit, box.amount)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="sr-only">
+        <table>
+          <caption>Forage flow, in numbers</caption>
+          <tbody>
+            {layout.boxes.map((box) => (
+              <tr key={`${box.column}:${box.id}`}>
+                <th scope="row">{box.title}</th>
+                <td>{formatAmount(model.unit, box.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

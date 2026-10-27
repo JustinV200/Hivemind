@@ -136,19 +136,21 @@ export function CapacityDiagram(props: { blocks: readonly HostBlock[] }): ReactE
         ))}
       </svg>
       <Legend />
-      <table className="sr-only">
-        <caption>Capacity per host, in numbers</caption>
-        <tbody>
-          {layout.blocks.flatMap((block) =>
-            block.rows.map((laid) => (
-              <tr key={`${block.id}:${laid.row.key}`}>
-                <th scope="row">{`${block.title}, ${laid.row.label}`}</th>
-                <td>{laid.figures}</td>
-              </tr>
-            )),
-          )}
-        </tbody>
-      </table>
+      <div className="sr-only">
+        <table>
+          <caption>Capacity per host, in numbers</caption>
+          <tbody>
+            {layout.blocks.flatMap((block) =>
+              block.rows.map((laid) => (
+                <tr key={`${block.id}:${laid.row.key}`}>
+                  <th scope="row">{`${block.title}, ${laid.row.label}`}</th>
+                  <td>{laid.figures}</td>
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

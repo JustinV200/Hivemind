@@ -34,32 +34,34 @@ export function GraphTable(props: {
       .sort()
       .join(', ') || 'nothing';
   return (
-    <table className="sr-only">
-      <caption>{`Task graph of ${props.principal}`}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Task</th>
-          <th scope="col">Status</th>
-          <th scope="col">Role</th>
-          <th scope="col">Placement</th>
-          <th scope="col">Warden</th>
-          <th scope="col">Open Alarms</th>
-          <th scope="col">Waits on</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((node) => (
-          <tr key={node.task_id}>
-            <th scope="row">{node.task_id}</th>
-            <td>{statusWord(node.status)}</td>
-            <td>{node.role.toLowerCase().replace(/_/g, ' ')}</td>
-            <td>{placementOf(node)}</td>
-            <td>{node.warden_id ?? 'none'}</td>
-            <td>{node.open_alarms}</td>
-            <td>{waitsOn(node.task_id)}</td>
+    <div className="sr-only">
+      <table>
+        <caption>{`Task graph of ${props.principal}`}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Task</th>
+            <th scope="col">Status</th>
+            <th scope="col">Role</th>
+            <th scope="col">Placement</th>
+            <th scope="col">Warden</th>
+            <th scope="col">Open Alarms</th>
+            <th scope="col">Waits on</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((node) => (
+            <tr key={node.task_id}>
+              <th scope="row">{node.task_id}</th>
+              <td>{statusWord(node.status)}</td>
+              <td>{node.role.toLowerCase().replace(/_/g, ' ')}</td>
+              <td>{placementOf(node)}</td>
+              <td>{node.warden_id ?? 'none'}</td>
+              <td>{node.open_alarms}</td>
+              <td>{waitsOn(node.task_id)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

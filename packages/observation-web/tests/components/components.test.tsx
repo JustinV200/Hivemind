@@ -4,7 +4,8 @@
  * The badges' meaning must be in their words and their shape class, never in colour alone: the
  * tests check every label, that tier and mask carry different shape classes, that a Queen-forced
  * mask shows its expiry and the others do not, that the gauge exposes a meter with the right
- * numbers and tone, and that an error shows its code, its table sentence and its next step.
+ * numbers and tone, that an error shows its code, its table sentence and its next step, and that
+ * a time stamp's relative words follow the clock.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/components/.
@@ -18,6 +19,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ErrorNotice, Gauge, MaskBadge, StatusDot, TierBadge } from '../../src/components';
+import { relativeText } from '../../src/components/time_stamp';
 import { clientError } from '../../src/landing_board/client/errors';
 import { LandingBoardError } from '../../src/landing_board/client';
 
@@ -131,5 +133,20 @@ describe('ErrorNotice', () => {
   it('says the Hive could not be reached for a non-Landing-Board failure', () => {
     render(<ErrorNotice error={new Error('boom')} />);
     expect(screen.getByText('The Hive could not be reached.')).toBeTruthy();
+  });
+});
+
+describe('TimeStamp words', () => {
+  const now = Date.parse('2026-01-08T12:00:00Z');
+  it.each([
+    ['2026-01-08T11:59:40Z', 'just now'],
+    ['2026-01-08T11:55:00Z', '5 min ago'],
+    ['2026-01-08T12:04:00Z', 'in 4 min'],
+    ['2026-01-08T09:30:00Z', '2 h 30 min ago'],
+    ['2026-01-06T12:00:00Z', '2 d ago'],
+    ['2025-12-01T00:00:00Z', /^2025-1[12]-\d\d$/],
+    ['not a date', 'not a date'],
+  ])('reads %s as %s', (iso, words) => {
+    expect(relativeText(iso, now)).toMatch(words);
   });
 });

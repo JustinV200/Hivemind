@@ -330,7 +330,7 @@ describe('the drawing', () => {
 
   it('repeats its numbers in a hidden table', () => {
     const { container } = draw();
-    const table = container.querySelector('table.sr-only')!;
+    const table = container.querySelector('.sr-only table')!;
     expect(table.textContent).toContain('worker_1');
     expect(table.textContent).toContain('Exoskeleton');
   });
