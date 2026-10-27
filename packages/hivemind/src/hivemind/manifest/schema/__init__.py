@@ -36,7 +36,7 @@ Public API:
       ServerSpec, MANIFEST_KEY_PATTERN.
     - Forage (forage): ForageSection.
     - Guard policy overrides (security.guard): GuardSection, GuardRoleSection,
-      DEFAULT_DIRE_PATTERNS.
+      DEFAULT_DIRE_PATTERNS, DEFAULT_STING_CUT_PATTERNS.
     - Hive Entrance (entrance): EntranceSection, EntranceExposure, EntranceTlsSection,
       EntrancePushSection, EntranceVoiceSection, EntranceAndroidSection.
     - Supervision and memory (supervision): SupervisionSection, ReconnectBudgetSection,
@@ -107,6 +107,7 @@ from hivemind.manifest.schema.security.guard import (
     GuardRoleSection,
     GuardSection,
 )
+from hivemind.manifest.schema.security.sting_cut import DEFAULT_STING_CUT_PATTERNS
 from hivemind.manifest.schema.security.tiers import (
     ClearanceMatrix,
     HoneyClearanceSection,
@@ -125,6 +126,7 @@ from hivemind.manifest.schema.swarm import SwarmLadderSection, SwarmNucSection, 
 
 __all__ = [
     "DEFAULT_DIRE_PATTERNS",
+    "DEFAULT_STING_CUT_PATTERNS",
     "MANIFEST_KEY_PATTERN",
     "BasketSection",
     "BroodChamberSection",

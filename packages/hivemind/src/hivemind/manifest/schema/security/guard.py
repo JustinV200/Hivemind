@@ -25,6 +25,8 @@ since this layer may not import them; a test holds the two spellings in step.
 ``dire_patterns`` (roadmap step 10.6a, ADR-0043) names the Guard Bee's rule keys whose requests the
 Queen acts on by autopilot rule, with no awake episode: isolate the Cell (or, on the Hive Stand,
 quarantine the bee and hold its goal off it); every other request is judged awake.
+``[guard.sting_cut]`` (roadmap step 13.4a) is the narrower list on which she then cuts the Cell
+off.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -61,6 +63,8 @@ from itertools import pairwise
 from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from hivemind.manifest.schema.security.sting_cut import StingCutSection
 
 # The scanner's input bound: 64 KiB of text is far more than any one injection needs and small
 # enough that matching every pattern stays well inside a millisecond budget per call.
@@ -383,4 +387,10 @@ class GuardSection(BaseModel):
         "(roadmap step 10.6a): isolate the Cell, or on the Hive Stand quarantine the bee and "
         "hold its goal off it. A key naming no rule never fires; every other request is judged "
         "by an awake episode.",
+    )
+    # Roadmap step 13.4a: the patterns the Queen cuts a Cell off on, and her hourly cap.
+    sting_cut: StingCutSection = Field(
+        default_factory=StingCutSection,
+        description="[guard.sting_cut]: the dire patterns the Queen Sting Cuts a Cell on by rule, "
+        "after isolating it, and the most cuts she makes in an hour.",
     )

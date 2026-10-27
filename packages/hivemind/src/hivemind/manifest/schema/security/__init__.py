@@ -10,7 +10,7 @@ itself, without knowing which module defines them.
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside ``hivemind.manifest.schema``.
     Imported by ``hivemind.manifest.schema``'s own face and by ``hivemind.manifest.schema.
-    manifest``. Calls into this package's ``tiers`` and ``guard`` only.
+    manifest``. Calls into this package's ``tiers``, ``guard`` and ``sting_cut`` only.
 
 Key invariants:
     - This file holds re-exports and __all__ only; no model or validator is defined here
@@ -26,6 +26,8 @@ Public API:
     - Guard policy overrides (guard): GuardSection, GuardRoleSection, GuardBeeSection,
       GuardBeeRuleOverride, UntrustedContentSection, ScanThresholds, their name aliases and
       every default and bound the section validates against.
+    - The Queen's Sting Cut slice (sting_cut): StingCutSection, DEFAULT_STING_CUT_PATTERNS,
+      DEFAULT_MAX_AUTONOMOUS_STING_CUTS_PER_HOUR.
 """
 
 from hivemind.manifest.schema.security.guard import (
@@ -49,6 +51,11 @@ from hivemind.manifest.schema.security.guard import (
     ScanThresholds,
     UntrustedContentSection,
 )
+from hivemind.manifest.schema.security.sting_cut import (
+    DEFAULT_MAX_AUTONOMOUS_STING_CUTS_PER_HOUR,
+    DEFAULT_STING_CUT_PATTERNS,
+    StingCutSection,
+)
 from hivemind.manifest.schema.security.tiers import (
     DEFAULT_COMB_SHIELD,
     ClearanceMatrix,
@@ -66,9 +73,11 @@ __all__ = [
     "DEFAULT_DIRE_PATTERNS",
     "DEFAULT_GUARD_BEE_INTERVAL_S",
     "DEFAULT_JUDGE_TIMEOUT_S",
+    "DEFAULT_MAX_AUTONOMOUS_STING_CUTS_PER_HOUR",
     "DEFAULT_MAX_SCAN_CHARS",
     "DEFAULT_REQUESTS_PER_HOUR",
     "DEFAULT_REQUEST_CONFIDENCE",
+    "DEFAULT_STING_CUT_PATTERNS",
     "MAX_GUARD_WINDOW_S",
     "MAX_REQUESTS_PER_HOUR",
     "ClearanceMatrix",
@@ -82,6 +91,7 @@ __all__ = [
     "HoneySection",
     "ScanThresholds",
     "SecuritySection",
+    "StingCutSection",
     "TierProfile",
     "UntrustedContentSection",
 ]

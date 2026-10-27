@@ -43,7 +43,8 @@ Public API:
       HoneyRipeningSection, HoneyRetrievalSection, HoneyLoweringSection (phase 7), PlacementSection,
       PlacementRoleOverride, VirtualCellsSection, VirtualCellsOverwinterSection (phase 5),
       ExoskeletonSection (phase 6), EntranceSection, EntranceExposure, GuardSection,
-      GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), RoyalJellySection,
+      GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), DEFAULT_STING_CUT_PATTERNS (13.4a),
+      RoyalJellySection,
       QuarantineLimitsSection, SandboxKind, BasketSection (phase 9), SwarmSection,
       SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection, WatchTuning
       (phase 11), NurseSection (ADR-0061).
@@ -79,6 +80,7 @@ from hivemind.manifest.errors import ManifestError
 from hivemind.manifest.loader import load_manifest
 from hivemind.manifest.schema import (
     DEFAULT_DIRE_PATTERNS,
+    DEFAULT_STING_CUT_PATTERNS,
     MANIFEST_KEY_PATTERN,
     BasketSection,
     BroodChamberSection,
@@ -129,6 +131,7 @@ from hivemind.manifest.schema import (
 
 __all__ = [
     "DEFAULT_DIRE_PATTERNS",
+    "DEFAULT_STING_CUT_PATTERNS",
     "MANIFEST_KEY_PATTERN",
     "BasketSection",
     "BroodChamberSection",
