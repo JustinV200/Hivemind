@@ -133,6 +133,17 @@ a Virtual Cell instead; with no `[virtual_cells] backend` configured, such a tas
 with that reason. A Hive Stand that should run commands for its own operator, uncontained, needs
 `[hive_stand] access_level = "FULL"`.
 
+Roadmap step 13.3 adds `[virtual_cells.swarming]`
+(`docs/adr/0063-swarming-policy-and-cost-caps.md`): how far the fleet may scale up under load.
+`max_parallel` caps the Virtual Cells held (dormant ones included) or being made at once across
+every backend, `max_cost_per_hour_usd` caps what they may cost an hour together, and
+`[virtual_cells.swarming.backends.<name>]` gives one backend its own `max_cells`, its
+`cost_per_hour_usd` (0, a local backend, is never cost-capped) and `draws_on_hive_stand` (its
+Cells run on the Hive Stand, so the Stand's free memory and idle cores, against one Cell's
+reservation, bound how many more it may start). Every field is unset by default. A task whose
+backend a bound allows nothing waits PENDING with a `queen.decided` naming the bound; as Cells are
+released the fleet shrinks back to the dormant pool, or to zero with Overwintering off.
+
 ## `[exoskeleton]` (roadmap steps 6.4-6.6)
 
 `[exoskeleton]` tunes the Exoskeleton (the optional display, input, audio and browser a task may

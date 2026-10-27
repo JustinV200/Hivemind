@@ -21,8 +21,10 @@ from hivemind.manifest.loader import load_manifest
 from hivemind.manifest.schema.placement import (
     PlacementRoleOverride,
     PlacementSection,
+    SwarmingBackendSection,
     VirtualCellsOverwinterSection,
     VirtualCellsSection,
+    VirtualCellsSwarmingSection,
 )
 
 # The repository root, five parents up from this test file, matching test_loader.py's own pattern.
@@ -241,3 +243,28 @@ def test_a_control_subnet_the_cells_could_not_use_is_refused(
 
     with pytest.raises(ValidationError, match=reason):
         VirtualCellsSection.model_validate(values)
+
+
+def test_full_toml_sets_every_swarming_bound() -> None:
+    """The shipped example states a Hive-wide cap, a cost cap and the Docker backend's bounds."""
+    swarming = load_manifest(_MANIFESTS_DIR / "full.toml").virtual_cells.swarming
+
+    assert swarming.max_parallel == 4
+    assert swarming.max_cost_per_hour_usd == 2.0
+    assert swarming.backends["docker"] == SwarmingBackendSection(
+        max_cells=4, cost_per_hour_usd=0.0, draws_on_hive_stand=True
+    )
+
+
+@pytest.mark.parametrize(
+    "swarming",
+    [
+        {"backends": {"dokcer": {}}},  # A misspelt backend fails at load, not silently.
+        {"backends": {"docker": {"cost_per_hour_usd": -1.0}}},
+        {"max_parallel": 0},
+        {"max_cost_per_hour_usd": -0.5},
+    ],
+)
+def test_a_swarming_section_that_could_not_hold_is_refused(swarming: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        VirtualCellsSwarmingSection.model_validate(swarming)

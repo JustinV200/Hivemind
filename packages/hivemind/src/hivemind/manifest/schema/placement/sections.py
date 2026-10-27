@@ -11,7 +11,9 @@ from, its default and Exoskeleton images, cpu, memory, disk, outbound network sh
 wait for it to become ready, and the most Virtual Cells the Hive may hold at once) plus a nested
 ``[virtual_cells.overwinter]`` (``docs/adr/0029-overwintering-policy.md``: whether the pool is
 enabled at all, its own size caps, how long a dormant Cell may sit before the Undertaker destroys
-it, and the disk Forage the manifest allots to it). Every field defaults such that a manifest that
+it, and the disk Forage the manifest allots to it) and a nested ``[virtual_cells.swarming]``
+(``docs/adr/0063``: how many Virtual Cells may be held or made at once, per backend and by hourly
+cost). Every field defaults such that a manifest that
 omits both sections entirely loads unchanged and behaves exactly as today: ``prefer = "real"``,
 ``allow_hive_stand = true``, and ``[virtual_cells] backend`` unset, which
 `hivemind.queen.placement.policy.PlacementPolicy.default_virtual_spec` reads as "no Virtual side
@@ -74,6 +76,7 @@ Key invariants:
 See Also:
     - docs/adr/0028-placement-policy-real-versus-virtual.md for the policy this section feeds.
     - docs/adr/0029-overwintering-policy.md for the ``[virtual_cells.overwinter]`` fields.
+    - docs/adr/0063-swarming-policy-and-cost-caps.md for the ``[virtual_cells.swarming]`` fields.
     - docs/adr/0031-exoskeleton-on-x11-with-playwright-fast-path.md for why an Exoskeleton need
       boots ``exoskeleton_image`` rather than ``default_image``.
     - .claude/roadmap.md step 5.7 for the field-by-field description this module implements.
@@ -92,6 +95,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hivemind.manifest.schema.placement.swarming import BackendName, VirtualCellsSwarmingSection
 from waggle.messages.task import WorkerRole
 
 # Which side hivemind.queen.placement.decide.decide honours (ADR-0028 rule 6).
@@ -264,7 +268,7 @@ class VirtualCellsSection(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    backend: Literal["docker", "qemu", "fake"] | None = Field(
+    backend: BackendName | None = Field(
         default=None,
         description="Which hivemind.hive.CellBackend registry name to provision from; None means "
         "no Virtual side is configured at all.",
@@ -337,6 +341,11 @@ class VirtualCellsSection(BaseModel):
     overwinter: VirtualCellsOverwinterSection = Field(
         default_factory=VirtualCellsOverwinterSection,
         description="The Overwintering pool's own bounds (docs/adr/0029).",
+    )
+    swarming: VirtualCellsSwarmingSection = Field(
+        default_factory=VirtualCellsSwarmingSection,
+        description="How far the fleet may scale up: Hive-wide, per backend and by cost "
+        "(docs/adr/0063).",
     )
     listen_host: str = Field(
         default=DEFAULT_VIRTUAL_CELLS_LISTEN_HOST,

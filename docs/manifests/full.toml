@@ -659,6 +659,24 @@ max_dormant_s = 3600.0
 # Disk, in megabytes, the manifest allots to the whole pool (8 GiB here).
 disk_budget_mb = 8192
 
+[virtual_cells.swarming]
+# How far the fleet may scale up under load (docs/adr/0063). Every field is unset by default, and
+# the section may be omitted entirely: then only [virtual_cells] max_cells bounds the fleet.
+# The most Virtual Cells held (dormant ones included) or being made at once, across every backend.
+max_parallel = 4
+# The most every Virtual Cell held or being made may cost an hour together, in US dollars, priced
+# by each backend's cost_per_hour_usd below.
+max_cost_per_hour_usd = 2.0
+
+[virtual_cells.swarming.backends.docker]
+# The most Cells this backend may hold or be making at once.
+max_cells = 4
+# What one of its Cells costs an hour while held; 0 (a local backend) is never cost-capped.
+cost_per_hour_usd = 0.0
+# true: its Cells run on the Hive Stand, so the Stand's free memory and idle cores, against one
+# Cell's reservation, bound how many more it may start (opt-in; a reservation is a ceiling).
+draws_on_hive_stand = true
+
 [exoskeleton]
 # The optional peripherals a task may ask for on its Cell: a display, input, audio and a browser
 # (roadmap steps 6.4-6.6). Every field here has a default; the section may be omitted entirely.
