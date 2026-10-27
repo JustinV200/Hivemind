@@ -72,9 +72,12 @@ allow = [
     "entrance:answer",
     "entrance:push",
     "entrance:steward",
-    # Human-only actions (codingrules 8.16 and 13.4a): moving the Hive Stand, cutting a Cell off.
+    # Human-only actions (codingrules 8.16, 13.4 and 13.4a): moving the Hive Stand, cutting a Cell
+    # off, tearing the whole Hive down. No other role may ever hold `abscond`: the human-only floor
+    # refuses every other principal at the Absconding point whatever a role override grants.
     "supersede",
     "sting_cut",
+    "abscond",
 ]
 
 # The orchestrator: every work family at its widest, so every bee's set can be cut from hers.

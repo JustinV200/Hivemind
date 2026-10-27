@@ -1,18 +1,19 @@
 """The Guard's floors: what no principal may do, whatever its capability set holds (ADR-0039).
 
-`hivemind.guard.policy.evaluate` runs the floors before every other rule, and only ever to
-refuse. Two families of floor live here. The Hive-state floor (`hive_state`, ADR-0041) refuses
-every bee (a Warden or a Worker) the Hive's own state: its database, secret store and manifest
-paths, its `hive` and `hivemind-*` entry points, and every loopback name or address, the
-unspecified and link-local addresses and the Hive Stand's own addresses, judged on what a host
+`hivemind.guard.policy.evaluate` runs the floors before every other rule, and only ever to refuse.
+Three families of floor live here. The human-only floor (`human_only`, codingrules 15) refuses every
+principal but the operator at a break-glass point (Absconding). The Hive-state floor (`hive_state`,
+ADR-0041) refuses every bee (a Warden or a Worker) the Hive's own state: its database, secret store
+and manifest paths, its `hive` and `hivemind-*` entry points, and every loopback name or address,
+the unspecified and link-local addresses and the Hive Stand's own addresses, judged on what a host
 resolved to as well as how it is written. The tier floors guard Night Veil (roadmap steps
 10.3a-10.3d): its work is initiated only by a human's own goal request naming the tier
-(`initiation`); it runs only on a fresh Virtual Cell, binds only local models, touches Honey at
-c0 and c1 only, is location-blind, and its Cell dials the Queen only over a Tor hidden service
+(`initiation`); it runs only on a fresh Virtual Cell, binds only local models, touches Honey at c0
+and c1 only, is location-blind, and its Cell dials the Queen only over a Tor hidden service
 (`night_veil`); and a task is never given a weaker tier's egress than the one it is bound to
-(`inheritance`). `chain` runs them in one order; `refusal` is the shape of every answer. Every
-floor reads `PolicyRequest.context` and policy data, never the shape of the held set, so a floor
-holds whatever a set says.
+(`inheritance`). `chain` runs them in one order; `refusal` is the shape of every answer. Every floor
+reads `PolicyRequest.context` and policy data, never the shape of the held set, so a floor holds
+whatever a set says.
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.guard.policy`.
@@ -43,6 +44,8 @@ Public API:
     - initiation_floor, INITIATION_FLOOR, INITIATION_POINTS: who may start Night Veil work
       (initiation).
     - inheritance_floor, INHERITANCE_FLOOR, tier_rank: tier inheritance (inheritance).
+    - human_only_floor, HUMAN_ONLY_FLOOR, HUMAN_ONLY_POINTS: points only the human passes
+      (human_only).
 """
 
 from hivemind.guard.policy.floors.chain import FLOORS, floor_refusal
@@ -53,6 +56,11 @@ from hivemind.guard.policy.floors.hive_state import (
     LOOPBACK_FLOOR,
     STATE_PATHS_FLOOR,
     hive_state_floor,
+)
+from hivemind.guard.policy.floors.human_only import (
+    HUMAN_ONLY_FLOOR,
+    HUMAN_ONLY_POINTS,
+    human_only_floor,
 )
 from hivemind.guard.policy.floors.inheritance import INHERITANCE_FLOOR, inheritance_floor, tier_rank
 from hivemind.guard.policy.floors.initiation import (
@@ -86,6 +94,8 @@ __all__ = [
     "ENTRY_POINTS_FLOOR",
     "ENTRY_POINT_PREFIX",
     "FLOORS",
+    "HUMAN_ONLY_FLOOR",
+    "HUMAN_ONLY_POINTS",
     "INHERITANCE_FLOOR",
     "INITIATION_FLOOR",
     "INITIATION_POINTS",
@@ -103,6 +113,7 @@ __all__ = [
     "FloorRefusal",
     "floor_refusal",
     "hive_state_floor",
+    "human_only_floor",
     "inheritance_floor",
     "initiation_floor",
     "is_night_veil",

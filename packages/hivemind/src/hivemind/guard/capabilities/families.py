@@ -109,6 +109,7 @@ class CapabilityFamily(Enum):
     ENTRANCE_STEWARD = "entrance:steward"  # Approving other devices remotely, after step-up.
     SUPERSEDE = "supersede"  # Moving the Hive Stand to another machine (Supersedure).
     STING_CUT = "sting_cut"  # Cutting one Cell off in an emergency (Sting Cut).
+    ABSCOND = "abscond"  # Tearing the whole Hive down (Absconding, roadmap 13.4): the human's.
     GEO = "geo"  # Reading the device's location under a scope.
     WIFI_SCAN = "wifi:scan"  # Scanning the Wi-Fi networks around the device.
     HOST_METADATA = "host:metadata"  # Reading the host's identifying metadata.
@@ -156,6 +157,7 @@ FAMILIES_BY_KIND: Mapping[ScopeKind, frozenset[CapabilityFamily]] = MappingProxy
                 CapabilityFamily.ENTRANCE_STEWARD,
                 CapabilityFamily.SUPERSEDE,
                 CapabilityFamily.STING_CUT,
+                CapabilityFamily.ABSCOND,
                 CapabilityFamily.WIFI_SCAN,
                 CapabilityFamily.HOST_METADATA,
             }

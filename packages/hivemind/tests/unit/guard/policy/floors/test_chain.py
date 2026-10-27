@@ -20,6 +20,7 @@ from hivemind.guard.policy.floors import (
     FLOORS,
     floor_refusal,
     hive_state_floor,
+    human_only_floor,
     inheritance_floor,
     initiation_floor,
     night_veil_floor,
@@ -28,8 +29,9 @@ from hivemind.guard.policy.floors import (
 _POLICY = load_guard_policy()
 
 
-def test_the_hive_state_floor_runs_first_and_inheritance_last() -> None:
-    assert (hive_state_floor, initiation_floor, night_veil_floor, inheritance_floor) == FLOORS
+def test_the_human_only_floor_runs_first_and_inheritance_last() -> None:
+    floors = (human_only_floor, hive_state_floor, initiation_floor, night_veil_floor)
+    assert (*floors, inheritance_floor) == FLOORS
 
 
 def test_when_two_floors_refuse_the_first_in_order_decides() -> None:

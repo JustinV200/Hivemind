@@ -51,6 +51,7 @@ _ADR_TABLE: dict[ScopeKind, set[str]] = {
         "entrance:steward",
         "supersede",
         "sting_cut",
+        "abscond",
         "wifi:scan",
         "host:metadata",
     },

@@ -34,7 +34,11 @@ from hivemind.manifest import GuardRoleSection, GuardSection, load_manifest
 _REPO_ROOT = Path(__file__).resolve().parents[6]
 _SCRATCH = Path("/hive/scratch")
 # The families only a person holds, and the device families: no bee's default may name either.
-_HUMAN_ONLY = {CapabilityFamily.SUPERSEDE, CapabilityFamily.ENTRANCE_STEWARD}
+_HUMAN_ONLY = {
+    CapabilityFamily.SUPERSEDE,
+    CapabilityFamily.ENTRANCE_STEWARD,
+    CapabilityFamily.ABSCOND,  # Roadmap 13.4: the floor refuses the rest whatever they hold.
+}
 _DEVICE_FAMILIES = {
     CapabilityFamily.ENTRANCE_SUBMIT,
     CapabilityFamily.ENTRANCE_ANSWER,

@@ -2,8 +2,9 @@
 
 `hivemind.guard.policy.evaluate` runs the floors first (ADR-0039: "floors, the access-level
 ceiling, the deny list, then the held set"), because a floor refuses whatever the principal holds.
-`FLOORS` is their one order, hardest and cheapest first: the Hive's own state (ADR-0041: a bee
-never touches it, on any Cell, at any tier), then who may start Night Veil work at all, then what
+`FLOORS` is their one order, hardest and cheapest first: who may act at a human-only point at all
+(codingrules 15: only the human absconds), the Hive's own state (ADR-0041: a bee never touches it,
+on any Cell, at any tier), then who may start Night Veil work at all, then what
 Night Veil work may do, then tier inheritance. `floor_refusal` walks the list and returns the
 first refusal, so an action one floor refuses is never asked of another, and the trail records one
 rule per denial.
@@ -25,6 +26,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.guard.policy.floors.hive_state import hive_state_floor
+from hivemind.guard.policy.floors.human_only import human_only_floor
 from hivemind.guard.policy.floors.inheritance import inheritance_floor
 from hivemind.guard.policy.floors.initiation import initiation_floor
 from hivemind.guard.policy.floors.night_veil import night_veil_floor
@@ -36,6 +38,7 @@ __all__ = ["FLOORS", "floor_refusal"]
 
 # The floors, hardest and cheapest first (module docstring): the first to refuse decides.
 FLOORS: tuple[Floor, ...] = (
+    human_only_floor,
     hive_state_floor,
     initiation_floor,
     night_veil_floor,
