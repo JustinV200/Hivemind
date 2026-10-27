@@ -28,9 +28,10 @@ segment and goes online. What is new is only what makes it a Night Veil Cell's:
   provisioning. It does not send a Drone to look into its own Tor circuit (no reconnect budget).
 
 When Tor answers again the Queen, who detached the Warden when its connection ended, takes it back
-as a Warden she has had before (`warden.reconnected`). What is not built: she does not resume the
-tasks of a Virtual Cell that clustered fully (a device's come back through the swarm gate's hold);
-they wait for a fresh `TaskAssign`.
+as a Warden she has had before (`warden.reconnected`). Its first Heartbeat past OFFLINE settles
+how the cut ended: a Warden that clustered fully says CLUSTERED, and she resumes its tasks from the
+Handoff she can recall (`hivemind.queen.cluster.returned`); a device's come back through the swarm
+gate's hold.
 
 ## Public API
 

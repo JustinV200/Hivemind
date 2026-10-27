@@ -998,15 +998,17 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   no taint ledger. A real `hive run` readies no PROPOLIS or NIGHT_VEIL Virtual Cell: there is no
   Queen-side session to a Virtual Cell, the templates are MEADOW only, the Docker backend grants
   `NET_ADMIN` only to VPN_TOR, no PROPOLIS image ships, the Night Veil image's changes from wave 5D
-  are unbuilt here (no Tor Browser download) and its torrc has no DNSPort. A Virtual Cell that
-  clustered fully gets no resume from the Queen when it returns. `TaskNeeds.survives_link_loss` is
+  are unbuilt here (no Tor Browser download) and its torrc has no DNSPort. ~~A Virtual Cell that
+  clustered fully gets no resume from the Queen when it returns.~~ (Closed 2026-10-27:
+  `queen/cluster/returned.py`, ADR-0053's last amendment.) `TaskNeeds.survives_link_loss` is
   not carried by the Entrance goal API or the remote CLI. `control.queen_moved` carries no TLS pin
   (13.2a). The packet installs `hivemind` without the browser extra, so a device has no browser
   launcher; a Cell Warden's ears go through an unmetered gate (codingrules 8.10). A colonized
   Warden is not woken by a link change (it notices on its next beat). The dispatcher's
   placement-failure record names `night_veil_initiation` for a task that does cite a request.
-  `pause_on_warden` still waits on the Queen's own Bee Bread for a checkpoint a device Warden never
-  writes there. Tool eligibility and the Nuc decision do not read the platform report yet.
+  ~~`pause_on_warden` still waits on the Queen's own Bee Bread for a checkpoint a device Warden
+  never writes there.~~ (Closed 2026-10-27: it waits for her checkpoint or the bee's HANDOFF
+  deposit to change.) Tool eligibility and the Nuc decision do not read the platform report yet.
   `ReconnectingQueenLink.close()` does not wake a redial asleep between attempts: its receive task
   ends after that wait (at most 30 s) without dialing again. The liveness sweep's
   `CELL_UNREACHABLE` reaches the human's inbox and chat with no `alarm.raised` or `alarm.escalated`

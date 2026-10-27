@@ -313,3 +313,24 @@ checkpoint is on the device), and one that did carry one stops waiting at once, 
 bee's newest deposit has reached her, in which case the recall sees the deposit before it. Having
 the wait recognise a recallable Handoff, or the Warden's own `CHECKPOINTED` progress, would close
 both, and is the next step if it shows. The Honey Store still has no taint ledger.
+
+## Amendment (2026-10-27): the pause sees the deposit, and a Virtual Cell that clustered fully is resumed
+
+**The pause waits for a checkpoint it can see.** `pause_on_warden` now notes, before it sends the
+`Intervene(HANDOFF)`, the newest Handoff she holds for the task and the newest HANDOFF Nectar the
+task's bee deposited from its Cell, and waits for either to change. A colonized device's bee is
+seen handing off the moment its deposit lands, instead of waiting out the move's patience, and an
+older Handoff she holds no longer ends the wait before the bee has checkpointed. Which of the two
+the task resumes from is still the recall's to decide.
+
+**A Warden back from a cut that clustered fully gets its resume.** A Warden whose link stays down
+past `max_offline_s` clusters fully and waits for a fresh `TaskAssign`; a device's tasks come back
+through the swarm gate's hold, which a Virtual Cell (a Night Veil Cell's Warden redialling Tor) has
+no counterpart of, so its tasks sat RUNNING with no bee. A reconnection now marks the Warden
+returned (`DispatchBook.returned`), and its first Heartbeat past OFFLINE settles it: CLUSTERED means
+every task the chamber has RUNNING on it with no sub-bee row, on a Cell no hold covers, is paused
+and resumed through `resume_paused` from what `recall_handoff` returns, with one `queen.decided`
+(`resumed_after_cut`) naming them. Any other state ends the check, so a later Heartbeat (one sent
+before the Warden read the resume, or the Queen's own Clustering) never resumes a task twice
+(`hivemind.queen.cluster.returned`). A Night Veil Cell's Handoffs are never recalled, so its tasks
+resume from nothing the Queen holds; the Warden's own store still has the Handoff the bee wrote.

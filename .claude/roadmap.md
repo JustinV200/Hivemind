@@ -1748,9 +1748,11 @@ isolation (Queen-only), `docs/entrance/`, `hive entrance` and `hive keys` CLI.
   (told to the Cell as `HIVEMIND_MAX_OFFLINE_S`, since a Cell has no manifest), and is taken back
   by the Queen as a reconnection when Tor answers again. `tests/e2e/test_night_veil_tor_loss.py`
   stops a fake Tor under a working Cell, and `tests/unit/cli/in_cell/test_main_night_veil_redial.py`
-  does so at the entry point. Left for a later step: the Queen does not resume the tasks of a
+  does so at the entry point. The Queen now resumes the tasks of a
   Virtual Cell that clustered fully when it returns (a device's come back through the swarm gate's
-  hold, which has no Virtual counterpart), so such a task waits for a TaskAssign she does not send.
+  hold, which has no Virtual counterpart): its first Heartbeat past OFFLINE after the reconnection
+  says CLUSTERED, and she resumes from the recalled Handoff (`queen/cluster/returned.py`, ADR-0053's
+  2026-10-27 amendment).
 - [x] **10.3b Tier inheritance enforcement.** Dispatch binds a task to the target Cell's
   `CombShieldLevel`; no runtime path may weaken controls after placement. A task moved between
   Cells is re-evaluated and re-bound to the new Cell's tier before resume.
