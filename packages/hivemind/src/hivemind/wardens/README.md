@@ -96,6 +96,13 @@ Warden never provisions Cells itself.
   fallback binding on unparseable output) into `hivemind.supervision.capping.JudgeAnswerError`
   instead of letting it propagate; `ProviderUnavailableError`/`RateLimitedError` are left
   unchanged, since those are outages Clustering handles, not an answer failure.
+- `wardens.nurse` (ADR-0061): `ModelNurseReviewer`, the model-backed `NurseReviewer`
+  (`hivemind.supervision.capping.NurseReviewer`) for the Nurse Bee's fresh-context review of an
+  attempt. `worker_strength` reads the Worker's grade from its bindings and its `llm.call` events
+  (spill included); `nurse_chain` keeps only the `JUDGE` links at or above it that fit the prompt
+  and the task's spend left, another provider first. No eligible link is an UNAVAILABLE ("not
+  nursed") answer; a malformed, refused or over-long reply is `NurseAnswerError`; an outage
+  propagates.
 - `wardens.inbox`: `to_inbox_item`, `warden_attendant` -- the Warden's own Attendant.
 - `wardens.local_pool`: `SubBeeSlots` (renamed from `LocalPool` in roadmap step 4.7, since
   codingrules 6.1 now gives `LocalPool` to `hivemind.forage`) -- a bare sub-bee-slot counter

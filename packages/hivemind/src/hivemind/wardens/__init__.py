@@ -57,6 +57,8 @@ Public API (roadmap steps 3.18, 3.19):
       CappingGate calls through (roadmap step 4.10; judge).
     - AuditingCappingGate: the CappingGate that samples a terminal proposal for after-the-fact
       judge review (roadmap step 4.10; spawn.audited_gate).
+    - ModelNurseReviewer, WorkerStrength, worker_strength: the model-backed Nurse Bee and the
+      Worker grade it is held against (ADR-0061; nurse).
 """
 
 from hivemind.wardens.acceptance import AcceptanceReport, run_acceptance
@@ -72,6 +74,7 @@ from hivemind.wardens.errors import (
 from hivemind.wardens.inbox import to_inbox_item, warden_attendant
 from hivemind.wardens.judge import JUDGE_OUTPUT_TOKENS, ModelJudgeReviewer
 from hivemind.wardens.local_pool import SubBeeSlots
+from hivemind.wardens.nurse import ModelNurseReviewer, WorkerStrength, worker_strength
 from hivemind.wardens.requests import (
     CellRequestInputs,
     ForageRequestInputs,
@@ -102,6 +105,7 @@ __all__ = [
     "InvalidWardenTransitionError",
     "LocalPoolExhaustedError",
     "ModelJudgeReviewer",
+    "ModelNurseReviewer",
     "SubBee",
     "SubBeeSlots",
     "SubBeeView",
@@ -114,6 +118,7 @@ __all__ = [
     "WardenDeps",
     "WardenError",
     "WardenState",
+    "WorkerStrength",
     "assert_transition",
     "can_transition",
     "cell_request",
@@ -126,4 +131,5 @@ __all__ = [
     "to_inbox_item",
     "tool_request",
     "warden_attendant",
+    "worker_strength",
 ]
