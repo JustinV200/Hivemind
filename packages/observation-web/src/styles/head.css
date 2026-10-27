@@ -5,10 +5,12 @@
  * bar is one 48px row of the hive's chrome with a comb across its empty middle from the rail
  * width; the strip is four comb cells in one row (two by two on a phone, where each cell is two
  * lines, the label with its hint and the number, so the band holds the 116px the tokens budget
- * and the pinned head stays under a quarter of the screen), set 4px apart so they read as one
- * row of comb rather than four boxes; the notice bar under it says what the push stream reports
- * as waiting. The head's height changes as the banner and the notice bar come and
- * go, which is why the rail reads it as `--head-h` rather than assuming the bar plus the strip.
+ * and the pinned head stays under a quarter of the screen; while a stream is down the cells give
+ * up 2px of padding each, which is what the stale note's line needs to fit the same band), set
+ * 4px apart so they read as one row of comb rather than four boxes; the notice bar under it says
+ * what the push stream reports as waiting. The head's height changes as the banner and the
+ * notice bar come and go, which is why the rail reads it as `--head-h` rather than assuming the
+ * bar plus the strip.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
@@ -143,8 +145,11 @@
   clip-path: var(--hex-cut);
 }
 
+/* The label's line is as tight as the number's, so a cell is 46px and two rows leave the band
+   room for the stale note */
 .strip-label {
   font-size: var(--fs-xs);
+  line-height: var(--lh-heading);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -162,10 +167,20 @@
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
+/* The stale note: a third row of the phone's band, its line as tall as its type; the cells above
+   it give up 2px of padding each, so two 42px cells, two 4px gaps, a 12px line and the band's
+   8px of padding make 113px, inside the 116px budget, and the head's height holds */
 .strip-stale {
   grid-column: 1 / -1;
   font-size: var(--fs-xs);
+  line-height: 1;
   color: var(--warn);
+}
+
+.strip--stale .strip-group {
+  min-height: 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 /* Notice bar: what the push stream says is waiting, under the strip */
@@ -231,7 +246,9 @@
     max-width: calc(var(--rail-w) + 1440px);
   }
 
-  .strip-group {
+  /* One row holds the note at its right edge, so the cells keep their padding while stale */
+  .strip-group,
+  .strip--stale .strip-group {
     padding: var(--sp-1) var(--sp-4);
   }
 
