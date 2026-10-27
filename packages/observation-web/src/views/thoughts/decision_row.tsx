@@ -26,7 +26,7 @@ export function DecisionRow(props: { decision: DecisionView }): ReactElement {
   return (
     <article className="thought-decision" aria-label="Autopilot decision">
       <TimeStamp at={d.at} />
-      <span className="thought-tag">Autopilot decision</span>
+      <span className="tag">Autopilot decision</span>
       <code>{d.kind}</code>
       {d.action ? <strong>{d.action}</strong> : null}
       {d.reason ? (

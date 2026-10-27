@@ -35,7 +35,9 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
       <div className="att-entry-body">
         <div className="att-row">
           <span className="att-kind">{kindWord(entry.kind)}</span>
-          {entry.severity ? <span className="att-tag">{entry.severity}</span> : null}
+          {entry.severity ? (
+            <span className="tag tag--status tag--alarm">{entry.severity}</span>
+          ) : null}
           <IdToken id={entry.id} />
           <span className="att-score">
             score <strong>{Number(entry.score.toFixed(2))}</strong>

@@ -2,8 +2,9 @@
  * `Panel`, `Tag` and `NotTracked`: the three small pieces every Cell page panel is built from.
  *
  * A panel is a labelled section with a heading, so a screen reader can jump between them and the
- * page reads as a list of facts rather than a wall. A tag is a short word in a tone; the word is
- * the content and the tone only echoes it, so colour is never the only signal. `NotTracked` is
+ * page reads as a list of facts rather than a wall. A tag is a short word in a tone (the shared
+ * status tag of components.css); the word is the content and the tone only echoes it, so colour
+ * is never the only signal. `NotTracked` is
  * how a field the schema documents as "null until a later phase" is shown: as words, in place of
  * the row, never by dropping the row.
  *
@@ -35,7 +36,7 @@ export function Panel(props: { id: string; title: string; children: ReactNode })
 }
 
 export function Tag(props: { tone: TagTone; children: ReactNode }): ReactElement {
-  return <span className={`cell-tag cell-tag--${props.tone}`}>{props.children}</span>;
+  return <span className={`tag tag--status tag--${props.tone}`}>{props.children}</span>;
 }
 
 export function NotTracked(): ReactElement {

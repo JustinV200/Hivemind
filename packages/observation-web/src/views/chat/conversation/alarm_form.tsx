@@ -43,7 +43,8 @@ export function AlarmForm(props: { alarm: AlarmView; actions: ChatActions }): Re
   return (
     <div className="chat-form">
       <p className="chat-alarm-facts">
-        <span className="chat-tag chat-tag--alarm">{alarm.severity}</span> <code>{alarm.kind}</code>
+        <span className="tag tag--status tag--alarm">{alarm.severity}</span>{' '}
+        <code>{alarm.kind}</code>
       </p>
       <div className="chat-row">
         <button type="button" className="button" disabled={busy} onClick={() => void acknowledge()}>

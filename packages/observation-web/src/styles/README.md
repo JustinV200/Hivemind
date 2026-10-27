@@ -9,7 +9,8 @@ screen-reader-only block; `shell.css` the shell grid, the sticky head and the na
 and desktop widths, the rail sized under the head's measured height, the nav's focus ring in the
 chrome accent; `head.css` the head's parts, the top bar with its comb and its own chrome-accent
 focus ring, the step-up banner, the summary strip as one row of comb cells sharing the band and
-the notice bar; `components.css` the badges, status dot (with its pulse), gauge, notices, the
+the notice bar; `components.css` the badges, the one `.tag` every view's short labels share
+(`.tag--status` for a status word in its tone), status dot (with its pulse), gauge, notices, the
 mark, the comb pattern, the shared `--hex-cut` clip, the `.comb-cell` every panel and form
 carries (the cut with a stroked ring, `--hex-ring`, since a border would stop at each chamfer)
 and the `.section-heading` every panel and top-level section heading carries (the one hairline

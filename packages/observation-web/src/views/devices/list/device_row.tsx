@@ -83,8 +83,18 @@ export function DeviceRow(props: {
     <tr>
       <td data-label="Device">
         <strong>{device.name}</strong>
-        {props.isSelf ? <span className="devices-tag">this device</span> : null}
-        {device.loopback_bound ? <span className="devices-tag">Hive Stand</span> : null}
+        {props.isSelf ? (
+          <>
+            {' '}
+            <span className="tag">this device</span>
+          </>
+        ) : null}
+        {device.loopback_bound ? (
+          <>
+            {' '}
+            <span className="tag">Hive Stand</span>
+          </>
+        ) : null}
       </td>
       <td data-label="Standing">
         <span className={`devices-status devices-status--${device.status.toLowerCase()}`}>

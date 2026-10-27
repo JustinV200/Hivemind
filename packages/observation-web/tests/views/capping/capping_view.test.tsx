@@ -69,7 +69,7 @@ describe('the queue', () => {
     expect(rolled.getByText('rolled back, restored by SNAPSHOT')).toBeTruthy();
     const refused = within(rowOf('prop_rej'));
     // The state and the gate's verdict both read REJECTED.
-    expect(refused.getAllByText('REJECTED', { selector: '.capping-tag' })).toHaveLength(2);
+    expect(refused.getAllByText('REJECTED', { selector: '.tag' })).toHaveLength(2);
     expect(refused.getByText('failed check allowlist')).toBeTruthy();
     expect(refused.getAllByText('-').length).toBeGreaterThan(0);
     // A proposal still waiting has no verdict, reason or rollback to show.
@@ -250,7 +250,7 @@ describe('live frames', () => {
     });
     const row = within(rowOf('prop_wait'));
     // Both the state and the verdict now read CAPPED.
-    expect(row.getAllByText('CAPPED', { selector: '.capping-tag' })).toHaveLength(2);
+    expect(row.getAllByText('CAPPED', { selector: '.tag' })).toHaveLength(2);
     expect(row.getByText('3 checks passed')).toBeTruthy();
     // The newest change is now first, and the chip counts followed.
     expect(order(queue().getByRole('table'))[0]).toBe('prop_wait');

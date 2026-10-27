@@ -38,7 +38,7 @@ export function Waiting(props: { state: ChatState; actions: ChatActions }): Reac
             <article aria-label="Queen, Question">
               <header className="chat-line-head">
                 <strong>Queen</strong>
-                <span className="chat-tag chat-tag--question">Question</span>
+                <span className="tag tag--status tag--warn">Question</span>
                 <TimeStamp at={question.asked_at} />
               </header>
               <p className="chat-text">{question.text}</p>
@@ -52,7 +52,7 @@ export function Waiting(props: { state: ChatState; actions: ChatActions }): Reac
             <article aria-label="Queen, Alarm">
               <header className="chat-line-head">
                 <strong>Queen</strong>
-                <span className="chat-tag chat-tag--alarm">Alarm</span>
+                <span className="tag tag--status tag--alarm">Alarm</span>
                 <TimeStamp at={alarm.raised_at} />
               </header>
               <p className="chat-text">{alarm.detail}</p>

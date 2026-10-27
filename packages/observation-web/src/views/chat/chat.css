@@ -77,24 +77,6 @@
   color: var(--text);
 }
 
-.chat-tag {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-  color: var(--text);
-}
-
-.chat-tag--alarm {
-  border-color: var(--alarm);
-  color: var(--alarm);
-}
-
-.chat-tag--question {
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
 .chat-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

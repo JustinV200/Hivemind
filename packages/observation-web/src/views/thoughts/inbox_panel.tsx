@@ -39,7 +39,7 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
     <li className="inbox-entry">
       <span className="inbox-rank">{rank}</span>
       <span className="inbox-kind">{entry.kind}</span>
-      {entry.severity ? <span className="thought-tag">{entry.severity}</span> : null}
+      {entry.severity ? <span className="tag tag--status tag--alarm">{entry.severity}</span> : null}
       <IdToken id={entry.id} />
       <span className="inbox-score">
         score <strong>{entry.score}</strong>

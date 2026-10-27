@@ -23,6 +23,13 @@ import { Fact } from './fact';
 
 type WaxFields = Pick<ItemSummary, 'kind' | 'severity' | 'proposer' | 'expires_at'>;
 
+// A severity's tone for the shared status tag; the word carries the weight, the tone echoes it.
+const SEVERITY_TONE: Readonly<Record<string, 'warn' | 'alarm' | 'idle'>> = {
+  BLOCK: 'alarm',
+  CAUTION: 'warn',
+  NOTE: 'idle',
+};
+
 export function WaxFacts(props: { item: WaxFields }): ReactElement | null {
   const { kind, severity, proposer, expires_at } = props.item;
   // Only wax notes have a weight, a proposer and an expiry; nothing is invented for the rest.
@@ -31,7 +38,7 @@ export function WaxFacts(props: { item: WaxFields }): ReactElement | null {
     <p className="honey-wax">
       {severity ? (
         <Fact label="Severity">
-          <span className={`honey-severity honey-severity--${severity.toLowerCase()}`}>
+          <span className={`tag tag--status tag--${SEVERITY_TONE[severity] ?? 'idle'}`}>
             {severity}
           </span>
         </Fact>

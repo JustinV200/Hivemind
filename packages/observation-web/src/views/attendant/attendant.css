@@ -115,15 +115,6 @@
   font-weight: 700;
 }
 
-.att-tag {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--alarm);
-  border-radius: var(--radius-tag);
-  color: var(--alarm);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-}
-
 .att-reasons {
   margin: 0;
   padding-left: var(--sp-4);

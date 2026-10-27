@@ -226,23 +226,6 @@
   border-left-color: var(--alarm);
 }
 
-/* Cell Wax severity: a word in a tag, the border carries the weight */
-.honey-severity {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-weight: 700;
-}
-
-.honey-severity--caution {
-  border-color: var(--warn);
-}
-
-.honey-severity--block {
-  border-color: var(--alarm);
-  border-width: 2px;
-}
-
 /* Search */
 .honey-search form {
   display: flex;

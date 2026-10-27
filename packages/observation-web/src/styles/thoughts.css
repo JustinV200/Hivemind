@@ -74,35 +74,6 @@
   gap: var(--sp-2);
 }
 
-.thought-tag {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-}
-
-.thought-tag--kind {
-  font-family: var(--font-mono);
-  border-color: var(--border-soft);
-}
-
-.thought-tag--kind .thought-label {
-  font-family: var(--font-sans);
-}
-
-/* Taint is a status, so it borrows the status colours: refused reads as an alarm, cleared as
-   a caution whose history is kept. The word carries the meaning; the colour only underlines it. */
-.thought-tag--tainted {
-  border-color: var(--alarm);
-  color: var(--alarm);
-  font-weight: 700;
-}
-
-.thought-tag--cleared {
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
 .thought-trigger,
 .thought-reasoning {
   margin: 0;

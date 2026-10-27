@@ -36,7 +36,7 @@ function Finding(props: { audit: AuditRow }): ReactElement {
     );
   }
   const tone = outcome === 'REJECT' ? 'alarm' : outcome === 'APPROVE' ? 'ok' : 'warn';
-  return <span className={`capping-tag capping-tag--${tone}`}>{wordsOf(outcome)}</span>;
+  return <span className={`tag tag--status tag--${tone}`}>{wordsOf(outcome)}</span>;
 }
 
 export function AuditsTable(props: { audits: readonly AuditRow[] }): ReactElement {

@@ -64,7 +64,7 @@ const STATE_TONE: Readonly<Record<ProposalState, Tone>> = {
 };
 
 function Tag(props: { tone: Tone; children: string }): ReactElement {
-  return <span className={`capping-tag capping-tag--${props.tone}`}>{props.children}</span>;
+  return <span className={`tag tag--status tag--${props.tone}`}>{props.children}</span>;
 }
 
 function Row(props: { row: QueueRow }): ReactElement {

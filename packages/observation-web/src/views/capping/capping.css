@@ -1,11 +1,13 @@
 /*
- * Capping view styles: the filter chips, the rates strip, the tables and their phone-width cards.
+ * Capping view styles: the filter chips and selects, the rates strip, the tables and their
+ * phone-width cards.
  *
- * Mobile first (design.md section 2): everything is one column at 360 px. The rate cards wrap into
+ * Mobile first (design.md section 2): everything is one column at 360 px, where each filter group
+ * is one select (the chips would take six rows before any content). The rate cards wrap into
  * as many columns as fit. Under 1280 px a table row becomes a stacked card whose cells keep their
  * labels (from `data-label`) and the header row is hidden behind the shared "Sort by" control, so
  * nothing needs width and the page never scrolls sideways. A state, a verdict and a finding are a
- * word in a tag; the tag's colour only adds to the word.
+ * word in the shared status tag (components.css); the tag's colour only adds to the word.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/`. Imported by `capping_screen.tsx`. Class names
@@ -106,33 +108,6 @@
 .capping-figure dd {
   margin: 0;
   text-align: right;
-}
-
-/* Tags: a word with an outline in the status colour */
-.capping-tag {
-  display: inline-block;
-  padding: 0 var(--sp-2);
-  border: 1px solid currentcolor;
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.capping-tag--ok {
-  color: var(--ok);
-}
-
-.capping-tag--warn {
-  color: var(--warn);
-}
-
-.capping-tag--alarm {
-  color: var(--alarm);
-}
-
-.capping-tag--idle {
-  color: var(--idle);
 }
 
 /* Tables, as cards first */

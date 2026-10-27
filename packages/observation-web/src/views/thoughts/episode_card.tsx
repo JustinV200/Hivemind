@@ -72,12 +72,14 @@ function Usage(props: { episode: EpisodeView }): ReactElement {
 }
 
 // A labelled record is marked where the clearance is, so nobody reads a tainted thought without
-// seeing it; a cleared one keeps its history visible too (codingrules 8.11). Null renders nothing.
+// seeing it; a cleared one keeps its history visible too (codingrules 8.11). Taint is a status,
+// so the tag takes the status tones: refused reads as an alarm, cleared as a caution whose
+// history is kept; the word carries the meaning. Null renders nothing.
 function TaintTag({ episode }: { episode: EpisodeView }): ReactElement | null {
   if (episode.taint === null) return null;
   const source = episode.taint_source !== null ? ` (${episode.taint_source})` : '';
   return (
-    <span className={`thought-tag thought-tag--${episode.taint}`}>
+    <span className={`tag tag--status tag--${episode.taint === 'tainted' ? 'alarm' : 'warn'}`}>
       {episode.taint === 'tainted' ? 'TAINTED' : 'CLEARED'}
       {source}
     </span>
@@ -94,11 +96,12 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
       <header className="thought-head">
         <TimeStamp at={e.at} />
         <IdToken id={e.id} />
-        <span className="thought-tag">{e.is_autopilot ? 'Autopilot' : 'Awake'}</span>
-        <span className="thought-tag">{e.clearance}</span>
+        <span className="tag">{e.is_autopilot ? 'Autopilot' : 'Awake'}</span>
+        <span className="tag">{e.clearance}</span>
         <TaintTag episode={e} />
-        <span className="thought-tag thought-tag--kind">
-          <span className="thought-label">trigger</span> {e.trigger_kind}
+        <span className="tag">
+          <span className="thought-label">trigger</span>
+          <span className="mono">{e.trigger_kind}</span>
         </span>
       </header>
       <p className="thought-trigger">{e.trigger_summary}</p>

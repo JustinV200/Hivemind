@@ -1,11 +1,13 @@
 /*
- * Component styles for the Observation Hive: badges, status dot, gauge, notices, sort control,
- * mark, comb pattern, the comb cell and the section heading.
+ * Component styles for the Observation Hive: badges, the tag, status dot, gauge, notices, sort
+ * control, mark, comb pattern, the comb cell and the section heading.
  *
  * Tier and mask badges are told apart by shape as well as colour (design.md section 3.3): a tier
  * is a fully rounded pill, bold; a mask is a square tag with a small square glyph, regular weight.
  * Each is drawn with a 2px border in its own text colour, which separates a pale badge from a
- * pale surface. The gauge fill and status dot take their colour from the status tokens; the
+ * pale surface. The tag is the one short label beside a name in every view: quiet (the comb
+ * surface with a soft outline) for a kind, a clearance or a place, so it never reads as a button,
+ * and outlined in its tone's colour for a status word. The gauge fill and status dot take their colour from the status tokens; the
  * gauge's end is cut like a comb cell. The hex cut (`--hex-cut`) is the one clip every
  * hex-cornered card shares, and `.comb-cell` the panel that carries it with a stroke: a CSS
  * border is clipped away along a chamfer, so the stroke is a 1px ring (`--hex-ring`) drawn under
@@ -152,6 +154,52 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* The tag (design.md 4.1): a short word beside a name, in the Fleet's quiet look (the comb
+   surface, a soft outline), so a static label is never taken for a button, which is outlined in
+   --border on --surface. A status word (a state, a verdict, a severity, a taint) is
+   `.tag--status`: bold, outlined in its tone, with the word carrying the meaning. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* An id or a code word inside a tag keeps the tag's size */
+.tag .mono,
+.tag code {
+  font-size: inherit;
+}
+
+.tag--status {
+  background: transparent;
+  border-color: currentcolor;
+  font-weight: 700;
+}
+
+.tag--ok {
+  color: var(--ok);
+}
+
+.tag--warn {
+  color: var(--warn);
+}
+
+.tag--alarm {
+  color: var(--alarm);
+}
+
+.tag--idle {
+  color: var(--idle);
 }
 
 .badge-until {

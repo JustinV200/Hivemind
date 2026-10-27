@@ -94,15 +94,6 @@
   gap: var(--sp-2);
 }
 
-.devices-tag {
-  margin-left: var(--sp-2);
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
-
 .devices-status {
   font-weight: 700;
   white-space: nowrap;
