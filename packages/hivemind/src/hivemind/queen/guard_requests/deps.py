@@ -36,7 +36,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from hivemind.hive import CellEgress
-from hivemind.manifest import DEFAULT_DIRE_PATTERNS, DEFAULT_STING_CUT_PATTERNS
+from hivemind.manifest import (
+    DEFAULT_DIRE_PATTERNS,
+    DEFAULT_MAX_AUTONOMOUS_STING_CUTS_PER_HOUR,
+    DEFAULT_STING_CUT_PATTERNS,
+)
 from hivemind.queen.guard_requests.memory import InMemoryGuardRequestStore
 from hivemind.queen.guard_requests.protocol import GuardRequestStore
 
@@ -48,7 +52,6 @@ if TYPE_CHECKING:
 # from a Virtual Cell; five seconds bounds the Queen's tick well inside the liveness window
 # (three missed five-second heartbeats) while giving a slow Cell a real chance to answer.
 DEFAULT_PAUSE_TIMEOUT_S = 5.0
-DEFAULT_STING_CUTS_PER_HOUR = 2  # `[guard.sting_cut] max_autonomous_sting_cuts_per_hour`'s default.
 
 __all__ = ["DEFAULT_PAUSE_TIMEOUT_S", "GuardDeps"]
 
@@ -77,7 +80,7 @@ class GuardDeps:
     pause_timeout_s: float = DEFAULT_PAUSE_TIMEOUT_S
     show_lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False)
     sting_cut_patterns: frozenset[str] = frozenset(DEFAULT_STING_CUT_PATTERNS)
-    max_sting_cuts_per_hour: int = DEFAULT_STING_CUTS_PER_HOUR
+    max_sting_cuts_per_hour: int = DEFAULT_MAX_AUTONOMOUS_STING_CUTS_PER_HOUR
     cut: CellCut | None = None
 
     def __post_init__(self) -> None:

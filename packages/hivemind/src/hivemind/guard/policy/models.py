@@ -54,6 +54,7 @@ from waggle.ids import IdKind
 from waggle.messages.base import check_id
 
 OPERATOR_ID = "human"  # The operator's principal id: the trail's own literal for the person.
+OPERATOR_ROLE = "operator"  # The [roles.operator] table: the human's own set, the root of all.
 _ROLE_PATTERN = r"^[a-z][a-z_]*$"  # A policy role name: a lowercase `[guard.roles]` key.
 _MAX_ROLE_CHARS = 64  # Role names are short keys ("guard_bee"), never prose.
 _MAX_RULE_CHARS = 128  # A rule id is a short dotted name ("guard.tier_floor.night_veil_location").
@@ -64,6 +65,7 @@ _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")
 
 __all__ = [
     "OPERATOR_ID",
+    "OPERATOR_ROLE",
     "EscalationAction",
     "PolicyContext",
     "PolicyDecision",

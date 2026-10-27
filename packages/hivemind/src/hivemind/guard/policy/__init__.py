@@ -36,8 +36,8 @@ See Also:
 
 Public API:
     - EnforcementPoint: every named place an action is authorised (points).
-    - PrincipalKind, PrincipalRef, OPERATOR_ID, PolicyContext, PolicyRequest, EscalationAction,
-      PolicyDecision: the request and the answer (models).
+    - PrincipalKind, PrincipalRef, OPERATOR_ID, OPERATOR_ROLE, PolicyContext, PolicyRequest,
+      EscalationAction, PolicyDecision: the request and the answer (models).
     - ControlLink, GoalRequestFacts: the facts a floor reads that only a point knows (facts).
     - GuardPolicy, RoleDefaults, POLICY_ROLES, WARDEN_ROLE, DEVICE_ROLE: the checked policy
       (table).
@@ -76,6 +76,7 @@ from hivemind.guard.policy.facts import ControlLink, GoalRequestFacts
 from hivemind.guard.policy.hive_state import HiveState, comparable_path
 from hivemind.guard.policy.models import (
     OPERATOR_ID,
+    OPERATOR_ROLE,
     EscalationAction,
     PolicyContext,
     PolicyDecision,
@@ -105,6 +106,7 @@ __all__ = [
     "NOT_ACTIONS",
     "NOT_HELD_RULE",
     "OPERATOR_ID",
+    "OPERATOR_ROLE",
     "PENDING_POINTS",
     "POLICY_ROLES",
     "QUEEN_ROLE",

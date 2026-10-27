@@ -47,10 +47,9 @@ from hivemind.guard import (
     PrincipalRef,
     role_set,
 )
-from hivemind.guard.policy import OPERATOR_ID
+from hivemind.guard.policy import OPERATOR_ID, OPERATOR_ROLE
 from hivemind.manifest import HiveManifest
 
-OPERATOR_ROLE = "operator"  # The [roles.operator] table: the only role holding `abscond`.
 REAUTH_METHOD = "operator_password"  # How the human proved themselves, for the trail.
 PHRASE = BREAK_GLASS_PHRASES[ActionKind.ABSCOND]  # What the human types: "abscond my hive".
 

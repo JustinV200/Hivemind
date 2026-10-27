@@ -43,7 +43,7 @@ from hivemind.guard import (
     queen_principal,
     role_set,
 )
-from hivemind.guard.policy import OPERATOR_ID
+from hivemind.guard.policy import OPERATOR_ID, OPERATOR_ROLE
 from hivemind.queen.isolation.order import IsolationOrder, IsolationRefusal, Isolator
 from hivemind.queen.placement import RealCandidate, rules
 
@@ -53,12 +53,10 @@ if TYPE_CHECKING:
 
 HIVE_STAND_SOURCE = "hive_stand"  # The Hive Stand's Cell source, as placement's snapshot reads it.
 HIVE_STAND_SCOPE = "hive_stand"  # The rule suffix for the Queen reaching for the Hive Stand.
-OPERATOR_ROLE = "operator"  # The [roles.operator] table: the human's own set, the root of all.
 
 __all__ = [
     "HIVE_STAND_SCOPE",
     "HIVE_STAND_SOURCE",
-    "OPERATOR_ROLE",
     "authorize_isolation",
     "cell_capability",
     "is_hive_stand",

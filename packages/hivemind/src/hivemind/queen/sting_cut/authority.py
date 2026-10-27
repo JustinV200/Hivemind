@@ -11,7 +11,7 @@ alone (rule `guard.scope.hive_stand`), and the Queen past `max_autonomous_sting_
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
     sting_cut sub-package. Called by `hivemind.queen.sting_cut.path` before anything is cut.
-    Calls into `hivemind.guard`, `hivemind.queen.isolation` (OPERATOR_ROLE) and the
+    Calls into `hivemind.guard`, `hivemind.guard.policy` (OPERATOR_ID, OPERATOR_ROLE) and the
     sub-package's own order and record only; `QueenDeps` only for its type.
 
 Key invariants:
@@ -39,8 +39,7 @@ from hivemind.guard import (
     queen_principal,
     role_set,
 )
-from hivemind.guard.policy import OPERATOR_ID
-from hivemind.queen.isolation.authority import OPERATOR_ROLE
+from hivemind.guard.policy import OPERATOR_ID, OPERATOR_ROLE
 from hivemind.queen.sting_cut.order import Cutter, StingCutOrder, StingCutRefusal
 from hivemind.queen.sting_cut.record import queen_cuts_in_window
 
