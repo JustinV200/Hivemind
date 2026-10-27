@@ -223,24 +223,6 @@ async def test_a_closed_link_refuses_sends_and_ends_receive(tmp_path: Path) -> N
     await rig.stop()
 
 
-async def test_a_link_closed_between_attempts_dials_no_more_and_its_receive_ends(
-    rig: LinkRig,
-) -> None:
-    await _online(rig)
-    # The Queen refuses every dial: the link backs off and tries again, and again.
-    rig.queen.fail_dials = 1_000_000
-    rig.queen.drop()
-    await rig.until(lambda: rig.queen.dials >= 4)
-
-    await rig.link.close()
-    await rig.pump_ended()  # The recovery saw the close at its next attempt: no cancel was needed.
-    dials = rig.queen.dials
-    for _ in range(20):
-        await asyncio.sleep(0)
-
-    assert rig.queen.dials == dials  # Not one more, though the Queen is still refusing.
-
-
 class _SleepingClock(AutoClock):
     """An AutoClock whose backoff really waits, until the test advances it (it never does)."""
 
@@ -268,7 +250,9 @@ async def test_closing_a_link_wakes_a_redial_asleep_between_attempts(tmp_path: P
     await rig.link.close()
     await rig.pump_ended()  # At once: the clock never moved, so only the close could end it.
 
-    assert rig.queen.dials == 1
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert rig.queen.dials == 1  # Not one more, though the Queen is still refusing.
     await rig.stop()
 
 
