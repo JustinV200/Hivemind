@@ -317,8 +317,8 @@ lease's scratch root:
 | Access level | `granted_capabilities` |
 |---|---|
 | `READ_ONLY` | `fs:read:**` and `watch:<cell_id>`. A read-only device runs no command at all. |
-| `SCRATCH` | the above, plus `fs:write:{scratch}/**` and `exec:*`. |
-| `FULL` | the above, plus `fs:write:**` and `cell:outside_scratch:**`. |
+| `SCRATCH` | the above, plus `fs:write:{scratch}/**`. No command: a borrowed machine does not contain its processes, so `exec:*` needs `FULL` (ADR-0060). |
+| `FULL` | the above, plus `exec:*`, `fs:write:**` and `cell:outside_scratch:**`. |
 
 These are the guard's per-level grants (`guard/access.py`) cut down to the families a gateway can
 enforce on the machine itself: the others (the network, devices, the peripherals of the Exoskeleton,

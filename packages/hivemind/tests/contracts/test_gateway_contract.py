@@ -413,7 +413,7 @@ async def test_a_read_only_gateway_runs_no_command_and_writes_nothing_but_reads(
         assert data == b"read me" and closing.size_bytes == 7
 
 
-async def test_a_scratch_gateway_runs_commands_and_writes_only_inside_scratch(
+async def test_a_scratch_gateway_runs_no_command_and_writes_only_inside_scratch(
     scratch: Gateway, tmp_path: Path
 ) -> None:
     driver, outside = scratch.driver, tmp_path / "outside.txt"
@@ -421,7 +421,8 @@ async def test_a_scratch_gateway_runs_commands_and_writes_only_inside_scratch(
     async with driver.leased() as lease:
         assert lease.access_level is WireAccess.SCRATCH and lease.allowed_paths == ()
         assert (await driver.put_file(lease, "inside.txt", b"ok")).size_bytes == 2
-        assert (await driver.run_exec(lease, python_argv("print(1)"))).exit.exit_code == 0
+        # A borrowed machine does not contain its processes: commands need FULL (ADR-0060).
+        assert await refused(driver.run_exec(lease, python_argv("print(1)"))) == DENIED
         assert await refused(driver.put_file(lease, str(outside), b"no")) == DENIED
         # A relative path that climbs out of scratch is judged where it lands, not as written.
         assert await refused(driver.put_file(lease, "../escape.txt", b"no")) == DENIED

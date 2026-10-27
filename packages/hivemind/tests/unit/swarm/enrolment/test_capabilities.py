@@ -35,7 +35,8 @@ _WATCH = f"watch:{_CELL}"
 
 _EXPECTED = {
     AccessLevel.READ_ONLY: ("fs:read:**", _WATCH),
-    AccessLevel.SCRATCH: ("exec:*", "fs:read:**", "fs:write:{scratch}/**", _WATCH),
+    # No exec: a borrowed machine does not contain its processes, so commands need FULL (ADR-0060).
+    AccessLevel.SCRATCH: ("fs:read:**", "fs:write:{scratch}/**", _WATCH),
     AccessLevel.FULL: (
         "cell:outside_scratch:**",
         "exec:*",

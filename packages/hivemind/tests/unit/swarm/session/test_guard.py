@@ -101,7 +101,8 @@ async def test_a_command_the_warden_does_not_hold_is_denied_and_recorded_as_guar
 
 async def test_every_needed_capability_is_checked_and_the_first_refusal_stops_the_rest() -> None:
     guard, trail, clock, _warden = _guard(AccessLevel.SCRATCH)
-    command = _command(clock, "exec:ls", "cell:outside_scratch:/etc/passwd", "exec:cat")
+    # SCRATCH holds the read; it runs no command on a borrowed machine (ADR-0060).
+    command = _command(clock, "fs:read:/etc/hosts", "cell:outside_scratch:/etc/passwd", "exec:cat")
 
     with pytest.raises(CommandDeniedError) as raised:
         await guard.authorise(command)
