@@ -12,7 +12,10 @@
  * lane beside it (the gap between rows when wide, between columns when narrow), runs along that
  * lane to the bus, across the bus to the lane beside the waiting task, and in through its side:
  * every node of every layer sits on the same row and column grid, so a lane and a bus never
- * cross a node, whatever layers the line spans or how a layer wraps.
+ * cross a node, whatever layers the line spans or how a layer wraps. Lines into one task each
+ * get a bus and an entry point of their own, and those taking the lanes a lane of their own, a
+ * few units apart, so two of them never run as one; the gap between nodes widens by a lane for
+ * each line a task can receive, which is what keeps the last lane out of the next node.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/attendant/graph/`. Called by `task_graph.tsx`; the
@@ -26,6 +29,8 @@
  *   - An edge naming a task that is not in the graph, a task waiting on itself, and a repeated
  *     edge are dropped: they have nothing to draw between.
  *   - A line never crosses a node: it travels only in the gaps of the grid the nodes are on.
+ *   - Two lines into one task share no segment: their lanes, buses and entries differ.
+ *   - Every node and every point of every line is inside the canvas.
  *
  * See Also:
  *   - docs/observation/design.md section 4.8, for the rules every diagram follows.
@@ -62,8 +67,11 @@ export interface GraphLayout {
 export const NODE_W = 164;
 export const NODE_H = 60; // three 16 unit text lines
 const MARGIN = 12;
-const GAP = 8; // between nodes of a layer, where a line's lane runs
+const GAP = 8; // between nodes of a layer with one lane in it, where a line's lane runs
+const LANE_STEP = 4; // between the lanes of two lines into one task: a 1.5 unit stroke twice over
+const BUS_STEP = 2; // between the buses of two lines into one task
 const LAYER_GAP = 40; // between layers, where a line's bus runs
+const BUS_SHIFT_MAX = LAYER_GAP / 2 - LANE_STEP; // A bus never reaches the layer behind it.
 export const WIDE_FROM = 720; // The narrowest pane that gets the left to right layout.
 const NARROW_W = 360; // The narrow canvas before the pane is measured: the design's first phone.
 const NARROW_MIN = NODE_W + 2 * MARGIN; // One node always fits; below this the pane scrolls.
@@ -121,13 +129,22 @@ function grouped(layers: Map<string, number>): string[][] {
   return out;
 }
 
-function placeWide(groups: string[][]): PlacedNode[] {
+// The gap between nodes of a layer: room for one lane per line any task can receive (its most
+// edges in), so the last lane stays `LANE_STEP` short of the next node.
+function gapFor(edges: readonly GraphEdge[]): number {
+  const into = new Map<string, number>();
+  for (const { after } of edges) into.set(after, (into.get(after) ?? 0) + 1);
+  const lanes = Math.max(1, ...into.values());
+  return GAP + (lanes - 1) * LANE_STEP;
+}
+
+function placeWide(groups: string[][], gap: number): PlacedNode[] {
   return groups.flatMap((ids, layer) =>
     ids.map((id, i) => ({
       id,
       layer,
       x: MARGIN + layer * (NODE_W + LAYER_GAP),
-      y: MARGIN + i * (NODE_H + GAP),
+      y: MARGIN + i * (NODE_H + gap),
       w: NODE_W,
       h: NODE_H,
     })),
@@ -135,18 +152,18 @@ function placeWide(groups: string[][]): PlacedNode[] {
 }
 
 // Layers top to bottom, each wrapped to as many nodes across as the canvas holds (at least one).
-function placeNarrow(groups: string[][], width: number): PlacedNode[] {
-  const cols = Math.max(1, Math.floor((width - 2 * MARGIN + GAP) / (NODE_W + GAP)));
+function placeNarrow(groups: string[][], width: number, gap: number): PlacedNode[] {
+  const cols = Math.max(1, Math.floor((width - 2 * MARGIN + gap) / (NODE_W + gap)));
   const out: PlacedNode[] = [];
   let top = MARGIN;
   groups.forEach((ids, layer) => {
     ids.forEach((id, i) => {
       const row = Math.floor(i / cols);
-      const x = MARGIN + (i % cols) * (NODE_W + GAP);
-      out.push({ id, layer, x, y: top + row * (NODE_H + GAP), w: NODE_W, h: NODE_H });
+      const x = MARGIN + (i % cols) * (NODE_W + gap);
+      out.push({ id, layer, x, y: top + row * (NODE_H + gap), w: NODE_W, h: NODE_H });
     });
     const rows = Math.ceil(ids.length / cols);
-    top += rows * NODE_H + (rows - 1) * GAP + LAYER_GAP;
+    top += rows * NODE_H + (rows - 1) * gap + LAYER_GAP;
   });
   return out;
 }
@@ -193,14 +210,24 @@ function blocked(grid: Grid, across: number, from: number, to: number): boolean 
   );
 }
 
-// The line from `from` to `to`. The plain elbow leaves the source's far edge, runs along to the
-// bus in the gap before the target's layer (after it, for a line back up the layers), across the
-// bus and along into the target. Where that would run through another node (a wrapped row of the
-// source's layer, a layer in between), the line takes the lanes instead: out of the source's
-// side into the gap beside it, along that gap to the bus, across to the gap beside the target
-// and in through its side; every node of every layer sits on one row and column grid, so those
-// gaps are empty. Each point is (across, along), mapped to x and y by the mode.
-function lineBetween(from: PlacedNode, to: PlacedNode, grid: Grid): string {
+// A point as (across, along), mapped to x and y by the mode when the path is written.
+type Point = [number, number];
+
+// A line's two ends and its bus: in the gap before the target's layer (after it, for a line back
+// up the layers), with whether the plain elbow to it is clear of every node.
+interface Route {
+  key: string;
+  a: Span;
+  b: Span;
+  to: string;
+  forward: boolean;
+  bus: number;
+  exit: number;
+  entry: number;
+  clear: boolean;
+}
+
+function routeOf(from: PlacedNode, to: PlacedNode, grid: Grid): Route {
   const a = spanOf(from, grid.mode);
   const b = spanOf(to, grid.mode);
   const forward = to.layer > from.layer;
@@ -210,24 +237,81 @@ function lineBetween(from: PlacedNode, to: PlacedNode, grid: Grid): string {
   const entry = forward ? b.along[0] : b.along[1];
   const clear =
     !blocked(grid, mid(a.across), exit, bus) && !blocked(grid, mid(b.across), bus, entry);
-  const points: [number, number][] = clear
-    ? [
-        [mid(a.across), exit],
-        [mid(a.across), bus],
-        [mid(b.across), bus],
-        [mid(b.across), entry],
-      ]
-    : [
-        [a.across[1], mid(a.along)],
-        [a.across[1] + GAP / 2, mid(a.along)],
-        [a.across[1] + GAP / 2, bus],
-        [b.across[1] + GAP / 2, bus],
-        [b.across[1] + GAP / 2, mid(b.along)],
-        [b.across[1], mid(b.along)],
-      ];
-  const xy = ([across, along]: [number, number]): string =>
-    grid.mode === 'wide' ? `${along} ${across}` : `${across} ${along}`;
-  return `M${points.map(xy).join(' L')}`;
+  return { key: `${from.id}>${to.id}`, a, b, to: to.id, forward, bus, exit, entry, clear };
+}
+
+// A line's place among the lines into its task: its bus is one step further from the task's
+// layer per line before it (so two lines never cross on one bus), and its entry is its own
+// share of the edge it comes in by, counted among the lines that take that edge.
+interface Rank {
+  bus: number;
+  entry: number;
+  entries: number;
+}
+
+// The bus for a line of this rank, never past the layer behind it.
+function busOf(route: Route, rank: Rank): number {
+  const shift = Math.min(rank.bus * BUS_STEP, BUS_SHIFT_MAX);
+  return route.forward ? route.bus - shift : route.bus + shift;
+}
+
+// Where a line of this rank enters: the `entry`th of `entries` even shares of the edge's span.
+function shareOf(span: [number, number], rank: Rank): number {
+  return span[0] + Math.round(((rank.entry + 1) * (span[1] - span[0])) / (rank.entries + 1));
+}
+
+// The plain elbow: out of the source's far edge, along to the bus, across, and along into the
+// target's near edge.
+function elbow(route: Route, rank: Rank): Point[] {
+  const { a, b, exit, entry } = route;
+  const bus = busOf(route, rank);
+  const at = shareOf(b.across, rank);
+  return [
+    [mid(a.across), exit],
+    [mid(a.across), bus],
+    [at, bus],
+    [at, entry],
+  ];
+}
+
+// The lane route: out of the source's side into the gap beside it, along that gap to the bus,
+// across to the gap beside the target and in through its side. The lane is one step further from
+// the nodes per lane line before it into the task, so two of them never run as one.
+function laneRoute(route: Route, rank: Rank): Point[] {
+  const { a, b } = route;
+  const lane = GAP / 2 + rank.entry * LANE_STEP;
+  const bus = busOf(route, rank);
+  const entry = shareOf(b.along, rank);
+  return [
+    [a.across[1], mid(a.along)],
+    [a.across[1] + lane, mid(a.along)],
+    [a.across[1] + lane, bus],
+    [b.across[1] + lane, bus],
+    [b.across[1] + lane, entry],
+    [b.across[1], entry],
+  ];
+}
+
+// Every line's points, each ranked (in edge order) among the lines into the same task, and among
+// those that come in by the same edge, so no two lines into one task share a segment.
+function pointsOf(routes: readonly Route[]): Point[][] {
+  const edgeOf = (r: Route): string => `${r.clear ? 'near' : 'side'}\u0000${r.to}`;
+  const counts = new Map<string, number>();
+  for (const route of routes) counts.set(edgeOf(route), (counts.get(edgeOf(route)) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const next = (key: string): number => {
+    const rank = seen.get(key) ?? 0;
+    seen.set(key, rank + 1);
+    return rank;
+  };
+  return routes.map((route) => {
+    const rank: Rank = {
+      bus: next(route.to),
+      entry: next(edgeOf(route)),
+      entries: counts.get(edgeOf(route)) ?? 1,
+    };
+    return route.clear ? elbow(route, rank) : laneRoute(route, rank);
+  });
 }
 
 export function layoutGraph(
@@ -239,21 +323,29 @@ export function layoutGraph(
 ): GraphLayout {
   const width = Math.max(NARROW_MIN, paneWidth ?? NARROW_W);
   const layers = layersOf(ids, edges);
+  const kept = drawable(new Set(layers.keys()), edges);
+  const gap = gapFor(kept);
   const groups = grouped(layers);
-  const nodes = mode === 'wide' ? placeWide(groups) : placeNarrow(groups, width);
+  const nodes = mode === 'wide' ? placeWide(groups, gap) : placeNarrow(groups, width, gap);
   const at = new Map(nodes.map((node) => [node.id, node]));
   const grid = gridOf(nodes, mode);
-  const lines: GraphLine[] = [];
-  for (const { before, after } of drawable(new Set(layers.keys()), edges)) {
-    const from = at.get(before);
-    const to = at.get(after);
-    if (from && to) lines.push({ key: `${before}>${after}`, d: lineBetween(from, to, grid) });
-  }
-  const right = nodes.reduce((far, n) => Math.max(far, n.x + n.w), 0);
-  const low = nodes.reduce((far, n) => Math.max(far, n.y + n.h), 0);
+  const routes = kept.map(({ before, after }) =>
+    routeOf(at.get(before) as PlacedNode, at.get(after) as PlacedNode, grid),
+  );
+  const xy = ([across, along]: Point): [number, number] =>
+    mode === 'wide' ? [along, across] : [across, along];
+  const points = pointsOf(routes).map((line) => line.map(xy));
+  const lines = routes.map((route, i) => ({
+    key: route.key,
+    d: `M${(points[i] ?? []).map(([x, y]) => `${x} ${y}`).join(' L')}`,
+  }));
+  // The canvas holds every node and every point of every line, lanes past the last node included.
+  const corners = [...nodes.map((n): [number, number] => [n.x + n.w, n.y + n.h]), ...points.flat()];
+  const right = corners.reduce((far, [x]) => Math.max(far, x), 0);
+  const low = corners.reduce((far, [, y]) => Math.max(far, y), 0);
   return {
     mode,
-    width: mode === 'narrow' ? width : right + MARGIN,
+    width: mode === 'narrow' ? Math.max(width, right + MARGIN) : right + MARGIN,
     height: low + MARGIN,
     layers: groups.length,
     nodes,

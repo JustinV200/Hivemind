@@ -15,7 +15,7 @@
  *   - src/views/attendant/graph/layout.ts and task_graph.tsx.
  */
 export { layoutGraph, layersOf } from './layout';
-export type { GraphEdge, GraphLayout, GraphMode, PlacedNode } from './layout';
+export type { GraphEdge, GraphLayout, GraphLine, GraphMode, PlacedNode } from './layout';
 export { describeNode, hrefOfNode, placementOf, statusWord, toneOf } from './status';
 export type { TaskNode, TaskStatus, Tone } from './status';
 export { TaskGraph } from './task_graph';
