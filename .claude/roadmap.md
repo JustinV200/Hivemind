@@ -2507,8 +2507,11 @@ in this phase adds a new write path.
   routes with the loopback-only screens hidden off loopback; the shell, strip, tokens, badges and
   a placeholder per view; a shell-only service worker that never caches `/v1/`. The supervision
   tree, Cell and Forage diagrams land with their views (12.4, 12.5). Not yet: a push handler in
-  the service worker (12.12), a theme toggle, and the Entrance serving `.webmanifest` with its
-  media type (checked in the phase's exit run).
+  the service worker (12.12), and the Entrance serving `.webmanifest` with its media type
+  (checked in the phase's exit run). **Design round 2026-10-27:** the hive palette with the
+  propolis chrome, the comb motif in its five places, the theme toggle in the top bar, the notice
+  bar under the strip for `PushNotice`, a `ViewBoundary` around every view, relative time stamps,
+  and tables that never split a word (design.md sections 2, 3.4, 4.2, 4.3, 6 and 7).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
@@ -2589,8 +2592,10 @@ in this phase adds a new write path.
   pill and mask tag first in every row and in the stacked cards below 1080 px; the legend fixed
   above the table. The task's bee link comes from the row's `thought_principals`, since
   `FleetRow` does not name the bee working the task, and a Queen-forced mask's expiry is not
-  published, so the tag is drawn without it. The design's tablet expander and "N new rows"
-  button are not built; the header is not sticky inside the scrolling pane.
+  published, so the tag is drawn without it. The design's tablet expander is not built. The
+  header is sticky inside the table's own scroll box and new rows wait behind a "N new rows,
+  re-sort" button while the pointer or focus is in the table (2026-10-27); on a phone one "Sort
+  by" select stands in for the header row.
 - [x] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own
@@ -2625,7 +2630,7 @@ in this phase adds a new write path.
   write set is the chat, the audio route, the two inbox routes and the goal confirm and decline.
   No break-glass control exists. Gaps: `ChatLine` and `QuestionView` carry only `task_id` (no
   episode or goal id, so links go to the Queen's Attendant and thoughts), `max_clip_seconds` is
-  not published, the shell does not surface `PushNotice`, the stream cannot start from the seed's
+  not published, the stream cannot start from the seed's
   `newest_seq` (a line in the gap before the first frame shows only through the inbox), and
   history beyond the newest 100 lines is not paged.
 - [x] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),

@@ -22,12 +22,16 @@ Warden, Cell, Forage, Honey and the rest are used literally in code, in the UI a
 
 From top to bottom, on every screen after login:
 
-1. **Top bar** (48 px). Left: the Hive's name. Centre or right: the connection dot (section 4.4)
-   with its word (`live`, `connecting`, `reconnecting`, `offline`); the device name and the listener
-   (`loopback` or `remote`); a log out button. A session that `needs_step_up` shows a banner under
-   the bar until the step-up prompt is done.
-2. **Summary strip** (40 px, never scrolls away, never hidden by navigation). Four groups, each a
-   label and a number or a split:
+1. **Top bar** (48 px, one row at every width, drawn on the chrome tokens of 3.1). Left: the
+   brand mark (3.4) and the Hive's name. Right: the connection dot (section 4.4) with its word
+   (`live`, `connecting`, `reconnecting`, `offline`; the dot pulses while connecting or
+   reconnecting); the theme toggle (a sun or moon with the word `Light` or `Dark`, which stores
+   `data-theme` on `<html>`); from 720 px the device name and the listener (`loopback` or
+   `remote`) and a log out button, which on a phone move into the nav's More panel. A session
+   that `needs_step_up` shows a banner under the bar until the step-up prompt is done.
+2. **Summary strip** (64 px, never scrolls away, never hidden by navigation). Four groups, each
+   drawn as a shallow comb cell (3.4) with its label above and its number below in 20 px bold; a
+   number that just moved carries a 2 px accent underline for five seconds:
    - `Bees` active bees (total).
    - `Cells` active / inactive.
    - `Kind` Real / Virtual.
@@ -35,15 +39,19 @@ From top to bottom, on every screen after login:
 
    It is a slice seeded by `/v1/summary` and kept live by the cells, telemetry and episodes
    streams (ADR-0049). If a stream is down, the strip dims and says `stale since hh:mm:ss` rather
-   than showing old numbers as if they were current.
+   than showing old numbers as if they were current. Under it a **notice bar** appears while the
+   push stream (`/v1/push/stream`) says something is waiting (a question, an Alarm, a reply, a
+   finished goal, a security event): one line per kind with a count and a link to the view that
+   holds the item; opening the chat clears the chat kinds, Dismiss clears the rest.
 3. **Nav.** Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping, Devices. `Enrol` is
-   added only when the session's `listener` is `loopback`. The current item is marked with the
-   accent colour and `aria-current="page"`.
+   added only when the session's `listener` is `loopback`. The nav is drawn on the chrome; the
+   current item is bold in the chrome accent with a 3 px rule beside it and `aria-current="page"`,
+   never colour alone.
 4. **Main area.** One view. A view has a title row (title, then its filters), then its body.
 
 | Width | Shell |
 |---|---|
-| 360 to 719 | One column. Nav is a bottom bar of five icons plus a "more" item for the rest; the summary strip stays under the top bar and wraps to two rows of two groups. Tables become cards (one row, one card). |
+| 360 to 719 | One column. Nav is a bottom bar of five icons plus a "More" item (which reads "Close" while open) for the rest, the device line and log out; the summary strip stays under the top bar and wraps to two rows of two cells. Tables become cards (one row, one card) and a sortable table gets one "Sort by" select in place of its header row. |
 | 720 to 1079 | Nav becomes a left rail of icons with labels. Tables show their main columns; the rest move behind a row's expander. Diagrams fill the width. |
 | 1080 and up | Left rail with labels, content up to 1440 px wide, two panes where a view has them (diagram beside its tables). All columns shown. |
 
@@ -52,28 +60,38 @@ On a phone in landscape the nav hides on scroll down and returns on scroll up. T
 ## 3. Design tokens
 
 All colour, spacing and type live as CSS custom properties on `:root` in `src/styles/tokens.css`.
-Light is the default. Dark applies under `@media (prefers-color-scheme: dark)` guarded by
-`:root:not([data-theme="light"])`, and again under `:root[data-theme="dark"]`, so a stored
-choice (`data-theme` set on `<html>`) always wins over the system. A view uses tokens only; a hex
-value in a component is a bug.
+The palette is the hive's: wax and comb for the surfaces, honey amber for the accent, propolis
+(the dark resin bees seal the hive with) for the chrome, so the top bar and the nav read as dark
+wood around cream content. Light is the default. Dark, the night hive, applies under
+`@media (prefers-color-scheme: dark)` guarded by `:root:not([data-theme="light"])`, and again
+under `:root[data-theme="dark"]`, so a stored choice (`data-theme` set on `<html>` by the theme
+toggle) always wins over the system; there the chrome is the surface itself, so it recedes. A
+view uses tokens only; a hex value in a component is a bug.
 
 ### 3.1 Surfaces, text, borders, accent
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--bg` | `#FAF8F3` | `#14110C` | page |
-| `--surface` | `#FFFFFF` | `#1D1A13` | cards, tables, bars |
-| `--surface-2` | `#F3EFE6` | `#27231A` | table header, strip, hover row |
-| `--border` | `#8C8470` | `#8A8270` | outlines of controls and cards (3:1 or better on `--surface`) |
-| `--border-soft` | `#D9D2C3` | `#3B3526` | row dividers only |
-| `--text` | `#1F1B14` | `#F1ECE0` | body text |
+| `--bg` | `#FBF7EE` | `#15120C` | page (wax) |
+| `--surface` | `#FFFFFF` | `#1E1A12` | cards, tables, the strip's cells |
+| `--surface-2` | `#F4ECDA` | `#29231A` | table header, strip, hover row, folder tiles (comb) |
+| `--border` | `#8A7F66` | `#8C8268` | outlines of controls (3:1 or better on `--surface`) |
+| `--border-soft` | `#D9D2C3` | `#3B3526` | card outlines and row dividers |
+| `--text` | `#1E1A12` | `#F3EEE2` | body text |
 | `--text-muted` | `#5C5546` | `#B5AD9A` | captions, units, ids |
-| `--accent` | `#9A4A00` | `#F5B83D` | honey amber: links, current nav, focus ring, primary button |
+| `--accent` | `#9A4A00` | `#F2B544` | honey amber: links, current filter, focus ring, the send button |
 | `--on-accent` | `#FFFFFF` | `#1A1400` | text on a filled accent |
+| `--accent-soft` | `#F6DFA8` | `#4A3500` | a fill only: the notice bar, a hovered folder tile; never a text colour |
+| `--chrome` | `#3A2A14` | `#1E1A12` | the top bar and the nav (propolis in light; the surface in dark) |
+| `--chrome-text` | `#F3EEE2` | `#F3EEE2` | text on the chrome |
+| `--chrome-muted` | `#CDBFA6` | `#B5AD9A` | the nav's resting items and the device line |
+| `--chrome-accent` | `#F2B544` | `#F2B544` | the current nav item, with its rule and bold weight |
 
-Contrast on `--surface`, light and dark: `--text` 17.1 and 14.7, `--text-muted` 7.4 and 7.8,
-`--accent` 6.3 and 9.8, `--on-accent` on `--accent` 6.3 and 10.3; all pass 4.5:1 on `--bg` and
-`--surface-2` too.
+Contrast on `--surface`, light and dark: `--text` 17.3 and 15.0, `--text-muted` 7.4 and 7.8,
+`--accent` 6.3 and 9.5, `--on-accent` on `--accent` 6.3 and 10.0; all pass 4.5:1 on `--bg` and
+`--surface-2` too. On the chrome, `--chrome-text` is 11.9 and 15.0, `--chrome-muted` 7.6 and 7.8
+and `--chrome-accent` 7.5 and 9.5. Shapes and motion: `--radius-card` is 12 px for every card and
+panel, `--motion` is the one duration (150 ms ease) for hovers, inserts and the gauge's fill.
 
 ### 3.2 Status colours
 
@@ -119,10 +137,32 @@ its left). A reader who cannot tell the colours still tells a tier from a mask b
 the words tell which. The same shapes are used in the legend, the table, the page header and the
 diagrams.
 
+### 3.4 The honeycomb
+
+The hive shows itself through one shape, the comb cell, in five fixed places and nowhere else.
+Nothing is cartoon: no mascot, no stripes.
+
+1. **The mark.** A hexagon outline holding a smaller filled hexagon (`Mark`), in the top bar before
+   the name and on the login card; the same two hexagons are the PWA icon.
+2. **The comb pattern.** An SVG hex grid of 28 px cells, stroked in `--border` at 8 percent
+   (`HexPattern`), behind the login card and behind an empty state (`EmptyState`), never behind a
+   table or running text.
+3. **The diagrams.** Each bee in the supervision tree and each task in the Attendant graph is a
+   wide flat-top hexagon, the Cell frame a hex-cornered rectangle, the role glyph inside a small
+   hexagon (`components/comb/shapes.ts`).
+4. **The summary strip.** Its four groups are shallow hex-cornered cells on `--surface-2`.
+5. **The Honey browser's folders**, the Forage view's host cards and the strip share the one
+   hex-cornered clip (`--hex-cut`, a 10 px chamfer).
+
+Every view title is led by a 10 px hexagon in `--accent`, the one recurring glyph; everywhere else
+the comb is implied by the warm palette and the 2 px radius on tags.
+
 ## 4. Components
 
 Each is one file under `src/components/`, takes typed props from the generated types, and holds no
-state beyond focus and open/closed.
+state beyond focus, open/closed, a shared clock tick (`TimeStamp`) or a caught failure
+(`ViewBoundary`, which wraps every view so a view that throws shows the error notice in its place
+while the shell stays).
 
 ### 4.1 Badges
 
@@ -135,10 +175,12 @@ drawn, because "no mask" is information. A Queen-forced mask also shows its expi
 ### 4.2 Gauges
 
 `ContextGauge` is a horizontal bar, 8 px tall, with the track in `--border-soft` and the fill in
-`--ok` up to 70%, `--warn` from 70% to 90%, `--alarm` above. Beside it, in text: `used / budget`
-and the percentage (`41,200 / 128,000 (32%)`). The bar has `role="meter"` with `aria-valuenow`,
-`aria-valuemin` and `aria-valuemax`. The same component draws grant used against issued and a cost
-against its cap.
+`--ok` up to 70%, `--warn` from 70% to 90%, `--alarm` above; the fill's right end is cut like a
+comb cell. Beside it, in text: `used / budget` and the percentage (`41,200 / 128,000 (32%)`). The
+bar has `role="meter"` with `aria-valuenow`, `aria-valuemin` and `aria-valuemax`. The same
+component draws grant used against issued and a cost against its cap. A share that is not a limit
+(the Cost view's hosted calls out of all calls) asks for the `neutral` tone and fills in `--idle`
+at every level, so a slot served wholly by a provider never reads as a fault.
 
 ### 4.3 Tables
 
@@ -147,7 +189,10 @@ A column sorts when its header is clicked or activated by Enter or Space; the so
 an arrow and has `aria-sort`. The sort is stable and ties break on the row's id, so the order is
 deterministic. Rows are keyed by id and update in place; while focus or the pointer is inside the table, new
 rows wait behind a `3 new rows, re-sort` button instead of moving the list. Ids are monospace, cut
-to 8 characters, the full id in `title`; times are relative with the ISO time in `<time>`.
+to 8 characters, the full id in `title`; times are relative with the ISO time in `<time>`. In a
+table an enum, an id, a badge or a name never splits mid-word: cells are `nowrap` except the few
+that hold free text (a reason, a platform, the links), which wrap between words. Only a card may
+break inside a word.
 
 ### 4.4 Status dot
 
@@ -320,14 +365,19 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
 
 ## 6. Typography and density
 
-- **Sans:** `system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`.
-- **Mono (ids, code, numbers in logs):** `ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans
-  Mono", monospace`.
+- **Sans:** `"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+  Arial, sans-serif`. Plex is used where the device has it and nothing is fetched for it: the
+  app makes no external request, so self-hosting the two faces means dropping their `woff2` files
+  under `public/fonts/` with `@font-face` rules in `base.css` (not yet done).
+- **Mono (ids, code, numbers in logs):** `"IBM Plex Mono", ui-monospace, "SF Mono", Menlo,
+  Consolas, "DejaVu Sans Mono", monospace`.
+- **Headings:** weight 600 with 0.01 em tracking; a panel's heading carries a hairline under it.
 - **Sizes (token, px):** `--fs-xs` 12 (badges, captions), `--fs-sm` 13 (tables), `--fs-md` 15
   (body), `--fs-lg` 18 (section titles), `--fs-xl` 22 (view titles). Line height 1.4 for text, 1.2
   for headings.
 - **Spacing:** `--sp-1` to `--sp-8` are 4, 8, 12, 16, 24, 32 px. Page gutter 16 px under 720 px,
-  24 px above. `--radius` is 6 px; tier pills are fully round and mask tags 2 px.
+  24 px above. `--radius` is 6 px for controls and `--radius-card` 12 px for cards and panels;
+  tier pills are fully round and mask tags 2 px.
 - **Density:** table rows 32 px; buttons 36 px with a 44 px touch area under 720 px; numbers use
   `font-variant-numeric: tabular-nums`.
 
@@ -342,9 +392,13 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   visible 2 px `--accent` focus ring offset by 2 px. Tables sort and expand by Enter and Space.
   The nav is a landmark (`<nav>`), the main area a `<main>`, with a skip link to it as the first
   focusable element.
+- **Motion.** One duration, `--motion` (150 ms ease), on hover, on a row's insert and on a new
+  Thoughts card, which slides in 8 px; the connection dot pulses only while `connecting` or
+  `reconnecting`. Nothing else moves.
 - **Reduced motion.** Under `prefers-reduced-motion: reduce` there are no transitions or
   animated updates; a changed value is marked with a static 2 px underline in `--accent` for five
-  seconds. - **Live regions.** The summary strip is `role="status"` with `aria-live="off"` (it changes
+  seconds (the strip's numbers carry it in either mode).
+- **Live regions.** The summary strip is `role="status"` with `aria-live="off"` (it changes
   constantly); an arriving question or Alarm in the chat is announced once through a polite live
   region. The connection word changes are announced.
 - **Labels.** Every control has a visible label or an `aria-label`. Tables have captions.
