@@ -70,8 +70,9 @@ holds before any Cell exists to report spend.
   handshake not yet settled) is counted twice for a moment. That only ever lowers an allowance.
 - Stand room is opt-in per backend: a reservation is a ceiling, not a use, and a Hive Stand whose
   free memory sits under one reservation would otherwise never swarm at all.
-- Proved in-process by `tests/e2e/test_swarming.py`: six independent tasks under
-  `max_parallel = 2` scale the fake backend to two Cells, never more, and back to zero.
+- Proved in-process by `tests/e2e/test_swarming.py`, phase 13's exit criterion: twenty
+  independent tasks under `max_parallel = 8` scale the fake backend to eight Cells, never more,
+  and back to zero.
 
 ## See also
 

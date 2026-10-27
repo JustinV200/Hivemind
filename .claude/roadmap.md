@@ -2837,8 +2837,22 @@ borrowed device and revoking every grant.
   expired grace window with the old Queen unreachable. `hive supersede <node>` is human-initiated
   on loopback with step-up and confirmation, never an autopilot rule or an awake decision.
   `docs/runbooks/supersedure.md`.
-- [ ] **13.3 Swarming policy.** `queen/scheduler/swarming.py`: pure policy for provisioning more
+- [x] **13.3 Swarming policy.** `queen/scheduler/swarming.py`: pure policy for provisioning more
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
+  **Built 2026-10-27** (ADR-0063). `plan_swarm` (no `hivemind` import; the autopilot import
+  contract now forbids `hivemind.llm` to `queen.scheduler` too) gives each backend the smallest set
+  bound on fresh Cells: queue depth (never below the task being placed), its own `max_cells`, a
+  Hive-wide `max_parallel` over Cells held (dormant included) and being made, the Hive Stand's live
+  free memory and idle cores against one reservation for a backend that `draws_on_hive_stand`, and
+  `max_cost_per_hour_usd` over each backend's stated price. The dispatcher's snapshot asks it before
+  every placement, the retry's included, and marks a backend it allows nothing held back with the
+  bound's name, so the task waits PENDING with one `queen.decided`. Scale-down is the existing
+  release; a Virtual Cell shared by several tasks is now released only after its last one (it used
+  to go under the others). `[virtual_cells.swarming]` (and `.backends.<name>`), every field unset
+  by default; `manifest/schema/placement` became a package to hold it. Proved in-process by
+  `tests/e2e/test_swarming.py`, the exit criterion's first half: twenty independent tasks under
+  `max_parallel = 8` reach eight Cells, never nine, all succeed, and the fleet is back to zero
+  before the Hive stops.
 - [ ] **13.4 Absconding.** `hive abscond`: Virtual Cells, dormant Cells, every lease on the Hive
   Stand and on devices, every grant, Worker processes, temp dirs, resident Basket blobs on every
   Cell (9.2a); from labels and the trail alone. Leavings (5.0a) are listed in the scope review
