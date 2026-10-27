@@ -68,6 +68,10 @@ Public API:
     - transport_options, transport_refusals: the listener's frame ceiling and replay window, and
       the callback that records what they refuse as guard events
       (hivemind.queen.cell_gate.trust.refusals, roadmap steps 11.3a and 11.3b).
+    - rearm_gate: register every live Virtual Cell's labelled key with a restarted Queen's
+      gate, so a Cell that outlived her can reattach (rearm, ADR-0062).
+    - bind_sticky, ListenerPorts, PORT_NAME: the Cell listener binds the OS-chosen port it had
+      last time, so a Cell that outlived the Queen finds her again (port, ADR-0062).
 """
 
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
@@ -77,8 +81,10 @@ from hivemind.queen.cell_gate.listener import (
     CellListenerDeps,
     SnapshotRequestHandler,
 )
+from hivemind.queen.cell_gate.port import PORT_NAME, ListenerPorts, bind_sticky
 from hivemind.queen.cell_gate.provider import LifecycleVirtualCellProvider
 from hivemind.queen.cell_gate.quiesce import make_quiesce
+from hivemind.queen.cell_gate.rearm import rearm_gate
 from hivemind.queen.cell_gate.release import make_on_cell_granted, make_on_task_finished
 from hivemind.queen.cell_gate.scrub import SCRUB_FAILED_KIND, SCRUB_TIMEOUT_S, ScrubAcks, make_scrub
 from hivemind.queen.cell_gate.shutdown import RetireAll, make_retire_all
@@ -104,6 +110,7 @@ from hivemind.queen.cell_gate.trust.segment_keys import GateSegmentKeys
 __all__ = [
     "ENVELOPE_REFUSED_KIND",
     "HANDSHAKE_REFUSED_KIND",
+    "PORT_NAME",
     "RELAY_REFUSED_KIND",
     "SCRUB_FAILED_KIND",
     "SCRUB_TIMEOUT_S",
@@ -118,16 +125,19 @@ __all__ = [
     "HandshakeRefusals",
     "LifecycleVirtualCellProvider",
     "LinkRefusals",
+    "ListenerPorts",
     "QueenReadinessGate",
     "RetireAll",
     "ScrubAcks",
     "SegmentRefusal",
     "SnapshotRequestHandler",
+    "bind_sticky",
     "make_on_cell_granted",
     "make_on_task_finished",
     "make_quiesce",
     "make_retire_all",
     "make_scrub",
+    "rearm_gate",
     "refusal_error",
     "transport_options",
     "transport_refusals",

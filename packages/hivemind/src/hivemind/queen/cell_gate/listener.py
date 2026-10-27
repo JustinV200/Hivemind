@@ -107,6 +107,7 @@ from hivemind.queen.attach import (
     serve_warden,
 )
 from hivemind.queen.cell_gate.gate import QueenReadinessGate
+from hivemind.queen.cell_gate.port import ListenerPorts, bind_sticky
 from hivemind.queen.cell_gate.trust.handshake import GateVerifier, HandshakeRefusals
 from hivemind.queen.cell_gate.trust.refusals import transport_options
 from hivemind.queen.deps import WardenLink
@@ -200,7 +201,13 @@ class CellListener:
         # short grace after it attaches: this hub only remembers when each node last did.
         self._attached = GatewayHub(clock)
         options = transport_options(deps.recorder, clock, self._attached)
-        self._server = WebSocketServer(codec, host=deps.host, port=deps.port, **options)
+
+        def make_server(port: int) -> WebSocketServer:
+            """Build the server on `port`: `start` may bind the last Queen's (`bind_sticky`)."""
+            return WebSocketServer(codec, host=deps.host, port=port, **options)
+
+        self._make_server = make_server
+        self._server = make_server(deps.port)
         self._accept_task: asyncio.Task[None] | None = None
         self._handlers: set[asyncio.Task[None]] = set()
         self._queen: Queen | None = None
@@ -211,6 +218,7 @@ class CellListener:
         # field. Unbound, neither kind a link may carry is answered or merged -- a Hive with no
         # Virtual backend wired for snapshotting or offline trail sync yet.
         self._services = LinkServices(clock=clock, recorder=deps.recorder)
+        self._ports: ListenerPorts | None = None  # Late-bound too: see `bind_ports`.
 
     @property
     def uri(self) -> str:
@@ -234,6 +242,17 @@ class CellListener:
         """
         self._services.trail = receiver
 
+    def bind_ports(self, ports: ListenerPorts) -> None:
+        """Keep the port the OS chooses in `ports`, and bind the kept one first from now on.
+
+        Late-bound like the other services: the store lives on the Queen's deps, built after this
+        listener (ADR-0062: a restarted Queen binds the port her Cells still dial).
+
+        Args:
+            ports: The Queen's Requeening store.
+        """
+        self._ports = ports
+
     def bind_answer_claims(self, claims: AnswerClaims) -> None:
         """Hand every frame `claims` takes to its waiting Queen-side caller from now on.
 
@@ -250,7 +269,8 @@ class CellListener:
             queen: Every verified connection is attached to, and detached from, this Queen.
         """
         self._queen = queen
-        await self._server.start()
+        # The port the Cells were told, when the OS chose it last time (ADR-0062).
+        self._server = await bind_sticky(self._make_server, self._deps.port, self._ports)
         self._accept_task = asyncio.ensure_future(self._accept_loop())
 
     async def stop(self) -> None:
