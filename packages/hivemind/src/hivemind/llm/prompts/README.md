@@ -73,7 +73,11 @@ text can always tell durable state and retrieved content apart from an instructi
   alone, never the bee that wrote it; `PATROL` -- roadmap step 11.10,
   `hivemind.wardens.awake.patrol.decide_patrol`'s one structured call on the `WARDEN` slot: a
   watching Warden's hourly review of an idle Cell, one of four outcomes, the observations shown
-  only as a fenced block of untrusted facts inside the event).
+  only as a fenced block of untrusted facts inside the event; `NURSE_REVIEW` -- ADR-0061,
+  `hivemind.wardens.nurse.ModelNurseReviewer`'s one structured call on an eligible `JUDGE` link:
+  a fresh-context review of an attempt that passed its machine checks, the Warden-built evidence
+  shown only as untrusted RETRIEVED data with each touched file in its own block, never the
+  Worker's transcript, Handoff or own account).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works

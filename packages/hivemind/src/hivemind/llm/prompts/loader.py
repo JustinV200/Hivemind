@@ -90,6 +90,7 @@ class PromptName(Enum):
         "scaffold_tool"  # royal_jelly.scaffold: a requested tool's tests and source (9.3).
     )
     PATROL = "patrol"  # wardens/awake/patrol: one idle Cell's hourly review, four outcomes (11.10).
+    NURSE_REVIEW = "nurse_review"  # wardens.nurse: a fresh-context review of an attempt (ADR-0061).
 
 
 class SectionLabel(Enum):
