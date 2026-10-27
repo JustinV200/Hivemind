@@ -89,7 +89,8 @@ def approval_grant(policy: GuardPolicy, requested: Sequence[str] | None) -> Capa
         CapabilityCeilingError: A capability is beyond the device ceiling; the error names it.
     """
     if requested is None:
-        return proposed_set(policy)
+        # The same reserved-scope check as a named set (the policy already refuses one there).
+        return parse_submitted(*proposed_set(policy).as_strings())
     # A reserved `exec:@...` scope is the Hive's own diagnostic task's alone (ADR-0060).
     granted = parse_submitted(*requested)
     ceiling = device_ceiling(policy)

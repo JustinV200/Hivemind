@@ -24,6 +24,9 @@ Key invariants:
       source and the offending entry; it never returns a partly built policy.
     - A manifest overlay can replace a role's list but never adds a role, and its `deny` only
       ever adds to the file's, so a manifest cannot remove a denial the policy file makes.
+    - No allow or proposed list, in the file or a manifest overlay, names the reserved
+      `exec:@...` scope (`hivemind.guard.diagnostics`): only the Hive's own diagnostic task holds
+      it. A deny list may name it, since a denial only ever takes away.
 
 See Also:
     - docs/adr/0039-capability-model-attenuation-and-enforcement-points.md for the policy model.
@@ -45,6 +48,7 @@ from pydantic import ValidationError
 
 from hivemind.guard.access import SCRATCH_PLACEHOLDER, fill_scratch
 from hivemind.guard.capabilities import Capability, CapabilitySet
+from hivemind.guard.diagnostics import is_reserved
 from hivemind.guard.errors import GuardPolicyError, InvalidCapabilityError
 from hivemind.guard.policy.models import EscalationAction
 from hivemind.guard.policy.points import EnforcementPoint
@@ -161,7 +165,8 @@ def _build(document: GuardSection, where: str) -> GuardPolicy:
     }
     return GuardPolicy(
         roles=MappingProxyType(roles),
-        deny=_parse_fixed(document.deny, f"the deny list of {where}"),
+        # A deny list may name a reserved scope: denying it can only take away (module docstring).
+        deny=_parse_fixed(document.deny, f"the deny list of {where}", reserved_ok=True),
         escalation=MappingProxyType(escalation),
     )
 
@@ -204,7 +209,7 @@ def _proposed(
     return proposed
 
 
-def _parse_fixed(entries: Iterable[str], where: str) -> CapabilitySet:
+def _parse_fixed(entries: Iterable[str], where: str, *, reserved_ok: bool = False) -> CapabilitySet:
     """Parse a list that names no lease (a deny or proposed list): no placeholder allowed."""
     capabilities: list[Capability] = []
     for entry in entries:
@@ -212,12 +217,16 @@ def _parse_fixed(entries: Iterable[str], where: str) -> CapabilitySet:
             raise GuardPolicyError(
                 f"{entry!r} in {where} names {SCRATCH_PLACEHOLDER}; only a role's allow list may."
             )
-        capabilities.append(_parse_entry(entry, entry, where))
+        capabilities.append(_parse_entry(entry, entry, where, reserved_ok=reserved_ok))
     return CapabilitySet(capabilities=frozenset(capabilities))
 
 
-def _parse_entry(text: str, entry: str, where: str) -> Capability:
-    """Parse one entry (`text`, with any placeholder filled), naming `entry` if it fails."""
+def _parse_entry(text: str, entry: str, where: str, *, reserved_ok: bool = False) -> Capability:
+    """Parse one entry (`text`, with any placeholder filled), naming `entry` if it fails.
+
+    An allow or proposed entry in the reserved `exec:@...` scope is refused (`reserved_ok` False):
+    only a cut-off Warden's own diagnostic task may hold it (`hivemind.guard.diagnostics`).
+    """
     # A brace left after filling {scratch} is a placeholder the policy does not have ({home}).
     if "{" in text or "}" in text:
         raise GuardPolicyError(
@@ -225,9 +234,15 @@ def _parse_entry(text: str, entry: str, where: str) -> Capability:
             "only one."
         )
     try:
-        return Capability.parse(text)
+        capability = Capability.parse(text)
     except InvalidCapabilityError as exc:
         raise GuardPolicyError(f"{entry!r} in {where} is not a capability: {exc.reason}.") from exc
+    if is_reserved(capability) and not reserved_ok:
+        raise GuardPolicyError(
+            f"{entry!r} in {where} names a reserved exec:@ scope; only the Hive's own diagnostic "
+            "task may hold one."
+        )
+    return capability
 
 
 def _member[EnumT: Enum](enum_type: type[EnumT], name: str, what: str, where: str) -> EnumT:

@@ -23,6 +23,7 @@ from hivemind.guard import (
     CapabilitySet,
     InvalidCapabilityError,
     is_diagnostic,
+    is_reserved,
     load_guard_policy,
     parse_submitted,
 )
@@ -86,6 +87,14 @@ _ENTRY_POINTS: dict[str, Callable[[str], object]] = {
     "steward grant": _steward_grants,
     "goal capability set": lambda reserved: canonical_goal_set(("fs:read:**", reserved)),
 }
+
+
+def test_an_approval_naming_nothing_grants_no_reserved_scope() -> None:
+    # The None path grants the policy's proposed set; the policy itself refuses a reserved entry
+    # there, and the grant checks again, so nothing reaches a device either way.
+    granted = approval_grant(_POLICY, None)
+
+    assert not any(is_reserved(capability) for capability in granted)
 
 
 @pytest.mark.parametrize("entry", sorted(_ENTRY_POINTS))

@@ -259,9 +259,12 @@ def test_a_device_override_keeps_the_policys_proposed_list_unless_it_gives_one()
 
 
 def test_the_manifests_deny_list_adds_to_the_policys() -> None:
-    policy = load_guard_policy(None, GuardSection(deny=("exoskeleton:real_display", "net:*.x.io")))
+    # A deny list may name the reserved exec:@ scope: a denial only ever takes away.
+    deny = ("exec:@diagnostic", "exoskeleton:real_display", "net:*.x.io")
 
-    assert policy.deny.as_strings() == ("exoskeleton:real_display", "net:*.x.io")
+    policy = load_guard_policy(None, GuardSection(deny=deny))
+
+    assert policy.deny.as_strings() == deny
 
 
 def test_the_manifests_escalation_maps_points_to_actions() -> None:
@@ -297,6 +300,19 @@ def test_the_manifests_escalation_maps_points_to_actions() -> None:
         (
             GuardSection(roles={"device": GuardRoleSection(allow=("observe",))}),
             "proposed list of role 'device'.* exceeds its allow list",
+        ),
+        # The reserved exec:@ scope is the Hive's own diagnostic task's alone (ADR-0060).
+        (
+            GuardSection(roles={"drone": GuardRoleSection(allow=("exec:@diagnostic",))}),
+            "'exec:@diagnostic' in role 'drone'.* reserved exec:@ scope",
+        ),
+        (
+            GuardSection(
+                roles={
+                    "device": GuardRoleSection(allow=("exec:*",), proposed=("exec:@diagnostic",))
+                }
+            ),
+            "'exec:@diagnostic' in the proposed list of role 'device'.* reserved",
         ),
     ],
 )
