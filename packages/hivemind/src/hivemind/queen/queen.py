@@ -82,7 +82,7 @@ from hivemind.brood_chamber import AnswerSource, InvalidTransitionError, Task, T
 from hivemind.cell import CellIdentity, HoneyClearance
 from hivemind.memory.thresholds import capped_compact_view
 from hivemind.queen import attach, leave_memory, quarantine, questions, ticks
-from hivemind.queen.autopilot import QueenAction, decide
+from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
 from hivemind.queen.chat import ChatDoor
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, stop_provisions, stop_releases
@@ -95,6 +95,7 @@ from hivemind.queen.inbox import LinkReaders, TaskClaims, queen_attendant
 from hivemind.queen.isolation import IsolationDoor
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
+from hivemind.queen.ticks.results import AttemptBook
 from hivemind.queen.trail import record_event
 from hivemind.supervision import (
     Alarm,
@@ -168,10 +169,10 @@ class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, TickLoop):
         # cell_id), so a leave Question for the same goal and Cell answers herself, once, instead
         # of asking the human again for every later file (hivemind.queen.leave_memory).
         self._leave_memory: dict[tuple[TaskId, CellId], leave_memory.LeaveMemoryEntry] = {}
-        # A task's own retry count: a retry stays placed, so `Task.attempt`, which only a fresh
-        # placement advances, does not track it (hivemind.queen.dispatcher.redispatch); absent
-        # means its first attempt (1).
-        self._attempts: dict[TaskId, int] = {}
+        # Each task's own dispatches and highest attempt number, since the chamber's TRANSITIONS
+        # has no edge back from RUNNING that would let `Task.attempt` track either (module
+        # docstring of hivemind.queen.ticks.results); a task it never saw is on its first attempt.
+        self._attempts = AttemptBook()
         # The Alarm behind a still-outstanding REBIND/RETRY_TASK, so a later COMPLETE_TASK for the
         # same task can record alarm.resolved (this dispatch's own fix 3d); populated by
         # hivemind.queen.ticks.alarms.handle_alarm, popped here once the task actually succeeds.
@@ -435,9 +436,9 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
     task = await _task_for_item(queen._deps, item)
     if await queen._claims.refuse(queen._deps, queen._wardens, item, task):
         return  # Another Cell's task, or one placed nowhere: never decided, never applied.
-    # Read from the Queen's own counter, never Task.attempt: see hivemind.queen.dispatcher.
-    # redispatch's own docstring for why a RUNNING task's attempt count cannot live in the chamber.
-    attempts = queen._attempts.get(task.id, 1) if task is not None else 0
+    # Read from the Queen's own book, never Task.attempt alone: see hivemind.queen.ticks.results
+    # for why a RUNNING task's attempts cannot live in the chamber.
+    attempts = _note_attempt(queen, task, item.payload) if task is not None else AttemptTally(0, 0)
     action = decide(item, task, attempts, queen._deps.policy, queen._deps.alarm_attempt_limit)
     message: str | None = None
     came_from_awake = action is QueenAction.NEEDS_JUDGEMENT
@@ -449,6 +450,19 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
         subject = task.id if task is not None else queen._deps.identity.hive_id
         await record_event(queen._deps, "queen.decided", subject, action=action.value)
     await _act(queen, action, item, task, message)
+
+
+def _note_attempt(queen: Queen, task: Task, payload: object) -> AttemptTally:
+    """Note the attempt number `task` has reached, from its placement and `payload`; tally it.
+
+    A Warden's own respawn, rebind or recovery numbers past the Queen's last dispatch and reports
+    it on its next TaskProgress (`TaskAssign.attempt`'s own rule); the book keeps the highest, so
+    her next retry numbers past it. `Task.attempt` is where a re-placed task's own number starts.
+    """
+    queen._attempts.note(task.id, task.attempt)
+    if isinstance(payload, TaskProgress | TaskResult):
+        queen._attempts.note(task.id, payload.attempt)
+    return queen._attempts.tally(task.id)
 
 
 async def _task_for_item(deps: QueenDeps, item: InboxItem) -> Task | None:
@@ -503,25 +517,18 @@ async def _act_on_task_result(
         await ticks.results.complete_task(queen._deps, queen.wardens, payload, warden_id)
         await _resolve_pending_alarm(queen, payload.task_id)
     elif action is QueenAction.RETRY_TASK:
-        attempt = _next_attempt(queen, payload.task_id)
-        await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, attempt)
+        await ticks.results.retry_task(queen._deps, queen.wardens, payload.task_id, queen._attempts)
     elif action is QueenAction.REQUEUE_TASK:
         # ADR-0060: re-placed where commands run; its next attempt's number is the chamber's,
         # so a late result from the refused attempt reads as stale.
-        attempt = _next_attempt(queen, payload.task_id)
+        attempt = queen._attempts.next_attempt(payload.task_id)
         placed = await ticks.results.requeue_task(
             queen._deps, queen.wardens, payload.task_id, attempt
         )
         if placed is not None:
-            queen._attempts[payload.task_id] = placed
+            queen._attempts.note(payload.task_id, placed)
     elif action is QueenAction.FAIL_TASK:
         await ticks.results.fail_task_from_result(queen._deps, payload)
-
-
-def _next_attempt(queen: Queen, task_id: TaskId) -> int:
-    """Advance and return `task_id`'s own retry counter, starting from 1 (its first attempt)."""
-    queen._attempts[task_id] = queen._attempts.get(task_id, 1) + 1
-    return queen._attempts[task_id]
 
 
 async def _resolve_pending_alarm(queen: Queen, task_id: TaskId) -> None:

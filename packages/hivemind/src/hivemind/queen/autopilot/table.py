@@ -3,8 +3,9 @@
 Codingrules section 8.8: "Autopilot returns an action or NEEDS_JUDGEMENT; only the latter runs an
 awake episode." `decide` is that table for the Queen: given one `hivemind.supervision.attendant.
 InboxItem` (already scored and ordered by the Attendant), the `hivemind.brood_chamber.Task` it
-concerns (when one exists), how many attempts have already been made against it, the Queen's own
-`EscalationPolicy` and her attempt ceiling, it returns exactly one
+concerns (when one exists), how far it has got (`AttemptTally`: the Queen's own dispatches of it,
+and the highest attempt number any level started), the Queen's own `EscalationPolicy` and her
+attempt ceiling, it returns exactly one
 `hivemind.queen.autopilot.actions.QueenAction`. The table is keyed by the wrapped payload's own
 type: a `Heartbeat` is `RECORD`, and so are the `CellHeartbeat` and `CapacityReport` a Warden says
 again whenever its link is made; a `TaskResult` resolves to `COMPLETE_TASK`, `RETRY_TASK` or
@@ -21,12 +22,16 @@ explicit rule, since free text has no deterministic answer (ADR-0040); anything 
 never seen returns `NEEDS_JUDGEMENT` too. A task already in a terminal `TaskStatus`
 (`hivemind.brood_chamber.TERMINAL_STATUSES`) makes a `TaskResult`/`AlarmRaised` about it a no-op
 `RECORD`: a stale or duplicate report about work the Queen already closed out is not a fresh
-decision to make. `_decide_task_result` (roadmap step 6.10) has one exception to "SUCCEEDED means
-COMPLETE_TASK": a Scout's own acceptance only ever checks that it wrote `SCOUT_REPORT_FILE`, so a
-report that recommends against the work is still, mechanically, a SUCCEEDED result -- reading its
-`scout_report.feasible` here, a plain field on the wire `TaskResult` no `hivemind.llm` import is
-needed to read, is what turns that one case into `FAIL_TASK` instead, so the dependents `hivemind.
-brood_chamber.task.graph.ready_tasks` gates on the Scout's own success are never dispatched.
+decision to make. So is a `TaskResult(FAILED)` numbered below the task's latest attempt: a later
+attempt already replaced the one it reports on. The ceiling and the policy's rungs count only the
+Queen's own dispatches, never that number, since a Warden's local respawns climb it too
+(`TaskAssign.attempt`'s own rule) and must not skip a rung of hers. `_decide_task_result` (roadmap
+step 6.10) has one exception to "SUCCEEDED means COMPLETE_TASK": a Scout's own acceptance only ever
+checks that it wrote `SCOUT_REPORT_FILE`, so a report that recommends against the work is still,
+mechanically, a SUCCEEDED result -- reading its `scout_report.feasible` here, a plain field on the
+wire `TaskResult` no `hivemind.llm` import is needed to read, is what turns that one case into
+`FAIL_TASK` instead, so the dependents `hivemind.brood_chamber.task.graph.ready_tasks` gates on
+the Scout's own success are never dispatched.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's
@@ -40,7 +45,7 @@ Key invariants:
       `lint-imports` enforces it for every module under an `autopilot/` directory).
     - `decide` is pure: given the same `(item, task, attempts, policy, limit)`, it always returns
       the same `QueenAction`; it reads nothing beyond its own arguments.
-    - `attempts >= limit` always forces `ESCALATE_TO_HUMAN` for an Alarm, regardless of what
+    - `attempts.made >= limit` always forces `ESCALATE_TO_HUMAN` for an Alarm, regardless of what
       `policy` alone would decide: the Queen's own ceiling is a hard backstop, not a suggestion.
     - A SUCCEEDED `TaskResult` whose `scout_report.feasible` is False always resolves to
       `FAIL_TASK`, never `RETRY_TASK`: an infeasible Scout is not a transient failure worth
@@ -67,6 +72,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from hivemind.brood_chamber import TERMINAL_STATUSES, Task
 from hivemind.queen.autopilot.actions import QueenAction
@@ -80,7 +86,7 @@ from waggle.messages.forage import CapacityReport
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Answer, Heartbeat, Question
 from waggle.messages.task import ResultCause, TaskOutcome, TaskProgress, TaskResult, TaskStage
 
-__all__ = ["decide"]
+__all__ = ["AttemptTally", "decide"]
 
 # What a Warden says again whenever its link is made, beside its heartbeat (a device's, after its
 # Warden moved onto it or its link came back): the gate has read what it needs from the last two,
@@ -107,8 +113,23 @@ _POLICY_ACTION_MAP: Mapping[PolicyAction, QueenAction] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class AttemptTally:
+    """How far one task has got, as `decide` reads it (codingrules 5.1: one argument group).
+
+    Attributes:
+        made: The Queen's own dispatches of the task, 1 for its first; her ceiling and her
+            policy's rungs count these alone, so a Warden's local respawns never skip a rung.
+        latest: The highest attempt number dispatched or reported for the task; a FAILED report
+            numbered below it is about an attempt a later one already replaced.
+    """
+
+    made: int
+    latest: int
+
+
 def decide(
-    item: InboxItem, task: Task | None, attempts: int, policy: EscalationPolicy, limit: int
+    item: InboxItem, task: Task | None, attempts: AttemptTally, policy: EscalationPolicy, limit: int
 ) -> QueenAction:
     """Return the one QueenAction the Queen's autopilot takes for `item`.
 
@@ -117,9 +138,8 @@ def decide(
             waggle message.
         task: The task `item` concerns, when one exists (looked up by the caller); None when
             `item` names no task (a Heartbeat) or names one that could not be found.
-        attempts: How many resolution attempts have already been made against this task or Alarm
-            (the caller's own count, typically `task.attempt`); read only for a TaskResult(FAILED)
-            or an AlarmRaised.
+        attempts: How far the task has got (the caller's own tally; all zero with no task); read
+            only for a TaskResult(FAILED) or an AlarmRaised.
         policy: The Queen's own EscalationPolicy, consulted only for an AlarmRaised.
         limit: The most attempts an Alarm or a failing task gets before this table forces
             ESCALATE_TO_HUMAN or FAIL_TASK, whatever `policy` alone would say.
@@ -138,7 +158,7 @@ def decide(
             # retries or fails the task, so the Alarm is recorded, never acted on. Acting on both
             # dispatched two attempts, two grants and two Drones for one failure.
             return QueenAction.RECORD
-        return _decide_alarm(payload, attempts, policy, limit)
+        return _decide_alarm(payload, attempts.made, policy, limit)
     if isinstance(payload, TaskProgress):
         # Roadmap step 10.6c: a Warden reports its task held (its bee quarantined), and the
         # chamber follows; any other stage is its Warden's own business, noted and no more.
@@ -173,7 +193,7 @@ def _decide_report(payload: LeaseReleased) -> QueenAction:
 
 
 def _decide_task_result(
-    payload: TaskResult, task: Task | None, attempts: int, limit: int
+    payload: TaskResult, task: Task | None, attempts: AttemptTally, limit: int
 ) -> QueenAction:
     """Map a TaskResult's own outcome to COMPLETE_TASK, RETRY_TASK, REQUEUE_TASK or FAIL_TASK."""
     if payload.outcome is TaskOutcome.SUCCEEDED:
@@ -184,8 +204,8 @@ def _decide_task_result(
             return QueenAction.FAIL_TASK
         return QueenAction.COMPLETE_TASK
     if payload.outcome is TaskOutcome.FAILED:
-        if payload.attempt < attempts:
-            # A FAILED report about an attempt older than the one the Queen already dispatched
+        if payload.attempt < attempts.latest:
+            # A FAILED report about an attempt older than the latest one any level started
             # (attempt 1's result landing after attempt 2 went out) is history, not a decision:
             # retrying on it would run two attempts for one failure.
             return QueenAction.RECORD
@@ -194,7 +214,7 @@ def _decide_task_result(
             # re-placed once where commands run, whatever attempts remain.
             return QueenAction.REQUEUE_TASK
         # roadmap 3.22's own exit criteria: retries with attempt+1 up to the limit, then FAIL_TASK.
-        return QueenAction.RETRY_TASK if attempts < limit else QueenAction.FAIL_TASK
+        return QueenAction.RETRY_TASK if attempts.made < limit else QueenAction.FAIL_TASK
     # CLAIMED never reaches the Queen (the Warden intercepts it); CANCELLED is the echo of a
     # cancellation the Queen herself already decided elsewhere. Either way, nothing more to decide.
     return QueenAction.RECORD

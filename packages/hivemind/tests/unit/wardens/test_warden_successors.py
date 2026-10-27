@@ -52,7 +52,7 @@ from hivemind.workers.state import WorkerState
 from waggle.clock import FakeClock
 from waggle.ids import TaskId, new_grant_id
 from waggle.messages.supervision import Intervene, InterventionAction
-from waggle.messages.task import TaskAssign, TaskCancel, TaskOutcome, TaskPause
+from waggle.messages.task import TaskAssign, TaskCancel, TaskOutcome, TaskPause, TaskStage
 
 _WORKER_BEAT_S = 1.0  # Each sub-bee's own cadence.
 _WARDEN_BEAT_S = 10.0  # The Warden's own: its context check rides this one.
@@ -341,6 +341,22 @@ async def test_a_queen_retry_replaces_the_escalated_failed_row(cap: int) -> None
     assert row.state is not WorkerState.FAILED
     assert first.task_id not in scene.warden._pending
     assert scene.warden._sub_bee_slots.in_use == 1
+    await _stop(scene)
+
+
+async def test_a_local_respawn_reports_its_attempt_to_the_queen_and_the_trail() -> None:
+    # TaskAssign.attempt's own rule: a Warden-local respawn keeps the number and reports it on the
+    # next task.progress, so the Queen's retry can number past it; worker.spawned names it too.
+    first = make_assignment()
+    scene = await _start(_crash_on(1), first)
+    await settle(lambda: [row.attempt for row in _rows(scene.warden, first.task_id)] == [2])
+
+    await asyncio.wait_for(scene.queen.pump_until(lambda: bool(scene.queen.progress)), 5.0)
+
+    [report] = scene.queen.progress
+    assert (report.task_id, report.attempt, report.stage) == (first.task_id, 2, TaskStage.STARTED)
+    spawned = await scene.warden._deps.trail.query(TrailQuery(kind="worker.spawned"))
+    assert [event.payload["attempt"] for event in spawned] == [1, 2]
     await _stop(scene)
 
 

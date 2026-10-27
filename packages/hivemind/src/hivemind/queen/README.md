@@ -207,9 +207,12 @@ every assignment goes to a Warden, over Waggle.
   `alarm.handled`/`alarm.escalated` (`hivemind.supervision.record_alarm_event`) and, for a REBIND,
   fills `Intervene.binding` with the fallback key it resolved, since a Warden has no other way to
   learn it; `Queen`'s own COMPLETE_TASK handling records `alarm.resolved` once a rebound or
-  retried attempt actually succeeds. `liveness.handle_infrastructure_item` (roadmap steps 4.7,
-  4.2a) is where a Heartbeat, a ForageRequest and a CellWaxProposed all land, ahead of
-  `queen.autopilot.table.decide`: a Heartbeat renews the sending Warden's own live grants
+  retried attempt actually succeeds. `results.AttemptBook` is the Queen's per-task count of her
+  own dispatches and the highest attempt number any report carried; a retry numbers past it, so
+  a Warden's own respawns never make an attempt number repeat.
+  `liveness.handle_infrastructure_item` (roadmap steps 4.7, 4.2a) is where a Heartbeat, a
+  ForageRequest and a CellWaxProposed all land, ahead of `queen.autopilot.table.decide`: a
+  Heartbeat renews the sending Warden's own live grants
   (`liveness.renew_grants_on_heartbeat`) the same tick it resets liveness, `check_liveness`'s own
   sweep now also returns any grant whose lease lapsed (`hivemind.queen.forage.grants.
   sweep_expired`) to the pool unconditionally every tick, and `wax.handle_wax_proposed` records the

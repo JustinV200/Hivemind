@@ -83,7 +83,7 @@ from hivemind.queen.errors import UnknownCellError
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.isolation import IsolationOrder, IsolationSite, Isolator, isolate_cell
 from hivemind.queen.quarantine import lever_from_alarm, order_quarantine
-from hivemind.queen.ticks.results import fail_task, retry_task
+from hivemind.queen.ticks.results import AttemptBook, fail_task, retry_task
 from hivemind.queen.trail import record_event
 from hivemind.supervision import Alarm, record_alarm_event
 from hivemind.supervision.intervention import Rebind, to_wire
@@ -110,9 +110,9 @@ class AlarmHandling:
         warden_id: The Warden that forwarded `payload` (the envelope's own sender).
         payload: The escalated AlarmRaised.
         action: The already-decided QueenAction; one of the four `handle_alarm` dispatches.
-        attempts: The Queen's own shared attempt counter (module docstring: the chamber's
+        attempts: The Queen's own shared AttemptBook (module docstring: the chamber's
             `Task.attempt` cannot track a RUNNING task's own retries, so the Queen tracks it
-            instead).
+            instead); a retry counts in it and takes its next number from it.
         pending_alarms: The Queen's own task_id -> Alarm table for a REBIND or RETRY_TASK still
             awaiting its own outcome; `hivemind.queen.queen`'s own COMPLETE_TASK handling pops
             from it to record `alarm.resolved` once the retried or rebound attempt succeeds
@@ -123,7 +123,7 @@ class AlarmHandling:
     warden_id: WardenId
     payload: AlarmRaised
     action: QueenAction
-    attempts: MutableMapping[TaskId, int]
+    attempts: AttemptBook
     pending_alarms: MutableMapping[TaskId, Alarm]
 
 
@@ -136,7 +136,7 @@ async def handle_alarm(
         deps: The Queen's collaborators.
         wardens: Every Warden currently attached.
         handling: The human inbox, the forwarding Warden, the Alarm, the decided action and the
-            Queen's own shared attempt counter (module docstring: the chamber's `Task.attempt`
+            Queen's own shared AttemptBook (module docstring: the chamber's `Task.attempt`
             cannot track a RUNNING task's own retries, so the Queen tracks it instead).
     """
     payload, action = handling.payload, handling.action
@@ -152,9 +152,7 @@ async def handle_alarm(
         return
     if action is QueenAction.RETRY_TASK and task_id is not None:
         await _record_handled(deps, handling, task_id, "RETRY_TASK")
-        next_attempt = handling.attempts.get(task_id, 1) + 1
-        handling.attempts[task_id] = next_attempt
-        await retry_task(deps, wardens, task_id, next_attempt)
+        await retry_task(deps, wardens, task_id, handling.attempts)
     elif action is QueenAction.FAIL_TASK and task_id is not None:
         await _fail(deps, wardens, handling, task_id)
     elif action is QueenAction.REBIND:
@@ -306,9 +304,7 @@ async def _cluster_or_retry(
         await _record_handled(deps, handling, task_id, "CLUSTER")
         return
     await _record_handled(deps, handling, task_id, "RETRY_TASK")
-    next_attempt = handling.attempts.get(task_id, 1) + 1
-    handling.attempts[task_id] = next_attempt
-    await retry_task(deps, wardens, task_id, next_attempt)
+    await retry_task(deps, wardens, task_id, handling.attempts)
 
 
 async def _escalate(deps: QueenDeps, human_inbox: HumanInbox, payload: AlarmRaised) -> None:

@@ -1,4 +1,4 @@
-"""Define complete_task, retry_task and fail_task: what COMPLETE_TASK/RETRY_TASK/FAIL_TASK do.
+"""Define complete_task, retry_task, fail_task and AttemptBook: COMPLETE_TASK/RETRY_TASK/FAIL_TASK.
 
 Roadmap step 3.20's own dispatch map: "TaskResult(SUCCEEDED, checked_by=warden) -> COMPLETE_TASK:
 chamber.complete with TaskOutcome(verified_by=checked_by) -> task.succeeded is the chamber's event;
@@ -12,12 +12,13 @@ report triggered the decision. `retry_task` calls `hivemind.queen.dispatcher.red
 failure directly, without ever telling the chamber anything happened), and `hivemind.brood_chamber.
 task.state.TRANSITIONS` has no edge from RUNNING back to PENDING or ASSIGNED, so "re-dispatch,
 attempt+1" is a wire-level re-send to the same placement, not a fresh placement decision -- the
-caller (`hivemind.queen.queen`) is what tracks the next attempt number, since the chamber's own
-`Task.attempt` field only ever advances through `unassign`. Once a task is complete and a Honey
-Store is wired (roadmap phase 7), `complete_task` also deposits its verified outcome as a FINDING
-of origin `TASK_OUTCOME` (the task's title, objective and acceptance criteria, the verified
-summary, and the Cell it ran on), so what one run learned is there for the next run's pre-check;
-that deposit is bounded by a timeout and never raises out of completion.
+caller's own `AttemptBook` (`hivemind.queen.queen`'s) tracks the next attempt number, since the
+chamber's own `Task.attempt` field only ever advances through `unassign`. The book keeps two
+numbers per task, never one: the Queen's own dispatches (her ceiling and her policy's rungs count
+these) and the highest attempt number any level started, which a retry numbers past. A Warden's
+local respawn or rebind climbs that number on its own and reports it on its next `TaskProgress`
+(`TaskAssign.attempt`'s own rule), so a retry the Queen numbered from her own count alone went
+back to an attempt number the trail had already seen.
 
 `fail_task`'s own `scout_report` keyword (roadmap step 6.10) is how an infeasible Scout's own
 report survives onto the `TaskOutcome` its Warden-verified `TaskResult(SUCCEEDED)` never carried
@@ -76,6 +77,8 @@ Key invariants:
       runs after `chamber.complete`, and every failure is logged, never raised. It runs before
       the Cell's release starts, so the Cell's own link (borrowed or not, its tier) is still
       attached when the deposit reads it; a task on a Night Veil Cell deposits nothing at all.
+    - A retry's attempt number is always above every number `AttemptBook.note` was given for its
+      task: attempt numbers never go backwards on the trail.
 
 See Also:
     - .claude/roadmap.md step 3.20's own dispatch map for the exact chamber calls this module
@@ -106,6 +109,7 @@ from hivemind.cell import Cell, CombShieldLevel
 from hivemind.common.errors import HiveMindError
 from hivemind.common.logging import get_logger
 from hivemind.honey_store import NectarOrigin, NectarSubmission
+from hivemind.queen.autopilot import AttemptTally
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import (
     dispatch_ready,
@@ -135,6 +139,7 @@ __all__ = [
     "OUTCOME_DEPOSIT_TIMEOUT_S",
     "OUTCOME_MEDIA_TYPE",
     "OUTCOME_SOURCE_KEY_PREFIX",
+    "AttemptBook",
     "complete_task",
     "fail_reason",
     "fail_task",
@@ -144,6 +149,32 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
+
+
+class AttemptBook:
+    """The Queen's own dispatches of each task, and the highest attempt number it has reached.
+
+    A task the book has never seen is on its first attempt: one dispatch, attempt number 1.
+    """
+
+    def __init__(self) -> None:
+        """Start with no task seen."""
+        self._made: dict[TaskId, int] = {}
+        self._latest: dict[TaskId, int] = {}
+
+    def note(self, task_id: TaskId, attempt: int) -> None:
+        """Remember that `task_id` reached `attempt`: a report's own number, or its placement's."""
+        self._latest[task_id] = max(self._latest.get(task_id, 1), attempt)
+
+    def tally(self, task_id: TaskId) -> AttemptTally:
+        """Return how far `task_id` has got, as the autopilot table reads it."""
+        return AttemptTally(made=self._made.get(task_id, 1), latest=self._latest.get(task_id, 1))
+
+    def next_attempt(self, task_id: TaskId) -> int:
+        """Count one more dispatch of `task_id` and number it past every attempt it reached."""
+        self._made[task_id] = self._made.get(task_id, 1) + 1
+        self._latest[task_id] = self._latest.get(task_id, 1) + 1
+        return self._latest[task_id]
 
 
 async def complete_task(
@@ -203,17 +234,17 @@ async def _notify_cell_finished(
 
 
 async def retry_task(
-    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempt: int
+    deps: QueenDeps, wardens: Sequence[WardenLink], task_id: TaskId, attempts: AttemptBook
 ) -> None:
-    """Resend a fresh grant and assignment to the same placement, at `attempt`.
+    """Resend a fresh grant and assignment to the same placement, as the task's next attempt.
 
     Args:
         deps: The Queen's collaborators.
         wardens: Every Warden currently attached; `task_id`'s own Warden must be among these.
         task_id: The task to retry; still RUNNING in the Brood Chamber (module docstring).
-        attempt: The next attempt number, tracked by the caller.
+        attempts: The Queen's own AttemptBook; the retry counts in it and takes its next number.
     """
-    await redispatch(deps, wardens, task_id, attempt)
+    await redispatch(deps, wardens, task_id, attempts.next_attempt(task_id))
 
 
 async def requeue_task(

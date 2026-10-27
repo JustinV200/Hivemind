@@ -18,7 +18,7 @@ from builders.tasks import make_task, make_task_spec
 
 from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import TaskNeeds
-from hivemind.queen.autopilot import QueenAction, decide
+from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
 from hivemind.supervision import AlarmKind as HiveAlarmKind
 from hivemind.supervision import EscalationPolicy, PolicyAction, PolicyRule
 from hivemind.supervision.attendant import InboxKind
@@ -92,7 +92,15 @@ def _make_result(
 
 
 def _no_rules_policy() -> EscalationPolicy:
-    return EscalationPolicy(rules=(), default=PolicyAction.ESCALATE)
+    return _ESCALATE
+
+
+_ESCALATE = EscalationPolicy(rules=(), default=PolicyAction.ESCALATE)  # Every Alarm escalates.
+
+
+def _tally(attempts: int) -> AttemptTally:
+    # The Queen's own dispatches and the attempt number agree until a Warden respawns on its own.
+    return AttemptTally(made=attempts, latest=attempts)
 
 
 def test_heartbeat_is_recorded() -> None:
@@ -109,7 +117,7 @@ def test_heartbeat_is_recorded() -> None:
     )
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=heartbeat)
 
-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, None, _tally(0), _ESCALATE, 3)
 
     assert action is QueenAction.RECORD
 
@@ -120,7 +128,7 @@ def test_task_result_succeeded_completes_the_task() -> None:
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
-    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, task, _tally(1), _ESCALATE, 3)
 
     assert action is QueenAction.COMPLETE_TASK
 
@@ -133,7 +141,7 @@ def test_task_result_succeeded_with_a_feasible_scout_report_still_completes() ->
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
-    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, task, _tally(1), _ESCALATE, 3)
 
     assert action is QueenAction.COMPLETE_TASK
 
@@ -149,7 +157,7 @@ def test_task_result_succeeded_with_an_infeasible_scout_report_fails_the_task() 
 
     # attempts=1, limit=1: even a limit that would otherwise force ESCALATE_TO_HUMAN for a FAILED
     # result never applies here, since the infeasible-Scout branch never consults attempts/limit.
-    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 1)
+    action = decide(item, task, _tally(1), _ESCALATE, 1)
 
     assert action is QueenAction.FAIL_TASK
 
@@ -160,7 +168,7 @@ def test_task_result_failed_retries_below_the_limit() -> None:
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
-    action = decide(item, task, 1, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, task, _tally(1), _ESCALATE, 3)
 
     assert action is QueenAction.RETRY_TASK
 
@@ -171,7 +179,7 @@ def test_task_result_failed_fails_once_attempts_reach_the_limit() -> None:
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
-    action = decide(item, task, 3, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, task, _tally(3), _ESCALATE, 3)
 
     assert action is QueenAction.FAIL_TASK
 
@@ -187,7 +195,7 @@ def test_a_failed_result_whose_cell_refused_its_commands_is_requeued_not_retried
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=_refused_commands(clock))
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
-    action = decide(item, task, 1, _no_rules_policy(), _DEFAULT_LIMIT)
+    action = decide(item, task, _tally(1), _no_rules_policy(), _DEFAULT_LIMIT)
 
     assert action is QueenAction.REQUEUE_TASK
 
@@ -199,7 +207,7 @@ def test_a_task_already_needing_commands_is_never_requeued_again() -> None:
     spec = make_task_spec(needs=TaskNeeds(commands=True))
     task = make_task(status=TaskStatus.RUNNING, clock=clock, spec=spec)
 
-    action = decide(item, task, 1, _no_rules_policy(), _DEFAULT_LIMIT)
+    action = decide(item, task, _tally(1), _no_rules_policy(), _DEFAULT_LIMIT)
 
     assert action is QueenAction.RETRY_TASK
 
@@ -210,7 +218,7 @@ def test_a_stale_refused_commands_result_is_only_recorded() -> None:
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=payload)
     task = make_task(status=TaskStatus.RUNNING, clock=clock)
 
-    action = decide(item, task, 2, _no_rules_policy(), _DEFAULT_LIMIT)
+    action = decide(item, task, _tally(2), _no_rules_policy(), _DEFAULT_LIMIT)
 
     assert action is QueenAction.RECORD
 
@@ -222,9 +230,51 @@ def test_failed_result_for_an_attempt_older_than_the_current_one_is_a_stale_reco
 
     # The Queen already dispatched attempt 2 (its counter reads 2); attempt 1's own FAILED result
     # landing afterwards must not dispatch a third attempt for the same single failure.
-    action = decide(item, None, 2, _no_rules_policy(), _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(2), _no_rules_policy(), _DEFAULT_LIMIT)
 
     assert action is QueenAction.RECORD
+
+
+def test_a_failed_result_numbered_below_a_warden_reported_attempt_is_a_stale_record() -> None:
+    clock = FakeClock()
+    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=2)
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+
+    # One dispatch of the Queen's, but its Warden already reported attempt 3 (its own respawn):
+    # attempt 2's FAILED result is history however few dispatches the Queen herself made.
+    action = decide(item, None, AttemptTally(made=1, latest=3), _no_rules_policy(), _DEFAULT_LIMIT)
+
+    assert action is QueenAction.RECORD
+
+
+def test_the_ceiling_counts_the_queens_own_dispatches_never_the_attempt_number() -> None:
+    clock = FakeClock()
+    result = _make_result(clock, outcome=TaskOutcome.FAILED, attempt=5)
+    item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
+
+    # Attempt 5, after its Warden's own four respawns, is still the Queen's first dispatch.
+    action = decide(item, None, AttemptTally(made=1, latest=5), _no_rules_policy(), 3)
+
+    assert action is QueenAction.RETRY_TASK
+
+
+def test_an_alarm_climbs_the_queens_rungs_by_her_own_dispatches() -> None:
+    clock = FakeClock()
+    alarm = _make_alarm(clock, kind=AlarmKind.WORKER_CRASHED)
+    item = make_inbox_item(InboxKind.ALARM, clock=clock, payload=alarm)
+    crashed = HiveAlarmKind.WORKER_CRASHED
+    policy = EscalationPolicy(
+        rules=(
+            PolicyRule(kind=crashed, min_attempts=1, action=PolicyAction.RETRY),
+            PolicyRule(kind=crashed, min_attempts=2, action=PolicyAction.REBIND),
+        ),
+        default=PolicyAction.ESCALATE,
+    )
+
+    # Its Warden's own respawns reached attempt 4; the Queen's first rung is still the one due.
+    action = decide(item, None, AttemptTally(made=1, latest=4), policy, _DEFAULT_LIMIT)
+
+    assert action is QueenAction.RETRY_TASK
 
 
 def test_acceptance_failed_alarm_is_recorded_its_paired_failed_result_decides() -> None:
@@ -242,7 +292,7 @@ def test_acceptance_failed_alarm_is_recorded_its_paired_failed_result_decides() 
 
     # Even with a policy row that would retry, the Alarm is only recorded: the Warden that raised
     # it reports TaskResult(FAILED) for the same attempt, and that result carries the decision.
-    action = decide(item, None, 1, retry_policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), retry_policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.RECORD
 
@@ -253,7 +303,7 @@ def test_task_result_for_an_already_terminal_task_is_a_stale_record() -> None:
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=result)
     task = make_task(status=TaskStatus.SUCCEEDED, clock=clock)
 
-    action = decide(item, task, 5, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, task, _tally(5), _ESCALATE, 3)
 
     assert action is QueenAction.RECORD
 
@@ -269,7 +319,7 @@ def test_alarm_retry_action_maps_to_retry_task() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.RETRY_TASK
 
@@ -287,7 +337,7 @@ def test_alarm_respawn_action_also_maps_to_retry_task() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.RETRY_TASK
 
@@ -305,7 +355,7 @@ def test_alarm_rebind_action_maps_to_rebind() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.REBIND
 
@@ -323,7 +373,7 @@ def test_alarm_escalate_action_maps_to_escalate_to_human() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.ESCALATE_TO_HUMAN
 
@@ -341,7 +391,7 @@ def test_alarm_cancel_action_maps_to_fail_task() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.FAIL_TASK
 
@@ -355,7 +405,7 @@ def test_alarm_takeover_action_maps_to_escalate_to_human() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, None, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.ESCALATE_TO_HUMAN
 
@@ -374,7 +424,7 @@ def test_alarm_escalates_once_attempts_reach_the_limit_even_if_policy_would_retr
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, None, 2, policy, 2)
+    action = decide(item, None, _tally(2), policy, 2)
 
     assert action is QueenAction.ESCALATE_TO_HUMAN
 
@@ -391,7 +441,7 @@ def test_alarm_for_an_already_terminal_task_is_a_stale_record() -> None:
         default=PolicyAction.ESCALATE,
     )
 
-    action = decide(item, task, 1, policy, _DEFAULT_LIMIT)
+    action = decide(item, task, _tally(1), policy, _DEFAULT_LIMIT)
 
     assert action is QueenAction.RECORD
 
@@ -409,7 +459,7 @@ def test_question_blocks_on_question() -> None:
     )
     item = make_inbox_item(InboxKind.QUESTION, clock=clock, payload=question)
 
-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, None, _tally(0), _ESCALATE, 3)
 
     assert action is QueenAction.BLOCK_ON_QUESTION
 
@@ -426,7 +476,7 @@ def test_answer_routes_the_answer() -> None:
     )
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=answer)
 
-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, None, _tally(0), _ESCALATE, 3)
 
     assert action is QueenAction.ROUTE_ANSWER
 
@@ -443,18 +493,18 @@ def test_the_frames_a_warden_says_again_whenever_its_link_is_made_wake_no_model(
         interval_s=5.0,
     )
     report = make_capacity_report(make_device_party(clock))
-    policy = EscalationPolicy(rules=(), default=PolicyAction.ESCALATE)
+    policy = _ESCALATE
 
     for payload in (heartbeat, report):
         item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=payload)
-        assert decide(item, None, 0, policy, 3) is QueenAction.RECORD
+        assert decide(item, None, _tally(0), policy, 3) is QueenAction.RECORD
 
 
 def test_an_unrecognised_payload_needs_judgement() -> None:
     clock = FakeClock()
     item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, clock=clock, payload=object())
 
-    action = decide(item, None, 0, EscalationPolicy(rules=(), default=PolicyAction.ESCALATE), 3)
+    action = decide(item, None, _tally(0), _ESCALATE, 3)
 
     assert action is QueenAction.NEEDS_JUDGEMENT
 
@@ -466,7 +516,7 @@ def test_a_human_message_always_needs_judgement() -> None:
     item = make_inbox_item(InboxKind.HUMAN_MESSAGE, clock=clock, payload=message)
     policy = EscalationPolicy(rules=(), default=PolicyAction.RETRY)
 
-    assert decide(item, None, 0, policy, 3) is QueenAction.NEEDS_JUDGEMENT
+    assert decide(item, None, _tally(0), policy, 3) is QueenAction.NEEDS_JUDGEMENT
 
 
 def _lease_released(clock: FakeClock, *, restored: bool) -> LeaseReleased:
@@ -488,7 +538,7 @@ def test_an_unclaimed_lease_released_left_as_found_is_recorded() -> None:
     clock = FakeClock()
     item = make_inbox_item(clock=clock, payload=_lease_released(clock, restored=True))
 
-    assert decide(item, None, 0, _no_rules_policy(), _DEFAULT_LIMIT) is QueenAction.RECORD
+    assert decide(item, None, _tally(0), _no_rules_policy(), _DEFAULT_LIMIT) is QueenAction.RECORD
 
 
 def test_a_lease_released_with_residual_paths_needs_judgement() -> None:
@@ -496,4 +546,7 @@ def test_a_lease_released_with_residual_paths_needs_judgement() -> None:
     clock = FakeClock()
     item = make_inbox_item(clock=clock, payload=_lease_released(clock, restored=False))
 
-    assert decide(item, None, 0, _no_rules_policy(), _DEFAULT_LIMIT) is QueenAction.NEEDS_JUDGEMENT
+    assert (
+        decide(item, None, _tally(0), _no_rules_policy(), _DEFAULT_LIMIT)
+        is QueenAction.NEEDS_JUDGEMENT
+    )

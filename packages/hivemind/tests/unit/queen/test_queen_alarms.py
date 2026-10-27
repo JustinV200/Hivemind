@@ -26,6 +26,7 @@ import asyncio
 import dataclasses
 from collections.abc import Awaitable, Callable
 
+import pytest
 from builders.queen import make_queen_deps, plan_responder
 
 from hivemind.brood_chamber import TaskStatus
@@ -35,11 +36,11 @@ from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
 from waggle.clock import Clock
-from waggle.ids import TaskId, new_alarm_id, new_worker_id
+from waggle.ids import TaskId, WardenId, new_alarm_id, new_worker_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised, InterventionAction
-from waggle.messages.task import TaskOutcome, TaskResult
+from waggle.messages.task import TaskOutcome, TaskProgress, TaskResult, TaskStage
 
 
 def _single_task_plan(goal: str) -> dict[str, object]:
@@ -165,6 +166,77 @@ async def test_a_task_failed_on_an_alarm_is_cancelled_on_its_warden() -> None:
     assert cancel.task_id == first.task_id
     assert (await deps.chamber.get(first.task_id)).status is TaskStatus.FAILED
     await warden_end.close()
+
+
+@pytest.mark.parametrize("trigger", ["escalated_alarm", "failed_result"])
+async def test_a_retry_numbers_its_attempt_past_every_attempt_the_warden_reported(
+    trigger: str,
+) -> None:
+    """The Queen's retry never reuses an attempt number the Warden has already run.
+
+    The Warden respawned the task twice on its own, as attempts 2 and 3, reporting each on
+    task.progress (TaskAssign.attempt's own rule), before it escalated or reported the task
+    FAILED; her retry used to go out as attempt 2 again. It now goes out past the highest attempt
+    reported, while her decision still reads her own count: a first retry, not the human.
+    """
+    provider = FakeLLMProvider(responder=plan_responder(_single_task_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    await queen.submit_goal("Write a haiku.", clearance=HoneyClearance.C1)
+    first = await warden_end.wait_for_assignment()
+    run_task = asyncio.ensure_future(queen.run())
+    for attempt in (2, 3):
+        await warden_end.send(_started(first.task_id, attempt))
+    await _wait_until(lambda: _noted(queen, first.task_id, 3))
+
+    if trigger == "escalated_alarm":
+        await warden_end.send(
+            _alarm(deps.clock, kind=AlarmKind.WORKER_CRASHED, task_id=first.task_id)
+        )
+    else:
+        await warden_end.send(_failed(first.task_id, attempt=3, checked_by=link.warden_id))
+    await asyncio.wait_for(warden_end.pump_until(lambda: len(warden_end.assignments) >= 2), 5.0)
+    await queen.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert warden_end.assignments[1].attempt == 4
+    assert not queen.human_inbox.alarms
+    await warden_end.close()
+
+
+def _started(task_id: TaskId, attempt: int) -> TaskProgress:
+    """A Warden's report that `attempt` of `task_id` started: a local respawn it made."""
+    return TaskProgress(
+        task_id=task_id,
+        attempt=attempt,
+        stage=TaskStage.STARTED,
+        summary=f"Respawned as attempt {attempt}.",
+        clearance=WireHoneyClearance.C1,
+        fraction_done=None,
+        handoff=None,
+    )
+
+
+def _failed(task_id: TaskId, *, attempt: int, checked_by: WardenId) -> TaskResult:
+    """A Warden's verified TaskResult(FAILED) for `attempt` of `task_id`."""
+    return TaskResult(
+        task_id=task_id,
+        attempt=attempt,
+        outcome=TaskOutcome.FAILED,
+        summary="The role crashed.",
+        clearance=WireHoneyClearance.C1,
+        artifacts=(),
+        checked_by=checked_by,
+        handoff=None,
+        spend=0.0,
+        reason="Cancelled after WORKER_CRASHED.",
+    )
+
+
+async def _noted(queen: Queen, task_id: TaskId, attempt: int) -> bool:
+    """True once the Queen has taken `attempt` of `task_id` as the highest reported so far."""
+    return queen._attempts.tally(task_id).latest == attempt
 
 
 async def _wait_until(condition: Callable[[], Awaitable[bool]], limit: int = 200) -> None:

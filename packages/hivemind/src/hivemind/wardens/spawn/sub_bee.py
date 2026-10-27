@@ -80,7 +80,7 @@ from hivemind.workers.tools.comb import CombToolBundle
 from waggle.ids import EventId, TaskId, WorkerId
 from waggle.messages import HandoffRef
 from waggle.messages.supervision import AlarmRaised, ContextTelemetry
-from waggle.messages.task import TaskAssign, TaskResult
+from waggle.messages.task import TaskAssign, TaskProgress, TaskResult, TaskStage
 from waggle.transport.memory import MemoryTransport
 
 __all__ = ["LocalRun", "SubBee", "SuccessorOrder", "reap_runtime"]
@@ -195,6 +195,22 @@ class SubBee:
     successor: SuccessorOrder | None = field(default=None)
     comb_tools: CombToolBundle | None = field(default=None)
     local: LocalRun | None = field(default=None)
+
+    def started(self) -> TaskProgress:
+        """The `TaskProgress(STARTED)` telling the Queen this bee began its task's attempt here.
+
+        A Warden's own respawn, rebind or recovery numbers past the Queen's last dispatch, and
+        `TaskAssign.attempt`'s own rule has it say so, so her next retry numbers past it in turn.
+        """
+        return TaskProgress(
+            task_id=self.task_id,
+            attempt=self.attempt,
+            stage=TaskStage.STARTED,
+            summary=f"Attempt {self.attempt} started by its Warden, on binding {self.binding}.",
+            clearance=self.assignment.clearance,
+            fraction_done=None,
+            handoff=None,
+        )
 
     @property
     def has_ended(self) -> bool:

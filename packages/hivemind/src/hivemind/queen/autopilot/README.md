@@ -11,7 +11,9 @@ awaits a model. Nothing under this package may import hivemind.llm.
   `CLEAR_WAX`, `QUARANTINE_BEE`, `PAUSE_TASK`, `NEEDS_JUDGEMENT`.
 - `decide` (`table.py`): the pure dispatch table itself, keyed by the wrapped payload's own type
   (and the task's own status, where it matters); an escalated Alarm is mapped through
-  `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling. Roadmap step
+  `hivemind.supervision.policy.decide`, capped by the Queen's own attempt ceiling. It reads a
+  task's `AttemptTally`: the ceiling and the policy's rungs count the Queen's own dispatches, and a
+  FAILED result numbered below the latest attempt number any level started is stale. Roadmap step
   10.6c: a policy row naming `QUARANTINE` maps to `QUARANTINE_BEE` (carried out by
   `hivemind.queen.quarantine.order_quarantine`), and a Warden's `TaskProgress` at stage PAUSED
   about a task not yet terminal maps to `PAUSE_TASK` (`hivemind.queen.quarantine.hold_task`); every

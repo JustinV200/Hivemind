@@ -33,7 +33,7 @@ from hivemind.brood_chamber import TaskStatus
 from hivemind.cell import HoneyClearance
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
-from hivemind.queen.autopilot import QueenAction, decide
+from hivemind.queen.autopilot import AttemptTally, QueenAction, decide
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.quarantine import hold_task
 from hivemind.queen.queen import Queen
@@ -230,7 +230,7 @@ def test_the_queens_table_pauses_on_a_held_report_and_records_every_other_stage(
 
     def decided(progress: TaskProgress, task: object) -> QueenAction:
         item = make_inbox_item(InboxKind.WAGGLE_MESSAGE, payload=progress, task_id=progress.task_id)
-        return decide(item, task, 1, policy, 3)  # type: ignore[arg-type]
+        return decide(item, task, AttemptTally(1, 1), policy, 3)  # type: ignore[arg-type]
 
     assert decided(_held(running.id), running) is QueenAction.PAUSE_TASK
     assert decided(_held(running.id, TaskStage.WORKING), running) is QueenAction.RECORD

@@ -36,8 +36,10 @@ every decided action to one of these; none of them is a general-purpose module o
   runtime stopped, its link closed, its slot freed), shared with `results`, `control`,
   `heartbeat`, `Warden.stop` and the quarantine path; a respawn keeps the slot for the fresh bee
   (`keep_slot`). `resume_from_handoff`: a bee stopped at a Handoff its own Warden ordered is
-  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot. An Alarm
-  from a bee the Warden started for itself is kept on its row, and such a bee takes no slot.
+  followed by a fresh bee resuming the same attempt from that Handoff, in the same slot. A fresh
+  bee on a new attempt number (a respawn, a rebind, a Rebind or Takeover's recovery) is reported
+  to the Queen on a `TaskProgress(STARTED)`, so her next retry numbers past it. An Alarm from a bee
+  the Warden started for itself is kept on its row, and such a bee takes no slot.
 - `lease` (roadmap step 10.3): `open_lease`, `Warden.start`'s delegate, behind the
   `lease_creation` point. `release_lease` is the one way a lease is given back (the idle release,
   and the offline return that leases a device again); `report_cell_lost`/`clear_cell_lost` also

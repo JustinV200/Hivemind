@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 from builders.supervision import make_inbox_item
 
-from hivemind.queen.autopilot import QueenAction
+from hivemind.queen.autopilot import AttemptTally, QueenAction
 from hivemind.queen.autopilot import decide as queen_decide
 from hivemind.supervision import (
     Alarm,
@@ -102,7 +102,7 @@ def test_the_wardens_table_has_a_row_for_every_policy_action(action: PolicyActio
 def test_the_queens_table_has_a_row_for_every_policy_action(action: PolicyAction) -> None:
     item = _item(_alarm(WireAlarmKind.OTHER))
 
-    decided = queen_decide(item, None, 1, _one_row(action), _LIMIT)
+    decided = queen_decide(item, None, AttemptTally(1, 1), _one_row(action), _LIMIT)
 
     assert isinstance(decided, QueenAction)
     assert decided is not QueenAction.NEEDS_JUDGEMENT
@@ -115,7 +115,9 @@ def test_quarantine_maps_to_each_levels_own_lever() -> None:
     assert warden_decide(item, _SUB_BEE, policy) is WardenAction.QUARANTINE
     # About no sub-bee this Warden supervises: nobody to quarantine, so the Queen decides.
     assert warden_decide(item, None, policy) is WardenAction.ESCALATE
-    assert queen_decide(item, None, 1, policy, _LIMIT) is QueenAction.QUARANTINE_BEE
+    assert (
+        queen_decide(item, None, AttemptTally(1, 1), policy, _LIMIT) is QueenAction.QUARANTINE_BEE
+    )
 
 
 def test_isolate_is_the_queens_lever_and_a_warden_sends_it_up() -> None:
@@ -123,7 +125,7 @@ def test_isolate_is_the_queens_lever_and_a_warden_sends_it_up() -> None:
     item = _item(_alarm(WireAlarmKind.OTHER))
 
     # Roadmap step 10.6a: only the Queen isolates; a Warden that met the row escalates.
-    assert queen_decide(item, None, 1, policy, _LIMIT) is QueenAction.ISOLATE_CELL
+    assert queen_decide(item, None, AttemptTally(1, 1), policy, _LIMIT) is QueenAction.ISOLATE_CELL
     assert warden_decide(item, _SUB_BEE, policy) is WardenAction.ESCALATE
 
 
@@ -144,7 +146,9 @@ def test_a_security_alarm_always_goes_up_never_retried_or_rebound() -> None:
         assert policy_decide(shipped, Alarm.from_wire(alarm)) is PolicyAction.ESCALATE
         view = SubBeeView(state=WorkerState.RUNNING, attempt=max(attempts, 1))
         assert warden_decide(_item(alarm), view, shipped) is WardenAction.ESCALATE
-        decided = queen_decide(_item(alarm), None, attempts, shipped, _LIMIT)
+        decided = queen_decide(
+            _item(alarm), None, AttemptTally(attempts, attempts), shipped, _LIMIT
+        )
         assert decided is QueenAction.ESCALATE_TO_HUMAN
 
 
@@ -159,5 +163,7 @@ def test_a_patrol_anomaly_always_goes_up_to_the_queen_who_posts_it_to_the_human(
         view = SubBeeView(state=WorkerState.RUNNING, attempt=max(attempts, 1))
         assert warden_decide(_item(alarm), view, shipped) is WardenAction.ESCALATE
         assert warden_decide(_item(alarm), None, shipped) is WardenAction.ESCALATE
-        decided = queen_decide(_item(alarm), None, attempts, shipped, _LIMIT)
+        decided = queen_decide(
+            _item(alarm), None, AttemptTally(attempts, attempts), shipped, _LIMIT
+        )
         assert decided is QueenAction.ESCALATE_TO_HUMAN

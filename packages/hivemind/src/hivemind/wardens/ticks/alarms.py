@@ -24,7 +24,11 @@ nothing started it and the task stayed RUNNING with no bee. Every one of these r
 resumes from a Handoff, so each passes the isolation resume gate first (`hivemind.wardens.
 isolation.admit_resume`, ADR-0043), exactly as a Queen-sent `TaskAssign` does: before, a Warden's
 own RETRY or REBIND was covered only because an isolation revokes the grant and a Worker refuses a
-tainted Handoff itself; now a tainted resume is refused here, recorded, and the task held.
+tainted Handoff itself; now a tainted resume is refused here, recorded, and the task held. Every
+fresh bee that starts here as a new attempt (a respawn, a rebind, a Rebind or Takeover's recovery)
+reports its number to the Queen on a `TaskProgress(STARTED)`: `TaskAssign.attempt`'s own rule,
+which her next retry numbers past, where before she numbered it from her own count and the trail
+saw an attempt number twice.
 
 Fits into the Hive:
     Layer 5 (per-Cell supervisors; spawn and supervise Workers), inside the wardens package's ticks
@@ -53,6 +57,8 @@ Key invariants:
       across the retire and released only if the Guard refuses the fresh bee's binding or the
       isolation gate refuses its Handoff.
     - No respawn spawns from a Handoff this Cell's store labels TAINTED (`admit_resume`).
+    - A fresh bee on a new attempt number is reported to the Queen once, as it starts; a Handoff's
+      successor carries its predecessor's attempt on, so it reports nothing.
     - `rebind_sub_bee` is the one place a fresh sub-bee is spawned on an explicit target binding
       without the grant's own `allowed`-bindings search: `hivemind.wardens.ticks.control`'s own
       Queen-driven REBIND path calls it with the binding key the Queen already resolved
@@ -97,11 +103,14 @@ from hivemind.wardens.spawn import (
 )
 from hivemind.wardens.spawn.sub_bee import SuccessorOrder
 from hivemind.wardens.ticks.tools import comb_seams
-from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
+from hivemind.wardens.ticks.trail_ship import (
+    MAX_REASON_CHARS,
+    report_refused,
+    ship_trail_before_result,
+)
 from waggle.envelope import wrap
 from waggle.ids import TaskId, new_alarm_id, new_event_id
 from waggle.messages import AlarmSeverity
-from waggle.messages.base import MAX_REASON_CHARS as WIRE_REASON_CHARS
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
 from waggle.messages.task import TaskAssign, TaskOutcome, TaskResult
 
@@ -110,7 +119,6 @@ if TYPE_CHECKING:
     from hivemind.wardens.warden import Warden
     from waggle.messages.forage import GrantIssued
 
-MAX_REASON_CHARS = 2_000  # Mirrors waggle.messages.task.reports.MAX_SUMMARY_CHARS's own bound.
 
 __all__ = [
     "MAX_REASON_CHARS",
@@ -148,14 +156,14 @@ async def handle_alarm_action(
         sub_bee.local.alarm = alarm
         return
     if action is WardenAction.RETRY:
-        await _record_handled(warden, alarm, action)
+        await record_handled(warden, alarm, action.value)
         await _respawn(warden, sub_bee, alarm, binding_override=None)
     elif action is WardenAction.REBIND:
         await _rebind(warden, sub_bee, alarm, binding)
     elif action is WardenAction.ESCALATE:
         await _escalate(warden, sub_bee, alarm)
     elif action is WardenAction.CANCEL_TASK:
-        await _record_handled(warden, alarm, action)
+        await record_handled(warden, alarm, action.value)
         await _cancel_task(warden, sub_bee, alarm)
 
 
@@ -198,7 +206,7 @@ async def _rebind(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised, binding: 
     if not (await authorize_binding(warden._deps, check)).allowed:
         await _escalate(warden, sub_bee, alarm)
         return
-    await _record_handled(warden, alarm, WardenAction.REBIND)
+    await record_handled(warden, alarm, WardenAction.REBIND.value)
     fresh = await _respawn(warden, sub_bee, alarm, binding_override=target)
     if fresh is not None:
         await _record_rebound(warden, sub_bee, fresh, warden_principal(warden._warden_id))
@@ -248,36 +256,6 @@ async def rebind_sub_bee(warden: Warden, sub_bee: SubBee, target_binding: str) -
         await _record_rebound(warden, sub_bee, fresh, queen)
 
 
-async def report_refused(warden: Warden, assignment: TaskAssign, reason: str) -> None:
-    """Report `assignment`'s task FAILED to the Queen because the Guard refused what it needed.
-
-    A refused binding (roadmap step 10.3) cannot run the task on this Warden at all; reporting it
-    FAILED with the Guard's own reason lets the Queen retry, fail or escalate it, rather than
-    leaving it RUNNING with no sub-bee.
-
-    Args:
-        warden: The owning Warden.
-        assignment: The task's TaskAssign.
-        reason: The Guard's reason sentence (already `guard.denied` on the trail).
-    """
-    result = TaskResult(
-        task_id=assignment.task_id,
-        attempt=assignment.attempt,
-        outcome=TaskOutcome.FAILED,
-        summary=reason[:MAX_REASON_CHARS],
-        clearance=assignment.clearance,
-        artifacts=(),
-        checked_by=warden._warden_id,
-        handoff=assignment.resume_from,
-        spend=0.0,
-        reason=reason[:WIRE_REASON_CHARS],
-    )
-    # The same ordering _send_result keeps: this Cell's trail rows (the refusal) ship first.
-    await ship_trail_before_result(warden)
-    message = wrap(result, warden._deps.hop, clock=warden._deps.clock)
-    await send_guarded(warden._deps.queen_link, message)  # A gone link is logged, not raised.
-
-
 def cell_context(warden: Warden) -> WardenCellContext | None:
     """Return this Warden's own Cell context for a respawn, or None when it holds no lease."""
     if warden._cell is None or warden._lease is None or warden._session is None:
@@ -322,7 +300,11 @@ async def resume_from_handoff(warden: Warden, sub_bee: SubBee) -> None:
     )
     await retire_sub_bee(warden, sub_bee, keep_slot=True)
     fresh = await _spawn_into_slot(warden, ctx, successor, order.binding or sub_bee.binding, None)
-    if fresh is not None and fresh.binding != sub_bee.binding:
+    if fresh is None:
+        return  # The Guard refused the binding: the task is already reported FAILED.
+    if order.new_attempt:
+        await _report_attempt(warden, fresh)
+    if fresh.binding != sub_bee.binding:
         # A rebind that landed, the one fact `llm.rebound` exists to record.
         await _record_rebound(warden, sub_bee, fresh, warden_principal(warden._warden_id))
 
@@ -339,7 +321,20 @@ async def _retire_and_spawn(
     new_assignment = sub_bee.assignment.model_copy(
         update={"attempt": sub_bee.attempt + 1, "resume_from": sub_bee.last_handoff}
     )
-    return await _spawn_into_slot(warden, ctx, new_assignment, binding, orderer)
+    fresh = await _spawn_into_slot(warden, ctx, new_assignment, binding, orderer)
+    if fresh is not None:
+        await _report_attempt(warden, fresh)
+    return fresh
+
+
+async def _report_attempt(warden: Warden, fresh: SubBee) -> None:
+    """Tell the Queen `fresh` started its task's next attempt here (`TaskAssign.attempt`'s rule).
+
+    The Queen owns the number on her own hops only: this one climbed past her last dispatch, and
+    her next retry must number past it, never back to a number the trail has already seen.
+    """
+    envelope = wrap(fresh.started(), warden._deps.hop, clock=warden._deps.clock)
+    await send_guarded(warden._deps.queen_link, envelope)  # A gone link is logged, not raised.
 
 
 async def _spawn_into_slot(
@@ -417,11 +412,6 @@ async def _escalate(warden: Warden, sub_bee: SubBee, alarm: AlarmRaised) -> None
     )
     forwarded = alarm.model_copy(update={"attempts": alarm.attempts + 1})
     await _send_to_queen(warden, forwarded)
-
-
-async def _record_handled(warden: Warden, alarm: AlarmRaised, action: WardenAction) -> None:
-    """Record `alarm.handled` for a RETRY/REBIND/CANCEL_TASK this Warden resolved, no escalation."""
-    await record_handled(warden, alarm, action.value)
 
 
 async def record_handled(warden: Warden, alarm: AlarmRaised, action: str) -> None:

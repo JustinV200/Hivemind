@@ -559,7 +559,8 @@ async def _record_spawned(deps: WardenDeps, worker_id: WorkerId, assignment: Tas
         actor=deps.identity.actor,
         kind="worker.spawned",
         subject_id=worker_id,
-        payload={"task_id": assignment.task_id, "role": assignment.role.value},
+        # The attempt too, so the trail itself shows every attempt number a task's bees ran under.
+        payload=assignment.model_dump(mode="json", include={"task_id", "role", "attempt"}),
     )
     await deps.trail.record(event)
     return event.id
