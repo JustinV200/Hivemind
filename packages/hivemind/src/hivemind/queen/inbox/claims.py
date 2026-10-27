@@ -11,7 +11,10 @@ mismatch is refused, never decided or applied, and recorded as `guard.task_refus
 sending Cell (reason `another_cell` when the task is placed with another Warden, `unplaced` when
 with none), once per Warden, message kind and reason, which the Guard Bee's judged `task_claim`
 rule counts. A report about a task that has already ended stays the quiet no-op the autopilot
-table makes it: nothing can be applied to a finished task.
+table makes it: nothing can be applied to a finished task. `TaskClaims.refuse_cell` is the same
+check for a message that names a Cell rather than a task: an Alarm the Queen's ISOLATE policy row
+would isolate its `context.cell_id` over (`hivemind.queen.ticks.alarms`) must name the Cell the
+sending Warden's link proved, or it is refused the same way (reason `another_cell`).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's inbox
@@ -26,6 +29,7 @@ Key invariants:
     - A refusal names the sending Cell and Warden and the message's kind, never the task, so it
       never files the sender's record under another Cell (a Night Veil Cell's, say).
     - The human's own messages, and every item that names no task, pass untouched.
+    - No Warden gets a Cell other than its own isolated: `refuse_cell` refuses the Alarm first.
 
 See Also:
     - hivemind.queen.autopilot.table for what a Warden's message would otherwise do to a task.
@@ -43,7 +47,7 @@ from hivemind.common.logging import get_logger
 from hivemind.pheromone import GuardEvent
 from hivemind.supervision.attendant import InboxItem
 from waggle.errors import InvalidIdError
-from waggle.ids import IdKind, WardenId, new_event_id, parse_id
+from waggle.ids import CellId, IdKind, WardenId, new_event_id, parse_id
 
 if TYPE_CHECKING:
     # Only for the type hints: every hivemind.queen sub-package keeps QueenDeps type-only.
@@ -96,14 +100,39 @@ class TaskClaims:
         if task.warden_id == item.principal:
             return False  # Its own task: the one thing a Warden may speak for.
         reason = TaskRefusal.UNPLACED if task.warden_id is None else TaskRefusal.ANOTHER_CELL
-        await self._record(deps, wardens.get(WardenId(item.principal)), item, reason)
+        link = wardens.get(WardenId(item.principal))
+        await self._record(deps, link, item.principal, item.payload_kind, reason)
+        return True
+
+    async def refuse_cell(
+        self, deps: QueenDeps, link: WardenLink, cell_id: CellId, payload_kind: str
+    ) -> bool:
+        """Refuse a message from `link`'s Warden naming `cell_id` when its link proved another Cell.
+
+        Args:
+            deps: The Queen's collaborators; `trail` records the refusal.
+            link: The link the message came in on; its Cell is the one its handshake proved.
+            cell_id: The Cell the message asks the Queen to act on.
+            payload_kind: The message's wire kind, for the record.
+
+        Returns:
+            True when the message is refused and must not be acted on; False when it may be.
+        """
+        if cell_id == link.cell.id:
+            return False  # Its own Cell: the one thing a Warden may speak for.
+        await self._record(deps, link, str(link.warden_id), payload_kind, TaskRefusal.ANOTHER_CELL)
         return True
 
     async def _record(
-        self, deps: QueenDeps, link: WardenLink | None, item: InboxItem, reason: TaskRefusal
+        self,
+        deps: QueenDeps,
+        link: WardenLink | None,
+        principal: str,
+        payload_kind: str,
+        reason: TaskRefusal,
     ) -> None:
         """Record one refusal about the sending Cell, unless this one was recorded already."""
-        key = (item.principal, item.payload_kind, reason.value)
+        key = (principal, payload_kind, reason.value)
         if key in self._recorded:
             return
         self._recorded.add(key)
@@ -116,16 +145,16 @@ class TaskClaims:
             at=deps.clock.now(),
             actor="system",
             kind=TASK_REFUSED_KIND,
-            subject_id=cell_id if cell_id is not None else item.principal,
+            subject_id=cell_id if cell_id is not None else principal,
             payload={
                 "cell_id": cell_id,
-                "warden_id": item.principal,
-                "message": item.payload_kind,
+                "warden_id": principal,
+                "message": payload_kind,
                 "reason": reason.value,
             },
         )
         await deps.trail.record(event)
-        log.warning("queen.task_refused", warden_id=item.principal, reason=reason.value)
+        log.warning("queen.task_refused", warden_id=principal, reason=reason.value)
 
 
 def _from_a_warden(item: InboxItem) -> bool:

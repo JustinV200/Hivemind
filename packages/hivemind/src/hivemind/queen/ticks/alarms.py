@@ -20,8 +20,10 @@ task `Intervene(QUARANTINE)` through `hivemind.queen.quarantine`; an Alarm that 
 reaches the human instead. `ISOLATE_CELL` (roadmap step 10.6a, a `PolicyAction.ISOLATE` row, the
 Queen's alone) records her decision and isolates the Alarm's Cell through the one isolation path
 (`hivemind.queen.isolation`); an Alarm naming no Cell she can reach, or the Hive Stand, reaches the
-human. `FAIL_TASK` also sends the Warden that raised the Alarm a `TaskCancel` for the task: that
-Warden may still run its bee (an Alarm about a bee over its quota rather than crashed) or hold its
+human, and one naming a Cell other than the one its Warden's link proved is refused
+(`hivemind.queen.inbox.TaskClaims.refuse_cell`, `guard.task_refused`), never acted on.
+`FAIL_TASK` also sends the Warden that raised the Alarm a `TaskCancel` for the task: that Warden
+may still run its bee (an Alarm about a bee over its quota rather than crashed) or hold its
 escalated FAILED row waiting on her, and only a cancel ends either, so without it the chamber read
 FAILED while a bee kept working on the task.
 
@@ -34,7 +36,8 @@ Fits into the Hive:
     (ModelSlot), `hivemind.queen.autopilot` (QueenAction), `hivemind.queen.chat` (post_alarm,
     roadmap step 10.5: an escalated Alarm is appended to the chat; CANCEL_SEND_TIMEOUT_S, the
     bound on FAIL_TASK's cancel), `hivemind.queen.deps` (QueenDeps, WardenLink), `hivemind.queen.
-    human_inbox` (HumanInbox), `hivemind.queen.isolation` (isolate_cell, roadmap step 10.6a),
+    human_inbox` (HumanInbox), `hivemind.queen.inbox` (TaskClaims),
+    `hivemind.queen.isolation` (isolate_cell, roadmap step 10.6a),
     `hivemind.queen.quarantine` (lever_from_alarm, order_quarantine),
     `hivemind.queen.ticks.results` (fail_task, retry_task),
     `hivemind.queen.trail` (record_event), `hivemind.supervision` (Alarm, record_alarm_event,
@@ -52,6 +55,8 @@ Key invariants:
       COMPLETE_TASK handling can record `alarm.resolved` once the rebound or retried attempt
       actually succeeds (fix 3d) -- the one Alarm outcome this module itself never reaches, since
       it always runs before the task's own next result is even in flight.
+    - ISOLATE_CELL acts only on the Cell the forwarding Warden's link proved: an Alarm naming
+      another is refused and recorded, and one whose Warden has gone reaches the human.
     - A task FAILED here is always followed by a TaskCancel to its Warden, bounded by
       `CANCEL_SEND_TIMEOUT_S`; a link that cannot take it is logged, never a reason to raise.
     - The `Intervene(REBIND)` this module sends always fills `binding` with the same fallback key
@@ -81,6 +86,7 @@ from hivemind.queen.cluster.triggers import cluster_if_down
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.errors import UnknownCellError
 from hivemind.queen.human_inbox import HumanInbox
+from hivemind.queen.inbox import TaskClaims
 from hivemind.queen.isolation import IsolationOrder, IsolationSite, Isolator, isolate_cell
 from hivemind.queen.quarantine import lever_from_alarm, order_quarantine
 from hivemind.queen.ticks.results import AttemptBook, fail_task, retry_task
@@ -91,6 +97,7 @@ from waggle.envelope import wrap
 from waggle.errors import TransportError
 from waggle.ids import TaskId, WardenId
 from waggle.messages.base import MAX_REASON_CHARS as WIRE_REASON_CHARS
+from waggle.messages.registry import kind_for
 from waggle.messages.supervision import AlarmKind, AlarmRaised, Intervene
 from waggle.messages.task import TaskCancel
 
@@ -117,6 +124,7 @@ class AlarmHandling:
             awaiting its own outcome; `hivemind.queen.queen`'s own COMPLETE_TASK handling pops
             from it to record `alarm.resolved` once the retried or rebound attempt succeeds
             (fix 3d).
+        claims: The Queen's own TaskClaims; ISOLATE_CELL refuses an Alarm naming another Cell.
     """
 
     human_inbox: HumanInbox
@@ -125,6 +133,7 @@ class AlarmHandling:
     action: QueenAction
     attempts: AttemptBook
     pending_alarms: MutableMapping[TaskId, Alarm]
+    claims: TaskClaims
 
 
 async def handle_alarm(
@@ -257,13 +266,18 @@ async def _isolate(deps: QueenDeps, wardens: Sequence[WardenLink], handling: Ala
     Roadmap step 10.6a: an ISOLATE row of the Queen's own policy (a Warden's never loads one).
     Her decision is on the trail first; an Alarm naming no Cell, a Cell with no attached Warden,
     or the Hive Stand (isolated only by the human) reaches the human instead, like any decision
-    this table cannot carry out.
+    this table cannot carry out. A Warden speaks only for its own Cell: an Alarm naming any other
+    is refused before anything is decided, and one whose Warden has detached cannot be proved,
+    so it reaches the human.
     """
     payload = handling.payload
     cell_id = payload.context.cell_id
-    if cell_id is None:
+    link = next((w for w in wardens if w.warden_id == handling.warden_id), None)
+    if cell_id is None or link is None:
         await _escalate(deps, handling.human_inbox, payload)
         return
+    if await handling.claims.refuse_cell(deps, link, cell_id, kind_for(AlarmRaised)):
+        return  # Another Cell's isolation, asked for by a Warden that does not own it.
     await record_event(
         deps, "queen.decided", cell_id, action="ISOLATE_CELL", alarm_id=payload.alarm_id
     )

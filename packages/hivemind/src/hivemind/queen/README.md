@@ -309,11 +309,12 @@ every assignment goes to a Warden, over Waggle.
   Virtual Cell's egress, records `cell.isolated` (`record`, where a Cell's `OPEN`/`ISOLATED` state
   lives), taints its memory from the first cited event (`taint`: the Hive's tables, then a
   `CellTaintOrder` for the store the Cell's Warden keeps, resent by `resend_taint_order` whenever
-  that Warden attaches while the isolation stands) and raises a CRITICAL SECURITY Alarm (`site`). `lift_isolation` is the human's lift (holds released, wax cleared, egress
-  restored, `cell.isolation_lifted`; taint and paused tasks stay). `IsolationDoor` gives the
+  that Warden attaches while the isolation stands) and raises a CRITICAL SECURITY Alarm
+  (`site`). `lift_isolation` is the human's lift (holds released, wax cleared, egress restored, `cell.isolation_lifted`; taint and paused tasks stay). `IsolationDoor` gives the
   running `Queen` both as methods for the Hive Entrance's `POST /v1/cells/{cell_id}/isolate` and
   `/lift`. Her own `ISOLATE` policy row (`QueenAction.ISOLATE_CELL`, `ticks.alarms`) isolates an
-  Alarm's Cell the same way.
+  Alarm's Cell the same way, and only the Cell the sending Warden's link proved: an Alarm naming
+  another is refused as `guard.task_refused` (`inbox.TaskClaims.refuse_cell`).
 - `queen.requeening`, `queen.supersedure`: placeholders, populated in a later roadmap phase.
 
 ## Enforcement points (roadmap step 10.3)

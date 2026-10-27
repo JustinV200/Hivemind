@@ -3,7 +3,8 @@
 Roadmap step 10.6a (ADR-0043). `PolicyAction.ISOLATE` is the Queen's alone (a Warden's policy
 never loads it); in her escalation policy it maps to `QueenAction.ISOLATE_CELL`, which records her
 decision and isolates the Alarm's Cell through the one isolation path. An Alarm that names no
-Cell, or names the Hive Stand's own (the human's alone), reaches the human instead.
+Cell, or names the Hive Stand's own (the human's alone), reaches the human instead. One naming a
+Cell other than the one its Warden's link proved is refused as `guard.task_refused`.
 
 Fits into the Hive:
     Mirrors the ISOLATE_CELL branch of src/hivemind/queen/ticks/alarms.py (codingrules section 3).
@@ -20,18 +21,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 
+from builders.cells import make_cell
 from builders.isolation import hive_stand_cell
-from builders.queen import WardenEnd, make_queen_deps
+from builders.queen import WardenEnd, make_queen_deps, make_warden_link
 
 from hivemind.cell import Cell
 from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.guard_requests import GuardDeps
+from hivemind.queen.inbox import TASK_REFUSED_KIND
 from hivemind.queen.isolation import ISOLATED_KIND
 from hivemind.queen.queen import Queen
 from hivemind.supervision import EscalationPolicy, PolicyAction
 from waggle.clock import FakeClock
-from waggle.ids import CellId, new_alarm_id, new_event_id, new_worker_id
+from waggle.ids import CellId, new_alarm_id, new_event_id, new_node_id, new_warden_id, new_worker_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
@@ -130,6 +133,29 @@ async def test_an_alarm_naming_no_cell_reaches_the_human_instead() -> None:
 
     assert await deps.trail.query(TrailQuery(kind=ISOLATED_KIND)) == ()
     await _stop(queen, run, warden_end)
+
+
+async def test_a_warden_cannot_get_another_cell_isolated() -> None:
+    queen, deps, owner_end, run = await _running()
+    victim = queen.wardens[0].cell.id
+    other, other_end = make_warden_link(
+        deps.identity.hive_id,
+        new_warden_id(deps.clock),
+        new_node_id(deps.clock),
+        make_cell(clock=deps.clock),
+        deps.clock,
+    )
+    await queen.attach_warden(other)
+
+    await other_end.send(_alarm(deps, victim))
+    await _until(lambda: _has(deps, TASK_REFUSED_KIND))
+
+    assert await deps.trail.query(TrailQuery(kind=ISOLATED_KIND)) == ()
+    [refused] = await deps.trail.query(TrailQuery(kind=TASK_REFUSED_KIND))
+    assert (refused.subject_id, refused.payload["reason"]) == (other.cell.id, "another_cell")
+    assert not queen.human_inbox.alarms
+    await other_end.close()
+    await _stop(queen, run, owner_end)
 
 
 async def _has(deps: QueenDeps, kind: str) -> bool:

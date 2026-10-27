@@ -32,6 +32,8 @@ Unlike `hivemind.wardens.inbox`, this package MAY import `hivemind.llm`: only an
 - `TaskClaims` (`claims.py`): a Warden speaks only for the tasks placed on its own Cell. Every item
   a Warden sent that names a live task placed with another Warden, or with none, is refused before
   `decide` and recorded as `guard.task_refused` about the sending Cell, never naming the task.
+  `refuse_cell` is the same check for an Alarm the Queen's ISOLATE row would act on: it must name
+  the Cell the sending Warden's link proved, or it is refused the same way.
 
 ## How to test this
 

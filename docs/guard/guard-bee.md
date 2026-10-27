@@ -176,7 +176,9 @@ The Queen records one more about a Warden's Cell herself, in her tick:
   so it was never decided or applied: no Cell finishes, fails, blocks or answers for another
   Cell's task. The event names the sending Cell and Warden and the message's kind, never the
   task, so it never drags another Cell's record into the sender's. A stale report about a task
-  that already ended stays a quiet no-op, as it always was.
+  that already ended stays a quiet no-op, as it always was. The same record (reason
+  `another_cell`) refuses an Alarm that would have the Queen's ISOLATE policy row isolate a Cell
+  other than the one the sending Warden's link proved, so no Warden gets another Cell isolated.
 
 Each reason is recorded once per link (the Queen's task refusals once per Warden and message
 kind), so no Cell can flood the trail. `subject_forgery`, `envelope_forgery`, `segment_forgery` and

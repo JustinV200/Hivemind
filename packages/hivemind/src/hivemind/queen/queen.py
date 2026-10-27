@@ -497,6 +497,7 @@ async def _act(
             action=action,
             attempts=queen._attempts,
             pending_alarms=queen._pending_alarms,
+            claims=queen._claims,
         )
         await ticks.alarms.handle_alarm(queen._deps, queen.wardens, handling)
     elif action is QueenAction.BLOCK_ON_QUESTION and isinstance(payload, Question):
