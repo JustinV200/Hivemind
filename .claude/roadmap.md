@@ -2777,13 +2777,41 @@ borrowed device and revoking every grant.
 
 ### Steps
 
-- [ ] **13.1 Requeening.** `queen/requeening/recover.py`: rebuild from the Brood Chamber and trail,
+- [x] **13.1 Requeening.** `queen/requeening/recover.py`: rebuild from the Brood Chamber and trail,
   reconcile with every backend and `RealCellSource`, reattach to live Wardens, replay their
   outboxes, reconcile grants against the ledger, release leases whose Warden is gone, reassign
   orphaned tasks, resume `PAUSED` tasks from Handoffs, `queen.requeened`. e2e kills the Queen with
   tasks on the Hive Stand, in a container and on a Nuc; all finish.
-- [ ] **13.2 Queen state snapshots.** The Queen's own periodic Handoff, so recovery is bounded;
+  **Built 2026-10-27** (ADR-0062). Every start is a Requeening: `run_hive` re-arms the readiness
+  gate from each live Virtual Cell's `hivemind.cell_key` label (`queen/cell_gate/rearm.py`; every
+  backend now stamps the Cell's public key) and runs `begin_requeening` before the Hive Stand's
+  Warden leases; her tick runs `settle_requeening` until no Warden she waits for still holds a task
+  unattached, or `[queen] requeening_grace_s` (90 s) is over. Orphans (the dead Hive Stand Warden's,
+  a gone Cell's) are placed afresh with their newest Handoff as the resume hint, a waiting question
+  withdrawn, a Night Veil one cancelled; a Swarm device's are left to the swarm gate; Clustering
+  pauses (in memory only) resume from their Handoff through a Warden that came back; ended grants
+  are released and gone holders' revoked `HOLDER_OFFLINE`; the dead process's Hive Stand lease is
+  given back (`cell/local/orphans.py`, its id parsed before anything is removed). Every Virtual
+  Cell's Warden now redials (`cli/in_cell/redial`: direct, or through Tor for Night Veil) and the
+  Cell listener binds the OS-chosen port it had (`queen/cell_gate/port.py`). The Queen mode starts
+  `REQUEENING` (`REQUEENING -> CLUSTERED` added for an outage meanwhile). Phase 11's open item is
+  closed: what she handled survives a restart (`queen/requeening/handled.py`, noted when handled,
+  never on receipt), so an Alarm or question resent after it is dropped and a question's answer is
+  still forwarded. `queen.requeened` carries counts only (the Night Veil boundary) and is classified
+  a lifecycle notice. Proved in-process by `tests/e2e/test_requeening.py`: the Queen killed (her
+  sockets closed, her tasks cancelled, no teardown) with a task BLOCKED on the Hive Stand and one
+  held mid-call on a Virtual Cell; under a second Queen over the same file both finish, the lease
+  is given back and `queen.requeened` reads one given back, one Warden back. The container and Nuc
+  legs need Docker and a Nuc and are the operator's run (`docs/runbooks/requeening.md`).
+- [x] **13.2 Queen state snapshots.** The Queen's own periodic Handoff, so recovery is bounded;
   `docs/runbooks/requeening.md`.
+  **Built 2026-10-27.** `queen/requeening/snapshot.py`: every `[queen] snapshot_interval_s` (60 s)
+  her tick writes a `QueenSnapshot` (the trail cursor, trailing it by 60 s, the Hive Stand leases
+  open there, the Wardens attached) into `queen_snapshot` beside the handled-envelope table and the
+  listener's port (`queen/requeening/store`, its own migration), and prunes handled rows past the
+  replay window; recovery folds the trail only from the newest cursor. The first snapshot of a
+  Queen's life follows `queen.requeened`. `docs/runbooks/requeening.md` says what an operator sees
+  and checks.
 - [ ] **13.2a Supersedure: moving the Hive Stand.** `queen/supersedure/` (coding rules 8.16):
   `preflight.py` (the candidate must be a colonized Real Cell, Level 1 or a Nuc, with `FULL`
   access, the same runtime version, disk for the stores plus headroom, Forage covering the Royal

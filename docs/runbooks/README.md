@@ -14,3 +14,8 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
   Pollen binary on the device (a Raspberry Pi included), mint an invite with `hive swarm invite`,
   `pollen enrol` and `pollen install`, see the device with `hive swarm list` and `hive cells list`,
   run a goal on it with `hive swarm run`, change its access, tier and rung, and revoke it.
+- [`requeening.md`](requeening.md): what a restarted Queen does on her own after a crash (every
+  start is a Requeening, ADR-0062): the Hive Stand's orphaned lease given back, its tasks placed
+  afresh from their Handoffs, Virtual Cells' Wardens waited for `requeening_grace_s` and taken back,
+  one `queen.requeened` of counts; what to check when a Warden stays missing; the container and Nuc
+  legs to run by hand.

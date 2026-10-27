@@ -861,9 +861,10 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
   replaced link had read but the tick had not drained were dropped (they carry over). Proved on a
   real container (`tests/e2e/test_phase11_exit_unnoticed.py`): a result sent seven seconds after
   the cable was pulled, before the loss was noticed, heard once after it came back; the same
-  scenario fails without the ring. Left open: after a Queen restart her window is empty, so an
-  Alarm or a question sent again can repeat; an outage longer than about nine minutes re-sends
-  nothing from its unnoticed stretch.
+  scenario fails without the ring. Left open: ~~after a Queen restart her window is empty, so an
+  Alarm or a question sent again can repeat~~ (closed 2026-10-27 by roadmap 13.1, ADR-0062: what
+  she handled is kept durably and a resend after a restart is dropped); an outage longer than
+  about nine minutes re-sends nothing from its unnoticed stretch.
 - **Main merged in (5ad2814).** `origin/main` gained ten Windows-portability fixes to phase 8, 9 and
   12 code after this branch was cut; they are merged, the one conflict (the face of
   `hivemind.cell.local`) resolved by keeping both sides' names, so main is an ancestor again.
@@ -997,9 +998,10 @@ absent (`HIVEMIND_TEST_DEVICE_IMAGE`).
 
   Steps proved beyond the bullets: `test_phase11_exit_quota.py` (11.4), `test_phase11_exit_exoskeleton.py`
   (11.11), `tests/integration/test_exoskeleton_on_device.py` (11.11 at Level 0).
-- **Open, for later phases.** After a Queen restart her replay window is empty, so an Alarm or a
-  question sent again from an unnoticed stretch can repeat (results and Nectar are idempotent), and
-  an outage longer than about nine minutes re-sends nothing from that stretch; the Honey Store has
+- **Open, for later phases.** ~~After a Queen restart her replay window is empty, so an Alarm or
+  a question sent again from an unnoticed stretch can repeat (results and Nectar are idempotent)~~
+  (closed 2026-10-27: `queen/requeening/handled.py`, ADR-0062), and an outage longer than about
+  nine minutes re-sends nothing from that stretch; the Honey Store has
   no taint ledger. A real `hive run` readies no PROPOLIS or NIGHT_VEIL Virtual Cell: there is no
   Queen-side session to a Virtual Cell, the templates are MEADOW only, the Docker backend grants
   `NET_ADMIN` only to VPN_TOR, no PROPOLIS image ships, the Night Veil image's changes from wave 5D

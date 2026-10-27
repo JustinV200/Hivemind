@@ -34,17 +34,18 @@ so recovery is bounded.
 **Every start is a Requeening.** `run_hive` starts the Queen in `REQUEENING` (Appendix C: "A new
 Queen starts in `REQUEENING`") and runs `hivemind.queen.requeening` before her loop. A first start,
 or a start after a clean stop, finds nothing to do and is `RUNNING` within one tick, so there is
-one start path, not a crash path beside a normal one. While she is `REQUEENING` her Clustering
-check waits (Appendix C has no `REQUEENING -> CLUSTERED` edge, and the wait is bounded by the
-grace below); everything else on her tick runs, so a Warden that comes back is heard at once.
+one start path, not a crash path beside a normal one. Her tick runs throughout, so a Warden that
+comes back is heard at once. A provider that goes down while she is `REQUEENING` clusters her as
+it would at any other time: Appendix C gains `REQUEENING -> CLUSTERED`, recovery still settles,
+and she stays `CLUSTERED` until the provider answers.
 
 **Sources of truth, one per fact.**
 
 | Fact | Source of truth | What Requeening does with it |
 |---|---|---|
 | Tasks, their placement, questions | Brood Chamber | Read; every task placed on a Warden that is not back is an orphan. |
-| Virtual Cells | Backend labels (`list_cells`) | Already reconciled (5.6). The Cell's public key now rides in a label too (`hivemind.cell_key`), so the readiness gate is re-armed and the Cell's Warden can prove itself again. |
-| The Hive Stand | `RealCellSource.cells()` and the trail's `cell.leased` / `cell.released` | A lease opened and never released is an orphan once its Warden is gone: its scratch is removed and `cell.released` recorded with `requeened = true`. |
+| Virtual Cells | Backend labels (`list_cells`) | Already reconciled (5.6). The Cell's public key now rides in a label too (`hivemind.cell_key`), so the readiness gate is re-armed and the Cell's Warden can prove itself again. A Cell still running a task is walked back to GRANTED in its lifecycle (its backend can only say READY), so the release at its task's end has its edge. |
+| The Hive Stand | Its Cell id (derived from the node id, `hive_stand_cell_id`) and the trail's `cell.leased` / `cell.released` | A lease opened and never released is an orphan once its Warden is gone: its scratch is removed and `cell.released` recorded with `requeened = true`. Only the Queen's own node's events about that Cell are read, and only a well-formed lease id names a directory, so a merged segment can never point the removal anywhere else. |
 | Swarm devices | The swarm registry and the gate (ADR-0053) | Left alone. The gate already holds a lost device's tasks for its grace and decides; Requeening never moves a task on a device's Cell. |
 | Wardens | Whatever reattaches | A Virtual Cell's Warden now redials with backoff like a device's (every tier, not only Night Veil), and attaches as a returning Warden. The Hive Stand's Warden of the dead process never comes back: its tasks are orphans at once. |
 | Outboxes | The Wardens' own | Replayed by each Warden on reconnection (1.8); nothing to do on her side but hear them. |
@@ -55,12 +56,20 @@ grace below); everything else on her tick runs, so a Warden that comes back is h
 **Waiting for live Wardens.** Requeening runs in two halves. The first, before her loop starts,
 re-arms the gate, releases the Hive Stand's orphan leases, gives back the tasks of Wardens that
 cannot return, releases ended grants and records what it found. The second runs on her tick and
-finishes once every Warden she expects (the Warden of each live task on a Virtual Cell its backend
-still lists) has reattached, or once `[queen] requeening_grace_s` (default 90 s, three of the
-redial's 30 s backoff caps) has passed. It then gives back the tasks of every expected Warden that
-did not return, revokes their grants, settles the Clustering pauses, moves her to `RUNNING` and
-records `queen.requeened`. A Virtual Cell whose Warden never came back is left to the Undertaker
-and `hive cells abscond`; Requeening does not tear Cells down.
+finishes once no Warden she expects (the Warden of each live task on a Virtual Cell its backend
+still lists) still holds a task without being attached, or once `[queen] requeening_grace_s`
+(default 90 s, three of the redial's 30 s backoff caps) has passed. A Warden that came back,
+finished what it held and left again (its Cell released) counts as back. It then gives back the
+tasks of every expected Warden that did not return, revokes their grants, settles the Clustering
+pauses, moves her to `RUNNING` and records `queen.requeened`. A Virtual Cell whose Warden never
+came back is left to the Undertaker and `hive cells abscond`; Requeening does not tear Cells down.
+
+**The Cells must find her again.** With `[virtual_cells] listen_port = 0` (the default) the OS
+chose her listener's port, and a restarted Queen would be handed another one that no surviving
+Cell knows. The port the OS chose is therefore remembered in her store, and a restarted listener
+binds it first, falling back to a fresh one (and remembering that) only when it is taken. A port
+the manifest names is bound as named. Her signing key was already stable across restarts (the
+Hive key in the secret store, phase 5's open item 5).
 
 **The replay window survives a restart.** The transport's window stays in memory; what survives is
 the Queen's record of what she handled. Each Alarm and question she handles from a Warden is noted
@@ -103,6 +112,13 @@ of a Night Veil Cell beyond envelope ids, which expire with the replay window.
   started outlives a crash only on POSIX (Windows runs each in a Job Object that dies with the
   process); killing it needs its pid on the trail, which is left for later.
 - Every start records one `queen.requeened`, including a clean one.
+- A task a quarantine or an isolation holds stays PAUSED even when its Warden is gone: its hold is
+  someone else's to lift, and placing it afresh would slip it. Once lifted, it is cancelled or
+  placed by hand.
+- A task whose `TaskAssign` the crash swallowed (the chamber read RUNNING, the Warden never heard
+  of it) is not detected when that Warden comes back; it waits for the Warden's own liveness and
+  the human. Reading a returning Warden's held tasks off its heartbeat would close this, and is
+  left for later.
 - Supersedure (13.2a) starts the new Queen through the same path from the copied stores.
 
 ## Alternatives considered
