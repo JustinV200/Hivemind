@@ -85,12 +85,6 @@
   margin: 0 auto;
 }
 
-/* The narrow layout's 360 unit viewBox is for a phone; in a tablet's 660px band it is capped
-   so its 12 unit text draws at 16px, not 22px */
-.dg--narrow {
-  max-width: 480px;
-}
-
 .dg text {
   fill: var(--text);
   font-family: var(--font-sans);

@@ -4,7 +4,8 @@
  * Mobile first (design.md section 2): everything is one column at 360 px. The shared pool and the
  * flow sit side by side from 1080 px; the host cards fill a grid of as many 280 px columns as fit
  * at every width. A host card is a comb cell with one row per dimension: the label, a thin bar
- * and the figures right-aligned. The flow SVG carries a `viewBox`, so it scales to its pane.
+ * and the figures right-aligned. The flow SVG carries a `viewBox` sized from the pane it measures
+ * (`usePaneWidth`), so its text holds the 12px floor at every width.
  * Under 720 px a table row becomes a stacked card whose cells keep their labels (from
  * `data-label`), so nothing needs width and the page never scrolls sideways; the Grants table,
  * whose ten columns need the wide rail, keeps its cards to 1080 px (`forage-table--wide`), while
@@ -23,7 +24,7 @@
  *   - docs/observation/design.md sections 3, 3.4, 4.3, 4.7, 4.8 and 5.3.
  */
 /* A section is a grid, so its gap spaces the shared `.section-heading` from what follows; its
-   one track never grows past the pane, so the flow's drawing scrolls in its box instead */
+   one track never grows past the pane, so the flow's drawing is sized to its box instead */
 .forage-section {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -41,7 +42,6 @@
   gap: var(--sp-4);
 }
 
-/* A pane may shrink below the flow's 640px drawing, which then scrolls inside its own box */
 .forage-panes .forage-section {
   min-width: 0;
   margin: 0;
@@ -133,16 +133,15 @@
   height: auto;
 }
 
-/* Under 720px the flow keeps the width its 12px text needs and scrolls sideways inside its own
-   box (not the figure, whose stroke would scroll away with it); the page never does (design 4.8) */
-@media (max-width: 719px) {
-  .forage-scroll {
-    overflow-x: auto;
-  }
+/* The flow's canvas is as wide as its pane down to 240px; a narrower pane (none the design
+   names) scrolls the drawing sideways inside this box, not the figure, whose stroke would scroll
+   away with it; the page never does (design 4.8) */
+.forage-scroll {
+  overflow-x: auto;
+}
 
-  .forage-svg--flow {
-    min-width: 640px;
-  }
+.forage-svg--flow {
+  min-width: 240px;
 }
 
 .forage-svg-label,

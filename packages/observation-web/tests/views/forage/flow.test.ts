@@ -20,7 +20,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ForageFlow } from '../../../src/views/forage/flow/diagram';
 import {
-  COLUMN_X,
+  FLOW_WIDTH,
   HEAD_H,
   layoutFlow,
   MIN_BOX,
@@ -115,7 +115,7 @@ describe('the layout', () => {
       'w_2>g_c',
     ]);
     // Every ribbon leaves the right edge of a box in the pool or the Warden column.
-    const edges = [COLUMN_X[0] + NODE_W, COLUMN_X[1] + NODE_W];
+    const edges = [layout.columns[0] + NODE_W, layout.columns[1] + NODE_W];
     const startOf = (path: string): number => Number(path.split(' ')[0]!.slice(1));
     expect(layout.ribbons.every((r) => edges.includes(startOf(r.path)))).toBe(true);
   });
@@ -158,6 +158,23 @@ describe('the layout', () => {
     const layout = layoutFlow(flowModel(input({ grants: [], headroom: null, reserve: null })));
     expect(layout.boxes).toEqual([]);
     expect(Number.isFinite(layout.height)).toBe(true);
+  });
+
+  // The canvas is the pane's width on a phone, so 12 unit text is 12 px; labels move left of
+  // their boxes and keep fewer characters, and nothing is drawn past the canvas.
+  it.each([
+    [null, FLOW_WIDTH, [90, 232, 374], false],
+    [700, FLOW_WIDTH, [90, 232, 374], false],
+    [304, 304, [57, 166, 275], true],
+    [200, 240, [37, 126, 215], true],
+  ])('draws on a canvas sized from a %s px pane', (pane, width, columns, left) => {
+    const layout = layoutFlow(flowModel(input()), pane);
+    expect(layout.width).toBe(width);
+    expect(layout.columns).toEqual(columns);
+    expect(layout.labelLeft).toEqual([true, left, left]);
+    expect(layout.boxes.every((b) => b.x + b.w <= width)).toBe(true);
+    const longest = Math.max(...layout.boxes.map((b) => b.label.length));
+    expect(longest).toBeLessThanOrEqual(pane === 200 ? 5 : pane === 304 ? 8 : 13);
   });
 });
 

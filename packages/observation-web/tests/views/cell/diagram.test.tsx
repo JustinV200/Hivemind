@@ -197,6 +197,21 @@ describe('the layout', () => {
     expect(narrow.boxes.every((b) => b.y >= narrow.frame.y + narrow.frame.h)).toBe(true);
   });
 
+  // A phone's pane is the canvas, so 12 unit text is 12 px there: the frame fills it and the
+  // sub-bees and boxes wrap to what fits (one across at 304 px, two at the design's 360).
+  it.each([
+    [304, 1, 1],
+    [360, 2, 2],
+    [500, 2, 2],
+  ])('sizes the narrow canvas from a %s px pane', (pane, beeCols, boxCols) => {
+    const layout = layoutDiagram(many(4), 'narrow', pane);
+    expect(layout.width).toBe(pane);
+    expect(layout.frame.w).toBe(pane - 8);
+    expect(new Set(layout.bees.map((b) => b.x)).size).toBe(beeCols);
+    expect(new Set(layout.boxes.map((b) => b.x)).size).toBe(boxCols);
+    for (const r of [...layout.bees, ...layout.boxes]) expect(r.x + r.w).toBeLessThanOrEqual(pane);
+  });
+
   it('is deterministic, and joins every sub-bee and every box with a line', () => {
     const a = layoutDiagram(many(4), 'wide');
     expect(layoutDiagram(many(4), 'wide')).toEqual(a);

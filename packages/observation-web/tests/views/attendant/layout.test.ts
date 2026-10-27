@@ -101,6 +101,44 @@ describe('layoutGraph', () => {
     );
   });
 
+  // The round 5 review's phone shot: layer 0 wraps task_4 under task_1 and the line from task_1
+  // to task_3 ran straight through it. A segment must never run inside a node, in either mode,
+  // whether the layer wraps, the line spans two layers or runs back up them.
+  it.each([
+    ['narrow', 360],
+    ['narrow', 304],
+    ['wide', null],
+  ] as const)('never runs a line through a node (%s, %s px)', (mode, pane) => {
+    const chain = [edge('task_1', 'task_5'), edge('task_3', 'task_5'), edge('task_5', 'task_1')];
+    const layout = layoutGraph([...ids, 'task_5'], [...edges, ...chain], mode, pane);
+    for (const line of layout.lines) {
+      const points = line.d
+        .slice(1)
+        .split(' L')
+        .map((p) => p.split(' ').map(Number) as [number, number]);
+      expect(points.length).toBeGreaterThanOrEqual(4);
+      points.slice(1).forEach(([x2, y2], i) => {
+        const [x1, y1] = points[i]!;
+        expect(x1 === x2 || y1 === y2).toBe(true);
+        for (const n of layout.nodes) {
+          const inside =
+            Math.min(x1, x2) < n.x + n.w &&
+            Math.max(x1, x2) > n.x &&
+            Math.min(y1, y2) < n.y + n.h &&
+            Math.max(y1, y2) > n.y;
+          expect(inside, `${line.key} through ${n.id}`).toBe(false);
+        }
+      });
+    }
+  });
+
+  it('sizes the narrow canvas from the pane and wraps to what fits', () => {
+    const narrow = layoutGraph(ids, edges, 'narrow', 304);
+    expect(narrow.width).toBe(304);
+    expect(new Set(narrow.nodes.map((n) => n.x)).size).toBe(1);
+    expect(layoutGraph(ids, edges, 'wide', 304).width).toBeGreaterThan(304);
+  });
+
   it('keeps every node and line point inside the viewBox, as whole numbers', () => {
     for (const mode of ['wide', 'narrow'] as const) {
       const layout = layoutGraph(ids, [...edges, edge('task_3', 'task_1')], mode);

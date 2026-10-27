@@ -6,7 +6,8 @@
  * them. The `<svg>` is `role="img"` with an `aria-labelledby` title that says how many tasks and
  * dependencies it shows; every node has its own `<title>`. In the wide mode the drawing keeps its
  * natural size inside a container that scrolls sideways, so a long chain never shrinks its text
- * below 12 pixels; in the narrow mode it scales by its viewBox, which is 360 units across.
+ * below 12 pixels; in the narrow mode its viewBox is as many units as the pane is pixels wide,
+ * measured by `usePaneWidth`, so its text is 12 px there too.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/attendant/graph/`. Drawn by `attendant.tsx`.
@@ -21,12 +22,12 @@
  */
 import { useMemo } from 'react';
 import type { ReactElement } from 'react';
+import { usePaneWidth } from '../../../components';
 import { GraphTable } from './graph_table';
-import { layoutGraph } from './layout';
+import { layoutGraph, WIDE_FROM } from './layout';
 import type { GraphEdge } from './layout';
 import { TaskNodeView } from './task_node';
 import type { TaskNode } from './status';
-import { useGraphMode } from './use_graph_mode';
 
 const HEADING_ID = 'attendant-graph-title';
 const ARROW_ID = 'attendant-graph-arrow';
@@ -43,15 +44,17 @@ export function TaskGraph(props: {
   edges: readonly GraphEdge[];
 }): ReactElement {
   const { principal, nodes, edges } = props;
-  const [ref, mode] = useGraphMode();
+  const [ref, pane] = usePaneWidth();
+  const mode = pane !== null && pane >= WIDE_FROM ? 'wide' : 'narrow';
   const layout = useMemo(
     () =>
       layoutGraph(
         nodes.map((node) => node.task_id),
         edges,
         mode,
+        pane,
       ),
-    [nodes, edges, mode],
+    [nodes, edges, mode, pane],
   );
   const byId = useMemo(() => new Map(nodes.map((node) => [node.task_id, node])), [nodes]);
   const summary = summaryOf(principal, nodes.length, layout.lines.length);

@@ -3,11 +3,13 @@
  *
  * It draws the layout of `layout.ts` as SVG: three labelled columns of boxes joined by ribbons.
  * A box shows how much was issued (its height) and, where the schema carries a use figure, how
- * much of that has been used (the filled part). The pool's labels stand to the left of its boxes
- * and the Wardens' and grants' to the right, each with a halo of the surface colour, so the words
- * stay legible where a ribbon passes. A grant nearing expiry has its box and ribbon edge in the
- * warn token and the word "soon" in its label. Beside the SVG a table repeats every figure for
- * screen readers.
+ * much of that has been used (the filled part). Each label stands on the side the layout gives it
+ * (the pool's to the left of its boxes; the Wardens' and grants' to the right on the wide canvas,
+ * to the left on a phone) with a halo of the surface colour, so the words stay legible where a
+ * ribbon passes. The canvas is sized from the pane the drawing measures, so its 12 unit text is
+ * 12 px on a phone; only a pane under 240 px scrolls the drawing sideways. A grant nearing expiry
+ * has its box and ribbon edge in the warn token and the word "soon" in its label. Beside the SVG
+ * a table repeats every figure for screen readers.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/flow/`. Drawn by `forage_screen.tsx`; makes no
@@ -22,10 +24,11 @@
  *   - docs/observation/design.md sections 4.7 and 4.8.
  */
 import type { ReactElement } from 'react';
+import { usePaneWidth } from '../../../components';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
-import { COLUMN_HEADINGS, COLUMN_X, HEAD_H, layoutFlow } from './layout';
-import type { FlowBox, FlowRibbon, NodeKind } from './layout';
+import { COLUMN_HEADINGS, HEAD_H, layoutFlow, NODE_W } from './layout';
+import type { FlowBox, FlowLayout, FlowRibbon, NodeKind } from './layout';
 
 // The pool's reserve is hatched; granted-side boxes are the granted token; free is the track.
 const FILL: Readonly<Record<NodeKind, string>> = {
@@ -38,8 +41,7 @@ const FILL: Readonly<Record<NodeKind, string>> = {
 
 function Box(props: { box: FlowBox }): ReactElement {
   const { box } = props;
-  // The pool's words go left of its box; the ribbons leave to the right.
-  const left = box.column === 0;
+  const left = box.labelLeft;
   return (
     <g>
       <title>{box.title}</title>
@@ -104,17 +106,19 @@ function Ribbon(props: { ribbon: FlowRibbon }): ReactElement {
   );
 }
 
-// The three column headings: the pool's over its labels (right-aligned), the others over their boxes.
-function Headings(): ReactElement {
+// The three column headings, each over its column's labels: right-aligned to the boxes where the
+// labels stand left of them, else from the boxes' left edge.
+function Headings(props: { layout: FlowLayout }): ReactElement {
+  const { columns, labelLeft } = props.layout;
   return (
     <>
       {COLUMN_HEADINGS.map((heading, i) => (
         <text
           key={heading}
           className="forage-svg-heading"
-          x={i === 0 ? COLUMN_X[0] + 14 : COLUMN_X[i]}
+          x={labelLeft[i] ? (columns[i] as number) + NODE_W : columns[i]}
           y={HEAD_H - 6}
-          textAnchor={i === 0 ? 'end' : 'start'}
+          textAnchor={labelLeft[i] ? 'end' : 'start'}
         >
           {heading}
         </text>
@@ -125,12 +129,14 @@ function Headings(): ReactElement {
 
 export function ForageFlow(props: { model: FlowModel }): ReactElement {
   const { model } = props;
-  const layout = layoutFlow(model);
+  const [ref, pane] = usePaneWidth();
+  const layout = layoutFlow(model, pane);
   const empty = layout.boxes.length === 0;
   return (
     <figure className="forage-figure forage-figure--flow comb-cell">
-      {/* On a phone the drawing scrolls sideways inside this box, so the figure's stroke stays */}
-      <div className="forage-scroll">
+      {/* The pane the canvas is sized from; under 240px the drawing scrolls sideways inside it,
+          so the figure's stroke stays put */}
+      <div className="forage-scroll" ref={ref}>
         <svg
           className="forage-svg forage-svg--flow"
           viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}
@@ -141,7 +147,7 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
             {`Forage flow: the shared pool, to ${model.wardens.length} Wardens, to their grants`}
           </title>
           <HatchDefs />
-          <Headings />
+          <Headings layout={layout} />
           {layout.ribbons.map((ribbon) => (
             <Ribbon key={ribbon.id} ribbon={ribbon} />
           ))}

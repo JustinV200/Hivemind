@@ -21,9 +21,10 @@ view read once more, a second later, for the inbox order and the two lists (no f
 `slice.ts` is the reducer; `use_attendant.ts` the seed, the stream and the re-read; `attendant.tsx`
 the screen (`AttendantScreen`); `header.tsx` the title row; `attendant.css` the styles. `graph/` is
 the SVG: `layout.ts` (layers and geometry, pure), `task_graph.tsx` and `task_node.tsx` (drawing),
-`status.ts` (tones, words, links), `graph_table.tsx` (the table for a screen reader) and
-`use_graph_mode.ts` (wide or narrow by the container's width). `lists/` holds the inbox and the two
-short task lists.
+`status.ts` (tones, words, links) and `graph_table.tsx` (the table for a screen reader); the
+drawing measures its pane with the shared `usePaneWidth` and runs left to right from 720 px, top
+to bottom on a canvas as wide as the pane below it. `lists/` holds the inbox and the two short
+task lists.
 
 Read-only, and it renders only what the generated types carry. The schema has no subject line for
 an inbox entry and no title for a task (`TaskNode` carries ids, role, status and placement), so the
