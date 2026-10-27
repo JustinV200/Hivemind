@@ -44,6 +44,8 @@ from hivemind.guard import (
     CapabilityFamily,
     CapabilitySet,
     GuardPolicy,
+    is_reserved,
+    parse_submitted,
     proposed_set,
     role_set,
 )
@@ -82,12 +84,14 @@ def approval_grant(policy: GuardPolicy, requested: Sequence[str] | None) -> Capa
         parsed, once every entry is inside the device ceiling.
 
     Raises:
-        InvalidCapabilityError: A string is not a capability; the error names it.
+        InvalidCapabilityError: A string is not a capability, or names the reserved `exec:@`
+            scope; the error names it.
         CapabilityCeilingError: A capability is beyond the device ceiling; the error names it.
     """
     if requested is None:
         return proposed_set(policy)
-    granted = CapabilitySet.parse(*requested)
+    # A reserved `exec:@...` scope is the Hive's own diagnostic task's alone (ADR-0060).
+    granted = parse_submitted(*requested)
     ceiling = device_ceiling(policy)
     # Every entry must be something the ceiling itself allows; the first that is not is refused.
     for capability in _in_order(granted):
@@ -165,6 +169,8 @@ def _steward_refusal(
     """Say why a steward may not grant ``capability``, or None when it may."""
     if capability.family is CapabilityFamily.ENTRANCE_STEWARD:
         return "stewardship is granted only at the Hive Stand"
+    if is_reserved(capability):
+        return "an exec:@ scope is reserved for the Hive's own diagnostic task"
     if not held.allows(capability):
         return "the steward does not hold it"
     if not ceiling.allows(capability):

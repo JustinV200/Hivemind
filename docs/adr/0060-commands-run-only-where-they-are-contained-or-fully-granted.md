@@ -126,9 +126,13 @@ narrow exception, kept as data in `hivemind.guard.diagnostics`:
   can be asked for under it. An uncontained `SCRATCH` ceiling holds `exec:@diagnostic` (a
   `READ_ONLY` one still runs nothing), and the access-level rule admits it to the Drone role alone.
 - **The diagnostic task alone.** `run_command` asks for it only when the task's goal ceiling names
-  `exec:@diagnostic` exactly, which only the diagnostic task's ceiling does
-  (`hivemind.wardens.offline.diagnose.assign.CEILING`). Another task's Drone, another role, or an
-  unlisted command still needs `exec:<program>`, and so `FULL` or a contained Cell.
+  `exec:@diagnostic` exactly. An `exec:@...` scope is reserved: every set that comes from outside
+  the Hive (an operator's or a steward's device approval, a goal's capability set from any
+  submitter) is parsed through `hivemind.guard.parse_submitted`, which refuses it. So the only
+  ceiling that can name it is the one a cut-off Warden builds for its own diagnostic task
+  (`hivemind.wardens.offline.diagnose.assign.CEILING`), which never leaves the Warden. Another
+  task's Drone, another role, or an unlisted command still needs `exec:<program>`, and so `FULL`
+  or a contained Cell.
 - **Not on the packet.** A Level 0 device's Pollen Packet matches `exec` by program name, so it
   could not hold a command to the list; its enrolment grants leave `exec:@diagnostic` out.
 

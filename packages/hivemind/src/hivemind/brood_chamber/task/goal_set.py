@@ -32,7 +32,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, Field
 
-from hivemind.guard import CapabilitySet, InvalidCapabilityError
+from hivemind.guard import InvalidCapabilityError, parse_submitted
 
 MAX_GOAL_CAPABILITIES = 64  # Mirrors waggle.messages.task.assignment.MAX_CAPABILITIES.
 MAX_CAPABILITY_CHARS = 1_024  # Mirrors waggle.messages.task.assignment.MAX_CAPABILITY_CHARS.
@@ -55,12 +55,14 @@ def canonical_goal_set(value: tuple[str, ...] | None) -> tuple[str, ...] | None:
         The same set in canonical form (`CapabilitySet.as_strings`), or None unchanged.
 
     Raises:
-        ValueError: A string is not a capability; pydantic reports it as a validation error.
+        ValueError: A string is not a capability, or names the reserved `exec:@` scope only the
+            Hive's own diagnostic task holds; pydantic reports it as a validation error.
     """
     if value is None:
         return None  # The operator's own local path: no ceiling to canonicalise.
     try:
-        return CapabilitySet.parse(*value).as_strings()
+        # A reserved `exec:@...` scope is the Hive's own diagnostic task's alone (ADR-0060).
+        return parse_submitted(*value).as_strings()
     except InvalidCapabilityError as exc:
         # Re-raised as ValueError so a TaskSpec built from bad JSON fails validation cleanly.
         raise ValueError(f"not a goal capability set: {exc}") from exc

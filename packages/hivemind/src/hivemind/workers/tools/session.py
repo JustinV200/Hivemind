@@ -16,7 +16,8 @@ Capping gate checks `exec` only for a command run outside scratch, and a command
 can still read anything the Cell's user can: on a Cell whose processes are not contained, below
 FULL access, the access-level rule refuses it as `guard.denied` and nothing starts. The one
 exception is a diagnostic Drone's read-only diagnostics (`hivemind.guard.diagnostics`): when the
-task's goal ceiling names `exec:@diagnostic` exactly and the argument list is one of the listed
+task's goal ceiling names `exec:@diagnostic` exactly (only a cut-off Warden's own diagnostic task
+can: every submitted set refuses the reserved scope) and the argument list is one of the listed
 ones, that capability is asked for instead, which the access-level rule admits to the Drone role
 from SCRATCH up.
 
@@ -282,9 +283,11 @@ WRITE_FILE_SPEC = ToolSpec(definition=WRITE_FILE_DEFINITION, run=write_file)
 def _exec_need(invocation: ToolInvocation, argv: tuple[str, ...]) -> Capability:
     """The capability a command is asked for: a listed diagnostic's, on a diagnostic task only.
 
-    Only a task whose goal ceiling names `exec:@diagnostic` exactly is a diagnostic task (only
-    `hivemind.wardens.offline.diagnose.assign.CEILING` does); every other command, and every
-    unlisted one, needs `exec:<argv[0]>` as before (module docstring).
+    Only a task whose goal ceiling names `exec:@diagnostic` exactly is a diagnostic task. No goal
+    set a submitter or a device grant brings can name it (`hivemind.guard.parse_submitted` refuses
+    the reserved scope at every entry), so the only ceiling that does is the one a cut-off Warden
+    builds itself (`hivemind.wardens.offline.diagnose.assign.CEILING`). Every other command, and
+    every unlisted one, needs `exec:<argv[0]>` as before (module docstring).
     """
     ceiling = invocation.assignment.capabilities or ()
     if str(DIAGNOSTIC_EXEC) in ceiling and is_diagnostic(argv):

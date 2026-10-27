@@ -9,10 +9,23 @@ Key invariants:
 
 from __future__ import annotations
 
-import pytest
+from collections.abc import Callable
 
+import pytest
+from builders.entrance import make_device
+
+from hivemind.brood_chamber.task.goal_set import canonical_goal_set
 from hivemind.cell import AccessLevel
-from hivemind.guard import DIAGNOSTIC_COMMANDS, is_diagnostic
+from hivemind.entrance.enrol import DeviceStatus, approval_grant, device_ceiling, steward_grant
+from hivemind.entrance.errors import StewardGrantError
+from hivemind.guard import (
+    DIAGNOSTIC_COMMANDS,
+    CapabilitySet,
+    InvalidCapabilityError,
+    is_diagnostic,
+    load_guard_policy,
+    parse_submitted,
+)
 from hivemind.guard.diagnostics import admits_diagnostic
 
 _SHELLS = {"sh", "bash", "zsh", "dash", "cmd", "powershell", "pwsh", "env", "python", "python3"}
@@ -53,3 +66,34 @@ def test_only_the_drone_is_admitted_from_scratch_up(
     level: AccessLevel, role: str, admitted: bool
 ) -> None:
     assert admits_diagnostic(level, role) is admitted
+
+
+_POLICY = load_guard_policy()
+# A steward that holds every command, so the reserved scope is the only reason left to refuse.
+_STEWARD = make_device(
+    status=DeviceStatus.APPROVED, capabilities=("entrance:steward", "exec:*", "observe")
+)
+
+
+def _steward_grants(reserved: str) -> object:
+    """A steward's remote approval, the way the Entrance's route parses and checks it."""
+    return steward_grant(_STEWARD, CapabilitySet.parse(reserved), device_ceiling(_POLICY))
+
+
+_ENTRY_POINTS: dict[str, Callable[[str], object]] = {
+    "submitted set": lambda reserved: parse_submitted("observe", reserved),
+    "operator approval": lambda reserved: approval_grant(_POLICY, ("observe", reserved)),
+    "steward grant": _steward_grants,
+    "goal capability set": lambda reserved: canonical_goal_set(("fs:read:**", reserved)),
+}
+
+
+@pytest.mark.parametrize("entry", sorted(_ENTRY_POINTS))
+@pytest.mark.parametrize("reserved", ["exec:@diagnostic", "exec:@anything"])
+def test_no_entry_from_outside_the_hive_accepts_the_reserved_exec_scope(
+    entry: str, reserved: str
+) -> None:
+    # Only a cut-off Warden's own diagnostic task may name it; a submitter that could would turn
+    # any Drone of its goal into a "diagnostic Drone" below FULL.
+    with pytest.raises((InvalidCapabilityError, StewardGrantError, ValueError), match="reserved"):
+        _ENTRY_POINTS[entry](reserved)

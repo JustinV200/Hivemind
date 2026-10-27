@@ -57,8 +57,9 @@ Public API:
       and the points still pending (policy, roadmap step 10.3).
     - Enforcer: the effectful adapter every enforcement point calls: `check`, `check_floors`,
       `check_access_level` and, for a refusal the point decides itself, `refuse` (enforcer).
-    - DIAGNOSTIC_COMMANDS, DIAGNOSTIC_EXEC, is_diagnostic: the read-only diagnostics a diagnostic
-      Drone may run below FULL, and the one capability they are asked for as (diagnostics,
+    - DIAGNOSTIC_COMMANDS, DIAGNOSTIC_EXEC, is_diagnostic, is_reserved, parse_submitted: the
+      read-only diagnostics a diagnostic Drone may run below FULL, the one reserved capability
+      they are asked for as, and the parse every submitted set goes through (diagnostics,
       ADR-0060).
     - WatchObservation, WATCH_OBSERVATIONS, watch_permits: what watch mode may observe on a Real
       Cell, bounded by READ_ONLY and never the screen or the input (watch, roadmap step 10.7).
@@ -93,7 +94,13 @@ from hivemind.guard.capabilities import (
     ScopeKind,
     glob_literal,
 )
-from hivemind.guard.diagnostics import DIAGNOSTIC_COMMANDS, DIAGNOSTIC_EXEC, is_diagnostic
+from hivemind.guard.diagnostics import (
+    DIAGNOSTIC_COMMANDS,
+    DIAGNOSTIC_EXEC,
+    is_diagnostic,
+    is_reserved,
+    parse_submitted,
+)
 from hivemind.guard.enforcer import Enforcer
 from hivemind.guard.errors import (
     CapabilityWideningError,
@@ -242,10 +249,12 @@ __all__ = [
     "governs",
     "is_diagnostic",
     "is_file_url",
+    "is_reserved",
     "is_within",
     "load_guard_policy",
     "load_scan_patterns",
     "new_guard_report_id",
+    "parse_submitted",
     "proposed_set",
     "queen_principal",
     "role_set",
