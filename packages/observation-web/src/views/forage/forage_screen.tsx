@@ -87,7 +87,8 @@ function Diagrams(props: { state: ForageState; nowMs: number }): ReactElement {
       </div>
       <Section title="Hosts">
         {hosts.length > 0 ? (
-          <CapacityDiagram blocks={hosts} names={names} />
+          // The legend is drawn once: under the pool's figure, or here when there is no pool.
+          <CapacityDiagram blocks={hosts} names={names} legend={pool.length === 0} />
         ) : (
           <EmptyState>
             No Cell has reported capacity yet. A host appears here when a Cell reports its cores and

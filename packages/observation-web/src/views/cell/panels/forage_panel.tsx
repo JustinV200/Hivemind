@@ -4,7 +4,9 @@
  * The top of the panel is the Warden's whole grant: tokens spent against the tokens issued and
  * dollars spent against the dollars issued, as gauges that say their numbers in text. Under it,
  * each live grant (state, revision, shared seats, sub-bee limit, when it lapses unless a Heartbeat
- * renews it) and each request the Warden has filed and not had answered. A Cell with no Warden
+ * renews it) with the same two gauges, each named by the word beside it as the top rows are, so
+ * a sighted reader never tells tokens from spend by position alone; then each request the
+ * Warden has filed and not had answered. A Cell with no Warden
  * holds nothing, and the panel says so.
  *
  * Fits into the Hive:
@@ -39,12 +41,16 @@ function GrantRow(props: { grant: Grant }): ReactElement {
           lapses <TimeStamp at={grant.expires_at} />
         </span>
       </div>
-      <Gauge
-        used={grant.tokens_spent}
-        budget={grant.token_budget}
-        label={`Tokens of ${grant.id}`}
-      />
-      <Gauge used={grant.spent} budget={grant.spend_budget} label={`Spend of ${grant.id}, USD`} />
+      <div className="cell-gauges">
+        <span>Tokens</span>
+        <Gauge
+          used={grant.tokens_spent}
+          budget={grant.token_budget}
+          label={`Tokens of ${grant.id}`}
+        />
+        <span>Spend (USD)</span>
+        <Gauge used={grant.spent} budget={grant.spend_budget} label={`Spend of ${grant.id}, USD`} />
+      </div>
     </li>
   );
 }

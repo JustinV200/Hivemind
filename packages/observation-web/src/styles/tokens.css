@@ -67,12 +67,10 @@
   --mask-queen-forced-bg: #f2c4db;
   --mask-queen-forced-fg: #5e0b34;
 
-  /* 6 typography: IBM Plex when the device has it, the system face otherwise */
-  --font-sans:
-    'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-    sans-serif;
-  --font-mono:
-    'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  /* 6 typography: the device's own faces (Segoe UI, Roboto, San Francisco), so the app fetches
+     nothing and looks the same on every device of a kind */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
   --fs-xs: 12px;
   --fs-sm: 13px;
   --fs-md: 15px;

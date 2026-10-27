@@ -2,13 +2,15 @@
  * `CapacityDiagram`: one compact card per host (or pool), a bar per dimension with its figures.
  *
  * Each block of `model.ts` becomes a hex-cornered card: its name (the Cell's name when the fleet
- * knows it, else its id), then one row per dimension (cores, memory, GPUs, model seats, sub-bee
+ * knows it, else its id; the pool's card carries none, since it stands alone under the section
+ * heading that names it), then one row per dimension (cores, memory, GPUs, model seats, sub-bee
  * slots) with a thin stacked bar of what is in use, granted, held in reserve and free, and the
  * figures in words at the right. The bars are tiny SVGs placed by `layout.ts`, so the widths are
  * the same pure numbers the tests check. Colour never works alone: every bar has its figures, a
- * legend names the four kinds (the reserve is hatched as well as grey), and a hidden table with
- * the same numbers follows for screen readers. An over-committed bar shows a mark where its total
- * ends and the words "over by".
+ * legend names the four kinds (the reserve is hatched as well as grey; the screen draws it once,
+ * under the first figure on the page), and a hidden table with the same numbers follows for
+ * screen readers. An over-committed bar shows a mark where its total ends and the words "over
+ * by".
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/capacity/`. Drawn by `forage_screen.tsx` for the
@@ -106,25 +108,18 @@ function Row(props: { laid: LaidRow; hatch: string }): ReactElement {
 
 // A host card's title: the fleet's name for the Cell when it has one, else the word "Cell"; the
 // Cell id follows as a token either way, so an unnamed host reads as a card and never as a 30
-// character line of id (design.md 4.3). The pool is named by its block.
-function Title(props: { block: LaidBlock; name: string | null }): ReactElement {
-  const { block, name } = props;
-  if (block.kind === 'pool') return <>{block.title}</>;
-  return (
-    <>
-      {name ?? <span className="forage-host-kind">Cell</span>}
-      <IdToken id={block.id} />
-    </>
-  );
-}
-
+// character line of id (design.md 4.3). The pool's card has no title of its own: its section
+// heading names it, and a second "Shared pool" under it would only repeat the words.
 function HostCard(props: { block: LaidBlock; name: string | null; hatch: string }): ReactElement {
   const { block, name, hatch } = props;
   return (
     <li className="forage-host comb-cell">
-      <h3 className="forage-host-title">
-        <Title block={block} name={name} />
-      </h3>
+      {block.kind === 'pool' ? null : (
+        <h3 className="forage-host-title">
+          {name ?? <span className="forage-host-kind">Cell</span>}
+          <IdToken id={block.id} />
+        </h3>
+      )}
       <ul className="forage-host-rows">
         {block.rows.map((laid) => (
           <Row key={laid.row.key} laid={laid} hatch={hatch} />
@@ -140,6 +135,8 @@ export function CapacityDiagram(props: {
   caption?: string;
   // Cell names from the fleet, by Cell id; a host the fleet has not named shows its id.
   names?: ReadonlyMap<string, string>;
+  // Whether to draw the legend under the cards; the page draws it once, under its first figure.
+  legend?: boolean;
 }): ReactElement {
   const hatch = useId();
   const layout = layoutCapacity(props.blocks);
@@ -171,7 +168,7 @@ export function CapacityDiagram(props: {
           />
         ))}
       </ul>
-      <Legend hatch={hatch} />
+      {props.legend === false ? null : <Legend hatch={hatch} />}
       <div className="sr-only">
         <table>
           <caption>{`${caption}, in numbers`}</caption>

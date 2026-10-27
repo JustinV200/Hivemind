@@ -1,5 +1,6 @@
 /**
- * Tests for the Capping view: the strip, the queue, its chips and sort, the links, refusals and live frames.
+ * Tests for the Capping view: the strip, the queue, its filters and sort, the links, refusals and
+ * live frames.
  *
  * The view is rendered directly over a store that holds the app's slices plus Capping's (the app
  * table does not hold it until the orchestrator registers it), on the real client and the fake
@@ -17,7 +18,7 @@
  *   - tests/views/capping/slice.test.ts for the reducer rules.
  */
 import { act, fireEvent, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { mount } from './harness';
 import { auditRow, busyView, emptyView, hop, openHive } from './support';
 import { HiveProvider } from '../../../src/store';
@@ -35,6 +36,20 @@ const order = (table: HTMLElement) =>
 const rowOf = (id: string) => queue().getByLabelText(id).closest('tr') as HTMLElement;
 const chip = (group: string, name: RegExp) =>
   within(screen.getByRole('group', { name: group })).getByRole('button', { name });
+
+// A phone's width, as the page hears it: no min-width query matches.
+function narrow(): void {
+  window.matchMedia = ((query: string) => ({
+    matches: !/min-width/.test(query),
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
+}
+afterEach(() => {
+  // The width must not leak into the next test, which expects jsdom's none (every width reached).
+  delete (window as { matchMedia?: unknown }).matchMedia;
+});
 
 describe('the rates strip', () => {
   it('shows one card per tier, least dangerous first, with the figures the schema gives', async () => {
@@ -128,6 +143,29 @@ describe('the filter chips', () => {
       'REJECTED',
       'ROLLED BACK',
     ]);
+  });
+});
+
+describe('the filter selects on a phone', () => {
+  it('stand in for the chips, one tier or state at a time, with the same counts', async () => {
+    narrow();
+    await mount();
+    const table = () => queue().getByRole('table');
+    const tier = screen.getByLabelText('Show tier') as HTMLSelectElement;
+    expect(screen.queryByRole('group', { name: 'Show tier' })).toBeNull();
+    expect([...tier.options].map((o) => o.textContent)).toEqual([
+      'All (3)',
+      'SCRATCH WRITE (1)',
+      'NETWORK EGRESS (1)',
+      'IRREVERSIBLE (1)',
+    ]);
+    fireEvent.change(tier, { target: { value: 'NETWORK_EGRESS' } });
+    expect(order(table())).toEqual(['prop_rej']);
+    fireEvent.change(screen.getByLabelText('Show state'), { target: { value: 'CAPPED' } });
+    expect(queue().getByText('No proposals match these filters.')).toBeTruthy();
+    fireEvent.change(tier, { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Show state'), { target: { value: '' } });
+    expect(order(table())).toEqual(['prop_roll', 'prop_rej', 'prop_wait']);
   });
 });
 

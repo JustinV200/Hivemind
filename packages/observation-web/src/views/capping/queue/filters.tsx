@@ -1,18 +1,22 @@
 /**
- * `QueueFilters`: the tier chips and the state chips in the Capping view's title row.
+ * `QueueFilters`: the tier filter and the state filter in the Capping view's title row.
  *
- * A chip is a toggle button; a group has an "All" chip that is pressed while no chip of that group
- * is, and pressing it clears the group. Several chips of one group can be on at once (a proposal
- * matches when its tier is among the chosen tiers and its state among the chosen states). Each chip
- * shows how many rows of the queue it would keep, so an empty choice is never a surprise. Chips
- * filter what is drawn and nothing else; they never change what is read.
+ * From the rail width each group is a row of chips. A chip is a toggle button; a group has an
+ * "All" chip that is pressed while no chip of that group is, and pressing it clears the group.
+ * Several chips of one group can be on at once (a proposal matches when its tier is among the
+ * chosen tiers and its state among the chosen states). Each chip shows how many rows of the queue
+ * it would keep, so an empty choice is never a surprise. On a phone the two groups would wrap to
+ * six rows before any content, so there each group is one select naming one tier or state (or
+ * All) with the same counts; it drives the same sets, one member at a time. Filters change what
+ * is drawn and nothing else; they never change what is read.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/queue/`. Drawn by `capping_screen.tsx`; the
  *   chosen sets live in the screen (`useQueueFilter`) so the table and the chips agree.
  *
  * Key invariants:
- *   - Every chip has a visible word as its label and `aria-pressed` for its state.
+ *   - Every chip has a visible word as its label and `aria-pressed` for its state; a select has
+ *     its group's name as its label.
  *   - The state chips always list the gate's seven states in lifecycle order, so they never move;
  *     the tier chips list the tiers present, least dangerous first.
  *
@@ -21,6 +25,7 @@
  */
 import { useCallback, useState } from 'react';
 import type { ReactElement } from 'react';
+import { RAIL_MIN, useMinWidth } from '../../../components';
 import { STATES, tierRank, wordsOf } from '../slice';
 import type { ProposalState } from '../slice';
 import type { QueueRow } from './rows';
@@ -28,8 +33,12 @@ import type { QueueRow } from './rows';
 export interface QueueFilter {
   tiers: ReadonlySet<string>;
   states: ReadonlySet<ProposalState>;
+  // A chip adds or removes one member; null (the "All" chip) empties the group.
   toggleTier: (tier: string | null) => void;
   toggleState: (state: ProposalState | null) => void;
+  // A select makes the group that one member; null (its "All" option) empties it.
+  chooseTier: (tier: string | null) => void;
+  chooseState: (state: ProposalState | null) => void;
 }
 
 // Adds the member, or removes it when present; null (the "All" chip) empties the set.
@@ -51,7 +60,14 @@ export function useQueueFilter(): QueueFilter {
     (state: ProposalState | null) => setStates((now) => toggled(now, state)),
     [],
   );
-  return { tiers, states, toggleTier, toggleState };
+  const chooseTier = useCallback((tier: string | null) => setTiers(only(tier)), []);
+  const chooseState = useCallback((state: ProposalState | null) => setStates(only(state)), []);
+  return { tiers, states, toggleTier, toggleState, chooseTier, chooseState };
+}
+
+// The set holding just the member, or the empty set for "All".
+function only<T>(member: T | null): Set<T> {
+  return member === null ? new Set() : new Set([member]);
 }
 
 function Chip(props: {
@@ -67,14 +83,43 @@ function Chip(props: {
   );
 }
 
-function Group<T extends string>(props: {
+interface GroupProps<T extends string> {
   label: string;
   options: readonly T[];
   chosen: ReadonlySet<T>;
   countOf: (option: T) => number;
   total: number;
   onToggle: (option: T | null) => void;
-}): ReactElement {
+  onChoose: (option: T | null) => void;
+}
+
+// The phone's form of a group: one select. Several members chosen by chips before the window
+// narrowed show as "All", since a select names one; choosing again replaces them.
+function SelectGroup<T extends string>(props: GroupProps<T>): ReactElement {
+  const chosen = [...props.chosen];
+  // The value is one of the options or the empty "All": the select itself guarantees it.
+  const choose = (value: string): void => props.onChoose(value === '' ? null : (value as T));
+  return (
+    <label className="capping-select">
+      {props.label}
+      <select
+        value={chosen.length === 1 ? (chosen[0] as T) : ''}
+        onChange={(event) => choose(event.target.value)}
+      >
+        <option value="">{`All (${props.total})`}</option>
+        {props.options.map((option) => (
+          <option key={option} value={option}>
+            {`${wordsOf(option)} (${props.countOf(option)})`}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function Group<T extends string>(props: GroupProps<T>): ReactElement {
+  const chips = useMinWidth(RAIL_MIN);
+  if (!chips) return <SelectGroup {...props} />;
   return (
     <div className="capping-chips" role="group" aria-label={props.label}>
       <Chip
@@ -114,6 +159,7 @@ export function QueueFilters(props: {
         countOf={(tier) => rows.filter((r) => r.proposal.tier === tier).length}
         total={rows.length}
         onToggle={filter.toggleTier}
+        onChoose={filter.chooseTier}
       />
       <Group
         label="Show state"
@@ -122,6 +168,7 @@ export function QueueFilters(props: {
         countOf={(state) => rows.filter((r) => r.proposal.state === state).length}
         total={rows.length}
         onToggle={filter.toggleState}
+        onChoose={filter.chooseState}
       />
     </>
   );

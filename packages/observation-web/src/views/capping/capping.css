@@ -35,7 +35,23 @@
   font-size: var(--fs-sm);
 }
 
-/* Filter chips: toggle buttons, grouped, in the title row */
+/* A filter group on a phone: one select, drawn like the "Sort by" control's */
+.capping-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.capping-select select {
+  min-height: 36px;
+  padding: 0 var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Filter chips: toggle buttons, grouped, in the title row from the rail width */
 .capping-chips {
   display: flex;
   flex-wrap: wrap;
