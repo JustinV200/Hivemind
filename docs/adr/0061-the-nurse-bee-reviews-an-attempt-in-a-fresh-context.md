@@ -57,7 +57,7 @@ spend is added to the attempt's `TaskResult.spend`.
 
 **Layering.** The `NurseReviewer` protocol and the request model live in
 `supervision/capping/checks/nurse.py`, which imports nothing from `hivemind.llm`; the model-backed
-implementation lives in `wardens/nurse.py`, beside a `FakeNurseReviewer`. The Queen's rule reads
+implementation lives in `wardens/nurse.py`; a `FakeNurseReviewer` lives beside the Protocol. The Queen's rule reads
 only the wire fields below.
 
 **Wire (Waggle 1.15, additive).** `waggle.messages.task.review` defines three frozen value models
@@ -102,6 +102,31 @@ Both are classified as observations in the Guard's event catalogue.
 - **Bounds.** `round` is at most 8 on the wire (`MAX_NURSE_ROUND`), a ceiling well above the
   default `max_rounds` that stops a corrupt count, not a policy. `rubric_id` is 1 to 64
   characters, and `criterion_index` is 0 to 31, matching `MAX_ACCEPTANCE_ITEMS`.
+
+### Deviations from the design pass, made in step 2 (the seam)
+
+- **`FakeNurseReviewer` lives in `supervision/capping/checks/fake.py`,** beside
+  `FakeJudgeReviewer`, not in `wardens/nurse.py`. Codingrules 14.4 puts a fake beside its
+  Protocol, and the Protocol is in `checks/nurse.py`; a Warden-layer fake would also be out of
+  reach of any test below the Warden layer.
+- **`NurseAnswerError` lives in `supervision/capping/errors.py`** with `JudgeAnswerError`, the
+  package's one error tree. It carries the chosen model's `nurse_grade`, because the wire requires
+  a grade on an ERROR review, and the failed call's `spend`, because that cost is still the
+  attempt's.
+- **The reviewer returns a `NurseAnswer`, not a bare `NurseVerdict`:** the verdict, the grade of
+  the model that gave it, and the call's spend. No verdict and no grade means no model was
+  eligible, so UNAVAILABLE is an answer, not an error. `run_nurse(reviewer, request, round_)`
+  maps an answer or a `NurseAnswerError` onto the wire's `NurseReview` and returns the spend to
+  add to `TaskResult.spend`, so the Warden never hand-builds a review. An outage still
+  propagates, as it does from the judge.
+- **`NurseRequest` carries `worker_grade` and `tempo`.** The reviewer filters eligible models by
+  the grade and orders its call by the tempo; neither tells the Nurse anything about how the
+  Worker reasoned. It names no Worker, provider or rubric: provider preference and the prompt
+  are the model Nurse's own (step 3).
+- **Bounds.** At most 64 actions (`MAX_NURSE_ACTIONS`), 32 files (`MAX_NURSE_FILES`) and
+  100,000 characters of file text in all (`MAX_NURSE_EVIDENCE_CHARS`), a hard ceiling the
+  manifest's `max_evidence_chars` sits beneath. The goal reuses the judge's `MAX_GOAL_CHARS`.
+  Every outcome's index must name a criterion in the request.
 
 ## Consequences
 
