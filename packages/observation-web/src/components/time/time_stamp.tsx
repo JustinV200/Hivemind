@@ -7,8 +7,8 @@
  * back out of the page and a hover gives the full moment.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/components/`. Used by every view that lists records; the
- *   clock it reads is `clock.ts`, shared by every stamp on the page.
+ *   Layer 7 (observation-web), `src/components/time/`. Used by every view that lists records;
+ *   the clock it reads is `clock.ts` beside it, shared by every stamp on the page.
  *
  * Key invariants:
  *   - A string that is not a date is shown as given, never as "Invalid Date".

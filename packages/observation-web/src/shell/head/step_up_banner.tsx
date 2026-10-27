@@ -18,7 +18,7 @@
  *   - docs/observation/design.md section 2.
  */
 import type { ReactElement } from 'react';
-import { useSlice } from '../store';
+import { useSlice } from '../../store';
 
 export function StepUpBanner(): ReactElement | null {
   const { needsStepUp } = useSlice('session');

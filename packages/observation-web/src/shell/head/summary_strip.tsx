@@ -1,15 +1,17 @@
 /**
- * The summary strip: the Hive's core counters, always visible under the top bar.
+ * The summary strip: the Hive's core counters, always visible under the top bar, as four cells.
  *
- * Four groups: active bees, Cells active and inactive, Real and Virtual Cells, and bees thinking
- * with an LLM versus on autopilot. The numbers come from the summary slice and never wait on the
- * view the person is looking at. If any stream that could be live is not, the strip dims and says
- * `stale since hh:mm:ss`, so old numbers are never mistaken for current ones. A group whose
- * stream the Entrance refused says `no access` instead of a number. Before the first data arrives
- * the strip shows dashes and `aria-busy`.
+ * Four groups, each drawn as a shallow comb cell with its label above and its number below:
+ * active bees, Cells active and inactive, Real and Virtual Cells, and bees thinking with an LLM
+ * versus on autopilot. The numbers come from the summary slice and never wait on the view the
+ * person is looking at. A value that just changed is marked for five seconds (an underline in
+ * the accent), so a reader can tell which number moved. If any stream that could be live is not,
+ * the strip dims and says `stale since hh:mm:ss`, so old numbers are never mistaken for current
+ * ones. A group whose stream the Entrance refused says `no access` instead of a number. Before
+ * the first data arrives the strip shows dashes and `aria-busy`.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/shell/`. Rendered by `shell.tsx` inside the sticky head.
+ *   Layer 7 (observation-web), `src/shell/head/`. Rendered by `shell.tsx` inside the sticky head.
  *
  * Key invariants:
  *   - A `role="status"` region with `aria-live="off"`: it changes constantly and must not chatter.
@@ -21,8 +23,9 @@
  *   - src/store/slices/summary.ts and src/store/slices/connection.ts for the data.
  */
 import type { ReactElement } from 'react';
-import { refusedStreams, staleSince, summaryCounters, useSlice } from '../store';
-import type { StreamName, SummaryCounters } from '../store';
+import { refusedStreams, staleSince, summaryCounters, useSlice } from '../../store';
+import type { StreamName, SummaryCounters } from '../../store';
+import { useChanged } from './use_changed';
 
 interface Group {
   label: string;
@@ -72,6 +75,25 @@ function clock(ms: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+// One comb cell: the label and hint above, the number below, marked while it has just changed.
+function Cell(props: { group: Group; denied: boolean; loaded: boolean }): ReactElement {
+  const { group, denied, loaded } = props;
+  const value = denied ? 'no access' : group.value;
+  const changed = useChanged(value);
+  return (
+    <div
+      className="strip-group"
+      role="group"
+      aria-label={`${group.label}: ${denied ? 'no access' : loaded ? group.spoken : 'loading'}`}
+    >
+      <span className="strip-label">
+        {group.label} <span>{group.hint}</span>
+      </span>
+      <span className={changed ? 'strip-value strip-value--changed' : 'strip-value'}>{value}</span>
+    </div>
+  );
+}
+
 export function SummaryStrip(): ReactElement {
   const summary = useSlice('summary');
   const connection = useSlice('connection');
@@ -87,22 +109,14 @@ export function SummaryStrip(): ReactElement {
       aria-live="off"
       aria-busy={counters === null}
     >
-      {groupsOf(counters).map((group) => {
-        const denied = group.needs.some((name) => refused.includes(name));
-        return (
-          <div
-            key={group.label}
-            className="strip-group"
-            role="group"
-            aria-label={`${group.label}: ${denied ? 'no access' : counters ? group.spoken : 'loading'}`}
-          >
-            <span className="strip-label">
-              {group.label} <span>{group.hint}</span>
-            </span>
-            <span className="strip-value">{denied ? 'no access' : group.value}</span>
-          </div>
-        );
-      })}
+      {groupsOf(counters).map((group) => (
+        <Cell
+          key={group.label}
+          group={group}
+          denied={group.needs.some((name) => refused.includes(name))}
+          loaded={counters !== null}
+        />
+      ))}
       {stale && since !== null ? (
         <span className="strip-stale">stale since {clock(since)}</span>
       ) : null}

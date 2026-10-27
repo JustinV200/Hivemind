@@ -5,7 +5,8 @@
  * feeds, router and views are all exercised together. They check what a person sees: the login
  * screen when there is no session, the summary strip with seeded and then live counters, the
  * strip going stale when a stream drops, the nav with the current item marked and Enrol only on
- * the Hive Stand, and the screen a session end or a log out leaves behind.
+ * the Hive Stand, the theme toggle, a push notice surfacing in any view, and the screen a session
+ * end or a log out leaves behind.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/app.tsx, src/shell/, src/views/login/ and the
@@ -251,6 +252,45 @@ describe('top bar and nav', () => {
   it('has no banner otherwise', async () => {
     await openShell();
     expect(screen.queryByText(/new network/)).toBeNull();
+  });
+});
+
+describe('theme and notices', () => {
+  it('switches the theme on <html> and remembers it', async () => {
+    delete document.documentElement.dataset.theme;
+    window.localStorage.clear();
+    await openShell();
+    const toggle = screen.getByRole('button', { name: /^Theme: Light/ });
+    fireEvent.click(toggle);
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(window.localStorage.getItem('hive.theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: /^Theme: Dark/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Theme: Dark/ }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+  });
+
+  it('surfaces a push notice in any view, links to the chat, and clears it there', async () => {
+    const fake = await openShell();
+    await live(fake);
+    const push = fake.sockets.find((socket) => socket.url.endsWith('/v1/push/stream'))!;
+    act(() => {
+      push.receive({
+        event_id: 'event_1',
+        kind: 'question_waiting',
+        ref: 'question_1',
+        created_at: '2026-01-01T00:00:00Z',
+      });
+    });
+    expect(screen.getByText('A question is waiting for you.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Answer in the chat' }).getAttribute('href')).toBe(
+      '#/chat',
+    );
+    // The chat shows the question itself, so opening it takes the notice off the bar.
+    await act(async () => {
+      window.location.hash = '#/chat';
+      await flush();
+    });
+    expect(screen.queryByText('A question is waiting for you.')).toBeNull();
   });
 });
 

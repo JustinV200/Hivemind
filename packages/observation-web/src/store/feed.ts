@@ -1,11 +1,14 @@
 /**
- * Live feeds: seed the summary, then open the cells, telemetry and episodes streams.
+ * Live feeds: seed the summary, then open the cells, telemetry, episodes and push streams.
  *
  * Once a session is active the shell calls `startFeeds`. It reads the summary once (so the strip
  * has numbers before any frame), reads the device's own name for the top bar, and opens the three
- * streams the strip needs. Each stream's frames go to the summary slice and each state change to
- * the connection slice. A stream ending with 4410 or 4411 ends the session; a refusal (4401,
- * 4403) is recorded and not retried. The returned function closes everything.
+ * streams the strip needs, and the push stream whose notices the shell's notice bar shows. Each
+ * strip stream's frames go to the summary slice and each state change to the connection slice;
+ * the push stream feeds the notices slice and reports no state, since the strip does not need it
+ * and a device without the push capability is refused it. A stream ending with 4410 or 4411 ends
+ * the session; a refusal (4401, 4403) is recorded and not retried. The returned function closes
+ * everything.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/store/`. Called from an effect in `src/shell/shell.tsx`.
@@ -30,6 +33,7 @@ import { endSessionOnClose } from './view_stream';
 type CellFrame = components['schemas']['CellFrame'];
 type TelemetryFrame = components['schemas']['TelemetryFrame'];
 type EpisodeFrame = components['schemas']['EpisodeFrame'];
+type PushNotice = components['schemas']['PushNotice'];
 
 export interface FeedDeps {
   client: LandingBoard;
@@ -68,6 +72,17 @@ function open<F>(
   }).close;
 }
 
+// The push stream: notices only, no state, so the top bar's word is the strip's streams alone.
+function openPush(deps: FeedDeps): () => void {
+  const { client, store } = deps;
+  return client.openStream<PushNotice>({
+    path: '/v1/push/stream',
+    onFrame: (notice) => store.dispatch({ slice: 'notices', event: { type: 'notice', notice } }),
+    onState: () => undefined,
+    onEnd: (end) => endSessionOnClose(client, store, end),
+  }).close;
+}
+
 export function startFeeds(deps: FeedDeps): () => void {
   const { store, nowMs } = deps;
   store.dispatch({ slice: 'connection', event: { type: 'reset', at: nowMs() } });
@@ -82,6 +97,7 @@ export function startFeeds(deps: FeedDeps): () => void {
     open<EpisodeFrame>(deps, 'episodes', '/v1/episodes/stream', (frame) =>
       store.dispatch({ slice: 'summary', event: { type: 'episode', frame } }),
     ),
+    openPush(deps),
   ];
   return () => {
     for (const close of closers) close();

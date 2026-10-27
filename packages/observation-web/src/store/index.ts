@@ -28,4 +28,5 @@ export type { ConnectionSlice, StreamName } from './slices/connection';
 export { summaryCounters } from './slices/summary';
 export type { SummaryCounters, SummarySeed, SummarySlice } from './slices/summary';
 export { SESSION_ENDED_NOTICE } from './slices/session';
+export type { Notice, NoticeKind, NoticesSlice } from './slices/notices';
 export type { Listener, SessionSlice } from './slices/session';

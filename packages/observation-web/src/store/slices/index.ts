@@ -1,9 +1,9 @@
 /**
- * The built-in slices as a table: the session, the connection and the summary.
+ * The built-in slices as a table: the session, the connection, the summary and the notices.
  *
- * `HiveStore` is built from a table of slices. These three belong to the shell (login, the top bar
- * and the strip), so they travel together as `SHELL_SLICES`; the composition root spreads it into
- * the app's table beside each view's slice.
+ * `HiveStore` is built from a table of slices. These four belong to the shell (login, the top bar,
+ * the strip and the notice bar), so they travel together as `SHELL_SLICES`; the composition root
+ * spreads it into the app's table beside each view's slice.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/store/slices/`. Spread by `src/app.tsx`; the modules beside
@@ -17,6 +17,7 @@
  */
 import type { SliceRegistry } from '../registry';
 import { initialConnection, reduceConnection } from './connection';
+import { initialNotices, reduceNotices } from './notices';
 import { initialSession, reduceSession } from './session';
 import { initialSummary, reduceSummary } from './summary';
 
@@ -24,4 +25,5 @@ export const SHELL_SLICES = {
   session: { initial: initialSession, reduce: reduceSession },
   connection: { initial: initialConnection, reduce: reduceConnection },
   summary: { initial: initialSummary, reduce: reduceSummary },
-} satisfies Pick<SliceRegistry, 'session' | 'connection' | 'summary'>;
+  notices: { initial: initialNotices, reduce: reduceNotices },
+} satisfies Pick<SliceRegistry, 'session' | 'connection' | 'summary' | 'notices'>;

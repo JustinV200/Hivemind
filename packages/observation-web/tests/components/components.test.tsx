@@ -4,8 +4,8 @@
  * The badges' meaning must be in their words and their shape class, never in colour alone: the
  * tests check every label, that tier and mask carry different shape classes, that a Queen-forced
  * mask shows its expiry and the others do not, that the gauge exposes a meter with the right
- * numbers and tone, that an error shows its code, its table sentence and its next step, and that
- * a time stamp's relative words follow the clock.
+ * numbers and tone, that an error shows its code, its table sentence and its next step, that a
+ * time stamp's relative words follow the clock, and that a view that throws is caught in place.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/components/.
@@ -17,9 +17,16 @@
  *   - docs/observation/design.md section 4.
  */
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-import { ErrorNotice, Gauge, MaskBadge, StatusDot, TierBadge } from '../../src/components';
-import { relativeText } from '../../src/components/time_stamp';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  ErrorNotice,
+  Gauge,
+  MaskBadge,
+  StatusDot,
+  TierBadge,
+  ViewBoundary,
+} from '../../src/components';
+import { relativeText } from '../../src/components/time';
 import { clientError } from '../../src/landing_board/client/errors';
 import { LandingBoardError } from '../../src/landing_board/client';
 
@@ -148,5 +155,23 @@ describe('TimeStamp words', () => {
     ['not a date', 'not a date'],
   ])('reads %s as %s', (iso, words) => {
     expect(relativeText(iso, now)).toMatch(words);
+  });
+});
+
+describe('ViewBoundary', () => {
+  it('shows the view-failed notice in place of a view that throws, and nothing else', () => {
+    const Broken = (): never => {
+      throw new Error('malformed answer');
+    };
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <ViewBoundary>
+        <Broken />
+      </ViewBoundary>,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('hivemind.client.view_failed');
+    expect(screen.getByText(/could not be drawn/)).toBeTruthy();
+    expect(screen.queryByText('malformed answer')).toBeNull();
+    quiet.mockRestore();
   });
 });

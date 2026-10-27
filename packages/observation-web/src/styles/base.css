@@ -1,16 +1,21 @@
 /*
- * Base styles for the Observation Hive: reset, typography, focus ring and the skip link.
+ * Base styles for the Observation Hive: reset, typography, focus ring, buttons and the skip link.
  *
  * These are the element-level defaults every screen inherits. They use tokens only (see
  * tokens.css), set tabular figures for numbers, make the keyboard focus ring visible everywhere,
- * and honour the reduced-motion preference by removing transitions and animation.
+ * give every form control the page's font, and honour the reduced-motion preference by removing
+ * transitions and animation. The one motion rule is a 150 ms ease on hover, so a control answers
+ * the pointer without ever moving.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx after tokens.css.
  *
  * Key invariants:
- *   - The page never scrolls sideways: the root width is capped to the viewport.
+ *   - The page never scrolls sideways: the root width is capped to the viewport, and a
+ *     screen-reader-only block is clipped so its content cannot widen the page.
  *   - The focus ring is 2px in --accent, offset by 2px, on every focusable element.
+ *   - A destructive control is `.button--danger`: outlined in --alarm, never filled, and always
+ *     followed by a confirm step in the view that draws it.
  *
  * See Also:
  *   - docs/observation/design.md sections 6 and 7.
@@ -41,6 +46,8 @@ h2,
 h3 {
   margin: 0;
   line-height: var(--lh-heading);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 h1 {
@@ -61,8 +68,14 @@ code,
   font-size: var(--fs-sm);
 }
 
+/* An id is cut to eight characters already; breaking it mid-token would only hide the cut. */
+.id-token {
+  white-space: nowrap;
+}
+
 a {
   color: var(--accent);
+  transition: color var(--motion);
 }
 
 :focus-visible {
@@ -70,8 +83,11 @@ a {
   outline-offset: 2px;
 }
 
+/* Every control takes the page's font; a browser's default monospace textarea is a bug here. */
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -84,11 +100,31 @@ input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   cursor: pointer;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text);
 }
 
 .button:disabled {
   cursor: progress;
   color: var(--text-muted);
+}
+
+/* A control that ends something (a session, a device, an invite) is outlined in the alarm token. */
+.button--danger {
+  color: var(--alarm);
+  border-color: var(--alarm);
+}
+
+.button--danger:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--alarm);
 }
 
 @media (min-width: 720px) {
@@ -97,8 +133,10 @@ input {
   }
 }
 
+/* Visually hidden, still read: wrapped in a block so a table inside cannot widen the page. */
 .sr-only {
   position: absolute;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
@@ -120,6 +158,27 @@ input {
 
 .skip-link:focus {
   transform: none;
+}
+
+/* A card: the one surface every panel, row card and form shares. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-card);
+}
+
+/* An empty state: the words that say what would fill the view, on a faint comb. */
+.empty {
+  position: relative;
+  padding: var(--sp-5) var(--sp-4);
+  border: 1px dashed var(--border-soft);
+  border-radius: var(--radius-card);
+  color: var(--text-muted);
+  overflow: hidden;
+}
+
+.empty p {
+  position: relative;
 }
 
 @media (prefers-reduced-motion: reduce) {

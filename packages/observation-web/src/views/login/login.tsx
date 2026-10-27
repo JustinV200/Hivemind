@@ -26,6 +26,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
+import { HexPattern } from '../../components';
 import { useHive, useSlice } from '../../store';
 import { inviteCodeFrom, JoinScreen } from '../enrol/join';
 import { LoginForm } from './login_form';
@@ -95,6 +96,7 @@ export function LoginScreen(): ReactElement {
     invite !== null && (choice ?? (remembered === null ? 'join' : 'login')) === 'join';
   return (
     <main className="login" id="main">
+      <HexPattern />
       <div className="login-stack">
         {notice ? <p className="login-notice">{notice}</p> : null}
         {waiting ? (

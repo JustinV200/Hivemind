@@ -1,10 +1,12 @@
 /*
- * Component styles for the Observation Hive: badges, status dot, gauge and notices.
+ * Component styles for the Observation Hive: badges, status dot, gauge, notices, mark and comb.
  *
  * Tier and mask badges are told apart by shape as well as colour (design.md section 3.3): a tier
  * is a fully rounded pill, bold; a mask is a square tag with a small square glyph, regular weight.
  * Each is drawn with a 2px border in its own text colour, which separates a pale badge from a
- * pale surface. The gauge fill and status dot take their colour from the status tokens.
+ * pale surface. The gauge fill and status dot take their colour from the status tokens; the
+ * gauge's end is cut like a comb cell. The hex cut (`--hex-cut`) is the one clip every
+ * hex-cornered card shares, so the chamfer is the same size everywhere it appears.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
@@ -13,10 +15,25 @@
  * Key invariants:
  *   - Tokens only: a hex value here is a bug.
  *   - Every badge has a text label in the markup; colour is never the only signal.
+ *   - The pulse runs only on the two "still trying" words and stops under reduced motion.
  *
  * See Also:
- *   - docs/observation/design.md sections 3.3, 4.1, 4.2 and 4.4.
+ *   - docs/observation/design.md sections 3.3, 3.4, 4.1, 4.2 and 4.4.
  */
+:root {
+  /* A rectangle with its four corners cut by 10px: the hex-cornered card. */
+  --hex-cut: polygon(
+    10px 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    10px 100%,
+    0 calc(100% - 10px),
+    0 10px
+  );
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -114,6 +131,16 @@
   background: var(--alarm);
 }
 
+.status-dot--pulse {
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Gauge */
 .gauge {
   display: grid;
@@ -123,12 +150,14 @@
 .gauge-track {
   height: 8px;
   background: var(--border-soft);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-tag);
   overflow: hidden;
 }
 
 .gauge-fill {
   height: 100%;
+  clip-path: polygon(0 0, calc(100% - 2px) 0, 100% 50%, calc(100% - 2px) 100%, 0 100%);
+  transition: width var(--motion);
 }
 
 .gauge-fill--ok {
@@ -141,6 +170,10 @@
 
 .gauge-fill--alarm {
   background: var(--alarm);
+}
+
+.gauge-fill--neutral {
+  background: var(--idle);
 }
 
 .gauge-text {
@@ -162,4 +195,24 @@
 
 .notice--alarm {
   border-left-color: var(--alarm);
+}
+
+/* The mark and the comb */
+.mark {
+  flex: 0 0 auto;
+}
+
+.hex-pattern {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+/* Section headings carry a hairline, so a page of panels has a rhythm */
+.hairline {
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-soft);
 }

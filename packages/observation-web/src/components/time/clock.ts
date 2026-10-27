@@ -8,7 +8,7 @@
  * when the last stamp unmounts.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/components/`. Used by `time_stamp.tsx`. The Forage view keeps
+ *   Layer 7 (observation-web), `src/components/time/`. Used by `time_stamp.tsx`. The Forage view keeps
  *   its own exact clock (`src/views/forage/use_now.ts`) because its ten-minute expiry rule and its
  *   tests want an unrounded, per-view time.
  *

@@ -37,7 +37,7 @@ async function started(options: { seed?: boolean } = {}) {
 }
 
 describe('startFeeds', () => {
-  it('seeds the summary and the device name once, and opens the three streams', async () => {
+  it('seeds the summary and the device name once, and opens the four streams', async () => {
     const { fake, store } = await started();
     expect(fake.requests.map((r) => `${r.method} ${r.target}`).sort()).toEqual([
       'GET /v1/devices/me',
@@ -47,6 +47,7 @@ describe('startFeeds', () => {
       'wss://hive.test/v1/cells/stream',
       'wss://hive.test/v1/telemetry/stream',
       'wss://hive.test/v1/episodes/stream',
+      'wss://hive.test/v1/push/stream',
     ]);
     expect(summaryCounters(store.getSnapshot().summary)).toEqual(SEED_STRIP);
     expect(store.getSnapshot().connection.streams.cells.state).toBe('connecting');

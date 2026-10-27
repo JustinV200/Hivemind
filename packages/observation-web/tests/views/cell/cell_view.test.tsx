@@ -359,7 +359,7 @@ describe('refusals', () => {
     });
     expect(await screen.findByText('That Cell is not known to the Hive.')).toBeTruthy();
     expect(screen.getByText('hivemind.entrance.cell_not_found')).toBeTruthy();
-    expect(document.querySelector('svg')).toBeNull();
+    expect(document.querySelector('svg.dg')).toBeNull();
     expect(screen.queryByText('Reading the Cell')).toBeNull();
   });
 
@@ -369,7 +369,7 @@ describe('refusals', () => {
       body: { error: 'hivemind.entrance.capability_denied', detail: 'x' },
     });
     expect(await screen.findByText('This device is not allowed to see or do that.')).toBeTruthy();
-    expect(document.querySelector('svg')).toBeNull();
+    expect(document.querySelector('svg.dg')).toBeNull();
   });
 });
 

@@ -105,6 +105,16 @@ describe.each(THEMES)('%s theme', (_, palette) => {
   it('keeps control borders at 3:1 on the surface', () => {
     expect(contrast(palette.border!, palette.surface!)).toBeGreaterThanOrEqual(3);
   });
+
+  // The bar and the nav are drawn on the chrome, with their own text and accent tokens.
+  it.each(['chrome-text', 'chrome-muted', 'chrome-accent'])('%s on the chrome is 4.5:1', (t) => {
+    expect(contrast(palette[t]!, palette.chrome!)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('keeps text readable on the soft accent fill behind a selected chip or a notice', () => {
+    expect(contrast(palette.text!, palette['accent-soft']!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(palette.accent!, palette['accent-soft']!)).toBeGreaterThanOrEqual(4.5);
+  });
 });
 
 describe('published numbers', () => {

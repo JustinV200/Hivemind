@@ -59,8 +59,8 @@ async function openThoughts(options: Options = {}): Promise<FakeBrowser> {
   fake.respond('GET /v1/attendant/queen', 200, options.attendant ?? attendantView());
   window.location.hash = options.hash ?? '#/thoughts/queen';
   render(<App browser={fake.browser} />);
-  // The three the shell opens, the episodes stream, and the Queen's two decision streams.
-  const opening = (options.hash ?? '#/thoughts/queen') === '#/thoughts/queen' ? 6 : 4;
+  // The four the shell opens, the episodes stream, and the Queen's two decision streams.
+  const opening = (options.hash ?? '#/thoughts/queen') === '#/thoughts/queen' ? 7 : 5;
   await waitFor(() => expect(fake.sockets).toHaveLength(opening));
   await act(async () => {
     fake.sockets.forEach((socket) => socket.open());
@@ -324,6 +324,7 @@ describe('the stream', () => {
       '/v1/cells/stream',
       '/v1/telemetry/stream',
       '/v1/episodes/stream',
+      '/v1/push/stream',
     ]);
     await act(async () => {
       window.location.hash = '#/forage';

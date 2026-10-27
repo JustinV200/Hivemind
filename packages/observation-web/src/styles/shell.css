@@ -1,11 +1,13 @@
 /*
- * Shell layout for the Observation Hive: top bar, summary strip, nav, main area and login.
+ * Shell layout for the Observation Hive: top bar, summary strip, notice bar, nav, main area, login.
  *
  * Mobile first, as design.md section 2 sets out. Under 720px the page is one column with a
- * bottom nav and a strip that wraps to two rows of two groups; from 720px the nav becomes a left
- * rail of stacked icon and label; from 1080px the rail widens and labels sit beside the icons and
- * content is capped at 1440px. The head (bar, banner, strip) is sticky, so the strip is never
- * scrolled away or hidden by navigation.
+ * bottom nav and a strip of four comb cells in two rows; from 720px the nav becomes a left rail
+ * of stacked icon and label; from 1080px the rail widens and labels sit beside the icons and
+ * content is capped at 1440px. The head (bar, banner, strip, notices) is sticky, so the strip is
+ * never scrolled away or hidden by navigation. The bar and the nav are the hive's chrome: the
+ * propolis tokens, dark wood around cream content in the light theme and the surface itself in
+ * the dark one, so the chrome recedes at night.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
@@ -15,9 +17,10 @@
  *   - Tokens only: no colour or size literal except breakpoints and one-off pixel borders.
  *   - Nothing here makes the page wider than the viewport.
  *   - The strip dims, never hides, when its data is stale.
+ *   - The current nav item is never colour alone: bold, with a 3px rule beside it.
  *
  * See Also:
- *   - docs/observation/design.md sections 2, 6 and 7.
+ *   - docs/observation/design.md sections 2, 3, 6 and 7.
  */
 .shell {
   min-height: 100dvh;
@@ -31,36 +34,83 @@
   top: 0;
   z-index: 20;
   grid-column: 1 / -1;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-soft);
 }
 
-/* Top bar */
+/* Top bar: one 48px row of chrome */
 .topbar {
-  min-height: var(--topbar-h);
+  height: var(--topbar-h);
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-4);
+  gap: var(--sp-3);
   padding: 0 var(--gutter);
+  background: var(--chrome);
+  color: var(--chrome-text);
 }
 
 .topbar-brand {
-  font-weight: 700;
-  font-size: var(--fs-lg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
   margin-right: auto;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.topbar-connection {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
 }
 
 .topbar-device {
-  display: flex;
+  display: none;
   gap: var(--sp-2);
   align-items: baseline;
-  color: var(--text-muted);
+  color: var(--chrome-muted);
   font-size: var(--fs-sm);
+  min-width: 0;
+}
+
+.topbar-device > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-listener {
   font-family: var(--font-mono);
+}
+
+/* Controls in the bar are outlined on the chrome, not on the surface */
+.topbar .button {
+  min-height: 36px;
+  background: transparent;
+  color: var(--chrome-text);
+  border-color: var(--chrome-muted);
+}
+
+.topbar .button:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--chrome-text);
+}
+
+.topbar-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+}
+
+.topbar-theme svg {
+  width: 18px;
+  height: 18px;
+}
+
+.topbar-theme-word {
+  display: none;
 }
 
 .banner {
@@ -71,16 +121,15 @@
   font-size: var(--fs-sm);
 }
 
-/* Summary strip */
+/* Summary strip: four comb cells, two by two on a phone */
 .strip {
   min-height: var(--strip-h);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--sp-2) var(--sp-3);
+  gap: var(--sp-2);
   align-content: center;
   padding: var(--sp-2) var(--gutter);
   background: var(--surface-2);
-  border-top: 1px solid var(--border-soft);
 }
 
 .strip--stale .strip-group {
@@ -90,17 +139,31 @@
 .strip-group {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   min-width: 0;
+  min-height: 44px;
+  padding: var(--sp-1) var(--sp-4);
+  background: var(--surface);
+  clip-path: var(--hex-cut);
 }
 
 .strip-label {
   font-size: var(--fs-xs);
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .strip-value {
-  font-size: var(--fs-md);
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: var(--lh-heading);
+}
+
+/* A value that just moved: a 2px accent underline for five seconds, with or without motion */
+.strip-value--changed {
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .strip-stale {
@@ -109,34 +172,42 @@
   color: var(--warn);
 }
 
-@media (min-width: 720px) {
-  .strip {
-    grid-template-columns: repeat(4, auto) 1fr;
-    justify-content: start;
-    column-gap: var(--sp-5);
-  }
-
-  .strip-group {
-    flex-direction: row;
-    align-items: baseline;
-    gap: var(--sp-2);
-  }
-
-  .strip-stale {
-    grid-column: auto;
-    justify-self: end;
-  }
+/* Notice bar: what the push stream says is waiting, under the strip */
+.notice-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--gutter);
+  background: var(--accent-soft);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-sm);
 }
 
-/* Nav: bottom bar on a phone, rail from 720px */
+.notice-bar ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 auto;
+}
+
+.notice-bar-dismiss {
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+}
+
+/* Nav: bottom bar on a phone, rail from 720px, chrome in both */
 .nav {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 30;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  background: var(--chrome);
+  color: var(--chrome-text);
 }
 
 .nav ul {
@@ -163,16 +234,24 @@
   padding: var(--sp-1);
   background: none;
   border: 0;
-  color: var(--text-muted);
+  color: var(--chrome-muted);
   font-size: var(--fs-xs);
   text-decoration: none;
   cursor: pointer;
+  transition:
+    color var(--motion),
+    background-color var(--motion);
+}
+
+.nav a:hover,
+.nav-more:hover {
+  color: var(--chrome-text);
 }
 
 .nav a[aria-current='page'] {
-  color: var(--accent);
-  font-weight: 700;
-  box-shadow: inset 0 3px 0 var(--accent);
+  color: var(--chrome-accent);
+  font-weight: 600;
+  box-shadow: inset 0 3px 0 var(--chrome-accent);
 }
 
 .nav svg {
@@ -197,6 +276,27 @@
   display: block;
 }
 
+/* The device line and log out, in the More panel above the items on a phone */
+.nav-extra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--gutter);
+  border-top: 1px solid var(--chrome-muted);
+}
+
+.nav-extra .topbar-device {
+  display: flex;
+}
+
+.nav-extra .button {
+  min-height: 36px;
+  background: transparent;
+  color: var(--chrome-text);
+  border-color: var(--chrome-muted);
+}
+
 @media (max-width: 719px) and (orientation: landscape) {
   .nav--hidden {
     transform: translateY(100%);
@@ -215,9 +315,21 @@
 .view-title {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--sp-2) var(--sp-4);
   margin-bottom: var(--sp-4);
+}
+
+.view-title h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.view-glyph {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
 }
 
 .view-subject {
@@ -230,12 +342,34 @@
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
   }
 
+  .topbar {
+    gap: var(--sp-4);
+  }
+
+  .topbar-device {
+    display: flex;
+  }
+
+  .topbar-theme-word {
+    display: inline;
+  }
+
+  .strip {
+    grid-template-columns: repeat(4, minmax(0, 200px)) 1fr;
+    column-gap: var(--sp-3);
+  }
+
+  .strip-stale {
+    grid-column: auto;
+    justify-self: end;
+    align-self: center;
+  }
+
   .nav {
     position: sticky;
     top: calc(var(--topbar-h) + var(--strip-h));
     align-self: start;
     border-top: 0;
-    border-right: 1px solid var(--border);
     height: calc(100dvh - var(--topbar-h) - var(--strip-h));
     overflow-y: auto;
   }
@@ -246,6 +380,11 @@
 
   .nav a {
     min-height: 56px;
+  }
+
+  /* On a rail the rule stands at the item's left edge, where the eye scans down */
+  .nav a[aria-current='page'] {
+    box-shadow: inset 3px 0 0 var(--chrome-accent);
   }
 
   .nav-more-slot {
@@ -271,15 +410,18 @@
   }
 }
 
-/* Login */
+/* Login: one card on the comb */
 .login {
+  position: relative;
   min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: var(--gutter);
+  overflow: hidden;
 }
 
 .login-stack {
+  position: relative;
   width: 100%;
   max-width: 400px;
   display: grid;
@@ -293,7 +435,29 @@
   padding: var(--sp-5);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 600;
+  font-size: var(--fs-lg);
+}
+
+.login-brand .mark {
+  width: 32px;
+  height: 32px;
+}
+
+.login-card h1 {
+  font-size: var(--fs-lg);
+}
+
+.login-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
 }
 
 .login-card label {
@@ -313,5 +477,6 @@
 }
 
 .login-notice {
+  position: relative;
   color: var(--text-muted);
 }
