@@ -248,6 +248,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("guard.envelope_refused", _REFUSAL),  # A forged frame is never handled; its link is closed.
     ("guard.segment_refused", _REFUSAL),  # A segment that is not merged changes nothing.
     ("guard.relay_refused", _REFUSAL),  # A relay request answered with an error changes nothing.
+    ("guard.task_refused", _REFUSAL),  # A Warden's report never applied changes nothing.
     ("guard.basket_integrity_failed", _REFUSAL),  # Bytes that fail verification are discarded.
     ("guard.handshake_refused", _REFUSAL),  # A Cell that never proved itself is never attached.
     ("memory.tainted", _NARROWING),  # A tainted item only ever leaves prompts.

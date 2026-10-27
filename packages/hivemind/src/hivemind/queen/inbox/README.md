@@ -29,6 +29,9 @@ Unlike `hivemind.wardens.inbox`, this package MAY import `hivemind.llm`: only an
 - `ModelTieBreaker` (`tie_breaker.py`): the model-backed arbiter, on `ModelSlot.ATTENDANT`, for
   an exact score tie -- the seam `hivemind.supervision.attendant.Attendant.order` calls only when
   deterministic scoring cannot separate two or more items.
+- `TaskClaims` (`claims.py`): a Warden speaks only for the tasks placed on its own Cell. Every item
+  a Warden sent that names a live task placed with another Warden, or with none, is refused before
+  `decide` and recorded as `guard.task_refused` about the sending Cell, never naming the task.
 
 ## How to test this
 

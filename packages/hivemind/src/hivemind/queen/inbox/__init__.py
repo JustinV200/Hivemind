@@ -8,8 +8,9 @@ liveness sweep judges by, so a stall of her own tick is never mistaken for a sil
 `hivemind.supervision.attendant.Attendant` over `WeightTable.queen_default()` and classifies one
 received envelope into the `InboxItem` shape it scores; `tie_breaker.py` is the model-backed
 `TieBreaker` (`ModelSlot.ATTENDANT`) the Queen may enable for an exact score tie or an unknown
-inbox kind. Unlike `hivemind.wardens.inbox`, this sub-package MAY import `hivemind.llm`: only
-anything under an `autopilot/` directory may not (codingrules section 4).
+inbox kind. `claims.py` refuses a Warden's message about a task not placed on its own Cell before
+the Queen decides anything on it. Unlike `hivemind.wardens.inbox`, this sub-package MAY import
+`hivemind.llm`: only anything under an `autopilot/` directory may not (codingrules section 4).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package. Handles
@@ -32,8 +33,11 @@ Public API (roadmap step 3.20):
     - to_inbox_item, queen_attendant: build the Queen's Attendant and wrap one envelope (weights);
       human_inbox_item, HUMAN_PRINCIPAL: wrap one human chat message (weights, roadmap step 10.5).
     - MAX_TIE_REASON_CHARS, ModelTieBreaker: the model-backed tie-break seam (tie_breaker).
+    - TaskClaims, TaskRefusal, TASK_REFUSED_KIND: a Warden speaks only for its own Cell's tasks
+      (claims).
 """
 
+from hivemind.queen.inbox.claims import TASK_REFUSED_KIND, TaskClaims, TaskRefusal
 from hivemind.queen.inbox.links import LINK_QUEUE_SIZE, LinkReaders, Pulse
 from hivemind.queen.inbox.tie_breaker import MAX_TIE_REASON_CHARS, ModelTieBreaker
 from hivemind.queen.inbox.weights import (
@@ -47,9 +51,12 @@ __all__ = [
     "HUMAN_PRINCIPAL",
     "LINK_QUEUE_SIZE",
     "MAX_TIE_REASON_CHARS",
+    "TASK_REFUSED_KIND",
     "LinkReaders",
     "ModelTieBreaker",
     "Pulse",
+    "TaskClaims",
+    "TaskRefusal",
     "human_inbox_item",
     "queen_attendant",
     "to_inbox_item",

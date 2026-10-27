@@ -149,6 +149,10 @@ async def _relay_forgery(rig: GuardBeeRig, fire: bool) -> None:
     await _refused_once(rig, fire, "guard.relay_refused", "another_cell")
 
 
+async def _task_claim(rig: GuardBeeRig, fire: bool) -> None:
+    await _refused_once(rig, fire, "guard.task_refused", "another_cell")
+
+
 async def _segment_unmergeable(rig: GuardBeeRig, fire: bool) -> None:
     await _refused_once(rig, fire, "guard.segment_refused", "corrupt")
 
@@ -215,6 +219,7 @@ SHIPPED_RULE_SEEDERS: dict[str, Seeder] = {
     "envelope_forgery": _envelope_forgery,
     "segment_forgery": _segment_forgery,
     "relay_forgery": _relay_forgery,
+    "task_claim": _task_claim,
     "segment_unmergeable": _segment_unmergeable,
     "frame_ceiling_repeats": _frame_ceiling_repeats,
     "replay_refusal_burst": _replay_refusal_burst,

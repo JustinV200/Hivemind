@@ -91,7 +91,7 @@ from hivemind.queen.goal_submission import GoalDoor
 from hivemind.queen.guard_requests import GuardDoor, guard_items
 from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.human_inbox import HumanInbox
-from hivemind.queen.inbox import LinkReaders, queen_attendant
+from hivemind.queen.inbox import LinkReaders, TaskClaims, queen_attendant
 from hivemind.queen.isolation import IsolationDoor
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
@@ -177,6 +177,8 @@ class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, TickLoop):
         # hivemind.queen.ticks.alarms.handle_alarm, popped here once the task actually succeeds.
         self._pending_alarms: dict[TaskId, Alarm] = {}
         self._human_inbox = HumanInbox()
+        # A Warden speaks only for its own Cell's tasks (hivemind.queen.inbox.claims).
+        self._claims = TaskClaims()
         self._attendant = queen_attendant(deps.clock, tie_breaker)
 
     @property
@@ -431,6 +433,8 @@ async def _handle_item(queen: Queen, item: InboxItem) -> None:
     if handled:
         return
     task = await _task_for_item(queen._deps, item)
+    if await queen._claims.refuse(queen._deps, queen._wardens, item, task):
+        return  # Another Cell's task, or one placed nowhere: never decided, never applied.
     # Read from the Queen's own counter, never Task.attempt: see hivemind.queen.dispatcher.
     # redispatch's own docstring for why a RUNNING task's attempt count cannot live in the chamber.
     attempts = queen._attempts.get(task.id, 1) if task is not None else 0

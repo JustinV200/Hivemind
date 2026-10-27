@@ -130,6 +130,7 @@ signal, the `GRANT_EXCEEDED` Alarm a Warden raises. That is capacity, not misbeh
 | `envelope_forgery` | `guard.envelope_refused` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `segment_forgery` | `guard.segment_refused` for `another_node`, `another_cell` or `bad_signature` | cell | 1 h | 1 | `isolate_cell`, critical | no |
 | `relay_forgery` | `guard.relay_refused` for `another_cell` | cell | 1 h | 1 | `isolate_cell`, critical | no |
+| `task_claim` | `guard.task_refused` for `another_cell` or `unplaced` | cell | 1 h | 1 | `isolate_cell`, high | yes |
 | `segment_unmergeable` | `guard.segment_refused` for `format`, `corrupt` or `unsigned` | cell | 1 h | 1 | `isolate_cell`, high | no |
 | `frame_ceiling_repeats` | `guard.frame_ceiling`: a connection closed for sending frames past its ceiling | node | 10 min | 3 | `isolate_cell`, high | no |
 | `replay_refusal_burst` | `guard.replay_refused`: an envelope id repeated inside the replay window, outside the reconnection grace | node | 5 min | 5 | `isolate_cell`, high | no |
@@ -167,9 +168,21 @@ next three the same way, about the Cell whose own proved link carried the frame:
   `another_cell`). It never reached the Queen's snapshotter and was answered with an error: no Cell
   snapshots or rolls back another.
 
-Each reason is recorded once per link, so no Cell can flood the trail. `subject_forgery`,
-`envelope_forgery`, `segment_forgery` and `relay_forgery` are shipped dire patterns: the Queen
-isolates the Cell by rule.
+The Queen records one more about a Warden's Cell herself, in her tick:
+
+- **`guard.task_refused`**: the Queen refused a Warden's message about a task that is not placed
+  on that Warden's Cell (a result, a progress report, an Alarm, a question or an answer; reason
+  `another_cell` when the task is placed on another Cell, `unplaced` when it is placed nowhere),
+  so it was never decided or applied: no Cell finishes, fails, blocks or answers for another
+  Cell's task. The event names the sending Cell and Warden and the message's kind, never the
+  task, so it never drags another Cell's record into the sender's. A stale report about a task
+  that already ended stays a quiet no-op, as it always was.
+
+Each reason is recorded once per link (the Queen's task refusals once per Warden and message
+kind), so no Cell can flood the trail. `subject_forgery`, `envelope_forgery`, `segment_forgery` and
+`relay_forgery` are shipped dire patterns: the Queen isolates the Cell by rule. `task_claim` is
+judged awake, since a Warden whose link dropped while its task was placed elsewhere can report it
+late, honestly.
 
 A frame that fails its signature before its link is attached proves no Cell (whoever dialled may
 have named any Cell's id), so the gate closes that connection and records
