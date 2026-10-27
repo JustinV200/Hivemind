@@ -5,7 +5,9 @@
  * flow sit side by side from 1080 px; the host cards fill a grid of as many 280 px columns as fit
  * at every width. A host card is a comb cell with one row per dimension: the label, a thin bar
  * and the figures right-aligned. The flow SVG carries a `viewBox` sized from the pane it measures
- * (`usePaneWidth`), so its text holds the 12px floor at every width.
+ * (`usePaneWidth`) and is drawn at one pixel per unit, centred in a wider pane, so its text holds
+ * the 12px floor on a phone and stays 12px on a wide screen rather than stretching past the
+ * page's type.
  * Under 720 px a table row becomes a stacked card whose cells keep their labels (from
  * `data-label`), so nothing needs width and the page never scrolls sideways; the Grants table,
  * whose ten columns need the wide rail, keeps its cards to 1080 px (`forage-table--wide`), while
@@ -126,11 +128,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The drawing keeps the width its `width` attribute gives it (the canvas's own, one pixel per
+   unit) and sits centred; it shrinks only in a pane narrower than its canvas, which the layout
+   avoids by sizing the canvas from the pane */
 .forage-svg {
   display: block;
-  width: 100%;
-  max-width: 640px;
+  max-width: 100%;
   height: auto;
+  margin: 0 auto;
 }
 
 /* The flow's canvas is as wide as its pane down to 240px; a narrower pane (none the design

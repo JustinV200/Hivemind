@@ -7,9 +7,11 @@
  * (the pool's to the left of its boxes; the Wardens' and grants' to the right on the wide canvas,
  * to the left on a phone) with a halo of the surface colour, so the words stay legible where a
  * ribbon passes, its lines centred on the box. The canvas is sized from the pane the drawing
- * measures, so its 12 unit text is 12 px on a phone; only a pane under 240 px scrolls the
- * drawing sideways. A grant nearing expiry has its box and ribbon edge in the warn token and the
- * word "soon" in its label. Beside the SVG a table repeats every figure for screen readers.
+ * measures and drawn at one pixel per unit, so its 12 unit text is 12 px on a phone and still 12
+ * px on a wide screen, where the wide canvas sits centred in its pane; only a pane under 240 px
+ * scrolls the drawing sideways. A grant nearing expiry has its box and ribbon edge in the warn
+ * token and the word "soon" in its label. Beside the SVG a table repeats every figure for screen
+ * readers.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/flow/`. Drawn by `forage_screen.tsx`; makes no
@@ -142,11 +144,12 @@ export function ForageFlow(props: { model: FlowModel }): ReactElement {
   return (
     <figure className="forage-figure forage-figure--flow comb-cell">
       {/* The pane the canvas is sized from; under 240px the drawing scrolls sideways inside it,
-          so the figure's stroke stays put */}
+          so the figure's stroke stays put. The width is the canvas's own, one pixel per unit */}
       <div className="forage-scroll" ref={ref}>
         <svg
           className="forage-svg forage-svg--flow"
           viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}
+          width={layout.width}
           role="img"
           aria-labelledby="forage-flow-title"
         >

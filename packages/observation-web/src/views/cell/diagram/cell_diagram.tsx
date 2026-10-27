@@ -6,10 +6,10 @@
  * says where, and this file draws it. The frame is the Cell, a rectangle with its corners cut like
  * a comb cell; the Warden is drawn inside it when it runs on the Cell and above it (on the Hive
  * Stand) otherwise, with a dashed outline while where it runs is not tracked. Lines join the
- * Warden to every sub-bee and each fact box to what it concerns. The SVG scales by its `viewBox`
- * to the width it is given and switches layout (boxes beside the frame or under it) on its
- * pane's measured width, which the narrow layout also takes as its canvas width, so its 12 unit
- * text is 12 px on a phone.
+ * Warden to every sub-bee and each fact box to what it concerns. The SVG is drawn at one pixel
+ * per unit (its `width` is the canvas's) and switches layout (boxes beside the frame or under it)
+ * on its pane's measured width, which the narrow layout also takes as its canvas width, so its
+ * 12 unit text is 12 px on a phone and on a wide screen alike.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/diagram/`. Rendered by `cell.tsx` from the slice's
@@ -139,6 +139,7 @@ function Drawing(props: { model: DiagramModel; layout: Layout }): ReactElement {
     <svg
       className={`dg dg--${layout.mode}`}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
+      width={layout.width}
       role="img"
       aria-labelledby={heading}
       aria-label={model.summary}
