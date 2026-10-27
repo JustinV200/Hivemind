@@ -22,7 +22,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { TimeStamp } from '../../../components';
+import { EmptyState, TimeStamp } from '../../../components';
 import type { PendingDevice } from '../slice';
 import type { EnrolActions } from '../use_enrol_actions';
 import { ApproveForm } from './approve_form';
@@ -123,9 +123,9 @@ export function PendingList(props: {
   const [open, setOpen] = useState<string | null>(null);
   if (props.pending.length === 0) {
     return (
-      <p className="enrol-note">
+      <EmptyState>
         Nobody is waiting. A device appears here once it has used an invite and made its passkey.
-      </p>
+      </EmptyState>
     );
   }
   return (

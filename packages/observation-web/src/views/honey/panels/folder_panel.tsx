@@ -31,8 +31,8 @@ export const NO_PROPOSALS = 'Proposing a note is not available from the Observat
 function SubFolders(props: { folders: HoneyFolder['folders'] }): ReactElement | null {
   if (props.folders.length === 0) return null;
   return (
-    <section aria-labelledby="honey-folders-title">
-      <h2 id="honey-folders-title" className="honey-section">
+    <section className="honey-group" aria-labelledby="honey-folders-title">
+      <h2 id="honey-folders-title" className="section-heading">
         Folders
       </h2>
       <ul className="honey-folders">
@@ -66,8 +66,8 @@ export function FolderPanel(props: {
       {folder.note ? <p className="honey-note">{folder.note}</p> : null}
       <SubFolders folders={folder.folders} />
       {folder.items.length > 0 ? (
-        <section aria-labelledby="honey-items-title">
-          <h2 id="honey-items-title" className="honey-section">
+        <section className="honey-group" aria-labelledby="honey-items-title">
+          <h2 id="honey-items-title" className="section-heading">
             Items
           </h2>
           <ul className="honey-items">

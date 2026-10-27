@@ -7,9 +7,9 @@
  * where its columns fit the pane, it is a 13 px table in a box with its header stuck to the top,
  * each row two short lines (the origin under the Cell's name, the mode under the status, the
  * role under the task, the wax under the Alarm count, the thoughts under the Attendant link) so
- * the row is 40 px, or 44 where its second line holds the sub-bees' comb cells; the box scrolls
- * down past a screenful of rows and only sideways if a pane is narrower than the design allows,
- * so the page itself never scrolls sideways. Words break only inside a card: in the table an
+ * the row is 40 px, or 44 where its second line holds the sub-bees' comb cells; the box is a comb
+ * cell that scrolls down past a screenful of rows and only sideways if a pane is narrower than
+ * the design allows, so the page itself never scrolls sideways. Words break only inside a card: in the table an
  * enum, an id or a badge never splits mid-word. Nothing is hidden by width: the tier and mask
  * cells have no rule that hides them at any size. The Real / Virtual / All control is styled in
  * `filter/filter.css`.
@@ -258,14 +258,15 @@
   }
 }
 
-/* Desktop: a real table in its own scroll box, with a sticky header. Its columns need 1280px,
-   so between 1080 and 1279px the Fleet keeps its two-across cards (design.md section 2) */
+/* Desktop: a real table in its own scroll box, with a sticky header, inside a comb cell like
+   every panel (`.fleet-box`, which `fleet_table.tsx` marks `.comb-cell` only while the rows are
+   a table; the ring is on the box, not the scroller, or it would scroll away with the rows).
+   Its columns need 1280px, so between 1080 and 1279px the Fleet keeps its two-across cards
+   (design.md section 2) */
 @media (min-width: 1280px) {
   .fleet-scroll {
     overflow: auto;
     max-height: calc(100dvh - var(--head-h) - 7rem);
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-card);
     background: var(--surface);
   }
 

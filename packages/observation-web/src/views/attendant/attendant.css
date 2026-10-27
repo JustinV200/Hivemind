@@ -64,12 +64,6 @@
   overflow-wrap: anywhere;
 }
 
-.att-panel h2 {
-  padding-bottom: var(--sp-2);
-  border-bottom: 1px solid var(--border-soft);
-  font-size: var(--fs-lg);
-}
-
 .att-muted {
   margin: 0;
   color: var(--text-muted);

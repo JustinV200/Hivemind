@@ -13,7 +13,9 @@
  * Key invariants:
  *   - The page never scrolls sideways: the root width is capped to the viewport, and a
  *     screen-reader-only block is clipped so its content cannot widen the page.
- *   - The focus ring is 2px in --accent, offset by 2px, on every focusable element.
+ *   - The focus ring is 2px in --accent, offset by 2px, on every focusable element; on the chrome
+ *     (the bar in head.css, the nav in shell.css) it is --chrome-accent, since --accent is dark
+ *     on dark there.
  *   - A destructive control is `.button--danger`: outlined in --alarm, never filled, and always
  *     followed by a confirm step in the view that draws it.
  *
@@ -167,12 +169,12 @@ select {
   border-radius: var(--radius-card);
 }
 
-/* An empty state: the words that say what would fill the view, on a faint comb. */
+/* An empty state: the words that say what would fill the view, on a faint comb, in a comb cell
+   like every other panel-sized container (`.comb-cell` in components.css gives it the cut and
+   the stroke) */
 .empty {
-  position: relative;
   padding: var(--sp-5) var(--sp-4);
-  border: 1px dashed var(--border-soft);
-  border-radius: var(--radius-card);
+  background: var(--surface);
   color: var(--text-muted);
   overflow: hidden;
 }

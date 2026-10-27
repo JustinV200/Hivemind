@@ -26,7 +26,9 @@ export function Panel(props: { id: string; title: string; children: ReactNode })
   const heading = `cell-panel-${props.id}`;
   return (
     <section className="cell-panel comb-cell" aria-labelledby={heading}>
-      <h2 id={heading}>{props.title}</h2>
+      <h2 id={heading} className="section-heading">
+        {props.title}
+      </h2>
       {props.children}
     </section>
   );

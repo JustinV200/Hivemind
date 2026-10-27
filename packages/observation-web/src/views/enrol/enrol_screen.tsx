@@ -53,7 +53,7 @@ function Body(): ReactElement {
       ) : null}
       <InvitePanel invite={state.invite} actions={actions} />
       <section className="enrol-section" aria-label="Waiting to join">
-        <h2>Waiting to join</h2>
+        <h2 className="section-heading">Waiting to join</h2>
         {state.error ? <ErrorNotice error={state.error} /> : null}
         {state.seeded ? (
           <PendingList pending={state.pending} actions={actions} />

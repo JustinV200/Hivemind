@@ -19,6 +19,7 @@
  *   - docs/observation/design.md section 5.6.
  */
 import type { ReactElement } from 'react';
+import { EmptyState } from '../../../components';
 import type { ChatState } from '../slice';
 import type { ChatActions } from '../writes/use_actions';
 import { GoalRow } from './goal_row';
@@ -47,10 +48,10 @@ export function Conversation(props: {
     <div className="chat-conversation">
       {!state.seeded ? <p aria-busy="true">Reading the chat</p> : null}
       {state.seeded && empty && !state.error ? (
-        <p>
+        <EmptyState>
           No messages yet. Ask the Queen for something below, and her replies, questions and Alarms
           appear here.
-        </p>
+        </EmptyState>
       ) : null}
       <ol className="chat-list" aria-label="Conversation">
         {state.lines.map((line) => (

@@ -93,7 +93,7 @@ export function EntrancePanel(props: {
   const { mode } = state;
   return (
     <section className="devices-section" aria-label="Entrance">
-      <h2>The Entrance Reducer</h2>
+      <h2 className="section-heading">The Entrance Reducer</h2>
       {state.errors.mode ? <ErrorNotice error={state.errors.mode} /> : null}
       {mode ? <ModeLines mode={mode} /> : <p aria-busy="true">Reading the Entrance</p>}
       {mode?.mode === 'OPEN' ? <Reducer actions={actions} /> : null}

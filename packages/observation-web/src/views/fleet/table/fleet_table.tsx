@@ -18,6 +18,9 @@
  *   - Rows are keyed by Cell id and update in place.
  *   - Holds no state: the sort and the hold come in as props and events go out as callbacks.
  *   - The table has a caption (visible to assistive technology) and column headers with scope.
+ *   - The box around the scroller is a comb cell only while the rows are a table: below 1280 px
+ *     each card is its own cell, and the ring sits on the box rather than the scroller so it does
+ *     not scroll away with the rows.
  *
  * See Also:
  *   - docs/observation/design.md sections 4.3 and 7.
@@ -76,34 +79,41 @@ export function FleetTable(props: {
           {`${plural(hold.fresh)}, re-sort`}
         </button>
       ) : null}
-      <div
-        className="fleet-scroll"
-        onPointerEnter={hold.hold}
-        onPointerLeave={hold.release}
-        onFocus={hold.hold}
-        onBlur={(event) => {
-          // Focus moving to another row keeps the hold; leaving the box releases it.
-          if (!event.currentTarget.contains(event.relatedTarget)) hold.release();
-        }}
-      >
-        <table className="fleet-table">
-          <caption className="sr-only">Cells in the Hive</caption>
-          <thead>
-            <tr>
-              {COLUMNS.filter((column) => !column.folded).map((column) => (
-                <Header key={column.key} column={column} sort={props.sort} onSort={props.onSort} />
+      <div className={table ? 'fleet-box comb-cell' : 'fleet-box'}>
+        <div
+          className="fleet-scroll"
+          onPointerEnter={hold.hold}
+          onPointerLeave={hold.release}
+          onFocus={hold.hold}
+          onBlur={(event) => {
+            // Focus moving to another row keeps the hold; leaving the box releases it.
+            if (!event.currentTarget.contains(event.relatedTarget)) hold.release();
+          }}
+        >
+          <table className="fleet-table">
+            <caption className="sr-only">Cells in the Hive</caption>
+            <thead>
+              <tr>
+                {COLUMNS.filter((column) => !column.folded).map((column) => (
+                  <Header
+                    key={column.key}
+                    column={column}
+                    sort={props.sort}
+                    onSort={props.onSort}
+                  />
+                ))}
+                <th scope="col" className="fleet-plain">
+                  Links
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {props.rows.map((row) => (
+                <FleetRowView key={row.id} row={row} cards={!table} />
               ))}
-              <th scope="col" className="fleet-plain">
-                Links
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.rows.map((row) => (
-              <FleetRowView key={row.id} row={row} cards={!table} />
-            ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );

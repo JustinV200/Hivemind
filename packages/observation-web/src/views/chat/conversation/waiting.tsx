@@ -31,7 +31,7 @@ export function Waiting(props: { state: ChatState; actions: ChatActions }): Reac
   if (questions.length === 0 && alarms.length === 0) return null;
   return (
     <section className="chat-waiting" aria-label="Waiting for you">
-      <h2>Waiting for you</h2>
+      <h2 className="section-heading">Waiting for you</h2>
       <ul className="chat-list">
         {questions.map((question) => (
           <li key={question.id} className="chat-line chat-line--queen">

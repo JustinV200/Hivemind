@@ -80,7 +80,15 @@
   color: var(--text-muted);
 }
 
-/* Lists */
+/* Lists: a group is a grid, so its gap spaces the shared `.section-heading` from its list; one
+   track, never wider than the pane */
+.honey-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
+}
+
+/* The reading pane's sub-headings (provenance, sources), under the item's own title */
 .honey-section {
   margin-bottom: var(--sp-2);
   font-size: var(--fs-lg);

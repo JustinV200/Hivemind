@@ -21,7 +21,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { ErrorNotice, IdToken, TimeStamp } from '../../components';
+import { EmptyState, ErrorNotice, IdToken, TimeStamp } from '../../components';
 import type { components } from '../../landing_board/types';
 import { useHive } from '../../store';
 
@@ -81,7 +81,9 @@ export function InboxPanel(): ReactElement {
   const { inbox, inbox_is_reconstructed } = load.view;
   return (
     <section className="inbox-panel" aria-labelledby="inbox-title">
-      <h2 id="inbox-title">Queen&apos;s inbox, in the Attendant&apos;s order</h2>
+      <h2 id="inbox-title" className="section-heading">
+        Queen&apos;s inbox, in the Attendant&apos;s order
+      </h2>
       {inbox_is_reconstructed ? (
         <p className="inbox-note">
           Rebuilt from durable state and scored with the Attendant&apos;s own scorer; the
@@ -89,7 +91,7 @@ export function InboxPanel(): ReactElement {
         </p>
       ) : null}
       {inbox.length === 0 ? (
-        <p>Nothing is waiting in the Queen&apos;s inbox.</p>
+        <EmptyState>Nothing is waiting in the Queen&apos;s inbox.</EmptyState>
       ) : (
         <ol className="inbox-list">
           {inbox.map((entry, i) => (

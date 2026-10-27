@@ -25,7 +25,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
 import { useSlice } from '../../store';
 import { CapacityDiagram } from './capacity/diagram';
 import { hostBlocks } from './capacity/model';
@@ -48,8 +48,8 @@ const POOL_ID = 'shared-pool';
 function Section(props: { title: string; empty?: string; children?: ReactNode }): ReactElement {
   return (
     <section className="forage-section">
-      <h2>{props.title}</h2>
-      {props.empty ? <p className="forage-note">{props.empty}</p> : props.children}
+      <h2 className="section-heading">{props.title}</h2>
+      {props.empty ? <EmptyState>{props.empty}</EmptyState> : props.children}
     </section>
   );
 }
@@ -75,9 +75,9 @@ function Diagrams(props: { state: ForageState; nowMs: number }): ReactElement {
           {pool.length > 0 ? (
             <CapacityDiagram blocks={pool} caption="Shared pool" />
           ) : (
-            <p className="forage-note">
+            <EmptyState>
               No pool figures yet. They appear once the Queen reports her headroom.
-            </p>
+            </EmptyState>
           )}
         </Section>
         <Section title="Flow">
@@ -89,10 +89,10 @@ function Diagrams(props: { state: ForageState; nowMs: number }): ReactElement {
         {hosts.length > 0 ? (
           <CapacityDiagram blocks={hosts} names={names} />
         ) : (
-          <p className="forage-note">
+          <EmptyState>
             No Cell has reported capacity yet. A host appears here when a Cell reports its cores and
             memory.
-          </p>
+          </EmptyState>
         )}
       </Section>
     </>

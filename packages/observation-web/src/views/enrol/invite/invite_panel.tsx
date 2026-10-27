@@ -38,7 +38,7 @@ export function InvitePanel(props: {
 
   return (
     <section className="enrol-section" aria-label="Invite a device">
-      <h2>Invite a device</h2>
+      <h2 className="section-heading">Invite a device</h2>
       {invite ? (
         <InviteCard invite={invite} actions={actions} />
       ) : (

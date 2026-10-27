@@ -22,16 +22,13 @@
  * See Also:
  *   - docs/observation/design.md sections 3, 3.4, 4.3, 4.7, 4.8 and 5.3.
  */
+/* A section is a grid, so its gap spaces the shared `.section-heading` from what follows; its
+   one track never grows past the pane, so the flow's drawing scrolls in its box instead */
 .forage-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
   margin: var(--sp-5) 0;
-}
-
-.forage-section h2 {
-  padding-bottom: var(--sp-2);
-  border-bottom: 1px solid var(--border-soft);
-  font-size: var(--fs-lg);
-  line-height: var(--lh-heading);
-  margin: 0 0 var(--sp-3);
 }
 
 .forage-note {

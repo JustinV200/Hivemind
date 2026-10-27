@@ -175,12 +175,13 @@
   font-size: var(--fs-sm);
 }
 
+/* A grid, so its gap spaces the shared `.section-heading` from the list; one track, never
+   wider than the pane */
 .inbox-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
   margin-bottom: var(--sp-4);
-}
-
-.inbox-panel h2 {
-  font-size: var(--fs-lg);
 }
 
 .inbox-list {

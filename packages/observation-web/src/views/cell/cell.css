@@ -169,13 +169,6 @@
   overflow-wrap: anywhere;
 }
 
-/* A hairline under each panel's heading gives the grid its rhythm */
-.cell-panel h2 {
-  padding-bottom: var(--sp-2);
-  border-bottom: 1px solid var(--border-soft);
-  font-size: var(--fs-lg);
-}
-
 .cell-panel h3 {
   font-size: var(--fs-md);
 }

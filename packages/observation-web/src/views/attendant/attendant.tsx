@@ -51,7 +51,9 @@ export function AttendantScreen(props: { principal: string }): ReactElement {
       {view ? (
         <div className="att-page">
           <section className="att-panel comb-cell att-graph" aria-labelledby="att-graph-title">
-            <h2 id="att-graph-title">Task graph</h2>
+            <h2 id="att-graph-title" className="section-heading">
+              Task graph
+            </h2>
             {nodes.length === 0 ? (
               <p className="att-muted">
                 No tasks to show. A task appears here when it is submitted, or placed on a Cell.

@@ -73,7 +73,7 @@ export function FleetView(props: { rereadMs?: number }): ReactElement {
       {!state.seeded && !state.error ? <p aria-busy="true">Reading the fleet</p> : null}
       {state.seeded && state.rows.length === 0 ? <EmptyState>{EMPTY}</EmptyState> : null}
       {state.rows.length > 0 && shown.length === 0 ? (
-        <p>No {kind === 'REAL' ? 'Real' : 'Virtual'} Cells right now.</p>
+        <EmptyState>No {kind === 'REAL' ? 'Real' : 'Virtual'} Cells right now.</EmptyState>
       ) : null}
       {shown.length > 0 ? (
         <FleetTable

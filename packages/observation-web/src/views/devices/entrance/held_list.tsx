@@ -19,7 +19,7 @@
  *   - docs/entrance/openapi.json, `ConfirmationView`.
  */
 import type { ReactElement } from 'react';
-import { ErrorNotice, IdToken, TimeStamp } from '../../../components';
+import { EmptyState, ErrorNotice, IdToken, TimeStamp } from '../../../components';
 import type { DeviceActions } from '../actions/use_device_actions';
 import type { DeviceRecord, HeldRecord } from '../slice';
 
@@ -85,10 +85,10 @@ export function HeldList(props: {
           <p aria-busy="true">Reading the held requests</p>
         )
       ) : held.length === 0 ? (
-        <p className="devices-note">
+        <EmptyState>
           Nothing is held. A request waits here when a device that no person types at asks for
           something that needs you to confirm again.
-        </p>
+        </EmptyState>
       ) : (
         <ul className="devices-held-list">
           {held.map((one) => (

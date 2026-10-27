@@ -20,7 +20,7 @@
  *   - docs/observation/design.md section 5.8; src/views/cost/README.md.
  */
 import type { ReactElement, ReactNode } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
 import './cost.css';
 import type { CostSnapshot } from './slice';
 import { GoalsTable } from './tables/goals';
@@ -32,7 +32,7 @@ import { useCost } from './use_cost';
 function Section(props: { title: string; children: ReactNode }): ReactElement {
   return (
     <section className="cost-section">
-      <h2>{props.title}</h2>
+      <h2 className="section-heading">{props.title}</h2>
       {props.children}
     </section>
   );
@@ -43,9 +43,9 @@ function Spend(props: { cost: CostSnapshot }): ReactElement {
   // No call is on record yet: say what would fill the view rather than draw empty tables.
   if (cost.goals.length === 0) {
     return (
-      <p className="cost-note">
+      <EmptyState>
         No spend has been recorded. A goal&apos;s spend appears here when a model call completes.
-      </p>
+      </EmptyState>
     );
   }
   return (
