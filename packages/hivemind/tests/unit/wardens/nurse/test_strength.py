@@ -14,11 +14,13 @@ from hivemind.wardens.nurse import worker_strength
 from waggle.clock import FakeClock
 from waggle.messages.forage.values import MAX_MODEL_GRADE
 
-# A local model at grade 2 with a hosted grade-4 fallback, and a stronger grade-5 hosted model.
+# A local model at grade 2 with a hosted grade-4 fallback, a stronger grade-5 hosted model, and a
+# grade-5 model on the Worker's own local provider that the Worker is never bound to.
 _MAP = (
     make_source(source_id="s-local", provider="local", model="small", grade=2),
     make_source(source_id="s-cloud", provider="cloud", model="big", grade=4),
     make_source(source_id="s-other", provider="other", model="huge", grade=5),
+    make_source(source_id="s-local-big", provider="local", model="big", grade=5),
 )
 
 
@@ -44,6 +46,14 @@ def _spilled_event() -> LlmEvent:
         (False, (make_llm_call(provider="other"),), 5, ("local", "other")),
         # Repeated calls on a known provider add nothing; a non-call event is ignored.
         (True, (make_llm_call(provider="local"), _spilled_event()), 4, ("local", "cloud")),
+        # A call on its own (slot, provider) is its own binding, not local's strongest model;
+        # a non-chat call is ignored even on a provider with no graded chat source.
+        (
+            False,
+            (make_llm_call(provider="local"), make_llm_call(slot="EMBEDDER", provider="mystery")),
+            2,
+            ("local",),
+        ),
         # A call on a provider the map cannot grade means strength cannot be proved.
         (False, (make_llm_call(provider="mystery"),), MAX_MODEL_GRADE, ("local", "mystery")),
     ],
