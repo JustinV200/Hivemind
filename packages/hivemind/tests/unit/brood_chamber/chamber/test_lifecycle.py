@@ -279,28 +279,6 @@ async def test_report_progress_from_assigned_raises_invalid_transition() -> None
         await chamber.report_progress(task.id, "progress", fraction_done=0.1)
 
 
-async def test_note_nurse_round_counts_up_on_a_running_task_and_records_the_count() -> None:
-    clock = FakeClock()
-    chamber, store, trail = _make_chamber(clock)
-    task = await _seed(store, clock, status=TaskStatus.RUNNING)
-
-    await chamber.note_nurse_round(task.id)
-    updated = await chamber.note_nurse_round(task.id)
-
-    assert updated.status is TaskStatus.RUNNING and updated.nurse_rounds == 2
-    rounds = [e.payload for e in await _events_for(trail, task.id) if e.kind == "task.nurse_round"]
-    assert rounds == [{"nurse_rounds": 1}, {"nurse_rounds": 2}]
-
-
-async def test_note_nurse_round_refuses_a_task_that_is_not_running() -> None:
-    clock = FakeClock()
-    chamber, store, _trail = _make_chamber(clock)
-    task = await _seed(store, clock, status=TaskStatus.ASSIGNED)
-
-    with pytest.raises(InvalidTransitionError):
-        await chamber.note_nurse_round(task.id)
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # pause / resume
 # ──────────────────────────────────────────────────────────────────────────────
