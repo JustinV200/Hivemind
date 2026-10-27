@@ -95,3 +95,16 @@ class InMemoryGuardRequestStore:
                 self._requests[report_id] = request.model_copy(update={"hold": done})
                 released.append(done)
         return tuple(sorted(released, key=lambda hold: (hold.held_at, hold.report_id)))
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Delete every request naming any of `ids`; see GuardRequestStore.purge_night_veil."""
+        async with self._lock:
+            doomed = [
+                report_id
+                for report_id, request in self._requests.items()
+                if not (request.hold and request.hold.is_active)
+                and any(member in request.model_dump_json() for member in ids)
+            ]
+            for report_id in doomed:
+                del self._requests[report_id]
+        return len(doomed)

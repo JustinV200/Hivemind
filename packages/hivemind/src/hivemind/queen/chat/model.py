@@ -48,17 +48,21 @@ CHAT_ENTRY_ID_PREFIX = "chat_"  # No waggle IdKind names a chat line; it never c
 CHAT_ENTRY_ID_PATTERN = r"^chat_[0-9A-HJKMNP-TV-Z]{26}$"  # The prefix plus a Crockford ULID.
 MAX_CHAT_TEXT_CHARS = MAX_HUMAN_TEXT_CHARS  # The wire HumanMessage's own bound: a few pages.
 MAX_REF_CHARS = 64  # One id: a question, Alarm, goal request or chat line; generous for any.
+# What a line about a Night Veil Cell is reduced to at its teardown (codingrules 12): no words.
+VEILED_TEXT = "(Removed: this line was about a Night Veil Cell that has ended.)"
 
 __all__ = [
     "CHAT_ENTRY_ID_PATTERN",
     "CHAT_ENTRY_ID_PREFIX",
     "MAX_CHAT_TEXT_CHARS",
     "MAX_REF_CHARS",
+    "VEILED_TEXT",
     "ChatAuthor",
     "ChatEntry",
     "ChatEntryId",
     "ChatKind",
     "new_chat_entry_id",
+    "veiled",
 ]
 
 ChatEntryId = NewType("ChatEntryId", str)
@@ -157,3 +161,25 @@ class ChatEntry(BaseModel):
         if self.handled_at is not None and not human:
             raise ValueError(f"Chat line {self.id}: only a human message is ever handled.")
         return self
+
+
+def veiled(line: ChatEntry, ids: frozenset[str]) -> ChatEntry | None:
+    """Return `line` reduced to its skeleton when it names any of `ids`; None when it names none.
+
+    A Night Veil Cell's teardown leaves nothing that names it (codingrules 12), and a chat line
+    can: an Alarm's words, a question's task. Its position, time, author, kind and device stay, so
+    the log's cursor never moves and a human line still says which device sent it; its words, ref
+    and task go.
+
+    Args:
+        line: A stored line.
+        ids: The ended Cell's id and every id of its own (tasks, Wardens, Alarms, ...).
+
+    Returns:
+        The reduced line, or None when nothing in `line` names any of `ids`.
+    """
+    body = line.model_dump_json()
+    # Ids are prefixed ULIDs, so a substring match never mistakes one id for another.
+    if not any(member in body for member in ids):
+        return None
+    return line.model_copy(update={"text": VEILED_TEXT, "ref": None, "task_id": None})

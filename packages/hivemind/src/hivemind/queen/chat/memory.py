@@ -27,7 +27,7 @@ import asyncio
 from datetime import datetime
 
 from hivemind.pheromone import PheromoneTrail, QueenEvent
-from hivemind.queen.chat.model import ChatAuthor, ChatEntry
+from hivemind.queen.chat.model import ChatAuthor, ChatEntry, veiled
 from hivemind.queen.chat.protocol import ChatEntryExistsError, ChatQuery, check_chat_append
 
 __all__ = ["InMemoryChatLog"]
@@ -90,6 +90,17 @@ class InMemoryChatLog:
             if line.author is not ChatAuthor.HUMAN or line.handled_at is not None:
                 return  # A Queen line is never handled; a handled one keeps its first stamp.
             self._lines[position] = line.model_copy(update={"handled_at": handled_at})
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Reduce every line naming any of `ids`; see ChatLog.purge_night_veil."""
+        reduced = 0
+        async with self._lock:
+            for position, line in enumerate(self._lines):
+                cut = veiled(line, ids)
+                if cut is not None:
+                    self._lines[position] = cut
+                    reduced += 1
+        return reduced
 
 
 def _matches(line: ChatEntry, query: ChatQuery) -> bool:

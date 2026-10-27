@@ -9,8 +9,9 @@ Stand's own addresses), so the Hive-state floor refuses a bee `fs:read`/`fs:writ
 and `net` to any of them. `guard_policy` is the one policy the Hive's Enforcer (`build_enforcer`,
 shared by the Queen and the Hive Stand's Warden) decides against. Roadmap step 10.6a:
 `build_guard_deps` builds the Queen's side of a Guard request (`QueenDeps.guard`): her durable
-request table on the `[hive] db` file, `[guard] dire_patterns`, and the egress seam isolation cuts
-a Virtual Cell's network through (the Hive's own `CellLifecycle`, when it has a Virtual side).
+request table (`HiveStores.guard_requests`, on the `[hive] db` file), `[guard] dire_patterns`, and
+the egress seam isolation cuts a Virtual Cell's network through (the Hive's own `CellLifecycle`,
+when it has a Virtual side).
 Roadmap step 10.6: `with_guard` gives the Queen that side and the Guard Bee (the Hive's security
 watcher, run on her tick) together. The Guard Bee files through her own door, and she is built
 after it (it rides on her deps), so it is handed a `GuardDoorRelay` the composition root binds to
@@ -26,9 +27,9 @@ Fits into the Hive:
     `build_enforcer`). Calls into `hivemind.cell` (CellIdentity), `hivemind.guard` (the policy
     loader, `Enforcer`, `HiveState`, the address helpers), `hivemind.manifest`,
     `hivemind.pheromone`, `hivemind.hive` (CellLifecycle, LifecycleEgress), `hivemind.queen.
-    guard_requests` (GuardDeps), `hivemind.queen` (QueenDeps), `hivemind.supervision.capping`
-    (TierTable), `hivemind.workers.roles.guard_bee` (build_guard_bee), `hivemind.cli.stores`
-    (open_guard_requests), `hivemind.common.secrets` (FileSecretStore, the scanner's key),
+    guard_requests` (GuardDeps, GuardRequestStore), `hivemind.queen` (QueenDeps),
+    `hivemind.supervision.capping` (TierTable), `hivemind.workers.roles.guard_bee`
+    (build_guard_bee), `hivemind.common.secrets` (FileSecretStore, the scanner's key),
     `hivemind.guard.scanner`, `psutil` (this machine's interface addresses; the standard library
     cannot list them portably), waggle and the standard library only.
 
@@ -55,7 +56,6 @@ from pathlib import Path
 import psutil
 
 from hivemind.cell import CellIdentity
-from hivemind.cli.stores import open_guard_requests
 from hivemind.common.secrets import FileSecretStore
 from hivemind.guard import (
     Enforcer,
@@ -72,7 +72,7 @@ from hivemind.hive.lifecycle import CellLifecycle
 from hivemind.manifest import HiveManifest
 from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import QueenDeps
-from hivemind.queen.guard_requests import GuardDeps
+from hivemind.queen.guard_requests import GuardDeps, GuardRequestStore
 from hivemind.supervision.capping import TierTable
 from hivemind.workers.roles.guard_bee import GuardBeeInputs, build_guard_bee
 from waggle.clock import Clock
@@ -108,21 +108,25 @@ def build_enforcer(manifest: HiveManifest, trail: PheromoneTrail, clock: Clock) 
     return Enforcer(guard_policy(manifest), trail, clock, identity)
 
 
-def build_guard_deps(manifest: HiveManifest, lifecycle: CellLifecycle | None) -> GuardDeps:
+def build_guard_deps(
+    manifest: HiveManifest, lifecycle: CellLifecycle | None, requests: GuardRequestStore
+) -> GuardDeps:
     """Build the Queen's side of a Guard request from the manifest (roadmap step 10.6a).
 
     Args:
-        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[hive] db` and
-            `[guard] dire_patterns` are read.
+        manifest: A HiveManifest loaded by `hivemind.manifest.load_manifest`; `[guard]
+            dire_patterns` is read.
         lifecycle: The Hive's Virtual Cell lifecycle, when `[virtual_cells] backend` is set; None
             leaves isolation with no egress to cut (every Cell is then Real, left as found).
+        requests: The Hive's Guard request table (`HiveStores.guard_requests`): the SQLite one on
+            the Hive's own file, durable across a restart, which a Night Veil teardown clears too.
 
     Returns:
-        GuardDeps over a SQLite request table on the Hive's own file, durable across a restart.
+        GuardDeps over `requests`.
     """
     egress = LifecycleEgress(lifecycle) if lifecycle is not None else None
     return GuardDeps(
-        requests=open_guard_requests(manifest.resolve_path(manifest.hive.db)),
+        requests=requests,
         dire_patterns=frozenset(manifest.guard.dire_patterns),
         egress=egress,
     )
@@ -159,6 +163,7 @@ def with_guard(
     queen_deps: QueenDeps,
     lifecycle: CellLifecycle | None,
     tiers: TierTable,
+    requests: GuardRequestStore,
 ) -> tuple[QueenDeps, GuardDoorRelay]:
     """Give the Queen her side of a Guard request and the Guard Bee that files through it.
 
@@ -168,6 +173,7 @@ def with_guard(
             clock, Guard policy, slot resolver and call gate (the Royal Reserve's seats).
         lifecycle: The Hive's Virtual Cell lifecycle, when it has a Virtual side.
         tiers: The Hive Stand Warden's Capping tier table, the rates a raise starts from.
+        requests: The Hive's Guard request table (`build_guard_deps`).
 
     Returns:
         `queen_deps` with `guard` and `guard_bee` set, and the door relay to bind to the Queen.
@@ -185,7 +191,7 @@ def with_guard(
         bound_for=queen_deps.bound_for,
         call_gate=queen_deps.call_gate,
     )
-    guard = build_guard_deps(manifest, lifecycle)
+    guard = build_guard_deps(manifest, lifecycle, requests)
     deps = dataclasses.replace(queen_deps, guard=guard, guard_bee=build_guard_bee(inputs))
     return deps, door
 

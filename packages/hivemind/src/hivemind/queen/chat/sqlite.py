@@ -6,8 +6,9 @@ file beside this module). An append runs one transaction on the store's own `Con
 it assigns the next `seq` (one more than the last; lines are never deleted), writes the line, and
 inserts its trail event through `hivemind.pheromone.insert_event` on the same connection when it
 has one, so a human message's arrival and a reply are on the trail exactly when they are in the
-log. `mark_handled` is the one other write: it stamps a waiting human message in its body and its
-column together.
+log. `mark_handled` is one other write: it stamps a waiting human message in its body and its
+column together. `purge_night_veil` is the last: a Night Veil Cell's teardown reduces every line
+naming it to its skeleton in place (codingrules 12), so no position is ever reused.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's chat
@@ -36,7 +37,7 @@ from hivemind.common.errors import MigrationError
 from hivemind.common.migrations import apply_migrations, load_migrations
 from hivemind.common.sqlite import ConnectionThread, transaction
 from hivemind.pheromone import QueenEvent, insert_event
-from hivemind.queen.chat.model import ChatAuthor, ChatEntry
+from hivemind.queen.chat.model import ChatAuthor, ChatEntry, veiled
 from hivemind.queen.chat.protocol import ChatEntryExistsError, ChatQuery, check_chat_append
 from waggle.clock import Clock
 
@@ -52,6 +53,9 @@ _INSERT_SQL = (
     "VALUES (?, ?, ?, ?, ?, ?, ?)"
 )
 _SELECT_BY_ID_SQL = "SELECT body FROM chat_entries WHERE id = ?"
+# instr, not LIKE: an id's own `_` would be a LIKE wildcard.
+_SELECT_NAMING_SQL = "SELECT body FROM chat_entries WHERE instr(body, ?) > 0"
+_VEIL_SQL = "UPDATE chat_entries SET body = ? WHERE id = ?"
 _STAMP_SQL = "UPDATE chat_entries SET handled_at = ?, body = ? WHERE id = ?"
 _SELECT_PAGE_SQL = "SELECT body FROM chat_entries"
 _OLDEST_FIRST = " ORDER BY seq ASC LIMIT ?"  # A page after a cursor: a stream catching up.
@@ -148,6 +152,12 @@ class SqliteChatLog:
             # Blocking: one SELECT and at most one UPDATE, in one transaction.
             await self._thread.run(_stamp_transaction, self._connection, entry_id, handled_at)
 
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Reduce every line naming any of `ids`; see ChatLog.purge_night_veil."""
+        async with self._lock:
+            # Blocking: one SELECT per id and one UPDATE per line it names, in one transaction.
+            return await self._thread.run(_veil_transaction, self._connection, ids)
+
 
 def _pheromone_table_exists(connection: sqlite3.Connection) -> bool:
     """Return whether `connection`'s database already has a `pheromone_events` table."""
@@ -187,6 +197,19 @@ def _stamp_transaction(connection: sqlite3.Connection, entry_id: str, handled_at
         connection.execute(
             _STAMP_SQL, (handled_at.isoformat(), stamped.model_dump_json(), entry_id)
         )
+
+
+def _veil_transaction(connection: sqlite3.Connection, ids: frozenset[str]) -> int:
+    """Reduce every line naming any of `ids` in one transaction; return how many."""
+    reduced = 0
+    with transaction(connection):
+        for member in sorted(ids):
+            for row in connection.execute(_SELECT_NAMING_SQL, (member,)).fetchall():
+                cut = veiled(ChatEntry.model_validate_json(row["body"]), ids)
+                if cut is not None:  # A line already reduced names nothing any more.
+                    connection.execute(_VEIL_SQL, (cut.model_dump_json(), cut.id))
+                    reduced += 1
+    return reduced
 
 
 def _select_page(connection: sqlite3.Connection, query: ChatQuery) -> list[sqlite3.Row]:

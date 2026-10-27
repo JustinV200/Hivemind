@@ -2,7 +2,8 @@
 
 A Virtual side built from a manifest, as the composition root builds it, with its stores attached:
 one Night Veil Cell ran one task, and every store besides the trail holds rows about it (a Queen
-episode naming the task, the task's own words, the Cell's capacity and its Warden's pool report).
+episode naming the task, the task's own words, the Cell's capacity and its Warden's pool report, the
+SECURITY Alarm's chat line naming the Cell, and the Guard request about it).
 Its teardown purge leaves none of them, and counts every one in `cell.purged`; the same purge by a
 process that never held the Cell's segment (the Cell's task still running when its Queen stopped)
 still finds the task and the Warden through the chamber and the ledger, and cancels the task,
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from builders.forage import make_capacity
+from builders.isolation import make_guard_report, make_guard_request
 from builders.memory import make_episode, make_trigger_event
 from builders.night_veil import night_veil_manifest
 from builders.recordings import make_recorded_action, make_recording_info
@@ -39,7 +41,18 @@ from hivemind.exoskeleton.recorder import InMemoryRecordingStore, RecordingStore
 from hivemind.hive.night_veil import end_night_veil
 from hivemind.memory import InMemoryMemoryStore, MemoryStore
 from hivemind.pheromone import MemoryEvent, MemoryPheromoneTrail, TaskEvent, TrailQuery
+from hivemind.queen.chat import (
+    VEILED_TEXT,
+    ChatAuthor,
+    ChatEntry,
+    ChatKind,
+    ChatLog,
+    ChatQuery,
+    InMemoryChatLog,
+    new_chat_entry_id,
+)
 from hivemind.queen.forage.ledger import ForageLedger, LocalPoolReport
+from hivemind.queen.guard_requests import GuardRequestStore, InMemoryGuardRequestStore
 from waggle.clock import FakeClock
 from waggle.ids import CellId, WardenId, new_cell_id, new_event_id, new_hive_id, new_node_id
 
@@ -53,6 +66,8 @@ class _Stores:
     chamber: BroodChamber
     memory: MemoryStore
     recordings: RecordingStore
+    chat: ChatLog
+    guard_requests: GuardRequestStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +95,11 @@ def _hive(tmp_path: Path) -> _Hive:
     tasks = MemoryTaskStore(durable)
     chamber = BroodChamber(tasks, clock, identity)
     stores = _Stores(
-        chamber=chamber, memory=InMemoryMemoryStore(durable), recordings=InMemoryRecordingStore()
+        chamber=chamber,
+        memory=InMemoryMemoryStore(durable),
+        recordings=InMemoryRecordingStore(),
+        chat=InMemoryChatLog(durable),
+        guard_requests=InMemoryGuardRequestStore(),
     )
     ledger = ForageLedger()
     attach_side_channels(parts.night_veil, parts.registry, stores, ledger)
@@ -112,6 +131,7 @@ async def _worked(hive: _Hive, cell_id: CellId, warden_id: WardenId, *, held: bo
     await hive.ledger.report_local_pool(_report(cell_id, warden_id))
     # Roadmap step 6.6: the flight recorder kept a recording of a GUI action on the Cell.
     await _record_on(hive, f"rec_{cell_id}", cell_id)
+    await _guarded(hive, cell_id)
     if held:
         segments = hive.parts.night_veil.segments
         segments.open(cell_id)
@@ -124,6 +144,26 @@ async def _record_on(hive: _Hive, recording_id: str, cell_id: CellId) -> None:
     """Leave one recording with one action, frames included, of a GUI action on `cell_id`."""
     await hive.stores.recordings.open(make_recording_info(recording_id, cell_id=str(cell_id)))
     await hive.stores.recordings.add(recording_id, make_recorded_action())
+
+
+async def _guarded(hive: _Hive, cell_id: CellId) -> None:
+    """Leave the Guard request about `cell_id` and the SECURITY Alarm's chat line naming it."""
+    report = make_guard_report(hive.clock, cell_id=cell_id)
+    await hive.stores.guard_requests.file(make_guard_request(hive.clock, report))
+    line = ChatEntry(
+        id=new_chat_entry_id(hive.clock),
+        at=hive.clock.now(),
+        author=ChatAuthor.QUEEN,
+        kind=ChatKind.ALARM,
+        text=f"Alarm security (critical): Cell {cell_id} was isolated.",
+        ref="alarm_01DXF6DT00CX1N2Z3Y4X5W6V7T",
+    )
+    await hive.stores.chat.append(line)
+
+
+async def _chat_texts(hive: _Hive) -> list[str]:
+    """Every chat line's words, oldest first."""
+    return [line.text for line in await hive.stores.chat.read(ChatQuery())]
 
 
 def _report(cell_id: CellId, warden_id: WardenId) -> LocalPoolReport:
@@ -170,6 +210,7 @@ async def test_a_night_veil_teardown_leaves_no_row_of_the_cell_in_any_store(
     await hive.ledger.report_capacity(other, make_capacity())
     await hive.ledger.report_local_pool(_report(other, other_warden))
     await _record_on(hive, "rec_other", other)
+    await _guarded(hive, other)
 
     await end_night_veil(hive.parts.night_veil, cell_id, _NIGHT_VEIL)
 
@@ -182,10 +223,16 @@ async def test_a_night_veil_teardown_leaves_no_row_of_the_cell_in_any_store(
     assert [info.recording_id for info in await hive.stores.recordings.recordings()] == [
         "rec_other"
     ]
-    # The task, the episode, the recording, the capacity and the pool report: counts only.
+    # Its Alarm's chat line is reduced in place and its Guard request is gone; another Cell's stay.
+    assert await _chat_texts(hive) == [
+        VEILED_TEXT,
+        f"Alarm security (critical): Cell {other} was isolated.",
+    ]
+    assert [r.report.cell_id for r in await hive.stores.guard_requests.pending()] == [other]
+    # The task, episode, recording, capacity, pool report, chat line and Guard request: counts only.
     assert await _purged_counts(hive, cell_id) == {
         "events_purged": 0,
-        "side_channel_records_purged": 5,
+        "side_channel_records_purged": 7,
     }
 
 

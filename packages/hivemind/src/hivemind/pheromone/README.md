@@ -112,8 +112,11 @@ task finished, a provision failed after the Cell existed, the Hive shut down), a
    side channel with them under `SIDE_CHANNEL_TIMEOUT_S`: the Queen's memory tables
    (`MemoryStore.purge_night_veil`), the Brood Chamber (`end_night_veil`: a task still placed on
    the Cell is cancelled, since it can never finish now, then every finished task's words are
-   reduced to its skeleton), the backends' snapshot images and the Forage ledger (`forget_cell`),
-   attached by the composition root (`hivemind.cli.compose.night_veil.side_channels`). The VPN
+   reduced to its skeleton), the backends' snapshot images, the Forage ledger (`forget_cell`),
+   the Queen's chat (`ChatLog.purge_night_veil`: a line naming the Cell, such as its SECURITY
+   Alarm's, keeps its position but not its words) and her Guard requests
+   (`GuardRequestStore.purge_night_veil`: the report, its evidence and her decision), attached by
+   the composition root (`hivemind.cli.compose.night_veil.side_channels`). The VPN
    client, the Tor daemon and their logs run inside the Cell and die with it; the Hive Stand's own
    hidden-service log (phase 11), Nectar and Honey (phase 7) are named seams on `SideChannels`.
    What a Cell's backend keeps after destroy is the backend's to remove (`hivemind.hive`'s

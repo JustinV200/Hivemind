@@ -53,6 +53,7 @@ from hivemind.cli.stores import (
     open_chat_log,
     open_comb_registry,
     open_goal_requests,
+    open_guard_requests,
     open_honey_store,
     open_leavings,
     open_ledger,
@@ -77,6 +78,7 @@ from hivemind.pheromone import PheromoneTrail
 from hivemind.queen import ForageLedger
 from hivemind.queen.chat import ChatLog
 from hivemind.queen.forage.ledger.recorder import LedgerRecorder
+from hivemind.queen.guard_requests import GuardRequestStore, InMemoryGuardRequestStore
 from hivemind.queen.intake import GoalRequestStore
 from hivemind.royal_jelly import CombRegistry, RoyalJellyAccess
 from waggle.clock import Clock, SystemClock
@@ -120,6 +122,9 @@ class HiveStores:
             Lab or Basket (`build_royal_jelly` returns None).
         basket: The Basket store (roadmap phase 9), opened on the same file with its byte tree
             under `[basket] root`; None exactly as `comb_registry` is.
+        guard_requests: The Queen's durable Guard requests (roadmap step 10.6a, ADR-0043), here
+            so a Night Veil teardown clears them too; in memory for a hand-built HiveStores, as
+            `recordings` is.
     """
 
     trail: PheromoneTrail
@@ -132,6 +137,7 @@ class HiveStores:
     honey: SqliteHoneyStore | None = None
     comb_registry: CombRegistry | None = None
     basket: BasketStore | None = None
+    guard_requests: GuardRequestStore = field(default_factory=InMemoryGuardRequestStore)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +200,7 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         chat=open_chat_log(db),
         comb_registry=open_comb_registry(db),  # ADR-0046: the Comb Registry, in the one file.
         basket=open_basket_store(db, _basket_root(manifest, db), manifest.basket.max_blob_bytes),
+        guard_requests=open_guard_requests(db),
     )
 
 

@@ -115,3 +115,18 @@ class GuardRequestStore(Protocol):
             The holds this call released, as released; empty when none held that Cell.
         """
         ...
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Delete every request whose report, evidence or decision names any of `ids`.
+
+        The Night Veil teardown's side channel (codingrules 12). A request still holding goals
+        off a Cell is kept: dropping it would lift a security hold no human lifted, and a hold is
+        only ever on the Hive Stand, never on a Night Veil Cell.
+
+        Args:
+            ids: The ended Cell's id and every id of its own.
+
+        Returns:
+            How many requests were deleted.
+        """
+        ...

@@ -56,6 +56,11 @@ _HOLDS_SQL = (
     "SELECT body FROM guard_requests WHERE hold_cell_id IS NOT NULL "
     "AND hold_released_at IS NULL ORDER BY decided_at, id"
 )
+# instr, not LIKE: an id's own `_` would be a LIKE wildcard. An active hold is never deleted.
+_PURGE_SQL = (
+    "DELETE FROM guard_requests WHERE instr(body, ?) > 0 "
+    "AND (hold_cell_id IS NULL OR hold_released_at IS NOT NULL)"
+)
 _CELL_HOLDS_SQL = (
     "SELECT body FROM guard_requests WHERE hold_cell_id = ? AND hold_released_at IS NULL "
     "ORDER BY decided_at, id"
@@ -156,6 +161,12 @@ class SqliteGuardRequestStore:
             # Blocking: one SELECT and one UPDATE per held request, in one transaction.
             return await self._thread.run(_release, self._connection, cell_id, released_at)
 
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Delete every request naming any of `ids`; see GuardRequestStore.purge_night_veil."""
+        async with self._lock:
+            # Blocking: one DELETE per id, in one transaction.
+            return await self._thread.run(_purge, self._connection, ids)
+
 
 def _columns(request: GuardRequest) -> tuple[str | None, ...]:
     """The mirrored columns plus the body, in `_UPDATE_SQL`'s order (before the id)."""
@@ -218,3 +229,9 @@ def _release(
             connection.execute(_UPDATE_SQL, (*_columns(relabelled), request.id))
             released.append(done)
     return tuple(released)
+
+
+def _purge(connection: sqlite3.Connection, ids: frozenset[str]) -> int:
+    """Delete every request naming any of `ids` in one transaction; return how many."""
+    with transaction(connection):
+        return sum(connection.execute(_PURGE_SQL, (member,)).rowcount for member in sorted(ids))

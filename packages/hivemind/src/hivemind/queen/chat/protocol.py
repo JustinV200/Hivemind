@@ -160,3 +160,17 @@ class ChatLog(Protocol):
             handled_at: When that decision was written.
         """
         ...
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Reduce every line naming any of `ids` to its skeleton (`model.veiled`).
+
+        The Night Veil teardown's side channel (codingrules 12): the one rewrite of a stored line
+        besides `mark_handled`. A line keeps its position, so no cursor moves.
+
+        Args:
+            ids: The ended Cell's id and every id of its own.
+
+        Returns:
+            How many lines were reduced.
+        """
+        ...

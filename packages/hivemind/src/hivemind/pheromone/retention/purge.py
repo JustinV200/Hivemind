@@ -6,14 +6,14 @@ the Cell lives its records sit in an ephemeral segment on the Queen's side
 segment whole, folds its `capping.*` detail into one `capping.summary` per tier (the one Capping
 record the skeleton keeps), removes any row a Cell's own node ever left on the durable trail (a
 segment merged before the Cell was known to be Night Veil, or by a Queen older than this
-boundary), clears every registered side channel, and records one `cell.purged` event carrying
-counts only. The side channels are the stores the trail does not own whose no-retention rule is
-the same: `SideChannels` names each one (the Queen's memory tables, the Brood Chamber's task
-words, the Forage ledger's rows about the Cell and its Warden, a backend's snapshot images, and
-the named seams no store exists for yet). Each is handed the Cell and every id that belongs to it:
-the ids its segment's index filed under it (its tasks, Wardens, grants, ...), plus those each
-`MemberSource` still ties to it durably, for a Queen that never held the segment (a restart's
-sweep, an offline Absconding).
+boundary), clears every registered side channel, and records one `cell.purged` event carrying counts
+only. The side channels are the stores the trail does not own whose no-retention rule is the same:
+`SideChannels` names each one (the Queen's memory tables, the Brood Chamber's task words, the Forage
+ledger's rows about the Cell and its Warden, a backend's snapshot images, the Queen's chat lines and
+Guard requests about it, and the named seams no store exists for yet). Each is handed the Cell and
+every id that belongs to it: the ids its segment's index filed under it (its tasks, Wardens, grants,
+...), plus those each `MemberSource` still ties to it durably, for a Queen that never held the
+segment (a restart's sweep, an offline Absconding).
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data), inside `hivemind.pheromone.retention`.
@@ -236,6 +236,10 @@ class SideChannels:
             ADR-0032): steps, frames and evidence, kept in the Hive's own file, not the Cell.
         forage_ledger: The Forage ledger's rows keyed to the Cell or its Warden (capacity, pool
             report, hosting plan, ceilings, any grant left live).
+        chat: The Queen's chat lines naming the Cell or its own ids (an Alarm's words, a
+            question's task), reduced to their skeleton in place.
+        guard_requests: The Queen's Guard requests about the Cell: the Guard Bee's report, its
+            evidence and her decision.
         members: Every store that ties ids to a Cell durably, consulted before any side channel.
     """
 
@@ -248,6 +252,8 @@ class SideChannels:
     snapshot_images: SideChannelPurger | None = None
     flight_recordings: SideChannelPurger | None = None
     forage_ledger: SideChannelPurger | None = None
+    chat: SideChannelPurger | None = None
+    guard_requests: SideChannelPurger | None = None
     members: tuple[MemberSource, ...] = ()
 
     def registered(self) -> tuple[SideChannelPurger, ...]:
@@ -262,6 +268,8 @@ class SideChannels:
             self.snapshot_images,
             self.flight_recordings,
             self.forage_ledger,
+            self.chat,
+            self.guard_requests,
         )
         return tuple(channel for channel in channels if channel is not None)
 

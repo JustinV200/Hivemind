@@ -14,7 +14,10 @@ in that one episode, and files its request through the Queen's door. The rule is
 pattern, so she isolates the Cell by rule. The segment holds the whole story while the Cell lives;
 once the Hive stops and the Cell is torn down, the segment is purged with it, the Guard Bee's alert
 among its records, and the durable trail holds nothing about the Cell or its task but the skeleton
-codingrules section 12 names. The isolation writes no Cell Wax (a note and its `memory.wax_*`
+codingrules section 12 names: the isolation's SECURITY Alarm reached the human while the Cell lived
+(her inbox and the chat line naming it) with its `alarm.escalated` row in the segment, and at the
+teardown the chat line is reduced and the Guard request deleted with the rest. The isolation
+writes no Cell Wax (a note and its `memory.wax_*`
 records would outlive the Cell): while the Cell lives, its isolation stands in its own segment,
 where the Queen reads it back, and no placement is ever offered the Cell.
 
@@ -62,6 +65,7 @@ from hivemind.pheromone import (
     TrailQuery,
     skeleton_event,
 )
+from hivemind.queen.chat import MAX_CHAT_PAGE, ChatKind, ChatQuery
 from hivemind.queen.dispatcher.snapshot import build_inventory
 from hivemind.queen.isolation import IsolationState, read_isolation
 from waggle.clock import SystemClock
@@ -79,7 +83,8 @@ _EVERYTHING = TrailQuery(limit=MAX_QUERY_LIMIT)
 _REQUEST_RECORDS = "queen.goal_request_"  # The human's own request records, not the Cell's work.
 _PURGED = "cell.purged"
 _CELL_WAX = "memory.wax_"  # A Cell Wax note's own records: none may name a Night Veil Cell.
-_ALARM_ESCALATED = "alarm.escalated"  # The SECURITY Alarm's own row (see its assertion below).
+_ALARM_ESCALATED = "alarm.escalated"  # The SECURITY Alarm's own row: in the segment, never durable.
+_WHOLE_CHAT = ChatQuery(limit=MAX_CHAT_PAGE)
 _ID_PREFIXES = ("task_", "worker_", "warden_", "grant_", "cell_")  # What the story's ids look like.
 # What the whole story is, inside the segment: the Cell's own records and the Queen's about it.
 _STORY = ("guard.injection_suspected", "guard.denied", "guard.alert", "queen.decided")
@@ -201,6 +206,16 @@ async def _assert_held_with_no_wax(hive: Hive, cell: CellId) -> None:
     assert await hive.stores.memory.list_wax(cell, frozenset(WaxState), HoneyClearance.C2) == ()
     durable = await hive.stores.trail.query(_EVERYTHING)
     assert [e.kind for e in durable if e.kind.startswith(_CELL_WAX)] == []
+    # The human sees the CRITICAL Alarm while the Cell lives, once: its row, in the segment, is
+    # read back there, so no second path shows the same report again.
+    shown = [alarm for alarm in hive.queen.human_inbox.alarms if alarm.context.cell_id == cell]
+    assert len(shown) == 1
+    chat = await hive.stores.chat.read(_WHOLE_CHAT)
+    assert any(line.kind is ChatKind.ALARM and cell in line.text for line in chat)
+    assert [
+        e for e in durable if e.kind == _ALARM_ESCALATED and cell in json.dumps(e.payload)
+    ] == []
+    assert await _segments(hive).query(cell, TrailQuery(kind=_ALARM_ESCALATED))
 
 
 def _assert_the_story_was_in_the_segment(hive: Hive, cell: CellId, snapshot: Snapshot) -> None:
@@ -243,12 +258,16 @@ async def _assert_only_the_skeleton_survives(hive: Hive, cell: CellId, snapshot:
     assert about, "The Cell's skeleton itself should be on the durable trail."
     assert not {e.kind for e in about} & {*_STORY, "cell.isolated"}  # None of the story.
     assert await hive.stores.memory.list_wax(cell, frozenset(WaxState), HoneyClearance.C2) == ()
-    # Nor does anything else name the Cell anywhere in its words (a memory label's reason, say),
-    # but for the isolation's SECURITY Alarm, whose `alarm.escalated` detail names the Cell: a
-    # boundary gap in the Alarm's own record (and its chat line), outside isolation, reported apart.
+    # Nor does anything else name the Cell anywhere in its words (a memory label's reason, or the
+    # SECURITY Alarm's `alarm.escalated` detail, say).
     kept = SKELETON_KINDS | {_PURGED}
     named = {e.kind for e in durable if cell in json.dumps(e.payload) and e.kind not in kept}
-    assert named <= {_ALARM_ESCALATED}, named
+    assert named == set(), named
+    # The chat keeps the Alarm's position but not its words, and the Guard request is gone.
+    chat = await hive.stores.chat.read(_WHOLE_CHAT)
+    assert [line.id for line in chat if cell in line.model_dump_json()] == []
+    [alert] = [e for e in snapshot if e.kind == "guard.alert"]
+    assert await hive.stores.guard_requests.get(str(alert.payload["report_id"])) is None
     for event in about:
         assert event.kind in kept, event.kind
         if event.kind in SKELETON_KINDS:

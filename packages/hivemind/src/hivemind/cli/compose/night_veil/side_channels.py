@@ -1,13 +1,15 @@
 """Attach every store a Night Veil teardown must clear to the boundary's purge.
 
 Codingrules section 12: nothing of a Night Veil Cell outlives it but its skeleton on the Queen's
-trail, and five stores besides the trail hold rows about it: the Queen's memory tables (her episode
+trail, and seven stores besides the trail hold rows about it: the Queen's memory tables (her episode
 records, Handoffs, Bee Bread, notes and Cell Wax about the Cell or its tasks, taint labels and all),
-the Brood Chamber (its tasks' words and their questions' and answers'), the Forage ledger (the
-Cell's capacity and hosting plan, its Warden's pool report and ceilings, any grant still held), the
-backend's snapshot images and the flight recorder's recordings of its GUI actions (roadmap step 6.6,
-which live in the Hive's own file); a task still placed on the Cell is cancelled before the
-chamber's rows are reduced, since it can never finish now (`BroodChamber.end_night_veil`).
+the Queen's chat (a SECURITY Alarm's line names the Cell) and her Guard requests (the Guard Bee's
+report on it, its evidence and her decision), the Brood Chamber (its tasks' words and their
+questions' and answers'), the Forage ledger (the Cell's capacity and hosting plan, its Warden's pool
+report and ceilings, any grant still held), the backend's snapshot images and the flight recorder's
+recordings of its GUI actions (roadmap step 6.6, which live in the Hive's own file); a task still
+placed on the Cell is cancelled before the chamber's rows are reduced, since it can never finish now
+(`BroodChamber.end_night_veil`).
 `attach_side_channels` hands the boundary's `NightVeilTeardownPurge` one side channel per store
 (`hivemind.pheromone.SideChannels`), each a thin adapter over that store's own Night Veil method,
 and the two stores that tie ids to a Cell durably (the chamber's live tasks, the ledger's reports
@@ -23,13 +25,15 @@ Fits into the Hive:
     `hivemind.exoskeleton.recorder` (RecordingStore), `hivemind.hive.night_veil`
     (NightVeilBoundary), `hivemind.hive.snapshot` (snapshot_images_for), `hivemind.memory`
     (MemoryStore), `hivemind.pheromone` (SideChannels),
-    `hivemind.queen.forage.ledger` (ForageLedger) and waggle only.
+    `hivemind.queen.chat` (ChatLog), `hivemind.queen.forage.ledger` (ForageLedger),
+    `hivemind.queen.guard_requests` (GuardRequestStore) and waggle only.
 
 Key invariants:
     - Each adapter only forwards to its store's own Night Veil method: what a store removes, and
       why, is documented beside that method, never here.
-    - The memory side channel is handed the Cell's own id with its members, since its rows name
-      the Cell itself (a Cell Wax row, a note) as often as one of its tasks.
+    - The memory, chat and Guard request side channels are handed the Cell's own id with its
+      members, since their rows name the Cell itself (a Cell Wax row, an Alarm's words, a Guard
+      report) as often as one of its tasks.
 
 See Also:
     - hivemind.pheromone.retention.purge for SideChannels, SideChannelPurger and MemberSource.
@@ -47,7 +51,9 @@ from hivemind.hive.night_veil import NightVeilBoundary
 from hivemind.hive.snapshot import snapshot_images_for
 from hivemind.memory import MemoryStore
 from hivemind.pheromone import SideChannels
+from hivemind.queen.chat import ChatLog
 from hivemind.queen.forage.ledger import ForageLedger
+from hivemind.queen.guard_requests import GuardRequestStore
 from waggle.ids import CellId
 
 __all__ = ["NightVeilStores", "attach_side_channels"]
@@ -71,6 +77,16 @@ class NightVeilStores(Protocol):
         """The flight recorder's store (roadmap step 6.6)."""
         ...
 
+    @property
+    def chat(self) -> ChatLog:
+        """The Queen's chat log (roadmap step 10.5)."""
+        ...
+
+    @property
+    def guard_requests(self) -> GuardRequestStore:
+        """The Queen's Guard requests (roadmap step 10.6a)."""
+        ...
+
 
 def attach_side_channels(
     night_veil: NightVeilBoundary,
@@ -78,12 +94,13 @@ def attach_side_channels(
     stores: NightVeilStores,
     ledger: ForageLedger,
 ) -> None:
-    """Attach the memory, Brood Chamber, snapshot-image, recording and ledger side channels.
+    """Attach the memory, Brood Chamber, snapshot-image, recording, ledger, chat and Guard sides.
 
     Args:
         night_veil: The boundary whose purge every Night Veil end runs.
         registry: The Virtual side's backends, whose snapshot images a Cell may have left.
-        stores: The Hive's Brood Chamber, the Queen's memory tables and the flight recorder.
+        stores: The Hive's Brood Chamber, the Queen's memory tables, the flight recorder, the
+            Queen's chat and her Guard requests.
         ledger: The Queen's Forage ledger, restored from the Hive's store.
     """
     tasks, book = _ChamberSide(stores.chamber), _LedgerSide(ledger)
@@ -94,6 +111,8 @@ def attach_side_channels(
             snapshot_images=_SnapshotImages(registry),
             flight_recordings=_RecordingSide(stores.recordings),
             forage_ledger=book,
+            chat=_ByIds(stores.chat),
+            guard_requests=_ByIds(stores.guard_requests),
             members=(tasks, book),
         )
     )
@@ -109,6 +128,27 @@ class _MemorySide:
     async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
         """Remove every memory row naming the Cell or one of its members."""
         return await self._memory.purge_night_veil(members | {cell_id})
+
+
+class _IdPurger(Protocol):
+    """A store that removes, by itself, whatever it holds naming any of a set of ids."""
+
+    async def purge_night_veil(self, ids: frozenset[str]) -> int:
+        """Remove (or reduce) every record naming any of `ids`; return how many."""
+        ...
+
+
+class _ByIds:
+    """A store purged by every id of the Cell's own as a side channel: the chat, Guard requests."""
+
+    def __init__(self, store: _IdPurger) -> None:
+        """Purge through `store.purge_night_veil`."""
+        self._store = store
+
+    async def purge(self, cell_id: CellId, members: frozenset[str]) -> int:
+        """Remove every record naming the Cell or one of its members."""
+        # A SECURITY Alarm's words and a Guard report name the Cell itself, not only its tasks.
+        return await self._store.purge_night_veil(members | {cell_id})
 
 
 class _RecordingSide:

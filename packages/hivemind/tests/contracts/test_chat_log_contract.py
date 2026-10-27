@@ -31,6 +31,7 @@ from hivemind.pheromone import (
     TrailQuery,
 )
 from hivemind.queen.chat import (
+    VEILED_TEXT,
     ChatAuthor,
     ChatEntry,
     ChatEntryExistsError,
@@ -42,7 +43,7 @@ from hivemind.queen.chat import (
     new_chat_entry_id,
 )
 from waggle.clock import FakeClock
-from waggle.ids import new_device_id, new_event_id, new_hive_id, new_node_id
+from waggle.ids import new_cell_id, new_device_id, new_event_id, new_hive_id, new_node_id
 
 _LOG_KINDS = ("memory", "sqlite")
 
@@ -217,3 +218,21 @@ async def test_mark_handled_never_stamps_a_queen_line(fx: _Fixture) -> None:
 
     [stored] = await fx.log.read(ChatQuery())
     assert stored.handled_at is None
+
+
+async def test_a_night_veil_purge_reduces_only_the_lines_naming_its_ids_in_place(
+    fx: _Fixture,
+) -> None:
+    # Codingrules 12: a line naming an ended Night Veil Cell keeps its position, not its words.
+    cell = new_cell_id(fx.clock)
+    about = await fx.log.append(_human(fx.clock, f"What is {cell} doing?"))
+    other = await fx.log.append(_human(fx.clock, "Unrelated."))
+
+    reduced = await fx.log.purge_night_veil(frozenset({cell}))
+    again = await fx.log.purge_night_veil(frozenset({cell}))
+
+    first, second = await fx.log.read(ChatQuery())
+    assert (reduced, again) == (1, 0)
+    assert (first.seq, first.text, first.device_id) == (about.seq, VEILED_TEXT, about.device_id)
+    assert second == other
+    assert (await fx.log.append(_human(fx.clock))).seq == 3  # No position is reused.

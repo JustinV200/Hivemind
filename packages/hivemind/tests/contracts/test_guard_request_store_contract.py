@@ -106,6 +106,24 @@ async def test_a_hold_is_active_until_its_cells_lift_releases_it(store: GuardReq
     assert await store.release_holds(hold.cell_id, clock.now()) == ()  # Released once only.
 
 
+async def test_a_night_veil_purge_deletes_its_requests_but_never_an_active_hold(
+    store: GuardRequestStore,
+) -> None:
+    # Codingrules 12: nothing names an ended Night Veil Cell, but a hold no human lifted stands.
+    clock = FakeClock()
+    about, held, other = (make_guard_request(clock) for _ in range(3))
+    for request in (about, held, other):
+        await store.file(request)
+    await store.decide(held.id, make_decision(clock), make_hold(held, clock))
+    ids = frozenset({str(about.report.cell_id), str(held.report.cell_id)})
+
+    purged = await store.purge_night_veil(ids)
+
+    assert purged == 1
+    assert await store.get(about.id) is None
+    assert await store.get(held.id) is not None and await store.get(other.id) is not None
+
+
 async def test_a_filed_request_survives_reopening_the_sqlite_store(tmp_path: Path) -> None:
     clock = FakeClock()
     db = tmp_path / "hive.sqlite3"

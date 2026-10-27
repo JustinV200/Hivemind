@@ -32,7 +32,8 @@ See Also:
 
 Public API (roadmap step 10.5):
     - ChatEntry, ChatAuthor, ChatKind, ChatEntryId, new_chat_entry_id, CHAT_ENTRY_ID_PATTERN,
-      CHAT_ENTRY_ID_PREFIX, MAX_CHAT_TEXT_CHARS, MAX_REF_CHARS: one line (model).
+      CHAT_ENTRY_ID_PREFIX, MAX_CHAT_TEXT_CHARS, MAX_REF_CHARS: one line; veiled, VEILED_TEXT:
+      a line about a Night Veil Cell reduced at its teardown (model).
     - ChatLog, ChatQuery, ChatEntryExistsError, check_chat_append, DEFAULT_CHAT_PAGE,
       MAX_CHAT_PAGE: the log's seam (protocol).
     - InMemoryChatLog (memory), SqliteChatLog, apply_chat_migrations, SUBSYSTEM,
@@ -53,11 +54,13 @@ from hivemind.queen.chat.model import (
     CHAT_ENTRY_ID_PREFIX,
     MAX_CHAT_TEXT_CHARS,
     MAX_REF_CHARS,
+    VEILED_TEXT,
     ChatAuthor,
     ChatEntry,
     ChatEntryId,
     ChatKind,
     new_chat_entry_id,
+    veiled,
 )
 from hivemind.queen.chat.post import (
     ECHO_PREFIX,
@@ -105,6 +108,7 @@ __all__ = [
     "MIGRATIONS_PACKAGE",
     "REVOKED_CODE",
     "SUBSYSTEM",
+    "VEILED_TEXT",
     "ChatAuthor",
     "ChatDoor",
     "ChatEntry",
@@ -130,4 +134,5 @@ __all__ = [
     "refuse_unplanned",
     "resolve_alarm",
     "stop_goal",
+    "veiled",
 ]
