@@ -202,4 +202,8 @@ def _cost_room(view: SwarmView, policy: SwarmingPolicy, limit: BackendLimit) -> 
         for other in view.backends
     )
     # A tiny epsilon so a cap that is an exact multiple of the price is not lost to rounding.
-    return math.floor((cap - burn) / limit.cost_per_hour_usd + 1e-9)
+    room = (cap - burn) / limit.cost_per_hour_usd + 1e-9
+    if not math.isfinite(room):
+        # A price tiny next to the cap overflows the quotient: unbounded headroom, or none.
+        return None if room > 0 else 0
+    return math.floor(room)

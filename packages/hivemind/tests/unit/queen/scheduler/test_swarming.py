@@ -69,6 +69,36 @@ _PRICED = {
             0,
             "max_cost_per_hour_usd 1.0 reached",
         ),
+        # A price tiny next to the cap overflows the quotient: no bound, or none left when over.
+        (
+            _view(),
+            SwarmingPolicy(
+                max_cost_per_hour_usd=2.0,
+                backends={_DOCKER: BackendLimit(cost_per_hour_usd=1e-310)},
+            ),
+            None,
+            None,
+            None,
+        ),
+        (
+            _view(),
+            SwarmingPolicy(
+                max_cost_per_hour_usd=1e308, backends={_CLOUD: BackendLimit(cost_per_hour_usd=0.01)}
+            ),
+            None,
+            None,
+            None,
+        ),
+        (
+            _view((0, 0), (4, 0)),
+            SwarmingPolicy(
+                max_cost_per_hour_usd=1.0,
+                backends={**_PRICED, _DOCKER: BackendLimit(cost_per_hour_usd=1e-310)},
+            ),
+            0,
+            0,
+            "max_cost_per_hour_usd 1.0 reached",
+        ),
         # The Hive Stand's room caps only a backend that draws on it.
         (_view(stand_room=0), SwarmingPolicy(backends=_PRICED), 0, 3, "no room for another"),
         (_view(stand_room=2), SwarmingPolicy(backends=_PRICED), 2, 3, None),
