@@ -65,10 +65,11 @@ const [CELLS, TELEMETRY, TRAIL] = [0, 1, 2];
 const header = () => document.querySelector('.cell-header') as HTMLElement;
 
 describe('the header', () => {
-  it('holds the id, kind and source, then both badges, access level and mode', async () => {
+  it('leads with the name over the id, kind and source, then badges, access and mode', async () => {
     await mount({
       body: pageView({
         cell: cellRecord({
+          name: 'laptop',
           comb_shield: 'PROPOLIS',
           mask_state: 'WARDEN',
           access_level: 'READ_ONLY',
@@ -77,7 +78,9 @@ describe('the header', () => {
     });
     await screen.findByText('PROPOLIS');
     const head = within(header());
-    expect(head.getByRole('heading', { name: 'Cell' })).toBeTruthy();
+    // The name leads, as the Fleet row does; the full id stays beside it as the subject.
+    expect(head.getByRole('heading', { name: 'laptop' })).toBeTruthy();
+    expect(head.queryByRole('heading', { name: 'Cell' })).toBeNull();
     expect(head.getByText('cell_1')).toBeTruthy();
     expect(head.getByText(/Real Cell, source hive_stand, active/)).toBeTruthy();
     expect(head.getByText('PROPOLIS')).toBeTruthy();
@@ -95,7 +98,8 @@ describe('the header', () => {
 
   it('shows the subject at once, before the page is read', async () => {
     const opened = await openHive();
-    // No answer yet: the read is still in flight when the first paint happens.
+    // No answer yet: the read is still in flight when the first paint happens, and the name is
+    // not known, so the title is the plain word until the page lands.
     render(
       <HiveProvider hive={opened.hive}>
         <CellPageView id="cell_1" />

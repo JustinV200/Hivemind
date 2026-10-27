@@ -21,6 +21,8 @@
  *   - Nothing here makes the page wider than the viewport.
  *   - The rail never overlaps the head: its top and height follow `--head-h`.
  *   - The current nav item is never colour alone: bold, with a 3px rule beside it.
+ *   - The focus ring on the nav is --chrome-accent, drawn inside the item, so it reads on the
+ *     chrome in both themes and the rail's scroll box never clips it.
  *
  * See Also:
  *   - docs/observation/design.md sections 2, 3, 6 and 7.
@@ -93,6 +95,18 @@
 .nav a:hover,
 .nav-more:hover {
   color: var(--chrome-text);
+}
+
+/* The page's --accent ring is dark on the propolis chrome (about 2:1 in the light theme), so the
+   nav's ring is the chrome accent; an item fills its rail or bar edge to edge, so the ring sits
+   inside it, where the rail's scroll box cannot clip its sides */
+.nav :focus-visible {
+  outline-color: var(--chrome-accent);
+}
+
+.nav a:focus-visible,
+.nav-more:focus-visible {
+  outline-offset: -2px;
 }
 
 .nav a[aria-current='page'] {

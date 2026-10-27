@@ -85,6 +85,11 @@
   border-color: var(--chrome-text);
 }
 
+/* The page's --accent ring is dark on the propolis chrome, so the bar's ring is the chrome accent */
+.topbar :focus-visible {
+  outline-color: var(--chrome-accent);
+}
+
 .topbar-theme {
   display: inline-flex;
   align-items: center;
@@ -220,14 +225,19 @@
     display: inline;
   }
 
+  /* The four groups share the band, with the stale note in a fifth column at its right edge,
+     and the row stops where the content does (the rail plus the 1440px cap), so it neither
+     hugs the left of a wide window nor stretches across an ultra-wide one */
   .strip {
-    grid-template-columns: repeat(4, minmax(0, 200px)) 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
     column-gap: var(--sp-1);
+    max-width: calc(var(--rail-w) + 1440px);
   }
 
   .strip-stale {
     grid-column: auto;
     justify-self: end;
     align-self: center;
+    white-space: nowrap;
   }
 }

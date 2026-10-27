@@ -4,9 +4,9 @@
  * Mobile first (design.md section 2): one column at 360 px, where the list is a stack of cards and
  * each cell keeps its label. Its nine columns (a capability list, a platform and three door
  * controls among them) need the pane of a 1280 px window, so it is a table from there, like the
- * Fleet, and never one that scrolls sideways; in the table an enum or a name never splits
- * mid-word, while the capabilities, the platform and the controls wrap, the controls as a row of
- * buttons that folds rather than a stack. Forms are comb cells with 44 px fields and buttons; a
+ * Fleet, and never one that scrolls sideways; in the table an enum, a name or the platform never
+ * splits mid-word, while the capabilities and the controls wrap, the controls as a row of
+ * buttons that folds rather than a stack, so most rows stay one line. Forms are comb cells with 44 px fields and buttons; a
  * fact list puts each value beside its label. Standing and mode are always words in the markup;
  * the colour only repeats them.
  *
@@ -273,12 +273,12 @@
     overflow-wrap: normal;
   }
 
-  /* Short enums and names stay on one line; the platform, capabilities and controls may wrap */
+  /* Short enums, names and the platform stay on one line; the capabilities and the controls
+     may wrap, since a row of three buttons folds without losing a word */
   .devices-table td {
     white-space: nowrap;
   }
 
-  .devices-table td[data-label='Platform'],
   .devices-table td[data-label='May do'],
   .devices-table td.devices-controls {
     white-space: normal;
@@ -295,12 +295,6 @@
   /* The class that lays the card's buttons out in a row must not turn the cell into a flex box. */
   .devices-table td.devices-controls {
     display: table-cell;
-  }
-
-  /* The Controls column asks for the width of its three buttons in a row, or the capability list
-     would take the slack and leave the buttons stacked one deep */
-  .devices-table th.devices-controls {
-    width: 19rem;
   }
 
   /* In a 13px table a door control is a compact button, so three fit a row of ordinary height */

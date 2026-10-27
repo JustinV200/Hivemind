@@ -116,6 +116,28 @@ describe.each(THEMES)('%s theme', (_, palette) => {
     expect(contrast(palette.text!, palette['accent-soft']!)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(palette.accent!, palette['accent-soft']!)).toBeGreaterThanOrEqual(4.5);
   });
+
+  // The focus ring is a non-text indicator, so design 7 asks 3:1 against what it is drawn on:
+  // --accent on the page's surfaces, --chrome-accent on the chrome (where --accent is dark on
+  // dark in the light theme, which is why the bar and the nav redraw the ring in their own token).
+  it.each([
+    ['accent', 'bg'],
+    ['accent', 'surface'],
+    ['accent', 'surface-2'],
+    ['chrome-accent', 'chrome'],
+  ])('the focus ring in %s is at least 3:1 on %s', (ring, surface) => {
+    expect(contrast(palette[ring]!, palette[surface]!)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('the focus ring on the chrome', () => {
+  // The pairing above holds only if the chrome stylesheets do redraw the ring in --chrome-accent,
+  // inside the nav's items so the rail's scroll box cannot clip it.
+  it('is drawn in --chrome-accent by the nav and the bar, inset on the nav items', () => {
+    expect(shell).toMatch(/\.nav :focus-visible \{\s*outline-color: var\(--chrome-accent\);/);
+    expect(shell).toMatch(/\.nav-more:focus-visible \{\s*outline-offset: -2px;/);
+    expect(head).toMatch(/\.topbar :focus-visible \{\s*outline-color: var\(--chrome-accent\);/);
+  });
 });
 
 describe('published numbers', () => {

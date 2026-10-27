@@ -1,12 +1,13 @@
 /**
  * `CellHeader`: the Cell page's header, with the tier and mask badges that are never hidden.
  *
- * The header holds the Cell id, its kind, source and headline status, then the `CombShieldLevel`
- * badge and the Pheromone Mask badge, then the access level and mode. The two badges are
+ * The header leads with the Cell's name, as the Fleet rows and the Forage's host cards do, with
+ * the full id beside it as the subject, then its kind, source and headline status, then the
+ * `CombShieldLevel` badge and the Pheromone Mask badge, then the access level and mode. The two badges are
  * persistent and large at every width: they are plain elements in the flow of the header, wrap to
  * a second line on a phone rather than collapse, and are not behind a tooltip or a disclosure.
  * The header sticks under the summary strip while the page scrolls. Until the page is read it
- * shows the title row alone, so the route's subject is on screen from the first paint.
+ * is titled `Cell` over the id alone, so the route's subject is on screen from the first paint.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/`. Rendered by `cell.tsx`; styled by `cell.css`.
@@ -50,7 +51,7 @@ export function CellHeader(props: { id: string; page: CellPage | null }): ReactE
   const { page } = props;
   return (
     <header className="cell-header">
-      <ViewTitle title="Cell" subject={props.id}>
+      <ViewTitle title={page?.cell.name ?? 'Cell'} subject={props.id}>
         {page ? (
           <span className="cell-meta">
             {`${page.cell.kind === 'REAL' ? 'Real' : 'Virtual'} Cell, source ${page.cell.source}, ${page.status}`}
