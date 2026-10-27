@@ -218,6 +218,9 @@ async def test_a_night_veil_goal_whose_ceiling_allows_only_real_cells_is_denied_
     [denied] = await _events(deps, "guard.denied")
     assert denied.payload["point"] == "placement"
     assert denied.payload["capability"] == "cell:virtual"
+    # Regression (phase 11 open item): the task cites a human's NIGHT_VEIL request, so the
+    # refusal is the goal's ceiling, never the initiation floor's "cites no goal request".
+    assert denied.payload["rule"] == "guard.not_held"
     assert await _events(deps, "queen.assigned") == []
 
 

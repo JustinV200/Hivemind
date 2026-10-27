@@ -146,10 +146,10 @@ from pydantic import JsonValue
 from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal, ready_tasks
 from hivemind.guard import CapabilitySet, EnforcementPoint
 from hivemind.pheromone import MAX_PAYLOAD_STRING_CHARS
-from hivemind.queen.authority import goal_held, request_for, task_context
+from hivemind.queen.authority import goal_held, request_for
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher.acquire import authorize_virtual, resolve_link
-from hivemind.queen.dispatcher.night_veil import check_night_veil_placement
+from hivemind.queen.dispatcher.night_veil import check_night_veil_placement, tier_context
 from hivemind.queen.dispatcher.provisions import (
     GRANT_DENIED,
     acquired,
@@ -483,7 +483,9 @@ async def _record_placement_failure(deps: QueenDeps, task: Task, error: Placemen
     if not error.denied:
         return
     held = goal_held(task) or CapabilitySet.empty()  # `denied` is only ever set for a goal set.
-    context = task_context(task)
+    # With the Night Veil facts when they apply: without the goal request it cites, the
+    # initiation floor would refuse each check as if the task cited none, and name the wrong rule.
+    context = await tier_context(deps, task)
     for needed in error.denied:
         request = request_for(deps, EnforcementPoint.PLACEMENT, needed, held)
         await deps.enforcer.check(request.model_copy(update={"context": context}))
