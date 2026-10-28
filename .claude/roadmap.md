@@ -3079,7 +3079,7 @@ borrowed device and revoking every grant.
   **Built 2026-10-28.** The five missing runbooks are written (`real-cells.md`,
   `wardens-and-alarms.md`, `clustering.md`, `nucs.md`, `remote-access.md`; `supersedure.md` and
   `backup.md` landed with 13.2a and 13.7) and `docs/runbooks/README.md` lists every runbook. Every
-  package directory has its README (`pollen` and `waggle.outbox` were missing theirs). The ADR index
+  subsystem has its README (`pollen` and `waggle.outbox` were missing theirs). The ADR index
   lists every ADR (0061 to 0066 are still Proposed, for the owner to accept), and every one of the
   catalogue's 89 message kinds and classes appears in `docs/waggle/spec.md` at protocol 1.16.
 - [ ] **14.4 Security review.** Coding rules section 15 across the tree; `pip-audit`;
