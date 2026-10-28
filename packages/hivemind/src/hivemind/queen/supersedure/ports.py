@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from hivemind.common.backup import BackupSource
+from hivemind.queen.holds import HeldRetries
 from hivemind.queen.supersedure.preflight import ProbeReport
 from hivemind.swarm import SwarmNode
 from waggle.messages.control import QueenMoved
@@ -173,3 +174,4 @@ class SupersedureBook:
     wiring: SupersedureWiring | None = None  # None: this Hive cannot move (the door refuses).
     task: asyncio.Task[Handover | Rollback] | None = None  # The one Supersedure under way, if any.
     outcomes: list[Handover | Rollback] = field(default_factory=list)  # Finished ones, newest last.
+    retries: HeldRetries = field(default_factory=HeldRetries)  # Held while SUPERSEDING (wake).

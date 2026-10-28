@@ -35,13 +35,19 @@ Public API:
     - requeue_unfinished: every task a stopping Hive leaves on its Cells, PENDING again.
 """
 
-from hivemind.queen.dispatcher.ready.dispatch import dispatch_ready, redispatch, resume_paused
+from hivemind.queen.dispatcher.ready.dispatch import (
+    dispatch_ready,
+    redispatch,
+    replay_held_retries,
+    resume_paused,
+)
 from hivemind.queen.dispatcher.ready.requeue import requeue_for_commands
 from hivemind.queen.dispatcher.ready.unfinished import requeue_unfinished
 
 __all__ = [
     "dispatch_ready",
     "redispatch",
+    "replay_held_retries",
     "requeue_for_commands",
     "requeue_unfinished",
     "resume_paused",

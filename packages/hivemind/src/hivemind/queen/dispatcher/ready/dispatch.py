@@ -82,7 +82,9 @@ placement stands on.
 
 ADR-0065: while a Supersedure holds the Queen (SUPERSEDING, SUPERSEDED, or a candidate held for
 the old Queen's word) all three ways in return at once, whoever calls them: a result heard then
-still completes its task, but its dependants wait for the Queen that keeps the Hive.
+still completes its task, but its dependants wait for the Queen that keeps the Hive. A retry
+heard then is held (`SupersedureBook.retries`), and `replay_held_retries` resends it if she
+rolls back.
 
 Roadmap step 10.3 (ADR-0039) wires the `placement` enforcement point through here: a
 `PlacementError` records its own message on `queen.decided`, and when the task's goal set alone
@@ -181,6 +183,7 @@ from hivemind.queen.dispatcher.zero_grant import (
 )
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage import redeliver_owed
+from hivemind.queen.holds import HeldRetry
 from hivemind.queen.placement import (
     Placement,
     PlacementError,
@@ -198,7 +201,13 @@ from waggle.messages.task import NurseFinding
 # words only, never task content (codingrules section 12).
 STRANDED_REASON = "Found assigned but never started; its Warden was sent nothing."
 
-__all__ = ["STRANDED_REASON", "dispatch_ready", "redispatch", "resume_paused"]
+__all__ = [
+    "STRANDED_REASON",
+    "dispatch_ready",
+    "redispatch",
+    "replay_held_retries",
+    "resume_paused",
+]
 
 
 async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
@@ -278,7 +287,9 @@ async def redispatch(
         the link's own Cell as probed, never the live reading (module docstring).
     """
     if _placing_held(deps):
-        return  # ADR-0065: the retry is not resent while a Supersedure holds her.
+        # ADR-0065: not resent while a Supersedure holds her; a rollback's wake resends it.
+        deps.supersedure.retries.hold(task_id, HeldRetry(attempt, review_findings))
+        return
     task = await deps.chamber.get(task_id)
     link = _placed_link(deps, wardens, task)
     if link is None:
@@ -289,6 +300,22 @@ async def redispatch(
     if fresh_grant is None:
         return  # Denied: send_grant_and_assign already failed the task (module docstring).
     await record_forage_granted(deps, task, fresh_grant, link.warden_id)
+
+
+async def replay_held_retries(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None:
+    """Resend every retry a Supersedure held, for each task still RUNNING (ADR-0065).
+
+    Called by a rollback's wake: a task whose retry was held has no bee, and nothing else ever
+    retries a RUNNING task. One that finished, or that the freeze paused (its resume restarts
+    it), is left as it is.
+
+    Args:
+        deps: The Queen's collaborators; `supersedure.retries` is emptied.
+        wardens: Every Warden currently attached.
+    """
+    for task_id, retry in deps.supersedure.retries.take_all().items():
+        if (await deps.chamber.get(task_id)).status is TaskStatus.RUNNING:
+            await redispatch(deps, wardens, task_id, retry.attempt, retry.review_findings)
 
 
 async def resume_paused(

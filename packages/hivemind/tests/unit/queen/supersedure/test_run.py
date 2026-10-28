@@ -18,12 +18,14 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from contextlib import closing
 from pathlib import Path
 
 import pytest
-from builders.queen import make_queen_deps
+from builders.human import single_task_plan
+from builders.queen import make_queen_deps, plan_responder
 from builders.supersedure import (
     FakeCandidate,
     FakeControls,
@@ -32,8 +34,12 @@ from builders.supersedure import (
     make_recorder,
 )
 
+from hivemind.cell import HoneyClearance
 from hivemind.common.backup import BackupSource
+from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
+from hivemind.queen.deps import WardenLink
+from hivemind.queen.queen import Queen
 from hivemind.queen.state import QueenMode
 from hivemind.queen.supersedure import (
     ABORTED_KIND,
@@ -49,6 +55,7 @@ from hivemind.queen.supersedure import (
     finish,
     next_sequence,
 )
+from hivemind.queen.ticks.results import AttemptBook, retry_task
 from waggle.clock import FakeClock
 
 
@@ -149,3 +156,25 @@ async def test_a_rollback_wakes_only_what_the_freeze_clustered() -> None:
 
     assert {"fake", "down"} <= frozen
     assert state.clustered_providers == {"down"} and state.mode is QueenMode.CLUSTERED
+
+
+async def test_a_retry_heard_while_superseding_is_resent_after_a_rollback() -> None:
+    """ADR-0065: a held retry is never a lost task; the wake resends it as the attempt it took."""
+    deps, link, warden_end = make_queen_deps(
+        fake_provider=FakeLLMProvider(responder=plan_responder(single_task_plan))
+    )
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    task_id = await queen.submit_goal("Do a thing.", clearance=HoneyClearance.C1)
+    await warden_end.wait_for_assignment()
+    attached: list[WardenLink] = []  # Its Warden is away for the freeze, so its task stays RUNNING.
+    levers = QueenLevers(deps, lambda: tuple(attached))
+    await levers.freeze()
+    attached.append(link)  # Back mid-move, with a failed attempt the Queen retries.
+
+    await retry_task(deps, attached, task_id, AttemptBook())  # Held: nothing is sent.
+    await levers.wake()
+
+    # Bounded: a retry never resent sends nothing, and the pump would wait for it for good.
+    await asyncio.wait_for(warden_end.pump_until(lambda: len(warden_end.assignments) >= 2), 5.0)
+    assert [a.attempt for a in warden_end.assignments] == [1, 2]

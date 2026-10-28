@@ -76,6 +76,7 @@ from hivemind.queen.dispatcher.provisions import stop_provisions
 from hivemind.queen.dispatcher.ready import (
     dispatch_ready,
     redispatch,
+    replay_held_retries,
     requeue_for_commands,
     requeue_unfinished,
     resume_paused,
@@ -92,6 +93,7 @@ __all__ = [
     "drain_releases",
     "record_consulted",
     "redispatch",
+    "replay_held_retries",
     "requeue_for_commands",
     "requeue_unfinished",
     "resume_paused",

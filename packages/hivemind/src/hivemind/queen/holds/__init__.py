@@ -22,8 +22,9 @@ See Also:
 Public API:
     - HeldCells: the Cells whose tasks the Queen is holding, and why (book).
     - ResumeHints: where each re-placed task resumes from at its next placement (book).
+    - HeldRetries, HeldRetry: the retries a Supersedure held, for a rollback to resend (book).
 """
 
-from hivemind.queen.holds.book import HeldCells, ResumeHints
+from hivemind.queen.holds.book import HeldCells, HeldRetries, HeldRetry, ResumeHints
 
-__all__ = ["HeldCells", "ResumeHints"]
+__all__ = ["HeldCells", "HeldRetries", "HeldRetry", "ResumeHints"]

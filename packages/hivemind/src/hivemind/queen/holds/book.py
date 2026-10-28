@@ -1,4 +1,4 @@
-"""Define HeldCells and ResumeHints: what the dispatcher leaves alone, and where it resumes from.
+"""Define HeldCells, ResumeHints and HeldRetries: what the dispatcher leaves alone, and for when.
 
 When a Swarm device is lost (its link dropped, or its Warden's did) the Queen does not fail the
 tasks on it and does not move them: she *holds* them for `[swarm] unreachable_grace_s`, because the
@@ -13,9 +13,14 @@ PENDING to be placed again (roadmap 11.9), and each one is told where to resume 
 Handoff (the document a bee writes before its context is reset) the Queen holds for it, so the
 placement that follows carries `resume_from` instead of starting the work over.
 
-Both are plain in-memory books owned by the dispatcher's own `DispatchBook` (one per Queen): a
-restarted Queen holds nothing she did not decide in this life, and the hold is re-derived from the
-registry and the live links on her first reconcile pass.
+`HeldRetries` is a Supersedure's own hold (ADR-0065): a retry heard while the Queen is
+SUPERSEDING is sent nowhere, so its attempt number and any Nurse findings are noted here, and a
+rollback's wake resends each one still RUNNING. Without it the task stayed RUNNING with no bee and
+nothing ever retried it. It is owned by `hivemind.queen.supersedure.ports.SupersedureBook`.
+
+`HeldCells` and `ResumeHints` are plain in-memory books owned by the `DispatchBook` (one per
+Queen): a restarted Queen holds nothing she did not decide in this life, and the hold is
+re-derived from the registry and the live links on her first reconcile pass.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package's holds
@@ -44,8 +49,9 @@ from dataclasses import dataclass, field
 
 from waggle.ids import CellId, TaskId
 from waggle.messages import HandoffRef
+from waggle.messages.task import NurseFinding
 
-__all__ = ["HeldCells", "ResumeHints"]
+__all__ = ["HeldCells", "HeldRetries", "HeldRetry", "ResumeHints"]
 
 
 @dataclass(slots=True)
@@ -93,3 +99,31 @@ class ResumeHints:
     def take(self, task_id: TaskId) -> HandoffRef | None:
         """Return and forget the Handoff `task_id` resumes from, or None when it starts fresh."""
         return self.refs.pop(task_id, None)
+
+
+@dataclass(frozen=True, slots=True)
+class HeldRetry:
+    """One retry a Supersedure held: the attempt it took and the Nurse's findings, if any."""
+
+    attempt: int
+    review_findings: tuple[NurseFinding, ...] = ()
+
+
+@dataclass(slots=True)
+class HeldRetries:
+    """The retries held while a Supersedure froze the Queen, by task (module docstring).
+
+    Attributes:
+        retries: Each held task's latest retry; a later one for the same task replaces it.
+    """
+
+    retries: dict[TaskId, HeldRetry] = field(default_factory=dict)
+
+    def hold(self, task_id: TaskId, retry: HeldRetry) -> None:
+        """Note `retry` for `task_id`, replacing any held before it."""
+        self.retries[task_id] = retry
+
+    def take_all(self) -> dict[TaskId, HeldRetry]:
+        """Return and forget every held retry."""
+        taken, self.retries = self.retries, {}
+        return taken

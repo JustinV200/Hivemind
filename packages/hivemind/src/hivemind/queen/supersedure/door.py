@@ -12,8 +12,9 @@ start and leaves the rest (`.run.finish`) running on her own loop. `QueenLevers`
 
 Fits into the Hive:
     Layer 6 (the kernel), inside `hivemind.queen.supersedure`. Called by the Entrance through
-    `QueenDoor`. Calls into `hivemind.guard`, `hivemind.queen.cluster`, `hivemind.queen.errors`,
-    `hivemind.queen.state`, `hivemind.common.backup` and this package's own modules; `QueenDeps`
+    `QueenDoor`. Calls into `hivemind.guard`, `hivemind.queen.cluster`, `hivemind.queen.dispatcher`
+    (a rollback's held retries), `hivemind.queen.errors`, `hivemind.queen.state`,
+    `hivemind.common.backup` and this package's own modules; `QueenDeps`
     and `WardenLink` only for their types.
 
 Key invariants:
@@ -126,11 +127,17 @@ class QueenLevers:
         """Back to CLUSTERED, then resume only the providers the freeze itself clustered.
 
         One an outage clustered before or during the move stays clustered: the cluster tick's
-        health probe resumes it once it answers, never this.
+        health probe resumes it once it answers, never this. A retry heard while she was
+        SUPERSEDING is resent first, since nothing else ever retries a RUNNING task; one whose
+        task the freeze paused is skipped there, and resumed with the rest.
         """
+        # Local, not module-level: the dispatcher imports `deps`, which imports this package.
+        from hivemind.queen.dispatcher import replay_held_retries
+
         state = self._deps.cluster_state
         state.abort_supersedure()
         state.mark_resumed(FREEZE_KEY)
+        await replay_held_retries(self._deps, self._wardens())
         for provider in self._froze:
             await resume(provider, self._deps, state, self._wardens())
 
