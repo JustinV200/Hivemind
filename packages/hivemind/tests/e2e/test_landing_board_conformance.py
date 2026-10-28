@@ -77,6 +77,7 @@ CLIENT_IMPORTS = frozenset({"httpx", "websockets", "cryptography", "e2e"}) | fro
 )
 STALE_S = 3600  # A timestamp an hour old: far outside any request_skew_s.
 AUTH_FAILED = "hivemind.entrance.authentication_failed"  # Every session refusal's one code.
+_NODE = "node_01ARZ3NDEKTSV4RRFFQ69G5FAV"  # A well-formed node id, for a {node_id} path parameter.
 
 # Approves a pending device at the Hive Stand, given its id.
 type Approve = Callable[[str], Awaitable[None]]
@@ -322,12 +323,7 @@ async def test_every_loopback_only_operation_is_a_404_on_the_remote_listener() -
             if "remote" not in operation.listeners or "x-hive-switch" in operation.spec
         ]
         replies = [
-            await remote.call(
-                Request(
-                    op.method, op.template, dict.fromkeys(_names(op.template), device.device_id)
-                ),
-                session,
-            )
+            await remote.call(Request(op.method, op.template, _ids(op.template, device)), session)
             for op in absent
         ]
         local = GenericClient(rig.client().http, board)
@@ -341,6 +337,11 @@ async def test_every_loopback_only_operation_is_a_404_on_the_remote_listener() -
 def _names(template: str) -> list[str]:
     """The names of a path template's parameters."""
     return [part[1:-1] for part in template.split("/") if part.startswith("{")]
+
+
+def _ids(template: str, device: _Device) -> dict[str, str]:
+    """A well-formed id for each path parameter: a node's for `node_id`, the device's otherwise."""
+    return {name: _NODE if name == "node_id" else device.device_id for name in _names(template)}
 
 
 async def test_a_webhook_notice_verifies_under_the_hive_key_and_carries_its_event_id() -> None:
