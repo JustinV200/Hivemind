@@ -43,17 +43,19 @@ likeliest step to fail and a refusal there has minted nothing. If the invite or 
 fails, the folder is removed first (it holds the secrets), then the invite is revoked and the key
 deleted, each step attempted whatever happened to the one before, cancellation included, before the
 error is shown. One gap is accepted: a build cancelled while the key's mint request is in flight
-never learns the key's id, so it cannot delete it; that key was never written anywhere and lapses
-at its TTL. A built packet is recorded as `swarm.packet_built` with the key's id, the invite's hash, the platform
-and a file count; the secrets are never printed, logged or recorded.
+never learns the key's id, so it cannot delete it; that key was never written anywhere and lapses at
+its TTL. A revocation that fails is reported with the id and the remedy, and the original error
+still propagates. A built packet is recorded as `swarm.packet_built` with the key's id, the invite's
+hash, the platform and a file count; the secrets are never printed, logged or recorded.
 
 **The installer spends the secrets and deletes them.** It installs Tailscale if it is missing
 (winget, else the official MSI, installed elevated, checked against its published SHA-256 and an
 Authenticode signature whose subject is Tailscale Inc.'s; on Linux, Tailscale's install script,
-where trust rests on TLS to tailscale.com and the signed package repository it adds), brings the device up with the key read from its file (`--auth-key=file:`, never on a
-command line), waits until the Hive Stand's advertised host resolves and answers, installs pollen
-for the user, enrols with the invite on standard input, sets pollen to start at login and prints
-its status. It is idempotent, and it deletes `secrets/` when it ends, whether it worked or not.
+where trust rests on TLS to tailscale.com and the signed package repository it adds), brings the
+device up with the key read from its file (`--auth-key=file:`, never on a command line), waits until
+the Hive Stand's advertised host resolves and answers, installs pollen for the user, enrols with the
+invite on standard input, sets pollen to start at login and prints its status. It is idempotent, and
+it deletes `secrets/` when it ends, whether it worked or not.
 
 ## Consequences
 

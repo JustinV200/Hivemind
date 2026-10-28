@@ -172,8 +172,9 @@ In the Tailscale admin console:
 
    `tag:hive-device` reaches only the Hive Stand, and there only the swarm listener's port (8720;
    use whatever `[swarm] listen_port` names). A borrowed device has no business with the Entrance,
-   whose phones and laptops are your own signed-in devices. The second grant keeps your own signed-in devices able to reach the Hive Stand; keep whatever other rules
-   you had for them. Nothing needs to reach a device: the packet dials out.
+   whose phones and laptops are your own signed-in devices. The second grant keeps your own
+   signed-in devices able to reach the Hive Stand; keep whatever other rules you had for them.
+   Nothing needs to reach a device: the packet dials out.
 3. Tag the Hive Stand: on it, `tailscale up --advertise-tags=tag:hive-stand`, or edit its tags under
    Machines.
 4. Under Settings, OAuth clients, generate a client with the Auth Keys write scope, allowed to
