@@ -352,7 +352,9 @@ every assignment goes to a Warden, over Waggle.
   tasks placed afresh from their Handoffs, the Hive Stand's orphaned lease given back, Virtual
   Cells' Wardens waited for and taken back, one `queen.requeened` of counts; her handled Alarms
   and questions survive a restart, and her periodic snapshot bounds what recovery reads.
-- `queen.supersedure`: a placeholder, populated by roadmap step 13.2a.
+- `queen.supersedure`: Supersedure, moving the Hive Stand (roadmap 13.2a, ADR-0065): the candidate
+  test, the copy, the handover and rollback, the trail rules that keep two Queens from running,
+  and the human's lever through the Entrance.
 
 ## Enforcement points (roadmap step 10.3)
 
