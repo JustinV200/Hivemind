@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from builders.forage import make_grant
 from builders.human import RecordingHumanChannel
 from builders.queen import make_queen_deps
 from builders.tasks import make_graph_draft
@@ -121,15 +122,20 @@ async def test_a_task_on_a_night_veil_cell_is_ended_with_it() -> None:
     assert await deps.chamber.pending_questions() == ()
 
 
-async def test_a_paused_task_keeps_its_hold() -> None:
+async def test_a_paused_task_keeps_its_hold_but_its_stopped_wardens_grant_is_revoked() -> None:
     deps, link, _end = make_queen_deps(FakeClock())
     task = await _running(deps, link)
     await deps.chamber.pause(task.id, "Clustering: its provider went away.")
+    # One grant her stopped Warden holds, one another Queen's Warden holds (never hers to end).
+    await deps.ledger.record_grant(make_grant(clock=deps.clock, holder=link.warden_id))
+    other = make_grant(clock=deps.clock)
+    await deps.ledger.record_grant(other)
 
     assert await requeue_unfinished(deps) == ()
 
     paused = await deps.chamber.get(task.id)
     assert paused.status is TaskStatus.PAUSED and paused.warden_id == link.warden_id
+    assert [grant.id for grant in deps.ledger.live_grants()] == [other.id]
 
 
 async def test_another_queens_task_on_the_same_chamber_is_never_moved() -> None:

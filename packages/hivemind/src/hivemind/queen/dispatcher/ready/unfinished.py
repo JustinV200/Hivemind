@@ -18,6 +18,9 @@ one; cancelling stays a human's or the Queen's decision, or the end of a task th
 A task bound to a Night Veil Cell is the one such task: that Cell is teardown-only (codingrules
 8.7), so a stop ends the task with it, as the Cell's teardown purge does when it runs. A PAUSED
 task is left alone: its hold (Clustering, a quarantine, an isolation) is someone's to lift.
+Every grant one of her Wardens still holds is revoked too (`HOLDER_OFFLINE`): the Warden stopped
+with her, so nothing will draw on it again, and a PAUSED task's grant would otherwise sit live in
+the ledger until the next start's Requeening (found by the roadmap 13.6 chaos suite).
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.dispatcher.ready`.
@@ -32,6 +35,7 @@ Key invariants:
       working through the stop and reconnects to the next Queen with its tasks (ADR-0053).
     - No task it reaches is left ASSIGNED, RUNNING or BLOCKED: each ends PENDING (unplaced, its
       attempt advanced) or, on a Night Veil Cell, CANCELLED; a BLOCKED one's question WITHDRAWN.
+    - No grant held by one of her Wardens is left live.
     - A task another process moved meanwhile is read again and given back as it now stands (a
       question answered from `hive inbox answer` leaves it RUNNING, still owed back); one that
       finished, or left the chamber, is left alone, and never stops the others.
@@ -57,8 +61,11 @@ from hivemind.brood_chamber import (
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.cell import CombShieldLevel
 from hivemind.common.logging import get_logger
+from hivemind.forage import GrantState
 from hivemind.queen.deps import QueenDeps
+from hivemind.queen.forage import activate, revoke
 from waggle.ids import MessageId, TaskId, WardenId
+from waggle.messages.forage import RevocationCause
 
 # Why a task is given back, on its `task.unassigned` and its question's withdrawal alike: plain
 # words and no content (codingrules section 12).
@@ -98,9 +105,22 @@ async def requeue_unfinished(deps: QueenDeps) -> tuple[TaskId, ...]:
         for task in await _placed_on(deps, placed_on):
             if await _give_back(deps, task.id):
                 requeued.append(task.id)
-    if requeued:
-        log.info("queen.unfinished_requeued", tasks=len(requeued))
+    revoked = await _revoke_grants(deps, placed_on)
+    if requeued or revoked:
+        log.info("queen.unfinished_requeued", tasks=len(requeued), grants_revoked=revoked)
     return tuple(requeued)
+
+
+async def _revoke_grants(deps: QueenDeps, wardens: Collection[WardenId]) -> int:
+    """Revoke every live grant `wardens` hold: they stopped with her; return how many went."""
+    revoked = 0
+    for warden_id in wardens:
+        for grant in deps.ledger.grants_for(warden_id):
+            # ISSUED -> REVOKED is no edge (Appendix C): a grant never drawn on is activated first.
+            live = activate(grant) if grant.state is GrantState.ISSUED else grant
+            await revoke(deps.ledger, deps, live, RevocationCause.HOLDER_OFFLINE, STOPPED_REASON)
+            revoked += 1
+    return revoked
 
 
 async def _placed_on(deps: QueenDeps, wardens: Collection[WardenId]) -> tuple[Task, ...]:
