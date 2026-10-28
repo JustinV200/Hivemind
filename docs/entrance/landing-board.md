@@ -53,7 +53,9 @@ The Hive Entrance runs inside the Hive's own process on the **Hive Stand**, the 
   A browser on the Hive Stand gets it by opening the link `hive serve` prints,
   `http://localhost:<port>/stand#key=<key>`: the Observation Hive keeps the fragment's key in the
   tab's `sessionStorage` and sends it as the same header. No cookie carries it, since a browser
-  sends `localhost` cookies to every port. Operations on both listeners need no stand key.
+  sends `localhost` cookies to every port. Operations on both listeners need no stand key, with
+  two exceptions on loopback: the console device's login, and any login while the Entrance is
+  reduced, are refused without it (`401`, like any refused login).
 - **The remote listener** exists only when the operator exposes the Entrance (`[entrance] expose`).
   The mode is `vpn` (recommended: an address on a Tailscale or WireGuard overlay), `lan` or `tunnel`.
   Every remote mode speaks TLS on a DNS name. `lan` and `tunnel` also require mutual TLS with a

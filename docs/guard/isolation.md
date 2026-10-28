@@ -132,21 +132,21 @@ listen_port = 47800
 ```
 
 What it does not do. Anything on the Hive Stand bound to every interface answers on the control
-gateway too, so an isolated Cell that dials that address still reaches it; on native Linux
-Engine, bind the model servers Cells use to docker0 (`172.17.0.1`), never `0.0.0.0`. Do not count
-on loopback, with or without a proxy in front: see "Host loopback is not private" below. Cutting that
+gateway too, so an isolated Cell that dials that address still reaches it; on native Linux Engine,
+bind the model servers Cells use to docker0 (`172.17.0.1`), never `0.0.0.0`. Do not count on
+loopback, with or without a proxy in front: see "Host loopback is not private" below. Cutting that
 path would take a host firewall rule (root, outside Docker's API), and the operator chose not to
 ship one; instead, when `hive run` makes the control network it probes, with one TCP connect of at
 most half a second each, every `[llm.providers]` `base_url` that names the Hive Stand itself
 (`127.0.0.1`, `localhost`, `::1`, `host.docker.internal`) on the control gateway, and logs a
-`virtual_cells.provider_reachable_through_isolation` warning for each one that answers, naming
-the provider, the port and the fix. For LM Studio, Ollama or llama-server that means setting the
+`virtual_cells.provider_reachable_through_isolation` warning for each one that answers, naming the
+provider, the port and the fix. For LM Studio, Ollama or llama-server that means setting the
 server's bind address to the docker0 address (for example `172.17.0.1`; `ip -4 addr show docker0`
-prints it) instead of "all interfaces" / `0.0.0.0`. A Night Veil
-(VPN_TOR) Cell is never dual-homed, since its link rides Tor over its egress, so its egress is not
-cut (`unsupported`), and neither is a Cell provisioned before the control subnet was set. Under
-`network_policy = "none"` a Cell's own network is `internal`, so the control network is its only
-way to the Queen; without a control subnet such a Cell has no route to docker0 on native Linux.
+prints it) instead of "all interfaces" / `0.0.0.0`. A Night Veil (VPN_TOR) Cell is never dual-homed,
+since its link rides Tor over its egress, so its egress is not cut (`unsupported`), and neither is a
+Cell provisioned before the control subnet was set. Under `network_policy = "none"` a Cell's own
+network is `internal`, so the control network is its only way to the Queen; without a control subnet
+such a Cell has no route to docker0 on native Linux.
 
 Proved against a real daemon by `tests/integration/test_docker_egress.py`: from inside the
 container an outside host and docker0 answer before the cut and not after it, the control
@@ -190,7 +190,9 @@ So on QEMU and Docker Desktop a guest can reach Ollama, LM Studio, llama-server,
 anything else listening on the Hive Stand's loopback, and cutting its egress does not change that
 on QEMU. The Hive Entrance's loopback listener is one such service; its loopback-only routes
 (approval, unlock, widening, reopening) also need a per-boot stand key that no Cell is given
-(ADR-0068), so a guest reaching the port gets no further than a remote client would. Nothing else
+(ADR-0068), and so do a console login and any login while the Entrance is reduced. A guest
+reaching the port still skips the network factor a remote device faces (the overlay, or mutual
+TLS), but it needs an enrolled device's key and the operator's password to log in. Nothing else
 on loopback has that protection: give such services their own authentication, or do not run
 untrusted work in QEMU or Docker Desktop Cells while they listen. Closing this in the network
 (QEMU's control-NIC split with `restrict=on`, and an answer for Docker Desktop) is an open item in

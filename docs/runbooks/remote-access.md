@@ -91,16 +91,19 @@ hive serve --manifest hive.toml
 prints where the loopback listener answers, plus a **Hive Stand browser link**
 (`http://localhost:<port>/stand#key=...`). The approval routes on loopback need that boot's stand
 key (ADR-0068), because a Virtual Cell can reach the Hive Stand's loopback too. The `hive entrance`
-commands read it on their own. To approve devices from a browser on the Hive Stand, open the link
-in it after each start of `hive serve`. The Observation Hive keeps the key for that tab only, so a
-new tab needs the link again. If an approval says to open the Hive Stand browser link, that is
-why.
+commands read it on their own. The remote listener starts once the exposure check passes. If it
+does not, `hive serve` exits 2 naming the rule.
+
+To approve devices from a browser on the Hive Stand, open the link in it after each start of
+`hive serve`. The Observation Hive keeps the key for that tab only, so a new tab needs the link
+again. If an approval says to open the Hive Stand browser link, that is why. The same goes for
+logging in on the Hive Stand at all while the Entrance is reduced: only a tab or program holding
+the key may log in then.
 
 Treat the link like a password until the serve stops. The key sits in the fragment, so no server
 ever receives it, and the app never puts it in a cookie, which would reach every other server on
 `localhost`. It can still be read from `hive serve`'s output or log, from the browser's history
-(which may record the link before the app clears it), and by your own operating-system account. The remote listener starts once the exposure check
-passes. If it does not, `hive serve` exits 2 naming the rule.
+(which may record the link before the app clears it), and by your own operating-system account.
 
 You need an operator password. `hive init` sets one, and `hive entrance operator password` sets or
 changes it otherwise.

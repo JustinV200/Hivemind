@@ -1,4 +1,5 @@
-# ADR-0068: Loopback-only rows need a per-boot stand key, because a Virtual Cell's guest can reach loopback
+# ADR-0068: Loopback-only rows need a per-boot stand key, because a Virtual Cell's guest can
+# reach loopback
 
 - Status: Accepted
 - Date: 2026-10-28
@@ -33,27 +34,29 @@ factors, minting an invite (`201`). So the hole was a lost layer of defence, not
 also let a guest flood the `127.0.0.1` rate bucket the operator's console shares, and exposed the
 loopback-only `GET /v1/hive/supersede/{node_id}/preflight` and every public route's parser to it.
 
-Fixing it in the network alone is not possible today. `restrict=on` also cuts the outbound NAT
-that `EGRESS_ONLY`, `ALLOWLIST` and `VPN_TOR` Cells need, and QEMU's `-netdev user` documents
-no option to keep NAT but drop the host-loopback mapping (libslirp has `disable_host_loopback`,
-but QEMU does not pass it through). The Cell legitimately dials the host's loopback for its Waggle link (a loopback
-`listen_host` is rewritten to `10.0.2.2` or `host.docker.internal`) and for any model server bound
-to loopback (`rewrite_loopback_base_url`). Docker Desktop's host gateway cannot be scoped to one
-port either. And no peer-address check helps, because both forwarders connect from `127.0.0.1`.
+Fixing it in the network alone is not possible today. `restrict=on` also cuts the outbound NAT that
+`EGRESS_ONLY`, `ALLOWLIST` and `VPN_TOR` Cells need, and QEMU's `-netdev user` documents no option
+to keep NAT but drop the host-loopback mapping (libslirp has `disable_host_loopback`, but QEMU does
+not pass it through). The Cell legitimately dials the host's loopback for its Waggle link (a
+loopback `listen_host` is rewritten to `10.0.2.2` or `host.docker.internal`) and for any model
+server bound to loopback (`rewrite_loopback_base_url`). Docker Desktop's host gateway cannot be
+scoped to one port either. And no peer-address check helps, because both forwarders connect from
+`127.0.0.1`.
 
 ## Decision
 
-**The loopback-only rows need a per-boot stand key that never enters a Cell.** Each
-`build_entrance` draws a 256-bit key (`hivemind.entrance.expose.mint_stand_key`), kept in memory
-and never persisted beyond the running serve. The loopback application's `LoopbackGate`, after its
+**The loopback-only rows need a per-boot stand key that never enters a Cell.** Each start of
+the Entrance's listeners (`EntranceListeners.__init__`) draws a 256-bit key
+(`hivemind.entrance.expose.mint_stand_key`), kept in memory and in the serve record while the
+serve runs; the record is removed on exit. The loopback application's `LoopbackGate`, after its
 `Host` and forwarding-header checks and before the rate limit or any route, refuses with a bare
 `403` every request whose method and path match a loopback-only row (compiled with Starlette's own
 path compiler from the same route table) unless it carries the key, compared in constant time, in
 the `X-Hive-Stand` header. That header is the only channel: no cookie carries the key, because a
 browser sends a `localhost` cookie to every port on the machine (cookies are not port-scoped), so
 any local dev server or model web UI would receive and could log it. Rows served on both listeners
-need no stand key on loopback, so a program on the Hive Stand that only submits, answers or observes is
-unchanged.
+need no stand key on loopback, so a program on the Hive Stand that only submits, answers or
+observes is unchanged.
 
 **Only the Hive Stand holds it.** `hive serve` writes it into its serve record
 (`<db>.serve.json`, beside the database, created `0600` on POSIX), which the console commands
@@ -75,10 +78,20 @@ the link is opened again after each start, and in each new tab.
 `stand:<address>`, so a guest flooding `127.0.0.1` can no longer starve the console of the door it
 administers the Hive through.
 
+**Loopback logins that stand for the Hive Stand need the key too.** The gate marks the request
+scope when the key came along, and the arrival carries that mark (`Arrival.stand`). The console
+device is `loopback_bound` (ADR-0041); without the key, its login on loopback is refused as if it
+had come from the remote listener. While the Entrance is reduced, every login without the key is
+refused, loopback included, so a reduction leaves only the Hive Stand able to log in.
+
 The network stays as it is, documented plainly in the backends: QEMU's non-`NONE` policies and
 Docker Desktop still let a guest reach the host's loopback services, the Entrance's public and
-both-listener routes included. Those routes are the remote listener's too, so a guest reaching them
-gains nothing a remote client lacks.
+both-listener routes included. A guest there is like a remote client with one factor fewer to
+pass: it skips the network factor a remote device faces (the VPN overlay, or mutual TLS for `lan`
+and `tunnel`), and it reaches the loopback listener even while the remote one is reduced. It
+still needs an enrolled, approved device key and the operator's password to open any session, and
+since this decision it cannot open the console's, nor any session while reduced, nor reach a
+loopback-only row.
 
 ## Consequences
 
@@ -102,6 +115,15 @@ can approve. Where the key can still be read, until the serve stops:
 - Script running in the Entrance's own origin could read `sessionStorage`; the Entrance serves only
   its own build, under `default-src 'self'` (ADR-0041), so that needs a compromised build. Pages on
   other `localhost` ports cannot read it, and no request to them carries it.
+
+While the Entrance is reduced, a program on the Hive Stand that does not send the stand key
+cannot log in either, though it could before; it reads the key from the serve record like the
+console does, or waits for the operator to reopen.
+
+A guest that holds an ordinary device's key and the operator's password can log in on loopback
+(while the Entrance is open) without the overlay or mutual TLS a remote copy of that device would
+need, and use that device's both-listener routes. Its rights are the device's own, never the
+console's or a loopback-only row's.
 
 Host-loopback services other than the Entrance (Ollama, LM Studio, llama-server or any model server
 bound to `127.0.0.1`, a dev server, anything else the operator runs) remain reachable from QEMU
