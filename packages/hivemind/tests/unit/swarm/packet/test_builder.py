@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import sqlite3
 import threading
 import time
 from datetime import timedelta
@@ -30,7 +31,6 @@ import pytest
 from builders.swarm import HiveRig, make_hive_rig
 
 from hivemind.cell import AccessLevel, CombShieldLevel
-from hivemind.common.errors import HiveMindError
 from hivemind.swarm import InviteState, parse_invite_string
 from hivemind.swarm.errors import PacketError
 from hivemind.swarm.packet import (
@@ -138,8 +138,8 @@ async def test_build_packet_leaves_no_live_key_or_invite_when_a_step_fails(
 
 
 async def _refuse_revoke(code_hash: str, event: object = None) -> NoReturn:
-    """Stand in for a registry whose invite revocation fails."""
-    raise HiveMindError(f"cannot revoke {code_hash[:8]}")
+    """Stand in for a registry whose invite revocation fails: SQLite locked by the running Hive."""
+    raise sqlite3.OperationalError(f"database is locked ({code_hash[:8]})")
 
 
 async def test_build_packet_cancelled_mid_write_waits_for_the_write_then_undoes_it(

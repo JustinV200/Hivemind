@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -116,10 +117,16 @@ async def build_packet(deps: PacketDeps, order: PacketOrder) -> BuiltPacket:
         await deps.recorder.record(_built_event(deps, minted, key, order, count))
         return BuiltPacket(order.folder, key.key_id, minted.code_hash, minted.expires_at)
     except BaseException as exc:
-        # Any failure, cancellation included: nothing minted may stay live without its packet.
-        # What could not be undone rides on the original error as notes; that error propagates.
-        for note in await _undo(deps, order.folder, (key, minted), write):
-            exc.add_note(note)
+        # SAFETY: a broad catch that always re-raises: any failure, cancellation and Ctrl-C
+        # included, must undo what was minted, since nothing may stay live without its packet.
+        # What could not be undone rides on the original error as notes, even if a second
+        # cancellation cuts the undo short; the original error is the one that propagates.
+        left: list[str] = []
+        try:
+            await _undo(deps, order.folder, (key, minted), write, left)
+        finally:
+            for note in left:
+                exc.add_note(note)
         raise
 
 
@@ -162,24 +169,32 @@ async def _undo(
     folder: Path,
     minted: tuple[TailnetKey | None, MintedInvite | None],
     write: asyncio.Future[int] | None,
-) -> list[str]:
-    """Remove the folder, then revoke the invite, then the key; return what could not be undone."""
+    left: list[str],
+) -> None:
+    """Remove the folder, then revoke the invite, then the key; add what failed to `left`."""
     key, invite = minted
-    left: list[str] = []
     # The secrets on disk go first: they are the copy someone could walk off with. Each later step
     # runs in a `finally`, so an error or a cancellation in one never skips the next; each is best
     # effort, and a key or invite that could not be revoked still lapses within the invite's
     # lifetime, so it is reported with how to revoke it by hand rather than raised.
     try:
-        await _settled(write)
-        # The folder is this build's own (`_claim` made it); a small tree, on a worker thread.
-        await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
+        try:
+            await _settled(write)
+        finally:
+            # Even if a second cancellation cut the wait short. The folder is this build's own
+            # (`_claim` made it); a small tree, removed on a worker thread.
+            await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
+            if await asyncio.to_thread(folder.exists):
+                left.append(
+                    f"The folder {folder} could not be removed and holds a live invite and "
+                    "tailnet key; delete it by hand now."
+                )
     finally:
         try:
             if invite is not None:
                 try:
                     await deps.invites.revoke_invite(invite.code_hash)
-                except (HiveMindError, OSError):
+                except (HiveMindError, OSError, sqlite3.Error):
                     # No command revokes an unused invite, so the remedy is to keep it unusable.
                     left.append(
                         f"The invite {invite.code_hash} could not be revoked and stays usable "
@@ -190,12 +205,11 @@ async def _undo(
             if key is not None:
                 try:
                     await deps.keys.revoke(key.key_id)
-                except (HiveMindError, OSError):
+                except (HiveMindError, OSError, sqlite3.Error):
                     left.append(
                         f"The tailnet key {key.key_id} is still live until it lapses; delete it "
                         "in the Tailscale admin console under Settings, Keys."
                     )
-    return left
 
 
 async def _settled(write: asyncio.Future[int] | None) -> None:
@@ -203,7 +217,8 @@ async def _settled(write: asyncio.Future[int] | None) -> None:
     if write is None:
         return
     if not write.done():
-        # Seconds at most (five small files); a second cancellation here propagates as usual.
+        # Seconds at most (five small files); a second cancellation here propagates, and the
+        # caller still removes the folder.
         await asyncio.wait({write})
     # Retrieve its outcome so asyncio never warns of an exception nobody read.
     if not write.cancelled():

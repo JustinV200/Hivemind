@@ -73,7 +73,7 @@ class MintedInvite:
         invite_string: The `pollen1.` string for `pollen enrol`. A secret until used or expired;
             hidden from `repr`, and held nowhere else.
         code_hash: The SHA-256 of its token, the key the registry stores the invite under (and
-            what `hive swarm revoke` names).
+            what the registry's `revoke_invite` names it by; no CLI command exposes that).
         access_level: The most the device may be granted.
         comb_shield: The tier the operator vouched for.
         expires_at: When the invite stops being accepted.

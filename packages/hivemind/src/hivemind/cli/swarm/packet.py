@@ -57,7 +57,6 @@ from hivemind.cli.swarm.context import (
 )
 from hivemind.cli.swarm.invite import AccessOption, ShieldOption
 from hivemind.cli.tools.context import EXIT_BAD_INPUT, run_or_exit
-from hivemind.common.errors import HiveMindError
 from hivemind.swarm import EnrolmentDoor, ListenerConfig, SwarmRecorder, SwarmRegistry
 from hivemind.swarm.packet import (
     TAILSCALE_API,
@@ -150,9 +149,10 @@ async def _build(
         deps = PacketDeps(door, registry, keys, recorder, ttl, manifest.hive.id)
         try:
             return order, await build_packet(deps, order)
-        except HiveMindError as exc:
-            # What the build could not undo (ids and the remedy, never a secret), before
-            # run_or_exit prints the error itself.
+        except BaseException as exc:
+            # SAFETY: a broad catch that always re-raises, so Ctrl-C and cancellation reach the
+            # operator too with what the build could not undo (ids and the remedy, never a
+            # secret), printed before run_or_exit, or Python, reports the error itself.
             for note in getattr(exc, "__notes__", ()):
                 typer.echo(f"warning: {note}", err=True)
             raise

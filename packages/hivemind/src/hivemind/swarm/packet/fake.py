@@ -66,9 +66,13 @@ class FakeTailnetKeys:
         return key
 
     async def revoke(self, key_id: str) -> None:
-        """Forget a live key; revoking one already gone is a no-op, as the API's 404 would be.
+        """Forget a live key, refusing an unknown one as the API's 404 does.
 
         Args:
             key_id: The id `mint` returned.
+
+        Raises:
+            PacketError: No live key has this id, as `TailscaleApiKeys.revoke` raises on a 404.
         """
-        self.live.pop(key_id, None)
+        if self.live.pop(key_id, None) is None:
+            raise PacketError("Tailscale refused to revoke the tailnet key: HTTP 404.")

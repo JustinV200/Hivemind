@@ -100,7 +100,7 @@ INVITE_TRANSITIONS: Mapping[InviteState, frozenset[InviteState]] = {
         {
             InviteState.REDEEMED,  # the enrolment that presented the token, with the node row
             InviteState.EXPIRED,  # invite_ttl_minutes passed before anyone presented it
-            InviteState.REVOKED,  # `hive swarm revoke` cancelled it
+            InviteState.REVOKED,  # the registry's revoke_invite cancelled it (no CLI command)
         }
     ),
     InviteState.REDEEMED: frozenset(),  # final: a token admits exactly one device
