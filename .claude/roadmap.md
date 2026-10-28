@@ -3414,7 +3414,11 @@ in daily use.
   `cell/local/process.py:262` kill the group the root process leads): `LocalProcessSession` gains a Job Object
   per lease on Windows, without breakaway and tracked apart from the root process so a
   descendant that outlives its root is still in it, and a cgroup v2 scope per lease on Linux
-  where delegation exists, else the group kill. Containment stops ordinary and accidental
+  where delegation exists, else the group kill. It lives in a new sub-package
+  `cell/local/containment/`, since `cell/local/` already holds ten modules, and like Pollen's
+  `platform/job_objects.py` a `LocalProcessSession` process starts suspended and resumes only once
+  it is in its Job Object or scope, so nothing escapes before containment. Containment stops
+  ordinary and accidental
   descendants; it does not stop a deliberate, live escape by the same account, which survives
   Smoke on every platform: on Linux a bee moving itself within its delegated subtree or calling
   `systemd-run --user`, on Windows `Win32_Process.Create` through WMI, a COM server or a run-now
@@ -3438,24 +3442,25 @@ in daily use.
   level, tier and Hive Stand checks; the `cell.inspection_*` events and their Night Veil boundary
   rows; a `guard.entrance_inspection_opened` push event sent to every other enrolled device
   (codingrules 8.15 and 15), saying only that an Inspection opened and on which Cell; the idle and
-  hard timeouts, and Absconding, ending every open Inspection. *Exit:* on the Hive Stand, a Pollen
+  hard timeouts, and Absconding, ending every open Inspection. *Exit:* on a Pollen
   device and a Nuc, opening on a Cell with a running task kills its lease's processes, a child
-  started with `setsid` included where the lease has a cgroup scope or a Job Object, and on a
-  Windows Hive Stand a descendant that outlived its root process, before the shell starts while the lease stays open with its scratch and a touched outside path, and
-  closing resumes the task on the same lease with no work redone; a bee that ignores the Handoff
-  request is retired after `handoff_patience_s`, starts no process for the rest of the
-  Inspection (on the Hive Stand and, in 15.5, on Docker), and its task resumes from its last
-  checkpoint; a
-  Sting Cut during an Inspection ends it and restores the Smoked lease as found; `--alongside`
-  leaves the task and its processes running; a `SCRATCH` Cell refuses a shell; every other
-  enrolled device receives the push; an Inspection idle past `idle_minutes`, and one open during
-  `hive abscond`, each end within five seconds with one `cell.inspection_closed` carrying the
-  right reason; while an Inspection is open, a task dispatch and a new non-operator lease on that
-  Cell are refused; after an Inspection on the Hive Stand and one on a Nuc that ran `mysql
-  -psecret` and edited a file, nothing from either (command line, process, log line or file
-  change) is in Bee Bread and no Warden episode or Patrol ran meanwhile, and the same holds for
-  an `--alongside` Inspection on the Nuc; a Cell routed to the Nuc's model server falls back
-  during the Inspection and returns after it. *Size:* large, 5 agent-days.
+  started with `setsid` included where the lease has a cgroup scope or a Job Object, before the
+  shell starts, while the lease stays open with its scratch and a touched outside path, and
+  closing resumes the task on the same lease with no work redone; on a Windows and a Linux Hive
+  Stand, as a lease-level test with no shell, `cell.lease_stop` on a lease whose root process
+  has exited kills a descendant that outlived it (a `setsid` child on Linux with delegation) and
+  leaves the lease open; a bee that ignores the Handoff request is retired after
+  `handoff_patience_s`, starts no process for the rest of the Inspection (on a Pollen device here,
+  on the Hive Stand and Docker in 15.5), and its task resumes from its last checkpoint; a Sting
+  Cut during an Inspection ends it and restores the Smoked lease as found; `--alongside` leaves
+  the task and its processes running; a `SCRATCH` Cell refuses a shell; every other enrolled
+  device receives the push; an Inspection idle past `idle_minutes`, and one open during `hive
+  abscond`, each end within five seconds with one `cell.inspection_closed` carrying the right
+  reason; while an Inspection is open, a task dispatch and a new non-operator lease on that Cell
+  are refused; after an Inspection on a Nuc that ran `mysql -psecret` and edited a file, nothing
+  from it (command line, process, log line or file change) is in Bee Bread and no Warden episode
+  or Patrol ran meanwhile, and the same holds for an `--alongside` Inspection on the Nuc; a Cell
+  routed to the Nuc's model server falls back during the Inspection and returns after it. *Size:* large, 5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console whose
   socket (a named pipe on Windows) is created for each Inspection and exists only while it is
@@ -3506,7 +3511,11 @@ in daily use.
   `mysql -psecret`, nothing from it is in Bee Bread; a Cell reporting `bee_account_privileged`
   refuses an Inspection while a task runs; `--alongside` on a `hive_owned` Cell is refused; the
   Hive Stand refuses a shell until `hive_stand_shell = true` is set and accepts one after, and
-  neither a bee nor an Entrance route can set it.
+  neither a bee nor an Entrance route can set it; on the Hive Stand, opening on it with a running
+  task kills that lease's processes before the shell starts and closing resumes the task on the
+  same lease, a bee that ignores the Handoff request is retired and starts no process while the
+  Inspection is open, and after an Inspection there that ran `mysql -psecret` and edited a file,
+  nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile.
   *Size:* medium, 3.5 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
