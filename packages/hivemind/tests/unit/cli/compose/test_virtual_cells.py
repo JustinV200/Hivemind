@@ -21,7 +21,7 @@ from builders.cells import make_cell
 from builders.cli import fake_manifest
 from builders.forage import make_footprint, make_reserve, make_source
 
-from hivemind.cell import CombShieldLevel, TaskNeeds
+from hivemind.cell import Cell, CombShieldLevel, TaskNeeds
 from hivemind.cli.compose import virtual_cell_backends
 from hivemind.cli.compose.virtual_cell_backends import night_veil_socks_proxy_url
 from hivemind.cli.compose.virtual_cells import (
@@ -36,8 +36,11 @@ from hivemind.forage.models import Abundance
 from hivemind.forage.tempo import Tempo
 from hivemind.hive import CellProvisionError
 from hivemind.hive.backends.docker.fake import FakeDockerClient
+from hivemind.hive.lifecycle import CellLifecycle
+from hivemind.hive.models import VirtualCellSpec
+from hivemind.hive.overwinter.policy import ReleaseOutcome
 from hivemind.manifest import HiveManifest, load_manifest
-from hivemind.manifest.schema.placement import VirtualCellsSection
+from hivemind.manifest.schema.placement import VirtualCellsOverwinterSection, VirtualCellsSection
 from hivemind.manifest.schema.security.tiers import SecuritySection, TierProfile
 from hivemind.pheromone import TrailQuery
 from hivemind.pheromone.trail.memory import MemoryPheromoneTrail
@@ -266,6 +269,51 @@ async def test_dormant_cell_source_starts_empty(tmp_path: Path) -> None:
     assert parts is not None
 
     assert await parts.dormant_cell_source() == ()
+
+
+@pytest.mark.parametrize("trigger", ["placement", "release"])
+async def test_a_dormant_cell_past_its_deadline_is_evicted_while_the_hive_runs(
+    tmp_path: Path, trigger: str
+) -> None:
+    """Roadmap 13.5: expiry is enforced on every placement pass and release, not only at start."""
+    overwinter = VirtualCellsOverwinterSection(enabled=True, max_dormant_s=60.0)
+    manifest = _load_with_virtual_cells(tmp_path, overwinter=overwinter)
+    clock = FakeClock()
+    trail = MemoryPheromoneTrail(clock)
+    parts = build_virtual_cells(manifest, trail, clock)
+    assert parts is not None
+    [backend] = await parts.virtual_backend_source()
+    lifecycle, spec = parts.lifecycle, backend.specs[0]
+    stale = await _granted(lifecycle, spec)
+    await lifecycle.release(stale.id, _REUSABLE)
+    await lifecycle.overwinter(stale.id, scrub=_no_scrub)
+    clock.advance(61.0)  # Past its own dormant_until.
+
+    if trigger == "release":  # Another Cell's release looks at the pool first.
+        await lifecycle.release((await _granted(lifecycle, spec)).id, _REUSABLE)
+    else:  # The Queen's dormant feed, read on every placement pass and liveness tick.
+        await parts.dormant_cell_source()
+
+    [evicted] = await trail.query(TrailQuery(subject_id=stale.id, kind="cell.evicted"))
+    assert evicted.payload["reason"] == "dormant_until expired"
+    assert stale.id not in [cell.cell_id for cell in await parts.dormant_cell_source()]
+
+
+_REUSABLE = ReleaseOutcome(
+    rolled_back_whole_cell=False, has_block_wax=False, single_use=False, backend_can_pause=True
+)
+
+
+async def _granted(lifecycle: CellLifecycle, spec: VirtualCellSpec) -> Cell:
+    """Provision a Cell from `spec` on the fake backend and take it to GRANTED."""
+    cell = await lifecycle.provision(spec, "fake")
+    await lifecycle.mark_ready(cell.id)
+    await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
+    return cell
+
+
+async def _no_scrub(cell: object) -> None:
+    """A Scrubber that does nothing: what scrubbing does is not this test's concern."""
 
 
 async def test_qemu_backend_raises_configuration_error_without_base_image_or_vm_root(
