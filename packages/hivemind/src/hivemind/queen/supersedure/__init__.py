@@ -23,8 +23,8 @@ See Also:
     - docs/runbooks/supersedure.md for the operator's walk-through.
 
 Public API:
-    - SupersedureDoor, SupersedureStarted, QueenLevers, FREEZE_KEY: the lever and the levers
-      (door).
+    - SupersedureDoor, SupersedureStarted, QueenLevers, FREEZE_KEY, stop_supersedure: the lever,
+      the levers, and ending a move as the Queen stops (door).
     - CandidateLink, NoticeSender, QueenControls, OldQueenProbe, Endpoint, SupersedureWiring,
       SupersedureBook, DEFAULT_GRACE_S, DEFAULT_POLL_S: what it acts through (ports).
     - check_candidate, facts_for, CandidateFacts, HiveNeeds, ProbeReport, PreflightReport,
@@ -43,6 +43,7 @@ from hivemind.queen.supersedure.door import (
     QueenLevers,
     SupersedureDoor,
     SupersedureStarted,
+    stop_supersedure,
 )
 from hivemind.queen.supersedure.gate import (
     CandidateHold,
@@ -136,5 +137,6 @@ __all__ = [
     "relocation_notice",
     "settle",
     "start_rule",
+    "stop_supersedure",
     "was_ready",
 ]

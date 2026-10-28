@@ -18,7 +18,8 @@ Fits into the Hive:
 
 Key invariants:
     - Nothing is frozen before the point, the preflight and the mode check have all passed.
-    - At most one Supersedure runs per process (`SupersedureBook.task`).
+    - At most one Supersedure runs per process (`SupersedureBook.task`), owned by the Queen:
+      `stop_supersedure` cancels and reaps it when she stops.
 
 See Also:
     - hivemind.entrance.routes.hive for the route, its step-up and its phrase.
@@ -34,6 +35,7 @@ from typing import TYPE_CHECKING
 
 from hivemind.common.backup import BackupSource
 from hivemind.common.logging import get_logger
+from hivemind.common.tasks import reap
 from hivemind.guard import (
     Capability,
     CapabilityFamily,
@@ -49,7 +51,7 @@ from hivemind.queen.cluster.protocol import cluster, resume
 from hivemind.queen.errors import SupersedureRefusedError
 from hivemind.queen.state import QueenMode
 from hivemind.queen.supersedure.handover import Handover
-from hivemind.queen.supersedure.ports import SupersedureWiring
+from hivemind.queen.supersedure.ports import SupersedureBook, SupersedureWiring
 from hivemind.queen.supersedure.preflight import (
     CheckOutcome,
     HiveNeeds,
@@ -71,7 +73,13 @@ _MOVABLE = (QueenMode.RUNNING, QueenMode.CLUSTERED)
 
 log = get_logger(__name__)
 
-__all__ = ["FREEZE_KEY", "QueenLevers", "SupersedureDoor", "SupersedureStarted"]
+__all__ = [
+    "FREEZE_KEY",
+    "QueenLevers",
+    "SupersedureDoor",
+    "SupersedureStarted",
+    "stop_supersedure",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +198,21 @@ class SupersedureDoor:
         if wiring is None:
             raise SupersedureRefusedError(node_id, "this Hive was started without Supersedure")
         return wiring
+
+
+async def stop_supersedure(book: SupersedureBook) -> None:
+    """Cancel and reap a Supersedure still under way, as the Queen stops.
+
+    The move is then unfinished on her trail, which keeps her from starting again until the
+    operator settles it (ADR-0065: never two Queens); nothing here guesses its outcome.
+
+    Args:
+        book: The Queen's Supersedure state; its task, if any, is ended.
+    """
+    task, book.task = book.task, None
+    if task is None or task.done():
+        return  # Nothing under way; a finished one's result or error was taken by `_note`.
+    await reap(task)
 
 
 def _note(outcomes: list[Handover | Rollback], done: asyncio.Task[Handover | Rollback]) -> None:

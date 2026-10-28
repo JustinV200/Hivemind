@@ -103,7 +103,7 @@ from hivemind.queen.inbox import LinkReaders, TaskClaims, queen_attendant
 from hivemind.queen.isolation import IsolationDoor
 from hivemind.queen.state import QueenMode, is_frozen
 from hivemind.queen.sting_cut import StingCutDoor
-from hivemind.queen.supersedure import SupersedureDoor
+from hivemind.queen.supersedure import SupersedureDoor, stop_supersedure
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
 from hivemind.queen.ticks.results import AttemptBook
@@ -365,6 +365,8 @@ async def _stop_queen(queen: Queen) -> None:
     # Roadmap step 10.5: a plan still in flight is reaped too; its request stays PLANNING, which
     # the next start settles (hivemind.queen.ticks.human.intake): nothing lost or planned twice.
     await ticks.human.intake.stop_planning(queen._deps.planning)
+    # ADR-0065: a move still under way is ended with her; her trail keeps it unfinished.
+    await stop_supersedure(queen._deps.supersedure)
 
 
 async def _send_intervene(queen: Queen, child: str, intervention: Intervention) -> None:
