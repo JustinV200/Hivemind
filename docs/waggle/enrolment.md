@@ -476,6 +476,7 @@ or a key, and none a path but `swarm.watch_changed`, which lists the directories
 | Event | When |
 |---|---|
 | `swarm.invited` | An invite is minted. |
+| `swarm.packet_built` | `hive swarm packet` wrote a Pollen Packet: the tailnet key's id, the invite's hash, the platform and a file count (ADR-0067). |
 | `swarm.enrol_refused` | The door denies a request. |
 | `swarm.enrolled` | A redemption succeeds: the node is created and its key pinned. |
 | `swarm.online` | A device's link is established: its first connection after enrolment, a reconnection and a connection after the Hive Stand restarted, whatever status it was in. |

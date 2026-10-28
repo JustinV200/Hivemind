@@ -333,3 +333,8 @@ ADRs that exist today, in numeric order:
   `can_measure_disk` reports what one Cell holds, and the Overwintering pool weighs and accounts it
   at that; a full pool evicts its oldest dormant Cells (only as many as the bounds need) to keep a
   freshly released one; expired dormant Cells are evicted while the Hive runs, not only at start.
+- `0067-the-pollen-packet-carries-a-tailnet-key-and-an-invite.md`: `hive swarm packet` writes one
+  folder that enrols a device from nothing: the cached pollen build, an installer, a single-use,
+  preauthorized, non-ephemeral tailnet key tagged `tag:hive-device` (minted through an OAuth client
+  the manifest names a source for) and a single-use invite; the key is minted first and everything
+  minted is revoked if the build fails; the installer deletes both secrets when it ends.

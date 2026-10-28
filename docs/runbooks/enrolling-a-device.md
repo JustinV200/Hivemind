@@ -6,6 +6,10 @@ is specified in [`../waggle/enrolment.md`](../waggle/enrolment.md); this page is
 types. The Hive borrows the device and leaves it as found: a lease's scratch directory is removed
 when the lease ends, and revoking the device ends the Hive's reach.
 
+For a device that is not on the Hive Stand's network yet, which is most of them, skip to [Pollen
+Packet over Tailscale](#pollen-packet-over-tailscale): one folder and one script do sections 1 to 3
+and put the device on the Hive's private network as well.
+
 ## Before you start
 
 On the Hive Stand, `hive.toml` has `[swarm] enabled = true` and an `advertise_url` the device can
@@ -132,6 +136,124 @@ and stops the Warden the packet started, if one runs, and nothing else; delete t
 /usr/local/bin/pollen`) to take the packet off the machine. Nothing else of the packet's is left:
 the single-file build unpacks itself into a temporary directory and removes it when it ends.
 Enrolling the same machine again takes a new invite.
+
+## Pollen Packet over Tailscale
+
+`hive swarm packet` writes one folder that takes a device from nothing to enrolled: the pollen
+binary, an installer script, a README, a single-use Tailscale auth key and a single-use invite.
+The script installs Tailscale if it is missing, joins the Hive's tailnet (its private Tailscale
+network) with the key, checks the Hive Stand answers, installs pollen for the user, enrols, and sets
+pollen to start at login. The device is a tagged tailnet node that reconnects by itself from any
+network and can reach the Hive Stand and nothing else. ADR-0067 records why.
+
+### One-time tailnet setup
+
+In the Tailscale admin console:
+
+1. Under DNS, turn on MagicDNS and HTTPS certificates. Devices dial the Hive Stand by its MagicDNS
+   name (`hivestand.example-tailnet.ts.net`); the certificates are for the Entrance
+   (`remote-access.md` section 2).
+2. In the access controls (the tailnet policy file), add the two tags and one grant, and remove the
+   default rule that lets everything reach everything (`"src": ["*"], "dst": ["*"]`), or a packet's
+   device could reach every machine you own:
+
+   ```json
+   {
+     "tagOwners": {
+       "tag:hive-stand":  ["autogroup:admin"],
+       "tag:hive-device": ["autogroup:admin"]
+     },
+     "grants": [
+       {"src": ["tag:hive-device"],  "dst": ["tag:hive-stand"], "ip": ["tcp:8720", "tcp:8443"]},
+       {"src": ["autogroup:member"], "dst": ["tag:hive-stand"], "ip": ["*"]}
+     ]
+   }
+   ```
+
+   `tag:hive-device` reaches only the Hive Stand, on the swarm listener's port (8720) and the
+   Entrance's remote port (8443 here; use whatever port `[entrance] remote_bind` names). The second
+   grant keeps your own signed-in devices able to reach the Hive Stand; keep whatever other rules
+   you had for them. Nothing needs to reach a device: the packet dials out.
+3. Tag the Hive Stand: on it, `tailscale up --advertise-tags=tag:hive-stand`, or edit its tags under
+   Machines.
+4. Under Settings, OAuth clients, generate a client with the Auth Keys write scope, allowed to
+   assign `tag:hive-device`. Store it on the Hive Stand, never in the manifest. On Windows, in
+   Credential Manager (the password prompt keeps it out of your shell history):
+
+       cmdkey /generic:tailscale-oauth-hivemind /user:<client id> /pass
+
+   Elsewhere, in two environment variables of the account that runs `hive`, for example
+   `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_CLIENT_SECRET`.
+
+### The Hive Stand's manifest
+
+Bind the swarm listener on the Hive Stand's Tailscale address (`tailscale ip -4`) and advertise its
+MagicDNS name:
+
+```toml
+[swarm]
+enabled = true
+listen_host = "100.101.102.103"
+listen_port = 8720
+advertise_url = "wss://hivestand.example-tailnet.ts.net:8720"
+tls_cert = "tls/swarm.crt"
+tls_key = "tls/swarm.key"
+invite_ttl_minutes = 60.0              # a packet, and its key, lapse with the invite
+
+[swarm.packet]
+tailscale_oauth = "credman:tailscale-oauth-hivemind"   # or "env:TS_OAUTH"
+pollen_dir = "dist/pollen"
+```
+
+Give the swarm listener a long-lived self-signed certificate, not the one `tailscale cert` makes:
+every invite pins the certificate, and Tailscale's are renewed every few months, which would break
+every enrolled device's pin. One way, from the manifest's folder:
+
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+      -subj "/CN=hivestand.example-tailnet.ts.net" -keyout tls/swarm.key -out tls/swarm.crt
+
+Tailscale must be up before `hive serve` starts, or there is no overlay address to bind. The
+Entrance stays as `remote-access.md` sets it up (`expose = "vpn"` with `vpn_interface` and
+`remote_bind` on the same overlay address, and the `tailscale cert` certificate).
+
+### Cache the pollen builds
+
+`hive swarm packet` copies the binary from `<pollen_dir>/<platform>/`; it does not build one,
+because a build needs the platform itself. On a machine of that platform, from the repository:
+
+    uv sync --frozen --group pollen-build
+    uv run --frozen python scripts/build_pollen.py --output-dir dist/pollen/windows-x86_64
+
+or unzip the Pollen workflow's `pollen-<platform>` artifact (section 1) into that folder. The
+platforms are `windows-x86_64`, `linux-x86_64`, `linux-arm64`, `macos-arm64` and `macos-x86_64`.
+`--pollen FILE` uses another binary for one packet.
+
+### Build a packet and use it
+
+On the Hive Stand:
+
+    hive swarm --manifest hive.toml packet --label kitchen-pc --platform windows-x86_64 --access scratch
+
+It prints the packet's folder (`./pollen-packet-kitchen-pc` unless `--out` names another) and, on
+standard error, the tailnet key's id and when the packet lapses. It never prints a secret.
+`--access` and `--shield` mean what they mean for `hive swarm invite`. If anything fails after the
+key is minted, the key and the invite are revoked and the folder removed, so a failed build leaves
+nothing live.
+
+Carry the folder to the device yourself (a USB stick), not by chat, email or a shared drive: until
+it is used, its `secrets/` folder is a key to the Hive. On the device, open a terminal in the folder
+as the account pollen should run under, and run what the README says:
+
+    powershell -ExecutionPolicy Bypass -File .\pollinate.ps1      # Windows
+    bash ./pollinate.sh                                            # Linux, macOS
+
+Windows may ask to allow the Tailscale install, and Linux for your password. A Mac needs Tailscale
+installed by hand first. The script can be run again safely, and it deletes `secrets/` when it
+ends, whether it worked or not, so a run that failed needs a new packet. `hive swarm list` then
+shows the device, as in section 4.
+
+To take the device back, `hive swarm revoke` it (section 6) and remove it under Machines in the
+Tailscale admin console; either one alone cuts the Hive off from it.
 
 ## A device that can run a desktop
 
