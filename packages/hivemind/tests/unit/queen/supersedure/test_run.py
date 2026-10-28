@@ -56,7 +56,7 @@ from hivemind.queen.supersedure import (
     next_sequence,
 )
 from hivemind.queen.ticks.results import AttemptBook, retry_task
-from waggle.clock import Clock, FakeClock, SystemClock
+from waggle.clock import FakeClock
 
 
 def _source(tmp_path: Path, hive_id: str) -> BackupSource:
@@ -69,10 +69,14 @@ def _source(tmp_path: Path, hive_id: str) -> BackupSource:
 
 
 async def _run(
-    tmp_path: Path, candidate: FakeCandidate, grace_s: float, clock: Clock | None = None
+    tmp_path: Path, candidate: FakeCandidate, grace_s: float, last_step: str | None = None
 ) -> tuple[Handover | Rollback, list[str], FakeSender, SupersedurePorts]:
-    """Run one Supersedure over the fakes and return what it did (on a FakeClock by default)."""
-    clock = clock if clock is not None else FakeClock()
+    """Run one Supersedure over the fakes on a FakeClock and return what it did.
+
+    With `last_step`, the window is run out (the clock moved past it) once the candidate has
+    taken that step, as a candidate that never gets further would see it.
+    """
+    clock = FakeClock()
     recorder = make_recorder(clock)
     sender = FakeSender(candidate.calls)
     ports = SupersedurePorts(recorder, FakeControls(candidate.calls), candidate, sender)
@@ -81,11 +85,19 @@ async def _run(
         own=endpoint(recorder.node_id, 9000),
         actor="device_01ARZ3NDEKTSV4RRFFQ69G5FAV",
         grace_s=grace_s,
-        poll_s=0.0,
+        # Asked again at once when the window never runs out; otherwise each ask waits on the
+        # clock, so the loop yields and the test can move it past the window.
+        poll_s=0.0 if last_step is None else 1.0,
         workdir=tmp_path / "work",
     )
     record = await begin(plan, ports)
-    outcome = await finish(record, plan, ports, _source(tmp_path, recorder.hive_id))
+    finishing = asyncio.ensure_future(
+        finish(record, plan, ports, _source(tmp_path, recorder.hive_id))
+    )
+    if last_step is not None:
+        await asyncio.wait_for(candidate.taken(last_step), 5.0)
+        clock.advance(grace_s)
+    outcome = await asyncio.wait_for(finishing, 5.0)
     return outcome, candidate.calls, sender, ports
 
 
@@ -114,24 +126,19 @@ async def test_a_ready_candidate_is_handed_the_hive_in_order(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("candidate", "grace_s", "cause", "copied"),
+    ("candidate", "cause", "copied"),
     [
-        (FakeCandidate([], fail_step="restore"), 60.0, AbortCause.COPY_FAILED, ["copy", "restore"]),
-        (
-            FakeCandidate([], ready_after=None),
-            0.3,
-            AbortCause.NOT_READY,
-            ["copy", "restore", "start"],
-        ),
+        (FakeCandidate([], fail_step="restore"), AbortCause.COPY_FAILED, ["copy", "restore"]),
+        (FakeCandidate([], ready_after=None), AbortCause.NOT_READY, ["copy", "restore", "start"]),
         # A restore that never returns is cut off by the window, never waited on for ever.
-        (FakeCandidate([], stalls=True), 0.3, AbortCause.NOT_READY, ["copy", "restore"]),
+        (FakeCandidate([], stalls=True), AbortCause.NOT_READY, ["copy", "restore"]),
     ],
 )
 async def test_a_failed_copy_or_a_late_candidate_is_rolled_back(
-    tmp_path: Path, candidate: FakeCandidate, grace_s: float, cause: AbortCause, copied: list[str]
+    tmp_path: Path, candidate: FakeCandidate, cause: AbortCause, copied: list[str]
 ) -> None:
-    # A real clock: the window has to run out while the candidate keeps saying no, or stalls.
-    outcome, calls, sender, ports = await _run(tmp_path, candidate, grace_s, SystemClock())
+    # The window runs out once the candidate has gone as far as it will (a failed copy ends first).
+    outcome, calls, sender, ports = await _run(tmp_path, candidate, 60.0, copied[-1])
     # It asks as often as the window allows; the order of everything else is what matters.
     calls = [call for call in calls if call != "is_ready"]
 

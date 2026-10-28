@@ -5,7 +5,8 @@ the old Queen (every provider clustered, then SUPERSEDING) and records `queen.su
 with a fresh notice sequence and the grace deadline, before a byte is copied. `finish` copies the
 stores and starts the candidate's Queen (`.copy`), then asks the candidate every `poll_s` whether
 she is ready: the first yes hands over (`.handover`); a failed copy, or no yes by the deadline,
-rolls back (`.rollback`). The copy itself is bounded by the deadline too: a candidate that stops
+rolls back (`.rollback`). The copy itself is bounded by the deadline too (a sleep on the injected
+clock, so a FakeClock drives it): a candidate that stops
 answering mid-copy is one not ready in time (`NOT_READY`), and must not hold the old Queen
 SUPERSEDING for ever (found by the roadmap 13.6 chaos suite). Whatever happens, exactly one
 outcome lands on the old Queen's trail.
@@ -127,15 +128,11 @@ async def finish(
         The handover, or the rollback with its cause.
     """
     recorder = ports.recorder
-    remaining_s = (record.grace_until - recorder.clock.now()).total_seconds()
     try:
-        # External awaits: an archive over the candidate's session and a restore there, bounded
-        # by what is left of the window; past it the candidate cannot be ready in time anyway.
-        async with asyncio.timeout(max(remaining_s, 0.0)):
-            await copy_stores(source, ports.link, plan.workdir, recorder.clock)
+        copied = await _copy_in_window(record, plan, ports, source)
     except SupersedureFailedError:
         return await _roll_back(record, AbortCause.COPY_FAILED, plan, ports)
-    except TimeoutError:
+    if not copied:
         return await _roll_back(record, AbortCause.NOT_READY, plan, ports)
     while recorder.clock.now() < record.grace_until:
         if await ports.link.is_ready(record.started_id):
@@ -144,6 +141,34 @@ async def finish(
             return await hand_over(record, announce, recorder, parts)
         await recorder.clock.sleep(plan.poll_s)
     return await _roll_back(record, AbortCause.NOT_READY, plan, ports)
+
+
+async def _copy_in_window(
+    record: SupersedureRecord, plan: SupersedurePlan, ports: SupersedurePorts, source: BackupSource
+) -> bool:
+    """Copy the stores, raced against the window's end on the injected clock; False if it won.
+
+    Raises:
+        SupersedureFailedError: The copy failed before the window ended.
+    """
+    clock = ports.recorder.clock
+    remaining_s = (record.grace_until - clock.now()).total_seconds()
+    # External awaits: an archive over the candidate's session and a restore there. Past the
+    # window the candidate cannot be ready in time anyway, so the copy is cut off there. The
+    # deadline is a sleep on the injected clock, not loop time, so a FakeClock drives it too.
+    copy = asyncio.ensure_future(copy_stores(source, ports.link, plan.workdir, clock))
+    deadline = asyncio.ensure_future(clock.sleep(max(remaining_s, 0.0)))
+    try:
+        await asyncio.wait((copy, deadline), return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for waiting in (copy, deadline):
+            if not waiting.done():
+                waiting.cancel()
+        await asyncio.gather(copy, deadline, return_exceptions=True)
+    if copy.cancelled():
+        return False
+    copy.result()  # Raises SupersedureFailedError (or anything unexpected) from the copy.
+    return True
 
 
 async def _roll_back(

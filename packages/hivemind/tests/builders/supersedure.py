@@ -67,6 +67,7 @@ class FakeCandidate:
     fail_step: str | None = None
     stalls: bool = False  # The restore never returns, as a candidate that stopped answering.
     received: list[str] = field(default_factory=list)  # The digests it was sent.
+    stepped: asyncio.Event = field(default_factory=asyncio.Event)  # Set on every copy step.
 
     async def send_backup(self, archive: Path, sha256: str) -> None:
         """Keep the digest; the archive must exist while this runs."""
@@ -99,9 +100,16 @@ class FakeCandidate:
         self.calls.append("discard")
         return True
 
+    async def taken(self, step: str) -> None:
+        """Return once this candidate has taken copy step `step` (it runs off the test's task)."""
+        while step not in self.calls:
+            self.stepped.clear()
+            await self.stepped.wait()
+
     def _step(self, step: str, ok: bool) -> None:
         """Record `step`, failing it as asked."""
         self.calls.append(step)
+        self.stepped.set()
         if step == self.fail_step or not ok:
             raise SupersedureFailedError(step, "the test failed it")
 
