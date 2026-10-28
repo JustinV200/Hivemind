@@ -295,6 +295,7 @@ markers = [
     "slow: takes long enough that it should not run in the default fast loop (codingrules 14.2: unit tests run in under 30 seconds total).",
     "live_llm: makes a real call to a hosted LLM provider; never runs in the default CI job (codingrules 8.6).",
     "local_llm: needs a local model server (Ollama, vLLM, llama.cpp) already running on the host.",
+    "chaos: the roadmap 13.6 chaos suite (tests/e2e/chaos); nightly in integration.yml, never in the push CI.",
 ]
 filterwarnings = [
     "error",  # A warning is a bug (roadmap step 0.2 decision); add a specific, commented ignore below only if a plugin genuinely forces one.

@@ -98,6 +98,23 @@ jobs:
       - name: Build images/night-veil-ubuntu:dev
         run: docker build -f images/night-veil-ubuntu/Dockerfile -t hivemind/night-veil-ubuntu:dev .
 
+  # roadmap 13.6: the chaos suite (tests/e2e/chaos, marker `chaos`). Fakes and in-process rigs
+  # only, so it needs no daemon; its Docker and Nuc legs are also marked `integration` and run in
+  # the job above, which has one. Nightly rather than per-push: it kills Cells, floods the Queen
+  # and waits out redials, minutes in all, and every scenario is bounded so none can hang the job.
+  chaos:
+    name: chaos
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+      - run: uv sync --frozen --all-groups
+      - run: uv run --frozen pytest -m "chaos and not integration" packages/hivemind/tests/e2e/chaos -q --durations=10
+
   # roadmap phase 8: the offline proof and the evaluation harness on a real local model (ADR-0044,
   # ADR-0045). The scripted e2e suite proves the wiring on every run; this proves a real model
   # behind the same sockets, and writes the Claude-versus-local table the exit criteria ask for.

@@ -158,7 +158,8 @@ jobs:
   # 20-second budget visible in the log on every run. A scenario that also needs Docker (phase
   # 11's device containers, half an hour together) is marked `integration` too and left to
   # integration.yml, which has the daemon and no ten-minute cap; a Windows runner's engine runs
-  # only Windows containers, so it could not start their Linux image anyway.
+  # only Windows containers, so it could not start their Linux image anyway. The roadmap 13.6 chaos
+  # suite (marked `chaos`) is left to integration.yml's nightly `chaos` job the same way.
   e2e:
     name: e2e (${{ matrix.os }})
     strategy:
@@ -175,7 +176,7 @@ jobs:
           python-version-file: ".python-version"
       - run: uv sync --frozen --all-groups
       - run: >
-          uv run --frozen pytest -m "e2e and not integration" packages/hivemind/tests/e2e -q
+          uv run --frozen pytest -m "e2e and not integration and not chaos" packages/hivemind/tests/e2e -q
           --durations=10
 
   # codingrules section 2: "Hosts: Windows 11, Ubuntu LTS, Arch Linux... the Hive Stand and the
