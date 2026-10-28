@@ -591,7 +591,8 @@ for one) can land in front of the JSON a test parses, whatever logging the run c
       and `spec.json`, or a `.zip` package. Reads the spec, runs the Quarantine Comb in the
       subprocess sandbox (a one-line note says it is the dev loop, with no isolation), prints each
       gate with pass or fail and its reason and what the run spent, and exits 0 on a pass, 1 on a
-      fail, 2 if the package cannot be read. `--limits-json '{"wall_s": 30}'` overrides single
+      fail (or under a manifest whose `[hive] env` is not `dev`, which it refuses before any gate),
+      2 if the package cannot be read. `--limits-json '{"wall_s": 30}'` overrides single
       limits over `[royal_jelly.limits]`. Touches no database and records no event.
 - `basket/` (a package: `listing.py`, `deposit.py`, `lifecycle.py`, plus a shared `context.py` and
   `render.py`) -- `hive basket`, the operator's door into the Basket (inert, signed blobs kept by

@@ -25,7 +25,8 @@ trail.
 
 - `sandbox.py` the `Sandbox` protocol; `sandbox_cell.py` a fresh `comb-<id>` directory below a
   Virtual Cell session's scratch (refuses a borrowed Cell); `sandbox_subprocess.py` development
-  only: a temp directory and the local interpreter (the one place that starts a process).
+  only: a temp directory and the local interpreter (the one place that starts a process); the
+  manifest refuses `sandbox = "subprocess"` unless `[hive] env = "dev"`.
 - `gates/` the six gates, `banned.py` (what a tool may not import or call), `scan.py` (the AST walk).
 - `runner/` runs inside the sandbox: `main.py` (orchestration), `phases.py` (load, tests, schema,
   fuzz), `hooks.py` (the audit hook and its attribution rule), `session.py` (the recording
