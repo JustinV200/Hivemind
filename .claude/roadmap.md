@@ -3272,8 +3272,10 @@ neither track changes it, and 15.3a rebases on it once it merges.
   teardown; everything else about the Inspection is purged with the Cell.
 - **Audit.** `cell.inspection_opened`, `cell.inspection_smoked`, `cell.inspection_closed` with the
   inspection id, device id, mode, duration, bytes and key events counted, and the close reason.
-  Never content. Optional recording (a terminal transcript, or the screen as a flight recording) is
-  off by default, always `C2` (Royal), kept for a retention window, and announced in the client.
+  Never content. Optional recording (a terminal transcript, or the screen) is off by default,
+  kept for a retention window, announced in the client, and stored only in the operator-only area
+  (15.9) under a state path the guard floor denies to every bee, never in the Basket, Nectar or
+  Honey: those are bee-readable, and `C2` is a label bees hold, not a wall.
 - **Ending it.** Idle timeout (`[inspection] idle_minutes`, default 15) and a hard cap (default 4
   hours); the Entrance session expiring, a logout, a revocation or the Entrance Reducer closes the
   socket and the Inspection with it; a dropped Pollen link ends it after a short grace. A Sting Cut
@@ -3290,9 +3292,9 @@ neither track changes it, and 15.3a rebases on it once it merges.
 
 ### Steps
 
-Track A (terminal). Until the opt-in (15.3a) and the notice and local end (15.3c) have both
-landed, the PTY executor runs only on the operator's lab devices, never on an enrolled device
-in daily use.
+Track A (terminal). Until the opt-in (15.3a), the notice and local end (15.3c), the door's
+authority (15.4a) and Smoke (15.4b) have all landed, the PTY executor runs only on the operator's
+lab devices, never on an enrolled device in daily use.
 
 - [ ] **15.1 ADRs, vocabulary and manifest.** Write the four ADRs below before any code; add
   Inspection, operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
@@ -3459,7 +3461,11 @@ in daily use.
   Inspection feature uses `session.*`). On close each task
   resumes from its Handoff on the same, still-open lease. Because the lease never closes, every
   path that ends a lease (the dead-man switch, Sting Cut, Absconding, Requeening's recovery, a
-  task cancel or re-placement) restores it exactly as it does today. If killing a Nuc Warden's
+  task cancel or re-placement) restores it exactly as it does today. A Queen that starts by
+  Requeening (13.1), or a new Queen after a Supersedure (13.2a), system-closes every operator
+  lease she finds and, from 15.5, tears down its host-side attach state (the QEMU console socket
+  and its login session, any `docker exec` attached for it), and only then resumes the tasks
+  that Inspection Smoked, since the door's table that held its warrant died with the old Queen. If killing a Nuc Warden's
   lease processes stops its model servers (`wardens/ticks/control.py` `_stop_what_the_lease_runs`),
   Cells routed to them fall back along their hosting plans for the length of the Inspection.
   Killing processes is chosen over freezing them, or over running the operator shell as another
@@ -3487,7 +3493,9 @@ in daily use.
   are refused; after an Inspection on a Nuc that ran `mysql -psecret` and edited a file, nothing
   from it (command line, process, log line or file change) is in Bee Bread and no Warden episode
   or Patrol ran meanwhile, and the same holds for an `--alongside` Inspection on the Nuc; a Cell
-  routed to the Nuc's model server falls back during the Inspection and returns after it. *Size:* large, 5 agent-days.
+  routed to the Nuc's model server falls back during the Inspection and returns after it; killing the Queen mid-Inspection on a Pollen device
+  ends the Inspection under the restarted Queen, with one `cell.inspection_closed`, and the Smoked
+  task resumes only after that close. *Size:* large, 5.5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs ADR-0068's guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console on a Unix
   socket, `AF_UNIX` on Windows too (QEMU supports it there; a `-chardev pipe` would be created with
@@ -3568,7 +3576,9 @@ in daily use.
   15.6's exits, once the open route exists); a Warden or autopilot call to the Docker tty exec,
   the QEMU console or the Hive Stand PTY without a live warrant is refused, and so is an
   operator-kind lease asked of any `CellSession` kind without one; output from those paths
-  reaches no hub listener. *Size:* medium, 3.5 agent-days.
+  reaches no hub listener; killing the Queen mid-Inspection on a Docker and a QEMU Cell ends the
+  Inspection, leaves no console socket, login session or attached `docker exec` behind, and the
+  Smoked tasks resume after. *Size:* medium, 3.5 agent-days.
 - [ ] **15.6 Entrance terminal route.** Open and attach are split, because a browser WebSocket
   cannot set the `X-Hive-Stand` header. `POST /v1/cells/{cell}/inspect/terminal` behind
   `entrance:inspect:shell` and `ActionKind.INSPECT` opens the Inspection through the door and
@@ -3590,11 +3600,16 @@ in daily use.
   when the device holds the scope; the `INSPECTED` badge on the Cell header and Fleet row, beside
   the tier and mask badges and never colour-only. *Exit:* the same run from the Android app and a
   desktop browser. *Size:* medium, 2 to 3 agent-days.
-- [ ] **15.9 Terminal recording (optional).** A transcript in asciicast form, `C2`, in the Basket
-  with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
-  session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
+- [ ] **15.9 Terminal recording (optional).** A transcript in asciicast form with a retention
+  window, announced in the client, refused on Night Veil, and stored in the **operator-only
+  area** this step creates: a directory under a Hive state path the guard floor denies to every
+  bee, read only through the operator's own Entrance routes, outside the Basket, Nectar and
+  Honey (all bee-readable, `C2` being a label bees hold). 15.18's downloads and 15.19's screen
+  recordings use the same area. *Exit:* a recorded session replays; an unrecorded one leaves no
+  bytes anywhere; no bee can read a recording, and none appears in the Basket, Nectar or Honey.
+  *Size:* small, 2 agent-days.
 
-Track A total: about 33 agent-days.
+Track A total: about 34 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3723,20 +3738,30 @@ attached to the Entrance relay by a test harness.
   warrant-checked at `FrameSender.send` like every `inspect.*` frame, added to the `inspect.*`
   family on a new protocol minor with their section in `spec.md` and the gateway contract. What
   the operator fetches never enters the Basket or Honey: it streams straight to the operator's
-  client, or is staged in an operator-only download area under a Hive state path the guard floor
-  denies to every bee, outside every bee's retrieval, and deleted once downloaded; its
-  responses, like every device-to-Hive `inspect.*` frame, reach only the door's relay. Never
+  client, or is staged in 15.9's operator-only area and deleted once downloaded; its responses,
+  like every device-to-Hive `inspect.*` frame, reach only the door's relay. Cells with
+  `host_side_attach` move files on the host side instead: `docker cp` for Docker, the QEMU guest
+  agent's file copy for QEMU, and local file operations for the Hive Stand's own PTY. Each of
+  those entry points sits behind 15.4a's wall: it takes a live `InspectionWarrant` checked
+  against the door's table, the lint contract keeps it out of Wardens, autopilot, `queen/awake`
+  and `queen/guard_requests`, and what it fetches goes only to the door's relay and the
+  operator-only area. Never
   `session.put_file`/`get_file` (refused on an operator lease and, under Smoke,
   on every other lease) and never a VNC file-transfer extension. *Exit:* both work when enabled
   and are absent when not; a `session.put_file` on the operator lease is still refused; an
   `inspect.put_file` without a warrant is dropped; a fetched file is in no Basket, Honey or
-  hub listener, and no bee can read the download area. *Size:* medium, 2.5 agent-days.
-- [ ] **15.19 Screen recording (optional).** The screen as a flight recording (6.6), `C2`, retention
-  window, announced in the pane; refused on Night Veil. *Exit:* a recorded session replays; an
-  unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
+  hub listener, and no bee can read the download area; on a Docker Cell, a QEMU Cell and the Hive
+  Stand, a transfer works for the operator, a Warden or autopilot call to `docker cp`, the guest
+  agent copy or the local file path without a live warrant is refused, and what it fetched
+  reaches no hub listener. *Size:* medium, 3.5 agent-days.
+- [ ] **15.19 Screen recording (optional).** The screen recorded with 6.6's recorder but stored in
+  15.9's operator-only area, never as flight-recording Nectar; retention window, announced in the
+  pane; refused on Night Veil. *Exit:* a recorded session replays; an unrecorded one leaves no
+  bytes anywhere; a Night Veil Cell refuses to record; no bee can read a recording, and none
+  appears in the Basket, Nectar or Honey. *Size:* small, 1.5
   agent-days.
 
-Track B total: about 35 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 36 agent-days, plus about 3 more if the spike chooses own capture over RFB.
 
 Steps are sized for one PR each. 15.3a stays whole because the executor must never ship without
 its opt-in and lease walls, 15.4b because the kill, the refusals and the trail events only make
@@ -3793,8 +3818,11 @@ sense landed together (its Hive Stand containment may land first as a preparator
   `-vnc`, the Hive Stand PTY, the x11vnc `docker exec`) taking a live warrant against the same
   table and sending output only to the door's relay, every `CellSession` kind refusing an
   operator-kind lease without the door's warrant, and `inspect.close` as the system-close path that never needs a proof;
-  Inspection file transfer over door-built `inspect.put_file`/`get_file` frames, the one
-  exception to doing file work through `session.*`; the two layers, with `--alongside` getting
+  Inspection file transfer over door-built `inspect.put_file`/`get_file` frames, or on a
+  `host_side_attach` Cell through warrant-checked `docker cp`, guest-agent copy or local file
+  paths, the one exception to doing file work through `session.*`; recordings and downloads only
+  in the guard-floor-denied operator-only area; Requeening and a post-Supersedure Queen
+  system-closing every operator lease and its host-side state before resuming Smoked tasks; the two layers, with `--alongside` getting
   only layer 1 and refused where `hive_owned`; Smoke as one mechanism on every backend, killing
   every non-operator lease's processes within `handoff_patience_s` while the lease stays open,
   chosen over freezing processes or a second account on a borrowed device, with un-handed-off
@@ -3832,7 +3860,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
   input" (`:641`); the screen socket's second connection to the Queen's persisted URL at its own
   path, signed hello and one-time token (amending sections 5 and 16, `:149-152` and `:642`), and
   its exemption from the frame ceiling (section 7, `:263-266`); licensing of bundled servers).
-- `inspection-audit-and-recording.md` (trail events and counts; optional `C2` recordings; the Night
+- `inspection-audit-and-recording.md` (trail events and counts; optional recordings kept only in
+  the operator-only area, never the Basket, Nectar or Honey; the Night
   Veil host-side attach, and the two `cell.inspection_*` events this adds to the lifecycle
   skeleton in codingrules section 12).
 
