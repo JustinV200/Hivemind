@@ -3218,10 +3218,12 @@ neither track changes it, and 15.3a rebases on it once it merges.
   Warden suspends Watch observations and the Patrol episode (codingrules 8.7's watch mode), so the
   operator's command lines, logs and touched files never reach Bee Bread or a model; with
   `--alongside`, the bees still running can see the operator's processes and files like any
-  other process on the Cell, and the operator is told so before such an Inspection opens. A
-  Virtual Cell's Warden runs inside the Cell, so under Smoke it runs no awake episode and writes
-  nothing to Bee Bread until the Inspection closes, and `--alongside` is refused on a Virtual
-  Cell.
+  other process on the Cell, and can read what the operator types, passwords included; the
+  operator is told exactly that before such an Inspection opens. Under Smoke every Warden of the
+  Cell, in the Hive Stand's process, inside a Virtual Cell or on a colonized device or Nuc, runs
+  no awake episode and writes nothing to Bee Bread until the Inspection closes, and the
+  background processes the Cell's leases started are frozen (15.4b). `--alongside` is refused
+  on a Virtual Cell.
 - **Authorisation.** A new human-only family `entrance:inspect` with scopes `shell`, `screen_view`
   and `screen_control`, never in a bee's set and never in the UI's default credentials; widened only
   on loopback. Opening needs an interactive device and a fresh step-up (`ActionKind.INSPECT`), every
@@ -3266,8 +3268,8 @@ neither track changes it, and 15.3a rebases on it once it merges.
   or Absconding ends it with everything else. On the device, every Inspection raises a system
   notification and can be ended locally with `pollen inspect end`; a screen Inspection also keeps
   an always-on-top notice with an "end now" button up for its whole length.
-- **Video.** RFB (the VNC protocol) bridged end to end: a VNC server on the device bound to loopback
-  with a one-time password, Pollen piping its bytes over an outbound data socket, the Entrance piping
+- **Video.** RFB (the VNC protocol) bridged end to end: a VNC server on the device attached over
+  stdio, `-inetd`, a socketpair or an owner-only Unix socket, with a one-time password, Pollen piping its bytes over an outbound data socket, the Entrance piping
   them to noVNC in the browser or to any VNC viewer through `hive inspect --screen`. Typical office
   work at 1080p costs 1 to 5 Mbit/s with Tight/ZRLE encodings and 80 to 200 ms of added latency
   through the Hive Stand hop; video playback is poor. WebRTC (H.264 or VP8, 1 to 3 Mbit/s, 50 to
@@ -3342,25 +3344,45 @@ in daily use.
   from the device; `pollen status` lists them. *Exit:* through the Waggle-level harness, every open
   and close raises the notification; `pollen inspect end` closes the harness's terminal within
   five seconds with reason `DEVICE_ENDED`. *Size:* small, 1.5 agent-days.
-- [ ] **15.4 Queen door, Smoke and the trail.** `QueenDoor.open_inspection` and
-  `close_inspection`; Clustering's lever selected by Cell; the Warden's `INSPECTED` mode, which
-  suspends Watch observations and the Patrol episode until the Inspection closes; the access
-  level, tier and Hive Stand checks; the `cell.inspection_*` events and their Night Veil boundary
-  rows; a `guard.entrance_inspection_opened` push event sent to every other enrolled device
-  (codingrules 8.15 and 15), saying only that an Inspection opened and on which Cell; the idle and
-  hard timeouts, and Absconding, ending every open Inspection. `inspect.open` can be built and
-  sent only by `QueenDoor.open_inspection`, and only from the Entrance's step-up-checked
-  principal: the door mints an `InspectionWarrant` no other module can construct, the Queen's
-  sender requires one, and an import-linter contract keeps the warrant and the open builder out of
-  every Warden (Level-0 Wardens sign as `hive_id` too, spec.md:353-356) and out of autopilot.
-  *Exit:* neither a Level-0 Warden nor Queen autopilot can send `inspect.open` (a test and the
-  lint contract); opening on a Cell with a
-  running task pauses it, closing resumes it from its Handoff with no work redone; `--alongside`
-  leaves it running; a `SCRATCH` Cell refuses a shell; every other enrolled device receives the
-  push; an Inspection idle past `idle_minutes`, and one open during `hive abscond`, each end within
-  five seconds with one `cell.inspection_closed` carrying the right reason; after an Inspection
-  that ran `mysql -psecret` and edited a file, nothing from it (command line, process, log line
-  or file change) is in Bee Bread and no Patrol episode ran meanwhile.
+- [ ] **15.4a Inspection authority.** Human authority is a `StepUpProof` that only the Entrance's
+  step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session and
+  the moment of the step-up. `QueenDoor.open_inspection` and `close_inspection` require one and
+  mint an `InspectionWarrant` bound to the Inspection id. An import-linter contract keeps
+  `StepUpProof` out of every `queen/` module except the door, above all `queen/awake` (which holds
+  the Queen) and `queen/guard_requests` (whose `decision/act.py:47,135` already calls Sting Cut
+  from model-driven decisions), and out of every Warden and autopilot. The guard sits at the one
+  outbound point to devices, the swarm gateway listener's send (`swarm/gateway/`, already at the
+  ten-module cap, so the check joins `listener.py` or a sub-package), not at a Queen-side sender:
+  Level-0 Wardens hand ready-made envelopes to `transport.send` (`wardens/links.py`
+  `send_guarded`) as `hive_id`, and the `inspect.*` payload models live in `waggle`, which
+  Wardens import. The listener refuses every `inspect.*` frame (open, input, resize, close, all of
+  them) that carries no valid warrant for its Inspection. *Exit:* a Queen awake episode cannot open
+  an Inspection; neither a Level-0 Warden nor Queen autopilot can send `inspect.open`; an
+  `inspect.input` without a warrant is dropped at the listener; the lint contract fails on any
+  module that imports `StepUpProof` outside the door. *Size:* medium, 2 agent-days.
+- [ ] **15.4b Smoke, the trail and the timeouts.** Clustering's lever selected by Cell; the
+  `INSPECTED` mode on every Warden, the Hive Stand's, an in-Cell one and an on-device one on a
+  colonized device or Nuc alike: no Watch observations, no Patrol, no awake episode, nothing
+  written to Bee Bread until the Inspection closes. Smoke also freezes every background process
+  the Cell's leases started (`session.process`, gateway-contract 9.3: `SIGSTOP` to its process
+  group, the Job Object suspended on Windows) and thaws them on close, because they and an
+  on-device Warden run as the same account as the operator's PTY and could read it, attach to
+  it or log its keys, a `sudo` password included, which would then open the opt-in store. Freezing
+  is chosen over running the operator shell as another account, because creating an account on a
+  borrowed device needs admin rights and breaks left-as-found; the on-device Warden itself is
+  Hive code that, in `INSPECTED`, runs only its autopilot and never reads the operator lease's
+  processes. The access level, tier and Hive Stand checks; the `cell.inspection_*` events and
+  their Night Veil boundary rows; a `guard.entrance_inspection_opened` push event sent to every
+  other enrolled device (codingrules 8.15 and 15), saying only that an Inspection opened and on
+  which Cell; the idle and hard timeouts, and Absconding, ending every open Inspection. *Exit:*
+  opening on a Cell with a running task pauses it, closing resumes it from its Handoff with no
+  work redone; `--alongside` leaves it running; a `SCRATCH` Cell refuses a shell; every other
+  enrolled device receives the push; an Inspection idle past `idle_minutes`, and one open during
+  `hive abscond`, each end within five seconds with one `cell.inspection_closed` carrying the
+  right reason; after an Inspection on the Hive Stand and one on a Nuc that ran `mysql -psecret`
+  and edited a file, nothing from either (command line, process, log line or file change) is in
+  Bee Bread and no Warden episode or Patrol ran meanwhile; on the Nuc, the lease's background
+  processes were stopped for the whole Inspection and running again after it.
   *Size:* medium to large, 3.5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand; QEMU: a virtio console on a
@@ -3390,7 +3412,7 @@ in daily use.
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 26 agent-days.
+Track A total: about 28 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3400,7 +3422,7 @@ one would reach the loopback listener (see `hive_stand_remote`). Until the pane 
 --screen` land in 15.17, exits run through a test VNC client (TigerVNC's viewer on the Hive Stand)
 attached to the Entrance relay by a test harness.
 
-- [ ] **15.10 Spike: RFB bridge against own capture.** Measure a bundled loopback VNC server bridged
+- [ ] **15.10 Spike: RFB bridge against own capture.** Measure a bundled VNC server on stdio bridged
   through Pollen against capture-and-encode in the packet (`mss` plus JPEG tiles, input through
   `SendInput` and `xdotool`), on Windows and X11, for latency, bandwidth, CPU and binary size. It
   runs only on a lab machine of the operator's or on a Virtual Cell, never on an enrolled Real
@@ -3408,8 +3430,12 @@ attached to the Entrance relay by a test harness.
   *Exit:* numbers recorded in the transport ADR and the operator's choice made. *Size:* medium, 2
   agent-days.
 - [ ] **15.11a Screen data socket, device side.** A second outbound WebSocket from Pollen, opened
-  only inside an operator lease, carrying RFB bytes from a loopback server started inside the
-  lease. It dials the Queen's persisted swarm-listener URL, the only address a gateway may dial
+  only inside an operator lease, carrying RFB bytes from a VNC server started inside the lease.
+  The server is attached over stdio, `-inetd`, a socketpair or an owner-only Unix socket wherever
+  it supports one, so no other process on the device can connect to it. Where none is possible
+  (some Windows servers), it listens on loopback TCP for a single connection only, and its
+  one-time password reaches it through stdin or an owner-only file, never argv or the
+  environment, so the process list never shows it. It dials the Queen's persisted swarm-listener URL, the only address a gateway may dial
   (gateway-contract sections 5 and 16), at its own path (`/inspect/<inspection id>`), never the
   Entrance. Its first frame is a hello signed with the device key carrying the one-time token from
   the signed open; the listener checks both and binds the socket to that Inspection. It is a
@@ -3420,7 +3446,9 @@ attached to the Entrance relay by a test harness.
   refusing with `pollen.capability_denied` unless the device opted in with `--screen`, whatever
   the Hive asks. *Exit:* bytes round-trip against a test server with the Inspection's limits; a
   lease release closes the socket and stops the server; a device that opted in with `--shell` only
-  refuses; a screen open signed by the Cell's Warden is dropped. *Size:* medium, 2.5 agent-days.
+  refuses; a screen open signed by the Cell's Warden is dropped; with a loopback-TCP server, a
+  second local connection is refused and a password scraped from the process list does not work.
+  *Size:* medium, 3 agent-days.
 - [ ] **15.11b Screen door and relay at the Entrance.** The swarm listener's `/inspect/` path, which
   hands the socket in process to a binary `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or
   `screen_control`, landing together with its gates so no build ever serves an ungated screen:
@@ -3446,12 +3474,12 @@ attached to the Entrance relay by a test harness.
   client, the notice is up for the whole of every screen Inspection, and "end now" closes the
   client's connection within five seconds. *Size:* medium, 3 agent-days.
 - [ ] **15.13a Linux X11 Real Cells.** x11vnc on the real display of an opted-in Linux Real Cell,
-  bound to loopback with a one-time password. *Exit:* control an Ubuntu laptop's desktop (notice
-  up) from the test client. *Size:* medium, 2 agent-days.
+  run with `-inetd` on the packet's pipe and a one-time password from an owner-only file.
+  *Exit:* control an Ubuntu laptop's desktop (notice up) from the test client; no listening port
+  appears on the device. *Size:* medium, 2 agent-days.
 - [ ] **15.13b Headless Virtual Cell screens.** The Hive Stand attaches from the host side and
   opens no TCP port: on Docker, a `docker exec` whose stdio carries RFB to x11vnc on the
-  Exoskeleton's Xvfb and openbox inside the container (bound to loopback or `-inetd`, never
-  published); on QEMU, its own `-vnc` on a Unix socket (a named pipe on Windows) for the VM
+  Exoskeleton's Xvfb and openbox inside the container (`-inetd`, never published); on QEMU, its own `-vnc` on a Unix socket (a named pipe on Windows) for the VM
   console. Each session has a one-time VNC password. No VNC port is ever published on the host's
   `127.0.0.1`, because every QEMU and Docker Desktop guest can reach host loopback. 15.5's
   per-backend remote refusal (until the guest-loopback fix holds) and the Night Veil refusal
@@ -3481,10 +3509,11 @@ attached to the Entrance relay by a test harness.
   desktop after the local approval, and again without it when it was remembered; a restore token
   planted by the packet's account or through `session.exec` is ignored. *Size:* medium to large,
   3.5 agent-days.
-- [ ] **15.15b Wayland on wlroots.** wayvnc (ISC) on loopback for Sway and other wlroots
-  compositors. *Exit:* control a Sway desktop on Arch from the test client. *Size:* small, 1.5 agent-days.
+- [ ] **15.15b Wayland on wlroots.** wayvnc (ISC) on an owner-only Unix socket for Sway and
+  other wlroots compositors. *Exit:* control a Sway desktop on Arch from the test client. *Size:* small, 1.5 agent-days.
 - [ ] **15.16 macOS (best effort).** A bundled server or the packet's own capture (ScreenCaptureKit
-  and CGEvent), bound to loopback, after the device owner grants Screen Recording and Accessibility
+  and CGEvent), attached over stdio or a socketpair (loopback TCP only under 15.11a's fallback
+  rules), after the device owner grants Screen Recording and Accessibility
   to the packet in System Settings. The built-in Screen Sharing is not used: it listens on port 5900
   on every interface, cannot be bound to loopback, and is not governed by the grants the packet
   holds. macOS 15 asks again for Screen Recording from time to time, so `pollen status` reports a
@@ -3513,11 +3542,11 @@ attached to the Entrance relay by a test harness.
   unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
   agent-days.
 
-Track B total: about 35 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 36 agent-days, plus about 3 more if the spike chooses own capture over RFB.
 
 Steps are sized for one PR each. 15.3a stays whole because the executor must never ship without
-its opt-in and lease walls, 15.4 because the door, the pause and the trail events only make sense
-landed together, and 15.14a because capture and input are proven together.
+its opt-in and lease walls, 15.4b because the pause, the freeze and the trail events only make
+sense landed together, and 15.14a because capture and input are proven together.
 
 ### Exit criteria
 
@@ -3555,12 +3584,17 @@ landed together, and 15.14a because capture and input are proven together.
   statement that `--alongside` lets the Cell's bees see the operator's processes and files; the
   opt-in as human-on-device only, behind OS elevation in a store the packet cannot write; the
   operator lease closed to every `cell.request` and `session.*` request; `inspect.open` built
-  only by the Queen's door; the heartbeat opt-in field, outside 13.4a's dire pattern).
+  only by the Queen's door from an Entrance-built `StepUpProof`, and every `inspect.*` frame
+  checked for its warrant at the swarm listener; Smoke freezing the leases' background processes
+  and silencing every Warden of the Cell, chosen over a second account; the heartbeat opt-in
+  field, outside 13.4a's dire pattern).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendments to gateway-contract section 6, making
   the `inspect.*` open kinds for shell and screen Queen-only under rule 3 so a Warden's signature
   cannot open one, and section 16).
-- `remote-desktop-transport.md` (RFB through loopback servers and an outbound data socket, against
+- `remote-desktop-transport.md` (RFB from servers attached over stdio, `-inetd`, a socketpair or an
+  owner-only Unix socket, with loopback TCP only as a single-connection fallback whose password
+  never appears in argv or the environment, and an outbound data socket, against
   own capture, against WebRTC; the spike's numbers; the loopback-listener exception to "no inbound
   socket" (gateway-contract `:629`) and the operator-lease exception to "capture the screen or the
   input" (`:641`); the screen socket's second connection to the Queen's persisted URL at its own
