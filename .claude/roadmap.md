@@ -2078,7 +2078,7 @@ promotion, `hive swarm` CLI.
   `swarm.node_update`, `control.queen_moved`). The Queen's address comes from enrolment and is
   replaced only by a `control.queen_moved` signed by the Hive key (`pollen/agent/moved.py`). No
   supervision logic and no model client in the packet. Left to 13.2a: the relocation notice carries
-  no TLS pin for the new address.
+  no TLS pin for the new address (closed by 13.2a: `new_tls_pin_sha256`, Waggle 1.16).
 - [x] **11.3a Per-node frame ceiling.** The server half of `waggle/transport/websocket.py`
   gains `max_frames_per_minute` per connection, lax on purpose (default 6000, a hundred a
   second, well above any Warden's heartbeat and result traffic) with a burst allowance; over
@@ -2837,6 +2837,40 @@ borrowed device and revoking every grant.
   expired grace window with the old Queen unreachable. `hive supersede <node>` is human-initiated
   on loopback with step-up and confirmation, never an autopilot rule or an awake decision.
   `docs/runbooks/supersedure.md`.
+  **Built in-process 2026-10-27** (ADR-0065, Waggle 1.16); not ticked, since the transport to a
+  real candidate machine is left open (below). `queen/supersedure/`: `preflight.py` (the candidate
+  test, pure, every check reported `PASSED`, `FAILED` or `UNVERIFIED`; reachability cannot be
+  proved from the Hive Stand, so it is `UNVERIFIED` unless a probe says), `copy.py` (`hive backup`
+  through `common.backup`, the archive put on the candidate, `hive restore --sha256` there, then
+  the candidate's Queen started), `handover.py` and `rollback.py` (the two endings), `run.py`
+  (`begin`: freeze, then `queen.supersedure_started` before a byte moves; `finish`: copy, poll the
+  candidate, hand over or roll back), `record.py` (the four trail kinds), `gate.py` (the start
+  rules and the candidate's hold), `ports.py` and `door.py` (the Queen's `supersede` and
+  `supersedure_preflight`). The handover order differs from the text above, on purpose: the old
+  Queen stands down (`SUPERSEDED`, `queen.superseded`) and acknowledges the candidate before the
+  `QueenMoved` goes out, so no device is pointed at an unacknowledged Queen and the candidate's
+  session stays usable to the end. The freeze clusters every bound provider plus a freeze key;
+  `SUPERSEDING` and `SUPERSEDED` place, plan and resume nothing, and a `SUPERSEDED` Queen's loop
+  ends. Each start reads the node's own trail under the Queen lock
+  (`cli/compose/hive/supersedure.py`): an old Queen whose Supersedure has no outcome, a superseded
+  one and a rolled-back candidate never start; an unfinished candidate is held in `REQUEENING`
+  (Requeening's new `hold`) until acknowledged or the window is over with the old Queen
+  unreachable (a TCP probe of `old_address`), and the Wardens' redial grace starts when the hold
+  lifts. After a crash the human settles it (`hive supersede --settle superseded|aborted`, the
+  password and the Queen lock). `QueenMoved.new_tls_pin_sha256` closes 11.3's gap, and the packet
+  dials each address with its own pin. The `supersedure` point is wired and human-only.
+  `hive supersede NODE` and `hive doctor --supersedure NODE` act as the console over loopback-only
+  routes (`/v1/hive/supersede`, step-up and the typed phrase). Proved in-process by
+  `tests/e2e/test_supersedure.py`: two Queens on temp stores, one handover with a sampler that
+  fails if both are ever active (the goal's task placed afresh and finished on the new Queen, one
+  `queen.superseded` on each trail), and one candidate killed before it is ready (rolled back
+  `NOT_READY`, a rollback notice, the goal finished on the old Queen). Left open: the
+  session-backed `CandidateLink` and probe for a real machine (stream the archive over the
+  candidate's `PollenSession`, run `hive restore` and `hive serve` there, read its secret names,
+  key and clock), so a real Hive has no `SupersedureWiring` and both commands refuse; Wardens and
+  Virtual Cells honouring `QueenMoved` (only the Pollen Packet does); pushing the new address to
+  enrolled phones; enrolling the old machine as a Swarm node in `WATCH` is the operator's
+  (`hive swarm invite`). The exit run onto a Nuc is the operator's once those land.
 - [x] **13.3 Swarming policy.** `queen/scheduler/swarming.py`: pure policy for provisioning more
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
   **Built 2026-10-27** (ADR-0063). `plan_swarm` (no `hivemind` import; the autopilot import
