@@ -24,7 +24,7 @@ from pathlib import Path
 from hivemind.pheromone import MemoryPheromoneTrail
 from hivemind.queen.errors import SupersedureFailedError
 from hivemind.queen.supersedure import Endpoint, Recorder
-from waggle.clock import FakeClock
+from waggle.clock import Clock
 from waggle.ids import HiveId, NodeId, new_hive_id, new_node_id
 from waggle.messages.control import QueenMoved
 
@@ -42,7 +42,7 @@ __all__ = [
 
 
 def make_recorder(
-    clock: FakeClock, hive_id: HiveId | None = None, node_id: NodeId | None = None
+    clock: Clock, hive_id: HiveId | None = None, node_id: NodeId | None = None
 ) -> Recorder:
     """A Recorder over a fresh in-memory trail, as one node of one Hive."""
     return Recorder(
