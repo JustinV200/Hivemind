@@ -478,8 +478,10 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   tier pills are fully round and mask tags 2 px.
 - **Density:** table rows 32 px; buttons 36 px with a 44 px touch area under 720 px, and under
   720 px a link in a row, a card, a line of links or a breadcrumb has the same 44 px area as
-  padding around its line (a flex row that sets one beside plain text aligns them by baseline);
-  numbers use `font-variant-numeric: tabular-nums`.
+  padding around its line (a flex row that sets one beside plain text aligns them by baseline).
+  A card has one rhythm: where its rows are label and value pairs (the Capping queue) every row
+  takes that 44 px pitch, and in a Cell page panel a row's link takes a line of its own under
+  the row's facts; numbers use `font-variant-numeric: tabular-nums`.
 
 ## 7. Accessibility
 

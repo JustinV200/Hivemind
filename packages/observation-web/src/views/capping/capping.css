@@ -6,7 +6,8 @@
  * is one select (the chips would take six rows before any content). The rate cards wrap into
  * as many columns as fit. Under 1280 px a table row becomes a stacked card whose cells keep their
  * labels (from `data-label`) and the header row is hidden behind the shared "Sort by" control, so
- * nothing needs width and the page never scrolls sideways. A state, a verdict and a finding are a
+ * nothing needs width and the page never scrolls sideways; on a phone every row of a card is the
+ * 44 px band its links have, so a card has one rhythm. A state, a verdict and a finding are a
  * word in the shared status tag (components.css); the tag's colour only adds to the word.
  *
  * Fits into the Hive:
@@ -187,6 +188,15 @@
 .capping-table td::before {
   content: attr(data-label);
   color: var(--text-muted);
+}
+
+/* On a phone every row of a card has one pitch: the label takes the padding a link in the row
+   has (base.css), so a row with a plain value is as tall as one with a link, and the words of
+   both sit level on the shared baseline */
+@media (max-width: 719px) {
+  .capping-table td::before {
+    padding-block: calc((44px - 1lh) / 2);
+  }
 }
 
 /* The queue's eleven columns need 1280px; below that its rows stay cards (design.md section 2) */

@@ -189,6 +189,15 @@
   font-size: var(--fs-sm);
 }
 
+/* On a phone a row's link (a bee's thoughts) takes a line of its own under the row's facts, so
+   every task reads the same way (its facts, then the link's 44px band from base.css) instead of
+   the link sharing a line with whichever fact happened to wrap beside it */
+@media (max-width: 719px) {
+  .cell-row > a {
+    flex-basis: 100%;
+  }
+}
+
 .cell-muted {
   color: var(--text-muted);
   font-size: var(--fs-sm);
