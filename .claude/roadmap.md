@@ -3513,9 +3513,12 @@ lab devices, never on an enrolled device in daily use.
   the timer running forever, and where that row Smoked, nothing is dispatched to or resumed on
   the Cell until the device confirms. `ENDED_UNCONFIRMED` counts as not `ENDED` for every gate,
   the second-Inspection refusal and the Supersedure preflight included. A device that never
-  comes back is resolved by the human: revoking or removing it, a loopback-only action that
-  needs the stand key, moves its rows to `ENDED`, clears their `smoked_by` marks and lets the
-  tasks be placed elsewhere. Only at a confirmed `ENDED` is `INSPECTED` lifted and do the tasks still marked `smoked_by` this Inspection
+  comes back is resolved by the human with `hive swarm revoke` through the operator desk, a
+  loopback-only action that needs the stand key: it moves the device's rows to `ENDED`, clears
+  their `smoked_by` marks and lets the tasks be placed elsewhere. Revocation is final: a revoked
+  device accepts no change and can never relink (`swarm/operator/desk.py:36`,
+  `NodeRevokedError`), so no bee is ever resumed beside a shell that might come back. A row ended
+  this way lifts `INSPECTED` but resumes nothing, since its marks are already cleared. Only at a confirmed `ENDED` is `INSPECTED` lifted and do the tasks still marked `smoked_by` this Inspection
   resume, each from its Handoff on the same, still-open lease, and each mark is cleared
   in the same transaction as its resume; none resumes on a Cell that is `ISOLATED` or from a
   tainted Handoff, since isolation and its human-only lift take precedence
@@ -3593,9 +3596,10 @@ lab devices, never on an enrolled device in daily use.
   release report alone moves the row to `ENDED`; a device that never answers reaches
   `ENDED_UNCONFIRMED` through the `close_confirm_s` fallback, before and after a Queen restart,
   its Smoked tasks stay paused, and on its next reconnect the Queen re-sends the close and the
-  forced end, gets the confirmation and only then resumes them; revoking that device on
-  loopback with the stand key instead moves its row to `ENDED`, clears the marks and re-places
-  the tasks, and the same revocation from a remote device or without the key is refused; the fallback leaves the Smoked
+  forced end, gets the confirmation and only then resumes them; `hive swarm revoke` of that
+  device on loopback with the stand key instead moves its row to `ENDED`, clears the marks,
+  lifts `INSPECTED`, resumes nothing on it and re-places the tasks, the revoked device's redial is
+  refused, and the same revocation from a remote device or without the key is refused; the fallback leaves the Smoked
   leases open and the Cell's isolation unchanged; a device that redials faster than
   `close_confirm_s` still has its operator lease ended; a laptop suspended across the grace
   wakes with no operator shell running beside the resumed bees; an `--alongside` Inspection in
@@ -3975,7 +3979,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
   lease's release report), `inspect.close` idempotent, `CLOSING` bounded by `close_confirm_s` and
   a forced end of the operator lease alone, never a Sting Cut, an end inferred from the grace,
   the dead-man switch or the fallback marked `ENDED_UNCONFIRMED` and confirmed on the next
-  reconnect before anything on the Cell is dispatched or resumed, device timers that count
+  reconnect before anything on the Cell is dispatched or resumed, or resolved by a loopback,
+  stand-key `hive swarm revoke`, which is final, device timers that count
   suspended time, the gates scoped (`INSPECTED`, a second Inspection and the Supersedure preflight
   on any row not `ENDED`; dispatch, new leases and `CellSession` refusals only on a row that
   Smoked), and the operator shell started with history off, for both the `INSPECTED` lift and the Smoked-task resume, on
