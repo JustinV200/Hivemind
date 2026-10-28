@@ -26,7 +26,8 @@ Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside `queen.dispatcher.ready`.
     Called by `hivemind.cli.compose.hive.run.run_hive` once the Queen and Warden have stopped and
     every Cell is retired. Calls into `hivemind.brood_chamber`, `hivemind.cell` (the tier enum),
-    `hivemind.common.logging`, `hivemind.queen.deps` and waggle only.
+    `hivemind.common.logging`, `hivemind.queen.deps`, `hivemind.queen.requeening` (revoke_held_by)
+    and waggle only.
 
 Key invariants:
     - Only a task placed on a Warden this Queen placed work on (`DispatchBook.placed_on`) is
@@ -61,11 +62,9 @@ from hivemind.brood_chamber import (
 from hivemind.brood_chamber.store import MAX_TASK_FILTER_LIMIT
 from hivemind.cell import CombShieldLevel
 from hivemind.common.logging import get_logger
-from hivemind.forage import GrantState
 from hivemind.queen.deps import QueenDeps
-from hivemind.queen.forage import activate, revoke
+from hivemind.queen.requeening import revoke_held_by
 from waggle.ids import MessageId, TaskId, WardenId
-from waggle.messages.forage import RevocationCause
 
 # Why a task is given back, on its `task.unassigned` and its question's withdrawal alike: plain
 # words and no content (codingrules section 12).
@@ -105,22 +104,10 @@ async def requeue_unfinished(deps: QueenDeps) -> tuple[TaskId, ...]:
         for task in await _placed_on(deps, placed_on):
             if await _give_back(deps, task.id):
                 requeued.append(task.id)
-    revoked = await _revoke_grants(deps, placed_on)
+    revoked = await revoke_held_by(deps, placed_on, STOPPED_REASON)
     if requeued or revoked:
         log.info("queen.unfinished_requeued", tasks=len(requeued), grants_revoked=revoked)
     return tuple(requeued)
-
-
-async def _revoke_grants(deps: QueenDeps, wardens: Collection[WardenId]) -> int:
-    """Revoke every live grant `wardens` hold: they stopped with her; return how many went."""
-    revoked = 0
-    for warden_id in wardens:
-        for grant in deps.ledger.grants_for(warden_id):
-            # ISSUED -> REVOKED is no edge (Appendix C): a grant never drawn on is activated first.
-            live = activate(grant) if grant.state is GrantState.ISSUED else grant
-            await revoke(deps.ledger, deps, live, RevocationCause.HOLDER_OFFLINE, STOPPED_REASON)
-            revoked += 1
-    return revoked
 
 
 async def _placed_on(deps: QueenDeps, wardens: Collection[WardenId]) -> tuple[Task, ...]:

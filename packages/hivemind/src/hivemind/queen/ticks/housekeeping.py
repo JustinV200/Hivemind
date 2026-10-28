@@ -142,9 +142,8 @@ async def run_housekeeping(
     # ADR-0062: settle a Requeening still waiting on its Wardens, then the Queen's own Handoff
     # when it is due; both are local reads and writes, never a model.
     await settle_requeening(deps, wardens)
-    await take_back_lost(
-        deps, wardens
-    )  # Roadmap 13.6: a Warden gone for good, its work placed afresh.
+    # Roadmap 13.6: a Warden gone for good, its work placed afresh.
+    await take_back_lost(deps, wardens)
     await take_snapshot_when_due(deps, wardens)
     # Roadmap step 5.13: drains RELEASE orders (`hive cells release`) the same tick, separately
     # from CLUSTER/WAKE -- see hivemind.queen.cluster.tick's own module docstring for why this is
