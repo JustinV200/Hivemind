@@ -16,11 +16,11 @@ Key invariants:
     - The blob is copied out and the API's buffer freed with `CredFree` before returning, so no
       Win32 allocation outlives the call.
     - Errors name the target and the Win32 error number, never a value.
-    - Off Windows the call is a `PacketError`, never an `AttributeError` on `ctypes.windll`.
+    - Off Windows the call is a `PacketError`, never an `AttributeError` on a Win32-only name.
 
 See Also:
     - https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credreadw for the call.
-    - hivemind.cell.local.probe for the same `sys.platform` narrowing around `ctypes.windll`.
+    - hivemind.cell.local.probe for the same `sys.platform` narrowing around Win32-only names.
 """
 
 from __future__ import annotations
@@ -77,23 +77,36 @@ def read_generic_credential(target: str) -> tuple[str, str]:
     Raises:
         PacketError: Not on Windows, or Credential Manager holds no such credential.
     """
-    # mypy only exempts `ctypes.windll` inside a matching platform branch of this very function.
+    # mypy only exempts the Win32-only ctypes names inside a matching platform branch of this very
+    # function. A private library handle: setting argtypes on the shared `windll` would change
+    # them for every other caller in the process, and `use_last_error` keeps the error reliable.
     if sys.platform == "win32":
         found = ctypes.POINTER(_Credential)()
-        advapi32 = ctypes.windll.advapi32
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
         # SAFETY: a documented, read-only Win32 call; the out-pointer is freed below on every path.
         if not advapi32.CredReadW(target, CRED_TYPE_GENERIC, 0, ctypes.byref(found)):
             raise PacketError(
                 f"Credential Manager has no generic credential {target!r} for this account "
-                f"(Win32 error {ctypes.GetLastError()})."
+                f"(Win32 error {ctypes.get_last_error()})."
             )
         try:
             credential = found.contents
             blob = ctypes.string_at(credential.CredentialBlob, credential.CredentialBlobSize)
-            return credential.UserName or "", blob.decode("utf-16-le")
+            return credential.UserName or "", _decoded(blob, target)
         finally:
             advapi32.CredFree(found)
     else:
         raise PacketError(
             f"credman:{target} needs Windows Credential Manager; on this system use env:<prefix>."
         )
+
+
+def _decoded(blob: bytes, target: str) -> str:
+    """Decode a password blob as Windows stores it (UTF-16LE), naming only the target on failure."""
+    try:
+        return blob.decode("utf-16-le")
+    except UnicodeDecodeError:
+        # The exception would quote the bytes it choked on, which are the secret.
+        raise PacketError(
+            f"The Credential Manager entry {target!r} does not hold a text password."
+        ) from None

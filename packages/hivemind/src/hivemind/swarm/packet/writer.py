@@ -63,8 +63,8 @@ _HOST_CHARS = re.compile(r"^[A-Za-z0-9.:-]+$")
 __all__ = [
     "AUTH_KEY_FILE",
     "INVITE_FILE",
-    "README_FILE",
     "PACKET_FILE_COUNT",
+    "README_FILE",
     "SECRETS_DIR",
     "HiveTarget",
     "PacketFiles",

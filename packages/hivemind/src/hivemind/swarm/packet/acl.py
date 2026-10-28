@@ -65,7 +65,9 @@ def make_private_dir(path: Path) -> None:
     # Mode applies on POSIX at creation (under the umask, which only removes bits).
     path.mkdir(mode=DIRECTORY_MODE)
     if sys.platform == "win32":
-        advapi32 = ctypes.windll.advapi32
+        # Private handles: argtypes set here change no other caller's view of advapi32.
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         advapi32.SetNamedSecurityInfoW.argtypes = [ctypes.c_wchar_p, ctypes.c_int, ctypes.c_uint32]
         advapi32.SetNamedSecurityInfoW.argtypes += [ctypes.c_void_p] * 4
         descriptor = ctypes.c_void_p()
@@ -73,7 +75,7 @@ def make_private_dir(path: Path) -> None:
         if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
             OWNER_ONLY_SDDL, SDDL_REVISION_1, ctypes.byref(descriptor), None
         ):
-            raise PacketError(f"Could not build an access list (Win32 {ctypes.GetLastError()}).")
+            raise PacketError(f"Could not build an access list (Win32 {ctypes.get_last_error()}).")
         try:
             present, defaulted, dacl = ctypes.c_int(), ctypes.c_int(), ctypes.c_void_p()
             advapi32.GetSecurityDescriptorDacl(
@@ -84,7 +86,7 @@ def make_private_dir(path: Path) -> None:
                 str(path), SE_FILE_OBJECT, flags, None, None, dacl, None
             )
         finally:
-            ctypes.windll.kernel32.LocalFree(descriptor)
+            kernel32.LocalFree(descriptor)
         if failed:
             raise PacketError(f"Could not make {path} owner-only (Win32 error {failed}).")
 
@@ -115,9 +117,10 @@ def is_owner_only(path: Path) -> bool:
         On POSIX, whether the group and others have no permission bits; on Windows, whether
         every entry of its access list names the owner or SYSTEM.
     """
-    # Both platforms in one if/else: mypy only exempts `ctypes.windll` inside a matching branch.
+    # Both platforms in one if/else: mypy exempts Win32-only ctypes names only in a matching branch.
     if sys.platform == "win32":
-        advapi32, kernel32 = ctypes.windll.advapi32, ctypes.windll.kernel32
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         descriptor, dacl, text = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_wchar_p()
         # SAFETY: read-only Win32 queries; both allocations are freed below.
         if advapi32.GetNamedSecurityInfoW(
