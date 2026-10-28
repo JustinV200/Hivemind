@@ -80,6 +80,10 @@ point before any Cell is chosen (`hivemind.queen.dispatcher.night_veil`), a fina
 `chamber.assign` binds the task to its Cell's tier, and `queen.placed` names the goal request a
 placement stands on.
 
+ADR-0065: while a Supersedure holds the Queen (SUPERSEDING, SUPERSEDED, or a candidate held for
+the old Queen's word) all three ways in return at once, whoever calls them: a result heard then
+still completes its task, but its dependants wait for the Queen that keeps the Hive.
+
 Roadmap step 10.3 (ADR-0039) wires the `placement` enforcement point through here: a
 `PlacementError` records its own message on `queen.decided`, and when the task's goal set alone
 left no candidate (`PlacementError.denied`) the Queen, acting for the goal, checks each missing
@@ -184,6 +188,7 @@ from hivemind.queen.placement import (
     ReuseReal,
     decide,
 )
+from hivemind.queen.state import is_frozen
 from hivemind.queen.trail import record_event
 from waggle.ids import TaskId, WardenId
 from waggle.messages import HandoffRef
@@ -207,6 +212,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
     Returns:
         None, once every ready task has been dispatched, found unplaceable, or left to wait.
     """
+    if _placing_held(deps):
+        return  # ADR-0065: nothing is placed while a Supersedure holds her (`_placing_held`).
     # One dispatch pass at a time per Queen: Queen.submit_goal, a finished task and the tick all
     # call this, and two passes interleaving would both see the same PENDING task and one would
     # lose the chamber's own PENDING -> ASSIGNED transition (DispatchBook.lock's own docstring).
@@ -270,6 +277,8 @@ async def redispatch(
         RUNNING task has no PENDING queue to wait in, which is also why its grant is sized from
         the link's own Cell as probed, never the live reading (module docstring).
     """
+    if _placing_held(deps):
+        return  # ADR-0065: the retry is not resent while a Supersedure holds her.
     task = await deps.chamber.get(task_id)
     link = _placed_link(deps, wardens, task)
     if link is None:
@@ -291,12 +300,10 @@ async def resume_paused(
 ) -> None:
     """Resume a PAUSED task from `resume_from` (or fresh), through the grant-then-assign path.
 
-    Roadmap step 4.9 (Clustering): `hivemind.queen.cluster.protocol.resume`'s one dispatcher-path
-    entry point, so a resumed task is re-assigned exactly the way a fresh dispatch is (a fresh
-    grant, `GrantIssued` before `TaskAssign`), never a hand-rolled wire send. Unlike `redispatch`
-    (a RUNNING task's own retry, which never touches chamber status), this always moves the task
-    PAUSED -> RUNNING first, through `hivemind.brood_chamber.chamber.lifecycle._LifecycleMixin.
-    resume`, the one legal edge back from PAUSED (Appendix C's "Task" row).
+    Roadmap step 4.9 (Clustering): the one dispatcher-path entry point, so a resumed task is
+    re-assigned exactly the way a fresh dispatch is (a fresh grant, `GrantIssued` before
+    `TaskAssign`). Unlike `redispatch` (a RUNNING task's retry), this always moves the task
+    PAUSED -> RUNNING first, the one legal edge back from PAUSED (Appendix C's "Task" row).
 
     Args:
         deps: The Queen's collaborators.
@@ -315,8 +322,10 @@ async def resume_paused(
     """
     task = await deps.chamber.get(task_id)
     link = _placed_link(deps, wardens, task)
-    if link is None:
-        return  # Not placed, held (it stays paused until the hold ends), or its Warden is gone.
+    if link is None or _placing_held(deps):
+        # Not placed, held (it stays paused until the hold ends), its Warden gone, or a
+        # Supersedure holding her (ADR-0065): it stays PAUSED.
+        return
     await deps.chamber.resume(task_id, reason)
     # A fresh bee (TaskAssign.resume_from's own field docstring: "a fresh one for a fresh bee");
     # the Queen owns the attempt number on every Queen-to-Warden hop. A Warden that cannot read
@@ -331,6 +340,16 @@ async def resume_paused(
     if fresh_grant is None:
         return  # Denied: send_grant_and_assign already failed the task (module docstring).
     await record_forage_granted(deps, task, fresh_grant, link.warden_id)
+
+
+def _placing_held(deps: QueenDeps) -> bool:
+    """Whether a Supersedure holds every placement, retry and resume (ADR-0065).
+
+    True while she is SUPERSEDING or SUPERSEDED, or is a candidate held for the old Queen's word:
+    a result she still hears then completes its task in her books, but nothing is placed on the
+    back of it, so the Queen that takes the Hive is the only one that ever places it.
+    """
+    return is_frozen(deps.cluster_state.mode) or deps.requeening.hold is not None
 
 
 async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Task) -> None:

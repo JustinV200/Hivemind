@@ -161,6 +161,31 @@ async def test_complete_task_leaves_scout_report_none_for_a_non_scout_result() -
     assert task.outcome.scout_report is None
 
 
+async def test_a_result_heard_while_superseding_places_no_dependant() -> None:
+    """ADR-0065: the candidate places it after the move; the old Queen placing it too runs twice."""
+    provider = FakeLLMProvider(responder=plan_responder(_scout_chain_plan))
+    deps, link, warden_end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    await queen.submit_goal("Log in somewhere.", clearance=HoneyClearance.C1)
+    scout = await _scout_assigned(warden_end)
+    await warden_end.close()
+    deps.cluster_state.mark_clustered("supersedure")
+    deps.cluster_state.begin_supersedure()
+    report = ScoutReport(feasible=True, summary="Found the login form.")
+
+    await complete_task(
+        deps,
+        [link],
+        _result(scout, link.warden_id, TaskOutcome.SUCCEEDED, scout_report=report),
+        link.warden_id,
+    )
+
+    tasks = {task.spec.title: task for task in await deps.chamber.list(TaskFilter())}
+    assert tasks["The scout task"].status is TaskStatus.SUCCEEDED  # Her books still keep it.
+    assert tasks["The next task"].status is TaskStatus.PENDING  # Ready, but never placed.
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # fail_reason
 # ──────────────────────────────────────────────────────────────────────────────
