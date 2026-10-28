@@ -35,7 +35,7 @@ Public API:
     - Pulse, PulseParts, Sentinel, SentinelParts, Timings: the timers.
     - PacketStatus, StatusDocument, read_status, write_status: diagnostics.
     - check_needs, covers, parse_capability: the capability matcher.
-    - accept_moved, dial_plan, hive_nodes, settle, trusted_keys: the relocation rules.
+    - accept_moved, dial_plan, hive_nodes, pin_for, settle, trusted_keys: the relocation rules.
 """
 
 from pollen.agent.checks import check_needs, covers, parse_capability
@@ -45,7 +45,7 @@ from pollen.agent.dispatch import DispatchDeps, Dispatcher, DropReason, admit
 from pollen.agent.heartbeat import Pulse, PulseParts, Sentinel, SentinelParts, Timings
 from pollen.agent.leases import LeaseService
 from pollen.agent.link import Link, LiveVerifier
-from pollen.agent.moved import accept_moved, dial_plan, hive_nodes, settle, trusted_keys
+from pollen.agent.moved import accept_moved, dial_plan, hive_nodes, pin_for, settle, trusted_keys
 from pollen.agent.packet import PacketParts, PollenPacket
 from pollen.agent.status import PacketStatus, StatusDocument, read_status, write_status
 
@@ -75,6 +75,7 @@ __all__ = [
     "dial_plan",
     "hive_nodes",
     "parse_capability",
+    "pin_for",
     "read_status",
     "settle",
     "trusted_keys",

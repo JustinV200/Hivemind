@@ -94,6 +94,7 @@ EXAMPLES: tuple[WaggleMessage, ...] = (
         new_address="wss://queen.example.org:8443/waggle",
         new_node_id=new_id(IdKind.NODE, CLOCK),
         new_node_public_key_hex=KEY_HEX,
+        new_tls_pin_sha256=KEY_HEX,
         effective_at=NOW,
         grace_until=LATER,
         reason="Supersedure to the new Hive Stand.",
@@ -289,7 +290,8 @@ def test_mask_override_accepts_both_tactics_once() -> None:
     "address", ["ws://127.0.0.1:9000", "ws://localhost", "ws://[::1]:1", "wss://10.0.0.1"]
 )
 def test_queen_moved_accepts_tls_anywhere_and_plaintext_on_loopback(address: str) -> None:
-    moved = _rebuild(_example(QueenMoved), new_address=address)
+    pin = KEY_HEX if address.startswith("wss://") else None
+    moved = _rebuild(_example(QueenMoved), new_address=address, new_tls_pin_sha256=pin)
 
     assert isinstance(moved, QueenMoved)
     assert moved.new_address == address
@@ -299,7 +301,10 @@ def test_queen_moved_accepts_tls_anywhere_and_plaintext_on_loopback(address: str
 @pytest.mark.parametrize(
     ("changes", "reason"),
     [
-        ({"new_address": "ws://queen.example.org"}, "loopback"),
+        ({"new_address": "ws://queen.example.org", "new_tls_pin_sha256": None}, "loopback"),
+        ({"new_tls_pin_sha256": None}, "required exactly when"),
+        ({"new_address": "ws://127.0.0.1:9000"}, "required exactly when"),
+        ({"new_tls_pin_sha256": KEY_HEX.upper()}, "pattern"),
         ({"new_address": "http://127.0.0.1"}, "pattern"),
         ({"new_address": "wss://x" + "y" * MAX_ADDRESS_CHARS}, f"at most {MAX_ADDRESS_CHARS}"),
         ({"sequence": 0}, "greater than or equal to 1"),

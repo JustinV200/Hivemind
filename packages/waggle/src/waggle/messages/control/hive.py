@@ -56,6 +56,7 @@ MAX_MASK_TACTICS = 2  # One per tactic that exists: WRITE_LIKE_HUMAN and MOUSE_L
 MAX_ADDRESS_CHARS = 512  # A WebSocket URI, onion hosts included, fits with room to spare.
 ADDRESS_PATTERN = WAGGLE_URI_PATTERN  # ^wss?://\S+$; ws:// only on loopback (validator).
 PUBLIC_KEY_HEX_PATTERN = r"^[0-9a-f]{64}$"  # 32 raw Ed25519 public-key bytes as lowercase hex.
+TLS_PIN_PATTERN = r"^[0-9a-f]{64}$"  # A listener certificate's SHA-256 as lowercase hex.
 MIN_SEQUENCE = 1  # Sequences start at 1 so a recipient can persist 0 as "none accepted yet".
 
 __all__ = [
@@ -66,6 +67,7 @@ __all__ = [
     "MIN_HUMAN_TEXT_CHARS",
     "MIN_SEQUENCE",
     "PUBLIC_KEY_HEX_PATTERN",
+    "TLS_PIN_PATTERN",
     "HumanMessage",
     "MaskOverride",
     "MaskOverrideAction",
@@ -202,6 +204,12 @@ class QueenMoved(WaggleMessage):
         description="The new node's raw 32-byte Ed25519 public key, hex; pinned for new_node_id "
         "on acceptance and treated as the Hive key from grace_until.",
     )
+    new_tls_pin_sha256: str | None = Field(
+        default=None,
+        pattern=TLS_PIN_PATTERN,
+        description="SHA-256 of the new listener's certificate, hex; set exactly when "
+        "new_address is wss://, and pinned for that address in place of a CA (protocol 1.16).",
+    )
     effective_at: UtcDatetime = Field(
         description="When recipients start connecting to the new address."
     )
@@ -232,5 +240,16 @@ class QueenMoved(WaggleMessage):
             raise ValueError(
                 f"QueenMoved grace_until {self.grace_until.isoformat()} precedes effective_at "
                 f"{self.effective_at.isoformat()}."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _pin_fits_address(self) -> QueenMoved:
+        """Require a certificate pin exactly for a wss:// address."""
+        # A wss:// link is trusted only through its pin (no CA), so a notice without one would
+        # strand every device; a ws:// address is loopback-only and has no certificate to pin.
+        if self.new_address.startswith("wss://") != (self.new_tls_pin_sha256 is not None):
+            raise ValueError(
+                "QueenMoved new_tls_pin_sha256 is required exactly when new_address is wss://."
             )
         return self

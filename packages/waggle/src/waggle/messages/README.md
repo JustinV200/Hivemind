@@ -59,6 +59,8 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   fresh-context review; `task.result` carries one in `review`, and `task.assign` gains
   `review_round` and `review_findings` for the fresh Worker that fixes forward; `AlarmKind` gains
   `NURSE_UNRESOLVED`.
+- Waggle 1.16 (ADR-0065, Supersedure): `control.queen_moved` gains `new_tls_pin_sha256`, the new
+  listener certificate's SHA-256, set exactly when `new_address` is `wss://`.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section

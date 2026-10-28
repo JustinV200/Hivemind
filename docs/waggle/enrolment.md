@@ -434,9 +434,9 @@ revoked. Cancelling an invite that has not been used moves the invite to `REVOKE
 
 ## 12. When the Hive Stand moves: `QueenMoved`
 
-Supersedure (moving the Hive Stand to another machine, codingrules 8.16) is a phase 13 step, so the
-Queen that sends a `control.queen_moved` is not built yet; the packet that honours one is. The
-packet:
+Supersedure (moving the Hive Stand to another machine, codingrules 8.16, ADR-0065) sends a
+`control.queen_moved` to every connected device once the new Queen is acknowledged, and a second
+one pointing back if the move is rolled back. The packet:
 
 1. **Persists the Queen's address** from enrolment and replaces it only on a `control.queen_moved`
    that the current Hive key verifies.
@@ -446,8 +446,11 @@ packet:
 3. **Pins the new node's key** (`new_node_public_key_hex` for `new_node_id`) and keeps the old Hive
    key as well. From `effective_at` it dials the new address. Until `grace_until` it accepts frames
    signed by either node and may dial either address.
-4. **Drops the old key and address at `grace_until`**, so the machine that stepped down keeps no
-   authority. A notice with `is_rollback` set points the packet back at the old Queen under the same
+4. **Pins the new certificate from the notice.** A `wss://` notice carries `new_tls_pin_sha256`
+   (protocol 1.16), and each address is dialled with its own pin: the new one for the new address,
+   the old one for the old address until the window closes.
+5. **Drops the old key, address and pin at `grace_until`**, so the machine that stepped down keeps
+   no authority. A notice with `is_rollback` set points the packet back at the old Queen under the same
    rules.
 
 The `QueenMoved` frame is subject to the ordinary rules before any of this: it is signed by a
@@ -462,7 +465,7 @@ trusted node, addressed to the packet, sent by the Queen, fresh and not a duplic
 | The device reports a Hive key mismatch | The invite came from a different Hive than the listener it reached | The accept is discarded | Use an invite from the Hive that owns that listener |
 | `pollen enrol` times out without an accept, yet `hive swarm list` shows the node, which never heartbeats | The accept was lost after the Queen redeemed the invite, so the device never persisted it | The invite is spent and the node exists but is `UNREACHABLE` | `hive swarm revoke` the node, then mint a new invite |
 | Frames are dropped though the link is up | The device's clock is more than `MAX_CLOCK_SKEW_S` (300 s) ahead of the Hive Stand's, or the sent time is older than `MAX_MESSAGE_AGE_S` | Both sides drop the frames silently (spec section 3) | Fix the device's clock |
-| The device disappears after a Supersedure | The new Hive Stand presents a different certificate than the pin | Pin mismatch on every dial | See section 9: the move must keep the certificate, or the device needs a new invite |
+| The device disappears after a Supersedure | It was offline for the whole grace window, so it never saw the `QueenMoved`, or the new listener presents a certificate other than the notice's pin | It keeps dialling the old address, or every dial fails the pin | Mint a new invite on the new Hive Stand (docs/runbooks/supersedure.md) |
 | An enrolled device's leases vanish after an outage | The link was down longer than `offline_limit_s` and no Warden is on the device | The dead-man switch released them (cause `DEAD_MAN`) and the Warden's work was re-placed | Nothing is wrong; see the gateway contract |
 
 ## 14. Trail events and error codes

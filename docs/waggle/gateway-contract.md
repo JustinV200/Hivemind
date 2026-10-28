@@ -406,7 +406,8 @@ gateway:
   gateway that starts no Warden keeps `watch_roots` and never reads them; the Python packet hands
   them to the Warden it starts, as `HIVEMIND_WATCH_ROOTS`, a JSON array of the paths.
 - **`control.queen_moved`**: enrolment.md section 12. The gateway replaces the Queen's address only
-  on a notice the current Hive key verifies, whose `sequence` is above the highest it has persisted.
+  on a notice the current Hive key verifies, whose `sequence` is above the highest it has persisted,
+  and dials a `wss://` address only with the pin that came with it (`new_tls_pin_sha256` from 1.16).
 - **`control.ping`**: answered with `control.pong` carrying the gateway's arrival time. The
   `version` of that envelope is how the peer learns the minor the gateway speaks.
 - **`control.error`** received: correlated to the request it answers and otherwise ignored, except

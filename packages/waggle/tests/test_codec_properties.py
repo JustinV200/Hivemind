@@ -101,9 +101,12 @@ def ids_of(kind: IdKind) -> st.SearchStrategy[str]:
 def queen_moves(draw: st.DrawFn) -> QueenMoved:
     """A QueenMoved whose grace_until never precedes effective_at."""
     effective_at = draw(aware_datetimes)
+    address = draw(addresses)
+    pin = draw(st.text(alphabet=HEX, min_size=64, max_size=64))
     return QueenMoved(
         sequence=draw(st.integers(min_value=1, max_value=10**6)),
-        new_address=draw(addresses),
+        new_address=address,
+        new_tls_pin_sha256=pin if address.startswith("wss://") else None,
         new_node_id=draw(ids_of(IdKind.NODE)),
         new_node_public_key_hex=draw(st.text(alphabet=HEX, min_size=64, max_size=64)),
         effective_at=effective_at,

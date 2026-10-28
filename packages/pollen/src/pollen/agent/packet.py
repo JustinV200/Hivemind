@@ -50,7 +50,7 @@ from pollen.agent.dispatch import Dispatcher
 from pollen.agent.heartbeat import Pulse, Sentinel, Timings
 from pollen.agent.leases import LeaseService
 from pollen.agent.link import Link, LiveVerifier
-from pollen.agent.moved import dial_plan
+from pollen.agent.moved import dial_plan, pin_for
 from pollen.agent.status import PacketStatus
 from pollen.bootstrap import WardenKeeper
 from pollen.errors import LinkLostError, PollenError, ProtocolMismatchError
@@ -251,9 +251,8 @@ class PollenPacket(TickLoop):
         state = parts.state.current
         failures: list[Exception] = []
         for url in dial_plan(state, self._clock.now()).urls:
-            # The pin belongs to a wss:// listener; a ws:// loopback address has none.
-            pin = state.tls_pin_sha256 if url.startswith("wss://") else None
-            link = Link(url, pin, parts.signer, parts.verifier, self._clock)
+            # Each address carries the pin it came with (ADR-0065); ws:// loopback has none.
+            link = Link(url, pin_for(state, url), parts.signer, parts.verifier, self._clock)
             try:
                 await link.connect()
             except (ConnectFailedError, TimeoutError) as error:

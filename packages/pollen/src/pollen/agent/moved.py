@@ -8,9 +8,11 @@ address from enrolment and replaces it only on a ``control.queen_moved`` that a 
 and whose ``sequence`` is above the highest it has persisted, so a replayed or older notice, a
 rollback included, can never redirect it. It pins the new node's key and keeps the old Hive key as
 well; from ``effective_at`` it dials the new address (the old one stays a fallback), and until
-``grace_until`` frames signed by either node are accepted. At ``grace_until`` the old key and
-address are dropped, so the machine that stepped down keeps no authority. A notice with
-``is_rollback`` set points the packet back at the old Queen under exactly the same rules.
+``grace_until`` frames signed by either node are accepted. Each address is dialled with its own
+certificate pin: the new one comes in the signed notice (protocol 1.16, ADR-0065), the old one is
+kept until the window closes. At ``grace_until`` the old key, address and pin are dropped, so the
+machine that stepped down keeps no authority. A notice with ``is_rollback`` set points the packet
+back at the old Queen under exactly the same rules.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Called by
@@ -23,7 +25,7 @@ Key invariants:
       ``moved_sequence``; otherwise nothing changes.
     - The pinned Hive key is always among the verifier's keys, and the accept's list can never
       override it.
-    - Nothing about the certificate pin changes: a notice carries no fingerprint.
+    - A certificate pin changes only through a signed notice, and only for its own address.
 
 See Also:
     - docs/waggle/enrolment.md section 12 (when the Hive Stand moves).
@@ -45,6 +47,7 @@ __all__ = [
     "accept_moved",
     "dial_plan",
     "hive_nodes",
+    "pin_for",
     "settle",
     "trusted_keys",
 ]
@@ -110,6 +113,7 @@ def settle(state: PacketState, now: datetime) -> PacketState:
             "queen_url": move.new_url,
             "hive_node_id": move.new_node_id,
             "hive_key_hex": move.new_key_hex,
+            "tls_pin_sha256": move.new_pin,
             "trusted_nodes": kept,
             "queen_move": None,
         }
@@ -134,6 +138,24 @@ def dial_plan(state: PacketState, now: datetime) -> DialPlan:
     return DialPlan((move.new_url, move.previous_url))
 
 
+def pin_for(state: PacketState, url: str) -> str | None:
+    """Return the certificate pin to dial ``url`` with: the pin that came with that address.
+
+    Args:
+        state: A settled state.
+        url: One of the addresses ``dial_plan`` returned.
+
+    Returns:
+        The SHA-256 pin, or None for a ``ws://`` loopback address.
+    """
+    move = state.queen_move
+    if move is not None and url == move.new_url:
+        return move.new_pin
+    if move is not None and url == move.previous_url:
+        return move.previous_pin
+    return state.tls_pin_sha256 if url.startswith("wss://") else None
+
+
 def accept_moved(
     state: PacketState, notice: QueenMoved, signer_node: str, now: datetime
 ) -> PacketState | None:
@@ -147,16 +169,16 @@ def accept_moved(
 
     Returns:
         The new state, or None when the notice is stale (its sequence is not above the highest
-        accepted), was not signed by a Hive node, would switch between a pinned ``wss://`` link
-        and a plain one, or names a node already trusted under another key.
+        accepted), was not signed by a Hive node, or names a node already trusted under another
+        key.
     """
     if notice.sequence <= state.moved_sequence or signer_node not in hive_nodes(state, now):
         return None
-    # The certificate pin cannot change with a notice, so the scheme must keep fitting it; and a
-    # node id already trusted keeps the key it has, so a notice cannot swap a key under a name.
-    if not _scheme_fits(state, notice) or _key_conflicts(state, notice):
+    # A node id already trusted keeps the key it has, so a notice cannot swap a key under a name.
+    # The new pin needs no check here: QueenMoved's own validator ties it to a wss:// address.
+    if _key_conflicts(state, notice):
         return None
-    url, node, key = _current_queen(state, now)
+    url, node, key, pin = _current_queen(state, now)
     move = QueenMove(
         sequence=notice.sequence,
         previous_url=url,
@@ -167,6 +189,8 @@ def accept_moved(
         new_key_hex=notice.new_node_public_key_hex,
         effective_at=notice.effective_at,
         grace_until=notice.grace_until,
+        previous_pin=pin,
+        new_pin=notice.new_tls_pin_sha256,
     )
     return state.model_copy(
         update={
@@ -175,11 +199,6 @@ def accept_moved(
             "trusted_nodes": _retrusted(state, notice, node),
         }
     )
-
-
-def _scheme_fits(state: PacketState, notice: QueenMoved) -> bool:
-    """Return whether the new address keeps the link's pinned-or-plain character."""
-    return notice.new_address.startswith("wss://") == (state.tls_pin_sha256 is not None)
 
 
 def _key_conflicts(state: PacketState, notice: QueenMoved) -> bool:
@@ -207,9 +226,9 @@ def _retrusted(state: PacketState, notice: QueenMoved, current_node: str) -> tup
     return tuple(kept)
 
 
-def _current_queen(state: PacketState, now: datetime) -> tuple[str, str, str]:
-    """Return the address, node and key of the Queen the packet treats as current right now."""
+def _current_queen(state: PacketState, now: datetime) -> tuple[str, str, str, str | None]:
+    """Return the address, node, key and pin of the Queen the packet treats as current now."""
     move = state.queen_move
     if move is not None and now >= move.effective_at:
-        return move.new_url, move.new_node_id, move.new_key_hex
-    return state.queen_url, state.hive_node_id, state.hive_key_hex
+        return move.new_url, move.new_node_id, move.new_key_hex, move.new_pin
+    return state.queen_url, state.hive_node_id, state.hive_key_hex, state.tls_pin_sha256

@@ -6,9 +6,9 @@ Hive borrows) the new address and node key (enrolment.md section 12). The packet
 notice a Hive node signed whose sequence is above the highest it has accepted, pins the new node's
 key beside the old one, dials the new address from ``effective_at`` (the old stays a fallback), and
 at ``grace_until`` forgets the old key and address entirely, so the machine that stepped down keeps
-no authority. A notice that would switch between a pinned ``wss://`` link and a plain one, or swap
-a key under a node already trusted, is refused. These rules are pure functions of a state and a
-time, tested directly with a fake clock.
+no authority. Each address is dialled with the certificate pin it came with, the new one from the
+notice itself (ADR-0065). A notice that would swap a key under a node already trusted is refused.
+These rules are pure functions of a state and a time, tested directly with a fake clock.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.agent.moved.
@@ -28,7 +28,7 @@ from datetime import timedelta
 import pytest
 from states import sample_state
 
-from pollen.agent import accept_moved, dial_plan, hive_nodes, settle, trusted_keys
+from pollen.agent import accept_moved, dial_plan, hive_nodes, pin_for, settle, trusted_keys
 from pollen.state import PacketState
 from waggle.clock import FakeClock
 from waggle.ids import NodeId, new_node_id
@@ -143,22 +143,17 @@ def test_a_notice_not_signed_by_a_hive_node_is_ignored() -> None:
     assert accept_moved(state, _notice(), stranger, CLOCK.now()) is None
 
 
-def test_a_notice_may_not_switch_between_a_pinned_link_and_a_plain_one() -> None:
-    plain = sample_state(CLOCK)
-    pinned = sample_state(CLOCK, queen_url="wss://hive.example.net:8720", tls_pin_sha256="ab" * 32)
-    assert (
-        accept_moved(
-            plain, _notice(new_address="wss://new.example.net:1"), plain.hive_node_id, CLOCK.now()
-        )
-        is None
-    )
-    assert (
-        accept_moved(pinned, _notice(new_address=NEW_URL), pinned.hive_node_id, CLOCK.now()) is None
-    )
-    ok = accept_moved(
-        pinned, _notice(new_address="wss://new.example.net:1"), pinned.hive_node_id, CLOCK.now()
-    )
-    assert ok is not None
+def test_each_address_is_dialled_with_its_own_pin_and_the_new_pin_survives_the_grace() -> None:
+    old_pin, new_pin, new_url = "ab" * 32, "cd" * 32, "wss://new.example.net:8720"
+    state = sample_state(CLOCK, queen_url="wss://hive.example.net:8720", tls_pin_sha256=old_pin)
+    moved = _accepted(state, _notice(new_address=new_url, new_tls_pin_sha256=new_pin))
+    during = CLOCK.now() + timedelta(minutes=2)
+    assert [pin_for(moved, url) for url in dial_plan(moved, during).urls] == [new_pin, old_pin]
+    settled = settle(moved, CLOCK.now() + timedelta(hours=1))
+    assert (settled.queen_url, settled.tls_pin_sha256) == (new_url, new_pin)
+    # Moving to a loopback ws:// address drops the pin with the old address.
+    back = _accepted(settled, _notice(2, new_address=NEW_URL))
+    assert settle(back, CLOCK.now() + timedelta(hours=2)).tls_pin_sha256 is None
 
 
 def test_a_notice_cannot_swap_the_key_of_a_node_that_is_already_trusted() -> None:

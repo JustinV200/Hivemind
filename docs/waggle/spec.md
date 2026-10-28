@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.15`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.16`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.15"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.16"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.15"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 15` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.16"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 16` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -273,6 +273,11 @@ validates every message a newer one sends it, as long as the sender honours the 
   asks for changes after her last round. Every field defaults (None, 0 or empty), so a peer below
   minor 15 still validates every message that leaves them unset; a sender uses none of them, nor
   the new Alarm kind, toward a peer that has not advertised minor 15.
+- **1.16** (additive): Supersedure (ADR-0065). `QueenMoved.new_tls_pin_sha256` carries the new
+  listener certificate's SHA-256, set exactly when `new_address` is `wss://` (validator), so a
+  device pins the new Hive Stand's certificate from the signed notice. It defaults to None, so a
+  `ws://` notice validates at every minor; a Queen sends a `wss://` notice only to a peer that has
+  advertised minor 16.
 
 ## 5. Wire format and size limit
 
@@ -2703,6 +2708,10 @@ Waggle.
   Pattern `^[0-9a-f]{64}$`. On accepting a notice the recipient pins it for `new_node_id`,
   treats it as the Hive key from `grace_until`, and drops the old key then, so the machine
   that steps down keeps no authority.
+- `new_tls_pin_sha256` (`str | None`): the SHA-256 of the new listener's certificate, hex,
+  pattern `^[0-9a-f]{64}$`. Required exactly when `new_address` is `wss://` (validator); the
+  recipient pins it for the new address in place of a CA and keeps the old pin for the old address
+  until `grace_until`. Default None. Protocol 1.16.
 - `effective_at` (`datetime`): when recipients start connecting to the new address.
 - `grace_until` (`datetime`): until when both addresses are honoured. At least `effective_at`
   (validator).

@@ -98,6 +98,7 @@ __all__ = [
 
 _MODEL_CONFIG = ConfigDict(frozen=True, extra="forbid")  # The same stance as every boundary model.
 _KeyHex = Annotated[str, Field(pattern=PUBLIC_KEY_HEX_PATTERN)]  # A raw Ed25519 public key, hex.
+_Pin = Annotated[str, Field(pattern=SHA256_HEX_PATTERN)]  # A listener certificate's SHA-256, hex.
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +191,13 @@ class QueenMove(BaseModel):
         description="When the packet starts dialling the new address."
     )
     grace_until: UtcDatetime = Field(description="Until when either address and key are honoured.")
+    previous_pin: _Pin | None = Field(
+        default=None, description="The old address's certificate pin; None for ws://."
+    )
+    new_pin: _Pin | None = Field(
+        default=None,
+        description="The new address's certificate pin, from the notice; None for ws://.",
+    )
 
 
 class InstallSettings(BaseModel):
