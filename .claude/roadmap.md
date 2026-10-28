@@ -3305,7 +3305,9 @@ lab devices, never on an enrolled device in daily use.
   transport ADR as a draft, accepted at 15.10's exit, before 15.11a); add
   Inspection, operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
   `cell.inspection_*` skeleton events), 15 and Appendix C (rows for the Inspection lifecycle, open,
-  Smoked, `CLOSING` (close requested, the operator lease not yet confirmed ended) and `ENDED`, in
+  Smoked, `CLOSING` (close requested, the operator lease not yet confirmed ended),
+  `ENDED_UNCONFIRMED` (ended by a grace, the dead-man switch or the fallback, awaiting the
+  device's word or a human revocation) and `ENDED`, in
   the Brood Chamber's `inspections` table; the Warden's
   `INSPECTED` mode, derived from those rows and re-sent on attach; the operator lease kind; and the
   Inspection row and the `smoked_by` mark as state that survives a Queen crash), and gateway-contract sections 6 (the `inspect.*`
@@ -3359,7 +3361,8 @@ lab devices, never on an enrolled device in daily use.
   or profile files, a clean, minimal environment and history off (`bash --noprofile --norc` with
   `HISTFILE=/dev/null` and `set +o history`, `zsh -f` with no `HISTFILE`, and on Windows in 15.3b
   PowerShell `-NoProfile` with PSReadLine's `-HistorySaveStyle SaveNothing` or without PSReadLine,
-  and `cmd /d`, which keeps no history file); window resize; the
+  and `cmd /d`, which keeps no history file); a default shell other than these four falls back to
+  `/bin/sh` with history off (fish, for one, would need `--private`); window resize; the
   process group recorded in the lease table before the first byte; the operator lease kind, exempt
   from left-as-found restore and named so on the trail; idle and hard timeouts; kill on release,
   Sting Cut and dead-man. The device-side opt-in lands here, with the executor, so no build of the
@@ -3480,7 +3483,7 @@ lab devices, never on an enrolled device in daily use.
   Scheduled Task, on macOS `launchctl submit`. That is accepted, and tied to the operator
   guidance: on a device or Cell that has hosted `FULL` leases, treat the session as observable
   and never type an elevation secret there. The gates key on two scopes. Any row on the Cell not
-  `ENDED` (open or `CLOSING`), `--alongside` ones included, keeps the Cell `INSPECTED`, refuses a
+  `ENDED` (open, `CLOSING` or `ENDED_UNCONFIRMED`), `--alongside` ones included, keeps the Cell `INSPECTED`, refuses a
   second Inspection of it and fails the Supersedure preflight. Only a row that Smoked and is not
   `ENDED` makes the Queen and the Warden refuse new dispatch to the Cell and new non-operator
   leases on it, and makes every `CellSession` kind (`LocalProcessSession`,
@@ -3494,19 +3497,25 @@ lab devices, never on an enrolled device in daily use.
   device, an `inspect.closed` or the operator lease's release report. `inspect.close` is
   idempotent: the device answers `inspect.closed` for an id it does not know or has already
   ended. `CLOSING` is bounded: if no confirmation arrives within `[inspection] close_confirm_s`
-  (default 60 s), the Queen sends a forced end of the operator lease only (its release, or a
-  `cell.lease_stop` with release), not a Sting Cut, so the Smoked leases and the Cell's isolation
+  (default 60 s), the Queen sends a forced end of the operator lease only (the operator lease's
+  release), not a Sting Cut, so the Smoked leases and the Cell's isolation
   are untouched, or drops the device's link. An end reached without the device's word (the link
   grace, the dead-man switch or this fallback, whose grace allows for the device noticing the lost
   link late: the heartbeat timeout plus `link_grace_s`) is marked `ENDED_UNCONFIRMED`. The device
   takes its `link_grace_s` from the signed open, so both sides agree on it, and its grace and
   dead-man timers count suspended time (`CLOCK_BOOTTIME` on Linux, the wall clock or
-  `mach_continuous_time` on macOS), so a laptop that sleeps through the grace wakes with its
-  shell already ended. After Requeening the timer starts when the new Queen starts. On every
-  reconnect of a device with a row not `ENDED` or `ENDED_UNCONFIRMED`, the Queen re-sends
-  `inspect.close` and the forced end before anything else, so a fast redial cannot keep the
-  timer running forever, and nothing is dispatched to or resumed on that Cell until the device
-  confirms. Only at a confirmed `ENDED` is `INSPECTED` lifted and do the tasks still marked `smoked_by` this Inspection
+  `mach_continuous_time` on macOS, `GetTickCount64` or the interrupt time with its bias on
+  Windows), so a laptop that sleeps through the grace wakes with its shell already ended. This
+  changes the existing dead-man clock (`pollen/lease/deadman.py`) for every lease, not only the
+  operator's. After Requeening the timer starts when the new Queen starts. On every
+  reconnect of a device with a row that is not `ENDED` (`ENDED_UNCONFIRMED` included), the Queen
+  re-sends `inspect.close` and the forced end before anything else, so a fast redial cannot keep
+  the timer running forever, and where that row Smoked, nothing is dispatched to or resumed on
+  the Cell until the device confirms. `ENDED_UNCONFIRMED` counts as not `ENDED` for every gate,
+  the second-Inspection refusal and the Supersedure preflight included. A device that never
+  comes back is resolved by the human: revoking or removing it, a loopback-only action that
+  needs the stand key, moves its rows to `ENDED`, clears their `smoked_by` marks and lets the
+  tasks be placed elsewhere. Only at a confirmed `ENDED` is `INSPECTED` lifted and do the tasks still marked `smoked_by` this Inspection
   resume, each from its Handoff on the same, still-open lease, and each mark is cleared
   in the same transaction as its resume; none resumes on a Cell that is `ISOLATED` or from a
   tainted Handoff, since isolation and its human-only lift take precedence
@@ -3584,7 +3593,9 @@ lab devices, never on an enrolled device in daily use.
   release report alone moves the row to `ENDED`; a device that never answers reaches
   `ENDED_UNCONFIRMED` through the `close_confirm_s` fallback, before and after a Queen restart,
   its Smoked tasks stay paused, and on its next reconnect the Queen re-sends the close and the
-  forced end, gets the confirmation and only then resumes them; the fallback leaves the Smoked
+  forced end, gets the confirmation and only then resumes them; revoking that device on
+  loopback with the stand key instead moves its row to `ENDED`, clears the marks and re-places
+  the tasks, and the same revocation from a remote device or without the key is refused; the fallback leaves the Smoked
   leases open and the Cell's isolation unchanged; a device that redials faster than
   `close_confirm_s` still has its operator lease ended; a laptop suspended across the grace
   wakes with no operator shell running beside the resumed bees; an `--alongside` Inspection in
