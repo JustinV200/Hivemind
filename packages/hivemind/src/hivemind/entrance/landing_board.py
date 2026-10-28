@@ -184,7 +184,7 @@ def _signing() -> dict[str, JsonValue]:
             "signature": "X-Hive-Signature",
             # Not signed, but a header a client must send: the loopback-only rows refuse without it.
             "stand": "X-Hive-Stand: this boot's stand key, on loopback-only operations only "
-            "(ADR-0067); it is not part of any signed string.",
+            "(ADR-0068); it is not part of any signed string.",
         },
         "strings": {
             ENROL_TAG: ["hive id", "invite code SHA-256 (hex)", "Ed25519 public key (hex)"],

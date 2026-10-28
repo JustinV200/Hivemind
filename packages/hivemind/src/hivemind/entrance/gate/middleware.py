@@ -8,7 +8,7 @@ foreign script in the Entrance's origin or frame it; ``LoopbackGate`` (loopback 
 answers a bare 403 to any request whose ``Host`` is not a loopback name on this listener's port or
 that carries a forwarding header, so no proxy or DNS-rebinding page can front the routes that
 approve devices, and to a request for a loopback-only row without this boot's stand key, so no
-Virtual Cell guest forwarded onto loopback reaches them either (ADR-0067); it also answers the
+Virtual Cell guest forwarded onto loopback reaches them either (ADR-0068); it also answers the
 stand link (``/stand?key=``) by setting the stand cookie for the Hive Stand's browser.
 ``AddressLimit`` holds every peer address to ``rate_limit_per_address``, unauthenticated routes
 and WebSocket handshakes included, and answers 429 past it; a request carrying the stand key is
@@ -34,7 +34,7 @@ See Also:
     - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never means
       the open internet" and "Browsers get nothing that can run foreign script".
     - hivemind.entrance.expose.loopback for the Host and forwarding-header rule and the stand key.
-    - docs/adr/0067-loopback-only-rows-need-the-stand-key.md for why loopback alone is not enough.
+    - docs/adr/0068-loopback-only-rows-need-the-stand-key.md for why loopback alone is not enough.
 """
 
 from __future__ import annotations

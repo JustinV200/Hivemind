@@ -10,7 +10,7 @@ row is mounted behind the gate's dependency for its declared access; every appli
 refusals through the gate's handlers, serves the committed OpenAPI document as a static file (the
 interactive documentation routes are off: they load script from a CDN) and the Observation Hive's
 build when it exists, and is wrapped, outermost first, in the security headers, the loopback check
-(loopback only: a loopback Host, no proxy, and the stand key for every loopback-only row, ADR-0067),
+(loopback only: a loopback Host, no proxy, and the stand key for every loopback-only row, ADR-0068),
 the per-address rate limit and the body limit (a mounted raw-body row, the voice route's clip, with
 its own allowance). CORS is allowed for ``public_url`` alone, on the remote listener alone, plus
 the Android WebView's pinned origin on both listeners when ``[entrance.android]`` is configured,

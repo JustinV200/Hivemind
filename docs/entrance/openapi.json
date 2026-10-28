@@ -15905,7 +15905,7 @@
       "authorization": "Authorization: Bearer <token>",
       "nonce": "X-Hive-Nonce",
       "signature": "X-Hive-Signature",
-      "stand": "X-Hive-Stand: this boot's stand key, on loopback-only operations only (ADR-0067); it is not part of any signed string.",
+      "stand": "X-Hive-Stand: this boot's stand key, on loopback-only operations only (ADR-0068); it is not part of any signed string.",
       "timestamp": "X-Hive-Timestamp"
     },
     "invite_code": {

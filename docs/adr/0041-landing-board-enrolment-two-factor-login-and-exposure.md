@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-24
-- Amended by: ADR-0067 (the loopback-only routes also need a per-boot stand key, because a Virtual
+- Amended by: ADR-0068 (the loopback-only routes also need a per-boot stand key, because a Virtual
   Cell's guest can reach the loopback listener)
 
 ## Context

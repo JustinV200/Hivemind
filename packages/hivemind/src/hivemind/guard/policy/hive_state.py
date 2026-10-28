@@ -10,7 +10,7 @@ name (its host-gateway alias, or its onion service from a Night Veil Cell, which
 up there), so the names a Cell reaches it by are state too, refused before any lookup. The files
 are the `[hive] db` SQLite file with its `-wal`, `-shm` and `-journal` siblings (a read of the WAL
 is a read of the database), its `.serve.json` serve record (it holds the stand key the
-loopback-only Entrance routes need, ADR-0067), and the manifest itself; the directories are the
+loopback-only Entrance routes need, ADR-0068), and the manifest itself; the directories are the
 `[hive] secrets_dir` secret store, everything under it included. Every path is kept in the one
 spelling the floor compares (`comparable_path`): POSIX separators, `..` and `.` collapsed, and case
 folded, so a path differing only in case or in its separators is still refused (refusing a

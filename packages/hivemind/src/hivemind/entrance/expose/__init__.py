@@ -42,7 +42,7 @@ Public API:
       name rules.
     - loopback_request_allowed: the loopback listener's Host and forwarding-header check.
     - mint_stand_key, stand_key_presented, STAND_HEADER, STAND_COOKIE, STAND_LINK_PATH: the
-      per-boot stand key the loopback-only rows need (ADR-0067).
+      per-boot stand key the loopback-only rows need (ADR-0068).
     - TunnelSupervisor, tunnel_environment: the supervised tunnel client.
     - HiveAuthority, load_or_create_authority, issue_client_certificate, issue_pkcs12,
       check_certificate_request, DeviceCertificate, DeviceBundle, build_crl, RevokedSerial,

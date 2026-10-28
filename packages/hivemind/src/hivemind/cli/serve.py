@@ -130,7 +130,7 @@ def _announce(entrance: HiveEntrance) -> None:
     listeners = entrance.listeners
     origin = f"http://localhost:{listeners.loopback_port}"
     typer.echo(f"Hive Entrance on {origin} (loopback)")
-    # The browser on the Hive Stand opens this once to administer devices (ADR-0067); a Cell
+    # The browser on the Hive Stand opens this once to administer devices (ADR-0068); a Cell
     # never sees this terminal, and the key changes with every serve.
     typer.echo(f"Hive Stand browser link: {origin}{STAND_LINK_PATH}?key={listeners.stand_key}")
     # The remote socket is bound before start returns, while uvicorn may still be finishing its

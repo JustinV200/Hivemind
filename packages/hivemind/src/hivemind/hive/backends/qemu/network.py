@@ -52,7 +52,7 @@ What each policy really enforces at the QEMU level, and what it does not:
     policy. The flip side, stated plainly: SLIRP maps `10.0.2.2` (and every unclaimed address in
     `10.0.2.0/24`) to the host's `127.0.0.1`, so the guest reaches *every* service on the host's
     loopback, from a peer of `127.0.0.1`, the Hive Entrance's loopback listener included. That is
-    why the Entrance's loopback-only routes need a stand key no Cell holds (ADR-0067):
+    why the Entrance's loopback-only routes need a stand key no Cell holds (ADR-0068):
     `-netdev user` documents no option to keep NAT and drop the mapping, and `restrict=on` drops
     NAT with it.
 

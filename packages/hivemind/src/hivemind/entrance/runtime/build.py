@@ -10,7 +10,7 @@ the socket really got shapes the loopback origin, relying party and Host check, 
 socket is bound first and the applications are built here, afterwards. Voice (roadmap step 10.5f)
 is handed in built, or not at all: with it, the voice route is mounted (``Switch.VOICE``) and the
 rate limiter carries each device's audio budget; without it, the route is never mounted. The
-listeners draw a fresh stand key per build (ADR-0067): the loopback application refuses every
+listeners draw a fresh stand key per build (ADR-0068): the loopback application refuses every
 loopback-only row without it, and ``hive serve`` publishes it on the Hive Stand alone.
 
 Fits into the Hive:

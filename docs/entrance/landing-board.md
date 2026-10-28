@@ -45,7 +45,7 @@ The Hive Entrance runs inside the Hive's own process on the **Hive Stand**, the 
   `127.0.0.1:8710`, and only software on the Hive Stand can reach it. It answers only requests whose
   `Host` names a loopback host on its own port. It refuses any request that carries a `Forwarded`,
   `Via`, `X-Real-IP`, `X-Forwarded-*` or `Tailscale-*` header with a bare `403`, which has no body.
-  A loopback-only operation also needs this boot's **stand key** (ADR-0067), or it gets the same
+  A loopback-only operation also needs this boot's **stand key** (ADR-0068), or it gets the same
   bare `403`: a Virtual Cell's guest can reach `127.0.0.1` through QEMU's or Docker Desktop's
   networking, so loopback alone does not prove the caller is on the Hive Stand. A program sends
   the key in an `X-Hive-Stand` header. It reads it from the `stand_key` field of the serve record,

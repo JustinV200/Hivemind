@@ -109,7 +109,7 @@ class EntranceListeners:
             remote: How to start the remote listener; None in loopback mode.
             clock: Paces the loopback listener's restart backoff.
         """
-        # The loopback-only rows' stand key (ADR-0067): per boot, for the Hive Stand, never a Cell.
+        # The loopback-only rows' stand key (ADR-0068): per boot, for the Hive Stand, never a Cell.
         self.stand_key = mint_stand_key()
         self._loopback_socket: socket.socket | None = loopback
         # Where the loopback door is rebound after a failure: the very address it first got.

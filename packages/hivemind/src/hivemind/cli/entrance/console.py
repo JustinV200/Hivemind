@@ -229,7 +229,7 @@ async def console_session(stand: Stand, clock: Clock) -> AsyncIterator[SignedIn]
     console_id = await _console_id(stand, signer, clock)
     address = entrance_address(record.origin)
     async with open_http(address) as http:
-        # The stand key: what tells the console apart from a Cell's guest on loopback (ADR-0067).
+        # The stand key: what tells the console apart from a Cell's guest on loopback (ADR-0068).
         http.headers[STAND_HEADER] = record.stand_key
         client = LandingClient(http, address, stand.manifest.hive.id, clock)
         async with signed_in(client, DeviceKey(console_id, signer), stand.password) as board:

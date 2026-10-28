@@ -3,7 +3,7 @@
 Every body is read whole before a route sees it, within ``MAX_BODY_BYTES``; a route that takes a
 raw body (the voice clip) declares its own allowance, which applies to that method and path alone.
 A loopback-only row needs this boot's stand key, in a header or the stand link's cookie, because
-a Virtual Cell's guest forwarded onto loopback is otherwise indistinguishable (ADR-0067).
+a Virtual Cell's guest forwarded onto loopback is otherwise indistinguishable (ADR-0068).
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/gate/middleware.py (codingrules section 3); its other wrappers
@@ -62,7 +62,7 @@ async def test_a_raw_body_row_is_still_bounded_by_its_own_allowance() -> None:
     assert refused.status_code == 413
 
 
-# The stand key's tests (ADR-0067). A Virtual Cell's guest reaches the loopback listener through
+# The stand key's tests (ADR-0068). A Virtual Cell's guest reaches the loopback listener through
 # QEMU's SLIRP host alias or Docker Desktop's host gateway: the forwarder connects from 127.0.0.1
 # and the guest writes a loopback Host itself, so these requests look exactly like the guest's.
 _PORT = 8710

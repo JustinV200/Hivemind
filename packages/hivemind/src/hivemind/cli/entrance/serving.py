@@ -12,7 +12,7 @@ operating system holds on ``<db>.serve.lock`` for as long as its holder's proces
 (``fcntl.flock`` on POSIX, ``msvcrt.locking`` on Windows), released by the kernel even when the
 holder is killed. ``hive serve`` holds it for its whole life and publishes the **serve record**
 (``<db>.serve.json``: its pid, its loopback listener's host and port, and this boot's stand key,
-which the loopback-only routes need, ADR-0067) once the listener serves: a file beside the
+which the loopback-only routes need, ADR-0068) once the listener serves: a file beside the
 database, which no Virtual Cell mounts, because the stand key is what tells the Hive Stand apart
 from a Cell's guest forwarded onto loopback;
 an offline operation holds the same lock for its duration, so neither can run beside the other.
@@ -102,7 +102,7 @@ class ServeRecord(BaseModel):
     host: str = Field(min_length=1, description="The loopback listener's host, as bound.")
     port: int = Field(ge=1, le=65_535, description="The loopback listener's port, as bound.")
     stand_key: str = Field(
-        min_length=1, repr=False, description="This boot's stand key (ADR-0067); never logged."
+        min_length=1, repr=False, description="This boot's stand key (ADR-0068); never logged."
     )
     started_at: datetime = Field(description="When the listener started serving.")
 

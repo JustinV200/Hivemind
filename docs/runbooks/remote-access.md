@@ -90,7 +90,7 @@ hive serve --manifest hive.toml
 `hive serve` runs the Queen, her Warden on the Hive Stand and the Entrance in one process, and
 prints where the loopback listener answers, plus a **Hive Stand browser link**
 (`http://localhost:<port>/stand?key=...`). The approval routes on loopback need that boot's stand
-key (ADR-0067), because a Virtual Cell can reach the Hive Stand's loopback too. The `hive entrance`
+key (ADR-0068), because a Virtual Cell can reach the Hive Stand's loopback too. The `hive entrance`
 commands read it on their own. To approve devices from a browser on the Hive Stand, open the link
 in it once after each start of `hive serve`; it sets a cookie and opens the Observation Hive. Treat
 the link like a password until the serve stops. The remote listener starts once the exposure check

@@ -1,4 +1,4 @@
-# ADR-0067: Loopback-only rows need a per-boot stand key, because a Virtual Cell's guest can reach loopback
+# ADR-0068: Loopback-only rows need a per-boot stand key, because a Virtual Cell's guest can reach loopback
 
 - Status: Accepted
 - Date: 2026-10-28

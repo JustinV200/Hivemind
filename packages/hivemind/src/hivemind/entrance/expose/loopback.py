@@ -16,7 +16,7 @@ runs, and a refusal is a plain 403 that says nothing about which part failed.
 Neither check tells a Virtual Cell's guest apart from the Hive Stand. QEMU's user networking maps
 its host alias (``10.0.2.2``) to the host's ``127.0.0.1``, and Docker Desktop's
 ``host.docker.internal`` is proxied by its backend, so the guest's connection arrives from
-``127.0.0.1`` with whatever loopback ``Host`` the guest wrote (ADR-0067). So the loopback-only
+``127.0.0.1`` with whatever loopback ``Host`` the guest wrote (ADR-0068). So the loopback-only
 rows also need the **stand key**: a random per-boot secret ``mint_stand_key`` draws, which only
 the Hive Stand holds (the serve record beside the database, which no Cell mounts, and the link
 ``hive serve`` prints). A program presents it in the ``X-Hive-Stand`` header; the Hive Stand's
@@ -39,7 +39,7 @@ See Also:
       requests whose Host is a loopback name or address".
     - .claude/codingrules.md section 8.15 ("the loopback listener refuses a non-loopback Host and
       any proxy-forwarding header").
-    - docs/adr/0067-loopback-only-rows-need-the-stand-key.md for why loopback is not enough.
+    - docs/adr/0068-loopback-only-rows-need-the-stand-key.md for why loopback is not enough.
 """
 
 from __future__ import annotations
