@@ -51,6 +51,10 @@ const REFUSED = [
   'POST /v1/cells/{cell_id}/isolate',
   'POST /v1/cells/{cell_id}/lift',
   'POST /v1/enrol/ed25519',
+  // Break-glass levers the operator pulls from the command line (`hive cells sting-cut`,
+  // `hive supersede`), never from a page.
+  'POST /v1/cells/{target}/sting-cut',
+  'POST /v1/hive/supersede',
 ];
 
 describe('write list', () => {
