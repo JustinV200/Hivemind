@@ -23,12 +23,14 @@ from builders.entrance.stand import serving_stand, set_password, stand_manifest
 
 from hivemind.cli.compose.entrance import ServedHive, build_served_hive, serve_hive
 from hivemind.cli.entrance import (
+    RECORD_SUFFIX,
     HiveBusyError,
     ServeRecord,
     hold_serve_lock,
     publish_serve_record,
     read_serve_record,
 )
+from hivemind.guard.policy.hive_state import SERVE_RECORD_SUFFIX
 from hivemind.manifest import load_manifest
 from waggle.clock import SystemClock
 
@@ -122,3 +124,8 @@ def _db(manifest_path: Path) -> Path:
     """The Hive's database file, as the manifest names it."""
     manifest = load_manifest(manifest_path, {})
     return manifest.resolve_path(manifest.hive.db)
+
+
+def test_the_bee_floor_names_the_very_serve_record_hive_serve_writes() -> None:
+    # The guard cannot import the CLI, so it keeps its own copy; drift would unguard the stand key.
+    assert SERVE_RECORD_SUFFIX == RECORD_SUFFIX
