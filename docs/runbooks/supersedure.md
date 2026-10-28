@@ -57,7 +57,10 @@ then returns. The move runs on:
    `queen.superseded`, acknowledges the candidate (who records her own `queen.superseded` and
    lifts her hold), and only then sends a signed `QueenMoved` to every device. It carries the new
    address, the new listener's TLS pin and a grace window during which devices honour both
-   addresses. The old Queen's loop ends.
+   addresses. The old Queen's loop ends, but her process does not: stop `hive serve` on the old
+   machine once the new Queen has the Hive. Until you do, the old address still answers, so a
+   candidate whose acknowledgement was lost stays held, and a device that falls back to the old
+   address during the window reaches a listener with no Queen behind it.
 5. **The new Queen finishes Requeening.** Wardens and devices redial her. Every task the old Hive
    Stand held is placed afresh from its newest Handoff; paused bees resume. One
    `queen.requeened` follows.
@@ -70,7 +73,8 @@ machine. Each machine's trail ends up with exactly one outcome for this Supersed
 If the copy fails, or the candidate has not recorded `queen.supersedure_ready` by the grace
 deadline, the old Queen rolls back on her own. She records `queen.supersedure_aborted` (with the
 cause: `COPY_FAILED` or `NOT_READY`), tells the candidate to discard its copy, returns to
-`CLUSTERED`, resumes every provider and bee, and sends a `QueenMoved` pointing every device back
+`CLUSTERED`, resumes every provider the freeze clustered (one that was already down before the
+move stays clustered until its health probe answers), and sends a `QueenMoved` pointing every device back
 at herself, with a higher sequence than any notice before. Your goals carry on where they paused.
 
 If the candidate was unreachable when the old Queen rolled back, it never heard the discard. Its

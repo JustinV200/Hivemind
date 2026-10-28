@@ -2869,8 +2869,10 @@ borrowed device and revoking every grant.
   candidate's `PollenSession`, run `hive restore` and `hive serve` there, read its secret names,
   key and clock), so a real Hive has no `SupersedureWiring` and both commands refuse; Wardens and
   Virtual Cells honouring `QueenMoved` (only the Pollen Packet does); pushing the new address to
-  enrolled phones; enrolling the old machine as a Swarm node in `WATCH` is the operator's
-  (`hive swarm invite`). The exit run onto a Nuc is the operator's once those land.
+  enrolled phones; a `SUPERSEDED` Queen's process closing its Swarm gate and listener on its own
+  (today her loop ends and the operator stops `hive serve`; until then `old_address` answers, so a
+  candidate whose acknowledgement was lost stays held); enrolling the old machine as a Swarm node in
+  `WATCH` is the operator's (`hive swarm invite`). The exit run onto a Nuc is the operator's once those land.
 - [x] **13.3 Swarming policy.** `queen/scheduler/swarming.py`: pure policy for provisioning more
   Virtual Cells from queue depth and Forage headroom, per-backend limits, cost caps.
   **Built 2026-10-27** (ADR-0063). `plan_swarm` (no `hivemind` import; the autopilot import

@@ -50,15 +50,19 @@ nothing and does not settle, and records `queen.supersedure_ready` once. The old
 that marker over the session until the grace deadline. On it she moves `SUPERSEDING ->
 SUPERSEDED`, records `queen.superseded` in her own trail, acknowledges the candidate (which records
 its own `queen.superseded`, lifting the hold), and only then sends `QueenMoved` (the next sequence,
-effective now, both addresses honoured for the grace window) to every device link. Then she stops.
+effective now, both addresses honoured for the grace window) to every device link. Then her loop
+stops. Her process (the Swarm gate and its Waggle listener) stays up until the operator stops
+`hive serve` there: until then `old_address` still answers, so a candidate whose acknowledgement
+was lost stays held, and a device falling back to the old address meets no Queen.
 Acknowledging before announcing keeps the session to the candidate usable until the end, and means
 no device is ever pointed at a Queen that has not been acknowledged.
 
 **Rollback (`rollback.py`).** If the candidate is not ready by the grace deadline, or the copy
-fails, the old Queen moves `SUPERSEDING -> CLUSTERED`, resumes every provider she clustered, tells
-the candidate to discard (best effort; it records `queen.supersedure_aborted`), sends a
-`QueenMoved` pointing back at herself with the next sequence, and records
-`queen.supersedure_aborted`. Since every notice's sequence is strictly higher, a device that never
+fails, the old Queen first records `queen.supersedure_aborted` (so a restart finds the outcome),
+tells the candidate to discard (best effort; it records `queen.supersedure_aborted`), moves
+`SUPERSEDING -> CLUSTERED`, resumes every provider the freeze itself clustered (one an outage
+clustered stays for the health probe), and sends a `QueenMoved` pointing back at herself with the
+next sequence. Since every notice's sequence is strictly higher, a device that never
 saw the move just keeps its address, and one that did is pointed back.
 
 **Never two Queens, as data in each trail (`record.py`, `gate.py`).** On every start the
