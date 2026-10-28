@@ -33,7 +33,7 @@ import pytest
 from executor_kit import Kit, make_kit
 from runtime_kit import STUB_VERSION, fake_runtime, kill_group, wait_for_file
 
-from pollen.bootstrap import BootstrapTimings, WardenKeeper, warden_environment
+from pollen.bootstrap import BootstrapTimings, WardenKeeper, operator_screen, warden_environment
 from pollen.errors import ColonizeFailedError, StateError
 from pollen.platform.base import PlatformShim, ProcessRef, stop_group
 from pollen.state import InstallSettings, PacketState, StateStore, WardenRecord
@@ -395,3 +395,25 @@ def test_the_directories_the_warden_is_to_watch_are_one_json_array_set_only_when
 
     assert json.loads(with_roots["HIVEMIND_WATCH_ROOTS"]) == list(roots)  # Any path survives.
     assert "HIVEMIND_WATCH_ROOTS" not in without  # A device with none named starts as it did.
+
+
+@pytest.mark.parametrize(
+    ("manifest", "lent"),
+    [
+        ("[hive_stand]\nexoskeleton_real_display = true\n", True),
+        ("[hive_stand]\nexoskeleton_real_display = false\n", False),
+        ('[hive_stand]\nexoskeleton_real_display = "true"\n', False),  # Only a literal true.
+        ("[hive_stand]\n", False),
+        ("not toml [", False),
+    ],
+)
+def test_the_warden_sees_the_operators_screen_only_when_the_manifest_lends_it(
+    tmp_path: Path, manifest: str, lent: bool
+) -> None:
+    path = tmp_path / "device.toml"
+    path.write_text(manifest, encoding="utf-8")
+    screen = {"DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0"}
+
+    given = operator_screen(path, {**screen, "PATH": "/usr/bin"})
+
+    assert given == (screen if lent else {})

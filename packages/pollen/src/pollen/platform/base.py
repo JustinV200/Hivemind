@@ -70,7 +70,7 @@ LOG_TO_FILE_OPTION = "--log-to-file"
 # Variables that make a child interpreter use the packet's libraries instead of its own.
 _INTERPRETER_VARIABLES = frozenset({"PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "PYTHONSTARTUP"})
 # Variables that point a GUI program at the operator's own screen (X11 and Wayland).
-_DISPLAY_VARIABLES = frozenset({"DISPLAY", "WAYLAND_DISPLAY"})
+DISPLAY_VARIABLES = frozenset({"DISPLAY", "WAYLAND_DISPLAY"})
 # What a single-file build's bootloader changes for its children, and where it keeps the original.
 _LOADER_VARIABLES = ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBPATH")
 # PyInstaller's documented switch (6.9 and later; the build pins its version) for a single-file
@@ -80,6 +80,7 @@ _FROZEN_RESET = "PYINSTALLER_RESET_ENVIRONMENT"
 __all__ = [
     "COMMAND_TIMEOUT_S",
     "COMMAND_UNAVAILABLE",
+    "DISPLAY_VARIABLES",
     "EXIT_NO_RESTART",
     "GROUP_POLL_S",
     "GROUP_REAP_WAIT_S",
@@ -213,12 +214,14 @@ def child_environment(base: Mapping[str, str]) -> dict[str, str]:
     """
     # Headless by default: a program the packet starts never inherits the operator's screen. A
     # lease's own display (the Exoskeleton's private Xvfb) arrives in the request's variables,
-    # which are laid over this. A real-display grant (``real_display_allowed``, false in every
-    # report pollen.executors.info makes today) is where the device's own values would be passed
-    # through again, for that lease's programs only. XDG_RUNTIME_DIR stays: programs need it for
-    # more than a display, and a Wayland client still finds the default socket there
-    # (docs/waggle/gateway-contract.md section 11 states that limit).
-    dropped = _INTERPRETER_VARIABLES | _DISPLAY_VARIABLES
+    # which are laid over this. The one program given them back is the on-device Warden, and only
+    # when the device manifest lends it the operator's screen (``[hive_stand]
+    # exoskeleton_real_display``; pollen.bootstrap.warden.operator_screen). A lease's programs,
+    # which the packet starts itself, never are: ``real_display_allowed`` is false in every report
+    # pollen.executors.info makes today, and a grant for them would hook in here. XDG_RUNTIME_DIR
+    # stays: programs need it for more than a display, and a Wayland client still finds the
+    # default socket there (docs/waggle/gateway-contract.md section 11 states that limit).
+    dropped = _INTERPRETER_VARIABLES | DISPLAY_VARIABLES
     env = {name: value for name, value in base.items() if name not in dropped}
     # A single-file build points the dynamic loader at the libraries it unpacked and keeps the
     # original value in NAME_ORIG; a system program started with the unpacked ones can fail to

@@ -49,6 +49,8 @@ import contextlib
 import json
 import logging
 import os
+import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
@@ -57,6 +59,7 @@ from pollen.bootstrap.runtime import REAP_WAIT_S, entry_point, installed_version
 from pollen.errors import ColonizeFailedError
 from pollen.executors.base import ExecutorDeps
 from pollen.platform.base import (
+    DISPLAY_VARIABLES,
     PlatformShim,
     ProcessRef,
     SpawnSpec,
@@ -81,6 +84,7 @@ __all__ = [
     "WATCH_INTERVAL_S",
     "BootstrapTimings",
     "WardenKeeper",
+    "operator_screen",
     "stop_recorded",
     "warden_environment",
 ]
@@ -137,6 +141,32 @@ def warden_environment(
     return env
 
 
+def operator_screen(manifest: Path, env: Mapping[str, str]) -> dict[str, str]:
+    """Return the packet's DISPLAY and WAYLAND_DISPLAY if the device manifest lends the screen.
+
+    Every program the packet starts loses these (``child_environment``), so nothing it runs can
+    appear on the operator's screen unless the operator asked: here, by setting ``[hive_stand]
+    exoskeleton_real_display = true`` in the manifest recorded at install.
+
+    Args:
+        manifest: The device manifest the operator recorded.
+        env: The packet's own environment, which holds the screen's variables if any.
+
+    Returns:
+        The screen's variables to give the Warden back; empty when the manifest does not lend
+        it or cannot be read (the Warden then reports the manifest itself).
+    """
+    try:
+        document = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return {}
+    section = document.get("hive_stand")
+    # Only a literal true lends it: the operator's screen is never driven by a mistyped value.
+    if not isinstance(section, dict) or section.get("exoskeleton_real_display") is not True:
+        return {}
+    return {name: env[name] for name in DISPLAY_VARIABLES if name in env}
+
+
 class WardenKeeper:
     """Owns the on-device Warden's process: starts it, withdraws it and notices its death.
 
@@ -190,6 +220,7 @@ class WardenKeeper:
         if url.startswith("wss://") and state.tls_pin_sha256 is None:
             raise ColonizeFailedError("The packet holds no certificate pin for a wss:// listener.")
         env = warden_environment(state, deps.layout.key, deps.layout.warden_state, url, manifest)
+        env.update(operator_screen(manifest, os.environ))
         record = await self._spawn(env, version)
         await self._settle(record)
         return record

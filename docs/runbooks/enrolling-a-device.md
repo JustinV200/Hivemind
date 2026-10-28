@@ -80,10 +80,13 @@ running with nobody logged in.
 The packet works out of sight so it never interrupts whoever is using the device. On Windows the
 Scheduled Task starts it under a console host with no window (`conhost.exe --headless`), so nothing
 appears at login, and it writes its log to `packet.log` in the data directory
-(`%LOCALAPPDATA%\pollen`) instead. Every console program a command runs gets a console with no
-window. On Linux and macOS a command's program does not inherit `DISPLAY` or `WAYLAND_DISPLAY`, so
-it cannot draw on your screen by accident (a Wayland program can still find the desktop's default
-socket through `XDG_RUNTIME_DIR`, which programs need for more than a display). Nothing is hidden
+(`%LOCALAPPDATA%\pollen`) instead. `conhost.exe --headless` needs Windows 10 1809 or later. Every
+console program a command runs gets a console with no window. On Linux and macOS a command's
+program does not inherit `DISPLAY` or `WAYLAND_DISPLAY`, so it cannot draw on your screen by
+accident (a Wayland program can still find the desktop's default socket through `XDG_RUNTIME_DIR`,
+which programs need for more than a display). A colonized device's Warden gets them only when the
+device manifest you recorded with `--warden-manifest` sets `[hive_stand] exoskeleton_real_display
+= true`, which lends it your own screen; otherwise it never sees it either. Nothing is hidden
 from you: every command is still on the Pheromone Trail, in the Observation Hive and in `pollen
 status`. Two limits remain. A GUI program a command deliberately launches still appears; bees are
 expected not to do that on a Real Cell. And a UAC prompt always shows, because Windows puts it on

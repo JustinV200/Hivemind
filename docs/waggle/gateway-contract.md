@@ -495,7 +495,10 @@ implements them exactly, because a Warden does not know which kind of Cell it is
   console host with no window, logging to a file in its data directory. A program it starts does
   not inherit `DISPLAY` or `WAYLAND_DISPLAY`; a lease's own display (the Exoskeleton's private
   Xvfb) comes in the request's `env`, and a future real-display grant is where the device's own
-  values would be passed through again. `XDG_RUNTIME_DIR` is kept, so a Wayland client can still
+  values would be passed through again for a lease. The Python packet's on-device Warden gets them
+  back only when the device manifest sets `[hive_stand] exoskeleton_real_display = true`, the
+  operator's own choice to lend the screen. The console host with no window needs Windows 10 1809
+  or later. `XDG_RUNTIME_DIR` is kept, so a Wayland client can still
   find the compositor's default socket there. A GUI program a command deliberately launches still
   appears, and a Windows UAC prompt always shows.
 - **Signals on Windows.** A break event reaches only a process sharing the gateway's console, which
