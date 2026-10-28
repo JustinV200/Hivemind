@@ -29,11 +29,13 @@ Public API:
     - child_environment: what a program the packet starts inherits; a frozen build's unpacked
       library path is not part of it.
     - EXIT_NO_RESTART: the exit status that tells a service manager not to restart the packet.
+    - LOG_TO_FILE_OPTION: ``pollen run``'s switch for a log file, which a windowless service uses.
     - LinuxShim, MacOsShim, WindowsShim: the three implementations.
 """
 
 from pollen.platform.base import (
     EXIT_NO_RESTART,
+    LOG_TO_FILE_OPTION,
     CommandResult,
     PlatformFacts,
     PlatformShim,
@@ -51,6 +53,7 @@ from pollen.platform.windows import WindowsShim
 
 __all__ = [
     "EXIT_NO_RESTART",
+    "LOG_TO_FILE_OPTION",
     "CommandResult",
     "LinuxShim",
     "MacOsShim",

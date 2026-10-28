@@ -7,13 +7,13 @@ packet itself, the loop the service manager keeps alive; ``pollen install`` sets
 login and records, for the colonization step, the operator's chosen source for the Hive
 runtime (``--runtime-wheelhouse`` or ``--runtime-index``, never both), the interpreter to build it
 with (``--runtime-python``) and the device's local Warden manifest; ``pollen uninstall`` removes
-the service unit that install wrote and stops the Warden the packet started, if one runs; ``pollen
-status`` says what the packet is doing and on which rung of the runtime ladder the device is;
-``pollen version`` prints the versions. The data directory is ``--data-dir``, else
-``POLLEN_DATA_DIR``, else the platform's default, and this module is the only place that reads that
-variable. It reads no ``HIVEMIND_*`` variable. This is the one module in pollen allowed to print:
-the output is for the operator at a terminal and carries ids, counts and sentences, never a key, a
-token or the invite.
+the service unit that install wrote, ends the packet if that left it running, and stops the Warden
+the packet started, if one runs; ``pollen status`` says what the packet is doing and on which
+rung of the runtime ladder the device is; ``pollen version`` prints the versions. The data
+directory is ``--data-dir``, else ``POLLEN_DATA_DIR``, else the platform's default, and this
+module is the only place that reads that variable. It reads no ``HIVEMIND_*`` variable. This is
+the one module in pollen allowed to print: the output is for the operator at a terminal and
+carries ids, counts and sentences, never a key, a token or the invite.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. The entry point named in the
@@ -24,8 +24,8 @@ Key invariants:
     - Exit status 0 means done; 1 means failed; 78 (``EXIT_NO_RESTART``) means the packet stopped
       for a reason a restart cannot fix, so the service manager must not restart it.
     - Nothing here prints or logs the invite string, the token, the key or an argument value.
-    - ``uninstall`` removes the service unit and ends the packet's own Warden; nothing else of
-      the operator's is touched, and the data directory stays.
+    - ``uninstall`` removes the service unit and ends this data directory's packet and its own
+      Warden; nothing else of the operator's is touched, and the data directory stays.
 
 See Also:
     - docs/waggle/enrolment.md for the ceremony ``enrol`` runs.
@@ -44,6 +44,7 @@ import signal
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import FrameType
 
@@ -57,6 +58,7 @@ from pollen.errors import NotEnrolledError, PollenError, ProtocolMismatchError
 from pollen.executors.info import runtime_version
 from pollen.platform import (
     EXIT_NO_RESTART,
+    LOG_TO_FILE_OPTION,
     PlatformShim,
     ProcessRef,
     ServicePlan,
@@ -69,6 +71,9 @@ from waggle.envelope import PROTOCOL_VERSION
 from waggle.messages.swarm import RuntimeLevel
 
 SHUTDOWN_WAIT_S = 20.0  # How long a stop waits for the packet to finish before cancelling it.
+PACKET_END_WAIT_S = 10.0  # How long uninstall waits for a packet the service left running to end.
+LOG_FILE_BYTES = 1_000_000  # A log file is rolled over at this size; one old file is kept.
+LOG_FILE_NAME = "packet.log"  # In the data directory, for ``pollen run --log-to-file``.
 STATUS_FRESH_S = 120.0  # A status document older than this was left by a packet no longer running.
 DATA_DIR_VARIABLE = "POLLEN_DATA_DIR"  # The one environment variable pollen reads.
 INDEX_PATTERN = re.compile(r"https?://\S+")  # A package index URL: http(s), no whitespace.
@@ -193,6 +198,13 @@ def _enrol_arguments(verb: argparse.ArgumentParser) -> None:
     verb.add_argument("--force", action="store_true", help="Enrol again over an enrolment.")
 
 
+def _run_arguments(verb: argparse.ArgumentParser) -> None:
+    """Add the log file switch the Windows task starts ``pollen run`` with."""
+    verb.add_argument(
+        LOG_TO_FILE_OPTION, action="store_true", help="Log to packet.log in the data directory."
+    )
+
+
 def _install_arguments(verb: argparse.ArgumentParser) -> None:
     """Add the runtime source and the Warden manifest to ``pollen install``."""
     source = verb.add_mutually_exclusive_group()
@@ -216,6 +228,7 @@ _VERBS = {
 }
 _EXTRA_ARGUMENTS: dict[str, Callable[[argparse.ArgumentParser], None]] = {
     "enrol": _enrol_arguments,
+    "run": _run_arguments,
     "install": _install_arguments,
 }
 
@@ -266,8 +279,14 @@ def _enrol(args: argparse.Namespace) -> int:
 def _run(args: argparse.Namespace) -> int:
     """``pollen run``: the packet, until a signal stops it."""
     layout, shim = _context(args)
+    # A service whose output nobody reads (the Windows task's windowless console) asks for a file.
+    handler: logging.Handler = (
+        RotatingFileHandler(layout.root / LOG_FILE_NAME, maxBytes=LOG_FILE_BYTES, backupCount=1)
+        if args.log_to_file
+        else logging.StreamHandler(sys.stderr)
+    )
     logging.basicConfig(
-        stream=sys.stderr,
+        handlers=[handler],
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
@@ -338,9 +357,28 @@ def _uninstall(args: argparse.Namespace) -> int:
     layout, shim = _context(args)
     result = shim.uninstall_service()
     print(result.detail)
+    _end_packet(layout)
     status = asyncio.run(_withdraw_warden(layout, shim))
     print("The data directory was left in place; delete it yourself to forget the enrolment.")
     return status
+
+
+def _end_packet(layout: DataLayout) -> None:
+    """End the packet still running for this data directory, so uninstalling leaves none.
+
+    Ending the Windows task ends the windowless console host it started, not the packet below
+    it; elsewhere the service manager has already stopped it and there is nothing to find.
+    """
+    status = read_status(layout.status)
+    if status is None:
+        return
+    with contextlib.suppress(psutil.Error):  # Gone already, or not ours to end.
+        packet = psutil.Process(status.pid)
+        argv = packet.cmdline()
+        # Only this data directory's packet: a recycled pid runs something else.
+        if packet.pid != os.getpid() and "run" in argv and str(layout.root) in argv:
+            packet.terminate()
+            packet.wait(PACKET_END_WAIT_S)
 
 
 async def _withdraw_warden(layout: DataLayout, shim: PlatformShim) -> int:

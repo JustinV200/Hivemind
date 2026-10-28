@@ -18,6 +18,8 @@ Key invariants:
       made for, so a recycled pid never reaches another exec's job.
     - A job's handle is closed once it holds no running process; a job that is not in the table
       (the packet restarted, or another process asks) is reported as unknown, never as empty.
+    - The console host Windows starts for a program with no window joins that program's job and
+      outlives it by a moment; it never counts as a running member.
     - Nothing here builds a command or reads request text.
 
 See Also:
@@ -42,6 +44,9 @@ SUSPENDED_FLAG = 0x00000004 if sys.platform == "win32" else 0
 _PROCESS_SET_QUOTA = 0x0100  # Access AssignProcessToJobObject needs on the process handle.
 _PROCESS_TERMINATE = 0x0001  # ...and this one, too, per its documentation.
 _BASIC_ACCOUNTING = 1  # JobObjectBasicAccountingInformation, the class that counts live members.
+_PROCESS_ID_LIST = 3  # JobObjectBasicProcessIdList, the class that names them.
+_LISTED_MAX = 256  # A job with more members than this is not named, only counted.
+_CONSOLE_HOST = "conhost.exe"  # The host of a windowless console, which ends with its programs.
 _KILLED_EXIT_CODE = 1  # What every process a job ends exits with, as taskkill /F gives it.
 _CREATE_TIME_TOLERANCE_S = 1.0  # As the shims': psutil's creation time is stable per process.
 
@@ -60,6 +65,16 @@ class _Accounting(ctypes.Structure):
         ("TotalProcesses", ctypes.c_ulong),
         ("ActiveProcesses", ctypes.c_ulong),  # Members that have not ended yet.
         ("TotalTerminatedProcesses", ctypes.c_ulong),
+    ]
+
+
+class _IdList(ctypes.Structure):
+    """JOBOBJECT_BASIC_PROCESS_ID_LIST with room for _LISTED_MAX ids."""
+
+    _fields_ = [
+        ("NumberOfAssignedProcesses", ctypes.c_ulong),
+        ("NumberOfProcessIdsInList", ctypes.c_ulong),
+        ("ProcessIdList", ctypes.c_size_t * _LISTED_MAX),
     ]
 
 
@@ -122,7 +137,7 @@ class JobTable:
         job = self._find(ref)
         if job is None:
             return None
-        if _active_processes(job.handle) > 0:
+        if _busy(job.handle):
             return True
         # Empty for good: no process can join a job whose members have all ended.
         self._jobs.remove(job)
@@ -216,6 +231,30 @@ def _active_processes(job: int) -> int:
     ):
         return 1  # Unreadable: keep the lease's record, the safe answer for a later release.
     return int(info.ActiveProcesses)
+
+
+def _busy(job: int) -> bool:
+    """Say whether a member of ``job`` other than a console host runs; True if it cannot tell.
+
+    A program started with no window gets a console host of its own, inside its job, that ends a
+    few milliseconds after the program; counting it would keep a finished exec recorded.
+    """
+    ids = _IdList()
+    # SAFETY: a side-effect-free query into a struct sized by ctypes itself.
+    if not _kernel32().QueryInformationJobObject(
+        job, _PROCESS_ID_LIST, ctypes.byref(ids), ctypes.sizeof(ids), None
+    ):
+        return _active_processes(job) > 0  # Too many members to name: count them instead.
+    listed = ids.ProcessIdList[: ids.NumberOfProcessIdsInList]
+    return any(not _is_console_host(pid) for pid in listed)
+
+
+def _is_console_host(pid: int) -> bool:
+    """Say whether ``pid`` is a console host, or has ended (neither is a member that runs)."""
+    try:
+        return bool(psutil.Process(pid).name().lower() == _CONSOLE_HOST)
+    except psutil.Error:
+        return True
 
 
 def _terminate(job: int) -> bool:

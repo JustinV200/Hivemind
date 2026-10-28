@@ -10,7 +10,8 @@ after a grace that the caller may lengthen (a lease's program gets a short one, 
 Warden, which has a lease to give back, a long one), so a program's children never outlive it;
 ``own_interpreter`` offers the running interpreter as one to build a runtime with;
 ``child_environment`` is the environment every program the packet starts inherits, which in a
-single-file build must not carry the loader path of the libraries the build unpacked for itself.
+single-file build must not carry the loader path of the libraries the build unpacked for itself,
+and never the operator's screen (DISPLAY, WAYLAND_DISPLAY).
 Most of these tests run real programs; the length of the grace is checked against a group that
 never leaves.
 
@@ -20,6 +21,7 @@ Fits into the Hive:
 Key invariants:
     - A command that cannot run is a status of 127, never an exception.
     - A program started by a frozen packet sees the device's own loader path, never the packet's.
+    - A program the packet starts inherits no DISPLAY or WAYLAND_DISPLAY.
     - A stopped group has no live member afterwards, even one that ignored the polite signal.
     - A graceful stop waits the grace it is given and not longer than a group takes to leave.
 
@@ -83,10 +85,14 @@ def test_a_service_command_in_a_frozen_build_runs_with_the_devices_loader_path(
     assert run_command([sys.executable, "-c", code]).output == "/opt/lib"
 
 
-def test_a_child_does_not_inherit_the_variables_that_point_at_the_packets_libraries() -> None:
+def test_a_child_inherits_neither_the_packets_libraries_nor_the_operators_screen() -> None:
     base = {"PATH": "/usr/bin", "PYTHONPATH": "/x", "PYTHONHOME": "/y", "VIRTUAL_ENV": "/v"}
+    screen = {"DISPLAY": ":0", "WAYLAND_DISPLAY": "wayland-0", "XDG_RUNTIME_DIR": "/run/user/1"}
 
-    assert child_environment(base) == {"PATH": "/usr/bin"}
+    assert child_environment(base | screen) == {
+        "PATH": "/usr/bin",
+        "XDG_RUNTIME_DIR": "/run/user/1",  # Kept: programs need it for more than a display.
+    }
 
 
 def test_a_frozen_builds_loader_paths_are_put_back_for_a_system_program(

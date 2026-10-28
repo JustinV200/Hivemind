@@ -16,6 +16,9 @@ Key invariants:
     - A job ends everything in it, a child its leader left behind included.
     - A tree with no job here is ended with ``taskkill /T`` (forced with ``/F``), and only the pid
       the lease started.
+    - A program gets a console with no window unless it shares the packet's (the Warden); an
+      INTERRUPT or TERMINATE that no break event can reach still ends the program, by force.
+    - The Scheduled Task runs the packet under a console host with no window, logging to a file.
     - A virtual environment's programs are ``.exe`` files under ``Scripts``.
 
 See Also:
@@ -35,6 +38,8 @@ import pytest
 from pollen.platform import CommandResult, ProcessRef, ServicePlan, SpawnSpec, WindowsShim
 from pollen.platform.windows import TASK_NAME
 from waggle.messages.session import ProcessSignal
+
+NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW, which only Windows' subprocess module defines.
 
 
 class Schtasks:
@@ -78,14 +83,20 @@ def test_a_virtual_environment_keeps_its_programs_in_scripts(tmp_path: Path) -> 
     )
 
 
-def test_install_creates_and_starts_the_scheduled_task(tmp_path: Path) -> None:
+def test_install_creates_and_starts_a_windowless_scheduled_task(tmp_path: Path) -> None:
     runner = Schtasks()
     plan = ServicePlan(("C:\\Python\\python.exe", "-m", "pollen", "run"), tmp_path)
-    result = WindowsShim(tmp_path, {}, runner).install_service(plan)
+    env = {"SYSTEMROOT": "D:\\Win"}
+    result = WindowsShim(tmp_path, env, runner).install_service(plan)
     assert result.is_active and result.unit_path is None
     create, run = runner.calls
     assert create[:5] == ("schtasks", "/Create", "/TN", TASK_NAME, "/TR")
-    assert "-m pollen run" in create[5] and create[6:] == ("/SC", "ONLOGON", "/F")
+    # A console host with no window runs the packet, which logs to a file nobody has to watch.
+    assert create[5] == (
+        "D:\\Win\\System32\\conhost.exe --headless C:\\Python\\python.exe -m pollen run "
+        "--log-to-file"
+    )
+    assert create[6:] == ("/SC", "ONLOGON", "/F")
     assert run == ("schtasks", "/Run", "/TN", TASK_NAME)
 
 
@@ -117,6 +128,26 @@ def test_the_facts_describe_a_windows_desktop(tmp_path: Path) -> None:
         True,
         "C:\\Windows\\cmd.exe",
     )
+
+
+@pytest.mark.parametrize(("shares_console", "windowless"), [(False, True), (True, False)])
+async def test_a_program_gets_a_console_with_no_window_unless_it_shares_the_packets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shares_console: bool, windowless: bool
+) -> None:
+    flags: list[int] = []
+
+    async def record(*_argv: str, creationflags: int, **_kwargs: object) -> object:
+        flags.append(creationflags)
+        return object()
+
+    monkeypatch.setattr("pollen.platform.windows.asyncio.create_subprocess_exec", record)
+    monkeypatch.setattr("pollen.platform.windows.SUSPENDED_FLAG", 0)  # No job for a fake.
+    monkeypatch.setattr("pollen.platform.windows._NO_WINDOW", NO_WINDOW)  # 0 off Windows.
+    spec = SpawnSpec(("cmd",), tmp_path, {}, None, None, None, shares_console=shares_console)
+
+    await WindowsShim(tmp_path, {}, Schtasks()).spawn(spec)
+
+    assert bool(flags[0] & NO_WINDOW) is windowless
 
 
 async def _reap(process: asyncio.subprocess.Process) -> None:
@@ -181,76 +212,53 @@ async def test_a_recycled_pid_is_not_alive_and_an_unknown_one_has_no_creation_ti
     assert shim.process_ref(2**22 + 5) == ProcessRef(2**22 + 5, 0.0)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the break event is a signal on this host")
-async def test_an_interrupt_is_delivered_as_the_hosts_break_event(tmp_path: Path) -> None:
-    shim = WindowsShim(tmp_path, {}, Schtasks())
-    process = await _spawn(
-        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
-    )
-    assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.INTERRUPT) is True
-    await _reap(process)
-    assert process.returncode != 0
+_POLITE = ("taskkill", "/T", "/PID", "7")
+_FORCED = ("taskkill", "/T", "/F", "/PID", "7")
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the break event is a signal on this host")
-async def test_an_interrupt_with_nobody_to_receive_it_reports_nothing_sent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("signal_", "tree", "expected"),
+    [
+        # tree: (attached to the packet's console, a job held here); expected: (taskkill calls,
+        # break events, job kills). The Warden shares the packet's console: a break reaches it.
+        (ProcessSignal.INTERRUPT, (True, True), ([], 1, 0)),
+        (ProcessSignal.TERMINATE, (True, True), ([_POLITE], 1, 0)),
+        # A windowless program has a console of its own: no break reaches it, so it is forced.
+        (ProcessSignal.INTERRUPT, (False, True), ([_POLITE], 0, 1)),
+        (ProcessSignal.TERMINATE, (False, False), ([_POLITE, _FORCED], 0, 0)),
+    ],
+)
+def test_interrupt_and_terminate_end_a_console_program_a_break_cannot_reach(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    signal_: ProcessSignal,
+    tree: tuple[bool, bool],
+    expected: tuple[list[tuple[str, ...]], int, int],
 ) -> None:
-    shim = WindowsShim(tmp_path, {}, Schtasks())
-    process = await _spawn(
-        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
-    )
+    reaches_console, holds_job = tree
+    ran: list[tuple[str, ...]] = []
+    sent: list[int] = []
+    killed: list[ProcessRef] = []
 
-    def refuse(_pid: int, _signal: int) -> None:
-        raise ProcessLookupError
+    def taskkill(argv: Sequence[str]) -> CommandResult:
+        ran.append(tuple(argv))
+        # A console program has no window for a polite taskkill to close; only /F succeeds.
+        return CommandResult(0 if "/F" in argv else 1, "")
 
-    try:
-        with monkeypatch.context() as patch:
-            patch.setattr("pollen.platform.windows.os.kill", refuse)
-            assert (
-                shim.signal_group(shim.process_ref(process.pid), ProcessSignal.INTERRUPT) is False
-            )
-    finally:
-        process.kill()
-        await _reap(process)
+    def job_kill(ref: ProcessRef) -> bool | None:
+        if not holds_job:
+            return None  # No job here: the shim falls back to taskkill /F.
+        killed.append(ref)
+        return True
 
+    shim = WindowsShim(tmp_path, {}, taskkill)
+    monkeypatch.setattr(shim, "group_alive", lambda _ref: True)
+    monkeypatch.setattr(shim._jobs, "kill", job_kill)
+    monkeypatch.setattr("pollen.platform.windows._on_our_console", lambda _pid: reaches_console)
+    monkeypatch.setattr("pollen.platform.windows.os.kill", lambda _pid, sig: sent.append(sig))
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the break event is a signal on this host")
-async def test_a_terminate_taskkill_cannot_end_asks_with_the_break_event(tmp_path: Path) -> None:
-    # A console program has no window for a polite taskkill to close, so taskkill refuses it.
-    runner = Schtasks(failing=frozenset({"taskkill"}))
-    shim = WindowsShim(tmp_path, {}, runner)
-    process = await _spawn(
-        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
-    )
-
-    assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.TERMINATE) is True
-
-    await _reap(process)
-    assert runner.calls == [("taskkill", "/T", "/PID", str(process.pid))]
-    assert process.returncode != 0
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="the break event is a signal on this host")
-async def test_a_terminate_neither_taskkill_nor_a_break_can_deliver_reports_nothing_sent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))
-    process = await _spawn(
-        shim, "import time; print('ready', flush=True); time.sleep(60)", tmp_path
-    )
-
-    def refuse(_pid: int, _signal: int) -> None:
-        raise ProcessLookupError
-
-    try:
-        with monkeypatch.context() as patch:
-            patch.setattr("pollen.platform.windows.os.kill", refuse)
-            ref = shim.process_ref(process.pid)
-            assert shim.signal_group(ref, ProcessSignal.TERMINATE) is False
-    finally:
-        process.kill()
-        await _reap(process)
+    assert shim.signal_group(ProcessRef(7, 1.0), signal_) is True
+    assert (ran, len(sent), len(killed)) == expected
 
 
 async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_break(
