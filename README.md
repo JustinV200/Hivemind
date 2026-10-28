@@ -4,7 +4,7 @@
 
 **A super-agent orchestrator that puts real devices and spun-up virtual machines under one roof, equips either with full virtual peripherals when a task calls for it, delegates work to supervised subagents, builds its own tools, keeps its knowledge outside any one context window, and runs it all from one central brain that behaves like an operating system.**
 
-> Status: early-stage / architecture & design phase. Nothing here is stable yet; this README describes the target system. The build order lives in [`.claude/roadmap.md`](.claude/roadmap.md) and the code standard in [`.claude/codingrules.md`](.claude/codingrules.md).
+> Status: pre-1.0. Most of roadmap phases 0 to 13 is built, a few steps are still open, and the Brood 1.0 release work is under way, so expect things to still move. The build order lives in [`.claude/roadmap.md`](.claude/roadmap.md) and the code standard in [`.claude/codingrules.md`](.claude/codingrules.md).
 
 ---
 ## The first response of the first working drone:
@@ -388,7 +388,7 @@ flowchart TB
 
 ## Proposed stack
 
-Decisions so far, recorded in detail in [`.claude/codingrules.md`](.claude/codingrules.md) and as ADRs under `docs/adr/` once the repository is scaffolded:
+Decisions so far, recorded in detail in [`.claude/codingrules.md`](.claude/codingrules.md) and as ADRs under [`docs/adr/`](docs/adr/README.md):
 
 - **Python 3.12+** in a `uv` workspace of three packages: `waggle` (the protocol), `hivemind` (the Queen and every subsystem), and `pollen` (the device gateway, which depends only on `waggle`).
 - **Provider-agnostic LLM layer.** Anthropic Claude is the first adapter; an OpenAI-compatible adapter covers locally served models (Ollama, vLLM, llama.cpp, LM Studio). Slots are mapped to providers in the manifest, so moving a bee to a local model is a config change.
@@ -398,7 +398,7 @@ Decisions so far, recorded in detail in [`.claude/codingrules.md`](.claude/codin
 - **Ubuntu LTS (24.04) Virtual Cell images**, for containers and QEMU alike: reliable, open, well documented, with cloud images and cloud-init ready-made.
 - **Docker Desktop (WSL2) first, QEMU second** for Virtual Cells; cloud providers later. The development host is Windows 11 Home, which has no Hyper-V, and the Hive Stand is a Real Cell from the first milestone so nothing blocks on a hypervisor.
 - **Linux Cells** for the Exoskeleton's native peripherals (Xvfb, xdotool, PulseAudio) with a Playwright fast path for browser work that also serves Windows and macOS Real Cells.
-- **One HTTP door.** The Hive Entrance on FastAPI or Starlette (ADR pending), OpenAPI generated from the route models, loopback always, remote access over a VPN overlay by default with LAN and tunnel modes behind mutual TLS. Devices are enrolled at the Hive Stand and log in with passkeys or signed challenges plus the operator's password; the Observation Hive is a static app the Entrance serves, and every other client uses the same routes.
+- **One HTTP door.** The Hive Entrance on FastAPI (ADR-0040), OpenAPI generated from the route models, loopback always, remote access over a VPN overlay by default with LAN and tunnel modes behind mutual TLS. Devices are enrolled at the Hive Stand and log in with passkeys or signed challenges plus the operator's password; the Observation Hive is a static app the Entrance serves, and every other client uses the same routes.
 
 ---
 
@@ -428,7 +428,101 @@ The full build order, with steps, exit criteria and the decisions each phase mus
 
 ## Getting Started
 
-This project is in the design phase; implementation hasn't started yet. This section will cover setup, dependencies, and standing up your first Hive via the `hive` CLI once the Queen kernel lands. The first goal will run on your own machine as the Hive Stand, with either a hosted model or a local one, and no container runtime required.
+The first goal runs on your own machine, which becomes the Hive Stand, with no Docker needed. You pick a model provider, write a manifest with `hive init`, check it with `hive doctor`, and run a goal. Docker Desktop and your phone come after that, once the basics work.
+
+### 1. Install uv and get the code
+
+HiveMind is a Python 3.12 workspace managed by [uv](https://docs.astral.sh/uv/), and uv fetches Python for you if you don't have it.
+
+- Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+- Ubuntu, Arch or macOS: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+Then clone the repo and install everything into one virtual environment:
+
+```
+git clone https://github.com/JustinV200/Hivemind.git
+cd Hivemind
+uv sync
+```
+
+Every command below runs from the repo root as `uv run hive ...`.
+
+### 2. Choose a provider and write the manifest
+
+`hive init` writes `hive.toml` in the current folder with fresh ids, every model slot bound, and the Hive Stand turned on. Then it asks you to set the operator password, which you need later for the Entrance and anything break-glass. Pick one path.
+
+A hosted model (Anthropic). Get an API key, put it in the environment as `HIVEMIND_ANTHROPIC_API_KEY`, then:
+
+```
+uv run hive init --provider anthropic
+```
+
+A local model with Ollama. Install [Ollama](https://ollama.com), pull a chat model and an embedding model, then point the manifest at them:
+
+```
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
+uv run hive init --provider ollama --model qwen2.5:7b --embed-model nomic-embed-text
+```
+
+Any other server that speaks the OpenAI API (LM Studio, vLLM, llama.cpp) works the same way with `--provider openai-compatible --base-url http://127.0.0.1:1234/v1 --model <id>`. A server on this machine sets `offline = true`, so nothing leaves it. A small local model needs its capabilities described honestly, and [`docs/manifests/local.toml`](docs/manifests/local.toml) shows how.
+
+`hive.toml` holds your Hive's identity and is ignored by git. [`docs/manifests/full.toml`](docs/manifests/full.toml) documents every section you can add to it.
+
+### 3. Check the machine
+
+```
+uv run hive doctor --manifest hive.toml
+```
+
+It checks the scratch folder, that every provider answers, that every slot's model is there, Forage, sqlite-vec and the escalation policy, in the order you'd fix them. Each line is PASSED, WARNED, FAILED or SKIPPED, and only a FAILED needs fixing before you go on.
+
+### 4. Run a goal
+
+```
+uv run hive run "write three short haiku about bees, each to its own file named haiku_1.txt, haiku_2.txt and haiku_3.txt, then confirm the three files exist" --manifest hive.toml --timeout 900
+```
+
+The Queen plans the goal, a Warden on your machine runs a Drone in its own scratch folder, every file write goes through the Capping gate, and the trail streams by as it happens. It exits 0 when the goal succeeds. A local model can be slow, which is what the long timeout is for. `uv run hive trail tail --manifest hive.toml` shows the trail again afterwards.
+
+### 5. Add Docker Desktop for Virtual Cells
+
+A Virtual Cell is a container the Hive makes for a task and throws away after. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (on Windows it runs on WSL2), then install the Docker extra and build the base image:
+
+```
+uv sync --extra docker
+docker build -f images/base-ubuntu/Dockerfile -t hivemind/base-ubuntu:dev .
+```
+
+Add this to `hive.toml` so placement prefers a container:
+
+```toml
+[virtual_cells]
+backend = "docker"
+default_image = "hivemind/base-ubuntu:dev"
+listen_host = "0.0.0.0"
+
+[placement]
+prefer = "virtual"
+```
+
+`listen_host` has to be an address a container can reach, since every Cell dials out to the Queen and nothing dials into a Cell. A local model server has to be reachable from the container too, so start Ollama with `OLLAMA_HOST=0.0.0.0`. Run `hive doctor` again, then the same haiku goal. This time the trail shows a Cell being provisioned, and the Cell's own Warden running the Drone. When the task ends the Cell is released and kept dormant for a while, so the next task on that image starts faster, and `hive cells inspect <cell id>` shows its state.
+
+### 6. Reach the Hive from your phone
+
+The Hive Entrance always listens on loopback. To reach it from your phone you expose it over a VPN, Tailscale by default, and enrol the phone as a device. [`docs/runbooks/remote-access.md`](docs/runbooks/remote-access.md) walks through it, and the short version is:
+
+1. Put the Hive Stand and the phone on the same tailnet, get a certificate with `tailscale cert`, and add an `[entrance]` section with `expose = "vpn"`.
+2. Check it with `uv run hive entrance expose --manifest hive.toml`.
+3. Build the Observation Hive once (`pnpm install` and `pnpm build` in `packages/observation-web`), then start the Hive with `uv run hive serve --manifest hive.toml`.
+4. Mint an invite with `uv run hive entrance invite --device phone --manifest hive.toml` and scan its QR code with the phone. The phone makes a passkey.
+5. Approve it on the Hive Stand with `uv run hive entrance approve <device id> --spend-cap 5 --manifest hive.toml`, after checking the fingerprint matches.
+
+Then log in on the phone with the passkey and the operator password, and type or speak a goal. Speaking needs the transcriber slot bound to Whisper: `uv sync --extra whisper` and the `whisper_local` provider in `full.toml`.
+
+### Where to go next
+
+The [runbooks](docs/runbooks/README.md) cover the rest: enrolling more machines into the Swarm, Nucs, Clustering, Wardens and Alarms, backups, Requeening and Supersedure. [`docs/security.md`](docs/security.md) is the security model.
 
 ---
 
