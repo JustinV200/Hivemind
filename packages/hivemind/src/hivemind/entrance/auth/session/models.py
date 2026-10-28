@@ -124,10 +124,13 @@ class Arrival:
         listener: The listener it arrived on.
         address: The peer address the listener reported, as given (it keys the per-address rate
             limit); ``trail_address`` is what the trail may carry.
+        stand: Whether it carried this boot's stand key (ADR-0068): only the Hive Stand holds it,
+            so a loopback arrival without it may be a Virtual Cell's guest. Always False remotely.
     """
 
     listener: Listener
     address: str
+    stand: bool = False
 
     @property
     def trail_address(self) -> str:

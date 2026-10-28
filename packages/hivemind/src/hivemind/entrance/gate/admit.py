@@ -49,6 +49,7 @@ from hivemind.entrance.gate.errors import (
     RateLimitedError,
     StepUpRequiredError,
 )
+from hivemind.entrance.gate.middleware import STAND_SCOPE_KEY
 from hivemind.entrance.gate.services import (
     EntranceServices,
     ListenerDeps,
@@ -159,20 +160,22 @@ def current_arrival(
     Returns:
         The listener and the peer address.
     """
-    return arrival_of(request.client.host if request.client else None, here.listener)
+    host = request.client.host if request.client else None
+    return arrival_of(host, here.listener, stand=bool(request.scope.get(STAND_SCOPE_KEY)))
 
 
-def arrival_of(host: str | None, listener: Listener) -> Arrival:
+def arrival_of(host: str | None, listener: Listener, *, stand: bool = False) -> Arrival:
     """Build an Arrival from the peer address the server reported.
 
     Args:
         host: The peer's address, or None when the server could not name it.
         listener: The listener it arrived on.
+        stand: Whether the loopback gate saw this boot's stand key on it (ADR-0068).
 
     Returns:
         The Arrival.
     """
-    return Arrival(listener, host or UNKNOWN_ADDRESS)
+    return Arrival(listener, host or UNKNOWN_ADDRESS, stand)
 
 
 async def police(services: EntranceServices, caller: Caller, access: Access) -> None:
@@ -230,7 +233,8 @@ async def _admit(
     """Authenticate the request exactly as it arrived, then police it."""
     scope = request.scope
     raw_path = scope.get("raw_path")
-    arrival = arrival_of(request.client.host if request.client else None, here.listener)
+    host = request.client.host if request.client else None
+    arrival = arrival_of(host, here.listener, stand=bool(scope.get(STAND_SCOPE_KEY)))
     signed = SignedRequest(
         method=request.method,
         # The path and query exactly as sent: what the client signed, percent-encoding untouched.

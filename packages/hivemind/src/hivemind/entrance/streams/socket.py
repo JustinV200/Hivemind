@@ -47,6 +47,7 @@ from hivemind.entrance.gate.errors import (
     RateLimitedError,
     StepUpRequiredError,
 )
+from hivemind.entrance.gate.middleware import STAND_SCOPE_KEY
 from hivemind.entrance.gate.services import EntranceServices, ListenerDeps
 from hivemind.entrance.gate.spec import Access
 from hivemind.entrance.streams.errors import CloseReason
@@ -156,7 +157,8 @@ async def _hello(
     websocket: WebSocket, access: Access, services: EntranceServices, here: ListenerDeps
 ) -> Caller | None:
     """Read and check the first frame; close the socket and return None when it fails."""
-    arrival = arrival_of(websocket.client.host if websocket.client else None, here.listener)
+    host = websocket.client.host if websocket.client else None
+    arrival = arrival_of(host, here.listener, stand=bool(websocket.scope.get(STAND_SCOPE_KEY)))
     try:
         # ADR-0041: a socket that has not authenticated within the deadline is closed.
         async with asyncio.timeout(services.streams.hello_deadline_s):

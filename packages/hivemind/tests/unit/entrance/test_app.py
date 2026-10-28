@@ -20,13 +20,13 @@ from pathlib import Path
 
 import httpx
 import pytest
-from builders.entrance.auth import PASSWORD
 from builders.entrance.landing import LandingClient
 from builders.entrance.serving import (
     PUBLIC_ORIGIN,
     RIG_SECTION,
     ProgramGrant,
     RigOptions,
+    ServingRig,
     serving,
 )
 
@@ -294,24 +294,57 @@ async def test_an_address_past_its_rate_is_answered_429_before_any_route() -> No
     assert last.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
 
 
+def _guest(rig: ServingRig, holds_stand_key: bool) -> LandingClient:
+    """A client on loopback as a Virtual Cell's guest arrives, or the Hive Stand with the key.
+
+    A guest reaches the loopback listener through QEMU's SLIRP host alias or Docker Desktop's host
+    gateway: the forwarder connects from 127.0.0.1 and the guest writes a loopback Host itself, so
+    neither tells it apart. Only the stand key, which never enters a Cell, does (ADR-0068).
+    """
+    headers = {"Host": f"localhost:{rig.entrance.listeners.loopback_port}"}
+    if holds_stand_key:
+        headers[STAND_HEADER] = rig.entrance.listeners.stand_key
+    http = httpx.AsyncClient(base_url=rig.loopback_url, headers=headers, timeout=5.0)
+    rig.http.append(http)
+    return LandingClient(http, rig.hive_id, rig.clock)
+
+
 @pytest.mark.parametrize("holds_stand_key", [False, True])
-async def test_a_loopback_only_row_needs_the_stand_key_even_with_both_login_factors(
+async def test_a_loopback_only_row_needs_the_stand_key_even_inside_a_console_session(
     holds_stand_key: bool,
 ) -> None:
-    # A Virtual Cell guest reaches the loopback listener through QEMU's SLIRP host alias or Docker
-    # Desktop's host gateway: the forwarder connects from 127.0.0.1 and the guest writes a
-    # loopback Host itself, so neither tells it apart. Worst case: it also holds the console's
-    # key and the password. Only the stand key, which never enters a Cell, keeps it out.
+    # Worst case: the guest rides a console session the Hive Stand opened (both factors held).
     async with serving() as rig:
-        port = rig.entrance.listeners.loopback_port
-        headers = {"Host": f"localhost:{port}"}
-        guest = httpx.AsyncClient(base_url=rig.loopback_url, headers=headers, timeout=5.0)
-        rig.http.append(guest)
-        if holds_stand_key:
-            guest.headers[STAND_HEADER] = rig.entrance.listeners.stand_key
-        client = LandingClient(guest, rig.hive_id, rig.clock)
-        session = await client.login(rig.console, PASSWORD)  # An L+R row: open to both.
+        _, session = await rig.console_session()
 
-        minted = await client.call(session, "POST", "/v1/entrance/invites", {"label": "x"})
+        minted = await _guest(rig, holds_stand_key).call(
+            session, "POST", "/v1/entrance/invites", {"label": "x"}
+        )
 
     assert minted.status_code == (201 if holds_stand_key else 403)
+
+
+@pytest.mark.parametrize("holds_stand_key", [False, True])
+@pytest.mark.parametrize("case", ["console", "any device while reduced"])
+async def test_a_loopback_login_as_the_console_or_while_reduced_needs_the_stand_key(
+    case: str, holds_stand_key: bool
+) -> None:
+    # Both factors held: without the stand key a guest still may not open the console's session,
+    # nor any session while the Entrance is reduced to the Hive Stand.
+    async with serving() as rig:
+        key = rig.console
+        if case == "any device while reduced":
+            _, program = await rig.program()
+            key = program.key
+            console, session = await rig.console_session()
+            reduced = await console.call(session, "POST", "/v1/entrance/reduce")
+            assert reduced.status_code == 200, reduced.text
+
+        try:
+            await _guest(rig, holds_stand_key).login(key)
+            opened = True
+        except httpx.HTTPStatusError as refused:
+            assert refused.response.status_code == 401
+            opened = False
+
+    assert opened is holds_stand_key

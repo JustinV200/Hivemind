@@ -86,7 +86,8 @@ REMOTE_ORIGIN = "https://hive.example.ts.net"  # The remote listener's public_ur
 REMOTE_RELYING_PARTY = RelyingParty(
     id="hive.example.ts.net", name="HiveMind", origins=(REMOTE_ORIGIN,)
 )
-LOOPBACK = Arrival(Listener.LOOPBACK, "127.0.0.1")  # A request on the Hive Stand itself.
+# A request on the Hive Stand itself: loopback, with the stand key only it holds (ADR-0068).
+LOOPBACK = Arrival(Listener.LOOPBACK, "127.0.0.1", stand=True)
 REMOTE = Arrival(Listener.REMOTE, ADDRESS)  # A request from the overlay.
 SESSION_RULES = SessionRules(
     ttl=timedelta(hours=12),

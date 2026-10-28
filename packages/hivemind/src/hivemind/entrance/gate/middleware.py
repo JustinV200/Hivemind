@@ -66,7 +66,7 @@ _TOO_SLOW = 408  # A body that did not arrive in time.
 MAX_BODY_BYTES = 262_144  # 256 KiB: every Landing Board body is small JSON (a held one is 64 KiB).
 BODY_READ_TIMEOUT_S = 30.0  # A small body arrives in well under a second; this is a stalled one.
 _POLICY_VIOLATION = 1008  # RFC 6455: a WebSocket refused for policy (sent before accepting).
-_STAND_SCOPE_KEY = "hivemind.entrance.stand"  # True in the scope when the stand key came along.
+STAND_SCOPE_KEY = "hivemind.entrance.stand"  # True in the scope when the stand key came along.
 _STAND_BUCKET = "stand:"  # Prefixes a stand-key holder's address: its own rate bucket.
 # A loopback-only row as the gate matches it before routing: its method and its compiled path.
 StandRow = tuple[str, re.Pattern[str]]
@@ -75,6 +75,7 @@ __all__ = [
     "BODY_READ_TIMEOUT_S",
     "CONTENT_SECURITY_POLICY",
     "MAX_BODY_BYTES",
+    "STAND_SCOPE_KEY",
     "AddressLimit",
     "BodyLimit",
     "LoopbackGate",
@@ -142,7 +143,7 @@ class LoopbackGate:
         if not presented and self._stand_only(scope):
             await _refuse(scope, send, _FORBIDDEN)
             return
-        await self._app({**scope, _STAND_SCOPE_KEY: presented}, receive, send)
+        await self._app({**scope, STAND_SCOPE_KEY: presented}, receive, send)
 
     def _stand_only(self, scope: Scope) -> bool:
         """Return whether the request names a loopback-only row (a socket never does)."""
@@ -171,7 +172,7 @@ class AddressLimit:
         client = scope.get("client")
         address = str(client[0]) if client else ""
         # The stand key's holder is the operator: a guest on the same address cannot exhaust it.
-        if scope.get(_STAND_SCOPE_KEY):
+        if scope.get(STAND_SCOPE_KEY):
             address = _STAND_BUCKET + address
         if self._limiter.allow_address(address):
             await self._app(scope, receive, send)

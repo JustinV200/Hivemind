@@ -120,7 +120,6 @@ async def test_2_unauthenticated_pending_locked_and_revoked_requests_are_refused
     laptop = laptop_terminal(tmp_path / "laptop")
 
     async with serving_stand(path) as (stand, _entrance):
-        strangers = await _unauthenticated(stand)
         device_id = await _enrol(stand, laptop)
         pending = await _inbox(laptop)
         await stand.entrance("approve", device_id, "--spend-cap", "5", "--yes")
@@ -132,6 +131,10 @@ async def test_2_unauthenticated_pending_locked_and_revoked_requests_are_refused
         reopened = await _inbox(laptop)
         revoked = await stand.entrance("revoke", device_id)
         after = await _inbox(laptop)
+        # Last: two forged requests make the Guard Bee reduce the Entrance, after which only the
+        # Hive Stand itself (the stand key) may log in on loopback (ADR-0068), so the laptop's
+        # steps above, which stand in for a remote device over loopback, must come first.
+        strangers = await _unauthenticated(stand)
 
     assert strangers == {"no credentials": 401, "stolen token": 401, "signed": 200, "replay": 401}
     assert pending.exit_code == 1 and AUTHENTICATION_CODE in pending.output

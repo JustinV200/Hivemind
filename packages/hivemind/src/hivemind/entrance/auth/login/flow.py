@@ -175,21 +175,25 @@ async def login_refusal(
 
     Returns:
         ``DEVICE`` for an unknown, unapproved or lapsed device (or a passkey whose relying party
-        the Entrance does not serve), ``LISTENER`` for the console on the remote listener,
-        ``REDUCED`` for a remote login while the Entrance is reduced, or None.
+        the Entrance does not serve), ``LISTENER`` for the console anywhere but the Hive Stand
+        itself, ``REDUCED`` for a login while the Entrance is reduced from anywhere but the Hive
+        Stand itself, or None. "The Hive Stand itself" is a loopback arrival carrying the stand
+        key (ADR-0068): a Virtual Cell's guest reaches loopback too, but never holds the key.
     """
     now = deps.records.clock.now()
     if device is None or device.status is not DeviceStatus.APPROVED:
         return FailureReason.DEVICE
     if device.expires_at is not None and device.expires_at <= now:
         return FailureReason.DEVICE
-    # ADR-0041: the console's sessions open only on the loopback listener.
-    if device.loopback_bound and arrival.listener is Listener.REMOTE:
+    on_stand = arrival.listener is Listener.LOOPBACK and arrival.stand
+    # ADR-0041: the console's sessions open only on the Hive Stand (ADR-0068: with the stand key).
+    if device.loopback_bound and not on_stand:
         return FailureReason.LISTENER
     if device.key_kind is KeyKind.PASSKEY and deps.ceremony.relying_party(device.rp_id) is None:
         return FailureReason.DEVICE
-    # A reduced Entrance has no remote listener; a request that reaches one anyway is refused.
-    if arrival.listener is Listener.REMOTE:
+    # A reduced Entrance admits only the Hive Stand: a request that reaches a remote listener
+    # anyway is refused, and so is a guest forwarded onto loopback without the stand key.
+    if not on_stand:
         mode = await deps.records.store.entrance_mode.get()
         if mode is EntranceMode.REDUCED:
             return FailureReason.REDUCED
