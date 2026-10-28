@@ -802,3 +802,23 @@ the event each write leaves), `tests/unit/cli/compose/swarm/test_door.py` (both 
 address in an invite) and `tests/e2e/test_swarm_cli.py` (a real packet, the commands as an operator
 types them, and a goal that runs only on the device).
 
+
+## Command groups (phase 13 step 13.7)
+
+- `backup/` -- `hive backup OUT [--manifest]` writes one gzip'd tar of the Hive's stores through
+  `hivemind.common.backup`: a snapshot of `[hive] db` taken with SQLite's online backup API (safe
+  beside a running Queen; every store, the Entrance tables and the enrolled devices are in that one
+  file) and the Basket's blob directory, indexed by `backup.json` with each member's size and
+  SHA-256, the Hive id, the public half of `hive.ed25519` and the secret store's names. It never
+  overwrites a file and prints the archive's SHA-256. `hive restore ARCHIVE [--manifest]
+  [--sha256 HEX] [--replace]` holds the serve and Queen locks, refuses an existing database
+  without `--replace`, checks the archive end to end, refuses a backup of another Hive, a secret
+  store missing any secret the backed-up Hive held, or a different `hive.ed25519`, then writes the
+  database back through the same backup API, copies the blobs in (never deleting), and records
+  `queen.restored` (the backup's time, its SHA-256 and counts) as the human. `hive.py` is the
+  Hive's side (paths, secret checks, the event); `commands.py` the two typer commands.
+
+How to test it: `tests/unit/cli/backup/` (a backup and restore round trip through `CliRunner` over
+a temporary manifest, with the private key absent from the archive, and each refusal leaving no
+database behind) and `tests/unit/common/backup/` (the archive format and the hostile-archive
+table). `docs/runbooks/backup.md` is the operator's walk-through.

@@ -62,6 +62,7 @@ from hivemind.cli import (
     trail,
 )
 from hivemind.cli.abscond import abscond_command
+from hivemind.cli.backup import backup_command, restore_command
 from hivemind.cli.entrance import app as entrance_app
 from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
@@ -153,13 +154,14 @@ app.add_typer(basket.app, name="basket")
 app.add_typer(swarm_app, name="swarm")
 # Roadmap step 13.4: Absconding, the human's break-glass teardown of the whole Hive.
 app.command("abscond")(abscond_command)
+# Roadmap step 13.7: one checksummed archive of the Hive's stores, and putting one back.
+app.command("backup")(backup_command)
+app.command("restore")(restore_command)
 # ──────────────────────────────────────────────────────────────────────────────
 # Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
 # registered here so this file stays the single place that assembles the CLI:
 #   doctor     - environment and manifest diagnostics
 #   supersede  - move the Hive Stand to a new machine
-#   backup     - snapshot the Brood Chamber, Honey Store and Pheromone Trail
-#   restore    - restore a Hive from a backup
 # ──────────────────────────────────────────────────────────────────────────────
 
 

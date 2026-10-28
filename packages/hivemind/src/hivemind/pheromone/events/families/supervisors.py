@@ -38,6 +38,9 @@ Vocabulary (family -> kind -> when it is recorded):
         start; its payload is counts (tasks given back, pauses resumed or re-placed, leases and
         grants released, grants revoked, Wardens back and missing, Night Veil tasks cancelled)
         and the instant of the snapshot it started from, never a Cell, task or Warden id.
+        Roadmap 13.7 (ADR-0064) adds restored: `hive restore` put a backup back while no Queen
+        ran, recorded first on the restored trail; its payload is when the backup was taken,
+        the archive's SHA-256 and counts of files, never a path or a secret.
     warden: spawned (a Warden started supervising a Cell); started (its Cell lease opened and it
         moved STARTING -> ACTIVE, roadmap step 3.19); watch (a Real Cell's Warden with no active
         sub-bees, or a refused lease, moved to WATCH); active (a spawn moved it WATCH -> ACTIVE);
@@ -178,6 +181,8 @@ class QueenEvent(PheromoneEvent):
             "queen.replied",
             # Roadmap 13.1 (ADR-0062): a restarted Queen's recovery settled; counts only.
             "queen.requeened",
+            # Roadmap 13.7 (ADR-0064): `hive restore` put a backup back; checksums and counts.
+            "queen.restored",
         }
     )
 

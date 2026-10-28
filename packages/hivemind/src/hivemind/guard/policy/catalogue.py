@@ -49,6 +49,7 @@ _PROPOSAL = "a proposal: nothing changes until the decision it asks for is recor
 _MEMORY = "memory bookkeeping: a bee's own hot, warm or episode state, never an effect elsewhere"
 _ROYAL_JELLY = "Royal Jelly's tool lifecycle (phase 9): promotion is gated by a passing report"
 _RETURN = "a return: giving back a borrowed or provisioned Cell is never refused"
+_OFFLINE = "an offline file operation: no Queen runs, and the file system is its only boundary"
 
 __all__ = ["AUTHORISED_AT", "NOT_ACTIONS", "PENDING_POINTS", "classify"]
 
@@ -194,6 +195,7 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("queen.goal_request_finished", _OUTCOME),  # Every task of its goal is terminal.
     ("queen.replied", _DECISION),  # Words to the human in the chat; nothing else changes.
     ("queen.requeened", _LIFECYCLE),  # REQUEENING settled; each act inside recorded its own.
+    ("queen.restored", _OFFLINE),  # Roadmap 13.7: `hive restore` under both locks, no Queen.
     ("warden.watch", _LIFECYCLE),
     ("warden.active", _LIFECYCLE),
     ("warden.clustered", _LIFECYCLE),
