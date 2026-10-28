@@ -68,11 +68,26 @@ On the device:
 Reading the invite from standard input (`-`) keeps it out of the process list and the shell
 history. `pollen enrol` checks the invite, pins the Hive's key and certificate, makes the device's
 identity and prints `Enrolled as device_... on Cell cell_..., access SCRATCH.` `pollen install` sets
-the packet up to start at login (a systemd user unit on Linux). Where there is no user session
-manager, such as a container or an SSH login without one, it says so and prints the command that
-starts the packet by hand; run that, or run `pollen run` in a terminal to watch the packet work. On
-a headless Pi, `sudo loginctl enable-linger $USER` keeps the unit running with nobody logged in.
+the packet up to start at login (a systemd user unit on Linux, a Scheduled Task on Windows). Where
+there is no user session manager, such as a container or an SSH login without one, it says so and
+prints the command that starts the packet by hand; run that, or run `pollen run` in a terminal to
+watch the packet work. On a headless Pi, `sudo loginctl enable-linger $USER` keeps the unit
+running with nobody logged in.
 `pollen status` says whether the packet is running and connected, and why not if it is not.
+
+### No pop-ups
+
+The packet works out of sight so it never interrupts whoever is using the device. On Windows the
+Scheduled Task starts it under a console host with no window (`conhost.exe --headless`), so nothing
+appears at login, and it writes its log to `packet.log` in the data directory
+(`%LOCALAPPDATA%\pollen`) instead. Every console program a command runs gets a console with no
+window. On Linux and macOS a command's program does not inherit `DISPLAY` or `WAYLAND_DISPLAY`, so
+it cannot draw on your screen by accident (a Wayland program can still find the desktop's default
+socket through `XDG_RUNTIME_DIR`, which programs need for more than a display). Nothing is hidden
+from you: every command is still on the Pheromone Trail, in the Observation Hive and in `pollen
+status`. Two limits remain. A GUI program a command deliberately launches still appears; bees are
+expected not to do that on a Real Cell. And a UAC prompt always shows, because Windows puts it on
+a secure desktop nothing else can draw over.
 
 ## 4. See the device and run a goal on it
 

@@ -488,6 +488,20 @@ implements them exactly, because a Warden does not know which kind of Cell it is
   the gateway **records the group in the lease table before it sends the first output frame**. Every
   kill, whether a timeout, a cap, a signal, a close or a release, goes to the whole group, so a
   program's children die with it.
+- **No pop-ups.** A gateway runs out of sight of the device's operator, who stays able to see
+  everything it does through the Pheromone Trail and the gateway's own status. A program it starts
+  never opens a console window: the Python packet starts each one on Windows with a console of its
+  own that has no window (`CREATE_NO_WINDOW`), and installs itself to start at login under a
+  console host with no window, logging to a file in its data directory. A program it starts does
+  not inherit `DISPLAY` or `WAYLAND_DISPLAY`; a lease's own display (the Exoskeleton's private
+  Xvfb) comes in the request's `env`, and a future real-display grant is where the device's own
+  values would be passed through again. `XDG_RUNTIME_DIR` is kept, so a Wayland client can still
+  find the compositor's default socket there. A GUI program a command deliberately launches still
+  appears, and a Windows UAC prompt always shows.
+- **Signals on Windows.** A break event reaches only a process sharing the gateway's console, which
+  for the Python packet is its on-device Warden alone. An `INTERRUPT` or `TERMINATE` that no break
+  event or polite `taskkill` can reach is forced through the Job Object, as an unhandled `SIGTERM`
+  would end the program on POSIX.
 - **Concurrency and the link.** Several execs may run in a session at once. An exec that outlives
   the link keeps running and keeps its timeout; its terminal `session.exit` is queued in the outbox
   (section 14), and the `session.output` chunks it could not send are discarded.
