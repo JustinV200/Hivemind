@@ -3474,11 +3474,13 @@ lab devices, never on an enrolled device in daily use.
   path that ends a lease (the dead-man switch, Sting Cut, Absconding, Requeening's recovery, a
   task cancel or re-placement) restores it exactly as it does today. A Queen that starts by
   Requeening (13.1) system-closes every Inspection row that has no `cell.inspection_closed`,
-  with or without a lease, writing exactly one close with its reason, and, from 15.5a, tears
-  down its host-side attach state (the QEMU console socket and its login session, any `docker exec`
-  attached for it), and only then resumes the tasks that Inspection Smoked. That set is durable:
-  before the first Handoff request, Smoke writes the Inspection's durable row, the Smoked task ids
-  on `cell.inspection_smoked` and a `smoked_by` mark on each task's Brood Chamber row.
+  with or without a lease, writing exactly one close with its reason, lifts `INSPECTED` on the
+  Cell's Wardens and, from 15.5a, tears down its host-side attach state (the QEMU console socket
+  and its login session, any `docker exec` attached for it), and only then resumes the tasks that
+  Inspection Smoked. Every Inspection has that row: the door writes it at open, before the
+  operator lease opens, for every Inspection, `--alongside` and idle-Cell ones included. Smoke
+  only adds to it, before the first Handoff request: the Smoked task ids on
+  `cell.inspection_smoked` and a `smoked_by` mark on each task's Brood Chamber row.
   Requeening reads them from there, never from memory, since the door's table that held the
   warrant died with the old Queen, and resumes every `smoked_by` task whose Inspection has no
   live operator lease, still skipping an `ISOLATED` Cell and a tainted Handoff. A Supersedure (13.2a) never meets one:
@@ -3515,7 +3517,10 @@ lab devices, never on an enrolled device in daily use.
   ends the Inspection under the restarted Queen, with exactly one `cell.inspection_closed`, the
   Smoked task resumes only after that close, dispatch to the Cell is accepted again, and a
   Supersedure preflight then passes; killing the Queen inside the `handoff_patience_s` window,
-  before any process was killed, also leaves every Smoked task resumed after the restart; a task paused for another reason before the
+  before any process was killed, also leaves every Smoked task resumed after the restart;
+  killing the Queen during an `--alongside` Inspection, and during one on an idle Cell, also
+  writes exactly one `cell.inspection_closed`, and the Cell's Warden runs Watch and the Patrol
+  again afterwards; a task paused for another reason before the
   Inspection is still paused after the restart; a Cell isolated during an Inspection resumes nothing when
   it closes, a task paused before the Inspection for another reason stays paused, and a tainted
   Handoff is never resumed; a Supersedure started with an Inspection open is refused by
@@ -3882,9 +3887,11 @@ sense landed together (its Hive Stand containment may land first as a preparator
   Inspection's transcripts, recordings and downloads needing the stand key and a `LOOPBACK`
   proof; four capability fields held Hive-side and never reported, and
   `bee_account_privileged` on the heartbeat as availability, not a 13.4a report; on close only
-  the tasks that Inspection Smoked resuming, a set written before the first Handoff request to
-  `cell.inspection_smoked` and a `smoked_by` mark in the Brood Chamber so Requeening resumes
-  every marked task whose Inspection has no live operator lease, and none on an isolated Cell or from a tainted
+  the tasks that Inspection Smoked resuming, every Inspection's durable row written by the door at
+  open (before the operator lease, `--alongside` and idle ones included) and Smoke adding the
+  Smoked ids to `cell.inspection_smoked` and a `smoked_by` mark in the Brood Chamber before the
+  first Handoff request, so Requeening resumes every marked task whose Inspection has no live
+  operator lease, and none on an isolated Cell or from a tainted
   Handoff; loopback trusted only with the stand key, never by
   listener (a step-up is `LOOPBACK` only with it, and a Hive Stand or co-located shell open is a
   stand-key row), because the stand key guards only the loopback-only rows and a guest reaches
@@ -3900,8 +3907,9 @@ sense landed together (its Hive Stand containment may land first as a preparator
   Inspection file transfer over door-built `inspect.put_file`/`get_file` frames, or on a
   `host_side_attach` Cell through warrant-checked `docker cp`, guest-agent copy or local file
   paths, the one exception to doing file work through `session.*`; recordings and downloads only
-  in the guard-floor-denied operator-only area; a Requeening Queen system-closing every operator
-  lease and its host-side state before resuming Smoked tasks, and a Supersedure refused while any
+  in the guard-floor-denied operator-only area; a Requeening Queen system-closing every
+  Inspection row with no close, lease or not, lifting `INSPECTED` on the Cell's Wardens and
+  tearing down host-side state before resuming Smoked tasks, and a Supersedure refused while any
   Inspection is open, with no Inspection opened during one; the two layers, with `--alongside` getting
   only layer 1 and refused where `hive_owned`; Smoke as one mechanism on every backend, killing
   every non-operator lease's processes within `handoff_patience_s` while the lease stays open,
