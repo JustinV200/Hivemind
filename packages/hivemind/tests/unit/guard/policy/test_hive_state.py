@@ -52,6 +52,7 @@ def test_hive_state_of_names_the_database_with_its_sqlite_siblings_and_the_manif
         "/srv/hive/hive.db-wal",
         "/srv/hive/hive.db-shm",
         "/srv/hive/hive.db-journal",
+        "/srv/hive/hive.db.serve.json",
         "/srv/hive/hive.toml",
     }
     assert state.directories == {"/srv/hive/secrets"}

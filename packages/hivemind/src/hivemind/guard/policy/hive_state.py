@@ -9,11 +9,12 @@ the manifest and the machine, so a composition root states them once in a `HiveS
 name (its host-gateway alias, or its onion service from a Night Veil Cell, which is never looked
 up there), so the names a Cell reaches it by are state too, refused before any lookup. The files
 are the `[hive] db` SQLite file with its `-wal`, `-shm` and `-journal` siblings (a read of the WAL
-is a read of the database), and the manifest itself; the directories are the `[hive] secrets_dir`
-secret store, everything under it included. Every path is kept in the one spelling the floor
-compares (`comparable_path`): POSIX separators, `..` and `.` collapsed, and case folded, so a path
-differing only in case or in its separators is still refused (refusing a harmless look-alike costs
-nothing; missing the database does).
+is a read of the database), its `.serve.json` serve record (it holds the stand key the
+loopback-only Entrance routes need, ADR-0067), and the manifest itself; the directories are the
+`[hive] secrets_dir` secret store, everything under it included. Every path is kept in the one
+spelling the floor compares (`comparable_path`): POSIX separators, `..` and `.` collapsed, and case
+folded, so a path differing only in case or in its separators is still refused (refusing a
+harmless look-alike costs nothing; missing the database does).
 
 Fits into the Hive:
     Layer 2 (the Cell abstraction, state, memory, policy), inside `hivemind.guard.policy`. Built
@@ -47,8 +48,11 @@ from hivemind.guard.net import IPAddress, normalise_host, plain_address
 # The SQLite files that hold the database's content beside the file itself: WAL and its shared
 # memory index in WAL mode, the rollback journal otherwise. Each is the database, for a reader.
 SQLITE_SIBLING_SUFFIXES = ("-wal", "-shm", "-journal")
+# `hive serve`'s record beside the database (`hivemind.cli.entrance.serving.RECORD_SUFFIX`, which
+# this layer cannot import): it holds this boot's stand key, so reading it is reaching approval.
+SERVE_RECORD_SUFFIX = ".serve.json"
 
-__all__ = ["SQLITE_SIBLING_SUFFIXES", "HiveState", "comparable_path"]
+__all__ = ["SERVE_RECORD_SUFFIX", "SQLITE_SIBLING_SUFFIXES", "HiveState", "comparable_path"]
 
 
 def comparable_path(path: str | PurePath) -> str:
@@ -103,7 +107,7 @@ class HiveState:
         """Build the state a composition root knows, from already-resolved paths.
 
         Args:
-            db: The resolved `[hive] db` file; its SQLite siblings are added with it.
+            db: The resolved `[hive] db` file; its SQLite siblings and serve record come with it.
             secrets_dir: The resolved `[hive] secrets_dir`; everything under it is state.
             manifest: The manifest file the Hive was loaded from, when there is one.
             own_addresses: Every address the Hive Stand answers on.
@@ -120,9 +124,8 @@ class HiveState:
         # The database is its file plus whichever siblings SQLite keeps its pages in.
         if db is not None:
             files.add(comparable_path(db))
-            files.update(
-                comparable_path(f"{db.as_posix()}{end}") for end in SQLITE_SIBLING_SUFFIXES
-            )
+            ends = (*SQLITE_SIBLING_SUFFIXES, SERVE_RECORD_SUFFIX)
+            files.update(comparable_path(f"{db.as_posix()}{end}") for end in ends)
         if manifest is not None:
             files.add(comparable_path(manifest))
         directories = {comparable_path(secrets_dir)} if secrets_dir is not None else set()
