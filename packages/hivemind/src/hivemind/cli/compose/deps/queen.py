@@ -112,6 +112,9 @@ def _requeening_book(manifest: HiveManifest) -> RequeeningBook:
         store=asyncio.run(_open()),
         grace_s=manifest.queen.requeening_grace_s,
         snapshot_interval_s=manifest.queen.snapshot_interval_s,
+        # Roadmap 13.6: past max_offline_s a cut-off Warden has clustered fully; it then gets the
+        # same grace a restarted Queen gives one to redial before its tasks are placed afresh.
+        lost_after_s=manifest.supervision.max_offline_s + manifest.queen.requeening_grace_s,
     )
 
 

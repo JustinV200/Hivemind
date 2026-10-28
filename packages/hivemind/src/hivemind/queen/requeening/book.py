@@ -39,8 +39,12 @@ from waggle.ids import WardenId
 
 DEFAULT_REQUEENING_GRACE_S = 90.0  # Three of the redial's 30 s backoff caps (ADR-0062).
 DEFAULT_SNAPSHOT_INTERVAL_S = 60.0  # The Queen's own Handoff cadence (roadmap 13.2).
+# A Warden gone while she runs (`.lost`): `[supervision] max_offline_s`'s default ten minutes, past
+# which it has clustered fully, plus the redial grace above. The composition root sets the real one.
+DEFAULT_LOST_AFTER_S = 600.0 + DEFAULT_REQUEENING_GRACE_S
 
 __all__ = [
+    "DEFAULT_LOST_AFTER_S",
     "DEFAULT_REQUEENING_GRACE_S",
     "DEFAULT_SNAPSHOT_INTERVAL_S",
     "PendingRecovery",
@@ -106,3 +110,6 @@ class RequeeningBook:
     last_snapshot_at: datetime | None = None  # None until her first snapshot in this life.
     pending: PendingRecovery | None = None  # Set while recovery is still settling.
     hold: RequeeningHold | None = None  # Armed by the composition root; cleared once it lifts.
+    lost_after_s: float = DEFAULT_LOST_AFTER_S  # How long a running Queen waits for one (`.lost`).
+    lost: dict[WardenId, datetime] = field(default_factory=dict)  # Since when each one is away.
+    lost_checked_at: datetime | None = None  # When `.lost` last read the chamber.

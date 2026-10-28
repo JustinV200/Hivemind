@@ -12,9 +12,10 @@ and questions she handled keeps a Warden's resend after her restart from being h
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the queen package.
     `begin_requeening` is called by the composition root before her loop starts;
-    `settle_requeening` and `take_snapshot_when_due` by her tick (`hivemind.queen.ticks.
-    housekeeping`); `is_replay`/`note_handled` by her tick's item handling and `note_question` by
-    `hivemind.queen.questions`. Calls into sibling packages at Layer 6 or below.
+    `settle_requeening`, `take_back_lost` and `take_snapshot_when_due` by her tick
+    (`hivemind.queen.ticks.housekeeping`); `is_replay`/`note_handled` by her tick's item
+    handling and `note_question` by `hivemind.queen.questions`. Calls into sibling packages at
+    Layer 6 or below.
 
 Key invariants:
     - Nothing is taken back from a Warden she still waits for, nor from a Swarm device's Cell.
@@ -39,11 +40,13 @@ Public API:
     - take_snapshot_when_due, take_snapshot, current_leases: the Queen's own Handoff (snapshot).
     - HiveStandLeases, fold_leases, release_orphans: the Hive Stand's orphaned leases (leases).
     - take_back, clustering_paused, revoke_held_by, newest_handoff: orphaned tasks (orphans).
+    - take_back_lost, LOST_REASON: a Warden lost while she runs, its tasks taken back (lost).
     - QueenSnapshot, OpenLease, HandledEnvelope, QuestionWiring: the durable rows (models).
     - RequeeningStore, MemoryRequeeningStore, SqliteRequeeningStore: where they live (store).
 """
 
 from hivemind.queen.requeening.book import (
+    DEFAULT_LOST_AFTER_S,
     DEFAULT_REQUEENING_GRACE_S,
     DEFAULT_SNAPSHOT_INTERVAL_S,
     PendingRecovery,
@@ -58,6 +61,7 @@ from hivemind.queen.requeening.handled import (
     restore_handled,
 )
 from hivemind.queen.requeening.leases import HiveStandLeases, fold_leases, release_orphans
+from hivemind.queen.requeening.lost import LOST_REASON, take_back_lost
 from hivemind.queen.requeening.models import (
     HandledEnvelope,
     OpenLease,
@@ -88,8 +92,10 @@ from hivemind.queen.requeening.store import (
 )
 
 __all__ = [
+    "DEFAULT_LOST_AFTER_S",
     "DEFAULT_REQUEENING_GRACE_S",
     "DEFAULT_SNAPSHOT_INTERVAL_S",
+    "LOST_REASON",
     "REQUEENED_KIND",
     "HandledEnvelope",
     "HiveStandLeases",
@@ -117,6 +123,7 @@ __all__ = [
     "revoke_held_by",
     "settle_requeening",
     "take_back",
+    "take_back_lost",
     "take_snapshot",
     "take_snapshot_when_due",
 ]

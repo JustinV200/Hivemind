@@ -57,6 +57,17 @@ hive trail tail -n 200 | grep -E "queen.requeened|task.unassigned|cell.released|
 Each task given back has its own `task.unassigned` (and `task.question_withdrawn`), and each
 lease its own `cell.released`.
 
+## A Warden lost while the Queen runs
+
+A Requeening is not the only time she takes work back. If a Virtual Cell's Warden goes away while
+she runs (its container died, its VM was killed) she notes it on her tick. A Warden that only lost
+its link keeps working cut off and redials, so she waits `[supervision] max_offline_s` plus
+`[queen] requeening_grace_s` from the moment she first saw it away holding a task. Past that it is
+lost: its tasks go back to PENDING and are placed afresh from their newest Handoff (a Night Veil
+task is cancelled), its grants are revoked (`forage.revoked`, cause `HOLDER_OFFLINE`), its Cell is
+torn down, and the log says `queen.wardens_lost` with counts. A device's Warden is never judged
+this way: the swarm gate holds a lost device's Cell and decides for it.
+
 ## When something looks wrong
 
 - **`hive run` says another Queen runs on the Hive.** Only one Queen may run on a Brood Chamber:

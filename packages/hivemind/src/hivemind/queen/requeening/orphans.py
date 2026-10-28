@@ -80,13 +80,17 @@ __all__ = [
 ]
 
 
-async def take_back(deps: QueenDeps, tasks: Sequence[Task]) -> RequeenCounts:
+async def take_back(
+    deps: QueenDeps, tasks: Sequence[Task], reason: str = REQUEENED_REASON
+) -> RequeenCounts:
     """Give every task in `tasks` back to PENDING, or cancel it on a Night Veil Cell.
 
     Args:
         deps: The Queen's collaborators.
         tasks: Tasks placed on Wardens that are gone: ASSIGNED, RUNNING, BLOCKED, or PAUSED by
             Clustering (`clustering_paused`), as last read.
+        reason: Why, on each `task.unassigned` and withdrawn question; a restart's by default,
+            a Warden lost while she runs (`.lost`) says so.
 
     Returns:
         How many were given back (`given_back`, `paused_replaced` for a paused one) and how many
@@ -94,7 +98,7 @@ async def take_back(deps: QueenDeps, tasks: Sequence[Task]) -> RequeenCounts:
     """
     counts = RequeenCounts()
     for task in tasks:
-        counts = counts.plus(await _take_one(deps, task))
+        counts = counts.plus(await _take_one(deps, task, reason))
     return counts
 
 
@@ -123,12 +127,15 @@ async def clustering_paused(deps: QueenDeps, paused: Sequence[Task]) -> tuple[Ta
     return tuple(held)
 
 
-async def revoke_held_by(deps: QueenDeps, wardens: Collection[WardenId]) -> int:
+async def revoke_held_by(
+    deps: QueenDeps, wardens: Collection[WardenId], reason: str = REVOKED_REASON
+) -> int:
     """Revoke every live grant a gone Warden held: nothing draws on it any more.
 
     Args:
         deps: The Queen's collaborators; `ledger` is written, `trail` recorded to.
         wardens: The Wardens that are gone.
+        reason: Why, on each `forage.revoked`.
 
     Returns:
         How many grants were revoked.
@@ -138,7 +145,7 @@ async def revoke_held_by(deps: QueenDeps, wardens: Collection[WardenId]) -> int:
         for grant in deps.ledger.grants_for(warden_id):
             # ISSUED -> REVOKED is no edge (Appendix C): a grant never drawn on is activated first.
             live = activate(grant) if grant.state is GrantState.ISSUED else grant
-            await revoke(deps.ledger, deps, live, RevocationCause.HOLDER_OFFLINE, REVOKED_REASON)
+            await revoke(deps.ledger, deps, live, RevocationCause.HOLDER_OFFLINE, reason)
             revoked += 1
     return revoked
 
@@ -165,12 +172,12 @@ async def newest_handoff(deps: QueenDeps, task: Task) -> HandoffRef | None:
     return await recall_handoff(deps, task.cell_id, task)
 
 
-async def _take_one(deps: QueenDeps, task: Task) -> RequeenCounts:
+async def _take_one(deps: QueenDeps, task: Task, reason: str) -> RequeenCounts:
     """Take one task back as it now stands; counts of what was done to it (none if it moved)."""
     try:
         task = await deps.chamber.get(task.id)
         if task.status is TaskStatus.BLOCKED and task.pending_question_id is not None:
-            task = await _withdraw(deps, task.pending_question_id)
+            task = await _withdraw(deps, task.pending_question_id, reason)
         if task.bound_tier is CombShieldLevel.NIGHT_VEIL:
             # Teardown-only: ended with the Cell its Warden ran, never placed again.
             await deps.chamber.cancel(task.id, VEILED_REASON)
@@ -178,7 +185,7 @@ async def _take_one(deps: QueenDeps, task: Task) -> RequeenCounts:
         was_paused = task.status is TaskStatus.PAUSED
         # Read before the task leaves its Warden: the newest Handoff of the bee that ran it.
         ref = None if task.status is TaskStatus.ASSIGNED else await newest_handoff(deps, task)
-        await deps.chamber.unassign(task.id, REQUEENED_REASON)
+        await deps.chamber.unassign(task.id, reason)
     except (InvalidTransitionError, TaskNotFoundError):
         # Moved by another process (an answer from `hive inbox answer`) or gone: left as it is.
         log.info("queen.requeen_skipped", task_id=task.id, status=task.status.value)
@@ -188,9 +195,9 @@ async def _take_one(deps: QueenDeps, task: Task) -> RequeenCounts:
     return RequeenCounts(paused_replaced=1) if was_paused else RequeenCounts(given_back=1)
 
 
-async def _withdraw(deps: QueenDeps, question_id: MessageId) -> Task:
+async def _withdraw(deps: QueenDeps, question_id: MessageId, reason: str) -> Task:
     """Withdraw one question and tell the human's devices; return its task, RUNNING again."""
-    task = await deps.chamber.withdraw(question_id, REQUEENED_REASON)
+    task = await deps.chamber.withdraw(question_id, reason)
     # Its fresh bee asks again once placed; until then no device should offer this one.
     await deps.human_channel.question_closed(question_id, QuestionStatus.WITHDRAWN)
     return task

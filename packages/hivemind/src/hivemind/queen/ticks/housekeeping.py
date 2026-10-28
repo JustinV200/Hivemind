@@ -30,7 +30,8 @@ Fits into the Hive:
     run_release_tick), `hivemind.queen.deps` (QueenDeps, WardenLink, Housekeeping, under
     TYPE_CHECKING), `hivemind.queen.state` (ClusterState), `hivemind.brood_chamber` (BroodChamber,
     TaskNotFoundError), `hivemind.pheromone` (the chamber's own placement records),
-    `hivemind.queen.requeening` (settle_requeening, take_snapshot_when_due: ADR-0062),
+    `hivemind.queen.requeening` (settle_requeening, take_back_lost, take_snapshot_when_due:
+    ADR-0062, roadmap 13.6),
     `hivemind.workers.roles.house_bee` (SweepDeps, SweepSchedule, SweepWindow, run_sweep,
     HouseBeeHoney, GatheredOn) and waggle only.
 
@@ -90,7 +91,7 @@ from hivemind.llm import BoundModel, UnresolvableSlotError
 from hivemind.memory import BeeBread, MemoryContext
 from hivemind.pheromone import PheromoneTrail, TrailQuery
 from hivemind.queen.cluster.tick import run_cluster_tick, run_release_tick
-from hivemind.queen.requeening import settle_requeening, take_snapshot_when_due
+from hivemind.queen.requeening import settle_requeening, take_back_lost, take_snapshot_when_due
 from hivemind.queen.state import ClusterState
 from hivemind.queen.ticks.guard_bee import run_guard_bee
 from hivemind.queen.ticks.tools.transfer import drain_shipments
@@ -141,6 +142,9 @@ async def run_housekeeping(
     # ADR-0062: settle a Requeening still waiting on its Wardens, then the Queen's own Handoff
     # when it is due; both are local reads and writes, never a model.
     await settle_requeening(deps, wardens)
+    await take_back_lost(
+        deps, wardens
+    )  # Roadmap 13.6: a Warden gone for good, its work placed afresh.
     await take_snapshot_when_due(deps, wardens)
     # Roadmap step 5.13: drains RELEASE orders (`hive cells release`) the same tick, separately
     # from CLUSTER/WAKE -- see hivemind.queen.cluster.tick's own module docstring for why this is
