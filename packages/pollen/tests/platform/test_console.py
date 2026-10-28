@@ -1,21 +1,25 @@
 """Test the Windows console moves: the helper's Ctrl+Break and Ctrl+C, and what never shares.
 
 On Windows the Pollen Packet (the thin gateway program on a device the Hive borrows) gives every
-lease program a windowless console of its own, so nothing a lease program raises on its console
-reaches the packet or its Warden, and asks it to stop through a short-lived helper that raises
-Ctrl+Break on that console (pollen.platform.console). ``pollen uninstall`` asks the packet the same
-way with Ctrl+C, but never on a console it shares with anything outside its own family. These
-tests run real programs: a lease program with a break handler, a packet stand-in under
-``conhost.exe --headless`` (as the installed task runs it) with a Warden and a lease program that
-broadcasts both events, and a packet stand-in that shares its console with a stranger.
+program it starts, the Warden included, a windowless console of its own, so nothing a program (or
+a command the Warden runs) raises on its console reaches the packet, and asks a program to stop
+through a short-lived helper that raises Ctrl+Break on that console, given the program's pid and
+creation time (pollen.platform.console). ``pollen uninstall`` asks the packet the same way with
+Ctrl+C, but never on a console it shares with anything outside its own family. These tests run
+real programs: a lease program with a break handler, asked with the right and wrong creation
+times; a packet stand-in under ``conhost.exe --headless`` (as the installed task runs it) with a
+Warden, where a lease program or a command of the Warden's broadcasts both events; and a packet
+stand-in that shares its console with a stranger.
 
 Fits into the Hive:
     Layer 0 (test infrastructure, not shipped). Tests pollen.platform.console through
     pollen.platform.windows.
 
 Key invariants:
-    - An INTERRUPT reaches a lease program in its own console gracefully, through the helper.
-    - A lease program's broadcast Ctrl+C or Ctrl+Break reaches neither the packet nor the Warden.
+    - An INTERRUPT reaches a lease program in its own console gracefully, through the helper;
+      the helper refuses a pid whose creation time does not match.
+    - A broadcast Ctrl+C or Ctrl+Break never reaches the packet, whether a lease program or a
+      command of the Warden's raises it, and a lease program's never reaches the Warden.
     - Ctrl+C is not pressed on a console a process outside the packet's family shares.
 
 See Also:
@@ -36,7 +40,8 @@ from pathlib import Path
 import psutil
 import pytest
 
-from pollen.platform import SpawnSpec, WindowsShim
+from pollen.platform import CONSOLE_SIGNAL_VERB, SpawnSpec, WindowsShim
+from pollen.platform.base import own_command, run_command
 from waggle.messages.session import ProcessSignal
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="consoles are a Windows matter")
@@ -56,18 +61,20 @@ for _ in range(600):
     time.sleep(0.1)
 """
 # A packet stand-in, run as the task runs the packet: it hears Ctrl+C (noting it), starts a Warden
-# on its own console and a lease program in one of its own that broadcasts Ctrl+C and Ctrl+Break
-# there, then reports whether either event reached it or the Warden. argv[1] is the report.
+# through the real shim, and a broadcaster that raises Ctrl+C and Ctrl+Break on its console: a
+# lease program the packet starts, or (argv[2] == "warden") a command the Warden starts on its own
+# console, the worst a Warden's command can do. Then it reports whether either event reached it
+# or the Warden.
 _BROADCAST = """
-import asyncio, json, signal, subprocess, sys, time
+import asyncio, json, signal, subprocess, sys
 from pathlib import Path
 from pollen.platform import SpawnSpec, WindowsShim
 from pollen.platform.console import accept_interrupts
+from waggle.messages.session import ProcessSignal
 heard = []
 signal.signal(signal.SIGINT, lambda *_: heard.append("ctrl-c"))
 accept_interrupts()
-WARDEN = "import signal, time\\nfor _ in range(600):\\n    time.sleep(0.1)"
-LEASE = (
+LOUD = (
     "import ctypes, time\\n"
     "k = ctypes.windll.kernel32\\n"
     "k.SetConsoleCtrlHandler(None, True)\\n"
@@ -75,17 +82,25 @@ LEASE = (
     "k.GenerateConsoleCtrlEvent(1, 0)\\n"
     "time.sleep(0.5)\\n"
 )
+FLAGS = subprocess.CREATE_NEW_PROCESS_GROUP  # Inherits the Warden's console.
+WARDEN = (
+    "import subprocess, sys, time\\n"
+    "if sys.argv[2] == 'warden':\\n"
+    f"    subprocess.Popen([sys.executable, '-c', sys.argv[1]], creationflags={FLAGS})\\n"
+    "for _ in range(600):\\n"
+    "    time.sleep(0.1)\\n"
+)
 async def main():
     shim = WindowsShim(Path.home(), {})
-    def spec(code, shares):
-        return SpawnSpec((sys.executable, "-c", code), Path.cwd(), {}, None, None, None, shares)
-    warden = await shim.spawn(spec(WARDEN, True))
-    lease = await shim.spawn(spec(LEASE, False))
-    await lease.wait()
-    for _ in range(10):
+    def spec(*argv):
+        return SpawnSpec((sys.executable, "-c", *argv), Path.cwd(), {}, None, None, None)
+    warden = await shim.spawn(spec(WARDEN, LOUD, sys.argv[2]))
+    if sys.argv[2] == "lease":
+        await (await shim.spawn(spec(LOUD))).wait()
+    for _ in range(30):
         await asyncio.sleep(0.1)
     report = {"heard": heard, "warden_alive": warden.returncode is None}
-    warden.kill()
+    shim.signal_group(shim.process_ref(warden.pid), ProcessSignal.KILL)
     await warden.wait()
     Path(sys.argv[1]).write_text(json.dumps(report))
 asyncio.run(main())
@@ -136,18 +151,23 @@ async def test_an_interrupt_reaches_a_lease_program_in_its_own_console_gracefull
         shim.signal_group(ref, ProcessSignal.KILL)
 
 
-def test_a_lease_programs_broadcast_reaches_neither_the_packet_nor_the_warden(
-    tmp_path: Path,
+@pytest.mark.parametrize("broadcaster", ["lease", "warden"])
+def test_a_broadcast_reaches_neither_the_packet_nor_the_warden(
+    tmp_path: Path, broadcaster: str
 ) -> None:
-    # Regression: lease programs once shared the packet's console, so a Ctrl+C or Ctrl+Break
-    # a lease program raised on it stopped the packet and the Warden.
+    # Regression: lease programs, then the Warden and the commands it ran, once shared the
+    # packet's console, so a Ctrl+C or Ctrl+Break one of them raised stopped the packet and the
+    # Warden.
     report = tmp_path / "report.json"
-    argv = [str(_HOST), "--headless", sys.executable, "-c", _BROADCAST, str(report)]
+    argv = [str(_HOST), "--headless", sys.executable, "-c", _BROADCAST, str(report), broadcaster]
     # SAFETY: the system's console host, this interpreter and fixed arguments.
     host = subprocess.Popen(argv, creationflags=_NO_WINDOW)  # noqa: S603
     try:
-        found = _await_file(report)
-        assert json.loads(found) == {"heard": [], "warden_alive": True}
+        found = json.loads(_await_file(report))
+        assert found["heard"] == []
+        # A command on the Warden's own console reaches the Warden (hivemind.cell.local gives
+        # its commands consoles of their own for that); a lease program never does.
+        assert found["warden_alive"] or broadcaster == "warden"
     finally:
         _kill_tree(host.pid)
         host.wait()
@@ -170,6 +190,40 @@ def test_ctrl_c_is_not_pressed_on_a_console_a_stranger_shares(tmp_path: Path) ->
     finally:
         _kill_tree(host.pid)
         host.wait()
+
+
+@pytest.mark.parametrize(("offset", "delivered"), [(0.0, True), (-1000.0, False), (5.0, False)])
+async def test_the_helper_refuses_a_pid_whose_creation_time_does_not_match(
+    tmp_path: Path, offset: float, delivered: bool
+) -> None:
+    shim = WindowsShim(tmp_path, {})
+    spec = SpawnSpec(
+        (sys.executable, "-c", _BREAKABLE),
+        tmp_path,
+        {},
+        subprocess.DEVNULL,
+        subprocess.PIPE,
+        subprocess.DEVNULL,
+    )
+    process = await shim.spawn(spec)
+    assert process.stdout is not None
+    await asyncio.wait_for(process.stdout.readline(), timeout=20)
+    ref = shim.process_ref(process.pid)
+    try:
+        created = repr(ref.created + offset)
+        helper = [*own_command(), CONSOLE_SIGNAL_VERB, "break", str(ref.pid), created]
+        ran = await asyncio.to_thread(run_command, helper)
+
+        assert (ran.returncode == 0) is delivered
+        if delivered:
+            await asyncio.wait_for(process.wait(), timeout=20)
+            assert process.returncode == ASKED_EXIT
+        else:
+            await asyncio.sleep(1.0)  # Time for an event, had one been raised, to arrive.
+            assert process.returncode is None
+    finally:
+        shim.signal_group(ref, ProcessSignal.KILL)
+        await asyncio.wait_for(process.communicate(), timeout=20)
 
 
 def _await_file(path: Path) -> str:

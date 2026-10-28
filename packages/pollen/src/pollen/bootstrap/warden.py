@@ -283,8 +283,6 @@ class WardenKeeper:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_file,
                     stderr=asyncio.subprocess.STDOUT,
-                    # In the packet's console, so a break asks it to hand its leases back.
-                    shares_console=True,
                 )
             )
         except OSError:

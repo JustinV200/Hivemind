@@ -132,10 +132,6 @@ class SpawnSpec:
         int | IO[bytes] | None
     )  # A pipe for an exec, a log file or DEVNULL for a background one.
     stderr: int | IO[bytes] | None  # As stdout.
-    # Windows only: share the packet's console instead of getting a windowless one of its own, so
-    # a break event from the packet reaches it directly. Only the on-device Warden asks, because it
-    # hands its leases back on a break; a lease program never shares the packet's console.
-    shares_console: bool = False
 
 
 @dataclass(frozen=True, slots=True)

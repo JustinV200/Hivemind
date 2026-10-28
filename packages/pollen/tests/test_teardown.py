@@ -86,7 +86,7 @@ time.sleep(60)
 
 
 def _start(
-    launcher: Sequence[str], data_dir: Path, honours: bool, pids: Path
+    launcher: Sequence[str], data_dir: Path | str, honours: bool, pids: Path
 ) -> tuple[subprocess.Popen[bytes], list[int]]:
     """Start the stand-in packet for ``data_dir`` under ``launcher``; return it and the pids."""
     mode = "honours" if honours else "ignores"
@@ -101,11 +101,16 @@ def _start(
     return launched, started
 
 
-async def _record(device: Device, clock: Clock, packet: int, warden: int | None) -> Path:
-    """Write the packet's status, a Warden record and one open lease; return its scratch."""
+async def _record(device: Device, clock: Clock, packet: int | None, warden: int | None) -> Path:
+    """Write the packet's status (unless None), a Warden record and one open lease.
+
+    Returns:
+        The lease's scratch directory.
+    """
     layout = device.layout
-    status = PacketStatus(clock).snapshot(open_leases=1, outbox_pending=0, silence_s=0.0)
-    await write_status(layout.status, status.model_copy(update={"pid": packet}))
+    if packet is not None:
+        status = PacketStatus(clock).snapshot(open_leases=1, outbox_pending=0, silence_s=0.0)
+        await write_status(layout.status, status.model_copy(update={"pid": packet}))
     if warden is not None:
         created = psutil.Process(warden).create_time()
         record = WardenRecord(
@@ -157,6 +162,28 @@ async def test_this_directorys_packet_ends_and_its_leases_are_released(
         assert not scratch.exists()  # This directory's leases are released in every case.
         # The Warden and its own child are the CLI's to stop next.
         assert psutil.Process(warden).is_running() and psutil.Process(warden_child).is_running()
+    finally:
+        for pid in reversed(pids):
+            _kill(pid)
+        launched.wait()
+
+
+async def test_a_packet_with_no_status_yet_and_its_directory_spelled_otherwise_is_found(
+    device: Device, clock: Clock
+) -> None:
+    # Regression: the packet was found only through its status document, by the exact spelling
+    # of the data directory; one that had not written its status yet was never stopped.
+    layout = device.layout
+    spelled = f"{layout.root}{os.sep}."  # The same directory, written another way.
+    launched, pids = _start((), spelled, True, layout.root.parent / "pids.json")
+    try:
+        scratch = await _record(device, clock, None, pids[2])
+
+        ended = await end_packet(layout, select_shim(), clock, wait_s=5.0)
+
+        assert ended.stuck is None and not ended.is_unreleased
+        assert await asyncio.to_thread(_wait, launched) == ASKED_EXIT
+        assert not scratch.exists()
     finally:
         for pid in reversed(pids):
             _kill(pid)

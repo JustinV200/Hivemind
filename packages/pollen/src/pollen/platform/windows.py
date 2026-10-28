@@ -7,10 +7,10 @@ is an existing device the Hive borrows for a task, and nothing a lease started m
 a child that outlives its command is still seen and killed. A process whose job this packet does
 not hold (it was started before a restart, or the CLI asks from another process) is followed
 through its tree instead and ended with ``taskkill /T``. Nothing it starts opens a window on the
-operator's desktop: every program gets a console of its own with no window, so nothing it does
-to its console can reach the packet, and is asked to stop politely by a short-lived helper that
-raises the break event on that console (pollen.platform.console). Only the on-device Warden shares
-the packet's console, where the break event reaches it directly. The packet is installed as a
+operator's desktop: every program, the on-device Warden included, gets a console of its own with
+no window, so nothing it does to its console can reach the packet, and is asked to stop politely
+by a short-lived helper that raises the break event on that console (pollen.platform.console).
+The packet is installed as a
 per-user Scheduled Task that runs at logon under a console host with no window, and writes its
 log to a file in the data directory.
 The shim is written to run on any host: the Windows-only constants are read with ``getattr`` and
@@ -57,7 +57,7 @@ from pollen.platform.base import (
     own_interpreter,
     run_command,
 )
-from pollen.platform.console import BREAK, CTRL_C, accept_interrupts, has_console, send_break
+from pollen.platform.console import BREAK, CTRL_C, accept_interrupts
 from pollen.platform.job_objects import CONSOLE_HOST, SUSPENDED_FLAG, JobTable
 from waggle.messages.labels import OsFamily
 from waggle.messages.session import ProcessSignal
@@ -120,9 +120,8 @@ class WindowsShim:
         """
         # An argument list, never a shell: no expansion or quoting happens to a request's argv.
         # Started suspended, so it cannot start anything before it is inside its job. A console of
-        # its own with no window: no command pops up on the operator's desktop, and no control
-        # event it raises reaches the packet. The Warden alone shares the packet's console.
-        window = 0 if spec.shares_console and has_console() else _NO_WINDOW
+        # its own with no window, the Warden's too: no command pops up on the operator's desktop,
+        # and no control event it (or anything it starts) raises reaches the packet.
         process = await asyncio.create_subprocess_exec(
             *spec.argv,  # SAFETY: an argument list, never shell=True.
             cwd=spec.cwd,
@@ -130,7 +129,7 @@ class WindowsShim:
             stdin=spec.stdin,
             stdout=spec.stdout,
             stderr=spec.stderr,
-            creationflags=_NEW_PROCESS_GROUP | SUSPENDED_FLAG | window,
+            creationflags=_NEW_PROCESS_GROUP | SUSPENDED_FLAG | _NO_WINDOW,
         )
         # Job Objects exist on Windows only; elsewhere (CI runs this shim on Linux) the flag above
         # is 0 and the program already runs.
@@ -172,8 +171,8 @@ class WindowsShim:
             ref: A process the lease started; nothing else is ever signalled.
             signal_: INTERRUPT (the break event, then a polite taskkill, then forced),
                 TERMINATE (a polite taskkill, then the break event, then forced) or KILL (forced:
-                the job, else ``taskkill /T /F``). The break event goes straight to the Warden on
-                the packet's console, and through the helper to a program on a console of its own.
+                the job, else ``taskkill /T /F``). The break event goes through the helper, on the
+                program's own console.
 
         Returns:
             True if the signal was delivered; False if the tree was already gone or even the
@@ -185,7 +184,7 @@ class WindowsShim:
             # Ctrl+Break first for an interrupt, as at a terminal; a polite taskkill first for a
             # terminate, which closes a program's windows and refuses one that has none.
             polite = (_break, _close) if signal_ is ProcessSignal.INTERRUPT else (_close, _break)
-            if any(ask(self._runner, ref.pid) for ask in polite):
+            if any(ask(self._runner, ref) for ask in polite):
                 return True
             # Nothing reached it: it is ended as an unhandled SIGTERM would end it on POSIX.
         return _force(self._jobs, self._runner, ref)
@@ -258,10 +257,14 @@ class WindowsShim:
     def ask_to_stop(self, pid: int) -> bool:
         """Press Ctrl+C on the console of ``pid`` (the packet), through the helper.
 
-        False when it has no console, or shares it with anything but its own family (an
+        False when it has gone, has no console, or shares it with anything but its own family (an
         operator's terminal), so nothing was pressed.
         """
-        return _helper(self._runner, CTRL_C, pid)
+        try:
+            created = psutil.Process(pid).create_time()
+        except psutil.Error:
+            return False
+        return _helper(self._runner, CTRL_C, ProcessRef(pid, created))
 
 
 def _install(runner: CommandRunner, plan: ServicePlan, system_root: str) -> ServiceResult:
@@ -306,21 +309,24 @@ def _windowless(plan: ServicePlan, system_root: str) -> str:
     return subprocess.list2cmdline([str(host), "--headless", *plan.command, LOG_TO_FILE_OPTION])
 
 
-def _close(runner: CommandRunner, pid: int) -> bool:
-    """Ask the tree of ``pid`` to close its windows (a polite taskkill); False if it has none."""
+def _close(runner: CommandRunner, ref: ProcessRef) -> bool:
+    """Ask the tree of ``ref`` to close its windows (a polite taskkill); False if it has none."""
     # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
-    return runner(["taskkill", "/T", "/PID", str(pid)]).returncode == 0
+    return runner(["taskkill", "/T", "/PID", str(ref.pid)]).returncode == 0
 
 
-def _break(runner: CommandRunner, pid: int) -> bool:
-    """Raise Ctrl+Break for the process group ``pid`` leads, wherever its console is."""
-    # The Warden shares this console; any other program is reached through the helper.
-    return send_break(pid) or _helper(runner, BREAK, pid)
+def _break(runner: CommandRunner, ref: ProcessRef) -> bool:
+    """Raise Ctrl+Break for the process group ``ref`` leads, on its own console, via the helper."""
+    return _helper(runner, BREAK, ref)
 
 
-def _helper(runner: CommandRunner, event: str, pid: int) -> bool:
-    """Run this ``pollen`` once, windowless, to raise ``event`` on the console of ``pid``."""
-    return runner([*own_command(), CONSOLE_SIGNAL_VERB, event, str(pid)]).returncode == 0
+def _helper(runner: CommandRunner, event: str, ref: ProcessRef) -> bool:
+    """Run this ``pollen`` once, windowless, to raise ``event`` on the console of ``ref``.
+
+    The creation time travels too, so the helper never raises it on a recycled pid's console.
+    """
+    argv = [*own_command(), CONSOLE_SIGNAL_VERB, event, str(ref.pid), repr(ref.created)]
+    return runner(argv).returncode == 0
 
 
 def _force(jobs: JobTable, runner: CommandRunner, ref: ProcessRef) -> bool:

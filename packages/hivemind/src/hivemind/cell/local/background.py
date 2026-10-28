@@ -214,7 +214,9 @@ async def _spawn(
             stdin=asyncio.subprocess.DEVNULL,
             stdout=output,
             stderr=output,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            # A windowless console of its own: no window on the desktop, and no Ctrl+C or
+            # Ctrl+Break the command raises reaches this process (a borrowed device's Warden).
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
         )
     else:
         return await asyncio.create_subprocess_exec(

@@ -188,6 +188,7 @@ def _parser() -> argparse.ArgumentParser:
     helper = verbs.add_parser(CONSOLE_SIGNAL_VERB)
     helper.add_argument("event", choices=(BREAK, CTRL_C))
     helper.add_argument("pid", type=int)
+    helper.add_argument("created", type=float)  # Its creation time: a recycled pid is refused.
     for name in ("enrol", "run", "install", "uninstall", "status"):
         verb = verbs.add_parser(name, help=_VERBS[name], description=_VERBS[name])
         verb.add_argument("--data-dir", help="Where the packet keeps its files.")
@@ -416,7 +417,7 @@ def _status(args: argparse.Namespace) -> int:
 
 def _console_signal(args: argparse.Namespace) -> int:
     """The hidden helper verb: raise ``event`` on the console of ``pid``; 0 if it was raised."""
-    return 0 if signal_console(args.pid, args.event) else 1
+    return 0 if signal_console(args.pid, args.created, args.event) else 1
 
 
 def _version(_args: argparse.Namespace) -> int:

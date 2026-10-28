@@ -134,22 +134,11 @@ def test_the_facts_describe_a_windows_desktop(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("has_console", "shares_console", "windowless"),
-    [
-        (True, False, True),  # A lease program: always a windowless console of its own.
-        (True, True, False),  # The Warden shares the packet's console.
-        (False, True, True),  # No console to share, the Warden included.
-    ],
-)
-async def test_only_the_warden_shares_the_packets_console_and_the_rest_get_no_window(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    has_console: bool,
-    shares_console: bool,
-    windowless: bool,
+async def test_every_program_gets_a_windowless_console_of_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("pollen.platform.windows.has_console", lambda: has_console)
+    # The Warden included: a console it shared with the packet would let a command it runs
+    # raise Ctrl+C or Ctrl+Break on the packet.
     flags: list[int] = []
 
     async def record(*_argv: str, creationflags: int, **_kwargs: object) -> object:
@@ -159,11 +148,11 @@ async def test_only_the_warden_shares_the_packets_console_and_the_rest_get_no_wi
     monkeypatch.setattr("pollen.platform.windows.asyncio.create_subprocess_exec", record)
     monkeypatch.setattr("pollen.platform.windows.SUSPENDED_FLAG", 0)  # No job for a fake.
     monkeypatch.setattr("pollen.platform.windows._NO_WINDOW", NO_WINDOW)  # 0 off Windows.
-    spec = SpawnSpec(("cmd",), tmp_path, {}, None, None, None, shares_console=shares_console)
+    spec = SpawnSpec(("cmd",), tmp_path, {}, None, None, None)
 
     await WindowsShim(tmp_path, {}, Schtasks()).spawn(spec)
 
-    assert bool(flags[0] & NO_WINDOW) is windowless
+    assert flags[0] & NO_WINDOW
 
 
 async def _reap(process: asyncio.subprocess.Process) -> None:
@@ -230,34 +219,31 @@ async def test_a_recycled_pid_is_not_alive_and_an_unknown_one_has_no_creation_ti
 
 _POLITE = ("taskkill", "/T", "/PID", "7")
 _FORCED = ("taskkill", "/T", "/F", "/PID", "7")
-_HELPER = (*own_command(), CONSOLE_SIGNAL_VERB, "break", "7")
+# The helper is told the creation time too, so it never raises the event on a recycled pid.
+_HELPER = (*own_command(), CONSOLE_SIGNAL_VERB, "break", "7", "1.0")
 
 
 @pytest.mark.parametrize(
     ("signal_", "tree", "expected"),
     [
-        # tree: (on the packet's console, the helper reaches it, a job held here); expected:
-        # (commands run, break events sent from here, job kills).
-        # The Warden shares the packet's console: Ctrl+Break straight from here.
-        (ProcessSignal.INTERRUPT, (True, False, True), ([], 1, 0)),
-        # A lease program has a console of its own: the helper raises Ctrl+Break there.
-        (ProcessSignal.INTERRUPT, (False, True, True), ([_HELPER], 0, 0)),
-        (ProcessSignal.TERMINATE, (False, True, True), ([_POLITE, _HELPER], 0, 0)),
+        # tree: (the helper reaches it, a job held here); expected: (commands run, job kills).
+        # Every program has a console of its own: the helper raises Ctrl+Break there.
+        (ProcessSignal.INTERRUPT, (True, True), ([_HELPER], 0)),
+        (ProcessSignal.TERMINATE, (True, True), ([_POLITE, _HELPER], 0)),
         # The helper cannot reach it: it is forced, through its job or taskkill /F.
-        (ProcessSignal.INTERRUPT, (False, False, True), ([_HELPER, _POLITE], 0, 1)),
-        (ProcessSignal.TERMINATE, (False, False, False), ([_POLITE, _HELPER, _FORCED], 0, 0)),
+        (ProcessSignal.INTERRUPT, (False, True), ([_HELPER, _POLITE], 1)),
+        (ProcessSignal.TERMINATE, (False, False), ([_POLITE, _HELPER, _FORCED], 0)),
     ],
 )
-def test_interrupt_and_terminate_ask_through_the_right_console_then_force(
+def test_interrupt_and_terminate_ask_through_the_helper_then_force(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     signal_: ProcessSignal,
-    tree: tuple[bool, bool, bool],
-    expected: tuple[list[tuple[str, ...]], int, int],
+    tree: tuple[bool, bool],
+    expected: tuple[list[tuple[str, ...]], int],
 ) -> None:
-    on_console, helper_reaches, holds_job = tree
+    helper_reaches, holds_job = tree
     ran: list[tuple[str, ...]] = []
-    sent: list[int] = []
     killed: list[ProcessRef] = []
 
     def runner(argv: Sequence[str]) -> CommandResult:
@@ -275,28 +261,25 @@ def test_interrupt_and_terminate_ask_through_the_right_console_then_force(
     shim = WindowsShim(tmp_path, {}, runner)
     monkeypatch.setattr(shim, "group_alive", lambda _ref: True)
     monkeypatch.setattr(shim._jobs, "kill", job_kill)
-    monkeypatch.setattr("pollen.platform.console.on_our_console", lambda _pid: on_console)
-    monkeypatch.setattr("pollen.platform.console.os.kill", lambda _pid, sig: sent.append(sig))
 
     assert shim.signal_group(ProcessRef(7, 1.0), signal_) is True
-    assert (ran, len(sent), len(killed)) == expected
+    assert (ran, len(killed)) == expected
 
 
 async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_break(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     process = await _spawn(
         WindowsShim(tmp_path, {}, Schtasks()),
         "import time; print('ready', flush=True); time.sleep(60)",
         tmp_path,
     )
-    shim = WindowsShim(tmp_path, {}, Schtasks(failing=frozenset({"taskkill"})))  # Holds no job.
-    sent: list[int] = []
+    runner = Schtasks(failing=frozenset({"taskkill"}))
+    shim = WindowsShim(tmp_path, {}, runner)  # Holds no job.
     try:
-        with monkeypatch.context() as patch:
-            patch.setattr("pollen.platform.console.os.kill", lambda _pid, sig: sent.append(sig))
-            assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.KILL) is False
-        assert sent == []  # A forced stop that failed is reported, never turned into a request.
+        assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.KILL) is False
+        # A forced stop that failed is reported, never turned into a request.
+        assert [argv[0] for argv in runner.calls] == ["taskkill"]
     finally:
         process.kill()
         await _reap(process)

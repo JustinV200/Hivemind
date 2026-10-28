@@ -12,7 +12,7 @@ table afterwards the release is run here instead, and read back from the table. 
 orphans the programs it started for leases (nothing links them to it once it is gone), so those
 are collected first and ended after it. The on-device Warden and what it started are left alone
 here; the CLI stops the Warden next, asking first (on Windows with Ctrl+Break, through the same
-helper, on the console it shared with the packet) and forcing it only if it does not go.
+helper, on its own console) and forcing it only if it does not go.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Called by pollen.cli
@@ -21,8 +21,9 @@ Fits into the Hive:
     psutil and the standard library only.
 
 Key invariants:
-    - Only a process whose command line runs ``run`` for this very data directory is ended, so a
-      recycled pid or another data directory's packet is left alone; never this process itself.
+    - Only a process whose command line runs ``run`` for this very data directory (however it is
+      spelled) is ended, so a recycled pid or another data directory's packet is left alone; never
+      this process itself. A packet with no status document yet is still found.
     - The Warden is recognised by its pid and its creation time, so a recycled pid is not spared.
     - No lease is left in the table without saying so, whether a packet ran or not.
     - Nothing here prints; the CLI says what could not be done.
@@ -103,19 +104,41 @@ async def end_packet(
 
 
 def _running_packet(layout: DataLayout) -> psutil.Process | None:
-    """Return this data directory's packet if it runs, by its status document; else None."""
+    """Return this data directory's packet if it runs; else None.
+
+    The status document names it once it has written one; until then (it just started) every
+    process is looked at. A packet run through a launcher (a virtual environment's python.exe
+    starts the real interpreter below it) matches twice, and the one below is the packet.
+    """
     status = read_status(layout.status)
-    if status is None:
-        return None
+    if status is not None:
+        with contextlib.suppress(psutil.Error):  # Gone, or unreadable: look at every process.
+            named = psutil.Process(status.pid)
+            if _runs_packet(named, layout):
+                return named
+    matches = [process for process in psutil.process_iter() if _runs_packet(process, layout)]
+    pids = {process.pid for process in matches}
+    for process in matches:
+        with contextlib.suppress(psutil.Error):
+            if not any(child.pid in pids for child in process.children(recursive=True)):
+                return process
+    return None
+
+
+def _runs_packet(process: psutil.Process, layout: DataLayout) -> bool:
+    """Say whether ``process`` runs ``pollen run`` for this data directory (never this process)."""
     try:
-        packet = psutil.Process(status.pid)
-        argv = packet.cmdline()
+        argv = process.cmdline()
     except psutil.Error:
-        return None  # Gone, or not readable as ours: no packet of this directory to stop.
-    # Only this data directory's packet: a recycled pid runs something else.
-    if packet.pid == os.getpid() or "run" not in argv or str(layout.root) not in argv:
-        return None
-    return packet
+        return False  # Gone, or not readable as ours.
+    # However the directory was spelled: relative, another case on Windows, a trailing dot.
+    root = _canonical(str(layout.root))
+    return process.pid != os.getpid() and "run" in argv and any(_canonical(a) == root for a in argv)
+
+
+def _canonical(path: str) -> str:
+    """Return ``path`` absolute and in the platform's case, for comparing two spellings."""
+    return os.path.normcase(os.path.abspath(path))
 
 
 async def _stop(packet: psutil.Process, shim: PlatformShim, wait_s: float) -> bool:

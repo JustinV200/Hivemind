@@ -491,22 +491,23 @@ implements them exactly, because a Warden does not know which kind of Cell it is
 - **No pop-ups.** A gateway runs out of sight of the device's operator, who stays able to see
   everything it does through the Pheromone Trail and the gateway's own status. A program it starts
   never opens a console window: the Python packet installs itself to start at login under a console
-  host with no window, logging to a file in its data directory, and starts each program for a lease
-  with a console of its own that has no window (`CREATE_NO_WINDOW`), so nothing a program raises on
-  its console reaches the gateway. Only its on-device Warden shares the gateway's console. A program
-  it starts does not inherit `DISPLAY` or `WAYLAND_DISPLAY`; a lease's own display (the
-  Exoskeleton's private Xvfb) comes in the request's `env`, and a future real-display grant is
-  where the device's own values would be passed through again for a lease. The Python packet's
-  on-device Warden gets them back only when the device manifest sets `[hive_stand]
+  host with no window, logging to a file in its data directory, and starts every program, its
+  on-device Warden included, with a console of its own that has no window (`CREATE_NO_WINDOW`), so
+  nothing a program raises on its console reaches the gateway. The Warden starts its own commands
+  the same way. A program it starts does not inherit `DISPLAY` or `WAYLAND_DISPLAY`; a lease's own
+  display (the Exoskeleton's private Xvfb) comes in the request's `env`, and a future real-display
+  grant is where the device's own values would be passed through again for a lease. The Python
+  packet's on-device Warden gets them back only when the device manifest sets `[hive_stand]
   exoskeleton_real_display = true`, the operator's own choice to lend the screen. The console host
   with no window needs Windows 10 1809 or later. `XDG_RUNTIME_DIR` is kept, so a Wayland client can
   still find the compositor's default socket there. A GUI program a command deliberately launches
   still appears, and a Windows UAC prompt always shows.
 - **Signals on Windows.** A console control event reaches only the processes on the console it is
-  raised on. The Python packet raises Ctrl+Break for its Warden directly, on their shared console,
-  and for a lease program through a short-lived helper: it runs itself, in a windowless console,
-  with a hidden `console-signal` verb that attaches to the program's console, raises Ctrl+Break for
-  that program's process group and exits. An `INTERRUPT` or `TERMINATE` that neither the break
+  raised on. The Python packet asks a program to stop (a lease program or its Warden) through a
+  short-lived helper: it runs itself, in a windowless console, with a hidden `console-signal` verb
+  given the program's pid and creation time, which refuses a pid that now belongs to another
+  process, attaches to the program's console, raises Ctrl+Break for that program's process group
+  and exits. An `INTERRUPT` or `TERMINATE` that neither the break
   event nor a polite `taskkill` reaches is forced through the Job Object, as an unhandled `SIGTERM`
   would end the program on POSIX. The gateway ignores Ctrl+Break itself. Removing the service stops
   the gateway the same polite way first: `pollen uninstall` has the helper press Ctrl+C on the
