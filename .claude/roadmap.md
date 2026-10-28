@@ -3359,7 +3359,9 @@ in daily use.
 Track A total: about 24 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
-Cell's screen, and every Real Cell exit below is run with it up. Until the pane and `hive inspect
+Cell's screen, and every Real Cell exit below is run with it up. The Hive Stand's own screen is
+out of scope for this phase: an operator at loopback is already at that machine, and a remote
+one would reach the loopback listener (see `hive_stand_remote`). Until the pane and `hive inspect
 --screen` land in 15.17, exits run through a test VNC client (TigerVNC's viewer on the Hive Stand)
 attached to the Entrance relay by a test harness.
 
@@ -3373,34 +3375,44 @@ attached to the Entrance relay by a test harness.
 - [ ] **15.11a Screen data socket, device side.** A second outbound WebSocket from Pollen to the
   Hive Stand, opened only inside an operator lease, authenticated by the device key and a one-time
   token from the signed open, carrying RFB bytes from a loopback server started inside the lease.
-  *Exit:* bytes round-trip against a test server with the Inspection's limits; a lease release
-  closes the socket and stops the server. *Size:* medium, 2 agent-days.
-- [ ] **15.11b Screen relay at the Entrance.** The Hive Stand side of that socket and a binary
-  `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or `screen_control`; a
-  view-only session drops input frames at the relay. *Exit:* a Sting Cut or a reduction closes both
-  ends; a view-only device's input never reaches the device. *Size:* medium, 2 agent-days.
-- [ ] **15.11c Screen door and gates.** `QueenDoor.open_inspection` learns the screen modes and
-  checks each before any lease opens: `screen_view` only on `READ_ONLY` and `SCRATCH` Cells,
-  `screen_control` only on `FULL`; never on Night Veil; and only when the device opted in with
-  `--screen`. The screen executor on the device refuses with `pollen.capability_denied` without
-  the `--screen` opt-in too, whatever the Hive asks. The screen route takes the same
-  `ActionKind.INSPECT` fresh step-up as 15.6 and gains its own route-test allow-list row.
-  *Exit:* `screen_control` is refused on a `READ_ONLY` and on a `SCRATCH` Cell; a device that
-  opted in with `--shell` only refuses the screen, both at the door and at the executor; a Night
-  Veil Cell refuses the screen; a device without a fresh step-up gets `step_up_required` on
-  `/inspect/screen`, and one without the scope gets 403. *Size:* small, 1.5 agent-days.
+  As in 15.3a, no build ever carries an ungated screen: the screen executor ships with its gate,
+  refusing with `pollen.capability_denied` unless the device opted in with `--screen`, whatever
+  the Hive asks. *Exit:* bytes round-trip against a test server with the Inspection's limits; a
+  lease release closes the socket and stops the server; a device that opted in with `--shell` only
+  refuses. *Size:* medium, 2.5 agent-days.
+- [ ] **15.11b Screen door and relay at the Entrance.** The Hive Stand side of that socket and a
+  binary `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or
+  `screen_control`, landing together with its gates so no build ever serves an ungated screen:
+  `QueenDoor.open_inspection` learns the screen modes and checks each before any lease opens
+  (`screen_view` at every access level, `screen_control` only on `FULL`; never on Night Veil; only
+  with the device's `--screen` opt-in; and, for a Virtual Cell, only remotely once its backend
+  meets 15.5's guest-loopback rule); the route takes the same `ActionKind.INSPECT` fresh step-up
+  as 15.6 and gains its own route-test allow-list row; a view-only session drops input frames at
+  the relay. *Exit:* a Sting Cut or a reduction closes both ends; a view-only device's input never
+  reaches the device; `screen_view` on a `FULL` Cell succeeds; `screen_control` is refused on a
+  `READ_ONLY` and on a `SCRATCH` Cell; a shell-only opt-in refuses the screen at the door; a
+  Night Veil Cell refuses the screen; a device without a fresh step-up gets `step_up_required` on
+  `/inspect/screen`, and one without the scope gets 403. *Size:* medium, 3 agent-days.
 - [ ] **15.12 On-device notice and local end for the screen.** An always-on-top notice on the
   device's screen ("the HiveMind operator is controlling this device") with an "end now" button,
   plus a tray or menu bar icon, on Windows, X11 and macOS; Wayland and macOS also show their own
   system indicators. The screen executor refuses to start until the notice is up. *Exit:* with the test
   client, the notice is up for the whole of every screen Inspection, and "end now" closes the
   client's connection within five seconds. *Size:* medium, 3 agent-days.
-- [ ] **15.13 Linux X11 and headless Virtual Cells.** x11vnc on the real display of an opted-in
-  Linux Real Cell; on a Virtual Cell, the Exoskeleton's Xvfb and openbox with x11vnc in
-  `desktop-ubuntu`; QEMU's own `-vnc` on a Unix socket for the VM console. *Exit:* control an Ubuntu
-  laptop's desktop (notice up), a headless Docker Cell, and a QEMU Cell's console through its
-  Unix-socket `-vnc`, from the test client. *Size:* medium to large,
-  3 agent-days.
+- [ ] **15.13a Linux X11 Real Cells.** x11vnc on the real display of an opted-in Linux Real Cell,
+  bound to loopback with a one-time password. *Exit:* control an Ubuntu laptop's desktop (notice
+  up) from the test client. *Size:* medium, 2 agent-days.
+- [ ] **15.13b Headless Virtual Cell screens.** The Hive Stand attaches from the host side and
+  opens no TCP port: on Docker, a `docker exec` whose stdio carries RFB to x11vnc on the
+  Exoskeleton's Xvfb and openbox inside the container (bound to loopback or `-inetd`, never
+  published); on QEMU, its own `-vnc` on a Unix socket (a named pipe on Windows) for the VM
+  console. Each session has a one-time VNC password. No VNC port is ever published on the host's
+  `127.0.0.1`, because every QEMU and Docker Desktop guest can reach host loopback. 15.5's
+  per-backend remote refusal (until the guest-loopback fix holds) and the Night Veil refusal
+  apply to the screen as to the shell. *Exit:* control a headless Docker Cell and a QEMU Cell's
+  console from the test client; no new listening TCP port appears on the host during either; a
+  wrong or reused VNC password is refused; a Night Veil Cell and a backend that fails 15.5's
+  forged-`Host` check both refuse a remote screen. *Size:* medium, 2.5 agent-days.
 - [ ] **15.14a Windows capture and input.** Desktop Duplication capture and `SendInput` through the
   chosen path (a bundled VNC server run as a separate process, or the packet's own), in the
   interactive user session only; multi-monitor and DPI. *Exit:* with the test client,
@@ -3435,7 +3447,7 @@ attached to the Entrance relay by a test harness.
   loopback port bridged to the Entrance for any VNC viewer, or opens the browser pane. The port
   accepts one connection only, then closes its listener, and requires a one-time VNC password
   shown to the operator in the terminal; a second or unauthenticated connection is refused.
-  *Exit:* the 15.13 run from the Android app, and from TigerVNC on a laptop. *Size:* medium, 3
+  *Exit:* the 15.13a and 15.13b runs from the Android app, and from TigerVNC on a laptop. *Size:* medium, 3
   agent-days.
 - [ ] **15.18 Clipboard and file transfer (optional extras).** Text clipboard both ways through RFB,
   off by default, capped in size, counted on the trail, `C2`; files through the existing session
@@ -3446,7 +3458,7 @@ attached to the Entrance relay by a test harness.
   unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
   agent-days.
 
-Track B total: about 32 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 34 agent-days, plus about 3 more if the spike chooses own capture over RFB.
 
 Steps are sized for one PR each. 15.4 stays whole because the door, the pause and the trail
 events only make sense landed together, and 15.14a because capture and input are proven together.
@@ -3462,7 +3474,7 @@ events only make sense landed together, and 15.14a because capture and input are
   device shows the notice the whole time.
 - A device that never ran `pollen allow inspect` refuses both tracks, and one that opted in with
   `--shell` only refuses the screen; a `SCRATCH` Cell refuses a shell; `READ_ONLY` and `SCRATCH`
-  Cells refuse `screen_control`; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
+  Cells refuse `screen_control` while a `FULL` Cell grants `screen_view`; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
   without a fresh step-up is refused before any lease opens; every open is pushed to every other
   enrolled device.
 - A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
